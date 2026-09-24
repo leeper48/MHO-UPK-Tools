@@ -109,7 +109,11 @@ static class MeshImport
     /// re-verified from disk, then swapped in and hash-checked. Returns false with the live file
     /// untouched if any step before the swap fails.
     /// </summary>
-    public static bool WriteLive(string upkPath, Package original, int exportIndex, byte[] exportBytes, byte[] packageBytes)
+    public static bool WriteLive(string upkPath, Package original, int exportIndex, byte[] exportBytes, byte[] packageBytes) =>
+        WriteLive(upkPath, packageBytes, onDisk => PackageWriter.Verify(original, Package.FromBytes(onDisk), exportIndex, exportBytes));
+
+    /// <summary>Same as above, with the caller's verifier run on the temp file's bytes as read back from disk.</summary>
+    public static bool WriteLive(string upkPath, byte[] packageBytes, Func<byte[], List<string>> verifyFromDisk)
     {
         if (Locked(upkPath)) return false;
         string bak = upkPath + ".bak";
@@ -127,7 +131,7 @@ static class MeshImport
         File.WriteAllBytes(temp, packageBytes);
         byte[] onDisk = File.ReadAllBytes(temp);
         if (!onDisk.AsSpan().SequenceEqual(packageBytes)) { File.Delete(temp); Console.WriteLine("  temp file didn't read back identically; live file untouched."); return false; }
-        var problems = PackageWriter.Verify(original, Package.FromBytes(onDisk), exportIndex, exportBytes);
+        var problems = verifyFromDisk(onDisk);
         if (problems.Count > 0) { File.Delete(temp); Console.WriteLine($"  temp file failed verification ({string.Join("; ", problems)}); live file untouched."); return false; }
 
         if (!TryReplace(temp, upkPath)) return false;

@@ -72,6 +72,48 @@ static class Program
             return MeshImport.VerifyRoundTrip(args[roundTripAt + 1], args[roundTripAt + 2]);
         }
 
+        int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));
+        if (matAt >= 0)
+        {
+            if (matAt + 2 >= args.Length) { Usage(); return 2; }
+            return MaterialParams.Run(args[matAt + 1], args[matAt + 2]);
+        }
+
+        int skyAt = Array.FindIndex(args, a => a.Equals("--add-sky-placeholders", StringComparison.OrdinalIgnoreCase));
+        if (skyAt >= 0)
+        {
+            // --add-sky-placeholders <package.upk> <placeholders.fbx> [--mesh sm_skysphere] [--material m_procedural_sky_daytime] [--gray 0.03] [--dry-run]
+            if (skyAt + 2 >= args.Length) { Usage(); return 2; }
+            string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var boxes = args.Select((a, i) => (a, i)).Where(x => x.a.Equals("--exclude-box", StringComparison.OrdinalIgnoreCase) && x.i + 1 < args.Length)
+                .Select(x => args[x.i + 1].Split(',').Select(v => float.Parse(v, inv)).ToArray()).Where(b => b.Length == 4).ToList();
+            string ground = Opt("--ground-z", "");
+            return SkyPlaceholders.Run(args[skyAt + 1], args[skyAt + 2], Opt("--mesh", "sm_skysphere"), Opt("--material", "m_procedural_sky_daytime"),
+                float.Parse(Opt("--gray", "0.03"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                boxes, ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv));
+        }
+
+        int testRebuildAt = Array.FindIndex(args, a => a.Equals("--test-rebuild", StringComparison.OrdinalIgnoreCase));
+        if (testRebuildAt >= 0)
+        {
+            if (testRebuildAt + 1 >= args.Length) { Usage(); return 2; }
+            return SkyPlaceholders.TestRebuild(args[testRebuildAt + 1], testRebuildAt + 2 < args.Length ? args[testRebuildAt + 2] : null);
+        }
+
+        int zoneAt = Array.FindIndex(args, a => a.Equals("--zone-placeholders", StringComparison.OrdinalIgnoreCase));
+        if (zoneAt >= 0)
+        {
+            // --zone-placeholders <folder> <tile-prefix> <library.upk> [--out file.fbx] [--min-height N] [--min-footprint N] [--inset F]
+            if (zoneAt + 3 >= args.Length) { Usage(); return 2; }
+            string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            return ZonePlaceholders.Run(args[zoneAt + 1], args[zoneAt + 2], args[zoneAt + 3],
+                Opt("--out", Path.Combine(AppContext.BaseDirectory, "exports", args[zoneAt + 2].TrimEnd('_') + "_placeholders.fbx")),
+                float.Parse(Opt("--min-height", "400"), inv), float.Parse(Opt("--min-footprint", "200"), inv), float.Parse(Opt("--inset", "0.90"), inv),
+                Opt("--skip", "tree").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
         int setAt = Array.FindIndex(args, a => a.Equals("--set-property", StringComparison.OrdinalIgnoreCase));
         if (setAt >= 0)
         {
@@ -117,7 +159,14 @@ static class Program
             foreach (var e in pkg.Exports.Where(x => pkg.ClassOf(x).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)))
             {
                 if (filter != null && !e.ObjectName.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
-                try { Console.WriteLine(TextureInfo.Read(pkg, e)); }
+                try
+                {
+                    var ti = TextureInfo.Read(pkg, e);
+                    // Inline mips store their own absolute file offset; does it still point at the data?
+                    var inl = ti.Mips.Where(m => m.Inline).ToList();
+                    int ok = inl.Count(m => m.Offset == e.SerialOffset + m.InlineAt);
+                    Console.WriteLine($"{ti}  | inline mip offsets: {ok}/{inl.Count} point at their data");
+                }
                 catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { Console.WriteLine($"{e.ObjectName}: {ex.Message}"); }
             }
             return 0;
@@ -401,6 +450,18 @@ static class Program
         Usage: UpkMeshScan --set-property <package.upk> <export-path> <Name=Value> [...] [--dry-run]
           Changes float/int properties that already exist in an export (e.g. fog density), with the
           same .bak / verified temp / swap workflow as --import-fbx. --revert undoes it.
+        Usage: UpkMeshScan --zone-placeholders <folder> <tile-prefix> <library.upk> [--out file.fbx]
+                           [--min-height 400] [--min-footprint 200] [--inset 0.90] [--skip tree,...]
+          Low-poly footprint prisms for every building-sized placed mesh in the tiles (e.g. prefix UES_Static_,
+          library SCS__OpDailyBugleRegionBand_SF.upk), at their real world positions, into one FBX
+          (+ .txt list). Read-only.
+        Usage: UpkMeshScan --add-sky-placeholders <package.upk> <placeholders.fbx> [--gray 0.03] [--dry-run]
+                           [--exclude-box minX,minY,maxX,maxY ...] [--ground-z -40 [--ground-margin 4000]]
+          Adds the FBX's geometry (world space, e.g. from --zone-placeholders) to the zone's sky sphere
+          mesh as a second section with a new flat-grey copy of the sky material. The package is rebuilt
+          to hold the new material; everything else stays byte-identical. Same .bak / verify / swap.
+        Usage: UpkMeshScan --test-rebuild <package.upk> [export-to-copy]
+          Self-test: rebuild the package (optionally with one export copied) and verify. Writes nothing.
         Usage: UpkMeshScan --list-exports <package.upk> [class-filter]
           Lists exports (index, class, size, path), optionally only classes containing the filter.
         Usage: UpkMeshScan --texture-info <package.upk> [name-filter]

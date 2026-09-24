@@ -40,6 +40,29 @@ public sealed class StaticMesh
     public required Vector3 BoundsExtent { get; init; }
     public required float BoundsRadius { get; init; }
 
+    /// <summary>Just the stored bounds (origin, box extent) of a StaticMesh export, without decoding its geometry.</summary>
+    public static (Vector3 Origin, Vector3 Extent)? ReadBounds(Package pkg, ExportEntry export)
+    {
+        try
+        {
+            byte[] d = pkg.ReadExportBytes(export);
+            var r = new Cursor(d);
+            r.I32();
+            while (true)
+            {
+                string name = r.Name(pkg);
+                if (name.Equals("None", StringComparison.OrdinalIgnoreCase)) break;
+                string type = r.Name(pkg).ToLowerInvariant();
+                int size = r.I32(); r.I32();
+                if (type is "structproperty" or "byteproperty") r.Name(pkg);
+                if (type == "boolproperty") r.Skip(1);
+                r.Skip(size);
+            }
+            return (r.Vec3(), r.Vec3());
+        }
+        catch (PackageFormatException) { return null; }
+    }
+
     public static StaticMesh Read(Package pkg, ExportEntry export) =>
         Parse(pkg, export.ObjectName, pkg.ReadExportBytes(export), export.SerialOffset);
 

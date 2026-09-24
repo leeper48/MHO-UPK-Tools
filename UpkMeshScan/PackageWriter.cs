@@ -15,12 +15,11 @@ static class PackageWriter
 {
     const uint StoreCompressed = 0x02000000;
 
-    public static byte[] ReplaceExport(Package pkg, int exportIndex, Func<long, byte[]> buildExport)
+    /// <summary>The summary as an uncompressed package stores it: chunk table dropped, CompressionFlags 0, StoreCompressed cleared; ends at NameOffset.</summary>
+    public static byte[] UncompressedSummary(Package pkg)
     {
         byte[] file = pkg.RawFile;
-        byte[] body = pkg.Chunks.Count > 0 ? pkg.FullBody() : file;
         int nameOffset = pkg.NameOffset;
-
         byte[] header;
         if (pkg.Chunks.Count > 0)
         {
@@ -42,6 +41,15 @@ static class PackageWriter
         if (pkg.CompressionFlagsAt >= 0) BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(pkg.CompressionFlagsAt), 0);
         uint flags = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(pkg.PackageFlagsAt));
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(pkg.PackageFlagsAt), flags & ~StoreCompressed);
+        return header;
+    }
+
+    public static byte[] ReplaceExport(Package pkg, int exportIndex, Func<long, byte[]> buildExport)
+    {
+        byte[] file = pkg.RawFile;
+        byte[] body = pkg.Chunks.Count > 0 ? pkg.FullBody() : file;
+        int nameOffset = pkg.NameOffset;
+        byte[] header = UncompressedSummary(pkg);
 
         long bodyEnd = pkg.Chunks.Count > 0 ? pkg.Chunks.Max(c => (long)c.UncompOffset + c.UncompSize) : file.Length;
         byte[] export = buildExport(bodyEnd);

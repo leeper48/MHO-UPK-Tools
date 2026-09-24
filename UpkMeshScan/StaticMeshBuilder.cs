@@ -87,6 +87,43 @@ static class StaticMeshBuilder
         };
     }
 
+    /// <summary>
+    /// The original LOD 0 kept exactly (positions, normals, UVs, stored tangents, sections), plus one new section
+    /// of extra geometry (engine space, already in the mesh's local space) drawn with <paramref name="materialRef"/>.
+    /// New vertices get zero UVs; their tangents are computed. Adjacency and bounds cover everything.
+    /// </summary>
+    public static BuiltMesh AddSection(StaticMesh original, IReadOnlyList<Vector3> positions, IReadOnlyList<Vector3> normals, IReadOnlyList<int> indices, int materialRef, string materialName)
+    {
+        int baseVertex = original.Positions.Length, firstIndex = original.Indices.Length, channels = original.NumTexCoords;
+        int total = baseVertex + positions.Count;
+        if (total > 65535) throw new InvalidDataException($"{total:N0} vertices with the added geometry; this mesh uses 16-bit indices (max 65,535).");
+        var P = original.Positions.Concat(positions).ToArray();
+        var N = original.Normals.Concat(normals).ToArray();
+        var UV = Enumerable.Range(0, channels).Select(c => original.TexCoords[c].Concat(Enumerable.Repeat(Vector2.Zero, positions.Count)).ToArray()).ToArray();
+        var I = original.Indices.Concat(indices.Select(i => (ushort)(i + baseVertex))).ToArray();
+
+        // Original vertices keep their stored tangents; the new part's are computed on its own triangles.
+        var localIdx = indices.Select(i => (ushort)i).ToArray();
+        var (nx, nz) = Tangents(positions.ToArray(), normals.ToArray(), new Vector2[positions.Count], localIdx);
+        var tx = original.TangentX.Concat(nx).ToArray();
+        var tz = original.TangentZ.Concat(nz).ToArray();
+
+        var template = original.Sections[0];
+        var added = new StaticMeshSection(materialRef, materialName, false, firstIndex, indices.Count / 3, baseVertex, total - 1,
+            template.ShadowCasting, original.Sections.Length, 0);
+        var sections = original.Sections.Append(added).ToArray();
+
+        Vector3 min = P.Aggregate(Vector3.Min), max = P.Aggregate(Vector3.Max);
+        Vector3 origin = (min + max) * 0.5f, extent = (max - min) * 0.5f;
+        float radius = MathF.Sqrt(P.Max(p => Vector3.DistanceSquared(p, origin)));
+        return new BuiltMesh
+        {
+            Positions = P, Normals = N, TexCoords = UV, TangentX = tx, TangentZ = tz, Indices = I,
+            Adjacency = Adjacency(P, UV[0], I), Sections = sections,
+            BoundsOrigin = origin, BoundsExtent = extent, BoundsRadius = radius,
+        };
+    }
+
     public static (uint[] X, uint[] Z) Tangents(Vector3[] p, Vector3[] n, Vector2[] uv, ushort[] idx)
     {
         var t = new Vector3[p.Length]; var b = new Vector3[p.Length];
@@ -214,13 +251,18 @@ static class StaticMeshBuilder
         foreach (var p in m.Positions) Vec(w, p);
 
         int channels = m.TexCoords.Length;
-        int stride = 8 + channels * 4;
-        w.Write(channels); w.Write(stride); w.Write(nv); w.Write(0);      // half-precision UVs
+        bool full = original.FullPrecisionUVs;                               // keep the original's UV format
+        int stride = 8 + channels * (full ? 8 : 4);
+        w.Write(channels); w.Write(stride); w.Write(nv); w.Write(full ? 1 : 0);
         w.Write(stride); w.Write(nv);
         for (int v = 0; v < nv; v++)
         {
             w.Write(m.TangentX[v]); w.Write(m.TangentZ[v]);
-            for (int c = 0; c < channels; c++) { w.Write((Half)m.TexCoords[c][v].X); w.Write((Half)m.TexCoords[c][v].Y); }
+            for (int c = 0; c < channels; c++)
+            {
+                if (full) { w.Write(m.TexCoords[c][v].X); w.Write(m.TexCoords[c][v].Y); }
+                else { w.Write((Half)m.TexCoords[c][v].X); w.Write((Half)m.TexCoords[c][v].Y); }
+            }
         }
 
         w.Write(original.ColorStride); w.Write(0);                          // no vertex colors

@@ -42,6 +42,24 @@ public sealed class Package
     public int[] ExportSerialFieldAt { get; private set; } = Array.Empty<int>();
     public byte[] RawFile => file;
 
+    // Summary field positions (raw file; all come before the chunk table, so they're the same in an
+    // uncompressed rewrite) and table layout, for rebuilding the package with added exports.
+    public int TotalHeaderSizeAt { get; private set; } = -1;
+    public int TotalHeaderSize { get; private set; }
+    public int TableCountsAt { get; private set; } = -1;          // NameCount, NameOffset, ExportCount, ExportOffset, ImportCount, ImportOffset
+    public int DependsOffsetAt { get; private set; } = -1;
+    public int DependsOffset { get; private set; }
+    public int ImportExportGuidsAt { get; private set; } = -1;    // offset, import guid count, export guid count
+    public int ThumbnailTableAt { get; private set; } = -1;
+    public int GenerationsAt { get; private set; } = -1;          // count, then {ExportCount, NameCount, NetObjectCount} each
+    public int ImportOffset => importOffset;
+    public int ExportOffset => exportOffset;
+    /// <summary>Body range of each export-table entry.</summary>
+    public int[] ExportEntryStart { get; private set; } = Array.Empty<int>();
+    public int[] ExportEntryEnd { get; private set; } = Array.Empty<int>();
+    /// <summary>The whole uncompressed body (for an uncompressed package this is the file).</summary>
+    public byte[] Body => Chunks.Count > 0 ? FullBody() : file;
+
     readonly byte[] file;
     byte[] body = Array.Empty<byte>();
     bool[] chunkDone = Array.Empty<bool>();
@@ -73,10 +91,12 @@ public sealed class Package
         LicenseeVersion = (ver >> 16) & 0xFFFF;
         int v = FileVersion;
 
-        if (v >= 249) r.I32();              // TotalHeaderSize
+        TotalHeaderSizeAt = r.Pos;
+        if (v >= 249) TotalHeaderSize = r.I32();              // TotalHeaderSize
         if (v >= 269) r.FString();          // FolderName
         PackageFlagsAt = r.Pos;
         r.U32();                            // PackageFlags
+        TableCountsAt = r.Pos;
         nameCount = r.I32(); nameOffset = r.I32();
         exportCount = r.I32(); exportOffset = r.I32();
         importCount = r.I32(); importOffset = r.I32();
@@ -85,10 +105,14 @@ public sealed class Package
         // so the chunk table is validated and, failing that, located by signature (TryFindChunks).
         try
         {
-            if (v >= 415) r.I32();                          // DependsOffset
+            DependsOffsetAt = r.Pos;
+            if (v >= 415) DependsOffset = r.I32();          // DependsOffset
+            ImportExportGuidsAt = r.Pos;
             if (v >= 623) { r.I32(); r.I32(); r.I32(); }    // ImportExportGuids offset/counts
+            ThumbnailTableAt = r.Pos;
             if (v >= 584) r.I32();                          // ThumbnailTableOffset
             r.Skip(16);                                     // Guid
+            GenerationsAt = r.Pos;
             int gens = r.I32();
             if (gens < 0 || gens > 10000) throw new PackageFormatException("bad generation count");
             r.Skip(gens * (v >= 322 ? 12 : 8));
@@ -292,8 +316,11 @@ public sealed class Package
         r = new Reader(body, exportOffset, body.Length - exportOffset, lazy);
         Exports = new ExportEntry[exportCount];
         ExportSerialFieldAt = new int[exportCount];
+        ExportEntryStart = new int[exportCount];
+        ExportEntryEnd = new int[exportCount];
         for (int i = 0; i < exportCount; i++)
         {
+            ExportEntryStart[i] = r.Pos;
             int cls = r.I32();
             r.I32();                            // SuperIndex
             int outer = r.I32();
@@ -316,6 +343,7 @@ public sealed class Package
             if (cls < -importCount || cls > exportCount || outer < -importCount || outer > exportCount)
                 throw new PackageFormatException($"export {i}: index out of range — export layout differs in this fork");
             Exports[i] = new(cls, outer, name, size, off);
+            ExportEntryEnd[i] = r.Pos;
         }
     }
 

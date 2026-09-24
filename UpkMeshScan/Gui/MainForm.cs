@@ -199,6 +199,12 @@ sealed class MainForm : Form
         grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Type", HeaderText = "Type", ReadOnly = true, FillWeight = 15 });
         grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Value", HeaderText = "Value (editable; double-click a colour to pick)", FillWeight = 35 });
         grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Original", HeaderText = "Current in file", ReadOnly = true, FillWeight = 25 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Bak", HeaderText = "Original (.bak)", ReadOnly = true, FillWeight = 25,
+            ToolTipText = "The value in this package's .bak, i.e. the original before any edits. Empty when the package has no .bak (it's still the original)." });
+        grid.Columns.Add(new DataGridViewButtonColumn { Name = "Revert", HeaderText = "", FillWeight = 6, FlatStyle = FlatStyle.Flat,
+            DefaultCellStyle = new DataGridViewCellStyle { Font = new Font("Segoe UI Symbol", 13f, FontStyle.Bold), Alignment = DataGridViewContentAlignment.MiddleCenter },
+            ToolTipText = "Put the original (.bak) value back into Value. Nothing is written until Dry run / Apply." });
+        grid.CellContentClick += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == grid.Columns["Revert"].Index) RevertRow(grid.Rows[e.RowIndex]); };
         grid.CellValueChanged += (_, e) => { if (e.RowIndex >= 0) MarkChanged(grid.Rows[e.RowIndex]); };
         grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) PickColor(grid.Rows[e.RowIndex]); };
 
@@ -474,22 +480,85 @@ sealed class MainForm : Form
         var list = PropertyEdit.ReadProperties(package, index);
         propTarget.Text = $"{Path.GetFileName(packagePath)} :: {package.PathOf(package.Exports[index])} ({package.ClassOf(package.Exports[index])})";
         if (list == null) { propTarget.Text += "  —  properties couldn't be read"; return; }
+        var original = BakValues(package.PathOf(package.Exports[index]), package.ClassOf(package.Exports[index]), out string bakNote);
         foreach (var p in list)
         {
-            int r = grid.Rows.Add(p.Name, p.Type, p.Value, p.Value);
+            string bak = original == null ? "" : original.TryGetValue(p.Name, out var v) ? v : "(not stored)";
+            int r = grid.Rows.Add(p.Name, p.Type, p.Value, p.Value, bak, "");
             var row = grid.Rows[r];
             row.Tag = p.Type;
             row.Cells["Value"].ReadOnly = !p.Editable;
             if (!p.Editable) row.DefaultCellStyle.ForeColor = SystemColors.GrayText;
             Swatch(row.Cells["Original"], p.Type, p.Value);
             Swatch(row.Cells["Value"], p.Type, p.Value);
+            if (original != null && bak != "(not stored)") Swatch(row.Cells["Bak"], p.Type, bak);
+            UpdateRevert(row);
         }
+        if (bakNote.Length > 0) propTarget.Text += $"  —  {bakNote}";
         if (list.Count == 0) propTarget.Text += "  —  no stored properties (all at defaults)";
         else if (!list.Any(p => p.Editable)) propTarget.Text += "  —  nothing editable here (only float/int are supported)";
     }
 
+    /// <summary>
+    /// The export's property values in this package's .bak (the original). Null when there's no .bak
+    /// (the live file is the original) or the export isn't in it.
+    /// </summary>
+    Dictionary<string, string>? BakValues(string exportPath, string exportClass, out string note)
+    {
+        note = "";
+        string bak = packagePath + ".bak";
+        if (!File.Exists(bak)) { note = "no .bak: this package is still its original"; return null; }
+        try
+        {
+            if (bakPackagePath != bak) { bakPackage = Package.Open(bak); bakPackagePath = bak; }
+            var p = bakPackage!;
+            for (int i = 0; i < p.Exports.Length; i++)
+            {
+                if (!p.PathOf(p.Exports[i]).Equals(exportPath, StringComparison.OrdinalIgnoreCase) || !p.ClassOf(p.Exports[i]).Equals(exportClass, StringComparison.OrdinalIgnoreCase)) continue;
+                var list = PropertyEdit.ReadProperties(p, i);
+                if (list == null) break;
+                return list.ToDictionary(x => x.Name, x => x.Value, StringComparer.OrdinalIgnoreCase);
+            }
+            note = "export not found in the .bak";
+        }
+        catch (Exception ex) when (ex is PackageFormatException or IOException or InvalidDataException) { note = $".bak couldn't be read: {ex.Message}"; }
+        return null;
+    }
+
+    Package? bakPackage;
+    string bakPackagePath = "";
+
+    /// <summary>Shows ↺ on a row whose value (edited or in the file) differs from the .bak, blank otherwise.</summary>
+    void UpdateRevert(DataGridViewRow row)
+    {
+        string bak = row.Cells["Bak"].Value?.ToString() ?? "";
+        bool can = bak.Length > 0 && bak != "(not stored)" && !row.Cells["Value"].ReadOnly && !SameValue(row.Cells["Value"].Value?.ToString(), bak);
+        row.Cells["Revert"].Value = can ? "↺" : "";
+        row.Cells["Revert"].ToolTipText = can ? $"Revert to the original: {bak}" : "";
+    }
+
+    void RevertRow(DataGridViewRow row)
+    {
+        if ((row.Cells["Revert"].Value?.ToString() ?? "") != "↺") return;
+        grid.EndEdit();
+        row.Cells["Value"].Value = row.Cells["Bak"].Value?.ToString();
+        MarkChanged(row);
+        Log($"{row.Cells["Name"].Value}: set back to the original {row.Cells["Bak"].Value} (not written yet: Dry run / Apply)");
+    }
+
+    /// <summary>Same value, allowing for number formatting ("1" vs "1.0") and colour text differences.</summary>
+    static bool SameValue(string? a, string? b)
+    {
+        a ??= ""; b ??= "";
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        if (float.TryParse(a, System.Globalization.NumberStyles.Float, inv, out float fa) && float.TryParse(b, System.Globalization.NumberStyles.Float, inv, out float fb)) return fa == fb;
+        if (PropertyEdit.TryParseColor(a, -1, float.MaxValue, out var ca) && PropertyEdit.TryParseColor(b, -1, float.MaxValue, out var cb)) return ca.SequenceEqual(cb);
+        return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
     void MarkChanged(DataGridViewRow row)
     {
+        UpdateRevert(row);
         bool changed = !Equals(row.Cells["Value"].Value?.ToString(), row.Cells["Original"].Value?.ToString());
         if (row.Tag is "color" or "linearcolor")
         {
@@ -565,7 +634,7 @@ sealed class MainForm : Form
             int worst = 0;
             foreach (string t in targets) worst = Math.Max(worst, PropertyEdit.Run(t, exportPath, changes, dryRun));
             return worst;
-        }, after: () => { if (!dryRun) { ReopenPackage(); LoadProperties(propExport); } });
+        }, after: () => { if (!dryRun) { bakPackagePath = ""; ReopenPackage(); LoadProperties(propExport); } });
     }
 
     // ---------------------------------------------------------------- meshes
@@ -685,10 +754,40 @@ sealed class MainForm : Form
         if (Directory.Exists(dir)) Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
     }
 
+    readonly ToolTip tips = new() { AutoPopDelay = 20000, InitialDelay = 400, ReshowDelay = 100, ShowAlways = true };
+
+    /// <summary>Hover text for every button, by its caption. Buttons without an entry get none.</summary>
+    static readonly Dictionary<string, string> ButtonTips = new()
+    {
+        ["Browse…"] = "Choose a folder or file.",
+        ["Reload list"] = "Re-read the package list from the game folder and refresh the Backups tab.",
+        ["Open"] = "Open the package typed or picked in the box (pressing Enter does the same).",
+        ["Open file…"] = "Open any .upk/.umap from disk, including ones outside the game folder.",
+        ["Clear log"] = "Clear the log panel. Doesn't affect any file.",
+        ["Edit properties →"] = "Load the selected export into the Properties tab. Double-clicking a row does the same.",
+        ["Where does this mesh come from?"] = "Scan the game folder: for every StaticMesh this package imports, list the packages that hold its geometry. Read-only.",
+        ["Find name in folder"] = "List every package that exports or imports an object with the selected export's name. Read-only.",
+        ["Export texture(s)"] = "Write the selected texture (or every texture, if the selection isn't a texture) as .dds into the export folder. Largest mip stored in the package; full-size stock textures are in .tfc files and aren't read.",
+        ["Find matching packages"] = "Scan the game folder for other packages that have this exact export, and list their current values. Packages with the same name prefix are pre-checked. Read-only.",
+        ["Check all shown"] = "Tick every package currently shown in the list (use the filter first to narrow it).",
+        ["Uncheck all"] = "Untick every package in the list.",
+        ["Dry run (writes to import_out, game untouched)"] = "Build and verify the edited package(s) and write them to import_out next to the exe. Nothing in the game folder changes.",
+        ["Apply to game file(s)…"] = "Write the edits into the game package(s): each gets a verified .bak of its original first, then a verified temp file is swapped in. Close the game first. The Backups tab reverts.",
+        ["Reset edits"] = "Throw away unsaved edits and reload the values from the file.",
+        ["Open folder"] = "Open the export folder in Explorer.",
+        ["Export selected mesh to FBX (+ textures)"] = "Write the selected StaticMesh as FBX, with its textures (.dds) linked, into the export folder.",
+        ["Dry run import (game untouched)"] = "Build and verify the package with the FBX imported and write it to import_out. Nothing in the game folder changes.",
+        ["Import into game file…"] = "Import the FBX into the game package: verified .bak first (if none yet), verified temp file, then swap. Collision on the mesh becomes empty. Close the game first.",
+        ["Refresh"] = "Re-check every package that has a .bak: modified, or same as the original.",
+        ["Revert selected to original…"] = "Copy the .bak (the original) back over the live package, verified. The .bak is kept. Also undoes mods made by other tools if their backup is the .bak.",
+        ["Open selected package"] = "Open the selected package in the Browse tab.",
+    };
+
     Button Btn(string text, Action onClick)
     {
         var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(3) };
         b.Click += (_, _) => onClick();
+        if (ButtonTips.TryGetValue(text, out var tip)) tips.SetToolTip(b, tip);
         return b;
     }
 
