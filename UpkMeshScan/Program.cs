@@ -11,7 +11,7 @@ static class Program
     static readonly HashSet<string> StaticClasses = new(StringComparer.OrdinalIgnoreCase) { "StaticMesh", "FracturedStaticMesh" };
     static readonly HashSet<string> SkeletalClasses = new(StringComparer.OrdinalIgnoreCase) { "SkeletalMesh" };
 
-    sealed record MeshHit(string Class, string Name, string Path, int Size);
+    sealed record MeshHit(string Class, string Name, string Path, int Size, string? DecodeError = null, IReadOnlyList<string>? Notes = null, bool Decoded = false);
     sealed record Result(string File, long Bytes, string Version, string ChunkSource, List<MeshHit> Meshes, string? Error);
 
     static int Main(string[] args)
@@ -28,6 +28,23 @@ static class Program
 
     static int Run(string[] args, string version)
     {
+        int usersAt = Array.FindIndex(args, a => a.Equals("--mesh-users", StringComparison.OrdinalIgnoreCase));
+        if (usersAt >= 0)
+        {
+            if (usersAt + 2 >= args.Length) { Usage(); return 2; }
+            return MeshUsers.Run(args[usersAt + 1], args[usersAt + 2]);
+        }
+
+        int findAt = Array.FindIndex(args, a => a.Equals("--find-name", StringComparison.OrdinalIgnoreCase));
+        if (findAt >= 0)
+        {
+            if (findAt + 2 >= args.Length) { Usage(); return 2; }
+            return FindName.Run(args[findAt + 1], args[findAt + 2], args.Any(a => a.Equals("--include-backups", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int inspectAt = Array.FindIndex(args, a => a.Equals("--inspect-fbx", StringComparison.OrdinalIgnoreCase));
+        if (inspectAt >= 0) return FbxInspect.Run(args.Skip(inspectAt + 1));
+
         int exportAt = Array.FindIndex(args, a => a.Equals("--export-fbx", StringComparison.OrdinalIgnoreCase));
         if (exportAt >= 0)
         {
@@ -47,7 +64,7 @@ static class Program
         }
 
         string? folder = null, outPath = null;
-        bool recursive = true, skeletal = false, includeEmpty = false, includeBackups = false;
+        bool recursive = true, skeletal = false, includeEmpty = false, includeBackups = false, decode = false;
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i].ToLowerInvariant())
@@ -57,6 +74,7 @@ static class Program
                 case "--skeletal": skeletal = true; break;
                 case "--include-empty": includeEmpty = true; break;
                 case "--include-backups": includeBackups = true; break;
+                case "--decode-static": decode = true; break;
                 case "--help": case "-h": case "/?": Usage(); return 0;
                 default:
                     if (args[i].StartsWith('-')) { Console.WriteLine($"Unknown option: {args[i]}"); Usage(); return 2; }
@@ -95,22 +113,28 @@ static class Program
         int done = 0;
         Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, f =>
         {
-            results.Add(ScanOne(f, skeletal));
+            results.Add(ScanOne(f, skeletal, decode));
             int n = Interlocked.Increment(ref done);
             if (n % 200 == 0 || n == files.Count) Console.WriteLine($"  {n}/{files.Count}");
         });
 
         var ordered = results.OrderBy(r => Path.GetRelativePath(folder, r.File), StringComparer.OrdinalIgnoreCase).ToList();
-        WriteReport(outPath, folder, version, ordered, skeletal, includeEmpty, skippedBackups, sw.Elapsed);
+        WriteReport(outPath, folder, version, ordered, skeletal, includeEmpty, skippedBackups, decode, sw.Elapsed);
 
         int meshes = ordered.Sum(r => r.Meshes.Count);
         int failed = ordered.Count(r => r.Error != null);
         Console.WriteLine($"Done in {sw.Elapsed.TotalSeconds:F1}s: {meshes} mesh(es) in {ordered.Count(r => r.Meshes.Count > 0)} package(s); {failed} package(s) failed to read.");
+        if (decode)
+        {
+            var tried = ordered.SelectMany(r => r.Meshes).Where(m => m.Decoded).ToList();
+            int bad = tried.Count(m => m.DecodeError != null);
+            Console.WriteLine($"StaticMesh decode: {tried.Count - bad}/{tried.Count} OK, {bad} failed, {tried.Count(m => m.Notes is { Count: > 0 })} with notes.");
+        }
         Console.WriteLine($"Report: {outPath}");
         return 0;
     }
 
-    static Result ScanOne(string file, bool skeletal)
+    static Result ScanOne(string file, bool skeletal, bool decode)
     {
         long bytes = 0;
         try
@@ -122,7 +146,11 @@ static class Program
             {
                 string cls = pkg.ClassOf(e);
                 if (StaticClasses.Contains(cls) || (skeletal && SkeletalClasses.Contains(cls)))
-                    hits.Add(new MeshHit(cls, e.ObjectName, pkg.PathOf(e), e.SerialSize));
+                {
+                    var hit = new MeshHit(cls, e.ObjectName, pkg.PathOf(e), e.SerialSize);
+                    if (decode && StaticClasses.Contains(cls)) hit = TryDecode(pkg, e, hit);
+                    hits.Add(hit);
+                }
             }
             hits.Sort((a, b) => string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase));
             return new Result(file, bytes, $"v{pkg.FileVersion}/L{pkg.LicenseeVersion}", pkg.ChunkSource, hits, null);
@@ -133,7 +161,25 @@ static class Program
         }
     }
 
-    static void WriteReport(string outPath, string folder, string version, List<Result> results, bool skeletal, bool includeEmpty, int skippedBackups, TimeSpan elapsed)
+    static MeshHit TryDecode(Package pkg, ExportEntry e, MeshHit hit)
+    {
+        try
+        {
+            var mesh = StaticMesh.Read(pkg, e);
+            return hit with { Decoded = true, Notes = mesh.Notes };
+        }
+        catch (Exception ex) when (ex is PackageFormatException or IndexOutOfRangeException or ArgumentException or OverflowException)
+        {
+            return hit with { Decoded = true, DecodeError = $"{(ex is PackageFormatException ? "" : ex.GetType().Name + ": ")}{ex.Message}" };
+        }
+    }
+
+    /// <summary>Error text with numbers and quoted names replaced, so failures group by cause.</summary>
+    static string FailureKind(string message) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Replace(message, "'[^']*'", "'…'"), @"-?(0x[0-9A-Fa-f]+|\d+(\.\d+)?)", "#");
+
+    static void WriteReport(string outPath, string folder, string version, List<Result> results, bool skeletal, bool includeEmpty, int skippedBackups, bool decode, TimeSpan elapsed)
     {
         var sb = new StringBuilder();
         var ok = results.Where(r => r.Error == null).ToList();
@@ -148,6 +194,32 @@ static class Program
         sb.AppendLine($"Meshes   : {staticCount} static{(skeletal ? $", {skelCount} skeletal" : "")} in {withMeshes.Count} package(s)");
         sb.AppendLine($"Versions : {string.Join(", ", ok.GroupBy(r => r.Version).OrderByDescending(g => g.Count()).Select(g => $"{g.Key} x{g.Count()}"))}");
         sb.AppendLine($"Chunks   : {string.Join(", ", ok.GroupBy(r => r.ChunkSource).Select(g => $"{g.Key} x{g.Count()}"))}");
+        if (decode)
+        {
+            var tried = ok.SelectMany(r => r.Meshes.Where(m => m.Decoded).Select(m => (r, m))).ToList();
+            var bad = tried.Where(x => x.m.DecodeError != null).ToList();
+            var noted = tried.Where(x => x.m.Notes is { Count: > 0 }).ToList();
+            sb.AppendLine($"Decode   : {tried.Count - bad.Count}/{tried.Count} StaticMesh exports decoded OK, {bad.Count} failed, {noted.Count} with notes");
+            sb.AppendLine(new string('=', 100));
+            sb.AppendLine();
+            sb.AppendLine("DECODE FAILURES BY KIND (up to 5 examples each)");
+            foreach (var g in bad.GroupBy(x => FailureKind(x.m.DecodeError!)).OrderByDescending(g => g.Count()))
+            {
+                sb.AppendLine($"  {g.Count(),6}  {g.Key}");
+                foreach (var (r, m) in g.OrderBy(x => x.m.Size).Take(5))
+                    sb.AppendLine($"            {Path.GetRelativePath(folder, r.File)} :: {m.Path} ({m.Size:N0} B) — {m.DecodeError}");
+            }
+            sb.AppendLine();
+            sb.AppendLine("NOTES BY KIND (decoded, but a soft cross-check differed)");
+            foreach (var g in noted.SelectMany(x => x.m.Notes!.Select(n => (x.r, x.m, n))).GroupBy(x => FailureKind(x.n)).OrderByDescending(g => g.Count()))
+            {
+                sb.AppendLine($"  {g.Count(),6}  {g.Key}");
+                var pkgs = g.Select(x => Path.GetRelativePath(folder, x.r.File)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                sb.AppendLine($"            in {pkgs.Count} package(s): {string.Join(", ", pkgs.Take(12))}{(pkgs.Count > 12 ? ", …" : "")}");
+                foreach (var (r, m, n) in g.Take(3))
+                    sb.AppendLine($"            {Path.GetRelativePath(folder, r.File)} :: {m.Path} — {n}");
+            }
+        }
         sb.AppendLine(new string('=', 100));
 
         foreach (var r in includeEmpty ? ok : withMeshes)
@@ -178,7 +250,7 @@ static class Program
     }
 
     /// <summary>Backups and copies of packages ("Foo - Copy.upk", "Foo_bak.upk") sit beside the live files; skip them by default.</summary>
-    static bool IsBackupName(string path)
+    internal static bool IsBackupName(string path)
     {
         string name = Path.GetFileName(path);
         return name.Contains("bak", StringComparison.OrdinalIgnoreCase) || name.Contains("copy", StringComparison.OrdinalIgnoreCase);
@@ -196,6 +268,8 @@ static class Program
           --skeletal         Also list SkeletalMesh exports (tagged [Skel])
           --include-empty    Also list packages that contain no meshes
           --include-backups  Also scan files with "bak" or "copy" in the name (skipped by default)
+          --decode-static    Also run the StaticMesh parser on every static mesh (writes nothing) and
+                             report which ones decode, grouped by failure reason
 
         Usage: UpkMeshScan --dump-export <package.upk> <export-name-or-path> [--out <folder>]
           Writes that export's raw bytes (.bin) and an annotated dump (.txt: property tags, then

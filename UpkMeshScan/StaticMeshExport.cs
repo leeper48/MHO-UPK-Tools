@@ -33,6 +33,7 @@ static class StaticMeshExport
 
         Console.WriteLine($"{pkg.PathOf(matches[0])}: InternalVersion {mesh.InternalVersion}, {mesh.LodCount} LOD(s), " +
                           $"{mesh.Positions.Length:N0} verts, {mesh.Indices.Length / 3:N0} tris, {mesh.NumTexCoords} UV channel(s), {mesh.Sections.Length} section(s)");
+        foreach (string note in mesh.Notes) Console.WriteLine($"  note: {note}");
         foreach (var s in mesh.Sections)
             Console.WriteLine($"  section: {s.NumTriangles,7:N0} tris  material {s.MaterialName}");
 

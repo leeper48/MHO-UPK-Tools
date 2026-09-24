@@ -13,7 +13,7 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 
 ## Rules that are not negotiable
 
-1. **Never modify an original game file.** Every write goes to a new copy (for example `<name>_modded.upk`). Refuse, or ask first, if a code path would overwrite the source.
+1. **Game files are modified only through the import command.** Before the first write, back up the live file to `<name>.upk.bak` and verify the copy byte for byte. Never overwrite or delete an existing `.bak`, because it is the oldest copy and counts as the original. Build the new package in a temporary file, verify it by reading it back, and only then replace the live file. `--revert` copies the `.bak` back, verifies it, and keeps it. Imports build from the live file, so mods stack. No other code path writes into the game folder. Refuse, or ask first, if one would.
 2. **Evidence before fixes.** Several plausible-sounding theories in this project turned out to be wrong. Before changing decode or encode logic, get concrete data: run `--dump` / `--dump-bone`, a verifier, a reference FBX, or ask Kurt to check in Blender. State a hypothesis as a hypothesis until data confirms it.
 3. **Blender is the authority for FBX.** Blender's FBX reader is independent of Assimp. If an Assimp-based check disagrees with Blender, suspect the Assimp tooling first.
 4. **Verifiers are ground truth.** Run `--verify-roundtrip` and `--verify-encoder` after any change to the FBX import/export path or the encoder. Clean results are about 0.04–0.07° (decode only) or 0.08–0.12° (encode+decode) for rotation, and about 0.0000 for position.

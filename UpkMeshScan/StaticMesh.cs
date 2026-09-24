@@ -2,15 +2,15 @@ using System.Numerics;
 
 namespace UpkMeshScan;
 
-public sealed record StaticMeshSection(int MaterialRef, string MaterialName, int FirstIndex, int NumTriangles, int MinVertexIndex, int MaxVertexIndex);
+public sealed record StaticMeshSection(int MaterialRef, string MaterialName, bool EnableCollision, int FirstIndex, int NumTriangles, int MinVertexIndex, int MaxVertexIndex);
 
 /// <summary>
 /// LOD 0 geometry of a cooked StaticMesh export (v868/L3). Layout worked out from real bytes
-/// (nyc_midtown_bldg_b_buildinga_a in SCS__OpDailyBugleRegionBand_SF.upk) and cross-checked there:
-/// position min/max = kDOP bounds, section triangles sum to the kDOP triangle count, each section's
-/// index range matches its Min/MaxVertexIndex, and the LOD's bulk-data offset points at itself.
-/// The same checks run on every parse, so a mesh that doesn't fit this layout fails loudly
-/// instead of exporting garbage.
+/// (nyc_midtown_bldg_b_buildinga_a in SCS__OpDailyBugleRegionBand_SF.upk), then run over all
+/// 37,107 StaticMesh exports in the game folder: all pass the hard checks (buffer headers agree,
+/// index count = section triangles x 3, every index inside its section's Min/MaxVertexIndex).
+/// Softer cross-checks (collision tree vs sections, bounds, bulk-data self-offset) only add notes,
+/// because real meshes legitimately differ there.
 /// </summary>
 public sealed class StaticMesh
 {
@@ -23,10 +23,13 @@ public sealed class StaticMesh
     public required Vector2[][] TexCoords { get; init; }   // [channel][vertex]
     public required ushort[] Indices { get; init; }
     public required StaticMeshSection[] Sections { get; init; }
+    /// <summary>Soft cross-check mismatches that didn't stop the parse.</summary>
+    public required List<string> Notes { get; init; }
 
     public static StaticMesh Read(Package pkg, ExportEntry export)
     {
         byte[] d = pkg.ReadExportBytes(export);
+        var notes = new List<string>();
         var r = new Cursor(d);
 
         // NetIndex + tagged properties up to "None".
@@ -53,18 +56,22 @@ public sealed class StaticMesh
         r.Skip(kdopTriangles * kdopTriSize);
 
         int internalVersion = r.I32();
-        for (int i = 0; i < 4; i++)
-            if (r.I32() != 0) Fail(export, $"unexpected non-zero field {i} after InternalVersion (only the all-zero case has been seen)");
+        // Four unknown int32s. All zero on 37,103 of 37,107 meshes; the other 4 (all copies of
+        // savjngle_rocks_c) have the third one = 1. Not tied to LOD count: 29 meshes have 2+ LODs
+        // with all four zero. LOD 0 decodes fine either way.
+        var unknown = new[] { r.I32(), r.I32(), r.I32(), r.I32() };
+        if (unknown.Any(x => x != 0)) notes.Add($"unknown fields after InternalVersion = [{string.Join(", ", unknown)}]");
 
         int lodCount = r.I32();
         if (lodCount < 1 || lodCount > 16) Fail(export, $"implausible LOD count {lodCount}");
+        if (lodCount > 1) notes.Add($"{lodCount} LODs (only LOD 0 is read)");
 
         // LOD 0. Leading bulk data (raw triangles, stripped when cooked): flags, count, size, file offset.
         int bulkAt = r.Pos;
         r.I32(); r.I32(); int rawSize = r.I32(); int rawOffset = r.I32();
         long expectedOffset = (long)export.SerialOffset + bulkAt + 16;
         if (rawOffset != expectedOffset)
-            Console.WriteLine($"  note: LOD bulk-data offset 0x{rawOffset:X} doesn't point at itself (0x{expectedOffset:X}); seen matching on the reference mesh");
+            notes.Add($"LOD bulk-data offset 0x{rawOffset:X} doesn't point at itself (0x{expectedOffset:X}); so far only seen in packages modified after the 2024-03-14 stock date");
         r.Skip(rawSize);
 
         int sectionCount = r.I32();
@@ -73,14 +80,15 @@ public sealed class StaticMesh
         for (int s = 0; s < sectionCount; s++)
         {
             int material = r.I32();
-            r.I32(); r.I32(); r.I32();                  // EnableCollision, OldEnableCollision, bEnableShadowCasting
+            bool collision = r.I32() != 0;
+            r.I32(); r.I32();                           // OldEnableCollision, bEnableShadowCasting
             int firstIndex = r.I32(), numTriangles = r.I32(), minVertex = r.I32(), maxVertex = r.I32();
             r.I32();                                    // MaterialIndex
             int fragments = r.I32();
             if (fragments < 0 || fragments > 65536) Fail(export, $"section {s}: implausible fragment count {fragments}");
             r.Skip(fragments * 8);                      // FFragmentRange: BaseIndex, NumPrimitives
             r.Skip(1);                                  // one-byte flag, always 0 so far
-            sections[s] = new StaticMeshSection(material, pkg.RefName(material), firstIndex, numTriangles, minVertex, maxVertex);
+            sections[s] = new StaticMeshSection(material, pkg.RefName(material), collision, firstIndex, numTriangles, minVertex, maxVertex);
         }
 
         // Position buffer: stride, count, then bulk array of float3.
@@ -122,24 +130,29 @@ public sealed class StaticMesh
         // Cross-checks against independently stored data.
         int triTotal = sections.Sum(s => s.NumTriangles);
         if (triTotal * 3 != indexCount) Fail(export, $"sections hold {triTotal} triangles but the index buffer has {indexCount} indices");
-        if (triTotal != kdopTriangles) Fail(export, $"sections hold {triTotal} triangles, collision tree has {kdopTriangles}");
+        int collisionTotal = sections.Where(s => s.EnableCollision).Sum(s => s.NumTriangles);
+        // The collision tree usually holds exactly the collision-enabled sections' triangles (1,888 of 2,105
+        // mismatches in the full scan), but ~200 meshes carry separate, larger collision geometry — so this
+        // is a note, not a layout check. The index checks below are the real ones.
+        if (kdopTriangles != collisionTotal)
+            notes.Add($"collision tree has {kdopTriangles} triangles; collision-enabled sections hold {collisionTotal}");
         foreach (var s in sections)
         {
             if (s.FirstIndex < 0 || s.FirstIndex + s.NumTriangles * 3 > indexCount) Fail(export, "section index range outside the index buffer");
             for (int i = s.FirstIndex; i < s.FirstIndex + s.NumTriangles * 3; i++)
                 if (indices[i] < s.MinVertexIndex || indices[i] > s.MaxVertexIndex) Fail(export, $"index {indices[i]} outside its section's vertex range {s.MinVertexIndex}-{s.MaxVertexIndex}");
         }
-        if (numVerts > 0)
+        if (numVerts > 0 && kdopTriangles > 0)   // an empty collision tree stores ±FLT_MAX bounds
         {
             Vector3 pMin = positions.Aggregate(Vector3.Min), pMax = positions.Aggregate(Vector3.Max);
             if (Vector3.Distance(pMin, kMin) > 1f || Vector3.Distance(pMax, kMax) > 1f)
-                Console.WriteLine($"  note: vertex bounds {pMin}–{pMax} differ from collision bounds {kMin}–{kMax}");
+                notes.Add($"vertex bounds {pMin}–{pMax} differ from collision bounds {kMin}–{kMax}");
         }
 
         return new StaticMesh
         {
             Name = export.ObjectName, InternalVersion = internalVersion, LodCount = lodCount, NumTexCoords = numTexCoords,
-            Positions = positions, Normals = normals, TexCoords = uvs, Indices = indices, Sections = sections,
+            Positions = positions, Normals = normals, TexCoords = uvs, Indices = indices, Sections = sections, Notes = notes,
         };
     }
 
