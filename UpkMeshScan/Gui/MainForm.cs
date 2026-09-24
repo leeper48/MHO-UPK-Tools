@@ -197,18 +197,19 @@ sealed class MainForm : Form
         var page = new TabPage("Properties");
         grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Name", HeaderText = "Property", ReadOnly = true, FillWeight = 35 });
         grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Type", HeaderText = "Type", ReadOnly = true, FillWeight = 15 });
-        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Value", HeaderText = "Value (float/int editable)", FillWeight = 35 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Value", HeaderText = "Value (editable; double-click a colour to pick)", FillWeight = 35 });
         grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Original", HeaderText = "Current in file", ReadOnly = true, FillWeight = 25 });
         grid.CellValueChanged += (_, e) => { if (e.RowIndex >= 0) MarkChanged(grid.Rows[e.RowIndex]); };
+        grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) PickColor(grid.Rows[e.RowIndex]); };
 
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4 };
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var also = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, AutoSize = true };
+        var also = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, RowCount = 3, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         also.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); also.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        also.RowStyles.Add(new RowStyle(SizeType.AutoSize)); also.RowStyles.Add(new RowStyle(SizeType.Absolute, 110)); also.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        also.RowStyles.Add(new RowStyle(SizeType.AutoSize)); also.RowStyles.Add(new RowStyle(SizeType.Absolute, 90)); also.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         also.Controls.Add(Lbl("Also apply to:"), 0, 0);
-        also.Controls.Add(Flow(Btn("Find matching packages", FindMatchingPackages), alsoFilter,
+        also.Controls.Add(NoWrap(Btn("Find matching packages", FindMatchingPackages), alsoFilter,
             Btn("Check all shown", () => SetShownChecks(true)),
             Btn("Uncheck all", () => { alsoItems.ForEach(i => i.Checked = false); FillAlsoList(); })), 1, 0);
         also.Controls.Add(alsoList, 1, 1);
@@ -221,7 +222,7 @@ sealed class MainForm : Form
             BeginInvoke(UpdateAlsoStatus);
         };
         t.Controls.Add(propTarget, 0, 0); t.Controls.Add(grid, 0, 1); t.Controls.Add(also, 0, 2);
-        t.Controls.Add(Flow(
+        t.Controls.Add(NoWrap(
             Btn("Dry run (writes to import_out, game untouched)", () => ApplyProperties(dryRun: true)),
             Btn("Apply to game file(s)…", () => ApplyProperties(dryRun: false)),
             Btn("Reset edits", () => { if (propExport >= 0) LoadProperties(propExport); })), 0, 3);
@@ -477,8 +478,11 @@ sealed class MainForm : Form
         {
             int r = grid.Rows.Add(p.Name, p.Type, p.Value, p.Value);
             var row = grid.Rows[r];
+            row.Tag = p.Type;
             row.Cells["Value"].ReadOnly = !p.Editable;
             if (!p.Editable) row.DefaultCellStyle.ForeColor = SystemColors.GrayText;
+            Swatch(row.Cells["Original"], p.Type, p.Value);
+            Swatch(row.Cells["Value"], p.Type, p.Value);
         }
         if (list.Count == 0) propTarget.Text += "  —  no stored properties (all at defaults)";
         else if (!list.Any(p => p.Editable)) propTarget.Text += "  —  nothing editable here (only float/int are supported)";
@@ -487,7 +491,54 @@ sealed class MainForm : Form
     void MarkChanged(DataGridViewRow row)
     {
         bool changed = !Equals(row.Cells["Value"].Value?.ToString(), row.Cells["Original"].Value?.ToString());
+        if (row.Tag is "color" or "linearcolor")
+        {
+            // Colour cells show the colour itself; a changed one gets a bold yellow border-ish marker via the text.
+            Swatch(row.Cells["Value"], (string)row.Tag, row.Cells["Value"].Value?.ToString() ?? "");
+            row.Cells["Name"].Style.BackColor = changed ? Color.LightYellow : grid.DefaultCellStyle.BackColor;
+            return;
+        }
         row.Cells["Value"].Style.BackColor = changed ? Color.LightYellow : grid.DefaultCellStyle.BackColor;
+    }
+
+    /// <summary>Paints a colour cell with its colour (text stays readable: black or white by brightness).</summary>
+    static void Swatch(DataGridViewCell cell, string type, string text)
+    {
+        if (type is not ("color" or "linearcolor")) return;
+        if (!ToColor(type, text, out Color c)) return;
+        cell.Style.BackColor = c;
+        cell.Style.SelectionBackColor = c;
+        bool dark = c.R * 0.299 + c.G * 0.587 + c.B * 0.114 < 140;
+        cell.Style.ForeColor = cell.Style.SelectionForeColor = dark ? Color.White : Color.Black;
+    }
+
+    static bool ToColor(string type, string text, out Color c)
+    {
+        c = Color.Empty;
+        float max = type == "color" ? 255 : float.MaxValue;
+        if (!PropertyEdit.TryParseColor(text, 0, max, out var v)) return false;
+        int To255(float x) => type == "color" ? (int)x : (int)Math.Clamp(MathF.Round(x * 255f), 0, 255);
+        c = Color.FromArgb(255, To255(v[0]), To255(v[1]), To255(v[2]));
+        return true;
+    }
+
+    /// <summary>Double-click on a colour row: Windows colour picker; alpha is kept as it was.</summary>
+    void PickColor(DataGridViewRow row)
+    {
+        if (row.Tag is not ("color" or "linearcolor") || row.Cells["Value"].ReadOnly) return;
+        string type = (string)row.Tag, current = row.Cells["Value"].Value?.ToString() ?? "";
+        float max = type == "color" ? 255 : float.MaxValue;
+        if (!PropertyEdit.TryParseColor(current, 0, max, out var v)) return;
+        ToColor(type, current, out Color start);
+        using var dlg = new ColorDialog { FullOpen = true, AnyColor = true, Color = start };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        var c = dlg.Color;
+        string text = type == "color"
+            ? $"R{c.R} G{c.G} B{c.B} A{v[3]:0}"
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"R{c.R / 255f:0.###} G{c.G / 255f:0.###} B{c.B / 255f:0.###} A{v[3]:0.###}");
+        grid.EndEdit();
+        row.Cells["Value"].Value = text;
+        MarkChanged(row);
     }
 
     void ApplyProperties(bool dryRun)
@@ -642,6 +693,9 @@ sealed class MainForm : Form
     }
 
     static Label Lbl(string text) => new() { Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 6, 0, 0) };
+
+    /// <summary>A single-line button row. A wrapping row inside an auto-sized table gets measured too tall.</summary>
+    static FlowLayoutPanel NoWrap(params Control[] controls) { var f = Flow(controls); f.WrapContents = false; return f; }
 
     static FlowLayoutPanel Flow(params Control[] controls)
     {

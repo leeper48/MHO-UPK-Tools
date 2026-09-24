@@ -6,7 +6,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property edits (e.g. fog), diagnostics. CLI + WinForms GUI (no args = GUI), AssimpNet. v1.5.0
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property edits (e.g. fog, colours), diagnostics. CLI + WinForms GUI (no args = GUI), AssimpNet. v1.6.0
 ```
 
 Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds UpkMeshScan into AnimExportCli. UpkMeshScan now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
@@ -73,7 +73,7 @@ Open questions for Kurt before Phase 3 design:
 
 - `--export-fbx` (with textures), `--import-fbx` (`--dry-run`, `.bak`, verified temp, swap), `--revert`, `--verify-import-roundtrip` (self-test: export, then FBX, then import).
 - `--decode-static` (folder-wide parser check: all 37,107 meshes decode).
-- `--set-property` changes existing float/int properties. Zone fog is an ExponentialHeightFogComponent in the zone's persistent-level packages (Midtown: `MidTown_Static.upk` + `MidTown_Dynamic.upk`; Cannery Row: `JerseyDocks_Cannery_A.upk`). Confirmed in-game.
+- `--set-property` changes existing float/int/Color/LinearColor properties. A `Color` struct is stored as bytes **B, G, R, A** (little-endian 0xAARRGGBB): read that way, Midtown's sun comes out warm and its sky-side fog blue. `LinearColor` is four floats R, G, B, A. Values are given as `R,G,B[,A]`; a missing alpha keeps the original. Zone fog is an ExponentialHeightFogComponent in the zone's persistent-level packages (Midtown: `MidTown_Static.upk` + `MidTown_Dynamic.upk`; Cannery Row: `JerseyDocks_Cannery_A.upk`). Confirmed in-game.
 - Diagnostics: `--dump-export`, `--inspect-fbx`, `--find-name`, `--import-sources`, `--mesh-users`, `--texture-info`, `--export-textures`.
 - Confirmed in-game: edited buildings render (including 3.5× height). A package written this way loads.
 

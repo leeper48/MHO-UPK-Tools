@@ -4,8 +4,8 @@ using System.Globalization;
 namespace UpkMeshScan;
 
 /// <summary>
-/// --set-property: change the value of a float or int property that already exists in an export's
-/// tagged-property block. Same size, so only the value bytes change; the export is still re-appended
+/// --set-property: change the value of a float, int, Color or LinearColor property that already exists in
+/// an export's tagged-property block. Same size, so only the value bytes change; the export is still re-appended
 /// through PackageWriter and written with the .bak / verify / swap workflow. Properties at their default
 /// value are omitted by UE3 and can't be set this way (adding a tag isn't supported yet).
 /// </summary>
@@ -48,8 +48,27 @@ static class PropertyEdit
                     Console.WriteLine($"  {name}: {BinaryPrimitives.ReadInt32LittleEndian(edited.AsSpan(prop.ValueAt))} -> {n}");
                     BinaryPrimitives.WriteInt32LittleEndian(edited.AsSpan(prop.ValueAt), n);
                     break;
+                case "structproperty" when IsColor(prop):
+                {
+                    // FColor is stored B, G, R, A (little-endian 0xAARRGGBB). Values are given as R,G,B[,A].
+                    var span = edited.AsSpan(prop.ValueAt);
+                    if (!TryParseColor(value, span[3], 255, out var c)) { Console.WriteLine($"  '{value}' isn't a colour (use R,G,B or R,G,B,A with 0-255)."); return 1; }
+                    Console.WriteLine($"  {name}: {ColorText(span)} -> R{c[0]:0} G{c[1]:0} B{c[2]:0} A{c[3]:0}");
+                    span[0] = (byte)c[2]; span[1] = (byte)c[1]; span[2] = (byte)c[0]; span[3] = (byte)c[3];
+                    break;
+                }
+                case "structproperty" when IsLinearColor(prop):
+                {
+                    // FLinearColor is four floats R, G, B, A.
+                    var span = edited.AsSpan(prop.ValueAt);
+                    float a = BinaryPrimitives.ReadSingleLittleEndian(span[12..]);
+                    if (!TryParseColor(value, a, float.MaxValue, out var c)) { Console.WriteLine($"  '{value}' isn't a colour (use R,G,B or R,G,B,A as floats)."); return 1; }
+                    Console.WriteLine($"  {name}: {LinearText(span)} -> R{c[0]:0.###} G{c[1]:0.###} B{c[2]:0.###} A{c[3]:0.###}");
+                    for (int k = 0; k < 4; k++) BinaryPrimitives.WriteSingleLittleEndian(span[(k * 4)..], c[k]);
+                    break;
+                }
                 default:
-                    Console.WriteLine($"  '{name}' is a {prop.Type} (size {prop.Size}); only float and int are supported so far."); return 1;
+                    Console.WriteLine($"  '{name}' is a {prop.Type} {prop.Inner} (size {prop.Size}); only float, int, Color and LinearColor are supported so far."); return 1;
             }
         }
 
@@ -73,9 +92,37 @@ static class PropertyEdit
         return MeshImport.WriteLive(upkPath, pkg, index, edited, packageBytes) ? 0 : 1;
     }
 
-    sealed record Prop(string Type, int Size, int ValueAt);
+    sealed record Prop(string Type, int Size, int ValueAt, string Inner = "");
 
-    /// <summary>Top-level properties of an export with a display value; Editable = float/int (what --set-property can change).</summary>
+    static bool IsColor(Prop p) => p.Type == "structproperty" && p.Size == 4 && p.Inner.Equals("Color", StringComparison.OrdinalIgnoreCase);
+    static bool IsLinearColor(Prop p) => p.Type == "structproperty" && p.Size == 16 && p.Inner.Equals("LinearColor", StringComparison.OrdinalIgnoreCase);
+
+    static string ColorText(ReadOnlySpan<byte> bgra) => $"R{bgra[2]} G{bgra[1]} B{bgra[0]} A{bgra[3]}";
+
+    static string LinearText(ReadOnlySpan<byte> v) =>
+        $"R{F(v, 0):0.###} G{F(v, 4):0.###} B{F(v, 8):0.###} A{F(v, 12):0.###}".Replace(',', '.');
+
+    static float F(ReadOnlySpan<byte> v, int at) => BinaryPrimitives.ReadSingleLittleEndian(v[at..]);
+
+    /// <summary>
+    /// Parses "R,G,B", "R,G,B,A", "R G B A" or the display form "R222 G218 B146 A0". A missing alpha keeps
+    /// <paramref name="keepAlpha"/>. Values must be within 0..<paramref name="max"/>.
+    /// </summary>
+    public static bool TryParseColor(string text, float keepAlpha, float max, out float[] rgba)
+    {
+        rgba = new float[4];
+        var parts = System.Text.RegularExpressions.Regex.Split(text.Trim(), @"[\s,;]+")
+            .Select(t => t.TrimStart('R', 'G', 'B', 'A', 'r', 'g', 'b', 'a', '='))
+            .Where(t => t.Length > 0).ToArray();
+        if (parts.Length is < 3 or > 4) return false;
+        for (int i = 0; i < parts.Length; i++)
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out rgba[i]) || rgba[i] < 0 || rgba[i] > max) return false;
+        if (parts.Length == 3) rgba[3] = keepAlpha;
+        if (max == 255) for (int i = 0; i < 4; i++) rgba[i] = MathF.Round(rgba[i]);
+        return true;
+    }
+
+    /// <summary>Top-level properties of an export with a display value; Editable = what --set-property can change.</summary>
     public sealed record PropertyView(string Name, string Type, int Size, string Value, bool Editable);
 
     public static List<PropertyView>? ReadProperties(Package pkg, int index)
@@ -91,12 +138,14 @@ static class PropertyEdit
                 "floatproperty" when p.Size == 4 => BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(p.ValueAt)).ToString(CultureInfo.InvariantCulture),
                 "intproperty" when p.Size == 4 => BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p.ValueAt)).ToString(CultureInfo.InvariantCulture),
                 "objectproperty" when p.Size == 4 => pkg.RefName(BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p.ValueAt))),
-                "structproperty" when p.Size == 4 => $"B{d[p.ValueAt]} G{d[p.ValueAt + 1]} R{d[p.ValueAt + 2]} A{d[p.ValueAt + 3]}",
+                "structproperty" when IsColor(p) => ColorText(d.AsSpan(p.ValueAt)),
+                "structproperty" when IsLinearColor(p) => LinearText(d.AsSpan(p.ValueAt)),
                 "boolproperty" => d[p.ValueAt - 1] != 0 ? "true" : "false",
                 _ => $"({p.Size} bytes)",
             };
-            bool editable = p.Size == 4 && p.Type is "floatproperty" or "intproperty";
-            list.Add(new PropertyView(name, p.Type.Replace("property", ""), p.Size, value, editable));
+            bool editable = (p.Size == 4 && p.Type is "floatproperty" or "intproperty") || IsColor(p) || IsLinearColor(p);
+            string type = IsColor(p) ? "color" : IsLinearColor(p) ? "linearcolor" : p.Type.Replace("property", "");
+            list.Add(new PropertyView(name, type, p.Size, value, editable));
         }
         return list;
     }
@@ -116,10 +165,10 @@ static class PropertyEdit
                     if (name.Equals("None", StringComparison.OrdinalIgnoreCase)) return result;
                     string type = Name(pkg, d, ref p).ToLowerInvariant();
                     int size = BitConverter.ToInt32(d, p), arrayIndex = BitConverter.ToInt32(d, p + 4); p += 8;
-                    if (type is "structproperty" or "byteproperty") Name(pkg, d, ref p);
+                    string inner = type is "structproperty" or "byteproperty" ? Name(pkg, d, ref p) : "";
                     if (type == "boolproperty") p += 1;
                     if (size < 0 || p + size > d.Length) break;
-                    if (arrayIndex == 0) result.TryAdd(name, new Prop(type, size, p));
+                    if (arrayIndex == 0) result.TryAdd(name, new Prop(type, size, p, inner));
                     p += size;
                 }
             }
