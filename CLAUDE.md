@@ -1,15 +1,15 @@
 # Marvel Heroes Omega Modding Tools
 
-C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a UE3 fork), exporting meshes and animations to FBX, and importing FBX animation back into packages. Windows-only. The owner is Kurt.
+C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a UE3 fork). They export meshes and animations to FBX, import FBX static meshes back into packages (confirmed working in-game), and are working toward importing FBX animation. Windows-only. The owner is Kurt.
 
 ## Repo layout
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     Folder scanner: lists StaticMesh / SkeletalMesh exports per package into a text report. v1.0.0
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), diagnostics. CLI only, AssimpNet. v1.3.1
 ```
 
-Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge is to fold UpkMeshScan into AnimExportCli as `--scan-meshes`, reusing AnimExportCli's package reader.
+Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds UpkMeshScan into AnimExportCli. UpkMeshScan now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
 
 ## Rules that are not negotiable
 
@@ -33,6 +33,9 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 - **Every stock package is LZO-compressed.** All 172 uncompressed packages in the game folder were modified by mod tools, and they load in-game. Those tools write the header with CompressionFlags 0 and chunk count 0, so it ends exactly at NameOffset, and they clear PackageFlags bit 0x02000000. An earlier note said `*_SF` packages are uncompressed; that came from an already-modded WinterSoldier file.
 - Stock files are dated 2024-03-14. Anything dated later has been modified.
 - Character weapons (knife, pistol, mine, launcher…) are **SkeletalMesh**, not StaticMesh. Static meshes in character packages are mostly VFX (for example dodge afterimages). Buildings and props live in environment/zone packages.
+- **Writing packages (what works in-game):** write the package uncompressed. Drop the chunk table (CompressionFlags 0, count 0), so the summary ends exactly at NameOffset and every stored offset stays valid. Clear PackageFlags 0x02000000. Append the replacement export at the end of the body and rewrite only its export-table entry (SerialSize/SerialOffset), leaving the old bytes in place. There is no TOC or size registry to update.
+- Seek-free region packages (`SCS__*RegionBand_SF`) are shared mesh libraries. Map-tile packages import meshes from them by name. The Midtown free-roam tiles (`UES_Static_*_X#_Y#`, a 6×6 grid) import from `SCS__OpDailyBugleRegionBand_SF`. Some tiles also carry their own mesh copies. Use `--import-sources` / `--find-name` to see where a mesh's geometry really lives before importing.
+- MHO StaticMeshComponent properties start at byte 8 (an extra int32, then NetIndex), not 4 or 16.
 - UpkMeshScan validates the header's compressed-chunk table. If that table doesn't check out, it locates the table by scanning byte-by-byte for chunk signatures (the header isn't 4-byte aligned, because of the FolderName FString).
 
 ## Hard-won animation knowledge (don't re-derive)
@@ -55,8 +58,8 @@ Goal: import animations that include **new bones not in the original AnimSequenc
 - **Phase 3** (package writer): **next, highest risk**. It needs to:
   - Build the full AnimSequence property block around the encoder output (NumFrames, SequenceLength, CompressedTrackOffsets, format names).
   - **Add new track slots** for new bones (CompressedTrackOffsets entries, track/bone-name list entries, byte data), not just re-encode existing tracks.
-  - Patch the export table. Prefer appending the resized export at the end of the file and rewriting only its table entry, rather than shifting data.
-  - Write an LZO1X **compressor** (only a decompressor exists today). Verify it by round-tripping through the existing decompressor.
+  - Patch the export table by appending the resized export and rewriting only its entry. **This is solved:** reuse UpkMeshScan's `PackageWriter`.
+  - An LZO1X compressor is **not needed**. Uncompressed packages load in-game (see Package format facts).
   - Add a `--verify-package-write` self-test in the style of the other verifiers.
 - **Phase 4** (CLI/GUI wiring): deliberately last.
 
@@ -65,9 +68,23 @@ Open questions for Kurt before Phase 3 design:
 2. Where does the bone/track-name list live: AnimSet or AnimSequence?
 3. Is a before/after UPK pair from the other modder's tool available for a binary diff?
 
-## Next after that: static mesh export
+## Static meshes (UpkMeshScan): done, confirmed in-game
 
-UpkMeshScan works on real files. The next step is a StaticMesh body parser and FBX export, developed against a real environment package (a building or car). Don't guess the fork's StaticMesh layout; dump real bytes first.
+- `--export-fbx` (with textures), `--import-fbx` (`--dry-run`, `.bak`, verified temp, swap), `--revert`, `--verify-import-roundtrip` (self-test: export, then FBX, then import).
+- `--decode-static` (folder-wide parser check: all 37,107 meshes decode).
+- Diagnostics: `--dump-export`, `--inspect-fbx`, `--find-name`, `--import-sources`, `--mesh-users`, `--texture-info`, `--export-textures`.
+- Confirmed in-game: edited buildings render (including 3.5× height). A package written this way loads.
+
+Layout facts (don't re-derive; see the `StaticMesh.cs` / `StaticMeshBuilder.cs` headers for the evidence):
+- LOD 0 layout: bounds, BodySetup, kDOP, InternalVersion 18, 4 unknown ints, LOD count, bulk header (offset points at itself), sections (45 bytes each), positions, tangent+UV buffer (half UVs), color buffer, index buffer (**always 16-bit**), wireframe (always empty), adjacency (**always 12 per triangle**). After that comes a tail that starts with int 1.
+- **Vertex limit is 65,535 welded vertices** (16-bit indices). This is the practical cap on how big an edit can get.
+- Tangents: the standard UV-gradient tangent. TangentX.W = 0x80. TangentZ.W = 0xFF for +1 binormal sign, 0x00 for −1.
+- An empty collision tree is written as root bound +FLT_MAX / −FLT_MAX, nodes (6,0), triangles (8,0), sections EnableCollision 0. Imports currently write this.
+- Meshes cooked into map tiles have section material ref 0; the placed component supplies the materials by section index. Those sections are named `section<N>` on export/import, and section order must be preserved.
+- The importer matches FBX objects by the mesh name (`<mesh>_section<N>`, `<mesh>.001`) and materials by name, ignoring Blender's `.NNN` suffixes.
+- Textures: stock textures keep only small mips (mostly 64×64) in the package. Full size is in `.tfc` files, and the package stores offset/size −1 for those mips, so the lookup is still unknown. Mod-tool-injected textures have one full-size inline mip and no cache.
+
+Open items: high-res texture export (`.tfc` lookup), real collision (kDOP build), editing placements (move, add, or remove meshes in a tile), and following component-supplied materials.
 
 ## Working style
 
