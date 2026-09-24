@@ -25,7 +25,7 @@ static class ZonePlaceholders
     /// <summary>Footprint outline (mesh-local XY, convex) and height range.</summary>
     sealed record Shape(List<Vector2> Hull, float MinZ, float MaxZ);
 
-    public static int Run(string folder, string tilePrefix, string libraryPackage, string outFbx, float minHeight, float minFootprint, float inset, string[] skip)
+    public static int Run(string folder, string tilePrefix, string libraryPackage, string outFbx, float minHeight, float minFootprint, float inset, string[] skip, string[]? only = null)
     {
         var tiles = Directory.EnumerateFiles(folder, tilePrefix + "*.upk").Where(f => !Program.IsBackupName(f)).OrderBy(f => f).ToList();
         if (tiles.Count == 0) { Console.WriteLine($"No packages matching {tilePrefix}*.upk"); return 1; }
@@ -52,6 +52,7 @@ static class ZonePlaceholders
                 if (c.HiddenGame) { hiddenCount++; continue; }   // e.g. 256_modblock blocking volumes: invisible in game
                 string meshName = pkg.RefName(c.MeshRef);
                 if (skip.Any(k => meshName.Contains(k, StringComparison.OrdinalIgnoreCase))) { skipped++; continue; }
+                if (only is { Length: > 0 } && !only.Any(k => meshName.Equals(k, StringComparison.OrdinalIgnoreCase))) { skipped++; continue; }
                 string key; Package owner; int index;
                 if (c.MeshRef > 0) { key = $"{tileKey}:{c.MeshRef - 1}"; owner = pkg; index = c.MeshRef - 1; }
                 else if (libraryIndex.TryGetValue(meshName, out int li)) { key = $"lib:{li}"; owner = library; index = li; }

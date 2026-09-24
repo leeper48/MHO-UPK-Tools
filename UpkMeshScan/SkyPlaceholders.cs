@@ -14,7 +14,7 @@ namespace UpkMeshScan;
 static class SkyPlaceholders
 {
     public static int Run(string upkPath, string fbxPath, string meshName, string micName, float gray, bool dryRun,
-        IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin)
+        IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink = 1f, IReadOnlyList<string>? addFbx = null)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -60,6 +60,20 @@ static class SkyPlaceholders
         }
         if (idx.Count == 0) { Console.WriteLine("  the FBX has no triangles"); return 1; }
         if (excludeBoxes.Count > 0) RemoveIslands(pos, nrm, idx, scale, excludeBoxes);
+        if (shrink != 1f) ShrinkIslands(pos, idx, shrink);
+        foreach (string extra in addFbx ?? [])
+        {
+            // Extra placeholder FBX files, merged as they are (not shrunk): e.g. freshly generated pieces that replace excluded ones.
+            int before = idx.Count;
+            foreach (var s in FbxMeshReader.Read(extra, 1))
+            {
+                int b = pos.Count;
+                pos.AddRange(s.Positions.Select(p => p / scale));
+                nrm.AddRange(s.Normals);
+                idx.AddRange(s.Indices.Select(i => i + b));
+            }
+            Console.WriteLine($"  added {(idx.Count - before) / 3:N0} tris from {Path.GetFileName(extra)}");
+        }
         if (groundZ is float gz) AddGround(pos, nrm, idx, scale, gz, groundMargin);
         var worldPos = pos.Select(p => p * scale).ToList();
         Vector3 wmin = worldPos.Aggregate(Vector3.Min), wmax = worldPos.Aggregate(Vector3.Max);
@@ -130,7 +144,8 @@ static class SkyPlaceholders
     /// Drops every connected piece (triangles joined through shared positions) whose centre, in world XY, falls
     /// inside one of the boxes (minX, minY, maxX, maxY). Whole pieces, so merged buildings aren't cut in half.
     /// </summary>
-    static void RemoveIslands(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, IReadOnlyList<float[]> boxes)
+    /// <summary>Connected piece of every vertex: triangles joined through shared corners or identical positions.</summary>
+    static Func<int, int> Islands(List<Vector3> pos, List<int> idx)
     {
         var byPos = new Dictionary<Vector3, int>();
         var parent = new int[pos.Count];
@@ -139,6 +154,36 @@ static class SkyPlaceholders
         void Join(int a, int b) { a = Root(a); b = Root(b); if (a != b) parent[a] = b; }
         for (int i = 0; i < pos.Count; i++) { if (byPos.TryGetValue(pos[i], out int j)) Join(i, j); else byPos[pos[i]] = i; }
         for (int t = 0; t + 2 < idx.Count; t += 3) { Join(idx[t], idx[t + 1]); Join(idx[t], idx[t + 2]); }
+        return Root;
+    }
+
+    /// <summary>
+    /// Scales each connected piece in place: sideways toward the piece's centre, and its height down from its
+    /// base. 0.8/0.9 turns 90% placeholders into 80% ones without regenerating (hand merges are kept).
+    /// </summary>
+    static void ShrinkIslands(List<Vector3> pos, List<int> idx, float factor)
+    {
+        var root = Islands(pos, idx);
+        var stats = new Dictionary<int, (Vector2 Sum, int Count, float MinZ)>();
+        for (int i = 0; i < pos.Count; i++)
+        {
+            int r = root(i);
+            var v = stats.TryGetValue(r, out var x) ? x : (Vector2.Zero, 0, float.MaxValue);
+            stats[r] = (v.Item1 + new Vector2(pos[i].X, pos[i].Y), v.Item2 + 1, MathF.Min(v.Item3, pos[i].Z));
+        }
+        for (int i = 0; i < pos.Count; i++)
+        {
+            var st = stats[root(i)];
+            Vector2 c = st.Sum / st.Count;
+            Vector3 p = pos[i];
+            pos[i] = new Vector3(c.X + (p.X - c.X) * factor, c.Y + (p.Y - c.Y) * factor, st.MinZ + (p.Z - st.MinZ) * factor);
+        }
+        Console.WriteLine($"  shrunk: {stats.Count} piece(s) by {factor:0.###} (sideways toward each centre, height from each base)");
+    }
+
+    static void RemoveIslands(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, IReadOnlyList<float[]> boxes)
+    {
+        var Root = Islands(pos, idx);
 
         var sum = new Dictionary<int, (Vector3 Sum, int Count)>();
         for (int i = 0; i < pos.Count; i++) { int r = Root(i); var v = sum.GetValueOrDefault(r); sum[r] = (v.Sum + pos[i] * scale, v.Count + 1); }

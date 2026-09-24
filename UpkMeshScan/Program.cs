@@ -91,7 +91,9 @@ static class Program
             string ground = Opt("--ground-z", "");
             return SkyPlaceholders.Run(args[skyAt + 1], args[skyAt + 2], Opt("--mesh", "sm_skysphere"), Opt("--material", "m_procedural_sky_daytime"),
                 float.Parse(Opt("--gray", "0.03"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
-                boxes, ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv));
+                boxes, ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv),
+                float.Parse(Opt("--shrink", "1"), inv),
+                args.Select((a, i) => (a, i)).Where(x => x.a.Equals("--add-fbx", StringComparison.OrdinalIgnoreCase) && x.i + 1 < args.Length).Select(x => args[x.i + 1]).ToList());
         }
 
         int testRebuildAt = Array.FindIndex(args, a => a.Equals("--test-rebuild", StringComparison.OrdinalIgnoreCase));
@@ -111,7 +113,8 @@ static class Program
             return ZonePlaceholders.Run(args[zoneAt + 1], args[zoneAt + 2], args[zoneAt + 3],
                 Opt("--out", Path.Combine(AppContext.BaseDirectory, "exports", args[zoneAt + 2].TrimEnd('_') + "_placeholders.fbx")),
                 float.Parse(Opt("--min-height", "400"), inv), float.Parse(Opt("--min-footprint", "200"), inv), float.Parse(Opt("--inset", "0.90"), inv),
-                Opt("--skip", "tree").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                Opt("--skip", "tree").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                Opt("--only", "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         }
 
         int setAt = Array.FindIndex(args, a => a.Equals("--set-property", StringComparison.OrdinalIgnoreCase));
@@ -451,12 +454,14 @@ static class Program
           Changes float/int properties that already exist in an export (e.g. fog density), with the
           same .bak / verified temp / swap workflow as --import-fbx. --revert undoes it.
         Usage: UpkMeshScan --zone-placeholders <folder> <tile-prefix> <library.upk> [--out file.fbx]
-                           [--min-height 400] [--min-footprint 200] [--inset 0.90] [--skip tree,...]
+                           [--min-height 400] [--min-footprint 200] [--inset 0.90] [--skip tree,...] [--only mesh,...]
           Low-poly footprint prisms for every building-sized placed mesh in the tiles (e.g. prefix UES_Static_,
           library SCS__OpDailyBugleRegionBand_SF.upk), at their real world positions, into one FBX
           (+ .txt list). Read-only.
         Usage: UpkMeshScan --add-sky-placeholders <package.upk> <placeholders.fbx> [--gray 0.03] [--dry-run]
                            [--exclude-box minX,minY,maxX,maxY ...] [--ground-z -40 [--ground-margin 4000]]
+                           [--shrink F]  (scale each piece: 0.8/0.9 = 0.889 turns 90% placeholders into 80%)
+                           [--add-fbx more.fbx ...]  (merged as is, after exclusion and shrink)
           Adds the FBX's geometry (world space, e.g. from --zone-placeholders) to the zone's sky sphere
           mesh as a second section with a new flat-grey copy of the sky material. The package is rebuilt
           to hold the new material; everything else stays byte-identical. Same .bak / verify / swap.
