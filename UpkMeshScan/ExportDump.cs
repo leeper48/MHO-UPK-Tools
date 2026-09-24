@@ -45,6 +45,10 @@ static class ExportDump
         return 0;
     }
 
+    /// <summary>The same annotated text --dump-export writes, for one export (used by the GUI).</summary>
+    public static string DescribeExport(Package pkg, int index, string upkPath) =>
+        Describe(pkg, pkg.Exports[index], index, pkg.ReadExportBytes(pkg.Exports[index]), upkPath);
+
     static string Describe(Package pkg, ExportEntry e, int index, byte[] data, string upkPath)
     {
         var sb = new StringBuilder();
@@ -55,7 +59,17 @@ static class ExportDump
         sb.AppendLine($"SerialOffset: 0x{e.SerialOffset:X} (uncompressed body)");
         sb.AppendLine();
 
-        int nativeStart = WalkProperties(pkg, data, sb);
+        // Plain objects: NetIndex then properties. MHO components: an int32, NetIndex, then properties (byte 8).
+        var first = new StringBuilder();
+        int nativeStart = WalkProperties(pkg, data, first, 4);
+        if (nativeStart < 0 && data.Length > 8)
+        {
+            var second = new StringBuilder();
+            int at8 = WalkProperties(pkg, data, second, 8);
+            if (at8 >= 0) { sb.AppendLine("(component layout: int32 + NetIndex, properties from byte 8)"); sb.Append(second); nativeStart = at8; }
+            else sb.Append(first);
+        }
+        else sb.Append(first);
 
         sb.AppendLine();
         if (nativeStart < 0)
@@ -82,12 +96,12 @@ static class ExportDump
     }
 
     /// <summary>Walks the tagged-property block after the 4-byte NetIndex; returns the offset just past "None", or -1.</summary>
-    static int WalkProperties(Package pkg, byte[] d, StringBuilder sb)
+    static int WalkProperties(Package pkg, byte[] d, StringBuilder sb, int start)
     {
-        if (d.Length < 4) { sb.AppendLine("Too short for a NetIndex."); return -1; }
-        sb.AppendLine($"NetIndex    : {BitConverter.ToInt32(d, 0)}");
+        if (d.Length < start) { sb.AppendLine("Too short for a NetIndex."); return -1; }
+        sb.AppendLine($"NetIndex    : {BitConverter.ToInt32(d, start - 4)}");
         sb.AppendLine("Properties  :");
-        int p = 4;
+        int p = start;
         try
         {
             for (int guard = 0; guard < 4096; guard++)
@@ -172,6 +186,7 @@ static class ExportDump
         {
             case "intproperty" when size == 4: return $"= {BitConverter.ToInt32(d, p)}";
             case "floatproperty" when size == 4: return $"= {BitConverter.ToSingle(d, p)}";
+            case "structproperty" when size == 4: return $"= B{d[p]} G{d[p + 1]} R{d[p + 2]} A{d[p + 3]} (if a Color)  {HexInline(d, p, 4)}";
             case "objectproperty" when size == 4: return $"= {ObjectRef(pkg, BitConverter.ToInt32(d, p))}";
             case "nameproperty" when size == 8: { int q = p; return $"= {Name(pkg, d, ref q)}"; }
             case "byteproperty" when size == 8: { int q = p; return $"= {Name(pkg, d, ref q)}"; }

@@ -1,0 +1,578 @@
+using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
+
+namespace UpkMeshScan.Gui;
+
+/// <summary>
+/// WinForms front end over the same code the CLI runs. Every write to the game folder still goes
+/// through MeshImport.WriteLive / MeshImport.Revert (.bak once, verified temp, swap), and every
+/// operation's console output is shown in the log panel. No write logic lives in this file.
+/// </summary>
+sealed class MainForm : Form
+{
+    // ---------------------------------------------------------------- settings
+
+    sealed class Settings
+    {
+        public string GameFolder { get; set; } = @"G:\Program Files (x86)\Steam\steamapps\common\Marvel Heroes\UnrealEngine3\MarvelGame\CookedPCConsole";
+        public string ExportFolder { get; set; } = Path.Combine(AppContext.BaseDirectory, "exports");
+        public string LastPackage { get; set; } = "";
+        public string LastFbx { get; set; } = "";
+    }
+
+    static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "UpkMeshScan", "settings.json");
+    Settings settings = LoadSettings();
+
+    static Settings LoadSettings()
+    {
+        try { return File.Exists(SettingsPath) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsPath)) ?? new() : new(); }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { return new(); }
+    }
+
+    void SaveSettings()
+    {
+        try { Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!); File.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    // ---------------------------------------------------------------- state and controls
+
+    Package? package;
+    string packagePath = "";
+
+    readonly TextBox gameFolder = new() { Dock = DockStyle.Fill };
+    readonly ComboBox packageBox = new() { Dock = DockStyle.Fill, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
+    readonly Label packageInfo = new() { AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
+    readonly TabControl tabs = new() { Dock = DockStyle.Fill };
+    readonly TextBox log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = new Font(FontFamily.GenericMonospace, 9f) };
+
+    // Browse tab
+    readonly TextBox classFilter = new() { Dock = DockStyle.Fill, PlaceholderText = "class or name filter (e.g. staticmesh, fog, texture2d)" };
+    readonly ListView exports = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
+    readonly TextBox details = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = new Font(FontFamily.GenericMonospace, 9f) };
+
+    // Properties tab
+    readonly Label propTarget = new() { AutoSize = true, Text = "Select an export on the Browse tab.", Padding = new Padding(0, 4, 0, 4) };
+    readonly DataGridView grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, SelectionMode = DataGridViewSelectionMode.FullRowSelect };
+    readonly TextBox alsoApply = new() { Dock = DockStyle.Fill, PlaceholderText = "optional: other packages with the same export, separated by ;  (e.g. MidTown_Dynamic.upk)" };
+    int propExport = -1;
+
+    // Meshes tab
+    readonly ListBox meshes = new() { Dock = DockStyle.Fill, IntegralHeight = false };
+    readonly TextBox exportFolder = new() { Dock = DockStyle.Fill };
+    readonly TextBox fbxPath = new() { Dock = DockStyle.Fill };
+
+    // Backups tab
+    readonly ListView backups = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
+
+    readonly List<Control> busyDisabled = new();
+
+    public MainForm(string version)
+    {
+        Text = $"UpkMeshScan v{version}";
+        Width = 1400; Height = 900;
+        StartPosition = FormStartPosition.CenterScreen;
+
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(6) };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 70));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
+        root.Controls.Add(BuildHeader(), 0, 0);
+        root.Controls.Add(tabs, 0, 1);
+        root.Controls.Add(BuildLog(), 0, 2);
+        Controls.Add(root);
+
+        tabs.TabPages.Add(BuildBrowseTab());
+        tabs.TabPages.Add(BuildPropertiesTab());
+        tabs.TabPages.Add(BuildMeshesTab());
+        tabs.TabPages.Add(BuildBackupsTab());
+        busyDisabled.Add(tabs);
+
+        gameFolder.Text = settings.GameFolder;
+        exportFolder.Text = settings.ExportFolder;
+        fbxPath.Text = settings.LastFbx;
+
+        Console.SetOut(new LogWriter(this, log));
+        Load += (_, _) =>
+        {
+            FillPackageList();
+            if (settings.LastPackage.Length > 0) packageBox.Text = settings.LastPackage;
+            RefreshBackups();
+        };
+        FormClosing += (_, _) => { CaptureSettings(); SaveSettings(); };
+    }
+
+    // ---------------------------------------------------------------- layout
+
+    Control BuildHeader()
+    {
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        var browseFolder = Btn("Browse…", () =>
+        {
+            using var d = new FolderBrowserDialog { SelectedPath = gameFolder.Text };
+            if (d.ShowDialog(this) == DialogResult.OK) { gameFolder.Text = d.SelectedPath; FillPackageList(); RefreshBackups(); }
+        });
+        var reload = Btn("Reload list", () => { FillPackageList(); RefreshBackups(); });
+        t.Controls.Add(Lbl("Game folder:"), 0, 0); t.Controls.Add(gameFolder, 1, 0); t.Controls.Add(browseFolder, 2, 0); t.Controls.Add(reload, 3, 0);
+
+        var open = Btn("Open", OpenSelectedPackage);
+        var openFile = Btn("Open file…", () =>
+        {
+            using var d = new OpenFileDialog { Filter = "UE3 packages (*.upk;*.umap)|*.upk;*.umap|All files|*.*", InitialDirectory = Directory.Exists(gameFolder.Text) ? gameFolder.Text : "" };
+            if (d.ShowDialog(this) == DialogResult.OK) OpenPackage(d.FileName);
+        });
+        packageBox.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; OpenSelectedPackage(); } };
+        t.Controls.Add(Lbl("Package:"), 0, 1); t.Controls.Add(packageBox, 1, 1); t.Controls.Add(open, 2, 1); t.Controls.Add(openFile, 3, 1);
+        t.Controls.Add(packageInfo, 1, 2); t.SetColumnSpan(packageInfo, 3);
+        busyDisabled.AddRange([browseFolder, reload, open, openFile, packageBox, gameFolder]);
+        return t;
+    }
+
+    Control BuildLog()
+    {
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var clear = Btn("Clear log", () => log.Clear());
+        clear.Anchor = AnchorStyles.Top;
+        t.Controls.Add(log, 0, 0); t.Controls.Add(clear, 1, 0);
+        return t;
+    }
+
+    TabPage BuildBrowseTab()
+    {
+        var page = new TabPage("Browse");
+        exports.Columns.Add("#", 60); exports.Columns.Add("Class", 200); exports.Columns.Add("Size", 90, HorizontalAlignment.Right); exports.Columns.Add("Path", 600);
+        exports.SelectedIndexChanged += (_, _) => ShowSelectedExport();
+        classFilter.TextChanged += (_, _) => FillExports();
+
+        var buttons = Flow(
+            Btn("Edit properties →", () => { if (SelectedExport() is int i) { LoadProperties(i); tabs.SelectedIndex = 1; } }),
+            Btn("Where does this mesh come from?", () => { if (package != null) Run("Import sources", () => ImportSources.Run(gameFolder.Text, packagePath)); }),
+            Btn("Find name in folder", () => { if (SelectedExport() is int i) { string n = package!.Exports[i].ObjectName; Run($"Find '{n}'", () => FindName.Run(gameFolder.Text, n, false)); } }),
+            Btn("Export texture(s)", () =>
+            {
+                if (package == null) return;
+                string? filter = SelectedExport() is int i && package.ClassOf(package.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) ? package.Exports[i].ObjectName : null;
+                string dir = Path.Combine(exportFolder.Text, "textures", Path.GetFileNameWithoutExtension(packagePath));
+                Run(filter == null ? "Export all textures" : $"Export texture {filter}", () => TextureExport.Run(packagePath, filter, dir));
+            }));
+
+        var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
+        left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        left.Controls.Add(classFilter, 0, 0); left.Controls.Add(exports, 0, 1); left.Controls.Add(buttons, 0, 2);
+
+        var split = new SplitContainer { Dock = DockStyle.Fill };
+        split.Panel1.Controls.Add(left);
+        split.Panel2.Controls.Add(details);
+        page.Controls.Add(split);
+        // Set after parenting (CLAUDE.md WinForms note); list gets 55% so class and path are readable.
+        Shown += (_, _) => { if (split.Width > 400) split.SplitterDistance = (int)(split.Width * 0.55); };
+        return page;
+    }
+
+    TabPage BuildPropertiesTab()
+    {
+        var page = new TabPage("Properties");
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Name", HeaderText = "Property", ReadOnly = true, FillWeight = 35 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Type", HeaderText = "Type", ReadOnly = true, FillWeight = 15 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Value", HeaderText = "Value (float/int editable)", FillWeight = 35 });
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Original", HeaderText = "Current in file", ReadOnly = true, FillWeight = 25 });
+        grid.CellValueChanged += (_, e) => { if (e.RowIndex >= 0) MarkChanged(grid.Rows[e.RowIndex]); };
+
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4 };
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var also = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true };
+        also.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); also.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        also.Controls.Add(Lbl("Also apply to:"), 0, 0); also.Controls.Add(alsoApply, 1, 0);
+        t.Controls.Add(propTarget, 0, 0); t.Controls.Add(grid, 0, 1); t.Controls.Add(also, 0, 2);
+        t.Controls.Add(Flow(
+            Btn("Dry run (writes to import_out, game untouched)", () => ApplyProperties(dryRun: true)),
+            Btn("Apply to game file(s)…", () => ApplyProperties(dryRun: false)),
+            Btn("Reset edits", () => { if (propExport >= 0) LoadProperties(propExport); })), 0, 3);
+        page.Controls.Add(t);
+        return page;
+    }
+
+    TabPage BuildMeshesTab()
+    {
+        var page = new TabPage("Meshes");
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 6 };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        for (int i = 0; i < 4; i++) t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        t.Controls.Add(Lbl("StaticMeshes in this package:"), 0, 0); t.SetColumnSpan(t.GetControlFromPosition(0, 0)!, 3);
+        t.Controls.Add(meshes, 0, 1); t.SetColumnSpan(meshes, 3);
+
+        t.Controls.Add(Lbl("Export folder:"), 0, 2); t.Controls.Add(exportFolder, 1, 2);
+        t.Controls.Add(Flow(
+            Btn("Browse…", () => { using var d = new FolderBrowserDialog { SelectedPath = exportFolder.Text }; if (d.ShowDialog(this) == DialogResult.OK) exportFolder.Text = d.SelectedPath; }),
+            Btn("Open folder", () => OpenFolder(exportFolder.Text))), 2, 2);
+        t.Controls.Add(Flow(Btn("Export selected mesh to FBX (+ textures)", ExportSelectedMesh)), 1, 3);
+
+        t.Controls.Add(Lbl("FBX to import:"), 0, 4); t.Controls.Add(fbxPath, 1, 4);
+        t.Controls.Add(Btn("Browse…", () =>
+        {
+            using var d = new OpenFileDialog { Filter = "FBX (*.fbx)|*.fbx|All files|*.*", FileName = fbxPath.Text };
+            if (d.ShowDialog(this) == DialogResult.OK) fbxPath.Text = d.FileName;
+        }), 2, 4);
+        t.Controls.Add(Flow(
+            Btn("Dry run import (game untouched)", () => ImportSelectedMesh(dryRun: true)),
+            Btn("Import into game file…", () => ImportSelectedMesh(dryRun: false))), 1, 5);
+        page.Controls.Add(t);
+        return page;
+    }
+
+    TabPage BuildBackupsTab()
+    {
+        var page = new TabPage("Backups");
+        backups.Columns.Add("Package", 380); backups.Columns.Add("Status", 170); backups.Columns.Add("Live size", 110, HorizontalAlignment.Right);
+        backups.Columns.Add("Live date", 140); backups.Columns.Add("Original (.bak) size", 140, HorizontalAlignment.Right);
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        t.Controls.Add(Lbl("Packages with a .bak (the original). \"Modified\" = live file differs from its .bak."), 0, 0);
+        t.Controls.Add(backups, 0, 1);
+        t.Controls.Add(Flow(
+            Btn("Refresh", RefreshBackups),
+            Btn("Revert selected to original…", RevertSelected),
+            Btn("Open selected package", () => { if (backups.SelectedItems.Count == 1) OpenPackage(Path.Combine(gameFolder.Text, backups.SelectedItems[0].Text)); })), 0, 2);
+        page.Controls.Add(t);
+        return page;
+    }
+
+    // ---------------------------------------------------------------- package
+
+    void FillPackageList()
+    {
+        packageBox.Items.Clear();
+        if (!Directory.Exists(gameFolder.Text)) { packageInfo.Text = "Game folder not found."; return; }
+        var names = Directory.EnumerateFiles(gameFolder.Text)
+            .Where(f => f.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
+            .Where(f => !Program.IsBackupName(f))
+            .Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray();
+        packageBox.Items.AddRange(names!);
+        packageInfo.Text = $"{names.Length:N0} packages in the folder (bak/copy files hidden). Type to search, then Open.";
+    }
+
+    void OpenSelectedPackage()
+    {
+        string name = packageBox.Text.Trim();
+        if (name.Length == 0) return;
+        OpenPackage(Path.IsPathRooted(name) ? name : Path.Combine(gameFolder.Text, name));
+    }
+
+    void OpenPackage(string path)
+    {
+        if (!File.Exists(path)) { Log($"Not found: {path}"); return; }
+        try
+        {
+            package = Package.Open(path);
+            packagePath = Path.GetFullPath(path);
+            packageBox.Text = Path.GetFileName(path);
+            settings.LastPackage = Path.GetFileName(path);
+            var fi = new FileInfo(path);
+            bool stock = fi.LastWriteTime.Date == new DateTime(2024, 3, 14);
+            bool hasBak = File.Exists(path + ".bak");
+            packageInfo.Text = $"{fi.Name}: {fi.Length:N0} bytes, {fi.LastWriteTime:yyyy-MM-dd HH:mm} ({(stock ? "stock date" : "modified")}), " +
+                               $"{package.Exports.Length:N0} exports, v{package.FileVersion}/L{package.LicenseeVersion}, {(package.Chunks.Count > 0 ? "compressed" : "uncompressed")}" +
+                               (hasBak ? ", has .bak" : "");
+            FillExports();
+            FillMeshes();
+            details.Clear();
+            Log($"Opened {fi.Name}: {package.Exports.Length:N0} exports, {meshes.Items.Count} StaticMesh(es){(hasBak ? ", has .bak" : "")}");
+        }
+        catch (Exception ex) when (ex is PackageFormatException or IOException or InvalidDataException)
+        {
+            package = null;
+            Log($"Could not open {Path.GetFileName(path)}: {ex.Message}");
+        }
+    }
+
+    void ReopenPackage()
+    {
+        if (packagePath.Length == 0) return;
+        int? keep = SelectedExport();
+        OpenPackage(packagePath);
+        if (keep is int k) SelectExport(k);
+        RefreshBackups();
+    }
+
+    void FillExports()
+    {
+        exports.BeginUpdate();
+        exports.Items.Clear();
+        if (package != null)
+        {
+            string f = classFilter.Text.Trim();
+            var items = new List<ListViewItem>();
+            for (int i = 0; i < package.Exports.Length; i++)
+            {
+                var e = package.Exports[i];
+                string cls = package.ClassOf(e), path = package.PathOf(e);
+                if (f.Length > 0 && !cls.Contains(f, StringComparison.OrdinalIgnoreCase) && !path.Contains(f, StringComparison.OrdinalIgnoreCase)) continue;
+                items.Add(new ListViewItem([(i + 1).ToString(), cls, e.SerialSize.ToString("N0"), path]) { Tag = i });
+            }
+            exports.Items.AddRange(items.ToArray());
+            exports.AutoResizeColumns(ColumnHeaderAutoResizeStyle.ColumnContent);
+            exports.AutoResizeColumn(0, ColumnHeaderAutoResizeStyle.HeaderSize);
+            if (exports.Columns[2].Width < 70) exports.Columns[2].Width = 70;
+        }
+        exports.EndUpdate();
+    }
+
+    void FillMeshes()
+    {
+        meshes.Items.Clear();
+        if (package == null) return;
+        for (int i = 0; i < package.Exports.Length; i++)
+            if (package.ClassOf(package.Exports[i]).Equals("StaticMesh", StringComparison.OrdinalIgnoreCase))
+                meshes.Items.Add(new MeshItem(i, package.PathOf(package.Exports[i]), package.Exports[i].ObjectName, package.Exports[i].SerialSize));
+    }
+
+    sealed record MeshItem(int Index, string Path, string Name, int Size)
+    {
+        public override string ToString() => $"{Name}   ({Size:N0} B)   {Path}";
+    }
+
+    int? SelectedExport() => exports.SelectedItems.Count == 1 ? (int)exports.SelectedItems[0].Tag! : null;
+
+    void SelectExport(int index)
+    {
+        foreach (ListViewItem item in exports.Items)
+            if ((int)item.Tag! == index) { item.Selected = true; item.EnsureVisible(); return; }
+    }
+
+    void ShowSelectedExport()
+    {
+        if (package == null || SelectedExport() is not int i) return;
+        try { details.Text = ExportDump.DescribeExport(package, i, packagePath).Replace("\n", "\r\n").Replace("\r\r\n", "\r\n"); }
+        catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { details.Text = $"Could not describe: {ex.Message}"; }
+    }
+
+    // ---------------------------------------------------------------- properties
+
+    void LoadProperties(int index)
+    {
+        if (package == null) return;
+        propExport = index;
+        grid.Rows.Clear();
+        var list = PropertyEdit.ReadProperties(package, index);
+        propTarget.Text = $"{Path.GetFileName(packagePath)} :: {package.PathOf(package.Exports[index])} ({package.ClassOf(package.Exports[index])})";
+        if (list == null) { propTarget.Text += "  —  properties couldn't be read"; return; }
+        foreach (var p in list)
+        {
+            int r = grid.Rows.Add(p.Name, p.Type, p.Value, p.Value);
+            var row = grid.Rows[r];
+            row.Cells["Value"].ReadOnly = !p.Editable;
+            if (!p.Editable) row.DefaultCellStyle.ForeColor = SystemColors.GrayText;
+        }
+        if (list.Count == 0) propTarget.Text += "  —  no stored properties (all at defaults)";
+        else if (!list.Any(p => p.Editable)) propTarget.Text += "  —  nothing editable here (only float/int are supported)";
+    }
+
+    void MarkChanged(DataGridViewRow row)
+    {
+        bool changed = !Equals(row.Cells["Value"].Value?.ToString(), row.Cells["Original"].Value?.ToString());
+        row.Cells["Value"].Style.BackColor = changed ? Color.LightYellow : grid.DefaultCellStyle.BackColor;
+    }
+
+    void ApplyProperties(bool dryRun)
+    {
+        if (package == null || propExport < 0) { Log("Pick an export on the Browse tab first (Edit properties →)."); return; }
+        grid.EndEdit();
+        var changes = grid.Rows.Cast<DataGridViewRow>()
+            .Where(r => !r.Cells["Value"].ReadOnly && !Equals(r.Cells["Value"].Value?.ToString(), r.Cells["Original"].Value?.ToString()))
+            .Select(r => (r.Cells["Name"].Value!.ToString()!, r.Cells["Value"].Value?.ToString() ?? ""))
+            .ToList();
+        if (changes.Count == 0) { Log("No values changed."); return; }
+
+        string exportPath = package.PathOf(package.Exports[propExport]);
+        var targets = new List<string> { packagePath };
+        foreach (string extra in alsoApply.Text.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            targets.Add(Path.IsPathRooted(extra) ? extra : Path.Combine(gameFolder.Text, extra));
+
+        string summary = string.Join("\n", changes.Select(c => $"  {c.Item1} = {c.Item2}"));
+        if (!dryRun && !Confirm($"Write these changes into the game file(s)?\n\n{summary}\n\nPackages:\n  {string.Join("\n  ", targets.Select(Path.GetFileName))}\n\nA .bak of each original is kept; Backups tab reverts."))
+            return;
+
+        Run(dryRun ? "Property dry run" : "Apply properties", () =>
+        {
+            int worst = 0;
+            foreach (string t in targets) worst = Math.Max(worst, PropertyEdit.Run(t, exportPath, changes, dryRun));
+            return worst;
+        }, after: () => { if (!dryRun) { ReopenPackage(); LoadProperties(propExport); } });
+    }
+
+    // ---------------------------------------------------------------- meshes
+
+    MeshItem? SelectedMesh()
+    {
+        if (meshes.SelectedItem is MeshItem m) return m;
+        Log("Select a StaticMesh in the list first.");
+        return null;
+    }
+
+    void ExportSelectedMesh()
+    {
+        if (SelectedMesh() is not { } m) return;
+        string dir = exportFolder.Text;
+        Run($"Export {m.Name}", () => StaticMeshExport.Run(packagePath, m.Path, dir), after: () => Log($"Exported to {dir}"));
+    }
+
+    void ImportSelectedMesh(bool dryRun)
+    {
+        if (SelectedMesh() is not { } m) return;
+        string fbx = fbxPath.Text.Trim();
+        if (!File.Exists(fbx)) { Log($"FBX not found: {fbx}"); return; }
+        settings.LastFbx = fbx;
+        if (!dryRun && !Confirm($"Import\n  {Path.GetFileName(fbx)}\ninto\n  {Path.GetFileName(packagePath)} :: {m.Name}\n\nThe mesh's collision will be empty. A .bak of the original is kept; Backups tab reverts.\n\nTip: run the dry run first."))
+            return;
+        Run(dryRun ? $"Dry run import {m.Name}" : $"Import {m.Name}", () => MeshImport.Import(packagePath, m.Path, fbx, dryRun, null),
+            after: () => { if (!dryRun) ReopenPackage(); });
+    }
+
+    // ---------------------------------------------------------------- backups
+
+    void RefreshBackups()
+    {
+        backups.BeginUpdate();
+        backups.Items.Clear();
+        if (Directory.Exists(gameFolder.Text))
+        {
+            foreach (string bak in Directory.EnumerateFiles(gameFolder.Text, "*.bak").Where(b => b.EndsWith(".upk.bak", StringComparison.OrdinalIgnoreCase) || b.EndsWith(".umap.bak", StringComparison.OrdinalIgnoreCase)).OrderBy(b => b))
+            {
+                string live = bak[..^4];
+                var bi = new FileInfo(bak);
+                string status; string size = "", date = "";
+                if (!File.Exists(live)) status = "live file missing";
+                else
+                {
+                    var li = new FileInfo(live);
+                    size = li.Length.ToString("N0"); date = li.LastWriteTime.ToString("yyyy-MM-dd HH:mm");
+                    status = li.Length != bi.Length ? "MODIFIED" : SameContent(live, bak) ? "same as original" : "MODIFIED";
+                }
+                var item = new ListViewItem([Path.GetFileName(live), status, size, date, bi.Length.ToString("N0")]);
+                if (status == "MODIFIED") item.Font = new Font(backups.Font, FontStyle.Bold);
+                backups.Items.Add(item);
+            }
+        }
+        backups.EndUpdate();
+    }
+
+    static bool SameContent(string a, string b)
+    {
+        using var fa = File.OpenRead(a); using var fb = File.OpenRead(b);
+        var ba = new byte[1 << 16]; var bb = new byte[1 << 16];
+        while (true)
+        {
+            int na = fa.Read(ba), nb = fb.Read(bb);
+            if (na != nb || !ba.AsSpan(0, na).SequenceEqual(bb.AsSpan(0, nb))) return false;
+            if (na == 0) return true;
+        }
+    }
+
+    void RevertSelected()
+    {
+        if (backups.SelectedItems.Count != 1) { Log("Select a package in the Backups list first."); return; }
+        string live = Path.Combine(gameFolder.Text, backups.SelectedItems[0].Text);
+        if (!Confirm($"Restore {Path.GetFileName(live)} from its .bak (the original)?\n\nThe .bak is kept.")) return;
+        Run($"Revert {Path.GetFileName(live)}", () => MeshImport.Revert(live), after: () =>
+        {
+            RefreshBackups();
+            if (string.Equals(Path.GetFullPath(live), packagePath, StringComparison.OrdinalIgnoreCase)) ReopenPackage();
+        });
+    }
+
+    // ---------------------------------------------------------------- running work
+
+    void Run(string title, Func<int> work, Action? after = null)
+    {
+        CaptureSettings();
+        Log($"=== {title} ===");
+        foreach (var c in busyDisabled) c.Enabled = false;
+        UseWaitCursor = true;
+        Task.Run(() =>
+        {
+            try { return work(); }
+            catch (Exception ex) { Console.WriteLine($"  error: {ex.GetType().Name}: {ex.Message}"); return 1; }
+        }).ContinueWith(t =>
+        {
+            foreach (var c in busyDisabled) c.Enabled = true;
+            UseWaitCursor = false;
+            Log(t.Result == 0 ? $"=== {title}: done ===" : $"=== {title}: finished with problems (see above) ===");
+            after?.Invoke();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    void CaptureSettings()
+    {
+        settings.GameFolder = gameFolder.Text;
+        settings.ExportFolder = exportFolder.Text;
+        settings.LastFbx = fbxPath.Text;
+    }
+
+    void Log(string line) => Console.WriteLine(line);
+
+    bool Confirm(string message) => MessageBox.Show(this, message, "Confirm", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+
+    static void OpenFolder(string dir)
+    {
+        if (Directory.Exists(dir)) Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true });
+    }
+
+    Button Btn(string text, Action onClick)
+    {
+        var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(3) };
+        b.Click += (_, _) => onClick();
+        return b;
+    }
+
+    static Label Lbl(string text) => new() { Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 6, 0, 0) };
+
+    static FlowLayoutPanel Flow(params Control[] controls)
+    {
+        var f = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true };
+        f.Controls.AddRange(controls);
+        return f;
+    }
+
+    /// <summary>Console output from any thread, appended to the log box line by line.</summary>
+    sealed class LogWriter(Control owner, TextBox box) : TextWriter
+    {
+        readonly StringBuilder pending = new();
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void Write(char value)
+        {
+            lock (pending)
+            {
+                if (value == '\r') return;
+                if (value != '\n') { pending.Append(value); return; }
+                string line = pending.ToString(); pending.Clear();
+                Post(line);
+            }
+        }
+
+        public override void Write(string? value) { if (value != null) foreach (char c in value) Write(c); }
+
+        void Post(string line)
+        {
+            if (owner.IsDisposed) return;
+            if (owner.InvokeRequired) owner.BeginInvoke(() => Append(line)); else Append(line);
+        }
+
+        void Append(string line)
+        {
+            if (box.IsDisposed) return;
+            box.AppendText(line + Environment.NewLine);
+        }
+    }
+}

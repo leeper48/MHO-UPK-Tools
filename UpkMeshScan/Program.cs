@@ -14,16 +14,36 @@ static class Program
     sealed record MeshHit(string Class, string Name, string Path, int Size, string? DecodeError = null, IReadOnlyList<string>? Notes = null, bool Decoded = false, IReadOnlyList<string>? Facts = null, bool Stock = false);
     sealed record Result(string File, long Bytes, string Version, string ChunkSource, List<MeshHit> Meshes, string? Error, bool Stock = false);
 
+    [DllImport("kernel32.dll")]
+    static extern bool AttachConsole(int dwProcessId);
+
+    [STAThread]
     static int Main(string[] args)
     {
         string version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "?";
-        Console.WriteLine($"UpkMeshScan v{version}");
-        bool pause = LaunchedFromExplorer();
-        try { return Run(args, version); }
-        finally
+
+        // No arguments: the GUI. It's a WinExe so a double-click shows no console window.
+        if (args.Length == 0)
         {
-            if (pause) { Console.WriteLine(); Console.WriteLine("Press any key to close..."); Console.ReadKey(true); }
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new Gui.MainForm(version));
+            return 0;
         }
+
+        // Arguments: the CLI. A WinExe has no console of its own, so attach to the one that launched
+        // it (as AnimExportCli does) and re-open the streams. UTF-8 without a BOM: with a BOM, every
+        // run printed stray bytes before the version banner.
+        if (AttachConsole(-1))
+        {
+            var utf8 = new UTF8Encoding(false);
+            Console.OutputEncoding = utf8;
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
+            Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true });
+        }
+        Console.WriteLine($"UpkMeshScan v{version}");
+        return Run(args, version);
     }
 
     static int Run(string[] args, string version)
@@ -50,6 +70,32 @@ static class Program
         {
             if (roundTripAt + 2 >= args.Length) { Usage(); return 2; }
             return MeshImport.VerifyRoundTrip(args[roundTripAt + 1], args[roundTripAt + 2]);
+        }
+
+        int setAt = Array.FindIndex(args, a => a.Equals("--set-property", StringComparison.OrdinalIgnoreCase));
+        if (setAt >= 0)
+        {
+            // --set-property <package.upk> <export-path> <Name=Value> [<Name=Value> ...] [--dry-run]
+            var rest = args.Skip(setAt + 3).Where(a => !a.StartsWith("--")).ToList();
+            if (setAt + 2 >= args.Length || rest.Count == 0 || rest.Any(a => !a.Contains('='))) { Usage(); return 2; }
+            var changes = rest.Select(a => (a[..a.IndexOf('=')], a[(a.IndexOf('=') + 1)..])).ToList();
+            return PropertyEdit.Run(args[setAt + 1], args[setAt + 2], changes, args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int listAt = Array.FindIndex(args, a => a.Equals("--list-exports", StringComparison.OrdinalIgnoreCase));
+        if (listAt >= 0)
+        {
+            if (listAt + 1 >= args.Length) { Usage(); return 2; }
+            var pkg = Package.Open(args[listAt + 1]);
+            string? classFilter = listAt + 2 < args.Length && !args[listAt + 2].StartsWith("--") ? args[listAt + 2] : null;
+            for (int i = 0; i < pkg.Exports.Length; i++)
+            {
+                var e = pkg.Exports[i];
+                string cls = pkg.ClassOf(e);
+                if (classFilter != null && !cls.Contains(classFilter, StringComparison.OrdinalIgnoreCase)) continue;
+                Console.WriteLine($"  #{i + 1,-6} {cls,-36} {e.SerialSize,9:N0} B  {pkg.PathOf(e)}");
+            }
+            return 0;
         }
 
         int texExportAt = Array.FindIndex(args, a => a.Equals("--export-textures", StringComparison.OrdinalIgnoreCase));
@@ -352,6 +398,11 @@ static class Program
           default folder textures\<package>\ next to the exe). Stock textures only carry small mips
           (mostly 64x64) in the package; full size is in .tfc files, which aren't read.
           --export-fbx also writes the mesh's material textures and links them in the FBX.
+        Usage: UpkMeshScan --set-property <package.upk> <export-path> <Name=Value> [...] [--dry-run]
+          Changes float/int properties that already exist in an export (e.g. fog density), with the
+          same .bak / verified temp / swap workflow as --import-fbx. --revert undoes it.
+        Usage: UpkMeshScan --list-exports <package.upk> [class-filter]
+          Lists exports (index, class, size, path), optionally only classes containing the filter.
         Usage: UpkMeshScan --texture-info <package.upk> [name-filter]
           Lists textures: size, format, cache, and where each mip's data is stored.
 
@@ -364,13 +415,4 @@ static class Program
         """);
     }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    static extern uint GetConsoleProcessList(uint[] list, uint count);
-
-    /// <summary>True when double-clicked / drag-dropped (we own the console), so the window doesn't vanish.</summary>
-    static bool LaunchedFromExplorer()
-    {
-        if (!OperatingSystem.IsWindows() || Console.IsInputRedirected) return false;
-        try { return GetConsoleProcessList(new uint[4], 4) <= 1; } catch { return false; }
-    }
 }

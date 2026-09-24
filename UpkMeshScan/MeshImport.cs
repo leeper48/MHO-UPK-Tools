@@ -100,31 +100,40 @@ static class MeshImport
             return 0;
         }
 
-        // Live import. 0) file not locked; 1) back up once; 2) write + re-verify temp from disk; 3) replace.
-        if (Locked(upkPath)) return 1;
+        return WriteLive(upkPath, p.Package, p.ExportIndex, p.ExportBytes, p.PackageBytes) ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The one path that writes a package into the game folder (CLAUDE.md rule 1): file not locked,
+    /// .bak created once and verified (never overwritten), new package written to a temp file and
+    /// re-verified from disk, then swapped in and hash-checked. Returns false with the live file
+    /// untouched if any step before the swap fails.
+    /// </summary>
+    public static bool WriteLive(string upkPath, Package original, int exportIndex, byte[] exportBytes, byte[] packageBytes)
+    {
+        if (Locked(upkPath)) return false;
         string bak = upkPath + ".bak";
         if (!File.Exists(bak))
         {
             if (File.GetLastWriteTime(upkPath).Date != StockDate)
                 Console.WriteLine($"  warning: {Path.GetFileName(upkPath)} is dated {File.GetLastWriteTime(upkPath):yyyy-MM-dd}, not the 2024-03-14 stock date; the backup will be of an already-modified file.");
             File.Copy(upkPath, bak, overwrite: false);
-            if (!SameBytes(upkPath, bak)) { Console.WriteLine("  backup copy doesn't match the original; stopping."); return 1; }
+            if (!SameBytes(upkPath, bak)) { Console.WriteLine("  backup copy doesn't match the original; stopping."); return false; }
             Console.WriteLine($"  backup: created {Path.GetFileName(bak)} (verified identical)");
         }
         else Console.WriteLine($"  backup: {Path.GetFileName(bak)} already exists, left as is (it's the original)");
 
         string temp = upkPath + ".importtmp";
-        File.WriteAllBytes(temp, p.PackageBytes);
+        File.WriteAllBytes(temp, packageBytes);
         byte[] onDisk = File.ReadAllBytes(temp);
-        if (!onDisk.AsSpan().SequenceEqual(p.PackageBytes)) { File.Delete(temp); Console.WriteLine("  temp file didn't read back identically; live file untouched."); return 1; }
-        var fromDisk = Package.FromBytes(onDisk);
-        var problems = PackageWriter.Verify(p.Package, fromDisk, p.ExportIndex, p.ExportBytes);
-        if (problems.Count > 0) { File.Delete(temp); Console.WriteLine($"  temp file failed verification ({string.Join("; ", problems)}); live file untouched."); return 1; }
+        if (!onDisk.AsSpan().SequenceEqual(packageBytes)) { File.Delete(temp); Console.WriteLine("  temp file didn't read back identically; live file untouched."); return false; }
+        var problems = PackageWriter.Verify(original, Package.FromBytes(onDisk), exportIndex, exportBytes);
+        if (problems.Count > 0) { File.Delete(temp); Console.WriteLine($"  temp file failed verification ({string.Join("; ", problems)}); live file untouched."); return false; }
 
-        if (!TryReplace(temp, upkPath)) return 1;
-        if (!SameHash(File.ReadAllBytes(upkPath), p.PackageBytes)) { Console.WriteLine("  WARNING: live file doesn't match what was written. Run --revert."); return 1; }
-        Console.WriteLine($"  imported: {Path.GetFileName(upkPath)} replaced and verified. Undo with --revert \"{upkPath}\"");
-        return 0;
+        if (!TryReplace(temp, upkPath)) return false;
+        if (!SameHash(File.ReadAllBytes(upkPath), packageBytes)) { Console.WriteLine("  WARNING: live file doesn't match what was written. Run --revert."); return false; }
+        Console.WriteLine($"  written: {Path.GetFileName(upkPath)} replaced and verified. Undo with --revert \"{upkPath}\"");
+        return true;
     }
 
     public static int Revert(string upkPath)

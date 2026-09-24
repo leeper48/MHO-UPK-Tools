@@ -6,7 +6,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), diagnostics. CLI only, AssimpNet. v1.3.1
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property edits (e.g. fog), diagnostics. CLI + WinForms GUI (no args = GUI), AssimpNet. v1.5.0
 ```
 
 Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds UpkMeshScan into AnimExportCli. UpkMeshScan now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
@@ -23,6 +23,7 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 ## Build conventions
 
 - Every `.bat` file **must use CRLF line endings** and **`goto`-based flow control**. Don't use multi-line parenthesized `if/else` blocks. With LF endings or those blocks, `cmd.exe` fails silently and the window flash-closes.
+- UpkMeshScan follows the same pattern as AnimExportCli (`net8.0-windows` WinExe, `AttachConsole(-1)` for CLI), and writes UTF-8 **without a BOM**. With a BOM, stray bytes appeared before the version banner. The GUI (`Gui/MainForm.cs`) contains no write logic. It calls the same entry points as the CLI, and every game-folder write still goes through `MeshImport.WriteLive` / `Revert`.
 - AnimExportCli: `net8.0-windows`, `OutputType=WinExe`, x64, AssimpNet. When launched with CLI args it calls `AttachConsole(-1)` and **must set console encoding to UTF-8 after attaching** (this regressed once).
 - Kurt runs builds via a Send To shortcut to a stable copy in `C:\Tools\`.
 
@@ -72,6 +73,7 @@ Open questions for Kurt before Phase 3 design:
 
 - `--export-fbx` (with textures), `--import-fbx` (`--dry-run`, `.bak`, verified temp, swap), `--revert`, `--verify-import-roundtrip` (self-test: export, then FBX, then import).
 - `--decode-static` (folder-wide parser check: all 37,107 meshes decode).
+- `--set-property` changes existing float/int properties. Zone fog is an ExponentialHeightFogComponent in the zone's persistent-level packages (Midtown: `MidTown_Static.upk` + `MidTown_Dynamic.upk`; Cannery Row: `JerseyDocks_Cannery_A.upk`). Confirmed in-game.
 - Diagnostics: `--dump-export`, `--inspect-fbx`, `--find-name`, `--import-sources`, `--mesh-users`, `--texture-info`, `--export-textures`.
 - Confirmed in-game: edited buildings render (including 3.5× height). A package written this way loads.
 
