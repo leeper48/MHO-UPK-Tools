@@ -11,8 +11,8 @@ static class Program
     static readonly HashSet<string> StaticClasses = new(StringComparer.OrdinalIgnoreCase) { "StaticMesh", "FracturedStaticMesh" };
     static readonly HashSet<string> SkeletalClasses = new(StringComparer.OrdinalIgnoreCase) { "SkeletalMesh" };
 
-    sealed record MeshHit(string Class, string Name, string Path, int Size, string? DecodeError = null, IReadOnlyList<string>? Notes = null, bool Decoded = false);
-    sealed record Result(string File, long Bytes, string Version, string ChunkSource, List<MeshHit> Meshes, string? Error);
+    sealed record MeshHit(string Class, string Name, string Path, int Size, string? DecodeError = null, IReadOnlyList<string>? Notes = null, bool Decoded = false, IReadOnlyList<string>? Facts = null, bool Stock = false);
+    sealed record Result(string File, long Bytes, string Version, string ChunkSource, List<MeshHit> Meshes, string? Error, bool Stock = false);
 
     static int Main(string[] args)
     {
@@ -28,6 +28,30 @@ static class Program
 
     static int Run(string[] args, string version)
     {
+        int importAt = Array.FindIndex(args, a => a.Equals("--import-fbx", StringComparison.OrdinalIgnoreCase));
+        if (importAt >= 0)
+        {
+            if (importAt + 3 >= args.Length) { Usage(); return 2; }
+            int outAt = Array.FindIndex(args, a => a.Equals("--out", StringComparison.OrdinalIgnoreCase));
+            return MeshImport.Import(args[importAt + 1], args[importAt + 2], args[importAt + 3],
+                dryRun: args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                outDir: outAt >= 0 && outAt + 1 < args.Length ? args[outAt + 1] : null);
+        }
+
+        int revertAt = Array.FindIndex(args, a => a.Equals("--revert", StringComparison.OrdinalIgnoreCase));
+        if (revertAt >= 0)
+        {
+            if (revertAt + 1 >= args.Length) { Usage(); return 2; }
+            return MeshImport.Revert(args[revertAt + 1]);
+        }
+
+        int roundTripAt = Array.FindIndex(args, a => a.Equals("--verify-import-roundtrip", StringComparison.OrdinalIgnoreCase));
+        if (roundTripAt >= 0)
+        {
+            if (roundTripAt + 2 >= args.Length) { Usage(); return 2; }
+            return MeshImport.VerifyRoundTrip(args[roundTripAt + 1], args[roundTripAt + 2]);
+        }
+
         int usersAt = Array.FindIndex(args, a => a.Equals("--mesh-users", StringComparison.OrdinalIgnoreCase));
         if (usersAt >= 0)
         {
@@ -153,7 +177,7 @@ static class Program
                 }
             }
             hits.Sort((a, b) => string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase));
-            return new Result(file, bytes, $"v{pkg.FileVersion}/L{pkg.LicenseeVersion}", pkg.ChunkSource, hits, null);
+            return new Result(file, bytes, $"v{pkg.FileVersion}/L{pkg.LicenseeVersion}", pkg.ChunkSource, hits, null, File.GetLastWriteTime(file).Date == new DateTime(2024, 3, 14));
         }
         catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or IndexOutOfRangeException)
         {
@@ -166,7 +190,7 @@ static class Program
         try
         {
             var mesh = StaticMesh.Read(pkg, e);
-            return hit with { Decoded = true, Notes = mesh.Notes };
+            return hit with { Decoded = true, Notes = mesh.Notes, Facts = mesh.Facts };
         }
         catch (Exception ex) when (ex is PackageFormatException or IndexOutOfRangeException or ArgumentException or OverflowException)
         {
@@ -209,6 +233,10 @@ static class Program
                 foreach (var (r, m) in g.OrderBy(x => x.m.Size).Take(5))
                     sb.AppendLine($"            {Path.GetRelativePath(folder, r.File)} :: {m.Path} ({m.Size:N0} B) — {m.DecodeError}");
             }
+            sb.AppendLine();
+            sb.AppendLine("LAYOUT FACTS (meshes in stock-dated packages / all meshes)");
+            foreach (var g in tried.Where(x => x.m.Facts != null).SelectMany(x => x.m.Facts!.Select(f => (f, x.r))).GroupBy(x => System.Text.RegularExpressions.Regex.Replace(x.f, @"tail after LOD 0: \d+", "tail after LOD 0: N")).OrderBy(g => g.Key))
+                sb.AppendLine($"  {g.Count(x => x.r.Stock),6} / {g.Count(),6}  {g.Key}");
             sb.AppendLine();
             sb.AppendLine("NOTES BY KIND (decoded, but a soft cross-check differed)");
             foreach (var g in noted.SelectMany(x => x.m.Notes!.Select(n => (x.r, x.m, n))).GroupBy(x => FailureKind(x.n)).OrderByDescending(g => g.Count()))
@@ -278,6 +306,21 @@ static class Program
         Usage: UpkMeshScan --export-fbx <package.upk> <staticmesh-name-or-path> [--out <folder>]
           Writes LOD 0 of that StaticMesh to <folder>\<name>.fbx (default: exports\ next to the exe),
           one part per material section. Read-only on the package.
+
+        Usage: UpkMeshScan --import-fbx <package.upk> <staticmesh> <file.fbx> [--dry-run [--out <folder>]]
+          Replaces LOD 0 of that StaticMesh with the FBX (sections matched by material name).
+          Builds and verifies the new package in memory first. With --dry-run it's written to
+          <folder> (default: import_out\ next to the exe) and the game file is untouched.
+          Without it: <package>.upk.bak is created if missing (never overwritten), the new package
+          is written to a temp file, verified again from disk, then replaces the live file.
+          Collision for the imported mesh is removed (empty collision tree) for now.
+
+        Usage: UpkMeshScan --revert <package.upk>
+          Restores <package>.upk from <package>.upk.bak (verified; the .bak is kept).
+
+        Usage: UpkMeshScan --verify-import-roundtrip <package.upk> <staticmesh>
+          Self-test, writes nothing to the package folder: export -> FBX -> import, compared with
+          the original, plus the package writer and verifier run in memory.
         """);
     }
 

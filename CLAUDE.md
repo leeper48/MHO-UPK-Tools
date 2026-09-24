@@ -30,7 +30,8 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 
 - Magic `0x9E2A83C1`. Real files seen: **FileVersion 868, Licensee 3**.
 - Layout: header, then name / import / export tables, then object data. The package may be LZO1X chunk-compressed; offsets index the *uncompressed* body.
-- `*_SF.upk` character packages (for example `UC__MarvelPlayer_WinterSoldier_SF.upk`) are **uncompressed**.
+- **Every stock package is LZO-compressed.** All 172 uncompressed packages in the game folder were modified by mod tools, and they load in-game. Those tools write the header with CompressionFlags 0 and chunk count 0, so it ends exactly at NameOffset, and they clear PackageFlags bit 0x02000000. An earlier note said `*_SF` packages are uncompressed; that came from an already-modded WinterSoldier file.
+- Stock files are dated 2024-03-14. Anything dated later has been modified.
 - Character weapons (knife, pistol, mine, launcher…) are **SkeletalMesh**, not StaticMesh. Static meshes in character packages are mostly VFX (for example dodge afterimages). Buildings and props live in environment/zone packages.
 - UpkMeshScan validates the header's compressed-chunk table. If that table doesn't check out, it locates the table by scanning byte-by-byte for chunk signatures (the header isn't 4-byte aligned, because of the FolderName FString).
 

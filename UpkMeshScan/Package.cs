@@ -29,15 +29,30 @@ public sealed class Package
 
     int nameCount, nameOffset, exportCount, exportOffset, importCount, importOffset;
 
+    public int NameOffset => nameOffset;
+    /// <summary>Raw-file positions of summary fields the package writer patches (-1 if unknown).</summary>
+    public int PackageFlagsAt { get; private set; } = -1;
+    public int CompressionFlagsAt { get; private set; } = -1;
+    /// <summary>Raw-file range of the chunk table (count field through last entry).</summary>
+    public int ChunkTableStart { get; private set; } = -1;
+    public int ChunkTableEnd { get; private set; } = -1;
+    /// <summary>Raw-file end of the whole summary (after TextureAllocations).</summary>
+    public int SummaryEnd { get; private set; } = -1;
+    /// <summary>Body positions of each export's SerialSize field (SerialOffset follows it).</summary>
+    public int[] ExportSerialFieldAt { get; private set; } = Array.Empty<int>();
+    public byte[] RawFile => file;
+
     readonly byte[] file;
     byte[] body = Array.Empty<byte>();
     bool[] chunkDone = Array.Empty<bool>();
 
     Package(byte[] file) => this.file = file;
 
-    public static Package Open(string path)
+    public static Package Open(string path) => FromBytes(File.ReadAllBytes(path));
+
+    public static Package FromBytes(byte[] bytes)
     {
-        var p = new Package(File.ReadAllBytes(path));
+        var p = new Package(bytes);
         p.ReadHeader();
         p.PrepareBody();
         p.ReadTables();
@@ -60,6 +75,7 @@ public sealed class Package
 
         if (v >= 249) r.I32();              // TotalHeaderSize
         if (v >= 269) r.FString();          // FolderName
+        PackageFlagsAt = r.Pos;
         r.U32();                            // PackageFlags
         nameCount = r.I32(); nameOffset = r.I32();
         exportCount = r.I32(); exportOffset = r.I32();
@@ -78,7 +94,9 @@ public sealed class Package
             r.Skip(gens * (v >= 322 ? 12 : 8));
             if (v >= 245) r.I32();                          // EngineVersion
             if (v >= 277) r.I32();                          // CookerVersion
+            int flagsAt = r.Pos;
             uint flags = v >= 334 ? r.U32() : 0;
+            int tableAt = r.Pos;
             int n = v >= 334 ? r.I32() : 0;
             if (n < 0 || n > 100000) throw new PackageFormatException("bad chunk count");
             var list = new List<CompressedChunk>(n);
@@ -86,6 +104,28 @@ public sealed class Package
 
             if (n == 0 || ChunksLookValid(list))
             {
+                CompressionFlagsAt = flagsAt;
+                ChunkTableStart = tableAt;
+                ChunkTableEnd = r.Pos;
+                try
+                {
+                    // PackageSource, AdditionalPackagesToCook (TArray<FString>), TextureAllocations.
+                    r.U32();
+                    int extra = r.I32();
+                    if (extra < 0 || extra > 10000) throw new PackageFormatException("bad AdditionalPackagesToCook count");
+                    for (int i = 0; i < extra; i++) r.FString();
+                    int texTypes = r.I32();
+                    if (texTypes < 0 || texTypes > 100000) throw new PackageFormatException("bad TextureAllocations count");
+                    for (int i = 0; i < texTypes; i++)
+                    {
+                        r.Skip(5 * 4);                  // SizeX, SizeY, NumMips, Format, TexCreateFlags
+                        int idx = r.I32();
+                        if (idx < 0 || idx > 10_000_000) throw new PackageFormatException("bad texture export index count");
+                        r.Skip(idx * 4);
+                    }
+                    SummaryEnd = r.Pos;
+                }
+                catch (PackageFormatException) { SummaryEnd = -1; }
                 CompressionFlags = flags;
                 Chunks.AddRange(list);
                 ChunkSource = n == 0 ? "none" : "header";
@@ -251,6 +291,7 @@ public sealed class Package
 
         r = new Reader(body, exportOffset, body.Length - exportOffset, lazy);
         Exports = new ExportEntry[exportCount];
+        ExportSerialFieldAt = new int[exportCount];
         for (int i = 0; i < exportCount; i++)
         {
             int cls = r.I32();
@@ -259,6 +300,7 @@ public sealed class Package
             string name = Name(ref r);
             if (v >= 220) r.I32();              // ArchetypeIndex
             r.U64();                            // ObjectFlags
+            ExportSerialFieldAt[i] = r.Pos;
             int size = r.I32();
             int off = r.I32();
             if (v < 543) { int m = r.I32(); r.Skip(m * 12); } // ComponentMap
@@ -286,6 +328,13 @@ public sealed class Package
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /// <summary>The whole uncompressed package (header region as stored, then every chunk expanded).</summary>
+    public byte[] FullBody()
+    {
+        if (Chunks.Count > 0) Ensure(Chunks[0].UncompOffset, body.Length - Chunks[0].UncompOffset);
+        return body;
+    }
 
     /// <summary>Name of the object an object reference points at (export if &gt; 0, import if &lt; 0).</summary>
     public string RefName(int index) => index switch

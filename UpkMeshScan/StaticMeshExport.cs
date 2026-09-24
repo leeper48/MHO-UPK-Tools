@@ -10,7 +10,7 @@ namespace UpkMeshScan;
 /// </summary>
 static class StaticMeshExport
 {
-    public static int Run(string upkPath, string meshName, string outDir)
+    public static int Run(string upkPath, string meshName, string outDir, bool quiet = false)
     {
         Package pkg;
         try { pkg = Package.Open(upkPath); }
@@ -31,16 +31,19 @@ static class StaticMeshExport
         try { mesh = StaticMesh.Read(pkg, matches[0]); }
         catch (PackageFormatException ex) { Console.WriteLine($"Could not decode: {ex.Message}"); return 1; }
 
-        Console.WriteLine($"{pkg.PathOf(matches[0])}: InternalVersion {mesh.InternalVersion}, {mesh.LodCount} LOD(s), " +
+        if (!quiet) Console.WriteLine($"{pkg.PathOf(matches[0])}: InternalVersion {mesh.InternalVersion}, {mesh.LodCount} LOD(s), " +
                           $"{mesh.Positions.Length:N0} verts, {mesh.Indices.Length / 3:N0} tris, {mesh.NumTexCoords} UV channel(s), {mesh.Sections.Length} section(s)");
-        foreach (string note in mesh.Notes) Console.WriteLine($"  note: {note}");
-        foreach (var s in mesh.Sections)
-            Console.WriteLine($"  section: {s.NumTriangles,7:N0} tris  material {s.MaterialName}");
+        if (!quiet)
+        {
+            foreach (string note in mesh.Notes) Console.WriteLine($"  note: {note}");
+            foreach (var s in mesh.Sections)
+                Console.WriteLine($"  section: {s.NumTriangles,7:N0} tris  material {s.MaterialName}");
+        }
 
         Directory.CreateDirectory(outDir);
         string path = Path.Combine(outDir, $"{mesh.Name}.fbx");
         Write(mesh, path);
-        Console.WriteLine($"Wrote {path}");
+        if (!quiet) Console.WriteLine($"Wrote {path}");
         return 0;
     }
 
