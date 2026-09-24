@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Fully standalone: no reference to any other project. Everything needed to
+    open a UPK, find a skeletal mesh, find its animations, and write FBX files
+    lives in this one project. AssimpNet is the only external dependency, used
+    purely as an FBX/DAE/OBJ writer.
+
+    Run with arguments for the original CLI behavior; run with none and it
+    opens the WinForms GUI instead (see UI/MainForm.cs). WinForms is what
+    pulls this back to a Windows-specific TFM, and the game and this whole
+    workflow are Windows-only anyway, so that costs nothing real.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AnimExportCli</AssemblyName>
+    <RootNamespace>AnimExportCli</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyTitle>MHO Animation Exporter</AssemblyTitle>
+    <Product>MHO Animation Exporter</Product>
+    <ApplicationIcon>AppIcon.ico</ApplicationIcon>
+    <!--
+      Bumped with every meaningful change from here on — read at runtime
+      (see Program.Version) and printed in both the CLI and the GUI, so
+      "is this actually the build I think it is" never has to be guessed
+      at from whether specific numbers changed.
+    -->
+    <Version>1.3.1</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AssimpNet" Version="5.0.0-beta1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="AppIcon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
