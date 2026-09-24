@@ -52,6 +52,31 @@ static class Program
             return MeshImport.VerifyRoundTrip(args[roundTripAt + 1], args[roundTripAt + 2]);
         }
 
+        int texExportAt = Array.FindIndex(args, a => a.Equals("--export-textures", StringComparison.OrdinalIgnoreCase));
+        if (texExportAt >= 0)
+        {
+            if (texExportAt + 1 >= args.Length) { Usage(); return 2; }
+            int outAt = Array.FindIndex(args, a => a.Equals("--out", StringComparison.OrdinalIgnoreCase));
+            string? filter = texExportAt + 2 < args.Length && !args[texExportAt + 2].StartsWith("--") ? args[texExportAt + 2] : null;
+            string dir = outAt >= 0 && outAt + 1 < args.Length ? args[outAt + 1] : Path.Combine(AppContext.BaseDirectory, "textures", Path.GetFileNameWithoutExtension(args[texExportAt + 1]));
+            return TextureExport.Run(args[texExportAt + 1], filter, dir);
+        }
+
+        int texAt = Array.FindIndex(args, a => a.Equals("--texture-info", StringComparison.OrdinalIgnoreCase));
+        if (texAt >= 0)
+        {
+            if (texAt + 1 >= args.Length) { Usage(); return 2; }
+            var pkg = Package.Open(args[texAt + 1]);
+            string? filter = texAt + 2 < args.Length ? args[texAt + 2] : null;
+            foreach (var e in pkg.Exports.Where(x => pkg.ClassOf(x).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (filter != null && !e.ObjectName.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+                try { Console.WriteLine(TextureInfo.Read(pkg, e)); }
+                catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { Console.WriteLine($"{e.ObjectName}: {ex.Message}"); }
+            }
+            return 0;
+        }
+
         int sourcesAt = Array.FindIndex(args, a => a.Equals("--import-sources", StringComparison.OrdinalIgnoreCase));
         if (sourcesAt >= 0)
         {
@@ -321,6 +346,14 @@ static class Program
           Without it: <package>.upk.bak is created if missing (never overwritten), the new package
           is written to a temp file, verified again from disk, then replaces the live file.
           Collision for the imported mesh is removed (empty collision tree) for now.
+
+        Usage: UpkMeshScan --export-textures <package.upk> [name-filter] [--out <folder>]
+          Writes each Texture2D's largest mip stored inside the package as .dds (DXT data kept as is;
+          default folder textures\<package>\ next to the exe). Stock textures only carry small mips
+          (mostly 64x64) in the package; full size is in .tfc files, which aren't read.
+          --export-fbx also writes the mesh's material textures and links them in the FBX.
+        Usage: UpkMeshScan --texture-info <package.upk> [name-filter]
+          Lists textures: size, format, cache, and where each mip's data is stored.
 
         Usage: UpkMeshScan --revert <package.upk>
           Restores <package>.upk from <package>.upk.bak (verified; the .bak is kept).

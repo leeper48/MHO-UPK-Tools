@@ -20,7 +20,8 @@ static class MeshImport
         var pkg = Package.Open(upkPath);
         int index = FindStaticMesh(pkg, meshName);
         var original = StaticMesh.Read(pkg, pkg.Exports[index]);
-        var imported = FbxMeshReader.Read(fbxPath, original.NumTexCoords);
+        var imported = FbxMeshReader.Read(fbxPath, original.NumTexCoords, original.Name, out var used);
+        Console.WriteLine($"  FBX objects used: {(used.Count == 0 ? "(none)" : string.Join(", ", used))}");
         var built = StaticMeshBuilder.Build(original, imported);
         return Finish(pkg, index, original, built);
     }
@@ -99,7 +100,8 @@ static class MeshImport
             return 0;
         }
 
-        // Live import. 1) back up once; 2) write + re-verify temp from disk; 3) replace.
+        // Live import. 0) file not locked; 1) back up once; 2) write + re-verify temp from disk; 3) replace.
+        if (Locked(upkPath)) return 1;
         string bak = upkPath + ".bak";
         if (!File.Exists(bak))
         {
@@ -119,7 +121,7 @@ static class MeshImport
         var problems = PackageWriter.Verify(p.Package, fromDisk, p.ExportIndex, p.ExportBytes);
         if (problems.Count > 0) { File.Delete(temp); Console.WriteLine($"  temp file failed verification ({string.Join("; ", problems)}); live file untouched."); return 1; }
 
-        File.Move(temp, upkPath, overwrite: true);
+        if (!TryReplace(temp, upkPath)) return 1;
         if (!SameHash(File.ReadAllBytes(upkPath), p.PackageBytes)) { Console.WriteLine("  WARNING: live file doesn't match what was written. Run --revert."); return 1; }
         Console.WriteLine($"  imported: {Path.GetFileName(upkPath)} replaced and verified. Undo with --revert \"{upkPath}\"");
         return 0;
@@ -131,10 +133,11 @@ static class MeshImport
         string bak = upkPath + ".bak";
         if (!File.Exists(bak)) { Console.WriteLine($"No {Path.GetFileName(bak)} to revert from."); return 1; }
         if (File.Exists(upkPath) && SameBytes(upkPath, bak)) { Console.WriteLine($"{Path.GetFileName(upkPath)} already matches its .bak; nothing to do."); return 0; }
+        if (Locked(upkPath)) return 1;
         string temp = upkPath + ".reverttmp";
         File.Copy(bak, temp, overwrite: true);
         if (!SameBytes(temp, bak)) { File.Delete(temp); Console.WriteLine("Copy of the .bak didn't verify; live file untouched."); return 1; }
-        File.Move(temp, upkPath, overwrite: true);
+        if (!TryReplace(temp, upkPath)) return 1;
         bool ok = SameBytes(upkPath, bak);
         Console.WriteLine(ok ? $"Reverted {Path.GetFileName(upkPath)} from {Path.GetFileName(bak)} (verified identical; .bak kept)." : "WARNING: live file doesn't match the .bak after revert.");
         return ok ? 0 : 1;
@@ -243,6 +246,29 @@ static class MeshImport
                 list.Add(corner);
             }
         return map;
+    }
+
+    /// <summary>True (with a message) if something — usually the running game — holds the file open.</summary>
+    static bool Locked(string path)
+    {
+        try { using var _ = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None); return false; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.WriteLine($"  {Path.GetFileName(path)} is in use (is Marvel Heroes running?). Close the game and try again. Nothing was changed.");
+            return true;
+        }
+    }
+
+    /// <summary>Moves temp over target; on failure deletes temp, reports, and leaves target untouched.</summary>
+    static bool TryReplace(string temp, string target)
+    {
+        try { File.Move(temp, target, overwrite: true); return true; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            try { File.Delete(temp); } catch (IOException) { }
+            Console.WriteLine($"  Couldn't replace {Path.GetFileName(target)} ({ex.Message}). Is the game running? The file was left as it was.");
+            return false;
+        }
     }
 
     static Vector3 Unpack(uint packed) => new((packed & 0xFF) / 127.5f - 1f, ((packed >> 8) & 0xFF) / 127.5f - 1f, ((packed >> 16) & 0xFF) / 127.5f - 1f);

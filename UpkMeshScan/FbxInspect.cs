@@ -34,7 +34,12 @@ static class FbxInspect
             }
 
             Console.WriteLine($"   meshes {scene.MeshCount}, materials {scene.MaterialCount}");
-            for (int m = 0; m < scene.MaterialCount; m++) Console.WriteLine($"     material[{m}] {scene.Materials[m].Name}");
+            for (int m = 0; m < scene.MaterialCount; m++)
+            {
+                Console.WriteLine($"     material[{m}] {scene.Materials[m].Name}");
+                foreach (var t in scene.Materials[m].GetAllMaterialTextures())
+                    Console.WriteLine($"       {t.TextureType,-9} {t.FilePath}{(File.Exists(Path.Combine(Path.GetDirectoryName(path)!, t.FilePath)) ? "" : "  (FILE NOT FOUND)")}");
+            }
 
             Console.WriteLine("   nodes:");
             Walk(scene, scene.RootNode, Matrix4x4.Identity, 1);

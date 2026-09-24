@@ -111,6 +111,8 @@ static class ExportDump
                 if (size < 0 || p + size > d.Length) throw new PackageFormatException($"bad size {size}");
                 string value = Summarize(pkg, type, d, p, size);
                 sb.AppendLine($"    0x{tagAt:X6}  {name}{(arrayIndex > 0 ? $"[{arrayIndex}]" : "")} : {type}{(extra.Length > 0 ? $" <{extra}>" : "")}  size={size}  {value}");
+                if (type.Equals("arrayproperty", StringComparison.OrdinalIgnoreCase) && size >= 4) NestedArray(pkg, d, p, size, sb, "        ");
+                if (type.Equals("structproperty", StringComparison.OrdinalIgnoreCase)) NestedTags(pkg, d, p, p + size, sb, "        ");
                 p += size;
             }
             sb.AppendLine("    (gave up: too many tags)");
@@ -119,6 +121,48 @@ static class ExportDump
         {
             sb.AppendLine($"    desync at 0x{p:X}: {ex.Message}");
         }
+        return -1;
+    }
+
+    /// <summary>If an array's elements are tagged-property structs, print each element's tags.</summary>
+    static void NestedArray(Package pkg, byte[] d, int p, int size, StringBuilder sb, string indent)
+    {
+        int count = BitConverter.ToInt32(d, p), q = p + 4, end = p + size;
+        if (count <= 0 || count > 256) return;
+        var tmp = new StringBuilder();
+        for (int i = 0; i < count; i++)
+        {
+            tmp.AppendLine($"{indent}[{i}]");
+            int next = NestedTags(pkg, d, q, end, tmp, indent + "  ");
+            if (next < 0) return;                       // not a struct array; print nothing
+            q = next;
+        }
+        if (q == end) sb.Append(tmp);
+    }
+
+    /// <summary>Walks tagged properties from p up to "None"; returns the offset after it, or -1.</summary>
+    static int NestedTags(Package pkg, byte[] d, int p, int end, StringBuilder sb, string indent)
+    {
+        try
+        {
+            for (int guard = 0; guard < 256; guard++)
+            {
+                string name = Name(pkg, d, ref p);
+                if (name.Equals("None", StringComparison.OrdinalIgnoreCase)) return p;
+                string type = Name(pkg, d, ref p);
+                int size = I32(d, ref p); I32(d, ref p);
+                string extra = "";
+                switch (type.ToLowerInvariant())
+                {
+                    case "structproperty": case "byteproperty": extra = Name(pkg, d, ref p); break;
+                    case "boolproperty": extra = d[p] != 0 ? "true" : "false"; p += 1; break;
+                }
+                if (size < 0 || p + size > end) return -1;
+                sb.AppendLine($"{indent}{name} : {type}{(extra.Length > 0 ? $" <{extra}>" : "")}  {Summarize(pkg, type, d, p, size)}");
+                p += size;
+            }
+        }
+        catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException or IndexOutOfRangeException) { }
         return -1;
     }
 

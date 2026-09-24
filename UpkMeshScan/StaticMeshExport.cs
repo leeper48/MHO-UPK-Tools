@@ -42,12 +42,59 @@ static class StaticMeshExport
 
         Directory.CreateDirectory(outDir);
         string path = Path.Combine(outDir, $"{mesh.Name}.fbx");
-        Write(mesh, path);
+        var slots = ExportTextures(pkg, mesh, outDir, quiet);
+        Write(mesh, path, slots);
         if (!quiet) Console.WriteLine($"Wrote {path}");
         return 0;
     }
 
-    static void Write(StaticMesh mesh, string path)
+    sealed record SectionTextures(string? Diffuse, string? Normal, string? Specular);
+
+    /// <summary>
+    /// Writes each section's material textures (largest mip inside the package) to &lt;mesh&gt;_textures\ and a
+    /// &lt;mesh&gt;_textures.txt report. Returns per-section relative paths for the FBX material slots.
+    /// </summary>
+    static SectionTextures[] ExportTextures(Package pkg, StaticMesh mesh, string outDir, bool quiet)
+    {
+        var result = new SectionTextures[mesh.Sections.Length];
+        string folder = $"{mesh.Name}_textures";
+        var report = new System.Text.StringBuilder();
+        report.AppendLine($"Textures for {mesh.Name} (largest mip stored inside the package; full-size mips in .tfc files are not read)");
+        var written = new Dictionary<int, string>();
+        for (int s = 0; s < mesh.Sections.Length; s++)
+        {
+            var sec = mesh.Sections[s];
+            report.AppendLine();
+            report.AppendLine($"section{s}: {sec.MaterialName} ({sec.NumTriangles:N0} tris)");
+            var notes = new List<string>();
+            if (sec.MaterialRef == 0) notes.Add("no material on the mesh section; the placed component supplies it (not followed yet)");
+            string? diffuse = null, normal = null, specular = null;
+            foreach (var t in sec.MaterialRef == 0 ? new List<MaterialTexture>() : TextureExport.MaterialTextures(pkg, sec.MaterialRef, notes))
+            {
+                if (!written.TryGetValue(t.ExportIndex, out string? rel))
+                {
+                    rel = Path.Combine(folder, TextureExport.SafeName(t.Texture) + ".dds");
+                    var size = TextureExport.WriteDds(pkg, t.ExportIndex, Path.Combine(outDir, rel), out string note);
+                    report.AppendLine($"  {t.Parameter,-28} {t.Texture,-44} {(size is { } z ? $"{z.W}x{z.H}  {note}" : $"not written: {note}")}");
+                    if (size is null) { written[t.ExportIndex] = ""; continue; }
+                    written[t.ExportIndex] = rel;
+                }
+                else report.AppendLine($"  {t.Parameter,-28} {t.Texture,-44} (same file as above)");
+                if (rel.Length == 0) continue;
+                string pn = t.Parameter.ToLowerInvariant();
+                if (diffuse == null && pn.Contains("diffuse")) diffuse = rel;
+                else if (normal == null && pn.Contains("normal")) normal = rel;
+                else if (specular == null && pn.Contains("spec")) specular = rel;
+            }
+            foreach (string n in notes) report.AppendLine($"  note: {n}");
+            result[s] = new SectionTextures(diffuse, normal, specular);
+        }
+        File.WriteAllText(Path.Combine(outDir, $"{mesh.Name}_textures.txt"), report.ToString());
+        if (!quiet) Console.WriteLine($"  textures: {written.Values.Count(v => v.Length > 0)} written to {folder}{Path.DirectorySeparatorChar} (report: {mesh.Name}_textures.txt)");
+        return result;
+    }
+
+    static void Write(StaticMesh mesh, string path, SectionTextures[]? textures = null)
     {
         var scene = new Scene { RootNode = new Node(mesh.Name) };
         for (int s = 0; s < mesh.Sections.Length; s++)
@@ -78,7 +125,14 @@ static class StaticMeshExport
                 part.Faces.Add(new Face([used[mesh.Indices[i]], used[mesh.Indices[i + 1]], used[mesh.Indices[i + 2]]]));
 
             part.MaterialIndex = scene.MaterialCount;
-            scene.Materials.Add(new Material { Name = sec.MaterialName });
+            var material = new Material { Name = sec.MaterialName };
+            if (textures?[s] is { } tx)
+            {
+                if (tx.Diffuse != null) material.AddMaterialTexture(Slot(tx.Diffuse, TextureType.Diffuse));
+                if (tx.Normal != null) material.AddMaterialTexture(Slot(tx.Normal, TextureType.Normals));
+                if (tx.Specular != null) material.AddMaterialTexture(Slot(tx.Specular, TextureType.Specular));
+            }
+            scene.Materials.Add(material);
             scene.Meshes.Add(part);
             scene.RootNode.MeshIndices.Add(scene.MeshCount - 1);
         }
@@ -87,6 +141,9 @@ static class StaticMeshExport
         using var ctx = new AssimpContext();
         if (!ctx.ExportFile(scene, path, "fbx")) throw new IOException($"Assimp could not write {path}");
     }
+
+    static TextureSlot Slot(string relativePath, TextureType type) =>
+        new(relativePath.Replace('\\', '/'), type, 0, TextureMapping.FromUV, 0, 1f, TextureOperation.Add, TextureWrapMode.Wrap, TextureWrapMode.Wrap, 0);
 
     static Vector3 ToFileSpace(Vector3 v) => new(v.X, v.Z, v.Y);
 }

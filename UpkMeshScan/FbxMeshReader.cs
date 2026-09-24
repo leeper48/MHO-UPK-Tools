@@ -22,27 +22,49 @@ public sealed class ImportedSection(string material)
 /// </summary>
 static class FbxMeshReader
 {
-    public static List<ImportedSection> Read(string path, int uvChannels)
+    /// <summary>
+    /// Reads the FBX. When <paramref name="meshName"/> is given and the file has objects named after it
+    /// (as --export-fbx names them: &lt;mesh&gt;_section&lt;N&gt;, or Blender copies &lt;mesh&gt;.001), only those
+    /// objects are used, so one FBX can hold several meshes. Otherwise every object is used.
+    /// </summary>
+    public static List<ImportedSection> Read(string path, int uvChannels, string? meshName = null) => Read(path, uvChannels, meshName, out _);
+
+    public static List<ImportedSection> Read(string path, int uvChannels, string? meshName, out List<string> usedObjects)
     {
         using var ctx = new AssimpContext();
         Scene scene = ctx.ImportFile(path, PostProcessSteps.Triangulate | PostProcessSteps.JoinIdenticalVertices);
         var sections = new Dictionary<string, (ImportedSection Section, Dictionary<VertexKey, int> Weld)>(StringComparer.OrdinalIgnoreCase);
-        Walk(scene, scene.RootNode, Matrix4x4.Identity, uvChannels, sections);
+        bool filter = meshName != null && AnyMatch(scene.RootNode, meshName);
+        usedObjects = new List<string>();
+        Walk(scene, scene.RootNode, Matrix4x4.Identity, uvChannels, sections, filter ? meshName : null, false, usedObjects);
         return sections.Values.Select(v => v.Section).ToList();
     }
 
-    static void Walk(Scene scene, Node node, Matrix4x4 parent, int uvChannels, Dictionary<string, (ImportedSection, Dictionary<VertexKey, int>)> sections)
+    static bool NameMatches(string node, string mesh) =>
+        node.Equals(mesh, StringComparison.OrdinalIgnoreCase)
+        || node.StartsWith(mesh + "_section", StringComparison.OrdinalIgnoreCase)
+        || node.StartsWith(mesh + ".", StringComparison.OrdinalIgnoreCase);
+
+    static bool AnyMatch(Node node, string mesh) => NameMatches(node.Name, mesh) || node.Children.Any(c => AnyMatch(c, mesh));
+
+    /// <summary>Blender appends .001, .002… to duplicate material names; strip that for matching.</summary>
+    public static string BaseMaterialName(string name) => System.Text.RegularExpressions.Regex.Replace(name, @"\.\d{3}$", "");
+
+    static void Walk(Scene scene, Node node, Matrix4x4 parent, int uvChannels, Dictionary<string, (ImportedSection, Dictionary<VertexKey, int>)> sections,
+        string? meshFilter, bool inside, List<string> usedObjects)
     {
+        inside |= meshFilter == null || NameMatches(node.Name, meshFilter);
+        if (inside && node.MeshIndices.Count > 0) usedObjects.Add(node.Name);
         Matrix4x4 world = ToNumerics(node.Transform) * parent;
         Matrix4x4.Invert(world, out Matrix4x4 inverse);
         Matrix4x4 normalMatrix = Matrix4x4.Transpose(inverse);
 
-        foreach (int mi in node.MeshIndices)
+        foreach (int mi in inside ? node.MeshIndices : new List<int>())
         {
             Mesh mesh = scene.Meshes[mi];
             if (mesh.PrimitiveType != PrimitiveType.Triangle && mesh.Faces.Any(f => f.IndexCount != 3))
                 throw new InvalidDataException($"mesh '{mesh.Name}' has non-triangle faces after triangulation");
-            string material = scene.Materials[mesh.MaterialIndex].Name;
+            string material = BaseMaterialName(scene.Materials[mesh.MaterialIndex].Name);
             if (!sections.TryGetValue(material, out var entry))
                 sections[material] = entry = (new ImportedSection(material), new Dictionary<VertexKey, int>());
             var (section, weld) = entry;
@@ -72,7 +94,7 @@ static class FbxMeshReader
                 if (f.IndexCount == 3)
                     section.Indices.AddRange([remap[f.Indices[0]], remap[f.Indices[1]], remap[f.Indices[2]]]);
         }
-        foreach (Node child in node.Children) Walk(scene, child, world, uvChannels, sections);
+        foreach (Node child in node.Children) Walk(scene, child, world, uvChannels, sections, meshFilter, inside, usedObjects);
     }
 
     /// <summary>File space and engine space differ by a Y/Z swap, which is its own inverse.</summary>
