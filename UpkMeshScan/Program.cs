@@ -28,8 +28,26 @@ static class Program
 
     static int Run(string[] args, string version)
     {
+        int exportAt = Array.FindIndex(args, a => a.Equals("--export-fbx", StringComparison.OrdinalIgnoreCase));
+        if (exportAt >= 0)
+        {
+            if (exportAt + 2 >= args.Length) { Usage(); return 2; }
+            int outAt = Array.FindIndex(args, a => a.Equals("--out", StringComparison.OrdinalIgnoreCase) || a.Equals("-o", StringComparison.OrdinalIgnoreCase));
+            string exportDir = outAt >= 0 && outAt + 1 < args.Length ? args[outAt + 1] : Path.Combine(AppContext.BaseDirectory, "exports");
+            return StaticMeshExport.Run(args[exportAt + 1], args[exportAt + 2], exportDir);
+        }
+
+        int dumpAt = Array.FindIndex(args, a => a.Equals("--dump-export", StringComparison.OrdinalIgnoreCase));
+        if (dumpAt >= 0)
+        {
+            if (dumpAt + 2 >= args.Length) { Usage(); return 2; }
+            int outAt = Array.FindIndex(args, a => a.Equals("--out", StringComparison.OrdinalIgnoreCase) || a.Equals("-o", StringComparison.OrdinalIgnoreCase));
+            string dumpDir = outAt >= 0 && outAt + 1 < args.Length ? args[outAt + 1] : Path.Combine(AppContext.BaseDirectory, "dumps");
+            return ExportDump.Run(args[dumpAt + 1], args[dumpAt + 2], dumpDir);
+        }
+
         string? folder = null, outPath = null;
-        bool recursive = true, skeletal = false, includeEmpty = false;
+        bool recursive = true, skeletal = false, includeEmpty = false, includeBackups = false;
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i].ToLowerInvariant())
@@ -38,6 +56,7 @@ static class Program
                 case "--top-only": recursive = false; break;
                 case "--skeletal": skeletal = true; break;
                 case "--include-empty": includeEmpty = true; break;
+                case "--include-backups": includeBackups = true; break;
                 case "--help": case "-h": case "/?": Usage(); return 0;
                 default:
                     if (args[i].StartsWith('-')) { Console.WriteLine($"Unknown option: {args[i]}"); Usage(); return 2; }
@@ -62,7 +81,14 @@ static class Program
         var files = Directory.EnumerateFiles(folder, "*.*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
             .Where(f => f.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
             .ToList();
-        Console.WriteLine($"Scanning {files.Count} package(s) in {folder}{(recursive ? " (recursive)" : "")} ...");
+        int skippedBackups = 0;
+        if (!includeBackups)
+        {
+            int before = files.Count;
+            files = files.Where(f => !IsBackupName(f)).ToList();
+            skippedBackups = before - files.Count;
+        }
+        Console.WriteLine($"Scanning {files.Count} package(s) in {folder}{(recursive ? " (recursive)" : "")}{(skippedBackups > 0 ? $", skipped {skippedBackups} bak/copy file(s)" : "")} ...");
 
         var sw = Stopwatch.StartNew();
         var results = new ConcurrentBag<Result>();
@@ -75,7 +101,7 @@ static class Program
         });
 
         var ordered = results.OrderBy(r => Path.GetRelativePath(folder, r.File), StringComparer.OrdinalIgnoreCase).ToList();
-        WriteReport(outPath, folder, version, ordered, skeletal, includeEmpty, sw.Elapsed);
+        WriteReport(outPath, folder, version, ordered, skeletal, includeEmpty, skippedBackups, sw.Elapsed);
 
         int meshes = ordered.Sum(r => r.Meshes.Count);
         int failed = ordered.Count(r => r.Error != null);
@@ -107,7 +133,7 @@ static class Program
         }
     }
 
-    static void WriteReport(string outPath, string folder, string version, List<Result> results, bool skeletal, bool includeEmpty, TimeSpan elapsed)
+    static void WriteReport(string outPath, string folder, string version, List<Result> results, bool skeletal, bool includeEmpty, int skippedBackups, TimeSpan elapsed)
     {
         var sb = new StringBuilder();
         var ok = results.Where(r => r.Error == null).ToList();
@@ -118,7 +144,7 @@ static class Program
         sb.AppendLine($"UpkMeshScan v{version} — mesh scan report");
         sb.AppendLine($"Folder   : {folder}");
         sb.AppendLine($"Date     : {DateTime.Now:yyyy-MM-dd HH:mm}");
-        sb.AppendLine($"Packages : {results.Count} scanned, {ok.Count} read OK, {results.Count - ok.Count} failed ({elapsed.TotalSeconds:F1}s)");
+        sb.AppendLine($"Packages : {results.Count} scanned, {ok.Count} read OK, {results.Count - ok.Count} failed ({elapsed.TotalSeconds:F1}s){(skippedBackups > 0 ? $"; {skippedBackups} bak/copy file(s) skipped" : "")}");
         sb.AppendLine($"Meshes   : {staticCount} static{(skeletal ? $", {skelCount} skeletal" : "")} in {withMeshes.Count} package(s)");
         sb.AppendLine($"Versions : {string.Join(", ", ok.GroupBy(r => r.Version).OrderByDescending(g => g.Count()).Select(g => $"{g.Key} x{g.Count()}"))}");
         sb.AppendLine($"Chunks   : {string.Join(", ", ok.GroupBy(r => r.ChunkSource).Select(g => $"{g.Key} x{g.Count()}"))}");
@@ -151,6 +177,13 @@ static class Program
         File.WriteAllText(outPath, sb.ToString(), new UTF8Encoding(true));
     }
 
+    /// <summary>Backups and copies of packages ("Foo - Copy.upk", "Foo_bak.upk") sit beside the live files; skip them by default.</summary>
+    static bool IsBackupName(string path)
+    {
+        string name = Path.GetFileName(path);
+        return name.Contains("bak", StringComparison.OrdinalIgnoreCase) || name.Contains("copy", StringComparison.OrdinalIgnoreCase);
+    }
+
     static void Usage()
     {
         Console.WriteLine("""
@@ -162,6 +195,15 @@ static class Program
           --top-only         Don't recurse into subfolders
           --skeletal         Also list SkeletalMesh exports (tagged [Skel])
           --include-empty    Also list packages that contain no meshes
+          --include-backups  Also scan files with "bak" or "copy" in the name (skipped by default)
+
+        Usage: UpkMeshScan --dump-export <package.upk> <export-name-or-path> [--out <folder>]
+          Writes that export's raw bytes (.bin) and an annotated dump (.txt: property tags, then
+          hex of the native data) to <folder> (default: dumps\ next to the exe). Read-only.
+
+        Usage: UpkMeshScan --export-fbx <package.upk> <staticmesh-name-or-path> [--out <folder>]
+          Writes LOD 0 of that StaticMesh to <folder>\<name>.fbx (default: exports\ next to the exe),
+          one part per material section. Read-only on the package.
         """);
     }
 

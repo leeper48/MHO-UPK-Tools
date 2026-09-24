@@ -287,6 +287,24 @@ public sealed class Package
 
     // ---------------------------------------------------------------- helpers
 
+    /// <summary>Name of the object an object reference points at (export if &gt; 0, import if &lt; 0).</summary>
+    public string RefName(int index) => index switch
+    {
+        0 => "None",
+        > 0 when index <= Exports.Length => Exports[index - 1].ObjectName,
+        < 0 when -index <= Imports.Length => Imports[-index - 1].ObjectName,
+        _ => $"ref{index}",
+    };
+
+    /// <summary>The export's serialized bytes, decompressing only the chunks that cover it.</summary>
+    public byte[] ReadExportBytes(ExportEntry e)
+    {
+        if (e.SerialSize < 0 || e.SerialOffset < 0 || (long)e.SerialOffset + e.SerialSize > body.Length)
+            throw new PackageFormatException($"export '{e.ObjectName}' lies outside the package body");
+        if (e.SerialSize > 0) Ensure(e.SerialOffset, e.SerialSize);
+        return body.AsSpan(e.SerialOffset, e.SerialSize).ToArray();
+    }
+
     public string ClassOf(ExportEntry e) => e.ClassIndex switch
     {
         0 => "Class",
