@@ -37,7 +37,7 @@ static class StaticMeshExport
         {
             foreach (string note in mesh.Notes) Console.WriteLine($"  note: {note}");
             foreach (var s in mesh.Sections)
-                Console.WriteLine($"  section: {s.NumTriangles,7:N0} tris  material {s.MaterialName}");
+                Console.WriteLine($"  section: {s.NumTriangles,7:N0} tris  material {s.MaterialName} (ref {s.MaterialRef})");
         }
 
         Directory.CreateDirectory(outDir);

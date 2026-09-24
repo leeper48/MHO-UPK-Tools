@@ -21,10 +21,12 @@ static class MeshUsers
             {
                 var props = TryProps(pkg, d, start, out int end);
                 if (props is null) continue;
-                if (!props.TryGetValue("staticmesh", out int meshRef) || !pkg.RefName(meshRef).Equals(meshName, StringComparison.OrdinalIgnoreCase)) break;
+                if (!props.TryGetValue("staticmesh", out int meshRef) || (meshName != "*" && !pkg.RefName(meshRef).Equals(meshName, StringComparison.OrdinalIgnoreCase))) break;
+                if (meshName == "*") { found++; Console.WriteLine($"{pkg.RefName(meshRef),-48} {Placement(pkg, d, start)}"); break; }
                 found++;
                 Console.WriteLine($"{pkg.ClassOf(e)} {pkg.PathOf(e)}  ({d.Length:N0} B, properties from 0x{start:X}, native from 0x{end:X})");
                 Console.WriteLine($"  properties: {string.Join(", ", props.Keys)}");
+                Console.WriteLine($"  placement: {Placement(pkg, d, start)}");
                 var sb = new StringBuilder();
                 for (int p = end; p < Math.Min(d.Length, end + 96); p += 16)
                     sb.AppendLine($"  {p:X6}  {string.Join(' ', d.Skip(p).Take(Math.Min(16, d.Length - p)).Select(b => b.ToString("X2")))}");
@@ -90,6 +92,36 @@ static class MeshUsers
         }
         catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException or ArgumentException) { }
         return null;
+    }
+
+    /// <summary>Translation / Rotation / Scale3D / Scale properties of a component, decoded.</summary>
+    public static string Placement(Package pkg, byte[] d, int p)
+    {
+        var parts = new List<string>();
+        try
+        {
+            for (int guard = 0; guard < 1024; guard++)
+            {
+                string name = Name(pkg, d, ref p);
+                if (name.Equals("None", StringComparison.OrdinalIgnoreCase)) break;
+                string type = Name(pkg, d, ref p).ToLowerInvariant();
+                int size = BitConverter.ToInt32(d, p); p += 8;
+                string inner = type is "structproperty" or "byteproperty" ? Name(pkg, d, ref p) : "";
+                if (type == "boolproperty") p += 1;
+                switch (name.ToLowerInvariant())
+                {
+                    case "translation" or "scale3d" when size == 12:
+                        parts.Add($"{name} ({BitConverter.ToSingle(d, p):0.#}, {BitConverter.ToSingle(d, p + 4):0.#}, {BitConverter.ToSingle(d, p + 8):0.#})"); break;
+                    case "rotation" when size == 12:
+                        parts.Add($"{name} (pitch {BitConverter.ToInt32(d, p) * 360.0 / 65536:0.#}°, yaw {BitConverter.ToInt32(d, p + 4) * 360.0 / 65536:0.#}°, roll {BitConverter.ToInt32(d, p + 8) * 360.0 / 65536:0.#}°)"); break;
+                    case "scale" when size == 4:
+                        parts.Add($"scale {BitConverter.ToSingle(d, p):0.###}"); break;
+                }
+                p += size;
+            }
+        }
+        catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException or ArgumentException) { parts.Add("(parse stopped)"); }
+        return parts.Count == 0 ? "(no transform properties)" : string.Join("  ", parts);
     }
 
     static string Name(Package pkg, byte[] d, ref int p)

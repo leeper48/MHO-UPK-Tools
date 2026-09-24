@@ -52,6 +52,13 @@ static class Program
             return MeshImport.VerifyRoundTrip(args[roundTripAt + 1], args[roundTripAt + 2]);
         }
 
+        int sourcesAt = Array.FindIndex(args, a => a.Equals("--import-sources", StringComparison.OrdinalIgnoreCase));
+        if (sourcesAt >= 0)
+        {
+            if (sourcesAt + 2 >= args.Length) { Usage(); return 2; }
+            return ImportSources.Run(args[sourcesAt + 1], args[sourcesAt + 2]);
+        }
+
         int usersAt = Array.FindIndex(args, a => a.Equals("--mesh-users", StringComparison.OrdinalIgnoreCase));
         if (usersAt >= 0)
         {

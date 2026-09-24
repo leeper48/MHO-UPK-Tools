@@ -115,6 +115,18 @@ public sealed class StaticMesh
                 shadowCasting, materialIndex, flag);
         }
 
+        // Sections are identified by material name on export/import. Meshes cooked into level packages
+        // have no section materials (ref 0; the placed components supply them), and two sections can share
+        // a material, so those get a positional name instead. Section order is preserved either way,
+        // because components' Materials overrides are applied by section index.
+        for (int s = 0; s < sectionCount; s++)
+        {
+            var sec = sections[s];
+            bool shared = sections.Count(o => o.MaterialName.Equals(sec.MaterialName, StringComparison.OrdinalIgnoreCase)) > 1;
+            if (sec.MaterialRef == 0) sections[s] = sec with { MaterialName = $"section{s}" };
+            else if (shared) sections[s] = sec with { MaterialName = $"{sec.MaterialName}_section{s}" };
+        }
+
         // Position buffer: stride, count, then bulk array of float3.
         int posStride = r.I32(), numVerts = r.I32();
         int posCount = r.BulkArrayHeader(out int posElem);
