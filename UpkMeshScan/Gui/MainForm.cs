@@ -55,8 +55,21 @@ sealed class MainForm : Form
     // Properties tab
     readonly Label propTarget = new() { AutoSize = true, Text = "Select an export on the Browse tab.", Padding = new Padding(0, 4, 0, 4) };
     readonly DataGridView grid = new() { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, SelectionMode = DataGridViewSelectionMode.FullRowSelect };
-    readonly TextBox alsoApply = new() { Dock = DockStyle.Fill, PlaceholderText = "optional: other packages with the same export, separated by ;  (e.g. MidTown_Dynamic.upk)" };
+    readonly CheckedListBox alsoList = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false };
+    readonly TextBox alsoFilter = new() { Width = 260, Margin = new Padding(3, 5, 3, 3), PlaceholderText = "filter the list (e.g. midtown)" };
+    readonly Label alsoStatus = new() { AutoSize = true, Padding = new Padding(0, 4, 0, 0) };
+    readonly List<AlsoItem> alsoItems = new();          // everything found; the list box shows the filtered part
+    const string AlsoHint = "Click \"Find matching packages\" to list other packages that have this same export.";
+
+    sealed class AlsoItem(string file, string values)
+    {
+        public string File { get; } = file;
+        public string Values { get; } = values;
+        public bool Checked { get; set; }
+        public override string ToString() => $"{File}    {Values}";
+    }
     int propExport = -1;
+    string propPackage = "";
 
     // Meshes tab
     readonly ListBox meshes = new() { Dock = DockStyle.Fill, IntegralHeight = false };
@@ -71,13 +84,13 @@ sealed class MainForm : Form
     public MainForm(string version)
     {
         Text = $"UpkMeshScan v{version}";
-        Width = 1400; Height = 900;
+        Width = 1400; Height = 1000;
         StartPosition = FormStartPosition.CenterScreen;
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(6) };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 70));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 78));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 22));
         root.Controls.Add(BuildHeader(), 0, 0);
         root.Controls.Add(tabs, 0, 1);
         root.Controls.Add(BuildLog(), 0, 2);
@@ -150,6 +163,8 @@ sealed class MainForm : Form
         var page = new TabPage("Browse");
         exports.Columns.Add("#", 60); exports.Columns.Add("Class", 200); exports.Columns.Add("Size", 90, HorizontalAlignment.Right); exports.Columns.Add("Path", 600);
         exports.SelectedIndexChanged += (_, _) => ShowSelectedExport();
+        // Double-click (or Enter) on a row = "Edit properties →".
+        exports.ItemActivate += (_, _) => { if (SelectedExport() is int i) { LoadProperties(i); tabs.SelectedIndex = 1; } };
         classFilter.TextChanged += (_, _) => FillExports();
 
         var buttons = Flow(
@@ -189,9 +204,22 @@ sealed class MainForm : Form
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4 };
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var also = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true };
+        var also = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, AutoSize = true };
         also.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); also.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        also.Controls.Add(Lbl("Also apply to:"), 0, 0); also.Controls.Add(alsoApply, 1, 0);
+        also.RowStyles.Add(new RowStyle(SizeType.AutoSize)); also.RowStyles.Add(new RowStyle(SizeType.Absolute, 110)); also.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        also.Controls.Add(Lbl("Also apply to:"), 0, 0);
+        also.Controls.Add(Flow(Btn("Find matching packages", FindMatchingPackages), alsoFilter,
+            Btn("Check all shown", () => SetShownChecks(true)),
+            Btn("Uncheck all", () => { alsoItems.ForEach(i => i.Checked = false); FillAlsoList(); })), 1, 0);
+        also.Controls.Add(alsoList, 1, 1);
+        also.Controls.Add(alsoStatus, 1, 2);
+        alsoStatus.Text = AlsoHint;
+        alsoFilter.TextChanged += (_, _) => FillAlsoList();
+        alsoList.ItemCheck += (_, e) =>
+        {
+            if (alsoList.Items[e.Index] is AlsoItem it) it.Checked = e.NewValue == CheckState.Checked;
+            BeginInvoke(UpdateAlsoStatus);
+        };
         t.Controls.Add(propTarget, 0, 0); t.Controls.Add(grid, 0, 1); t.Controls.Add(also, 0, 2);
         t.Controls.Add(Flow(
             Btn("Dry run (writes to import_out, game untouched)", () => ApplyProperties(dryRun: true)),
@@ -199,6 +227,82 @@ sealed class MainForm : Form
             Btn("Reset edits", () => { if (propExport >= 0) LoadProperties(propExport); })), 0, 3);
         page.Controls.Add(t);
         return page;
+    }
+
+    /// <summary>Background scan of the game folder for packages that have an export with the same path and class.</summary>
+    void FindMatchingPackages()
+    {
+        if (package == null || propExport < 0) { Log("Pick an export first (Browse tab, Edit properties ->)."); return; }
+        var e = package.Exports[propExport];
+        string path = package.PathOf(e), cls = package.ClassOf(e), objectName = e.ObjectName;
+        string baseName = System.Text.RegularExpressions.Regex.Replace(objectName, @"_\d+$", "");
+        string self = packagePath, folder = gameFolder.Text;
+        var editable = (PropertyEdit.ReadProperties(package, propExport) ?? new()).Where(p => p.Editable).Select(p => p.Name).ToList();
+        var found = new System.Collections.Concurrent.ConcurrentBag<AlsoItem>();
+        Run($"Find packages with {path}", () =>
+        {
+            var files = Directory.EnumerateFiles(folder)
+                .Where(f => f.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".umap", StringComparison.OrdinalIgnoreCase))
+                .Where(f => !Program.IsBackupName(f) && !string.Equals(Path.GetFullPath(f), self, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            Parallel.ForEach(files, f =>
+            {
+                try
+                {
+                    var pkg = Package.Open(f);
+                    // Quick skip. The name table stores "foo_0" as "foo" plus an instance number, so check the base name.
+                    if (!pkg.Names.Contains(baseName, StringComparer.OrdinalIgnoreCase)) return;
+                    for (int i = 0; i < pkg.Exports.Length; i++)
+                    {
+                        var x = pkg.Exports[i];
+                        if (!x.ObjectName.Equals(objectName, StringComparison.OrdinalIgnoreCase)
+                            || !pkg.ClassOf(x).Equals(cls, StringComparison.OrdinalIgnoreCase)
+                            || !pkg.PathOf(x).Equals(path, StringComparison.OrdinalIgnoreCase)) continue;
+                        var props = PropertyEdit.ReadProperties(pkg, i) ?? new();
+                        string values = string.Join("  ", props.Where(p => editable.Contains(p.Name, StringComparer.OrdinalIgnoreCase)).Select(p => $"{p.Name}={p.Value}"));
+                        var missing = editable.Where(n => !props.Any(p => p.Name.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
+                        if (missing.Count > 0) values += $"   (not stored: {string.Join(", ", missing)})";
+                        found.Add(new AlsoItem(Path.GetFileName(f), values));
+                        break;
+                    }
+                }
+                catch (Exception ex) when (ex is PackageFormatException or IOException or InvalidDataException or ArgumentOutOfRangeException) { }
+            });
+            Console.WriteLine($"  {found.Count} other package(s) have {cls} {path}");
+            return 0;
+        }, after: () =>
+        {
+            string prefix = Path.GetFileName(self).Split('_')[0] + "_";
+            alsoItems.Clear();
+            alsoItems.AddRange(found.OrderBy(i => !i.File.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ThenBy(i => i.File, StringComparer.OrdinalIgnoreCase));
+            foreach (var i in alsoItems) i.Checked = i.File.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+            FillAlsoList();
+        });
+    }
+
+    void FillAlsoList()
+    {
+        alsoList.BeginUpdate();
+        alsoList.Items.Clear();
+        string f = alsoFilter.Text.Trim();
+        foreach (var item in alsoItems.Where(i => f.Length == 0 || i.ToString().Contains(f, StringComparison.OrdinalIgnoreCase)))
+            alsoList.Items.Add(item, item.Checked);
+        alsoList.EndUpdate();
+        UpdateAlsoStatus();
+    }
+
+    void SetShownChecks(bool value)
+    {
+        foreach (var o in alsoList.Items) if (o is AlsoItem it) it.Checked = value;
+        FillAlsoList();
+    }
+
+    void UpdateAlsoStatus()
+    {
+        int n = alsoItems.Count(i => i.Checked);
+        if (alsoItems.Count == 0) { alsoStatus.Text = AlsoHint; return; }
+        string names = string.Join(", ", alsoItems.Where(i => i.Checked).Select(i => i.File).Take(6)) + (n > 6 ? ", ..." : "");
+        alsoStatus.Text = $"{alsoItems.Count} package(s) have this export; {n} checked{(n > 0 ? ": " + names : "")}. Same-prefix packages are pre-checked.";
     }
 
     TabPage BuildMeshesTab()
@@ -362,7 +466,9 @@ sealed class MainForm : Form
     void LoadProperties(int index)
     {
         if (package == null) return;
+        if (propExport != index || !string.Equals(propPackage, packagePath, StringComparison.OrdinalIgnoreCase)) { alsoItems.Clear(); FillAlsoList(); }
         propExport = index;
+        propPackage = packagePath;
         grid.Rows.Clear();
         var list = PropertyEdit.ReadProperties(package, index);
         propTarget.Text = $"{Path.GetFileName(packagePath)} :: {package.PathOf(package.Exports[index])} ({package.ClassOf(package.Exports[index])})";
@@ -396,8 +502,8 @@ sealed class MainForm : Form
 
         string exportPath = package.PathOf(package.Exports[propExport]);
         var targets = new List<string> { packagePath };
-        foreach (string extra in alsoApply.Text.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            targets.Add(Path.IsPathRooted(extra) ? extra : Path.Combine(gameFolder.Text, extra));
+        foreach (var extra in alsoItems.Where(i => i.Checked))
+            targets.Add(Path.Combine(gameFolder.Text, extra.File));
 
         string summary = string.Join("\n", changes.Select(c => $"  {c.Item1} = {c.Item2}"));
         if (!dryRun && !Confirm($"Write these changes into the game file(s)?\n\n{summary}\n\nPackages:\n  {string.Join("\n  ", targets.Select(Path.GetFileName))}\n\nA .bak of each original is kept; Backups tab reverts."))
