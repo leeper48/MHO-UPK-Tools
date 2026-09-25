@@ -27,9 +27,32 @@ static class ZonePlaceholders
 
     public static int Run(string folder, string tilePrefix, string libraryPackage, string outFbx, float minHeight, float minFootprint, float inset, string[] skip, string[]? only = null)
     {
-        var tiles = Directory.EnumerateFiles(folder, tilePrefix + "*.upk").Where(f => !Program.IsBackupName(f)).OrderBy(f => f).ToList();
-        if (tiles.Count == 0) { Console.WriteLine($"No packages matching {tilePrefix}*.upk"); return 1; }
-        Console.WriteLine($"Reading {tiles.Count} tile package(s) matching {tilePrefix}*; shared meshes from {Path.GetFileName(libraryPackage)}");
+        // Tiles: packages matching the prefix (placements already in world coordinates, e.g. Midtown), or a layout
+        // file (.txt: "cell <TAB> x <TAB> y" per line, # comments) for zones laid out by a generator, whose cell
+        // packages are stored centred on the origin: each cell's placements are moved to its logged centre (the
+        // cellpos of MHServerEmu's region generation log, e.g. Industry City).
+        var tiles = new List<(string Path, string Label, Vector3 Offset)>();
+        if (tilePrefix.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && File.Exists(tilePrefix))
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (string line in File.ReadLines(tilePrefix))
+            {
+                if (line.TrimStart().StartsWith('#') || line.Trim().Length == 0) continue;
+                string[] f = line.Split('\t');
+                string path = Path.Combine(folder, f[0].Trim() + ".upk");
+                if (!File.Exists(path)) { Console.WriteLine($"Layout cell {f[0]}: no package {path}"); return 1; }
+                var offset = new Vector3(float.Parse(f[1], inv), float.Parse(f[2], inv), f.Length > 3 ? float.Parse(f[3], inv) : 0f);
+                tiles.Add((path, $"{f[0].Trim()}@{offset.X:0},{offset.Y:0}", offset));
+            }
+            Console.WriteLine($"Reading {tiles.Count} cell(s) from layout {Path.GetFileName(tilePrefix)} ({tiles.Select(t => t.Path).Distinct().Count()} packages); shared meshes from {Path.GetFileName(libraryPackage)}");
+        }
+        else
+        {
+            tiles = Directory.EnumerateFiles(folder, tilePrefix + "*.upk").Where(f => !Program.IsBackupName(f)).OrderBy(f => f)
+                .Select(f => (f, Path.GetFileNameWithoutExtension(f), Vector3.Zero)).ToList();
+            if (tiles.Count == 0) { Console.WriteLine($"No packages matching {tilePrefix}*.upk"); return 1; }
+            Console.WriteLine($"Reading {tiles.Count} tile package(s) matching {tilePrefix}*; shared meshes from {Path.GetFileName(libraryPackage)}");
+        }
 
         var library = Package.Open(libraryPackage);
         var libraryIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -39,11 +62,10 @@ static class ZonePlaceholders
         var packages = new Dictionary<string, Package> { ["lib"] = library };
         var placed = new List<Placed>();
         int unresolved = 0, hiddenCount = 0, skipped = 0;
-        foreach (string tile in tiles)
+        foreach (var (tile, label, offset) in tiles)
         {
-            var pkg = Package.Open(tile);
             string tileKey = Path.GetFileNameWithoutExtension(tile);
-            packages[tileKey] = pkg;
+            if (!packages.TryGetValue(tileKey, out var pkg)) packages[tileKey] = pkg = Package.Open(tile);
             foreach (var e in pkg.Exports)
             {
                 if (!pkg.ClassOf(e).Contains("StaticMeshComponent", StringComparison.OrdinalIgnoreCase)) continue;
@@ -58,7 +80,7 @@ static class ZonePlaceholders
                 else if (libraryIndex.TryGetValue(meshName, out int li)) { key = $"lib:{li}"; owner = library; index = li; }
                 else { unresolved++; continue; }
                 if (StaticMesh.ReadBounds(owner, owner.Exports[index]) is not { } bb) { unresolved++; continue; }
-                placed.Add(new Placed(tileKey, meshName, key, c.Translation, c.Rotation, c.Scale, bb.Origin, bb.Extent));
+                placed.Add(new Placed(label, meshName, key, c.Translation + offset, c.Rotation, c.Scale, bb.Origin, bb.Extent));
             }
         }
 

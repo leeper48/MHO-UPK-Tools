@@ -37,6 +37,14 @@ static class CellPlaceholders
         int n0 = bak.Exports.Length;
         if (live.Exports.Length < n0 || Enumerable.Range(0, n0).Any(i => live.Exports[i] with { SerialSize = 0, SerialOffset = 0 } != bak.Exports[i] with { SerialSize = 0, SerialOffset = 0 }))
         { Console.WriteLine("  the live package's exports don't start with the .bak's; not safe to rebuild from the .bak"); return 1; }
+        // This command only ever adds exports and the name MinDrawDistance. More imports or other names mean another
+        // tool added objects (e.g. --copy-export); rebuilding from the .bak would silently drop them.
+        if (live.Imports.Length != bak.Imports.Length || live.Names.Length > bak.Names.Length + 1)
+        {
+            Console.WriteLine($"  the live package has {live.Imports.Length - bak.Imports.Length} import(s) / {live.Names.Length - bak.Names.Length} name(s) the .bak lacks (added by e.g. --copy-export);");
+            Console.WriteLine("  rebuilding from the .bak would drop them. Run this first (after --revert), then the copy and ground-plane steps.");
+            return 1;
+        }
 
         int skyMesh = Find(bak, meshName, "StaticMesh"), skyMic = Find(bak, micName, "MaterialInstanceConstant");
         int skyComp = -1;
