@@ -76,7 +76,7 @@ static class Program
         if (cellAt >= 0)
         {
             // --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304] [--gray 0.03] [--exclude-box ...]
-            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--dry-run]
+            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--from-live] [--offset X,Y[,Z]] [--lift Z] [--always-fbx f.fbx ...] [--dry-run]
             if (cellAt + 2 >= args.Length) { Usage(); return 2; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
@@ -87,7 +87,9 @@ static class Program
                 Multi("--exclude-box").Select(b => b.Split(',').Select(v => float.Parse(v, inv)).ToArray()).Where(b => b.Length == 4).ToList(),
                 ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv),
                 float.Parse(Opt("--shrink", "1"), inv), Multi("--add-fbx"),
-                fromLive: args.Any(a => a.Equals("--from-live", StringComparison.OrdinalIgnoreCase)));
+                fromLive: args.Any(a => a.Equals("--from-live", StringComparison.OrdinalIgnoreCase)), lift: float.Parse(Opt("--lift", "0"), inv),
+                offset: Opt("--offset", "0,0,0").Split(',').Select(v => float.Parse(v, inv)).Concat([0f, 0f, 0f]).Take(3).ToArray() is var o ? new System.Numerics.Vector3(o[0], o[1], o[2]) : default,
+                alwaysFbx: Multi("--always-fbx"));
         }
 
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));
@@ -101,7 +103,7 @@ static class Program
         if (skyAt >= 0)
         {
             // --add-sky-placeholders <package.upk> <placeholders.fbx | none> [--mesh sm_skysphere] [--material m_procedural_sky_daytime] [--gray 0.03]
-            //     [--color R,G,B] [--ground-z Z [--ground-margin 4000 | --ground-box x0,y0,x1,y1]] [--ground-material pkg.obj [--ground-uv 2304]] [--dry-run]
+            //     [--color R,G,B] [--ground-z Z [--ground-margin 4000 | --ground-box x0,y0,x1,y1]] [--ground-material pkg.obj [--ground-uv 2304]] [--sky-drop F] [--dry-run]
             if (skyAt + 2 >= args.Length) { Usage(); return 2; }
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -119,7 +121,8 @@ static class Program
                     : null,
                 Opt("--color", "") is { Length: > 0 } col && col.Split(',').Select(v => float.Parse(v, inv)).ToArray() is { Length: 3 } c
                     ? new System.Numerics.Vector3(c[0], c[1], c[2]) : null,
-                Opt("--ground-material", "") is { Length: > 0 } gm ? gm : null, float.Parse(Opt("--ground-uv", "2304"), inv));
+                Opt("--ground-material", "") is { Length: > 0 } gm ? gm : null, float.Parse(Opt("--ground-uv", "2304"), inv),
+                float.Parse(Opt("--sky-drop", "0"), inv));
         }
 
         int testRebuildAt = Array.FindIndex(args, a => a.Equals("--test-rebuild", StringComparison.OrdinalIgnoreCase));

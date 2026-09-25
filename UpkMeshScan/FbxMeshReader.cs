@@ -32,7 +32,8 @@ static class FbxMeshReader
     public static List<ImportedSection> Read(string path, int uvChannels, string? meshName, out List<string> usedObjects)
     {
         using var ctx = new AssimpContext();
-        Scene scene = ctx.ImportFile(path, PostProcessSteps.Triangulate | PostProcessSteps.JoinIdenticalVertices);
+        // GenerateNormals: flat face normals, only for meshes without any (the tool's own FBX files carry none).
+        Scene scene = ctx.ImportFile(path, PostProcessSteps.Triangulate | PostProcessSteps.GenerateNormals | PostProcessSteps.JoinIdenticalVertices);
         var sections = new Dictionary<string, (ImportedSection Section, Dictionary<VertexKey, int> Weld)>(StringComparer.OrdinalIgnoreCase);
         bool filter = meshName != null && AnyMatch(scene.RootNode, meshName);
         usedObjects = new List<string>();

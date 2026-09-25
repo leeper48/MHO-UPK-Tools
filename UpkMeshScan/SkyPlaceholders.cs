@@ -15,7 +15,7 @@ static class SkyPlaceholders
 {
     public static int Run(string upkPath, string fbxPath, string meshName, string micName, float gray, bool dryRun,
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink = 1f, IReadOnlyList<string>? addFbx = null,
-        float[]? groundBox = null, Vector3? color = null, string? groundMaterial = null, float groundUv = 2304f)
+        float[]? groundBox = null, Vector3? color = null, string? groundMaterial = null, float groundUv = 2304f, float skyDrop = 0f)
     {
         // fbxPath "none": no placeholders, only the ground plane (zones whose cells are laid out at run time, e.g. Industry City).
         bool groundOnly = fbxPath.Equals("none", StringComparison.OrdinalIgnoreCase);
@@ -62,6 +62,14 @@ static class SkyPlaceholders
             Console.WriteLine($"  placeholders already present: replacing them, keeping material '{pkg.Exports[existingMic].ObjectName}' (its grey stays as it is)");
         }
         else if (original.Sections.Length != 1) { Console.WriteLine($"  the mesh has {original.Sections.Length} sections; expected the sky sphere (1) or sky + placeholders (2)."); return 1; }
+        // --sky-drop F: lowers the sky's own section by F times its height (e.g. 0.2 = a fifth of the dome), so the
+        // horizon band sits lower. The ground section stays where --ground-z / --ground-box put it.
+        if (skyDrop != 0f)
+        {
+            float dz = skyDrop * original.BoundsExtent.Z * 2;
+            original = Lowered(original, dz);
+            Console.WriteLine($"  sky section lowered by {skyDrop:0.###} of its height: {dz:0} mesh units = {dz * scale:0} world units");
+        }
 
         // Placeholder geometry: every FBX triangle, world -> the sky mesh's local space.
         var sections = groundOnly ? [] : FbxMeshReader.Read(fbxPath, 1);
@@ -171,6 +179,16 @@ static class SkyPlaceholders
     }
 
     /// <summary>The sky sphere part of a mesh that already has placeholders: section 0 and its vertices/triangles (added first).</summary>
+    static StaticMesh Lowered(StaticMesh m, float dz) => new()
+    {
+        Name = m.Name, InternalVersion = m.InternalVersion, LodCount = m.LodCount, NumTexCoords = m.NumTexCoords,
+        Positions = m.Positions.Select(p => p - new Vector3(0, 0, dz)).ToArray(), Normals = m.Normals, TexCoords = m.TexCoords,
+        Indices = m.Indices, Sections = m.Sections, Notes = m.Notes, Facts = m.Facts,
+        TangentX = m.TangentX, TangentZ = m.TangentZ, ColorStride = m.ColorStride, Layout = m.Layout,
+        FullPrecisionUVs = m.FullPrecisionUVs, HasVertexColors = m.HasVertexColors, Adjacency = m.Adjacency,
+        KdopTriangleCount = m.KdopTriangleCount, BoundsOrigin = m.BoundsOrigin - new Vector3(0, 0, dz), BoundsExtent = m.BoundsExtent, BoundsRadius = m.BoundsRadius,
+    };
+
     static StaticMesh SkyOnly(StaticMesh m)
     {
         var sky = m.Sections[0];

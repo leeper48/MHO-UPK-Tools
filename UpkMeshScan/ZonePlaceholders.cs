@@ -335,9 +335,8 @@ static class ZonePlaceholders
         int baseIndex = mesh.VertexCount;
         foreach (var v in poly)
         {
-            Vector3 f = ToFileSpace(v), fn = ToFileSpace(normal);
+            Vector3 f = ToFileSpace(v);
             mesh.Vertices.Add(new Vector3D(f.X, f.Y, f.Z));
-            mesh.Normals.Add(new Vector3D(fn.X, fn.Y, fn.Z));
         }
         // Engine winding: on stock meshes cross(v1-v0, v2-v0) points AGAINST the normal (all 21,960 triangles of
         // nyc_midtown_bldg_b_buildinga_a). Newell's normal follows the polygon order, so emit the fan reversed

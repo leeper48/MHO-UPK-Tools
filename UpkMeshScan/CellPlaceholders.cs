@@ -24,7 +24,7 @@ static class CellPlaceholders
 {
     public static int Run(string upkPath, string fbxPath, float minDrawDistance, float cellSize, float gray, bool dryRun,
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink, IReadOnlyList<string> addFbx,
-        string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false)
+        string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false, float lift = 0, Vector3 offset = default, IReadOnlyList<string>? alwaysFbx = null)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -76,28 +76,40 @@ static class CellPlaceholders
 
         // Placeholder geometry in world units.
         var pos = new List<Vector3>(); var nrm = new List<Vector3>(); var idx = new List<int>();
-        void Load(string path)
+        var always = new List<bool>();                                    // per vertex: from an --always-fbx file
+        void Load(string path, bool alwaysOn = false)
         {
             foreach (var s in FbxMeshReader.Read(path, 1))
             {
                 int b = pos.Count;
                 pos.AddRange(s.Positions); nrm.AddRange(s.Normals); idx.AddRange(s.Indices.Select(i => i + b));
+                always.AddRange(Enumerable.Repeat(alwaysOn, s.Positions.Count));
             }
         }
         Load(fbxPath);
         if (excludeBoxes.Count > 0) SkyPlaceholders.RemoveIslandsPublic(pos, nrm, idx, excludeBoxes);
         if (shrink != 1f) SkyPlaceholders.ShrinkIslandsPublic(pos, idx, shrink);
         foreach (string extra in addFbx) { int before = idx.Count; Load(extra); Console.WriteLine($"  added {(idx.Count - before) / 3:N0} tris from {Path.GetFileName(extra)}"); }
+        // --always-fbx: pieces drawn at every distance (MinDrawDistance 0), in their own per-cell objects — e.g. ground
+        // slabs under the real streets, which never need to fade out as a cell loads.
+        foreach (string extra in alwaysFbx ?? []) { int before = idx.Count; Load(extra, alwaysOn: true); Console.WriteLine($"  added {(idx.Count - before) / 3:N0} always-drawn tris from {Path.GetFileName(extra)}"); }
+        // --offset X,Y,Z: moves every placeholder from tile coordinates to where the game shows the tiles. A region
+        // generated with sub-areas is centred by the server (RegionGenerator.CenterRegion: every area moves by minus the
+        // centre of all area bounds); the tiles move with their cells, the main level doesn't. Hightown: +5208,-15512.
+        // --lift Z: diagnostic, raises every placeholder by Z so it floats above the real building it stands for.
+        offset += new Vector3(0, 0, lift);
+        if (offset != Vector3.Zero) { for (int i = 0; i < pos.Count; i++) pos[i] += offset; Console.WriteLine($"  moved by {offset.X},{offset.Y},{offset.Z}"); }
 
         // One group per map cell (by each connected piece's centre).
         var root = SkyPlaceholders.IslandsPublic(pos, idx);
         var centre = new Dictionary<int, (Vector2 Sum, int Count)>();
         for (int i = 0; i < pos.Count; i++) { int r = root(i); var v = centre.GetValueOrDefault(r); centre[r] = (v.Sum + new Vector2(pos[i].X, pos[i].Y), v.Count + 1); }
         var cellOf = centre.ToDictionary(kv => kv.Key, kv => { Vector2 c = kv.Value.Sum / kv.Value.Count; return ((int)MathF.Round(c.X / cellSize), (int)MathF.Round(c.Y / cellSize)); });
-        var cells = new SortedDictionary<(int, int), (List<Vector3> P, List<Vector3> N, List<int> I, Dictionary<int, int> Map)>();
+        var cells = new SortedDictionary<(int, int, bool), (List<Vector3> P, List<Vector3> N, List<int> I, Dictionary<int, int> Map)>();
         for (int t = 0; t + 2 < idx.Count; t += 3)
         {
-            var key = cellOf[root(idx[t])];
+            var (cx, cy) = cellOf[root(idx[t])];
+            var key = (cx, cy, always[idx[t]]);
             if (!cells.TryGetValue(key, out var g)) cells[key] = g = (new(), new(), new(), new());
             for (int k = 0; k < 3; k++)
             {
@@ -107,7 +119,7 @@ static class CellPlaceholders
             }
         }
         Console.WriteLine($"  {idx.Count / 3:N0} placeholder tris in {centre.Count} piece(s) -> {cells.Count} cell object(s) ({cellSize}-unit cells): " +
-            string.Join(" ", cells.Select(c => $"X{c.Key.Item1}Y{c.Key.Item2}:{c.Value.I.Count / 3}")));
+            string.Join(" ", cells.Select(c => $"X{c.Key.Item1}Y{c.Key.Item2}{(c.Key.Item3 ? "(always)" : "")}:{c.Value.I.Count / 3}")));
 
         // New exports (appended after the .bak's): grey material, then mesh + component per cell.
         var names = bak.Names.Any(n => n.Equals("MinDrawDistance", StringComparison.OrdinalIgnoreCase)) ? new List<string>() : new List<string> { "MinDrawDistance" };
@@ -120,6 +132,7 @@ static class CellPlaceholders
         if (skyTemplate.Sections.Length != 1) { Console.WriteLine("  the .bak's sky sphere doesn't have exactly one section"); return 1; }
         var compRefs = new List<int>();
         var cellMeshes = new List<(string Cell, int MeshRef, BuiltMesh Mesh)>();
+        var minDraws = new List<float>();
         int k2 = 0;
         foreach (var (key, g) in cells)
         {
@@ -127,10 +140,12 @@ static class CellPlaceholders
             int meshRef = n0 + add.Count + 1;
             add.Add(new NewExport(skyMesh, NextNumber(bak, skyMesh, k2), off => StaticMeshBuilder.Serialize(skyTemplate, mesh, off, dropBodySetup: true)));
             int compRef = n0 + add.Count + 1;
-            byte[] comp = BuildComponent(bak, skyComp, tw, meshRef, micRef, minDrawDistance);
+            float md = key.Item3 ? 0f : minDrawDistance;
+            byte[] comp = BuildComponent(bak, skyComp, tw, meshRef, micRef, md);
+            minDraws.Add(md);
             add.Add(new NewExport(skyComp, NextNumber(bak, skyComp, k2), _ => comp));
             compRefs.Add(compRef);
-            cellMeshes.Add(($"X{key.Item1}Y{key.Item2}", meshRef, mesh));
+            cellMeshes.Add(($"X{key.Item1}Y{key.Item2}{(key.Item3 ? "(always)" : "")}", meshRef, mesh));
             k2++;
         }
 
@@ -156,7 +171,7 @@ static class CellPlaceholders
 
         byte[] output = PackageRebuilder.Rebuild(bak, replace, add, out var written, names);
         var problems = PackageRebuilder.Verify(bak, output, replace.Keys.ToList(), add, written, names);
-        problems.AddRange(Check(output, n0, actor, compRefs, cellMeshes, minDrawDistance, skyMesh, skyTemplate, skyBuilt));
+        problems.AddRange(Check(output, n0, actor, compRefs, cellMeshes, minDraws, skyMesh, skyTemplate, skyBuilt));
         Console.WriteLine($"  package: {live.RawFile.Length:N0} -> {output.Length:N0} bytes; exports {n0} (.bak) + {add.Count} = {n0 + add.Count}{(names.Count > 0 ? "; name added: MinDrawDistance" : "")}");
         if (problems.Count > 0) { Console.WriteLine("  verify: FAIL"); problems.ForEach(p => Console.WriteLine($"    - {p}")); Console.WriteLine("  Nothing written."); return 1; }
         Console.WriteLine($"  verify: PASS (tables = .bak's + additions, untouched exports byte-identical to the .bak, carried-over edits as in the live file, {cells.Count} cell meshes/components read back as built)");
@@ -173,7 +188,7 @@ static class CellPlaceholders
         return MeshImport.WriteLive(upkPath, output, onDisk =>
         {
             var p = PackageRebuilder.Verify(bak, onDisk, replace.Keys.ToList(), add, written, names);
-            p.AddRange(Check(onDisk, n0, actor, compRefs, cellMeshes, minDrawDistance, skyMesh, skyTemplate, skyBuilt));
+            p.AddRange(Check(onDisk, n0, actor, compRefs, cellMeshes, minDraws, skyMesh, skyTemplate, skyBuilt));
             return p;
         }) ? 0 : 1;
     }
@@ -220,7 +235,7 @@ static class CellPlaceholders
         return ms.ToArray();
     }
 
-    static List<string> Check(byte[] bytes, int n0, int actor, List<int> compRefs, List<(string Cell, int MeshRef, BuiltMesh Mesh)> meshes, float minDraw,
+    static List<string> Check(byte[] bytes, int n0, int actor, List<int> compRefs, List<(string Cell, int MeshRef, BuiltMesh Mesh)> meshes, List<float> minDraws,
         int skyMesh, StaticMesh skyTemplate, BuiltMesh? skyBuilt)
     {
         var problems = new List<string>();
@@ -240,7 +255,7 @@ static class CellPlaceholders
             if (c == null || c.MeshRef != meshes[i].MeshRef || c.Scale != Vector3.One || c.Translation != Vector3.Zero) problems.Add($"component {meshes[i].Cell} doesn't read back right");
             var props = PropertyEdit.ReadProperties(w, compRefs[i] - 1);
             var md = props?.FirstOrDefault(p => p.Name.Equals("MinDrawDistance", StringComparison.OrdinalIgnoreCase));
-            if (md == null || md.Value != minDraw.ToString(System.Globalization.CultureInfo.InvariantCulture)) problems.Add($"component {meshes[i].Cell}: MinDrawDistance missing or wrong");
+            if (md == null || md.Value != minDraws[i].ToString(System.Globalization.CultureInfo.InvariantCulture)) problems.Add($"component {meshes[i].Cell}: MinDrawDistance missing or wrong");
             var e = w.Exports[meshes[i].MeshRef - 1];
             var m = StaticMesh.Parse(w, e.ObjectName, w.ReadExportBytes(e), e.SerialOffset);
             if (!m.Positions.SequenceEqual(meshes[i].Mesh.Positions) || !m.Indices.SequenceEqual(meshes[i].Mesh.Indices)) problems.Add($"mesh {meshes[i].Cell} doesn't read back as built");

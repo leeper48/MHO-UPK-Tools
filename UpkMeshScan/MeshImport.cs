@@ -195,7 +195,7 @@ static class MeshImport
         // FBX round trip.
         string tempDir = Path.Combine(Path.GetTempPath(), "UpkMeshScan_roundtrip");
         Directory.CreateDirectory(tempDir);
-        if (StaticMeshExport.Run(upkPath, pkg.PathOf(pkg.Exports[index]), tempDir, quiet: true) != 0) return 1;
+        if (StaticMeshExport.Run(upkPath, pkg.PathOf(pkg.Exports[index]), tempDir, quiet: true, normals: true) != 0) return 1;
         string fbx = Path.Combine(tempDir, $"{o.Name}.fbx");
         var built = StaticMeshBuilder.Build(o, FbxMeshReader.Read(fbx, o.NumTexCoords));
 

@@ -8,6 +8,8 @@ namespace UpkMeshScan;
 /// an export's tagged-property block. Same size, so only the value bytes change; the export is still re-appended
 /// through PackageWriter and written with the .bak / verify / swap workflow. Properties at their default
 /// value are omitted by UE3 and can't be set this way (adding a tag isn't supported yet).
+/// Material instance parameters are addressed as param:&lt;ParameterName&gt; (an entry of ScalarParameterValues /
+/// VectorParameterValues; its ParameterValue is changed), e.g. param:horizoncolor=0.03,0.09,0.14.
 /// </summary>
 static class PropertyEdit
 {
@@ -27,6 +29,7 @@ static class PropertyEdit
 
         var props = Locate(pkg, original);
         if (props is null) { Console.WriteLine("Couldn't walk the export's properties; nothing changed."); return 1; }
+        foreach (var (k, v) in Params(pkg, original, props)) props.TryAdd(k, v);
         Console.WriteLine($"{Path.GetFileName(upkPath)} :: {pkg.PathOf(entry)} ({pkg.ClassOf(entry)}){(dryRun ? "  [dry run]" : "")}");
 
         foreach (var (name, value) in changes)
@@ -148,6 +151,42 @@ static class PropertyEdit
             list.Add(new PropertyView(name, type, p.Size, value, editable));
         }
         return list;
+    }
+
+    /// <summary>
+    /// Material instance parameters: each element of ScalarParameterValues / VectorParameterValues is a tagged struct
+    /// (ParameterName, ParameterValue, ExpressionGUID, None); returns "param:&lt;name&gt;" -> its ParameterValue.
+    /// </summary>
+    static Dictionary<string, Prop> Params(Package pkg, byte[] d, Dictionary<string, Prop> props)
+    {
+        var result = new Dictionary<string, Prop>(StringComparer.OrdinalIgnoreCase);
+        foreach (string array in new[] { "ScalarParameterValues", "VectorParameterValues" })
+        {
+            if (!props.TryGetValue(array, out var a) || a.Type != "arrayproperty") continue;
+            try
+            {
+                int p = a.ValueAt, count = BitConverter.ToInt32(d, p); p += 4;
+                for (int e = 0; e < count && p < a.ValueAt + a.Size; e++)
+                {
+                    string? pname = null; Prop? value = null;
+                    for (int guard = 0; guard < 64; guard++)
+                    {
+                        string name = Name(pkg, d, ref p);
+                        if (name.Equals("None", StringComparison.OrdinalIgnoreCase)) break;
+                        string type = Name(pkg, d, ref p).ToLowerInvariant();
+                        int size = BitConverter.ToInt32(d, p); p += 8;
+                        string inner = type is "structproperty" or "byteproperty" ? Name(pkg, d, ref p) : "";
+                        if (type == "boolproperty") p += 1;
+                        if (name.Equals("ParameterName", StringComparison.OrdinalIgnoreCase) && type == "nameproperty") { int q = p; pname = Name(pkg, d, ref q); }
+                        if (name.Equals("ParameterValue", StringComparison.OrdinalIgnoreCase)) value = new Prop(type, size, p, inner);
+                        p += size;
+                    }
+                    if (pname != null && value != null) result.TryAdd("param:" + pname, value);
+                }
+            }
+            catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { }
+        }
+        return result;
     }
 
     /// <summary>Top-level properties by name, trying the plain (byte 4) and MHO component (byte 8) layouts.</summary>

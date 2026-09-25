@@ -10,7 +10,7 @@ namespace UpkMeshScan;
 /// </summary>
 static class StaticMeshExport
 {
-    public static int Run(string upkPath, string meshName, string outDir, bool quiet = false)
+    public static int Run(string upkPath, string meshName, string outDir, bool quiet = false, bool normals = false)
     {
         Package pkg;
         try { pkg = Package.Open(upkPath); }
@@ -43,7 +43,7 @@ static class StaticMeshExport
         Directory.CreateDirectory(outDir);
         string path = Path.Combine(outDir, $"{mesh.Name}.fbx");
         var slots = ExportTextures(pkg, mesh, outDir, quiet, Path.GetDirectoryName(Path.GetFullPath(upkPath)));
-        Write(mesh, path, slots);
+        Write(mesh, path, slots, normals);
         if (!quiet) Console.WriteLine($"Wrote {path}");
         return 0;
     }
@@ -94,7 +94,11 @@ static class StaticMeshExport
         return result;
     }
 
-    static void Write(StaticMesh mesh, string path, SectionTextures[]? textures = null)
+    /// <summary>
+    /// normals: write the mesh's normals. Off by default: Blender reads them as custom split normals, which Kurt
+    /// clears anyway; only --verify-import-roundtrip needs them (it compares normals).
+    /// </summary>
+    static void Write(StaticMesh mesh, string path, SectionTextures[]? textures = null, bool normals = false)
     {
         var scene = new Scene { RootNode = new Node(mesh.Name) };
         for (int s = 0; s < mesh.Sections.Length; s++)
@@ -114,7 +118,7 @@ static class StaticMeshExport
                 if (!used.TryAdd(v, part.VertexCount)) continue;
                 Vector3 p = ToFileSpace(mesh.Positions[v]), n = ToFileSpace(mesh.Normals[v]);
                 part.Vertices.Add(new Vector3D(p.X, p.Y, p.Z));
-                part.Normals.Add(new Vector3D(n.X, n.Y, n.Z));
+                if (normals) part.Normals.Add(new Vector3D(n.X, n.Y, n.Z));
                 for (int c = 0; c < channels; c++)
                 {
                     Vector2 uv = mesh.TexCoords[c][v];
