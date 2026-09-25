@@ -76,7 +76,7 @@ static class Program
         if (cellAt >= 0)
         {
             // --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304] [--gray 0.03] [--exclude-box ...]
-            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--from-live] [--offset X,Y[,Z]] [--lift Z] [--always-fbx f.fbx ...] [--dry-run]
+            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--from-live] [--offset X,Y[,Z]] [--lift Z] [--always-fbx f.fbx ...] [--wall-material pkg.obj [--wall-uv 512]] [--dry-run]
             if (cellAt + 2 >= args.Length) { Usage(); return 2; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
@@ -89,7 +89,8 @@ static class Program
                 float.Parse(Opt("--shrink", "1"), inv), Multi("--add-fbx"),
                 fromLive: args.Any(a => a.Equals("--from-live", StringComparison.OrdinalIgnoreCase)), lift: float.Parse(Opt("--lift", "0"), inv),
                 offset: Opt("--offset", "0,0,0").Split(',').Select(v => float.Parse(v, inv)).Concat([0f, 0f, 0f]).Take(3).ToArray() is var o ? new System.Numerics.Vector3(o[0], o[1], o[2]) : default,
-                alwaysFbx: Multi("--always-fbx"));
+                alwaysFbx: Multi("--always-fbx"),
+                wallMaterial: Opt("--wall-material", "") is { Length: > 0 } wm ? wm : null, wallUv: float.Parse(Opt("--wall-uv", "512"), inv));
         }
 
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));

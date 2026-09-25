@@ -252,6 +252,19 @@ static class ExportCopy
     }
 
     /// <summary>Every name and object reference in an export's data (offsets into it). Throws on anything unknown.</summary>
+    /// <summary>A material instance's static switches (name, value) per quality level, from the exact parser; for --dump-export.</summary>
+    public static List<string> StaticSwitches(Package pkg, byte[] d)
+    {
+        var result = new List<string>();
+        foreach (var pt in Parse(pkg, d, "MaterialInstanceConstant").Where(x => x.Where.Contains(".switch[")))
+        {
+            int idx = I32(d, pt.Offset), num = I32(d, pt.Offset + 4);
+            string name = pkg.Names[idx] + (num > 0 ? $"_{num - 1}" : "");
+            result.Add($"{pt.Where.Replace("native.", "")}: {name} = {(I32(d, pt.Offset + 8) != 0 ? "true" : "false")}{(I32(d, pt.Offset + 12) != 0 ? " (override)" : "")}");
+        }
+        return result;
+    }
+
     static List<Patch> Parse(Package pkg, byte[] d, string cls)
     {
         string c = cls.ToLowerInvariant();

@@ -130,13 +130,16 @@ static class StaticMeshBuilder
 
     /// <summary>
     /// A new single-section mesh from plain geometry (engine space), using <paramref name="template"/> only for its
-    /// layout (UV channel count, section flags). UVs are zero; tangents are computed.
+    /// layout (UV channel count, section flags). UVs are zero unless <paramref name="uv0"/> is given (then every
+    /// channel gets it); tangents are computed.
     /// </summary>
-    public static BuiltMesh BuildGeometry(StaticMesh template, IReadOnlyList<Vector3> positions, IReadOnlyList<Vector3> normals, IReadOnlyList<int> indices, int materialRef, string materialName)
+    public static BuiltMesh BuildGeometry(StaticMesh template, IReadOnlyList<Vector3> positions, IReadOnlyList<Vector3> normals, IReadOnlyList<int> indices, int materialRef, string materialName,
+        IReadOnlyList<Vector2>? uv0 = null)
     {
+        if (uv0 != null && uv0.Count != positions.Count) throw new ArgumentException("uv0 needs one entry per vertex");
         if (positions.Count > 65535) throw new InvalidDataException($"{positions.Count:N0} vertices; 16-bit indices allow 65,535.");
         var P = positions.ToArray(); var N = normals.ToArray();
-        var UV = Enumerable.Range(0, template.NumTexCoords).Select(_ => new Vector2[P.Length]).ToArray();
+        var UV = Enumerable.Range(0, template.NumTexCoords).Select(_ => uv0?.ToArray() ?? new Vector2[P.Length]).ToArray();
         var I = indices.Select(i => (ushort)i).ToArray();
         var (tx, tz) = Tangents(P, N, UV[0], I);
         var section = template.Sections[0] with

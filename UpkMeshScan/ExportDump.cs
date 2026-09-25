@@ -81,6 +81,11 @@ static class ExportDump
         {
             sb.AppendLine($"Native data : starts at 0x{nativeStart:X}, {data.Length - nativeStart:N0} bytes");
         }
+        if (pkg.ClassOf(e).Equals("MaterialInstanceConstant", StringComparison.OrdinalIgnoreCase))
+        {
+            try { foreach (string sw in ExportCopy.StaticSwitches(pkg, data)) sb.AppendLine($"Static switch: {sw}"); }
+            catch (Exception ex) when (ex is InvalidDataException or PackageFormatException) { sb.AppendLine($"Static switches: not decoded ({ex.Message})"); }
+        }
 
         sb.AppendLine();
         sb.AppendLine($"---- hex: first {Math.Min(HexHeadBytes, data.Length - nativeStart):N0} bytes of native data ----");
@@ -143,6 +148,18 @@ static class ExportDump
     {
         int count = BitConverter.ToInt32(d, p), q = p + 4, end = p + size;
         if (count <= 0 || count > 256) return;
+        // An array of object references (e.g. a component's Materials): 4 bytes per element, each a valid ref.
+        if (size == 4 + 4 * count && Enumerable.Range(0, count).Select(i => BitConverter.ToInt32(d, q + 4 * i))
+                .All(r => r == 0 || (r > 0 && r <= pkg.Exports.Length) || (r < 0 && -r <= pkg.Imports.Length)))
+        {
+            for (int i = 0; i < count; i++)
+            {
+                int r = BitConverter.ToInt32(d, q + 4 * i);
+                string where = r > 0 ? pkg.PathOf(pkg.Exports[r - 1]) : r < 0 ? $"import {ImportPath(pkg, r)}" : "null";
+                sb.AppendLine($"{indent}[{i}] {where}");
+            }
+            return;
+        }
         var tmp = new StringBuilder();
         for (int i = 0; i < count; i++)
         {
@@ -152,6 +169,14 @@ static class ExportDump
             q = next;
         }
         if (q == end) sb.Append(tmp);
+    }
+
+    static string ImportPath(Package pkg, int r)
+    {
+        var parts = new List<string>();
+        for (int guard = 0; r < 0 && -r <= pkg.Imports.Length && guard < 16; guard++) { var im = pkg.Imports[-r - 1]; parts.Insert(0, im.ObjectName); r = im.OuterIndex; }
+        if (r > 0) parts.Insert(0, pkg.PathOf(pkg.Exports[r - 1]));
+        return string.Join('.', parts);
     }
 
     /// <summary>Walks tagged properties from p up to "None"; returns the offset after it, or -1.</summary>

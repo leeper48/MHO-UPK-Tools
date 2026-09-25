@@ -24,7 +24,8 @@ static class CellPlaceholders
 {
     public static int Run(string upkPath, string fbxPath, float minDrawDistance, float cellSize, float gray, bool dryRun,
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink, IReadOnlyList<string> addFbx,
-        string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false, float lift = 0, Vector3 offset = default, IReadOnlyList<string>? alwaysFbx = null)
+        string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false, float lift = 0, Vector3 offset = default, IReadOnlyList<string>? alwaysFbx = null,
+        string? wallMaterial = null, float wallUv = 512f)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -105,21 +106,42 @@ static class CellPlaceholders
         var centre = new Dictionary<int, (Vector2 Sum, int Count)>();
         for (int i = 0; i < pos.Count; i++) { int r = root(i); var v = centre.GetValueOrDefault(r); centre[r] = (v.Sum + new Vector2(pos[i].X, pos[i].Y), v.Count + 1); }
         var cellOf = centre.ToDictionary(kv => kv.Key, kv => { Vector2 c = kv.Value.Sum / kv.Value.Count; return ((int)MathF.Round(c.X / cellSize), (int)MathF.Round(c.Y / cellSize)); });
-        var cells = new SortedDictionary<(int, int, bool), (List<Vector3> P, List<Vector3> N, List<int> I, Dictionary<int, int> Map)>();
+        // --wall-material <export path>: wall faces (|normal.z| < 0.5, not --always-fbx) go into their own per-cell
+        // objects with that material (e.g. a facade copied into the package) and box-projected UVs, one texture repeat
+        // per wallUv units, rows following height; roofs and ground keep the flat grey.
+        int wallRef = 0;
+        if (wallMaterial != null)
+        {
+            wallRef = Array.FindIndex(live.Exports, e => live.PathOf(e).Equals(wallMaterial, StringComparison.OrdinalIgnoreCase)
+                && live.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)) + 1;
+            if (wallRef == 0 || wallRef > n0) { Console.WriteLine($"  --wall-material: no material instance '{wallMaterial}' among the package's existing exports"); return 1; }
+            Console.WriteLine($"  walls: {wallMaterial} (export #{wallRef}), UV repeat every {wallUv} units");
+        }
+        bool IsWall(int t)
+        {
+            if (wallRef == 0 || always[idx[t]]) return false;
+            var fn = Vector3.Cross(pos[idx[t + 1]] - pos[idx[t]], pos[idx[t + 2]] - pos[idx[t]]);
+            return fn.LengthSquared() > 0 && MathF.Abs(Vector3.Normalize(fn).Z) < 0.5f;
+        }
+        var cells = new SortedDictionary<(int, int, bool, bool), (List<Vector3> P, List<Vector3> N, List<int> I, Dictionary<int, int> Map, List<int> Axis)>();
         for (int t = 0; t + 2 < idx.Count; t += 3)
         {
             var (cx, cy) = cellOf[root(idx[t])];
-            var key = (cx, cy, always[idx[t]]);
-            if (!cells.TryGetValue(key, out var g)) cells[key] = g = (new(), new(), new(), new());
+            bool wall = IsWall(t);
+            var key = (cx, cy, always[idx[t]], wall);
+            // Walls: a corner shared by two walls facing different axes needs two UVs, so key the copy by the face's axis.
+            int axis = 0;
+            if (wall) { var fn = Vector3.Cross(pos[idx[t + 1]] - pos[idx[t]], pos[idx[t + 2]] - pos[idx[t]]); axis = MathF.Abs(fn.X) >= MathF.Abs(fn.Y) ? (fn.X > 0 ? 1 : 2) : (fn.Y > 0 ? 3 : 4); }
+            if (!cells.TryGetValue(key, out var g)) cells[key] = g = (new(), new(), new(), new(), new());
             for (int k = 0; k < 3; k++)
             {
-                int v = idx[t + k];
-                if (!g.Map.TryGetValue(v, out int nv)) { nv = g.P.Count; g.Map[v] = nv; g.P.Add(pos[v]); g.N.Add(nrm[v]); }
+                int v = idx[t + k], mk = v * 5 + axis;
+                if (!g.Map.TryGetValue(mk, out int nv)) { nv = g.P.Count; g.Map[mk] = nv; g.P.Add(pos[v]); g.N.Add(nrm[v]); if (wall) g.Axis.Add(axis); }
                 g.I.Add(nv);
             }
         }
         Console.WriteLine($"  {idx.Count / 3:N0} placeholder tris in {centre.Count} piece(s) -> {cells.Count} cell object(s) ({cellSize}-unit cells): " +
-            string.Join(" ", cells.Select(c => $"X{c.Key.Item1}Y{c.Key.Item2}{(c.Key.Item3 ? "(always)" : "")}:{c.Value.I.Count / 3}")));
+            string.Join(" ", cells.Select(c => $"X{c.Key.Item1}Y{c.Key.Item2}{(c.Key.Item3 ? "(always)" : "")}{(c.Key.Item4 ? "(walls)" : "")}:{c.Value.I.Count / 3}")));
 
         // New exports (appended after the .bak's): grey material, then mesh + component per cell.
         var names = bak.Names.Any(n => n.Equals("MinDrawDistance", StringComparison.OrdinalIgnoreCase)) ? new List<string>() : new List<string> { "MinDrawDistance" };
@@ -136,16 +158,35 @@ static class CellPlaceholders
         int k2 = 0;
         foreach (var (key, g) in cells)
         {
-            var mesh = StaticMeshBuilder.BuildGeometry(skyTemplate, g.P, g.N, g.I, micRef, "placeholder");
+            List<Vector2>? uv = null;
+            if (key.Item4)
+                uv = g.P.Select((q, i) => g.Axis[i] switch
+                {
+                    1 => new Vector2(q.Y, -q.Z), 2 => new Vector2(-q.Y, -q.Z), 3 => new Vector2(-q.X, -q.Z), _ => new Vector2(q.X, -q.Z),
+                } / wallUv).ToList();
+            if (uv != null)
+            {
+                // UVs are stored as half floats: move each cell's UVs near zero by whole repeats (the tiling is
+                // unchanged) — at |u| ~ 24 a half float is only 1/64 of a repeat (16 texels) precise.
+                // Per facing direction: u runs along x or y with a sign per direction, so one shift can't serve all four.
+                var shifts = Enumerable.Range(1, 4).ToDictionary(ax => ax, ax =>
+                {
+                    var own = uv.Where((q, i) => g.Axis[i] == ax).ToList();
+                    return own.Count == 0 ? Vector2.Zero : new Vector2(MathF.Floor(own.Average(q => q.X)), MathF.Floor(own.Average(q => q.Y)));
+                });
+                uv = uv.Select((q, i) => q - shifts[g.Axis[i]]).ToList();
+            }
+            int matRef = key.Item4 ? wallRef : micRef;
+            var mesh = StaticMeshBuilder.BuildGeometry(skyTemplate, g.P, g.N, g.I, matRef, key.Item4 ? "facade" : "placeholder", uv);
             int meshRef = n0 + add.Count + 1;
             add.Add(new NewExport(skyMesh, NextNumber(bak, skyMesh, k2), off => StaticMeshBuilder.Serialize(skyTemplate, mesh, off, dropBodySetup: true)));
             int compRef = n0 + add.Count + 1;
             float md = key.Item3 ? 0f : minDrawDistance;
-            byte[] comp = BuildComponent(bak, skyComp, tw, meshRef, micRef, md);
+            byte[] comp = BuildComponent(bak, skyComp, tw, meshRef, matRef, md);
             minDraws.Add(md);
             add.Add(new NewExport(skyComp, NextNumber(bak, skyComp, k2), _ => comp));
             compRefs.Add(compRef);
-            cellMeshes.Add(($"X{key.Item1}Y{key.Item2}{(key.Item3 ? "(always)" : "")}", meshRef, mesh));
+            cellMeshes.Add(($"X{key.Item1}Y{key.Item2}{(key.Item3 ? "(always)" : "")}{(key.Item4 ? "(walls)" : "")}", meshRef, mesh));
             k2++;
         }
 
