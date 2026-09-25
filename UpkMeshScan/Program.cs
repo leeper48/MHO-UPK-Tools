@@ -128,7 +128,8 @@ static class Program
         int zoneAt = Array.FindIndex(args, a => a.Equals("--zone-placeholders", StringComparison.OrdinalIgnoreCase));
         if (zoneAt >= 0)
         {
-            // --zone-placeholders <folder> <tile-prefix> <library.upk> [--out file.fbx] [--min-height N] [--min-footprint N] [--inset F]
+            // --zone-placeholders <folder> <tile-prefix | layout.txt> <library.upk> [--out file.fbx] [--min-height N] [--min-footprint N] [--inset F]
+            //     [--ground-boxes rects.txt [--box-top -8] [--box-bottom -220]] [--no-meshes] [--raster 32 [--raster-min-z 40] [--raster-step 32]]
             if (zoneAt + 3 >= args.Length) { Usage(); return 2; }
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -136,7 +137,10 @@ static class Program
                 Opt("--out", Path.Combine(AppContext.BaseDirectory, "exports", args[zoneAt + 2].TrimEnd('_') + "_placeholders.fbx")),
                 float.Parse(Opt("--min-height", "400"), inv), float.Parse(Opt("--min-footprint", "200"), inv), float.Parse(Opt("--inset", "0.90"), inv),
                 Opt("--skip", "tree").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-                Opt("--only", "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                Opt("--only", "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                Opt("--ground-boxes", "") is { Length: > 0 } gb ? gb : null, float.Parse(Opt("--box-top", "-8"), inv), float.Parse(Opt("--box-bottom", "-220"), inv),
+                args.Any(a => a.Equals("--no-meshes", StringComparison.OrdinalIgnoreCase)),
+                float.Parse(Opt("--raster", "0"), inv), float.Parse(Opt("--raster-min-z", "40"), inv), float.Parse(Opt("--raster-step", "32"), inv));
         }
 
         int setAt = Array.FindIndex(args, a => a.Equals("--set-property", StringComparison.OrdinalIgnoreCase));

@@ -25,7 +25,9 @@ static class ZonePlaceholders
     /// <summary>Footprint outline (mesh-local XY, convex) and height range.</summary>
     sealed record Shape(List<Vector2> Hull, float MinZ, float MaxZ);
 
-    public static int Run(string folder, string tilePrefix, string libraryPackage, string outFbx, float minHeight, float minFootprint, float inset, string[] skip, string[]? only = null)
+    public static int Run(string folder, string tilePrefix, string libraryPackage, string outFbx, float minHeight, float minFootprint, float inset, string[] skip, string[]? only = null,
+        string? groundBoxes = null, float boxTop = -8f, float boxBottom = -220f, bool noMeshes = false,
+        float raster = 0f, float rasterMinZ = 40f, float rasterStep = 32f)
     {
         // Tiles: packages matching the prefix (placements already in world coordinates, e.g. Midtown), or a layout
         // file (.txt: "cell <TAB> x <TAB> y" per line, # comments) for zones laid out by a generator, whose cell
@@ -104,8 +106,31 @@ static class ZonePlaceholders
         }
 
         var prisms = new List<(Placed P, Vector3[] Bottom, Vector3[] Top)>();
-        foreach (var p in buildings)
-            if (shapes[p.ShapeKey] is { } shape) prisms.Add(Prism(p, shape, inset));
+        if (raster > 0 && !noMeshes)
+        {
+            prisms.AddRange(Raster(placed, packages, raster, rasterMinZ, rasterStep, minHeight, minFootprint));
+            noMeshes = true;                                    // the raster replaces the per-mesh prisms
+        }
+        if (!noMeshes)
+            foreach (var p in buildings)
+                if (shapes[p.ShapeKey] is { } shape) prisms.Add(Prism(p, shape, inset));
+        if (groundBoxes != null)
+        {
+            // Ground slabs: "x0 y0 x1 y1" rectangles in world units (e.g. from the cells' height maps), top just under
+            // the real ground, sides down to the water, so pier edges read as solid. Not inset: the real ground covers them.
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            int n = 0;
+            foreach (string line in File.ReadLines(groundBoxes))
+            {
+                if (line.TrimStart().StartsWith('#') || line.Trim().Length == 0) continue;
+                float[] r = line.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(v => float.Parse(v, inv)).ToArray();
+                Vector2[] corners = [new(r[0], r[1]), new(r[2], r[1]), new(r[2], r[3]), new(r[0], r[3])];
+                var ground = new Placed("ground", "ground_slab", "", Vector3.Zero, Vector3.Zero, Vector3.One, Vector3.Zero, Vector3.Zero);
+                prisms.Add((ground, corners.Select(c => new Vector3(c, boxBottom)).ToArray(), corners.Select(c => new Vector3(c, boxTop)).ToArray()));
+                n++;
+            }
+            Console.WriteLine($"  ground: {n} slab(s) from {Path.GetFileName(groundBoxes)}, top z {boxTop}, bottom z {boxBottom}{(noMeshes ? "; meshes left out (--no-meshes)" : "")}");
+        }
 
         int verts = prisms.Sum(x => x.Bottom.Length * 6), tris = prisms.Sum(x => x.Bottom.Length * 4 - 4);
         Console.WriteLine($"  {placed.Count:N0} visible placed meshes ({hiddenCount} HiddenGame, {skipped} matching skip list [{string.Join(", ", skip)}], {unresolved} unknown: skipped)");
@@ -125,6 +150,93 @@ static class ZonePlaceholders
         File.WriteAllLines(Path.ChangeExtension(outFbx, ".txt"), lines);
         Console.WriteLine($"Wrote {outFbx} (+ .txt list)");
         return 0;
+    }
+
+    /// <summary>
+    /// --raster: the placed meshes' real triangles seen from above, on a grid of `cell` units. Each grid square keeps
+    /// the highest point of any triangle covering its centre, or of any edge crossing it (so thin walls count).
+    /// Squares at least minZ high are rounded DOWN to `step` (the box stays inside the real top) and merged into
+    /// rectangles of equal height, never across a 2304-unit cell boundary; each becomes a box from z 0 to its
+    /// height, pulled in by 1 unit so no two share a corner. Follows real outlines (L-shaped buildings, courtyards,
+    /// roofs, ship hulls, container stacks) where one convex prism per mesh can't. Only meshes that pass the size
+    /// filter (height, longest side) are rasterised.
+    /// </summary>
+    static List<(Placed, Vector3[], Vector3[])> Raster(List<Placed> placed, Dictionary<string, Package> packages, float cell, float minZ, float step, float minHeight, float minFootprint)
+    {
+        var top = new Dictionary<(int, int), float>();
+        var meshes = new Dictionary<string, StaticMesh?>();
+        int used = 0;
+        void Put(float x, float y, float z)
+        {
+            var k = ((int)MathF.Floor(x / cell), (int)MathF.Floor(y / cell));
+            if (!top.TryGetValue(k, out float t) || z > t) top[k] = z;
+        }
+        foreach (var p in placed)
+        {
+            Vector3 size = p.BoundsExtent * 2 * Vector3.Abs(p.Scale);
+            if (size.Z < minHeight || MathF.Max(size.X, size.Y) < minFootprint) continue;
+            if (!meshes.TryGetValue(p.ShapeKey, out var m))
+            {
+                string[] k = p.ShapeKey.Split(':');
+                try { m = StaticMesh.Read(packages[k[0]], packages[k[0]].Exports[int.Parse(k[1])]); } catch (PackageFormatException) { m = null; }
+                meshes[p.ShapeKey] = m;
+            }
+            if (m == null) continue;
+            used++;
+            Matrix4x4 rot = RotatorMatrix(p.RotationUnits);
+            var w = m.Positions.Select(v => Vector3.Transform(v * p.Scale, rot) + p.Translation).ToArray();
+            for (int t = 0; t + 2 < m.Indices.Length; t += 3)
+            {
+                Vector3 a = w[m.Indices[t]], b = w[m.Indices[t + 1]], c = w[m.Indices[t + 2]];
+                // Edges: sample every half grid square.
+                foreach (var (e0, e1) in new[] { (a, b), (b, c), (c, a) })
+                {
+                    float len = Vector2.Distance(new(e0.X, e0.Y), new(e1.X, e1.Y));
+                    int n = Math.Max(1, (int)MathF.Ceiling(len / (cell / 2)));
+                    for (int i = 0; i <= n; i++) { var q = Vector3.Lerp(e0, e1, i / (float)n); Put(q.X, q.Y, q.Z); }
+                }
+                // Faces: grid-square centres inside the triangle (top view), height interpolated.
+                float det = (b.Y - c.Y) * (a.X - c.X) + (c.X - b.X) * (a.Y - c.Y);
+                if (MathF.Abs(det) < 1e-3f) continue;
+                int x0 = (int)MathF.Floor(MathF.Min(a.X, MathF.Min(b.X, c.X)) / cell), x1 = (int)MathF.Floor(MathF.Max(a.X, MathF.Max(b.X, c.X)) / cell);
+                int y0 = (int)MathF.Floor(MathF.Min(a.Y, MathF.Min(b.Y, c.Y)) / cell), y1 = (int)MathF.Floor(MathF.Max(a.Y, MathF.Max(b.Y, c.Y)) / cell);
+                for (int gx = x0; gx <= x1; gx++)
+                    for (int gy = y0; gy <= y1; gy++)
+                    {
+                        float px = (gx + 0.5f) * cell, py = (gy + 0.5f) * cell;
+                        float l1 = ((b.Y - c.Y) * (px - c.X) + (c.X - b.X) * (py - c.Y)) / det;
+                        float l2 = ((c.Y - a.Y) * (px - c.X) + (a.X - c.X) * (py - c.Y)) / det;
+                        float l3 = 1 - l1 - l2;
+                        if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+                        float z = l1 * a.Z + l2 * b.Z + l3 * c.Z;
+                        var k = (gx, gy);
+                        if (!top.TryGetValue(k, out float old) || z > old) top[k] = z;
+                    }
+            }
+        }
+        // Heights rounded down to the step; squares below minZ dropped.
+        var level = top.Where(kv => kv.Value >= minZ).ToDictionary(kv => kv.Key, kv => MathF.Floor(kv.Value / step) * step);
+        int perCell = (int)MathF.Round(2304f / cell);
+        (int, int) CellOf((int X, int Y) k) => ((int)MathF.Floor(k.X / (float)perCell), (int)MathF.Floor(k.Y / (float)perCell));
+        var done = new HashSet<(int, int)>();
+        var boxes = new List<(Placed, Vector3[], Vector3[])>();
+        var marker = new Placed("raster", "raster_box", "", Vector3.Zero, Vector3.Zero, Vector3.One, Vector3.Zero, Vector3.Zero);
+        bool Ok((int, int) k, float h, (int, int) ci) => !done.Contains(k) && level.TryGetValue(k, out float v) && v == h && CellOf(k) == ci;
+        foreach (var k in level.Keys.OrderBy(k => k.Item2).ThenBy(k => k.Item1))
+        {
+            if (done.Contains(k)) continue;
+            float h = level[k]; var ci = CellOf(k);
+            int wdt = 1;
+            while (Ok((k.Item1 + wdt, k.Item2), h, ci)) wdt++;
+            int hgt = 1;
+            while (Enumerable.Range(0, wdt).All(i => Ok((k.Item1 + i, k.Item2 + hgt), h, ci))) hgt++;
+            for (int i = 0; i < wdt; i++) for (int j = 0; j < hgt; j++) done.Add((k.Item1 + i, k.Item2 + j));
+            float ax = k.Item1 * cell + 1, ay = k.Item2 * cell + 1, bx = (k.Item1 + wdt) * cell - 1, by = (k.Item2 + hgt) * cell - 1;
+            Vector2[] c = [new(ax, ay), new(bx, ay), new(bx, by), new(ax, by)];
+            boxes.Add((marker, c.Select(v => new Vector3(v, 0)).ToArray(), c.Select(v => new Vector3(v, h)).ToArray()));
+        }
+        Console.WriteLine($"  raster: {used:N0} meshes on a {cell}-unit grid -> {level.Count:N0} squares >= {minZ} high (heights rounded down to {step}) -> {boxes.Count:N0} boxes");
+        return boxes;
     }
 
     /// <summary>Convex hull of the vertices seen from above, simplified to MaxCorners by dropping the least important corner.</summary>
