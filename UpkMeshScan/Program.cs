@@ -215,15 +215,37 @@ static class Program
             return MeshUsers.Run(args[usersAt + 1], args[usersAt + 2]);
         }
 
+        int setObjAt = Array.FindIndex(args, a => a.Equals("--set-object", StringComparison.OrdinalIgnoreCase));
+        if (setObjAt >= 0)
+        {
+            // --set-object <package.upk> <export-path> <property | property[i]> <target-export-path> [--dry-run]
+            if (setObjAt + 4 >= args.Length) { Usage(); return 2; }
+            return ObjectEdit.Run(args[setObjAt + 1], args[setObjAt + 2], args[setObjAt + 3], args[setObjAt + 4],
+                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int texImportAt = Array.FindIndex(args, a => a.Equals("--import-texture", StringComparison.OrdinalIgnoreCase));
+        if (texImportAt >= 0)
+        {
+            // --import-texture <package.upk> <template-texture-path> <new-name> <file.dds> [--dry-run]
+            if (texImportAt + 4 >= args.Length) { Usage(); return 2; }
+            return TextureImport.Run(args[texImportAt + 1], args[texImportAt + 2], args[texImportAt + 3], args[texImportAt + 4],
+                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
         int copyAt = Array.FindIndex(args, a => a.Equals("--copy-export", StringComparison.OrdinalIgnoreCase));
         if (copyAt >= 0)
         {
-            // --copy-export <source.upk> <export-path> <target.upk> [--cut prop,...] [--dry-run]
+            // --copy-export <source.upk> <export-path> <target.upk> [--cut prop,...] [--rename name] [--replace-ref src.path=target.path ...] [--dry-run]
             if (copyAt + 3 >= args.Length) { Usage(); return 2; }
             int ci = Array.FindIndex(args, a => a.Equals("--cut", StringComparison.OrdinalIgnoreCase));
+            int ri = Array.FindIndex(args, a => a.Equals("--rename", StringComparison.OrdinalIgnoreCase));
+            var replaceRefs = args.Select((a, i) => (a, i)).Where(x => x.a.Equals("--replace-ref", StringComparison.OrdinalIgnoreCase) && x.i + 1 < args.Length)
+                .Select(x => args[x.i + 1].Split('=', 2)).Where(kv => kv.Length == 2).ToDictionary(kv => kv[0], kv => kv[1], StringComparer.OrdinalIgnoreCase);
             return ExportCopy.Run(args[copyAt + 1], args[copyAt + 2], args[copyAt + 3],
                 ci >= 0 && ci + 1 < args.Length ? args[ci + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [],
-                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                ri >= 0 && ri + 1 < args.Length ? args[ri + 1] : null, replaceRefs);
         }
 
         int depsAt = Array.FindIndex(args, a => a.Equals("--export-deps", StringComparison.OrdinalIgnoreCase));

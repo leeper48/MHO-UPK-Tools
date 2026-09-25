@@ -27,7 +27,8 @@ static class ExportCopy
     /// <summary>Array properties known to hold object references (4 bytes each).</summary>
     static readonly HashSet<string> ObjectArrays = new(StringComparer.OrdinalIgnoreCase) { "expressions", "functionexpressions" };
 
-    public static int Run(string srcPath, string exportName, string dstPath, IReadOnlyCollection<string> cut, bool dryRun)
+    public static int Run(string srcPath, string exportName, string dstPath, IReadOnlyCollection<string> cut, bool dryRun,
+        string? rename = null, IReadOnlyDictionary<string, string>? replaceRefs = null)
     {
         dstPath = Path.GetFullPath(dstPath);
         if (Program.IsBackupName(dstPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -36,6 +37,31 @@ static class ExportCopy
         Console.WriteLine($"Copy: {exportName} from {Path.GetFileName(srcPath)} -> {Path.GetFileName(dstPath)}{(cut.Count > 0 ? $" (cut: {string.Join(", ", cut)})" : "")}{(dryRun ? "  [dry run]" : "")}");
         int root = Array.FindIndex(src.Exports, e => src.PathOf(e).Equals(exportName, StringComparison.OrdinalIgnoreCase));
         if (root < 0) { Console.WriteLine($"  no export '{exportName}' (give the full path, e.g. package.group.name)"); return 2; }
+
+        // --rename: the copied root gets a new object name (so a copy that will differ from its source doesn't take over
+        // the source's path in memory); everything inside it follows. --replace-ref: references to these source objects
+        // point at existing target objects instead, and the source objects aren't copied (e.g. swap one texture).
+        string rootPath = src.PathOf(src.Exports[root]);
+        string newRootPath = rename == null ? rootPath : (rootPath.Contains('.') ? rootPath[..(rootPath.LastIndexOf('.') + 1)] : "") + rename;
+        var replaced = new Dictionary<int, int>();             // source reference -> target reference
+        foreach (var (from, to) in replaceRefs ?? new Dictionary<string, string>())
+        {
+            int f = Array.FindIndex(src.Exports, e => src.PathOf(e).Equals(from, StringComparison.OrdinalIgnoreCase));
+            int t = Array.FindIndex(dst.Exports, e => dst.PathOf(e).Equals(to, StringComparison.OrdinalIgnoreCase));
+            if (f < 0 || t < 0) { Console.WriteLine($"  --replace-ref {from}={to}: {(f < 0 ? "no such export in the source" : "no such export in the target")}"); return 2; }
+            replaced[f + 1] = t + 1;
+            Console.WriteLine($"  replacing references to {from} with the target's {to} ({dst.ClassOf(dst.Exports[t])})");
+        }
+        if (rename != null) Console.WriteLine($"  copied root renamed: {rootPath} -> {newRootPath}");
+        // What a source reference must resolve to in the target (path|class), after renaming and replacing.
+        string Expect(Package w, int r)
+        {
+            if (replaced.TryGetValue(r, out int t)) return Key(dst, t);
+            string k = Key(src, r);
+            if (rename != null && (k.StartsWith(rootPath + "|", StringComparison.OrdinalIgnoreCase) || k.StartsWith(rootPath + ".", StringComparison.OrdinalIgnoreCase)))
+                k = newRootPath + k[rootPath.Length..];
+            return k;
+        }
 
         // 1. Closure, from the exact parser.
         var patches = new Dictionary<int, List<Patch>>();
@@ -67,6 +93,7 @@ static class ExportCopy
             {
                 int r = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(pt.Offset));
                 if (IsCut(pt.Where, cut)) { if (r != 0) cutRefs++; continue; }
+                if (replaced.ContainsKey(r)) continue;
                 if (r > 0) queue.Enqueue(r - 1);
                 else EnqueueImportOuters(r);
             }
@@ -85,7 +112,11 @@ static class ExportCopy
         var copies = new List<int>();
         foreach (int i in order)
         {
-            if (dstByPath.TryGetValue(Key(src, i + 1), out int existing)) map[i + 1] = existing;
+            if (dstByPath.TryGetValue(Expect(dst, i + 1), out int existing))
+            {
+                if (i == root && rename != null) { Console.WriteLine($"  '{newRootPath}' already exists in the target"); return 1; }
+                map[i + 1] = existing;
+            }
             else { copies.Add(i); map[i + 1] = dst.Exports.Length + copies.Count; }
         }
 
@@ -128,7 +159,7 @@ static class ExportCopy
             }
             return importMap[r] = -(k + 1);
         }
-        int Map(int r) => r == 0 ? 0 : r > 0 ? map.TryGetValue(r, out int m) ? m : throw new InvalidDataException($"reference {r} outside the closure") : MapImport(r);
+        int Map(int r) => r == 0 ? 0 : replaced.TryGetValue(r, out int rt) ? rt : r > 0 ? map.TryGetValue(r, out int m) ? m : throw new InvalidDataException($"reference {r} outside the closure") : MapImport(r);
 
         // 4. Data and table entries for the copies.
         var add = new List<NewExport>();
@@ -145,7 +176,8 @@ static class ExportCopy
             var (cls, _, outer, arch) = EntryRefs(src, i);
             BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(0), Map(cls));
             BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(8), Map(outer));
-            BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), NameIdx(BinaryPrimitives.ReadInt32LittleEndian(entry.AsSpan(12))));
+            BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), i == root && rename != null ? EnsureName(rename) : NameIdx(BinaryPrimitives.ReadInt32LittleEndian(entry.AsSpan(12))));
+            if (i == root && rename != null) BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 0);
             BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(20), Map(arch));
             byte[] data = d;
             var self = patches[i].Where(x => x.Kind == Kind.SelfOffset).Select(x => x.Offset).ToList();
@@ -168,7 +200,7 @@ static class ExportCopy
         List<string> Check(byte[] bytes)
         {
             var p = PackageRebuilder.Verify(dst, bytes, [], add, written, addNames, addImports);
-            p.AddRange(Semantic(src, bytes, copies, map, patches, cut));
+            p.AddRange(Semantic(src, bytes, copies, map, patches, cut, Expect));
             return p;
         }
         var problems = Check(output);
@@ -378,7 +410,8 @@ static class ExportCopy
     }
 
     /// <summary>Re-reads the copies from the rebuilt package and compares them with the source.</summary>
-    static List<string> Semantic(Package src, byte[] bytes, List<int> copies, Dictionary<int, int> map, Dictionary<int, List<Patch>> patches, IReadOnlyCollection<string> cut)
+    static List<string> Semantic(Package src, byte[] bytes, List<int> copies, Dictionary<int, int> map, Dictionary<int, List<Patch>> patches, IReadOnlyCollection<string> cut,
+        Func<Package, int, string> expect)
     {
         var problems = new List<string>();
         var w = Package.FromBytes(bytes);
@@ -387,10 +420,11 @@ static class ExportCopy
             int t = map[i + 1];
             var se = src.Exports[i]; var we = w.Exports[t - 1];
             string label = src.PathOf(se);
-            if (Key(src, i + 1) != Key(w, t)) { problems.Add($"{label}: path/class in the target is {Key(w, t)}"); continue; }
+            if (!expect(w, i + 1).Equals(Key(w, t), StringComparison.OrdinalIgnoreCase)) { problems.Add($"{label}: path/class in the target is {Key(w, t)}, expected {expect(w, i + 1)}"); continue; }
             var (sc, _, so, sa) = EntryRefs(src, i);
             var (wc, _, wo, wa) = EntryRefs(w, t - 1);
-            if (Key(src, sc) != Key(w, wc) || Key(src, so) != Key(w, wo) || Key(src, sa) != Key(w, wa)) problems.Add($"{label}: class/outer/archetype don't match");
+            bool Same(int a, int b) => (a == 0 ? "null" : expect(w, a)).Equals(Key(w, b), StringComparison.OrdinalIgnoreCase);
+            if (!Same(sc, wc) || !Same(so, wo) || !Same(sa, wa)) problems.Add($"{label}: class/outer/archetype don't match");
             byte[] sd = src.ReadExportBytes(se), wd = w.ReadExportBytes(we);
             if (sd.Length != wd.Length) { problems.Add($"{label}: {wd.Length} bytes, source {sd.Length}"); continue; }
             List<Patch> wp;
@@ -414,8 +448,8 @@ static class ExportCopy
                 else
                 {
                     int sv = I32(sd, pt.Offset), wv = I32(wd, pt.Offset);
-                    string expect = IsCut(pt.Where, cut) ? "null" : Key(src, sv);
-                    if (expect != Key(w, wv)) problems.Add($"{label}: {pt.Where} -> {Key(w, wv)}, expected {expect}");
+                    string want = IsCut(pt.Where, cut) || sv == 0 ? "null" : expect(w, sv);
+                    if (!want.Equals(Key(w, wv), StringComparison.OrdinalIgnoreCase)) problems.Add($"{label}: {pt.Where} -> {Key(w, wv)}, expected {want}");
                 }
             }
             for (int k = 0; k < sd.Length; k++)
