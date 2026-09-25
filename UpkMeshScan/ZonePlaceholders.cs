@@ -63,7 +63,7 @@ static class ZonePlaceholders
 
         var packages = new Dictionary<string, Package> { ["lib"] = library };
         var placed = new List<Placed>();
-        int unresolved = 0, hiddenCount = 0, skipped = 0;
+        int unresolved = 0, hiddenCount = 0, skipped = 0, actorPlaced = 0;
         foreach (var (tile, label, offset) in tiles)
         {
             string tileKey = Path.GetFileNameWithoutExtension(tile);
@@ -82,7 +82,21 @@ static class ZonePlaceholders
                 else if (libraryIndex.TryGetValue(meshName, out int li)) { key = $"lib:{li}"; owner = library; index = li; }
                 else { unresolved++; continue; }
                 if (StaticMesh.ReadBounds(owner, owner.Exports[index]) is not { } bb) { unresolved++; continue; }
-                placed.Add(new Placed(label, meshName, key, c.Translation + offset, c.Rotation, c.Scale, bb.Origin, bb.Extent));
+                // A component owned by a standalone actor (StaticMeshActor, InterpActor, ...) is placed by that actor's
+                // Location / Rotation / DrawScale; collection-actor components carry their own transform. (Asgard's
+                // Bifrost gun: InterpActor at 1920,-6016, yaw 180, component without a transform; missed before 2.16.1.)
+                Vector3 t = c.Translation, r = c.Rotation, sc = c.Scale;
+                if (e.OuterIndex > 0 && pkg.ClassOf(pkg.Exports[e.OuterIndex - 1]) is string oc && oc.EndsWith("Actor", StringComparison.OrdinalIgnoreCase)
+                    && !oc.Equals("StaticMeshCollectionActor", StringComparison.OrdinalIgnoreCase)
+                    && ComponentTransform.ReadActor(pkg, pkg.ReadExportBytes(pkg.Exports[e.OuterIndex - 1])) is { } a)
+                {
+                    if (a.HiddenGame) { hiddenCount++; continue; }
+                    t = a.Translation + Vector3.Transform(t * a.Scale, RotatorMatrix(a.Rotation));
+                    r = a.Rotation + r;                         // exact for yaw-only turns (the usual case); pitch/roll only approximate
+                    sc = a.Scale * sc;
+                    actorPlaced++;
+                }
+                placed.Add(new Placed(label, meshName, key, t + offset, r, sc, bb.Origin, bb.Extent));
             }
         }
 
@@ -116,7 +130,7 @@ static class ZonePlaceholders
                 if (shapes[p.ShapeKey] is { } shape) prisms.Add(Prism(p, shape, inset));
         if (groundBoxes != null)
         {
-            // Ground slabs: "x0 y0 x1 y1" rectangles in world units (e.g. from the cells' height maps), top just under
+            // Ground slabs: "x0 y0 x1 y1 [surface z]" rectangles in world units (e.g. from the cells' height maps), top just under
             // the real ground, sides down to the water, so pier edges read as solid. Not inset: the real ground covers them.
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             int n = 0;
@@ -126,14 +140,17 @@ static class ZonePlaceholders
                 float[] r = line.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(v => float.Parse(v, inv)).ToArray();
                 Vector2[] corners = [new(r[0], r[1]), new(r[2], r[1]), new(r[2], r[3]), new(r[0], r[3])];
                 var ground = new Placed("ground", "ground_slab", "", Vector3.Zero, Vector3.Zero, Vector3.One, Vector3.Zero, Vector3.Zero);
-                prisms.Add((ground, corners.Select(c => new Vector3(c, boxBottom)).ToArray(), corners.Select(c => new Vector3(c, boxTop)).ToArray()));
+                // Optional 5th value: this slab's own surface height (multi-level zones, e.g. Odin's Palace): the slab
+                // keeps the same top offset and thickness relative to it (boxTop / boxBottom are then relative to 0).
+                float lift = r.Length >= 5 ? r[4] : 0f;
+                prisms.Add((ground, corners.Select(c => new Vector3(c, boxBottom + lift)).ToArray(), corners.Select(c => new Vector3(c, boxTop + lift)).ToArray()));
                 n++;
             }
             Console.WriteLine($"  ground: {n} slab(s) from {Path.GetFileName(groundBoxes)}, top z {boxTop}, bottom z {boxBottom}{(noMeshes ? "; meshes left out (--no-meshes)" : "")}");
         }
 
         int verts = prisms.Sum(x => x.Bottom.Length * 6), tris = prisms.Sum(x => x.Bottom.Length * 4 - 4);
-        Console.WriteLine($"  {placed.Count:N0} visible placed meshes ({hiddenCount} HiddenGame, {skipped} matching skip list [{string.Join(", ", skip)}], {unresolved} unknown: skipped)");
+        Console.WriteLine($"  {placed.Count:N0} visible placed meshes ({actorPlaced} placed by their owning actor; {hiddenCount} HiddenGame, {skipped} matching skip list [{string.Join(", ", skip)}], {unresolved} unknown: skipped)");
         Console.WriteLine($"  {prisms.Count:N0} building-sized (height >= {minHeight}, longest side >= {minFootprint}) -> footprint prisms at {inset:P0}, <= {MaxCorners} corners each; {verts:N0} vertices, {tris:N0} triangles");
         foreach (var g in prisms.GroupBy(b => b.P.Mesh).OrderByDescending(g => g.Count()).Take(10))
             Console.WriteLine($"    {g.Count(),4} x {g.Key}  ({g.First().Bottom.Length} corners)");
@@ -351,9 +368,18 @@ static class ZonePlaceholders
 /// <summary>StaticMesh reference and placement of a StaticMeshComponent (MHO layout: properties from byte 8).</summary>
 public sealed record ComponentTransform(int MeshRef, Vector3 Translation, Vector3 Rotation, Vector3 Scale, bool HiddenGame = false)
 {
-    public static ComponentTransform? Read(Package pkg, byte[] d)
+    public static ComponentTransform? Read(Package pkg, byte[] d) => Read(pkg, d, [8, 4, 16]);
+
+    /// <summary>
+    /// An actor's placement (Location, Rotation, DrawScale, DrawScale3D, bHidden) as a transform. Actor exports have a
+    /// few native fields before their tags (e.g. Asgardia_Bridge_EXT_INS_B's InterpActor: tags from byte 0x1A), so every
+    /// start up to 96 is tried and the first that walks cleanly to None is used.
+    /// </summary>
+    public static ComponentTransform? ReadActor(Package pkg, byte[] d) => Read(pkg, d, Enumerable.Range(4, 93));
+
+    static ComponentTransform? Read(Package pkg, byte[] d, IEnumerable<int> starts)
     {
-        foreach (int start in new[] { 8, 4, 16 })
+        foreach (int start in starts)
         {
             int p = start, mesh = 0;
             bool hidden = false;
@@ -373,11 +399,11 @@ public sealed record ComponentTransform(int MeshRef, Vector3 Translation, Vector
                     switch (name.ToLowerInvariant())
                     {
                         case "staticmesh" when size == 4: mesh = BitConverter.ToInt32(d, p); break;
-                        case "translation" when size == 12: t = V(d, p); break;
+                        case "translation" or "location" when size == 12: t = V(d, p); break;
                         case "rotation" when size == 12: r = new Vector3(BitConverter.ToInt32(d, p), BitConverter.ToInt32(d, p + 4), BitConverter.ToInt32(d, p + 8)); break;
-                        case "scale3d" when size == 12: s3 = V(d, p); break;
-                        case "scale" when size == 4: s = BitConverter.ToSingle(d, p); break;
-                        case "hiddengame" when type == "boolproperty": hidden = d[p - 1] != 0; break;
+                        case "scale3d" or "drawscale3d" when size == 12: s3 = V(d, p); break;
+                        case "scale" or "drawscale" when size == 4: s = BitConverter.ToSingle(d, p); break;
+                        case "hiddengame" or "bhidden" when type == "boolproperty": hidden = d[p - 1] != 0; break;
                     }
                     p += size;
                 }

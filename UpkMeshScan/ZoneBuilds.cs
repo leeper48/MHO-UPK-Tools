@@ -14,7 +14,7 @@ static class ZoneBuilds
 {
     public enum Walls { Facade, Grey }
 
-    public sealed record Zone(string Name, string Package, string Description, Func<Walls, List<string[]>> Steps);
+    public sealed record Zone(string Name, string Package, string Description, Func<Walls, List<string[]>> Steps, bool HasFacade = true);
 
     const string Target = "@target", Data = "@data/";
     const string Library = "@lib:";                                     // a game package, read from its .bak if one exists
@@ -25,7 +25,47 @@ static class ZoneBuilds
             "Upper Madripoor / Hightown: sky dome, building boxes (MinDrawDistance 3500), always-drawn ground slabs, " +
             "two water layers with a hole over the GameCenter stairwell, night sky; walls: generated night facade or grey.",
             HightownSteps),
+        new("OdinsPalace", "Asgard_Hub_B.upk",
+            "Odin's Palace (Kurse operation): full starfield sky (backdrop copies for the sides and top), building boxes " +
+            "(64-unit raster, MinDrawDistance 3500), always-drawn slabs under the floors and platforms, the real Bifrost deck at a distance. Grey walls only so far.",
+            OdinsPalaceSteps, HasFacade: false),
     ];
+
+    /// <summary>
+    /// Odin's Palace (tuned in-game 2026-09-25). Sky: the starfield backdrop only covered ~130 degrees below the horizon
+    /// (--sky-coverage); rotated copies (yaw 90/180/270, then roll 180 at four yaws) cover every direction. Boxes: the
+    /// region isn't centred (the server log's area bounds = tile bounds), so no offset. The level has no procedural sky
+    /// dome, so the sky sphere mesh and its material are copied from stock Brooklyn_Docks_A only as templates (layout,
+    /// grey copy) and the components copy the level's own waterfall component.
+    /// </summary>
+    static List<string[]> OdinsPalaceSteps(Walls walls)
+    {
+        const string actor = "theworld.persistentlevel.staticmeshcollectionactor_0";
+        const string brooklyn = Library + "Brooklyn_Docks_A.upk";
+        const string lib = Library + "SCS__DailyGAsgardINSTRegionL40_SF.upk";
+        const string bridgeA = Library + "Asgardia_Bridge_EXT_INS_A.upk", bridgeB = Library + "Asgardia_Bridge_EXT_INS_B.upk";
+        const string deck = "rainbowbridge,rainbowbridgeicecover_polysurface4,rainbowbridgeicecover_polysurface5";
+        return
+        [
+            ["--add-component-copies", Target, actor + ".sma_starfield_a_smc_15", "--yaw", "90,180,270,0:0:180,90:0:180,180:0:180,270:0:180"],
+            ["--copy-export", brooklyn, "maptemplates.sky.m_procedural_sky_daytime", Target],
+            ["--copy-export", brooklyn, "maptemplates.sky.sm_skysphere", Target, "--cut", "bodysetup"],
+            // The Bifrost deck as real geometry (the tiles' ice cover + rainbow bridge segments; ice_water_mat and its
+            // textures are already in the stock level): meshes and the rainbow material copied in, the tiles' 11
+            // placements recreated 2 under the real ones, drawn beyond 3500.
+            ["--copy-export", bridgeB, "asgard.instance.rainbowbridgeicecover_polysurface4", Target, "--cut", "bodysetup"],
+            ["--copy-export", bridgeA, "asgard.instance.rainbowbridgeicecover_polysurface5", Target, "--cut", "bodysetup"],
+            ["--copy-export", lib, "asgard.rainbowbridge", Target, "--cut", "bodysetup"],
+            ["--copy-export", lib, "asgard.mat_rainbowbridge_dead", Target],
+            // Floors, platforms and the bridge: slabs from the cells' height maps, each 8 under its own surface and 192 thick,
+            // drawn at every distance (groundboxes.py band -200..300, multi-level tolerance 64). Kurt's Blender edit, which
+            // also removes the bridge-corridor slabs (the walkable strip is ~3x the deck's width; the real deck is copied in).
+            ["--add-cell-placeholders", Target, Data + "raster.fbx", "--always-fbx", Data + "ground.fbx", "--from-live",
+                "--component-template", actor + ".staticmeshactor_smc_0", "--min-draw", "3500"],
+            ["--add-mesh-instances", Target, bridgeA, deck, "--template", actor + ".staticmeshactor_smc_0", "--min-draw", "3500", "--z-offset", "-2"],
+            ["--add-mesh-instances", Target, bridgeB, deck, "--template", actor + ".staticmeshactor_smc_0", "--min-draw", "3500", "--z-offset", "-2"],
+        ];
+    }
 
     /// <summary>The Hightown recipe (tuned in-game 2026-09-25; the reasons are in the ht_build.sh comments).</summary>
     static List<string[]> HightownSteps(Walls walls)
@@ -87,6 +127,7 @@ static class ZoneBuilds
         string workFile = Path.Combine(work, zone.Package);
         File.Copy(stock, workFile, overwrite: true);
         string outFile = Path.Combine(AppContext.BaseDirectory, "import_out", zone.Package);
+        if (walls == Walls.Facade && !zone.HasFacade) { Console.WriteLine($"  {zone.Name} has no facade yet: grey walls."); walls = Walls.Grey; }
         var steps = zone.Steps(walls);
         Console.WriteLine($"Build zone {zone.Name} ({zone.Package}), walls {walls.ToString().ToLowerInvariant()}, from {(stock == live ? "the live file (no .bak yet: stock)" : "its .bak (stock)")}{(dryRun ? "  [dry run]" : "")}");
 

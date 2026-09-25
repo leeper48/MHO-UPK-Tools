@@ -348,6 +348,13 @@ static class ExportCopy
             p += 40 + fragments * 8 + 1;
         }
         if (p > d.Length) throw new InvalidDataException("sections run past the end");
+        // The tail ends with a name, an int32 0 or 1 and 8 zero bytes (checked on the library's rainbowbridge, the tile ice
+        // covers, Asgard's starfield and combo buildings: "None"; Brooklyn's sky sphere: "walkable"). Left unmapped it
+        // pointed into the wrong name table: Asgard_Hub_B crashed on load with "Bad Name Index 2012 / 865" (2.17.0).
+        int tailName = d.Length - 20;
+        if (tailName < p || (uint)I32(d, tailName) >= (uint)pkg.Names.Length || (uint)I32(d, tailName + 8) > 1 || I32(d, tailName + 12) != 0 || I32(d, tailName + 16) != 0)
+            throw new InvalidDataException("mesh tail isn't the known layout (name, 0|1, 0, 0) — not copied");
+        list.Add(new Patch(tailName, Kind.Name, "tail.name"));
     }
 
     static int I32(byte[] d, int p) => p + 4 <= d.Length ? BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)) : throw new InvalidDataException("read past the end");

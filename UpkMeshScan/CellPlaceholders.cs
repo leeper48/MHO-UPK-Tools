@@ -25,7 +25,7 @@ static class CellPlaceholders
     public static int Run(string upkPath, string fbxPath, float minDrawDistance, float cellSize, float gray, bool dryRun,
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink, IReadOnlyList<string> addFbx,
         string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false, float lift = 0, Vector3 offset = default, IReadOnlyList<string>? alwaysFbx = null,
-        string? wallMaterial = null, float wallUv = 512f)
+        string? wallMaterial = null, float wallUv = 512f, string? componentTemplate = null)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -52,7 +52,18 @@ static class CellPlaceholders
         int skyMesh = Find(bak, meshName, "StaticMesh"), skyMic = Find(bak, micName, "MaterialInstanceConstant");
         int skyComp = -1;
         ComponentTransform? placement = null;
-        for (int i = 0; i < n0 && skyMesh >= 0; i++)
+        // --component-template <path>: the new components copy this component (in a collection actor the level already
+        // lists) instead of the sky sphere's, minus its placement and baked lighting; for levels without a procedural sky
+        // dome (e.g. Asgard_Hub_B). The sky mesh and material are then only templates (layout, grey copy), not shown.
+        if (componentTemplate != null)
+        {
+            skyComp = Array.FindIndex(bak.Exports, e => bak.PathOf(e).Equals(componentTemplate, StringComparison.OrdinalIgnoreCase));
+            if (skyComp < 0 || !bak.ClassOf(bak.Exports[skyComp]).Equals("StaticMeshComponent", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine($"  --component-template: no StaticMeshComponent '{componentTemplate}'"); return 1; }
+            if (groundZ != null) { Console.WriteLine("  --ground-z needs the sky sphere's own component (not --component-template)"); return 1; }
+            placement = new ComponentTransform(0, Vector3.Zero, Vector3.Zero, Vector3.One);
+            Console.WriteLine($"  component template: {componentTemplate} (placement and baked lighting dropped)");
+        }
+        for (int i = 0; i < n0 && skyMesh >= 0 && skyComp < 0; i++)
             if (bak.ClassOf(bak.Exports[i]).Contains("StaticMeshComponent", StringComparison.OrdinalIgnoreCase)
                 && ComponentTransform.Read(bak, bak.ReadExportBytes(bak.Exports[i])) is { } c && c.MeshRef == skyMesh + 1) { skyComp = i; placement = c; break; }
         if (skyMesh < 0 || skyMic < 0 || skyComp < 0) { Console.WriteLine("  sky sphere mesh / material / component not found"); return 1; }
@@ -88,12 +99,35 @@ static class CellPlaceholders
             }
         }
         Load(fbxPath);
-        if (excludeBoxes.Count > 0) SkyPlaceholders.RemoveIslandsPublic(pos, nrm, idx, excludeBoxes);
         if (shrink != 1f) SkyPlaceholders.ShrinkIslandsPublic(pos, idx, shrink);
         foreach (string extra in addFbx) { int before = idx.Count; Load(extra); Console.WriteLine($"  added {(idx.Count - before) / 3:N0} tris from {Path.GetFileName(extra)}"); }
         // --always-fbx: pieces drawn at every distance (MinDrawDistance 0), in their own per-cell objects — e.g. ground
         // slabs under the real streets, which never need to fade out as a cell loads.
         foreach (string extra in alwaysFbx ?? []) { int before = idx.Count; Load(extra, alwaysOn: true); Console.WriteLine($"  added {(idx.Count - before) / 3:N0} always-drawn tris from {Path.GetFileName(extra)}"); }
+        // --exclude-box x0,y0,x1,y1: drops every connected piece (from any of the files, ground slabs included) whose
+        // centre falls inside, e.g. slabs where real geometry is copied in instead (Odin's Palace's Bifrost deck).
+        if (excludeBoxes.Count > 0)
+        {
+            var root0 = SkyPlaceholders.IslandsPublic(pos, idx);
+            var sums = new Dictionary<int, (Vector2 Sum, int Count)>();
+            for (int i = 0; i < pos.Count; i++) { int r = root0(i); var v = sums.GetValueOrDefault(r); sums[r] = (v.Sum + new Vector2(pos[i].X, pos[i].Y), v.Count + 1); }
+            var drop = sums.Where(kv => { var c = kv.Value.Sum / kv.Value.Count; return excludeBoxes.Any(b => c.X >= b[0] && c.X <= b[2] && c.Y >= b[1] && c.Y <= b[3]); })
+                .Select(kv => kv.Key).ToHashSet();
+            var map = new Dictionary<int, int>();
+            var np = new List<Vector3>(); var nn = new List<Vector3>(); var na = new List<bool>(); var ni = new List<int>();
+            for (int t = 0; t + 2 < idx.Count; t += 3)
+            {
+                if (drop.Contains(root0(idx[t]))) continue;
+                for (int k = 0; k < 3; k++)
+                {
+                    int v = idx[t + k];
+                    if (!map.TryGetValue(v, out int nv)) { nv = np.Count; map[v] = nv; np.Add(pos[v]); nn.Add(nrm[v]); na.Add(always[v]); }
+                    ni.Add(nv);
+                }
+            }
+            Console.WriteLine($"  excluded: {drop.Count} piece(s), {(idx.Count - ni.Count) / 3:N0} tris with their centre inside {string.Join(" ", excludeBoxes.Select(b => $"[{b[0]:0},{b[1]:0}..{b[2]:0},{b[3]:0}]"))}");
+            pos.Clear(); pos.AddRange(np); nrm.Clear(); nrm.AddRange(nn); always.Clear(); always.AddRange(na); idx.Clear(); idx.AddRange(ni);
+        }
         // --offset X,Y,Z: moves every placeholder from tile coordinates to where the game shows the tiles. A region
         // generated with sub-areas is centred by the server (RegionGenerator.CenterRegion: every area moves by minus the
         // centre of all area bounds); the tiles move with their cells, the main level doesn't. Hightown: +5208,-15512.
@@ -182,7 +216,7 @@ static class CellPlaceholders
             add.Add(new NewExport(skyMesh, NextNumber(bak, skyMesh, k2), off => StaticMeshBuilder.Serialize(skyTemplate, mesh, off, dropBodySetup: true)));
             int compRef = n0 + add.Count + 1;
             float md = key.Item3 ? 0f : minDrawDistance;
-            byte[] comp = BuildComponent(bak, skyComp, tw, meshRef, matRef, md);
+            byte[] comp = BuildComponent(bak, skyComp, tw, meshRef, matRef, md, componentTemplate != null);
             minDraws.Add(md);
             add.Add(new NewExport(skyComp, NextNumber(bak, skyComp, k2), _ => comp));
             compRefs.Add(compRef);
@@ -234,8 +268,13 @@ static class CellPlaceholders
         }) ? 0 : 1;
     }
 
+    /// <summary>MHO component lighting record with nothing baked (LOD count 1, then empty), as the sky sphere's.</summary>
+    static readonly byte[] EmptyLighting = [1, 0, 0, 0, .. new byte[17]];
+
     /// <summary>Copy of the sky's component: new StaticMesh, Materials = [grey], Scale3D dropped (1), MinDrawDistance added.</summary>
-    static byte[] BuildComponent(Package pkg, int template, TagWriter tw, int meshRef, int micRef, float minDraw)
+    /// <param name="stripPlacement">the template is an ordinary placed component: drop its translation / rotation /
+    /// scale (placeholders are in world units) and its baked lighting (an empty lighting record instead).</param>
+    static byte[] BuildComponent(Package pkg, int template, TagWriter tw, int meshRef, int micRef, float minDraw, bool stripPlacement = false)
     {
         byte[] src = pkg.ReadExportBytes(pkg.Exports[template]);
         var tags = TagWalker.Walk(pkg, src, 8) ?? throw new InvalidDataException("sky component's properties don't parse (expected MHO layout, properties from byte 8)");
@@ -249,11 +288,13 @@ static class CellPlaceholders
                 case "materials": ms.Write(tw.Tag("Materials", "ArrayProperty", null, [.. BitConverter.GetBytes(1), .. BitConverter.GetBytes(micRef)])); break;
                 case "scale3d": break;                                        // placeholders are in world units: scale 1 (default)
                 case "mindrawdistance": break;                                // re-added below
+                case "translation" or "rotation" or "visibilityid" or "vertexpositionversionnumber" when stripPlacement: break;
                 default: ms.Write(src, t.Start, t.End - t.Start); break;
             }
         }
         ms.Write(tw.Tag("MinDrawDistance", "FloatProperty", null, BitConverter.GetBytes(minDraw)));
-        ms.Write(src, tags.NoneAt, src.Length - tags.NoneAt);                // None + native (an empty lighting record)
+        if (stripPlacement) { ms.Write(src, tags.NoneAt, 8); ms.Write(EmptyLighting); }   // None + nothing baked
+        else ms.Write(src, tags.NoneAt, src.Length - tags.NoneAt);           // None + native (the sky's empty lighting record)
         return ms.ToArray();
     }
 

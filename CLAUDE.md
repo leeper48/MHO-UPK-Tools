@@ -6,7 +6,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.15.0
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.17.1
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `UpkMeshScan/publish/` (gitignored). Generated files go in `publish/exports`; `publish/imports` holds only Kurt's edited files.
@@ -89,6 +89,7 @@ Open questions for Kurt before Phase 3 design:
 - Confirmed in-game: edited buildings render (including 3.5× height). A package written this way loads.
 
 Layout facts (don't re-derive; see the `StaticMesh.cs` / `StaticMeshBuilder.cs` headers for the evidence):
+- **A StaticMesh's last 20 bytes are a name (usually "None"), an int32 0 or 1, then 8 zero bytes.** Copies must remap that name: an unmapped one crashed Asgard_Hub_B on load ("Bad Name Index 2012 / 865"). `--copy-export` remaps it since 2.17.1. Use `--names <pkg> [index...]` to read name tables.
 - LOD 0 layout: bounds, BodySetup, kDOP, InternalVersion 18, 4 unknown ints, LOD count, bulk header (offset points at itself), sections (45 bytes each), positions, tangent+UV buffer (half UVs), color buffer, index buffer (**always 16-bit**), wireframe (always empty), adjacency (**always 12 per triangle**). After that comes a tail that starts with int 1.
 - **Vertex limit is 65,535 welded vertices** (16-bit indices). This is the practical cap on how big an edit can get.
 - Tangents: the standard UV-gradient tangent. TangentX.W = 0x80. TangentZ.W = 0xFF for +1 binormal sign, 0x00 for −1.
@@ -110,6 +111,7 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 - `--add-sky-placeholders <pkg> none --ground-z Z --ground-box x0,y0,x1,y1[,z][;...] [--color R,G,B | --ground-material pkg.obj] [--sky-drop F]` adds ground-only planes (one per box, each at its own z) as a second section of the sky sphere, for zones with a void past their edge. `--sky-drop` lowers the dome's own section by F of its height. Industry City: z −220 (water ≈ −205), ±100224, the zone's water material, UV tile 2304 (the cells' `terrain_flat_filler` tiling).
 - `--add-cell-placeholders` options: `--offset X,Y[,Z]` (tile coordinates to in-game), `--lift Z` (diagnostic: boxes float above their buildings), `--always-fbx` (pieces with MinDrawDistance 0, such as ground slabs under the streets), `--wall-material pkg.obj --wall-uv N` (wall faces get that material with box-projected UVs; roofs stay grey), `--from-live` (build on the live file, for levels that got a copied sky actor).
 - **Region centring (don't re-derive):** MHServerEmu's `RegionGenerator.CenterRegion` moves every area by minus the centre of the union of all area bounds, sub-areas included. Tiles move with their cells; the main level doesn't. So placeholders built from tile coordinates need `--offset` = −centre. Method: turn on GenerateLog, enter the zone, then take the union of the logged `cellpos` (pre-centring = RegionBounds centre) ± half of each `.cell`'s bounds. A `.cell` file is a 12-byte header, then max vec3, then min vec3. Hightown: +5208, −15512 (district + Jumbotron Overlook sub-area at −30000,−30000 + sewers at 0,60000), confirmed in-game. Industry City: main cells +3456, −2304.
+- **Components owned by a standalone actor** (StaticMeshActor, InterpActor, …) are placed by the actor's Location / Rotation / DrawScale; collection-actor components carry their own Translation etc. The scan applies the owner's transform since 2.16.1. Before that, Asgard's Bifrost gun landed at the origin, and ICP has 102 such meshes (not yet rescanned). An actor's tags start after a few native fields (for example at byte 0x1A), so `ComponentTransform.ReadActor` tries starts up to 96.
 - A zone's main level is its region's `ClientMap` asset (`Regions/RegionClientMap.type`; see publish/scans/tools/cally.py). Examples: Industry City = `Brooklyn_Docks_A`, Cannery Row = `JerseyDocks_Cannery_A`, Midtown = `MidTown_Static`, Hightown = `Madripoor_HighTown_B`, Odin's Palace (Kurse) = `Asgard_Hub_B`.
 - Ground slabs come from the cells' height maps (72×72 samples of 32 units; −32768 = none) via `publish/scans/tools/groundboxes.py <cells> <out> [lo,hi] [pull]`. Hightown uses band −6..110, pulled back 4 samples from anything lower, so stairwells stay open. Slabs sit at −78..−8.
 
@@ -123,6 +125,14 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
   4. Copy the Hightown water, as two layers (−80 and −85) in 4 boxes around the GameCenter stairwell hole.
   5. Sky dropped 0.2 and dimmed to night.
 - The facade texture is generated (`make_facade.py`: DXT1 diffuse + spec with R = specular, G = emissive, B = reflection, plus a flat normal). Hightown's own textures are trim atlases, not tileable facades.
+- **Odin's Palace** (`Asgard_Hub_B`, district of 12 `Asgardia_INS` tiles + 2 bridge cells, library `SCS__DailyGAsgardINSTRegionL40_SF`; region not centred, no offset), 10 steps:
+  1. Sky backdrop copies.
+  2. Brooklyn's sky mesh and material, as templates only.
+  3. The Bifrost deck meshes and material, copied in.
+  4. Building boxes on a 64-unit raster (`--raster 64 --raster-step 64`: a third of the 32-unit triangle count), via `--component-template` (the level's waterfall component).
+  5. Kurt's edited multi-level ground slabs (`groundboxes.py ... -200,300 0 64`: each slab 8 under its own surface).
+  6. `--add-mesh-instances` recreating the 11 deck placements from the bridge tiles at z −2, MinDrawDistance 3500. Confirmed in-game.
+- `--add-mesh-instances <level> <tile> <meshes> --template <comp>` recreates a tile's placements of chosen meshes, with their materials, in the main level: real geometry as a distant stand-in. Copy the meshes and materials first; `--copy-export` reuses objects the level already has.
 - `publish/scans/tools/ht_build.sh` / `icp_build.sh` are the older script recipes (Industry City is still script-only).
 
 ## Sky backdrops: confirmed in-game

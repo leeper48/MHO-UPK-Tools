@@ -48,6 +48,29 @@ static class Program
 
     internal static int Run(string[] args, string version)
     {
+        int namesAt = Array.FindIndex(args, a => a.Equals("--names", StringComparison.OrdinalIgnoreCase));
+        if (namesAt >= 0 && namesAt + 1 < args.Length)
+        {
+            // --names <package.upk> [index ...]: name-table entries (all, or the given indices). Read-only.
+            var pk = Package.Open(args[namesAt + 1]);
+            var want = args.Skip(namesAt + 2).Where(x => int.TryParse(x, out _)).Select(int.Parse).ToList();
+            Console.WriteLine($"{Path.GetFileName(args[namesAt + 1])}: {pk.Names.Length} names");
+            foreach (int i in want.Count > 0 ? want : Enumerable.Range(0, pk.Names.Length))
+                Console.WriteLine($"  {i,5}  {(i >= 0 && i < pk.Names.Length ? pk.Names[i] : "(out of range)")}");
+            return 0;
+        }
+
+        int instAt = Array.FindIndex(args, a => a.Equals("--add-mesh-instances", StringComparison.OrdinalIgnoreCase));
+        if (instAt >= 0)
+        {
+            // --add-mesh-instances <package.upk> <source.upk> <mesh[,mesh...]> --template <component-path> [--min-draw 3500] [--z-offset dz] [--dry-run]
+            string IOpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            if (instAt + 3 >= args.Length || IOpt("--template", "").Length == 0) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            return MeshInstances.Run(args[instAt + 1], args[instAt + 2], args[instAt + 3].Split(',', StringSplitOptions.RemoveEmptyEntries), IOpt("--template", ""),
+                float.Parse(IOpt("--min-draw", "3500"), inv), float.Parse(IOpt("--z-offset", "0"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
         int copiesAt = Array.FindIndex(args, a => a.Equals("--add-component-copies", StringComparison.OrdinalIgnoreCase));
         if (copiesAt >= 0)
         {
@@ -125,7 +148,8 @@ static class Program
                 fromLive: args.Any(a => a.Equals("--from-live", StringComparison.OrdinalIgnoreCase)), lift: float.Parse(Opt("--lift", "0"), inv),
                 offset: Opt("--offset", "0,0,0").Split(',').Select(v => float.Parse(v, inv)).Concat([0f, 0f, 0f]).Take(3).ToArray() is var o ? new System.Numerics.Vector3(o[0], o[1], o[2]) : default,
                 alwaysFbx: Multi("--always-fbx"),
-                wallMaterial: Opt("--wall-material", "") is { Length: > 0 } wm ? wm : null, wallUv: float.Parse(Opt("--wall-uv", "512"), inv));
+                wallMaterial: Opt("--wall-material", "") is { Length: > 0 } wm ? wm : null, wallUv: float.Parse(Opt("--wall-uv", "512"), inv),
+                componentTemplate: Opt("--component-template", "") is { Length: > 0 } ct ? ct : null);
         }
 
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));
