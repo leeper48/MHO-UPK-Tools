@@ -6,14 +6,16 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property edits (e.g. fog, colours), zone placeholders, cross-package material copy, texture import/export incl. .tfc, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.9.0
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.15.0
 ```
+
+Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `UpkMeshScan/publish/` (gitignored). Generated files go in `publish/exports`; `publish/imports` holds only Kurt's edited files.
 
 Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds UpkMeshScan into AnimExportCli. UpkMeshScan now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
 
 ## Rules that are not negotiable
 
-1. **Game files are modified only through the import command.** Before the first write, back up the live file to `<name>.upk.bak` and verify the copy byte for byte. Never overwrite or delete an existing `.bak`, because it is the oldest copy and counts as the original. Build the new package in a temporary file, verify it by reading it back, and only then replace the live file. `--revert` copies the `.bak` back, verifies it, and keeps it. Imports build from the live file, so mods stack. No other code path writes into the game folder. Refuse, or ask first, if one would.
+1. **Game files are modified only through the import command.** Before the first write, back up the live file to `<name>.upk.bak` and verify the copy byte for byte. Never overwrite or delete an existing `.bak`, because it is the oldest copy and counts as the original. Build the new package in a temporary file, verify it by reading it back, and only then replace the live file. `--revert` copies the `.bak` back, verifies it, and keeps it. Imports build from the live file, so mods stack. No other code path writes into the game folder. Refuse, or ask first, if one would. Every write goes through `MeshImport.WriteLive`, which also records an undo snapshot (see Undo / redo). Kurt's standing OK: when a build is ready and its dry run passed, write it live if the game (`MarvelHeroesOmega`) isn't running; if it is running, ask him to close it.
 2. **Evidence before fixes.** Several plausible-sounding theories in this project turned out to be wrong. Before changing decode or encode logic, get concrete data: run `--dump` / `--dump-bone`, a verifier, a reference FBX, or ask Kurt to check in Blender. State a hypothesis as a hypothesis until data confirms it.
 3. **Blender is the authority for FBX.** Blender's FBX reader is independent of Assimp. If an Assimp-based check disagrees with Blender, suspect the Assimp tooling first.
 4. **Verifiers are ground truth.** Run `--verify-roundtrip` and `--verify-encoder` after any change to the FBX import/export path or the encoder. Clean results are about 0.04–0.07° (decode only) or 0.08–0.12° (encode+decode) for rotation, and about 0.0000 for position.
@@ -41,7 +43,10 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 - **Shaders are global.** No level or region package contains a ShaderCache. Every material's compiled shaders are in `RefShaderCache-PC-D3D-SM3.upk`, found by the material resource's GUIDs and static parameters. A material copied unchanged into another package renders; the game can't compile new ones.
 - **Cross-package imports only resolve if that package is already loaded.** A zone's main level loads before its region `SCS__` library. An import into the library gave the default checker material. Imports from `MarvelGame.upk` (always loaded) work.
 - **Objects are identified by path.** A copied object with the same path as one in another package replaces it for everything loaded after it (a broken copy of the water material broke the stock pier water zone-wide). Rename a copy you intend to change.
-- MHO StaticMeshComponent properties start at byte 8 (an extra int32, then NetIndex), not 4 or 16.
+- MHO StaticMeshComponent properties start at byte 8 (an extra int32, then NetIndex), not 4 or 16. A component's native data is its lighting record. "Nothing baked" is 21 bytes: int 1, then 17 zero bytes. New components use that, which is fine for unlit materials and our placeholders.
+- **Static switches are baked into shaders.** A material instance can only use a static-switch combination that already exists in the shader cache. To get a feature (for example emissive), copy an existing MIC whose switches already have it and change only its textures and scalar/vector parameters. `--dump-export` prints a MIC's static switches.
+- Mesh UVs are half floats. Keep them near zero (shift by whole repeats per object): at |u| ≈ 24, the precision is only 1/64 of a repeat.
+- **Level actors:** a Level's native data starts with its Actors list (owner = the level, count, refs). An actor copied into a level must be appended there (`--add-level-actor`) or the game ignores it.
 - UpkMeshScan validates the header's compressed-chunk table. If that table doesn't check out, it locates the table by scanning byte-by-byte for chunk signatures (the header isn't 4-byte aligned, because of the FolderName FString).
 
 ## Hard-won animation knowledge (don't re-derive)
@@ -78,8 +83,9 @@ Open questions for Kurt before Phase 3 design:
 
 - `--export-fbx` (with textures), `--import-fbx` (`--dry-run`, `.bak`, verified temp, swap), `--revert`, `--verify-import-roundtrip` (self-test: export, then FBX, then import).
 - `--decode-static` (folder-wide parser check: all 37,107 meshes decode).
-- `--set-property` changes existing float/int/Color/LinearColor properties. A `Color` struct is stored as bytes **B, G, R, A** (little-endian 0xAARRGGBB): read that way, Midtown's sun comes out warm and its sky-side fog blue. `LinearColor` is four floats R, G, B, A. Values are given as `R,G,B[,A]`; a missing alpha keeps the original. Zone fog is an ExponentialHeightFogComponent in the zone's persistent-level packages (Midtown: `MidTown_Static.upk` + `MidTown_Dynamic.upk`; Cannery Row: `JerseyDocks_Cannery_A.upk`). Confirmed in-game.
-- Diagnostics: `--dump-export`, `--inspect-fbx` (prints UV ranges too), `--find-name` (`*` wildcards), `--import-sources`, `--mesh-users`, `--texture-info`, `--export-textures`, `--list-exports`, `--export-deps` (what an export pulls in; `--cut` props).
+- `--set-property` changes existing float/int/Color/LinearColor properties, and material-instance parameters as `param:<name>=value` (entries of ScalarParameterValues / VectorParameterValues; for example it dimmed Hightown's procedural sky to night). A `Color` struct is stored as bytes **B, G, R, A** (little-endian 0xAARRGGBB): read that way, Midtown's sun comes out warm and its sky-side fog blue. `LinearColor` is four floats R, G, B, A. Values are given as `R,G,B[,A]`; a missing alpha keeps the original. Zone fog is an ExponentialHeightFogComponent in the zone's persistent-level packages (Midtown: `MidTown_Static.upk` + `MidTown_Dynamic.upk`; Cannery Row: `JerseyDocks_Cannery_A.upk`). Confirmed in-game.
+- FBX export writes **no normals** (Blender reads them as custom split normals, which Kurt deletes). Only `--verify-import-roundtrip` exports them. The reader generates flat normals when a file has none.
+- Diagnostics: `--dump-export` (also prints object arrays by path, such as a component's Materials, and a MIC's static switches), `--uv-info`, `--inspect-fbx` (prints UV ranges too), `--find-name` (`*` wildcards), `--import-sources`, `--mesh-users`, `--texture-info`, `--export-textures`, `--list-exports`, `--export-deps` (what an export pulls in; `--cut` props).
 - Confirmed in-game: edited buildings render (including 3.5× height). A package written this way loads.
 
 Layout facts (don't re-derive; see the `StaticMesh.cs` / `StaticMeshBuilder.cs` headers for the evidence):
@@ -91,20 +97,50 @@ Layout facts (don't re-derive; see the `StaticMesh.cs` / `StaticMeshBuilder.cs` 
 - The importer matches FBX objects by the mesh name (`<mesh>_section<N>`, `<mesh>.001`) and materials by name, ignoring Blender's `.NNN` suffixes.
 - Textures: stock textures keep only small mips (mostly 64×64) in the package; larger mips are in `.tfc` caches with offset/size −1 in the package. **The lookup is `TextureFileCacheManifest.bin`** (`TfcCache.cs`): count, then per texture path, GUID (= the texture's TextureFileCacheGuid after its mips), cache name, and (mip, offset, size) list. At the offset is a UE3 LZO compressed chunk. `--export-textures` / `--export-fbx` now write the largest stored mip. Mip 0 is often cooked out (flag 0x20). Mod-tool-injected textures have one full-size inline mip, `NeverStream`, and no cache; `--import-texture` writes that form.
 
-Open items: real collision (kDOP build), editing placements (move, add, or remove meshes in a tile), and following component-supplied materials.
+Open items: real collision (kDOP build), editing placements (move, add, or remove meshes in a tile), following component-supplied materials, and optional LZO compression of written packages. Zone main levels grow from ~150 KB to 0.5–15 MB, almost all added content: storing uncompressed only costs ~1.6× the stock size. Parked:
+- Hightown GameCenter stairwell (stock untextured quads)
+- occasional Hightown client crash (tbbmalloc, also happened before the mods; DXVK + ReShade)
+- ICP clouds
 
 ## Zones and placeholders (UpkMeshScan): confirmed in-game
 
 - A tiled zone is a main level package (sky sphere, fog, sun, one StaticMeshCollectionActor) plus `<Prefix>_X#Y#` tile packages. Tiles store placements in **world** coordinates on a 2304-unit grid, and import meshes from one `SCS__*` region library (find it with `--import-sources`). Examples: Midtown = `MidTown_Static`/`_Dynamic` + `UES_Static_*`; Cannery Row = `JerseyDocks_Cannery_A` + `JerseyDocks_Cannery_X*`.
 - Zones built from exit-named cells (`Shipping_A_NESW_A`, `Industrial_Processing_*`, `SiegeCity_A_*`) are laid out at run time. Every cell is stored at the origin, so placeholders at fixed positions can't work there. Industry City's main level is `Brooklyn_Docks_A` (Shipping cells).
 - `--zone-placeholders` builds footprint prisms from the tiles (FBX, for Blender review). `--add-cell-placeholders` adds one mesh + component per cell to the main level's collection actor with `MinDrawDistance` (the MHO client honours it), rebuilt from the `.bak` with live edits carried over. Midtown (3500, `--shrink 0.8889`) and Cannery Row are written.
-- `--add-sky-placeholders <pkg> none --ground-z Z --ground-box x0,y0,x1,y1 [--color R,G,B | --ground-material pkg.obj]` adds a ground-only plane as a second section of the sky sphere, for zones with a void past their edge. Industry City: z −220 (water ≈ −205), ±100224, the zone's water material, UV tile 2304 (the cells' `terrain_flat_filler` tiling).
+- `--add-sky-placeholders <pkg> none --ground-z Z --ground-box x0,y0,x1,y1[,z][;...] [--color R,G,B | --ground-material pkg.obj] [--sky-drop F]` adds ground-only planes (one per box, each at its own z) as a second section of the sky sphere, for zones with a void past their edge. `--sky-drop` lowers the dome's own section by F of its height. Industry City: z −220 (water ≈ −205), ±100224, the zone's water material, UV tile 2304 (the cells' `terrain_flat_filler` tiling).
+- `--add-cell-placeholders` options: `--offset X,Y[,Z]` (tile coordinates to in-game), `--lift Z` (diagnostic: boxes float above their buildings), `--always-fbx` (pieces with MinDrawDistance 0, such as ground slabs under the streets), `--wall-material pkg.obj --wall-uv N` (wall faces get that material with box-projected UVs; roofs stay grey), `--from-live` (build on the live file, for levels that got a copied sky actor).
+- **Region centring (don't re-derive):** MHServerEmu's `RegionGenerator.CenterRegion` moves every area by minus the centre of the union of all area bounds, sub-areas included. Tiles move with their cells; the main level doesn't. So placeholders built from tile coordinates need `--offset` = −centre. Method: turn on GenerateLog, enter the zone, then take the union of the logged `cellpos` (pre-centring = RegionBounds centre) ± half of each `.cell`'s bounds. A `.cell` file is a 12-byte header, then max vec3, then min vec3. Hightown: +5208, −15512 (district + Jumbotron Overlook sub-area at −30000,−30000 + sewers at 0,60000), confirmed in-game. Industry City: main cells +3456, −2304.
+- A zone's main level is its region's `ClientMap` asset (`Regions/RegionClientMap.type`; see publish/scans/tools/cally.py). Examples: Industry City = `Brooklyn_Docks_A`, Cannery Row = `JerseyDocks_Cannery_A`, Midtown = `MidTown_Static`, Hightown = `Madripoor_HighTown_B`, Odin's Palace (Kurse) = `Asgard_Hub_B`.
+- Ground slabs come from the cells' height maps (72×72 samples of 32 units; −32768 = none) via `publish/scans/tools/groundboxes.py <cells> <out> [lo,hi] [pull]`. Hightown uses band −6..110, pulled back 4 samples from anything lower, so stairwells stay open. Slabs sit at −78..−8.
+
+## Zone builds (UpkMeshScan): confirmed in-game
+
+- `--build-zone <zone> <game-folder> [--walls facade|grey] [--dry-run]` and the GUI **Zones** tab rebuild a zone's main level from stock with its whole recipe (`ZoneBuilds.cs`). Every step runs as a dry run on a scratch copy of the `.bak` and verifies itself; the result is written once, so one undo step takes the whole rebuild back. Inputs that aren't in the game ship in `ZoneData/<Zone>/` (copied next to the exe; the `C:\Tools` copy needs it too).
+- **Hightown** (`Madripoor_HighTown_B`, which originally had no mesh actor), 10 steps:
+  1. Copy the stock `Brooklyn_Docks_A` collection actor (sky dome) and add it to the level's actor list.
+  2. Facade: import 3 textures, then copy `madripoor_hitown_storefront_a_mat` (opaque, UseEmissive on) as `ht_facade_mat` with our textures.
+  3. Building boxes (raster from all pieces 150+ wide with tops ≥ 250, street props skipped; MinDrawDistance 3500) plus always-drawn ground slabs, `--offset 5208,-15512`, walls textured at `--wall-uv 512`.
+  4. Copy the Hightown water, as two layers (−80 and −85) in 4 boxes around the GameCenter stairwell hole.
+  5. Sky dropped 0.2 and dimmed to night.
+- The facade texture is generated (`make_facade.py`: DXT1 diffuse + spec with R = specular, G = emissive, B = reflection, plus a flat normal). Hightown's own textures are trim atlases, not tileable facades.
+- `publish/scans/tools/ht_build.sh` / `icp_build.sh` are the older script recipes (Industry City is still script-only).
+
+## Sky backdrops: confirmed in-game
+
+- `--sky-coverage <pkg> <component[,...|prefix*]> [--from x,y,z]` maps which view directions placed backdrop meshes cover (# = mesh, . = black sky).
+- `--add-component-copies <pkg> <component> --yaw y[:pitch[:roll]],...` adds rotated copies of a placed component to its collection actor, with an empty lighting record.
+- Odin's Palace (`Asgard_Hub_B`): the `starfield_a` backdrop (unlit nebula + stars) covered only ~130° below the horizon. Copies at yaw +90/180/270 fix the sides, and roll 180 at 4 yaws fixes the top: 100% coverage, "perfect".
+
+## Undo / redo
+
+- `MeshImport.WriteLive` and `--revert` snapshot the previous live file to `%LOCALAPPDATA%\UpkMeshScan\history\<file>_<hash>\` (last 20 steps, `History.cs`). `--undo` / `--redo` / `--history <pkg>` restore through the same verified path and refuse if the live file isn't the expected version (`--force` overrides). The GUI Backups tab has Undo / Redo (Ctrl+Z / Ctrl+Y). The `.bak` is never touched.
 
 ## Copying materials between packages (UpkMeshScan): confirmed in-game
 
 - `--copy-export <src.upk> <export-path> <dst.upk> [--cut prop,...] [--dry-run]` copies an export and everything it references. An exact parser finds every name and object reference: tags, struct arrays, known object arrays (`expressions`, `functionexpressions`), string arrays, the Material/MIC native resource, and Texture2D inline-mip offsets. Everything is renumbered into the target. Anything unknown stops the copy. Verification re-parses every copy and checks each reference resolves to the same path.
 - Material/MIC native layout: quality mask (3 = two levels), then per level CompileErrors (0), TextureDependencyLengthMap (0), MaxTextureDependencyLength, Id GUID, NumUserTexCoords, UniformExpressionTextures (object refs), 6 ints, TextureLookups, 4 ints. For a MIC, add StaticParameters: BaseMaterialId, StaticSwitchParameters (name, value, override, GUID), then 3 empty arrays.
 - **Never cut `materialfunctioninfos`.** Nulling it gave the default checker material (the function state GUIDs are checked). Cutting `physmaterial` (footstep splashes, sounds) is fine.
+- `--rename` / `--replace-ref src=dst` copy a material under a new name with references swapped, for example to imported textures (the ICP photo sky and the Hightown facade). `--copy-export` also copies meshes, StaticMeshComponents (empty lighting only) and collection actors.
 - First use: Industry City's water. `brooklyn_docks_lighting.brooklyn_docks_water_mat` was copied from `SCS__CH0201ShippingYardRegion_SF` into `Brooklyn_Docks_A` (85 exports, `--cut physmaterial`) and used on the ground plane. Its animated water covers the plane.
 
 ## Working style
