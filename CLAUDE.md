@@ -6,7 +6,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property edits (e.g. fog, colours), zone placeholders, cross-package material copy, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.4.0
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property edits (e.g. fog, colours), zone placeholders, cross-package material copy, texture import/export incl. .tfc, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.9.0
 ```
 
 Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds UpkMeshScan into AnimExportCli. UpkMeshScan now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
@@ -89,9 +89,9 @@ Layout facts (don't re-derive; see the `StaticMesh.cs` / `StaticMeshBuilder.cs` 
 - An empty collision tree is written as root bound +FLT_MAX / −FLT_MAX, nodes (6,0), triangles (8,0), sections EnableCollision 0. Imports currently write this.
 - Meshes cooked into map tiles have section material ref 0; the placed component supplies the materials by section index. Those sections are named `section<N>` on export/import, and section order must be preserved.
 - The importer matches FBX objects by the mesh name (`<mesh>_section<N>`, `<mesh>.001`) and materials by name, ignoring Blender's `.NNN` suffixes.
-- Textures: stock textures keep only small mips (mostly 64×64) in the package. Full size is in `.tfc` files, and the package stores offset/size −1 for those mips, so the lookup is still unknown. Mod-tool-injected textures have one full-size inline mip and no cache.
+- Textures: stock textures keep only small mips (mostly 64×64) in the package; larger mips are in `.tfc` caches with offset/size −1 in the package. **The lookup is `TextureFileCacheManifest.bin`** (`TfcCache.cs`): count, then per texture path, GUID (= the texture's TextureFileCacheGuid after its mips), cache name, and (mip, offset, size) list. At the offset is a UE3 LZO compressed chunk. `--export-textures` / `--export-fbx` now write the largest stored mip. Mip 0 is often cooked out (flag 0x20). Mod-tool-injected textures have one full-size inline mip, `NeverStream`, and no cache; `--import-texture` writes that form.
 
-Open items: high-res texture export (`.tfc` lookup), real collision (kDOP build), editing placements (move, add, or remove meshes in a tile), and following component-supplied materials.
+Open items: real collision (kDOP build), editing placements (move, add, or remove meshes in a tile), and following component-supplied materials.
 
 ## Zones and placeholders (UpkMeshScan): confirmed in-game
 

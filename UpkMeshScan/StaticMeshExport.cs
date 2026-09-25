@@ -42,7 +42,7 @@ static class StaticMeshExport
 
         Directory.CreateDirectory(outDir);
         string path = Path.Combine(outDir, $"{mesh.Name}.fbx");
-        var slots = ExportTextures(pkg, mesh, outDir, quiet);
+        var slots = ExportTextures(pkg, mesh, outDir, quiet, Path.GetDirectoryName(Path.GetFullPath(upkPath)));
         Write(mesh, path, slots);
         if (!quiet) Console.WriteLine($"Wrote {path}");
         return 0;
@@ -54,12 +54,12 @@ static class StaticMeshExport
     /// Writes each section's material textures (largest mip inside the package) to &lt;mesh&gt;_textures\ and a
     /// &lt;mesh&gt;_textures.txt report. Returns per-section relative paths for the FBX material slots.
     /// </summary>
-    static SectionTextures[] ExportTextures(Package pkg, StaticMesh mesh, string outDir, bool quiet)
+    static SectionTextures[] ExportTextures(Package pkg, StaticMesh mesh, string outDir, bool quiet, string? cacheFolder = null)
     {
         var result = new SectionTextures[mesh.Sections.Length];
         string folder = $"{mesh.Name}_textures";
         var report = new System.Text.StringBuilder();
-        report.AppendLine($"Textures for {mesh.Name} (largest mip stored inside the package; full-size mips in .tfc files are not read)");
+        report.AppendLine($"Textures for {mesh.Name} (largest stored mip: from the package, or from its .tfc via TextureFileCacheManifest.bin)");
         var written = new Dictionary<int, string>();
         for (int s = 0; s < mesh.Sections.Length; s++)
         {
@@ -74,7 +74,7 @@ static class StaticMeshExport
                 if (!written.TryGetValue(t.ExportIndex, out string? rel))
                 {
                     rel = Path.Combine(folder, TextureExport.SafeName(t.Texture) + ".dds");
-                    var size = TextureExport.WriteDds(pkg, t.ExportIndex, Path.Combine(outDir, rel), out string note);
+                    var size = TextureExport.WriteDds(pkg, t.ExportIndex, Path.Combine(outDir, rel), out string note, cacheFolder);
                     report.AppendLine($"  {t.Parameter,-28} {t.Texture,-44} {(size is { } z ? $"{z.W}x{z.H}  {note}" : $"not written: {note}")}");
                     if (size is null) { written[t.ExportIndex] = ""; continue; }
                     written[t.ExportIndex] = rel;

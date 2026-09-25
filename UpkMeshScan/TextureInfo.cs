@@ -9,7 +9,7 @@ public sealed record TextureMip(int Width, int Height, uint Flags, int Count, in
     public bool Inline => !InSeparateFile && !Unused && Size > 0 && InlineAt >= 0;
 }
 
-public sealed record TextureInfo(string Name, string Format, int SizeX, int SizeY, string Cache, List<TextureMip> Mips, byte[] Data)
+public sealed record TextureInfo(string Name, string Format, int SizeX, int SizeY, string Cache, List<TextureMip> Mips, byte[] Data, byte[] CacheGuid)
 {
     /// <summary>Largest mip whose bytes are inside the package (null if none).</summary>
     public TextureMip? BestInline => Mips.Where(m => m.Inline).OrderByDescending(m => m.Width).FirstOrDefault();
@@ -49,7 +49,9 @@ public sealed record TextureInfo(string Name, string Format, int SizeX, int Size
             int w = BitConverter.ToInt32(d, p), h = BitConverter.ToInt32(d, p + 4); p += 8;
             mips.Add(new TextureMip(w, h, flags, cnt, size, off, inlineAt));
         }
-        return new TextureInfo(e.ObjectName, format, sx, sy, cache, mips, d);
+        // After the mips: TextureFileCacheGuid, the key (with the texture's path) into TextureFileCacheManifest.bin.
+        byte[] guid = p + 16 <= d.Length ? d.AsSpan(p, 16).ToArray() : new byte[16];
+        return new TextureInfo(e.ObjectName, format, sx, sy, cache, mips, d, guid);
     }
 
     static string ReadName(Package pkg, byte[] d, ref int p)

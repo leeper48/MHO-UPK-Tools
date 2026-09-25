@@ -86,26 +86,41 @@ static class TextureExport
     }
 
     /// <summary>Writes the largest inline mip as a DDS. Returns (width, height, note) or null with a reason in note.</summary>
-    public static (int W, int H)? WriteDds(Package pkg, int exportIndex, string path, out string note)
+    public static (int W, int H)? WriteDds(Package pkg, int exportIndex, string path, out string note, string? cacheFolder = null)
     {
         TextureInfo tex;
         try { tex = TextureInfo.Read(pkg, pkg.Exports[exportIndex]); }
         catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException or IndexOutOfRangeException)
         { note = $"couldn't read texture header ({ex.Message})"; return null; }
         var mip = tex.BestInline;
-        if (mip is null) { note = "no mip data inside the package"; return null; }
-        byte[] pixels = tex.Data.AsSpan(mip.InlineAt, mip.Size).ToArray();
-        if (mip.Lzo) pixels = DecompressChunk(pixels, mip.Count);
+        byte[]? pixels = null;
+        string source = "package";
+        // A larger mip in the texture file cache? (Largest first; mips the cooker dropped are marked unused.)
+        if (cacheFolder != null && TfcCache.Find(cacheFolder, pkg.PathOf(pkg.Exports[exportIndex]), tex.CacheGuid) is { } entry)
+            for (int m = 0; m < tex.Mips.Count; m++)
+            {
+                var cm = tex.Mips[m];
+                if (!cm.InSeparateFile || cm.Unused || (mip != null && cm.Width <= mip.Width)) continue;
+                if (TfcCache.ReadMip(cacheFolder, entry, m, cm.Count) is { } data) { pixels = data; mip = cm; source = entry.Cache + ".tfc"; break; }
+            }
+        if (mip is null) { note = "no mip data inside the package or its texture cache"; return null; }
+        if (pixels == null)
+        {
+            pixels = tex.Data.AsSpan(mip.InlineAt, mip.Size).ToArray();
+            if (mip.Lzo) pixels = DecompressChunk(pixels, mip.Count);
+        }
         byte[]? header = DdsHeader(tex.Format, mip.Width, mip.Height, pixels.Length, out note);
         if (header is null) return null;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using (var f = File.Create(path)) { f.Write(header); f.Write(pixels); }
-        note = mip.Width >= tex.SizeX ? "full size" : $"full size {tex.SizeX}x{tex.SizeY} is only in '{tex.Cache}.tfc'";
+        int largestStored = tex.Mips.Where(x => !x.Unused).Select(x => x.Width).DefaultIfEmpty(0).Max();
+        note = (mip.Width >= largestStored ? "largest stored" : $"largest stored {largestStored} is only in '{tex.Cache}.tfc' (not found)")
+             + (mip.Width < tex.SizeX ? $"; {tex.SizeX}x{tex.SizeY} itself was cooked out" : "") + $"; from {source}";
         return (mip.Width, mip.Height);
     }
 
     /// <summary>UE3 compressed-chunk format: magic, block size, summary (comp, uncomp), block sizes, blocks.</summary>
-    static byte[] DecompressChunk(byte[] src, int expected)
+    internal static byte[] DecompressChunk(byte[] src, int expected)
     {
         int p = 4, blockSize = BitConverter.ToInt32(src, p); p += 4;
         p += 4; int total = BitConverter.ToInt32(src, p); p += 4;
@@ -168,7 +183,7 @@ static class TextureExport
             string path = Path.Combine(outDir, SafeName(e.ObjectName) + ".dds");
             try
             {
-                var size = WriteDds(pkg, i, path, out string note);
+                var size = WriteDds(pkg, i, path, out string note, Path.GetDirectoryName(Path.GetFullPath(upkPath)));
                 if (size is { } s) { written++; Console.WriteLine($"  {e.ObjectName,-48} {s.W}x{s.H}  {note}"); }
                 else { skipped++; Console.WriteLine($"  {e.ObjectName,-48} skipped: {note}"); }
             }
