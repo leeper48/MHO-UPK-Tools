@@ -19,6 +19,7 @@ sealed class MainForm : Form
         public string ExportFolder { get; set; } = Path.Combine(AppContext.BaseDirectory, "exports");
         public string LastPackage { get; set; } = "";
         public string LastFbx { get; set; } = "";
+        public bool DarkMode { get; set; } = true;
     }
 
     static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "UpkMeshScan", "settings.json");
@@ -44,7 +45,9 @@ sealed class MainForm : Form
     readonly TextBox gameFolder = new() { Dock = DockStyle.Fill };
     readonly ComboBox packageBox = new() { Dock = DockStyle.Fill, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
     readonly Label packageInfo = new() { AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
-    readonly TabControl tabs = new() { Dock = DockStyle.Fill };
+    readonly ThemedTabControl tabs = new() { Dock = DockStyle.Fill };
+    Button? themeToggle;
+    Palette palette = Palette.Dark;
     readonly TextBox log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = new Font(FontFamily.GenericMonospace, 9f) };
 
     // Browse tab
@@ -107,6 +110,7 @@ sealed class MainForm : Form
         fbxPath.Text = settings.LastFbx;
 
         Console.SetOut(new LogWriter(this, log));
+        HandleCreated += (_, _) => SetTheme(settings.DarkMode);
         Load += (_, _) =>
         {
             FillPackageList();
@@ -120,7 +124,7 @@ sealed class MainForm : Form
 
     Control BuildHeader()
     {
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -133,6 +137,9 @@ sealed class MainForm : Form
         });
         var reload = Btn("Reload list", () => { FillPackageList(); RefreshBackups(); });
         t.Controls.Add(Lbl("Game folder:"), 0, 0); t.Controls.Add(gameFolder, 1, 0); t.Controls.Add(browseFolder, 2, 0); t.Controls.Add(reload, 3, 0);
+        themeToggle = Btn(ThemeButtonText(settings.DarkMode), () => SetTheme(!settings.DarkMode));
+        tips.SetToolTip(themeToggle, "Switch between dark and light mode (remembered next time).");
+        t.Controls.Add(themeToggle, 4, 0);
 
         var open = Btn("Open", OpenSelectedPackage);
         var openFile = Btn("Open file…", () =>
@@ -347,6 +354,7 @@ sealed class MainForm : Form
         var page = new TabPage("Backups");
         backups.Columns.Add("Package", 380); backups.Columns.Add("Status", 170); backups.Columns.Add("Live size", 110, HorizontalAlignment.Right);
         backups.Columns.Add("Live date", 140); backups.Columns.Add("Original (.bak) size", 140, HorizontalAlignment.Right);
+        backups.Resize += (_, _) => FillLastColumn(backups);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         t.Controls.Add(Lbl("Packages with a .bak (the original). \"Modified\" = live file differs from its .bak."), 0, 0);
@@ -488,7 +496,7 @@ sealed class MainForm : Form
             var row = grid.Rows[r];
             row.Tag = p.Type;
             row.Cells["Value"].ReadOnly = !p.Editable;
-            if (!p.Editable) row.DefaultCellStyle.ForeColor = SystemColors.GrayText;
+            if (!p.Editable) row.DefaultCellStyle.ForeColor = palette.Subtle;
             Swatch(row.Cells["Original"], p.Type, p.Value);
             Swatch(row.Cells["Value"], p.Type, p.Value);
             if (original != null && bak != "(not stored)") Swatch(row.Cells["Bak"], p.Type, bak);
@@ -564,10 +572,10 @@ sealed class MainForm : Form
         {
             // Colour cells show the colour itself; a changed one gets a bold yellow border-ish marker via the text.
             Swatch(row.Cells["Value"], (string)row.Tag, row.Cells["Value"].Value?.ToString() ?? "");
-            row.Cells["Name"].Style.BackColor = changed ? Color.LightYellow : grid.DefaultCellStyle.BackColor;
+            row.Cells["Name"].Style.BackColor = changed ? palette.Changed : Color.Empty;
             return;
         }
-        row.Cells["Value"].Style.BackColor = changed ? Color.LightYellow : grid.DefaultCellStyle.BackColor;
+        row.Cells["Value"].Style.BackColor = changed ? palette.Changed : Color.Empty;
     }
 
     /// <summary>Paints a colour cell with its colour (text stays readable: black or white by brightness).</summary>
@@ -691,6 +699,7 @@ sealed class MainForm : Form
             }
         }
         backups.EndUpdate();
+        FillLastColumn(backups);
     }
 
     static bool SameContent(string a, string b)
@@ -782,6 +791,27 @@ sealed class MainForm : Form
         ["Revert selected to original…"] = "Copy the .bak (the original) back over the live package, verified. The .bak is kept. Also undoes mods made by other tools if their backup is the .bak.",
         ["Open selected package"] = "Open the selected package in the Browse tab.",
     };
+
+    /// <summary>Last column takes the remaining width, so no unpainted header strip is left on the right.</summary>
+    static void FillLastColumn(ListView lv) { if (lv.Columns.Count > 0) lv.Columns[lv.Columns.Count - 1].Width = -2; }
+
+    static string ThemeButtonText(bool dark) => dark ? "Light mode" : "Dark mode";
+
+    /// <summary>Dark (default) or light; applied to every control, remembered in the settings.</summary>
+    void SetTheme(bool dark)
+    {
+        settings.DarkMode = dark;
+        palette = dark ? Palette.Dark : Palette.Light;
+        Theme.Apply(this, palette);
+        if (themeToggle != null) themeToggle.Text = ThemeButtonText(dark);
+        // Rows already in the grid: read-only text colour and the changed marker follow the theme.
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            row.DefaultCellStyle.ForeColor = row.Cells["Value"].ReadOnly ? palette.Subtle : Color.Empty;
+            MarkChanged(row);
+        }
+        SaveSettings();
+    }
 
     Button Btn(string text, Action onClick)
     {

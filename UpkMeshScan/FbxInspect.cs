@@ -68,6 +68,12 @@ static class FbxInspect
                               $"({scene.Materials[mesh.MaterialIndex].Name}), normals {mesh.HasNormals}, uv channels {mesh.TextureCoordinateChannelCount}");
             Console.WriteLine($"{pad}    local bounds {F(lmin)} .. {F(lmax)}");
             Console.WriteLine($"{pad}    world bounds {F(wmin)} .. {F(wmax)}");
+            for (int c = 0; c < mesh.TextureCoordinateChannelCount; c++)
+            {
+                var uv = mesh.TextureCoordinateChannels[c];
+                if (uv.Count == 0) continue;
+                Console.WriteLine($"{pad}    uv{c} range ({uv.Min(t => t.X):0.###}, {uv.Min(t => t.Y):0.###}) .. ({uv.Max(t => t.X):0.###}, {uv.Max(t => t.Y):0.###})");
+            }
             int nonTri = mesh.Faces.Count(f => f.IndexCount != 3);
             if (nonTri > 0) Console.WriteLine($"{pad}    {nonTri:N0} non-triangle faces");
         }

@@ -72,6 +72,23 @@ static class Program
             return MeshImport.VerifyRoundTrip(args[roundTripAt + 1], args[roundTripAt + 2]);
         }
 
+        int cellAt = Array.FindIndex(args, a => a.Equals("--add-cell-placeholders", StringComparison.OrdinalIgnoreCase));
+        if (cellAt >= 0)
+        {
+            // --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304] [--gray 0.03] [--exclude-box ...]
+            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--dry-run]
+            if (cellAt + 2 >= args.Length) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            List<string> Multi(string name) => args.Select((a, i) => (a, i)).Where(x => x.a.Equals(name, StringComparison.OrdinalIgnoreCase) && x.i + 1 < args.Length).Select(x => args[x.i + 1]).ToList();
+            string ground = Opt("--ground-z", "");
+            return CellPlaceholders.Run(args[cellAt + 1], args[cellAt + 2], float.Parse(Opt("--min-draw", "3500"), inv), float.Parse(Opt("--cell", "2304"), inv),
+                float.Parse(Opt("--gray", "0.03"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                Multi("--exclude-box").Select(b => b.Split(',').Select(v => float.Parse(v, inv)).ToArray()).Where(b => b.Length == 4).ToList(),
+                ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv),
+                float.Parse(Opt("--shrink", "1"), inv), Multi("--add-fbx"));
+        }
+
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));
         if (matAt >= 0)
         {
@@ -82,7 +99,8 @@ static class Program
         int skyAt = Array.FindIndex(args, a => a.Equals("--add-sky-placeholders", StringComparison.OrdinalIgnoreCase));
         if (skyAt >= 0)
         {
-            // --add-sky-placeholders <package.upk> <placeholders.fbx> [--mesh sm_skysphere] [--material m_procedural_sky_daytime] [--gray 0.03] [--dry-run]
+            // --add-sky-placeholders <package.upk> <placeholders.fbx | none> [--mesh sm_skysphere] [--material m_procedural_sky_daytime] [--gray 0.03]
+            //     [--color R,G,B] [--ground-z Z [--ground-margin 4000 | --ground-box x0,y0,x1,y1]] [--ground-material pkg.obj [--ground-uv 2304]] [--dry-run]
             if (skyAt + 2 >= args.Length) { Usage(); return 2; }
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -93,7 +111,11 @@ static class Program
                 float.Parse(Opt("--gray", "0.03"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
                 boxes, ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv),
                 float.Parse(Opt("--shrink", "1"), inv),
-                args.Select((a, i) => (a, i)).Where(x => x.a.Equals("--add-fbx", StringComparison.OrdinalIgnoreCase) && x.i + 1 < args.Length).Select(x => args[x.i + 1]).ToList());
+                args.Select((a, i) => (a, i)).Where(x => x.a.Equals("--add-fbx", StringComparison.OrdinalIgnoreCase) && x.i + 1 < args.Length).Select(x => args[x.i + 1]).ToList(),
+                Opt("--ground-box", "") is { Length: > 0 } gb ? gb.Split(',').Select(v => float.Parse(v, inv)).ToArray() : null,
+                Opt("--color", "") is { Length: > 0 } col && col.Split(',').Select(v => float.Parse(v, inv)).ToArray() is { Length: 3 } c
+                    ? new System.Numerics.Vector3(c[0], c[1], c[2]) : null,
+                Opt("--ground-material", "") is { Length: > 0 } gm ? gm : null, float.Parse(Opt("--ground-uv", "2304"), inv));
         }
 
         int testRebuildAt = Array.FindIndex(args, a => a.Equals("--test-rebuild", StringComparison.OrdinalIgnoreCase));
@@ -187,6 +209,28 @@ static class Program
         {
             if (usersAt + 2 >= args.Length) { Usage(); return 2; }
             return MeshUsers.Run(args[usersAt + 1], args[usersAt + 2]);
+        }
+
+        int copyAt = Array.FindIndex(args, a => a.Equals("--copy-export", StringComparison.OrdinalIgnoreCase));
+        if (copyAt >= 0)
+        {
+            // --copy-export <source.upk> <export-path> <target.upk> [--cut prop,...] [--dry-run]
+            if (copyAt + 3 >= args.Length) { Usage(); return 2; }
+            int ci = Array.FindIndex(args, a => a.Equals("--cut", StringComparison.OrdinalIgnoreCase));
+            return ExportCopy.Run(args[copyAt + 1], args[copyAt + 2], args[copyAt + 3],
+                ci >= 0 && ci + 1 < args.Length ? args[ci + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [],
+                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int depsAt = Array.FindIndex(args, a => a.Equals("--export-deps", StringComparison.OrdinalIgnoreCase));
+        if (depsAt >= 0)
+        {
+            // --export-deps <package.upk> <export> [--depth 20]: what a copy of that export would need. Read-only.
+            if (depsAt + 2 >= args.Length) { Usage(); return 2; }
+            int di = Array.FindIndex(args, a => a.Equals("--depth", StringComparison.OrdinalIgnoreCase));
+            int ci = Array.FindIndex(args, a => a.Equals("--cut", StringComparison.OrdinalIgnoreCase));
+            return ExportDeps.Run(args[depsAt + 1], args[depsAt + 2], di >= 0 && di + 1 < args.Length ? int.Parse(args[di + 1]) : 20,
+                ci >= 0 && ci + 1 < args.Length ? args[ci + 1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : null);
         }
 
         int findAt = Array.FindIndex(args, a => a.Equals("--find-name", StringComparison.OrdinalIgnoreCase));
@@ -462,9 +506,19 @@ static class Program
                            [--exclude-box minX,minY,maxX,maxY ...] [--ground-z -40 [--ground-margin 4000]]
                            [--shrink F]  (scale each piece: 0.8/0.9 = 0.889 turns 90% placeholders into 80%)
                            [--add-fbx more.fbx ...]  (merged as is, after exclusion and shrink)
+                           [--color R,G,B]  (flat colour instead of --gray, linear 0..1)
+                           [--ground-box minX,minY,maxX,maxY]  (exact ground extent instead of the margin)
+                           [--ground-material package.object [--ground-uv 2304]]  (with "none": the plane uses that
+                               MaterialInstanceConstant through new imports, UVs tiling every 2304 units)
+          <placeholders.fbx> may be "none" (with --ground-z and --ground-box): only the ground plane, for zones
+          whose cells are placed at run time.
           Adds the FBX's geometry (world space, e.g. from --zone-placeholders) to the zone's sky sphere
           mesh as a second section with a new flat-grey copy of the sky material. The package is rebuilt
           to hold the new material; everything else stays byte-identical. Same .bak / verify / swap.
+        Usage: UpkMeshScan --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304]
+                           [--exclude-box ...] [--shrink F] [--add-fbx ...] [--ground-z -40] [--gray 0.03] [--dry-run]
+          Placeholders as one placed object per map cell with MinDrawDistance (hidden near the camera),
+          built from the package's .bak with the live file's other edits (e.g. fog) carried over.
         Usage: UpkMeshScan --test-rebuild <package.upk> [export-to-copy]
           Self-test: rebuild the package (optionally with one export copied) and verify. Writes nothing.
         Usage: UpkMeshScan --list-exports <package.upk> [class-filter]

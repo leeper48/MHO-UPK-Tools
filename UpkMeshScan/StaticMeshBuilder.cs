@@ -90,21 +90,25 @@ static class StaticMeshBuilder
     /// <summary>
     /// The original LOD 0 kept exactly (positions, normals, UVs, stored tangents, sections), plus one new section
     /// of extra geometry (engine space, already in the mesh's local space) drawn with <paramref name="materialRef"/>.
-    /// New vertices get zero UVs; their tangents are computed. Adjacency and bounds cover everything.
+    /// New vertices get <paramref name="uv0"/> in channel 0 (zero if not given) and zero in the others; their tangents
+    /// are computed. Adjacency and bounds cover everything.
     /// </summary>
-    public static BuiltMesh AddSection(StaticMesh original, IReadOnlyList<Vector3> positions, IReadOnlyList<Vector3> normals, IReadOnlyList<int> indices, int materialRef, string materialName)
+    public static BuiltMesh AddSection(StaticMesh original, IReadOnlyList<Vector3> positions, IReadOnlyList<Vector3> normals, IReadOnlyList<int> indices, int materialRef, string materialName,
+        IReadOnlyList<Vector2>? uv0 = null)
     {
+        if (uv0 != null && uv0.Count != positions.Count) throw new ArgumentException("uv0 needs one entry per added vertex");
+        var newUv = uv0?.ToArray() ?? new Vector2[positions.Count];
         int baseVertex = original.Positions.Length, firstIndex = original.Indices.Length, channels = original.NumTexCoords;
         int total = baseVertex + positions.Count;
         if (total > 65535) throw new InvalidDataException($"{total:N0} vertices with the added geometry; this mesh uses 16-bit indices (max 65,535).");
         var P = original.Positions.Concat(positions).ToArray();
         var N = original.Normals.Concat(normals).ToArray();
-        var UV = Enumerable.Range(0, channels).Select(c => original.TexCoords[c].Concat(Enumerable.Repeat(Vector2.Zero, positions.Count)).ToArray()).ToArray();
+        var UV = Enumerable.Range(0, channels).Select(c => original.TexCoords[c].Concat(c == 0 ? newUv : new Vector2[positions.Count]).ToArray()).ToArray();
         var I = original.Indices.Concat(indices.Select(i => (ushort)(i + baseVertex))).ToArray();
 
         // Original vertices keep their stored tangents; the new part's are computed on its own triangles.
         var localIdx = indices.Select(i => (ushort)i).ToArray();
-        var (nx, nz) = Tangents(positions.ToArray(), normals.ToArray(), new Vector2[positions.Count], localIdx);
+        var (nx, nz) = Tangents(positions.ToArray(), normals.ToArray(), newUv, localIdx);
         var tx = original.TangentX.Concat(nx).ToArray();
         var tz = original.TangentZ.Concat(nz).ToArray();
 
@@ -121,6 +125,32 @@ static class StaticMeshBuilder
             Positions = P, Normals = N, TexCoords = UV, TangentX = tx, TangentZ = tz, Indices = I,
             Adjacency = Adjacency(P, UV[0], I), Sections = sections,
             BoundsOrigin = origin, BoundsExtent = extent, BoundsRadius = radius,
+        };
+    }
+
+    /// <summary>
+    /// A new single-section mesh from plain geometry (engine space), using <paramref name="template"/> only for its
+    /// layout (UV channel count, section flags). UVs are zero; tangents are computed.
+    /// </summary>
+    public static BuiltMesh BuildGeometry(StaticMesh template, IReadOnlyList<Vector3> positions, IReadOnlyList<Vector3> normals, IReadOnlyList<int> indices, int materialRef, string materialName)
+    {
+        if (positions.Count > 65535) throw new InvalidDataException($"{positions.Count:N0} vertices; 16-bit indices allow 65,535.");
+        var P = positions.ToArray(); var N = normals.ToArray();
+        var UV = Enumerable.Range(0, template.NumTexCoords).Select(_ => new Vector2[P.Length]).ToArray();
+        var I = indices.Select(i => (ushort)i).ToArray();
+        var (tx, tz) = Tangents(P, N, UV[0], I);
+        var section = template.Sections[0] with
+        {
+            MaterialRef = materialRef, MaterialName = materialName, EnableCollision = false,
+            FirstIndex = 0, NumTriangles = I.Length / 3, MinVertexIndex = 0, MaxVertexIndex = P.Length - 1, MaterialIndex = 0, TrailingFlag = 0,
+        };
+        Vector3 min = P.Aggregate(Vector3.Min), max = P.Aggregate(Vector3.Max);
+        Vector3 origin = (min + max) * 0.5f, extent = (max - min) * 0.5f;
+        return new BuiltMesh
+        {
+            Positions = P, Normals = N, TexCoords = UV, TangentX = tx, TangentZ = tz, Indices = I,
+            Adjacency = Adjacency(P, UV[0], I), Sections = [section],
+            BoundsOrigin = origin, BoundsExtent = extent, BoundsRadius = MathF.Sqrt(P.Max(p => Vector3.DistanceSquared(p, origin))),
         };
     }
 
@@ -209,7 +239,7 @@ static class StaticMeshBuilder
     }
 
     /// <summary>Serializes the replacement export: original properties and tail, new bounds/geometry, empty collision tree.</summary>
-    public static byte[] Serialize(StaticMesh original, BuiltMesh m, long serialOffset)
+    public static byte[] Serialize(StaticMesh original, BuiltMesh m, long serialOffset, bool dropBodySetup = false)
     {
         if (original.LodCount != 1) throw new InvalidDataException($"mesh has {original.LodCount} LODs; only single-LOD meshes can be imported so far");
         if (original.HasVertexColors) throw new InvalidDataException("mesh has per-vertex colors; importing would drop them, which isn't supported yet");
@@ -220,7 +250,7 @@ static class StaticMeshBuilder
 
         w.Write(src, 0, L.BoundsAt);                                        // NetIndex + properties
         Vec(w, m.BoundsOrigin); Vec(w, m.BoundsExtent); w.Write(m.BoundsRadius);
-        w.Write(BitConverter.ToInt32(src, L.BoundsAt + 28));                // BodySetup (kept)
+        w.Write(dropBodySetup ? 0 : BitConverter.ToInt32(src, L.BoundsAt + 28));   // BodySetup (kept, or none for new meshes)
 
         // Empty collision tree, as stock no-collision meshes store it.
         w.Write(float.MaxValue); w.Write(float.MaxValue); w.Write(float.MaxValue);

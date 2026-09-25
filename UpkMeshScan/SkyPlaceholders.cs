@@ -14,8 +14,18 @@ namespace UpkMeshScan;
 static class SkyPlaceholders
 {
     public static int Run(string upkPath, string fbxPath, string meshName, string micName, float gray, bool dryRun,
-        IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink = 1f, IReadOnlyList<string>? addFbx = null)
+        IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink = 1f, IReadOnlyList<string>? addFbx = null,
+        float[]? groundBox = null, Vector3? color = null, string? groundMaterial = null, float groundUv = 2304f)
     {
+        // fbxPath "none": no placeholders, only the ground plane (zones whose cells are laid out at run time, e.g. Industry City).
+        bool groundOnly = fbxPath.Equals("none", StringComparison.OrdinalIgnoreCase);
+        if (groundOnly && (groundZ is null || groundBox is null)) { Console.WriteLine("  'none' needs --ground-z and --ground-box"); return 2; }
+        // --ground-material <package.object>: the plane uses an existing material instance from another package (e.g. the
+        // zone's water, brooklyn_docks_lighting.brooklyn_docks_water_mat), referenced through two new imports, with UVs
+        // tiling every groundUv units like the cells' own filler (UV 0..1 across -groundUv/2..+groundUv/2).
+        string[]? importPath = groundMaterial?.Split('.');
+        if (importPath != null && !groundOnly) { Console.WriteLine("  --ground-material needs 'none' (ground only)"); return 2; }
+        Vector3 rgb = color ?? new Vector3(gray, gray, gray);
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
         var pkg = Package.Open(upkPath);
@@ -39,7 +49,12 @@ static class SkyPlaceholders
         // Placeholders added before (a second section using a copy of the sky material): replace just that section
         // and reuse its material, so later edits to this package (e.g. fog) are kept.
         int existingMic = -1;
-        if (original.Sections.Length == 2 && original.Sections[1].MaterialRef > 0
+        if (importPath != null && original.Sections.Length == 2)
+        {
+            original = SkyOnly(original);
+            Console.WriteLine("  ground plane already present: replacing it (a flat material added before stays in the package, unused)");
+        }
+        else if (original.Sections.Length == 2 && original.Sections[1].MaterialRef > 0
             && pkg.Exports[original.Sections[1].MaterialRef - 1].ObjectName.StartsWith(pkg.Exports[micIndex].ObjectName + "_", StringComparison.OrdinalIgnoreCase))
         {
             existingMic = original.Sections[1].MaterialRef - 1;
@@ -49,7 +64,7 @@ static class SkyPlaceholders
         else if (original.Sections.Length != 1) { Console.WriteLine($"  the mesh has {original.Sections.Length} sections; expected the sky sphere (1) or sky + placeholders (2)."); return 1; }
 
         // Placeholder geometry: every FBX triangle, world -> the sky mesh's local space.
-        var sections = FbxMeshReader.Read(fbxPath, 1);
+        var sections = groundOnly ? [] : FbxMeshReader.Read(fbxPath, 1);
         var pos = new List<Vector3>(); var nrm = new List<Vector3>(); var idx = new List<int>();
         foreach (var s in sections)
         {
@@ -58,7 +73,7 @@ static class SkyPlaceholders
             nrm.AddRange(s.Normals);
             idx.AddRange(s.Indices.Select(i => i + b));
         }
-        if (idx.Count == 0) { Console.WriteLine("  the FBX has no triangles"); return 1; }
+        if (idx.Count == 0 && !groundOnly) { Console.WriteLine("  the FBX has no triangles"); return 1; }
         if (excludeBoxes.Count > 0) RemoveIslands(pos, nrm, idx, scale, excludeBoxes);
         if (shrink != 1f) ShrinkIslands(pos, idx, shrink);
         foreach (string extra in addFbx ?? [])
@@ -74,36 +89,69 @@ static class SkyPlaceholders
             }
             Console.WriteLine($"  added {(idx.Count - before) / 3:N0} tris from {Path.GetFileName(extra)}");
         }
-        if (groundZ is float gz) AddGround(pos, nrm, idx, scale, gz, groundMargin);
+        if (groundZ is float gz) AddGround(pos, nrm, idx, scale, gz, groundMargin, groundBox);
         var worldPos = pos.Select(p => p * scale).ToList();
         Vector3 wmin = worldPos.Aggregate(Vector3.Min), wmax = worldPos.Aggregate(Vector3.Max);
         Console.WriteLine($"  placeholders: {pos.Count:N0} verts, {idx.Count / 3:N0} tris, world ({wmin.X:0}, {wmin.Y:0}, {wmin.Z:0})..({wmax.X:0}, {wmax.Y:0}, {wmax.Z:0}); sky component scale {scale} -> mesh space /{scale}");
 
-        // Material: the one added before, or a new flat-grey copy of the sky's material instance.
+        // Material: an imported one, the one added before, or a new flat-grey copy of the sky's material instance.
         var add = new List<NewExport>();
+        var addNames = new List<string>();
+        var addImports = new List<NewImport>();
+        List<Vector2>? uv0 = null;
         int newIndex;
         string newName;
-        if (existingMic >= 0) { newIndex = existingMic; newName = pkg.Exports[existingMic].ObjectName; }
+        int localMaterial = groundMaterial == null ? -1 : Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(groundMaterial, StringComparison.OrdinalIgnoreCase)
+            && pkg.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase));
+        if (localMaterial >= 0)
+        {
+            // The material is in this package already (e.g. copied in with --copy-export): reference the export.
+            newIndex = localMaterial;
+            newName = pkg.Exports[localMaterial].ObjectName;
+            float half = groundUv / 2;
+            uv0 = pos.Select(q => new Vector2((q.X * scale + half) / groundUv, (q.Y * scale + half) / groundUv)).ToList();
+            Console.WriteLine($"  ground material: export #{localMaterial + 1} {groundMaterial} (in this package); UV tile {groundUv}");
+        }
+        else if (importPath != null)
+        {
+            if (importPath.Length != 2) { Console.WriteLine("  --ground-material: not in this package, and an import needs a <package>.<object> path"); return 2; }
+            string pkgName = importPath[0], objName = importPath[1];
+            foreach (string n in new[] { "Core", "Package", "Engine", "MaterialInstanceConstant", pkgName, objName })
+                if (!pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase)) && !addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            int ImportOf(string cls, int outer, string name) => Array.FindIndex(pkg.Imports, i => i.OuterIndex == outer
+                && i.ClassName.Equals(cls, StringComparison.OrdinalIgnoreCase) && i.ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase));
+            int pkgImport = ImportOf("Package", 0, pkgName);
+            if (pkgImport < 0) { pkgImport = pkg.Imports.Length + addImports.Count; addImports.Add(new NewImport("Core", "Package", 0, pkgName)); }
+            int matImport = ImportOf("MaterialInstanceConstant", -(pkgImport + 1), objName);
+            if (matImport < 0) { matImport = pkg.Imports.Length + addImports.Count; addImports.Add(new NewImport("Engine", "MaterialInstanceConstant", -(pkgImport + 1), objName)); }
+            newIndex = -(matImport + 1) - 1;                               // so that newIndex + 1 = the import reference
+            newName = objName;
+            float half = groundUv / 2;
+            uv0 = pos.Select(q => new Vector2((q.X * scale + half) / groundUv, (q.Y * scale + half) / groundUv)).ToList();
+            string namesNote = addNames.Count > 0 ? "; names added: " + string.Join(", ", addNames) : "";
+            Console.WriteLine($"  ground material: import {pkgName}.{objName} (import #{matImport + 1}, {(addImports.Count > 0 ? "new" : "already there")}){namesNote}; UV tile {groundUv}");
+        }
+        else if (existingMic >= 0) { newIndex = existingMic; newName = pkg.Exports[existingMic].ObjectName; }
         else
         {
             int number = NextNameNumber(pkg, micIndex);
             newIndex = pkg.Exports.Length;                                 // 0-based index of the added export
-            byte[] micBytes = BuildFlatMic(pkg, micIndex, gray);
+            byte[] micBytes = BuildFlatMic(pkg, micIndex, rgb);
             newName = number > 0 ? $"{pkg.Exports[micIndex].ObjectName}_{number - 1}" : pkg.Exports[micIndex].ObjectName;
-            Console.WriteLine($"  new material: {pkg.PathOf(pkg.Exports[micIndex])} copied as '{newName}' (export #{newIndex + 1}), grey {gray:0.###}");
+            Console.WriteLine($"  new material: {pkg.PathOf(pkg.Exports[micIndex])} copied as '{newName}' (export #{newIndex + 1}), colour {rgb.X:0.###},{rgb.Y:0.###},{rgb.Z:0.###}");
             add.Add(new NewExport(micIndex, number, _ => micBytes));
         }
 
-        var built = StaticMeshBuilder.AddSection(original, pos, nrm, idx, newIndex + 1, newName);
+        var built = StaticMeshBuilder.AddSection(original, pos, nrm, idx, newIndex + 1, newName, uv0);
         var replace = new Dictionary<int, Func<long, byte[]>> { [meshIndex] = off => StaticMeshBuilder.Serialize(original, built, off) };
-        byte[] output = PackageRebuilder.Rebuild(pkg, replace, add, out var written);
+        byte[] output = PackageRebuilder.Rebuild(pkg, replace, add, out var written, addNames, addImports);
 
-        var problems = PackageRebuilder.Verify(pkg, output, replace.Keys.ToList(), add, written);
+        var problems = PackageRebuilder.Verify(pkg, output, replace.Keys.ToList(), add, written, addNames, addImports);
         problems.AddRange(CheckResult(output, meshIndex, newIndex, original, built, gray));
         Console.WriteLine($"  sky mesh: {original.Positions.Length:N0} -> {built.Positions.Length:N0} verts, sections: sky (unchanged) + placeholders ({idx.Count / 3:N0} tris)");
         Console.WriteLine($"  package: {pkg.RawFile.Length:N0} -> {output.Length:N0} bytes, {pkg.Exports.Length} -> {pkg.Exports.Length + add.Count} exports");
         if (problems.Count > 0) { Console.WriteLine($"  verify: FAIL"); problems.ForEach(p => Console.WriteLine($"    - {p}")); Console.WriteLine("  Nothing written."); return 1; }
-        Console.WriteLine("  verify: PASS (names/imports identical, every other export byte-identical, sky section unchanged, new material and section read back as built)");
+        Console.WriteLine($"  verify: PASS (names/imports = original{(addNames.Count + addImports.Count > 0 ? " + additions" : "")}, every other export byte-identical, sky section unchanged, material and section read back as built)");
 
         if (dryRun)
         {
@@ -116,7 +164,7 @@ static class SkyPlaceholders
         }
         return MeshImport.WriteLive(upkPath, output, onDisk =>
         {
-            var p = PackageRebuilder.Verify(pkg, onDisk, replace.Keys.ToList(), add, written);
+            var p = PackageRebuilder.Verify(pkg, onDisk, replace.Keys.ToList(), add, written, addNames, addImports);
             p.AddRange(CheckResult(onDisk, meshIndex, newIndex, original, built, gray));
             return p;
         }) ? 0 : 1;
@@ -161,6 +209,12 @@ static class SkyPlaceholders
     /// Scales each connected piece in place: sideways toward the piece's centre, and its height down from its
     /// base. 0.8/0.9 turns 90% placeholders into 80% ones without regenerating (hand merges are kept).
     /// </summary>
+    internal static void ShrinkIslandsPublic(List<Vector3> pos, List<int> idx, float factor) => ShrinkIslands(pos, idx, factor);
+    internal static void RemoveIslandsPublic(List<Vector3> pos, List<Vector3> nrm, List<int> idx, IReadOnlyList<float[]> boxes) => RemoveIslands(pos, nrm, idx, 1f, boxes);
+    internal static Func<int, int> IslandsPublic(List<Vector3> pos, List<int> idx) => Islands(pos, idx);
+    internal static byte[] BuildFlatMicPublic(Package pkg, int micIndex, float gray) => BuildFlatMic(pkg, micIndex, new Vector3(gray, gray, gray));
+    internal static StaticMesh SkyOnlyPublic(StaticMesh m) => SkyOnly(m);
+
     static void ShrinkIslands(List<Vector3> pos, List<int> idx, float factor)
     {
         var root = Islands(pos, idx);
@@ -205,11 +259,19 @@ static class SkyPlaceholders
         pos.Clear(); pos.AddRange(newPos); nrm.Clear(); nrm.AddRange(newNrm); idx.Clear(); idx.AddRange(newIdx);
     }
 
-    /// <summary>A flat ground quad at world height z under everything, margin past the placeholders on every side.</summary>
-    static void AddGround(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float margin)
+    /// <summary>
+    /// A flat ground quad at world height z under everything: margin past the placeholders on every side, or
+    /// exactly the given box (minX, minY, maxX, maxY).
+    /// </summary>
+    static void AddGround(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float margin, float[]? box = null)
     {
-        Vector3 min = pos.Aggregate(Vector3.Min) * scale, max = pos.Aggregate(Vector3.Max) * scale;
-        float x0 = min.X - margin, y0 = min.Y - margin, x1 = max.X + margin, y1 = max.Y + margin;
+        float x0, y0, x1, y1;
+        if (box is { Length: 4 }) (x0, y0, x1, y1) = (box[0], box[1], box[2], box[3]);
+        else
+        {
+            Vector3 min = pos.Aggregate(Vector3.Min) * scale, max = pos.Aggregate(Vector3.Max) * scale;
+            (x0, y0, x1, y1) = (min.X - margin, min.Y - margin, max.X + margin, max.Y + margin);
+        }
         int b = pos.Count;
         foreach (var v in new[] { new Vector3(x0, y0, z), new Vector3(x1, y0, z), new Vector3(x1, y1, z), new Vector3(x0, y1, z) })
         { pos.Add(v / scale); nrm.Add(Vector3.UnitZ); }
@@ -240,8 +302,11 @@ static class SkyPlaceholders
         if (!m.Indices.AsSpan(0, original.Indices.Length).SequenceEqual(original.Indices)) problems.Add("sky triangles changed");
         if (!m.Positions.SequenceEqual(built.Positions) || !m.Indices.SequenceEqual(built.Indices)) problems.Add("mesh doesn't read back as built");
         if (m.Notes.Any(x => x.Contains("bulk-data offset"))) problems.Add("mesh bulk-data offset doesn't point at itself");
-        var props = PropertyEdit.ReadProperties(w, newIndex);
-        if (props == null) problems.Add("new material's properties don't parse");
+        if (newIndex >= 0 && PropertyEdit.ReadProperties(w, newIndex) == null) problems.Add("new material's properties don't parse");
+        int n0 = original.Positions.Length;
+        if (m.TexCoords.Length > 0 && built.TexCoords.Length > 0
+            && !m.TexCoords[0].Skip(n0).Zip(built.TexCoords[0].Skip(n0)).All(t => Vector2.Distance(t.First, t.Second) < 0.05f))
+            problems.Add("added UVs don't read back as built");
         return problems;
     }
 
@@ -277,7 +342,7 @@ static class SkyPlaceholders
     /// grey (no gradient), sun / rim / star colours 0, clouds and rim off. Every other byte (texture parameters,
     /// Parent, static-permutation flag, native data) is copied. Parameter GUIDs come from the master's expressions.
     /// </summary>
-    static byte[] BuildFlatMic(Package pkg, int micIndex, float gray)
+    static byte[] BuildFlatMic(Package pkg, int micIndex, Vector3 rgb)
     {
         byte[] src = pkg.ReadExportBytes(pkg.Exports[micIndex]);
         var tags = TagWalker.Walk(pkg, src, 4) ?? throw new InvalidDataException("sky material's properties don't parse");
@@ -301,7 +366,7 @@ static class SkyPlaceholders
         var scalars = new List<(string, float)> { ("speed", 0), ("cloudbrightness", 0), ("clouddarkness", 0), ("cloudopacity", 0), ("rimbrightness", 0), ("skybrightness", 1) };
         var vectors = new List<(string, Vector4)>
         {
-            ("horizoncolor", new(gray, gray, gray, 1)), ("zenithcolor", new(gray, gray, gray, 1)),
+            ("horizoncolor", new(rgb, 1)), ("zenithcolor", new(rgb, 1)),
             ("sun", new(0, 0, 0, 1)), ("rimcolor", new(0, 0, 0, 1)), ("starcolor", new(0, 0, 0, 1)),
         };
         scalars.RemoveAll(s => !guids.ContainsKey(s.Item1));
@@ -342,8 +407,10 @@ static class SkyPlaceholders
             byte[] data = pkg.ReadExportBytes(pkg.Exports[i]);
             add.Add(new NewExport(i, NextNameNumber(pkg, i), _ => data));
         }
-        byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), add, out var written);
-        var problems = PackageRebuilder.Verify(pkg, output, Array.Empty<int>(), add, written);
+        string[] names = Environment.GetEnvironmentVariable("UPK_TEST_ADD_NAME") is { Length: > 0 } nm ? [nm] : [];
+        byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), add, out var written, names);
+        var problems = PackageRebuilder.Verify(pkg, output, Array.Empty<int>(), add, written, names);
+        if (names.Length > 0) Console.WriteLine($"  added name: {names[0]}");
         Console.WriteLine($"{Path.GetFileName(upkPath)}: {pkg.RawFile.Length:N0} -> {output.Length:N0} bytes, exports {pkg.Exports.Length} -> {pkg.Exports.Length + add.Count}: {(problems.Count == 0 ? "PASS" : "FAIL")}");
         problems.ForEach(p => Console.WriteLine($"  - {p}"));
         if (add.Count > 0) { var w = Package.FromBytes(output); Console.WriteLine($"  added: #{w.Exports.Length} {w.ClassOf(w.Exports[^1])} {w.PathOf(w.Exports[^1])}"); }
@@ -393,11 +460,17 @@ sealed class TagWalker : List<TagWalker.Tag>
 }
 
 /// <summary>Writes tagged properties using names that already exist in the package's name table.</summary>
-sealed class TagWriter(Package pkg)
+sealed class TagWriter(Package pkg, IReadOnlyList<string>? addedNames = null)
 {
-    byte[] NameRef(string name)
+    /// <summary>Name reference; names being added in the same rebuild come after the existing ones.</summary>
+    public byte[] NameRef(string name)
     {
         int i = Array.FindIndex(pkg.Names, n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (i < 0 && addedNames != null)
+        {
+            int k = addedNames.ToList().FindIndex(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (k >= 0) i = pkg.Names.Length + k;
+        }
         if (i < 0) throw new InvalidDataException($"name '{name}' isn't in the package's name table");
         var b = new byte[8];
         BinaryPrimitives.WriteInt32LittleEndian(b, i);
