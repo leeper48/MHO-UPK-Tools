@@ -24,14 +24,16 @@ static class CellPlaceholders
 {
     public static int Run(string upkPath, string fbxPath, float minDrawDistance, float cellSize, float gray, bool dryRun,
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink, IReadOnlyList<string> addFbx,
-        string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime")
+        string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
         string bakPath = upkPath + ".bak";
         var live = Package.Open(upkPath);
-        var bak = File.Exists(bakPath) ? Package.Open(bakPath) : live;
-        Console.WriteLine($"Cell placeholders: {Path.GetFileName(fbxPath)} -> {Path.GetFileName(upkPath)} (built from {(File.Exists(bakPath) ? "its .bak" : "itself, no .bak yet")}), MinDrawDistance {minDrawDistance}{(dryRun ? "  [dry run]" : "")}");
+        // --from-live: build on the current file instead of the .bak (e.g. after a sky dome was copied into a level
+        // that had none); placeholders from an earlier run would then stay, so use it once, on a file without them.
+        var bak = !fromLive && File.Exists(bakPath) ? Package.Open(bakPath) : live;
+        Console.WriteLine($"Cell placeholders: {Path.GetFileName(fbxPath)} -> {Path.GetFileName(upkPath)} (built from {(fromLive ? "the live file (--from-live)" : File.Exists(bakPath) ? "its .bak" : "itself, no .bak yet")}), MinDrawDistance {minDrawDistance}{(dryRun ? "  [dry run]" : "")}");
 
         // The .bak's exports must be the live file's first exports (this tool only ever appends).
         int n0 = bak.Exports.Length;
@@ -39,7 +41,7 @@ static class CellPlaceholders
         { Console.WriteLine("  the live package's exports don't start with the .bak's; not safe to rebuild from the .bak"); return 1; }
         // This command only ever adds exports and the name MinDrawDistance. More imports or other names mean another
         // tool added objects (e.g. --copy-export); rebuilding from the .bak would silently drop them.
-        if (live.Imports.Length != bak.Imports.Length || live.Names.Length > bak.Names.Length + 1)
+        if (!fromLive && (live.Imports.Length != bak.Imports.Length || live.Names.Length > bak.Names.Length + 1))
         {
             Console.WriteLine($"  the live package has {live.Imports.Length - bak.Imports.Length} import(s) / {live.Names.Length - bak.Names.Length} name(s) the .bak lacks (added by e.g. --copy-export);");
             Console.WriteLine("  rebuilding from the .bak would drop them. Run this first (after --revert), then the copy and ground-plane steps.");

@@ -86,7 +86,8 @@ static class Program
                 float.Parse(Opt("--gray", "0.03"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
                 Multi("--exclude-box").Select(b => b.Split(',').Select(v => float.Parse(v, inv)).ToArray()).Where(b => b.Length == 4).ToList(),
                 ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv),
-                float.Parse(Opt("--shrink", "1"), inv), Multi("--add-fbx"));
+                float.Parse(Opt("--shrink", "1"), inv), Multi("--add-fbx"),
+                fromLive: args.Any(a => a.Equals("--from-live", StringComparison.OrdinalIgnoreCase)));
         }
 
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));
@@ -112,7 +113,10 @@ static class Program
                 boxes, ground.Length > 0 ? float.Parse(ground, inv) : null, float.Parse(Opt("--ground-margin", "4000"), inv),
                 float.Parse(Opt("--shrink", "1"), inv),
                 args.Select((a, i) => (a, i)).Where(x => x.a.Equals("--add-fbx", StringComparison.OrdinalIgnoreCase) && x.i + 1 < args.Length).Select(x => args[x.i + 1]).ToList(),
-                Opt("--ground-box", "") is { Length: > 0 } gb ? gb.Split(',').Select(v => float.Parse(v, inv)).ToArray() : null,
+                // --ground-box x0,y0,x1,y1[,z][;x0,y0,x1,y1[,z]...]: one quad per box, each at its own height (default --ground-z).
+                Opt("--ground-box", "") is { Length: > 0 } gb
+                    ? gb.Split(';', StringSplitOptions.RemoveEmptyEntries).SelectMany(bx => { var v = bx.Split(',').Select(x => float.Parse(x, inv)).ToList(); if (v.Count == 4) v.Add(float.NaN); return v.Count == 5 ? v : throw new ArgumentException($"--ground-box '{bx}': 4 or 5 numbers"); }).ToArray()
+                    : null,
                 Opt("--color", "") is { Length: > 0 } col && col.Split(',').Select(v => float.Parse(v, inv)).ToArray() is { Length: 3 } c
                     ? new System.Numerics.Vector3(c[0], c[1], c[2]) : null,
                 Opt("--ground-material", "") is { Length: > 0 } gm ? gm : null, float.Parse(Opt("--ground-uv", "2304"), inv));
@@ -213,6 +217,32 @@ static class Program
         {
             if (usersAt + 2 >= args.Length) { Usage(); return 2; }
             return MeshUsers.Run(args[usersAt + 1], args[usersAt + 2]);
+        }
+
+        int levelActorAt = Array.FindIndex(args, a => a.Equals("--add-level-actor", StringComparison.OrdinalIgnoreCase));
+        if (levelActorAt >= 0)
+        {
+            // --add-level-actor <package.upk> <actor-path> [--dry-run]
+            if (levelActorAt + 2 >= args.Length) { Usage(); return 2; }
+            return LevelEdit.AddActor(args[levelActorAt + 1], args[levelActorAt + 2], args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int uvInfoAt = Array.FindIndex(args, a => a.Equals("--uv-info", StringComparison.OrdinalIgnoreCase));
+        if (uvInfoAt >= 0)
+        {
+            // --uv-info <package.upk> <staticmesh>: UV channel ranges per section. Read-only.
+            if (uvInfoAt + 2 >= args.Length) { Usage(); return 2; }
+            return MeshUv.Info(args[uvInfoAt + 1], args[uvInfoAt + 2]);
+        }
+        int scaleUvAt = Array.FindIndex(args, a => a.Equals("--scale-uv", StringComparison.OrdinalIgnoreCase));
+        if (scaleUvAt >= 0)
+        {
+            // --scale-uv <package.upk> <staticmesh> <channel> <factor> [--section 0] [--dry-run]
+            if (scaleUvAt + 4 >= args.Length) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            int si = Array.FindIndex(args, a => a.Equals("--section", StringComparison.OrdinalIgnoreCase));
+            return MeshUv.Scale(args[scaleUvAt + 1], args[scaleUvAt + 2], int.Parse(args[scaleUvAt + 3]), float.Parse(args[scaleUvAt + 4], inv),
+                si >= 0 && si + 1 < args.Length ? int.Parse(args[si + 1]) : 0, args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
         }
 
         int setObjAt = Array.FindIndex(args, a => a.Equals("--set-object", StringComparison.OrdinalIgnoreCase));

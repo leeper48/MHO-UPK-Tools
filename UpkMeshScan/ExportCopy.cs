@@ -25,7 +25,7 @@ static class ExportCopy
     static readonly HashSet<string> PlainStructs = new(StringComparer.OrdinalIgnoreCase)
         { "vector", "vector2d", "vector4", "guid", "color", "linearcolor", "rotator", "box", "matrix", "plane", "quat", "intpoint", "sphere", "twovectors" };
     /// <summary>Array properties known to hold object references (4 bytes each).</summary>
-    static readonly HashSet<string> ObjectArrays = new(StringComparer.OrdinalIgnoreCase) { "expressions", "functionexpressions" };
+    static readonly HashSet<string> ObjectArrays = new(StringComparer.OrdinalIgnoreCase) { "expressions", "functionexpressions", "staticmeshcomponents", "materials" };
 
     public static int Run(string srcPath, string exportName, string dstPath, IReadOnlyCollection<string> cut, bool dryRun,
         string? rename = null, IReadOnlyDictionary<string, string>? replaceRefs = null)
@@ -63,6 +63,12 @@ static class ExportCopy
             return k;
         }
 
+        // Objects the target already has (same path and class) are reused, not parsed or followed — e.g. the
+        // level and world a copied actor sits in.
+        var dstByPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int k = 0; k < dst.Exports.Length; k++) dstByPath.TryAdd(Key(dst, k + 1), k + 1);
+        var reusedEarly = new HashSet<int>();
+
         // 1. Closure, from the exact parser.
         var patches = new Dictionary<int, List<Patch>>();
         var order = new List<int>();
@@ -80,8 +86,9 @@ static class ExportCopy
         while (queue.Count > 0)
         {
             int i = queue.Dequeue();
-            if (patches.ContainsKey(i)) continue;
+            if (patches.ContainsKey(i) || reusedEarly.Contains(i)) continue;
             var e = src.Exports[i];
+            if (i != root && dstByPath.ContainsKey(Expect(dst, i + 1))) { reusedEarly.Add(i); order.Add(i); continue; }
             List<Patch> list;
             try { list = Parse(src, src.ReadExportBytes(e), src.ClassOf(e)); }
             catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or ArgumentOutOfRangeException)
@@ -106,8 +113,6 @@ static class ExportCopy
         }
 
         // 2. Target indices: reuse what's already there (same path and class), otherwise a new export.
-        var dstByPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int k = 0; k < dst.Exports.Length; k++) dstByPath.TryAdd(Key(dst, k + 1), k + 1);
         var map = new Dictionary<int, int>();                  // source reference -> target reference
         var copies = new List<int>();
         foreach (int i in order)
@@ -249,10 +254,12 @@ static class ExportCopy
     /// <summary>Every name and object reference in an export's data (offsets into it). Throws on anything unknown.</summary>
     static List<Patch> Parse(Package pkg, byte[] d, string cls)
     {
-        if (cls.EndsWith("Component", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("components aren't supported");
-        var list = new List<Patch>();
-        int p = Tags(pkg, d, 4, d.Length, "", list);           // after the 4-byte NetIndex
         string c = cls.ToLowerInvariant();
+        bool component = c.EndsWith("component");
+        if (component && c != "staticmeshcomponent") throw new InvalidDataException($"component class '{cls}' not supported");
+        var list = new List<Patch>();
+        // MHO components: an extra int32, then NetIndex, then properties (byte 8); everything else from byte 4.
+        int p = Tags(pkg, d, component ? 8 : 4, d.Length, "", list);
         if (c is "package" or "materialfunction" || c.StartsWith("materialexpression"))
         {
             if (p != d.Length) throw new InvalidDataException($"{d.Length - p} bytes of native data (none expected)");
@@ -260,6 +267,17 @@ static class ExportCopy
         else if (c == "material") MaterialNative(pkg, d, p, false, list);
         else if (c == "materialinstanceconstant") { if (p != d.Length) MaterialNative(pkg, d, p, true, list); }
         else if (c == "texture2d") TextureMips(d, p, list);
+        else if (c == "staticmeshcollectionactor")
+        {
+            if (p != d.Length) throw new InvalidDataException($"{d.Length - p} bytes of native data (none expected)");
+        }
+        else if (c == "staticmeshcomponent")
+        {
+            // Only the empty lighting record (LOD count, then zeros: no shadow maps, no light map) — no references.
+            if (d.Length - p < 4 || I32(d, p) < 1 || d.AsSpan(p + 4).ContainsAnyExcept((byte)0))
+                throw new InvalidDataException("component has baked lighting data (only the empty lighting record is supported)");
+        }
+        else if (c == "staticmesh") MeshNative(pkg, d, p, list);
         else if (c == "texturecube") { if (d.Length - p != 16) throw new InvalidDataException("texture cube native data isn't the empty 16-byte source-art header"); }
         else throw new InvalidDataException($"native layout of class '{cls}' unknown");
         return list;
@@ -282,6 +300,41 @@ static class ExportCopy
             p += 8;
             if (p > d.Length) throw new InvalidDataException("mip table past the end");
         }
+    }
+
+    /// <summary>
+    /// StaticMesh native references (layout as in StaticMesh.cs): bounds (28 bytes), BodySetup reference, kDOP tree,
+    /// InternalVersion + 4 ints, LOD count, then LOD 0: raw-triangle bulk data (its offset-in-file points at itself),
+    /// then the sections (material reference first in each). The vertex buffers and the tail after LOD 0 hold no
+    /// references (the mesh import rewrites them the same way).
+    /// </summary>
+    static void MeshNative(Package pkg, byte[] d, int p, List<Patch> list)
+    {
+        p += 28;
+        list.Add(new Patch(p, Kind.Object, "bodysetup")); p += 4;
+        p += 24;                                                // kDOP root bound
+        for (int k = 0; k < 2; k++)                             // kDOP nodes, triangles: element size, count
+        {
+            int size = I32(d, p), count = I32(d, p + 4); p += 8;
+            if (size < 0 || count < 0 || (long)size * count > d.Length) throw new InvalidDataException("kDOP arrays implausible");
+            p += size * count;
+        }
+        p += 4 + 16;                                            // InternalVersion, 4 unknown ints
+        int lods = I32(d, p); p += 4;
+        if (lods != 1) throw new InvalidDataException($"{lods} LODs (only single-LOD meshes are supported)");
+        int rawSize = I32(d, p + 8);
+        list.Add(new Patch(p + 12, Kind.SelfOffset, "lod0.rawtriangles.offset"));
+        p += 16 + Math.Max(0, rawSize);
+        int sections = I32(d, p); p += 4;
+        if (sections < 0 || sections > 4096) throw new InvalidDataException($"{sections} sections");
+        for (int s = 0; s < sections; s++)
+        {
+            list.Add(new Patch(p, Kind.Object, $"section{s}.material"));
+            int fragments = I32(d, p + 36);
+            if (fragments < 0 || fragments > 65536) throw new InvalidDataException($"section {s}: {fragments} fragments");
+            p += 40 + fragments * 8 + 1;
+        }
+        if (p > d.Length) throw new InvalidDataException("sections run past the end");
     }
 
     static int I32(byte[] d, int p) => p + 4 <= d.Length ? BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)) : throw new InvalidDataException("read past the end");

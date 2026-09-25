@@ -261,17 +261,23 @@ static class SkyPlaceholders
 
     /// <summary>
     /// A flat ground quad at world height z under everything: margin past the placeholders on every side, or
-    /// exactly the given box (minX, minY, maxX, maxY).
+    /// exactly the given boxes — groups of five (minX, minY, maxX, maxY, z; z NaN = the --ground-z height), one quad
+    /// each, e.g. a zone's main area and a sub-area at a different height (Hightown's rooftop).
     /// </summary>
     static void AddGround(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float margin, float[]? box = null)
     {
-        float x0, y0, x1, y1;
-        if (box is { Length: 4 }) (x0, y0, x1, y1) = (box[0], box[1], box[2], box[3]);
-        else
+        if (box is { Length: > 0 } && box.Length % 5 == 0)
         {
-            Vector3 min = pos.Aggregate(Vector3.Min) * scale, max = pos.Aggregate(Vector3.Max) * scale;
-            (x0, y0, x1, y1) = (min.X - margin, min.Y - margin, max.X + margin, max.Y + margin);
+            for (int k = 0; k < box.Length; k += 5)
+                Quad(pos, nrm, idx, scale, float.IsNaN(box[k + 4]) ? z : box[k + 4], box[k], box[k + 1], box[k + 2], box[k + 3]);
+            return;
         }
+        Vector3 min = pos.Aggregate(Vector3.Min) * scale, max = pos.Aggregate(Vector3.Max) * scale;
+        Quad(pos, nrm, idx, scale, z, min.X - margin, min.Y - margin, max.X + margin, max.Y + margin);
+    }
+
+    static void Quad(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float x0, float y0, float x1, float y1)
+    {
         int b = pos.Count;
         foreach (var v in new[] { new Vector3(x0, y0, z), new Vector3(x1, y0, z), new Vector3(x1, y1, z), new Vector3(x0, y1, z) })
         { pos.Add(v / scale); nrm.Add(Vector3.UnitZ); }
