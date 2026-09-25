@@ -80,6 +80,10 @@ sealed class MainForm : Form
     readonly TextBox fbxPath = new() { Dock = DockStyle.Fill };
 
     // Backups tab
+    readonly ListView zones = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
+    readonly Label zoneInfo = new() { AutoSize = true, MaximumSize = new Size(1100, 0), Margin = new Padding(3, 6, 3, 3) };
+    readonly RadioButton wallsFacade = new() { Text = "Zone facade (textured walls)", AutoSize = true, Checked = true };
+    readonly RadioButton wallsGrey = new() { Text = "Default grey", AutoSize = true };
     readonly ListView backups = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
 
     readonly List<Control> busyDisabled = new();
@@ -102,6 +106,7 @@ sealed class MainForm : Form
         tabs.TabPages.Add(BuildBrowseTab());
         tabs.TabPages.Add(BuildPropertiesTab());
         tabs.TabPages.Add(BuildMeshesTab());
+        tabs.TabPages.Add(BuildZonesTab());
         tabs.TabPages.Add(BuildBackupsTab());
         busyDisabled.Add(tabs);
 
@@ -116,6 +121,7 @@ sealed class MainForm : Form
             FillPackageList();
             if (settings.LastPackage.Length > 0) packageBox.Text = settings.LastPackage;
             RefreshBackups();
+            RefreshZones();
         };
         FormClosing += (_, _) => { CaptureSettings(); SaveSettings(); };
     }
@@ -133,9 +139,9 @@ sealed class MainForm : Form
         var browseFolder = Btn("Browse…", () =>
         {
             using var d = new FolderBrowserDialog { SelectedPath = gameFolder.Text };
-            if (d.ShowDialog(this) == DialogResult.OK) { gameFolder.Text = d.SelectedPath; FillPackageList(); RefreshBackups(); }
+            if (d.ShowDialog(this) == DialogResult.OK) { gameFolder.Text = d.SelectedPath; FillPackageList(); RefreshBackups(); RefreshZones(); }
         });
-        var reload = Btn("Reload list", () => { FillPackageList(); RefreshBackups(); });
+        var reload = Btn("Reload list", () => { FillPackageList(); RefreshBackups(); RefreshZones(); });
         t.Controls.Add(Lbl("Game folder:"), 0, 0); t.Controls.Add(gameFolder, 1, 0); t.Controls.Add(browseFolder, 2, 0); t.Controls.Add(reload, 3, 0);
         themeToggle = Btn(ThemeButtonText(settings.DarkMode), () => SetTheme(!settings.DarkMode));
         tips.SetToolTip(themeToggle, "Switch between dark and light mode (remembered next time).");
@@ -373,6 +379,69 @@ sealed class MainForm : Form
         };
         page.Controls.Add(t);
         return page;
+    }
+
+    TabPage BuildZonesTab()
+    {
+        var page = new TabPage("Zones");
+        zones.Columns.Add("Zone", 160); zones.Columns.Add("Main level package", 260); zones.Columns.Add("Status", 200);
+        zones.Columns.Add("Undo / redo", 100, HorizontalAlignment.Center);
+        zones.Resize += (_, _) => FillLastColumn(zones);
+        zones.SelectedIndexChanged += (_, _) => ShowZoneInfo();
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5 };
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        t.Controls.Add(Lbl("Rebuild a zone's main level from its original with the full placeholder recipe (sky, distant building boxes, ground, water). " +
+            "One verified write: Undo on the Backups tab takes the whole rebuild back."), 0, 0);
+        t.Controls.Add(zones, 0, 1);
+        t.Controls.Add(zoneInfo, 0, 2);
+        t.Controls.Add(Flow(Lbl("Walls:"), wallsFacade, wallsGrey), 0, 3);
+        tips.SetToolTip(wallsFacade, "Building walls use the zone's own facade texture (Hightown: generated night windows). Roofs stay grey.");
+        tips.SetToolTip(wallsGrey, "Building boxes are flat grey all over (the original placeholder look).");
+        t.Controls.Add(Flow(
+            Btn("Refresh", RefreshZones),
+            Btn("Dry run (game untouched)", () => BuildSelectedZone(dryRun: true)),
+            Btn("Build and write to game…", () => BuildSelectedZone(dryRun: false))), 0, 4);
+        page.Controls.Add(t);
+        return page;
+    }
+
+    void RefreshZones()
+    {
+        zones.Items.Clear();
+        foreach (var z in ZoneBuilds.Zones)
+        {
+            string live = Path.Combine(gameFolder.Text, z.Package);
+            string status = !File.Exists(live) ? "not found in the game folder"
+                : !File.Exists(live + ".bak") ? "original (never modified)"
+                : new FileInfo(live).Length == new FileInfo(live + ".bak").Length && File.ReadAllBytes(live).AsSpan().SequenceEqual(File.ReadAllBytes(live + ".bak")) ? "original (same as .bak)"
+                : "modified";
+            var (u, r) = File.Exists(live) ? History.Counts(live) : (0, 0);
+            zones.Items.Add(new ListViewItem([z.Name, z.Package, status, u + r == 0 ? "" : $"{u} / {r}"]) { Tag = z });
+        }
+        if (zones.Items.Count > 0 && zones.SelectedItems.Count == 0) zones.Items[0].Selected = true;
+        ShowZoneInfo();
+    }
+
+    void ShowZoneInfo() => zoneInfo.Text = zones.SelectedItems.Count == 1 && zones.SelectedItems[0].Tag is ZoneBuilds.Zone z ? z.Description : "";
+
+    void BuildSelectedZone(bool dryRun)
+    {
+        if (zones.SelectedItems.Count != 1 || zones.SelectedItems[0].Tag is not ZoneBuilds.Zone z) { Log("Select a zone first."); return; }
+        var walls = wallsGrey.Checked ? ZoneBuilds.Walls.Grey : ZoneBuilds.Walls.Facade;
+        string wallsText = walls == ZoneBuilds.Walls.Grey ? "grey walls" : "zone facade";
+        if (!dryRun)
+        {
+            if (ZoneBuilds.GameRunning()) { Log("The game is running; close it first. Nothing written."); return; }
+            if (!Confirm($"Rebuild {z.Package} ({z.Name}, {wallsText}) from its original and write it to the game folder?\n\n" +
+                "The .bak is kept; Undo on the Backups tab restores the current version.")) return;
+        }
+        Run($"{(dryRun ? "Dry run" : "Build")} zone {z.Name} ({wallsText})", () => ZoneBuilds.Build(z.Name, gameFolder.Text, walls, dryRun), after: () =>
+        {
+            RefreshZones();
+            RefreshBackups();
+            if (string.Equals(Path.GetFullPath(Path.Combine(gameFolder.Text, z.Package)), packagePath, StringComparison.OrdinalIgnoreCase)) ReopenPackage();
+        });
     }
 
     /// <summary>Undo / redo the selected package's last change through the tool's history (verified restore; the .bak is untouched).</summary>

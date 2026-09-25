@@ -46,8 +46,43 @@ static class Program
         return Run(args, version);
     }
 
-    static int Run(string[] args, string version)
+    internal static int Run(string[] args, string version)
     {
+        int copiesAt = Array.FindIndex(args, a => a.Equals("--add-component-copies", StringComparison.OrdinalIgnoreCase));
+        if (copiesAt >= 0)
+        {
+            // --add-component-copies <package.upk> <component-path> --yaw y1[:pitch[:roll]],y2,... [--dry-run] (degrees, added)
+            int yi = Array.FindIndex(args, a => a.Equals("--yaw", StringComparison.OrdinalIgnoreCase));
+            if (copiesAt + 2 >= args.Length || yi < 0 || yi + 1 >= args.Length) { Usage(); return 2; }
+            var turns = args[yi + 1].Split(',').Select(x =>
+            {
+                var v = x.Split(':').Select(f => float.Parse(f, System.Globalization.CultureInfo.InvariantCulture)).Concat([0f, 0f]).ToArray();
+                return new System.Numerics.Vector3(v[0], v[1], v[2]);
+            }).ToList();
+            return ComponentCopies.Run(args[copiesAt + 1], args[copiesAt + 2], turns, args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int coverAt = Array.FindIndex(args, a => a.Equals("--sky-coverage", StringComparison.OrdinalIgnoreCase));
+        if (coverAt >= 0)
+        {
+            // --sky-coverage <package.upk> <component-path> [--from x,y,z]
+            if (coverAt + 2 >= args.Length) { Usage(); return 2; }
+            int fi = Array.FindIndex(args, a => a.Equals("--from", StringComparison.OrdinalIgnoreCase));
+            System.Numerics.Vector3? from = null;
+            if (fi >= 0 && fi + 1 < args.Length) { var v = args[fi + 1].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray(); from = new(v[0], v[1], v[2]); }
+            return SkyCoverage.Run(args[coverAt + 1], args[coverAt + 2], from);
+        }
+
+        int buildZoneAt = Array.FindIndex(args, a => a.Equals("--build-zone", StringComparison.OrdinalIgnoreCase));
+        if (buildZoneAt >= 0)
+        {
+            // --build-zone <zone> <game-folder> [--walls facade|grey] [--dry-run]
+            if (buildZoneAt + 2 >= args.Length) { Usage(); return 2; }
+            int wi = Array.FindIndex(args, a => a.Equals("--walls", StringComparison.OrdinalIgnoreCase));
+            var walls = wi >= 0 && wi + 1 < args.Length && args[wi + 1].Equals("grey", StringComparison.OrdinalIgnoreCase) ? ZoneBuilds.Walls.Grey : ZoneBuilds.Walls.Facade;
+            return ZoneBuilds.Build(args[buildZoneAt + 1], args[buildZoneAt + 2], walls, args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
         int importAt = Array.FindIndex(args, a => a.Equals("--import-fbx", StringComparison.OrdinalIgnoreCase));
         if (importAt >= 0)
         {
@@ -585,6 +620,10 @@ static class Program
           Adds the FBX's geometry (world space, e.g. from --zone-placeholders) to the zone's sky sphere
           mesh as a second section with a new flat-grey copy of the sky material. The package is rebuilt
           to hold the new material; everything else stays byte-identical. Same .bak / verify / swap.
+        Usage: UpkMeshScan --build-zone <zone> <game-folder> [--walls facade|grey] [--dry-run]
+          Rebuilds a zone's main level from stock with its whole placeholder recipe (zones: Hightown). Every step
+          runs on a scratch copy and verifies itself; the result is written once (.bak / verified temp / swap), so
+          --undo takes the whole rebuild back. Walls: the zone's facade texture (default) or flat grey.
         Usage: UpkMeshScan --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304]
                            [--exclude-box ...] [--shrink F] [--add-fbx ...] [--ground-z -40] [--gray 0.03] [--dry-run]
           Placeholders as one placed object per map cell with MinDrawDistance (hidden near the camera),

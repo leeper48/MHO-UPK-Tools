@@ -258,7 +258,7 @@ static class CellPlaceholders
     }
 
     /// <summary>The collection actor with its StaticMeshComponents list extended.</summary>
-    static byte[] BuildActor(Package pkg, int actor, TagWriter tw, IReadOnlyList<int> newComponents)
+    internal static byte[] BuildActor(Package pkg, int actor, TagWriter tw, IReadOnlyList<int> newComponents)
     {
         byte[] src = pkg.ReadExportBytes(pkg.Exports[actor]);
         var tags = TagWalker.Walk(pkg, src, 4) ?? throw new InvalidDataException("collection actor's properties don't parse");
@@ -316,7 +316,7 @@ static class CellPlaceholders
     }
 
     /// <summary>The k-th name instance number (from 1) not used by any export with the template's outer and name.</summary>
-    static int NextNumber(Package pkg, int template, int k)
+    internal static int NextNumber(Package pkg, int template, int k)
     {
         byte[] body = pkg.Body;
         int at = pkg.ExportEntryStart[template];

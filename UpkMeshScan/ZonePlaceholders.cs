@@ -283,7 +283,7 @@ static class ZonePlaceholders
     }
 
     /// <summary>UE3 FRotationMatrix for a rotator in 65536-per-turn units (X = pitch, Y = yaw, Z = roll), row vectors.</summary>
-    static Matrix4x4 RotatorMatrix(Vector3 units)
+    internal static Matrix4x4 RotatorMatrix(Vector3 units)
     {
         float k = MathF.PI * 2f / 65536f;
         float sp = MathF.Sin(units.X * k), cp = MathF.Cos(units.X * k);

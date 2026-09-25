@@ -5,12 +5,16 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.14.0</Version>
+    <Version>2.15.0</Version>
     <AssemblyName>UpkMeshScan</AssemblyName>
     <RootNamespace>UpkMeshScan</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="AssimpNet" Version="5.0.0-beta1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Zone recipe inputs (placeholder FBX, facade textures), used by the build-zone command and the Zones tab. -->
+    <None Include="ZoneData\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
