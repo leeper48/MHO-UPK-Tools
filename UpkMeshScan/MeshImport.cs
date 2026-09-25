@@ -134,9 +134,10 @@ static class MeshImport
         var problems = verifyFromDisk(onDisk);
         if (problems.Count > 0) { File.Delete(temp); Console.WriteLine($"  temp file failed verification ({string.Join("; ", problems)}); live file untouched."); return false; }
 
+        History.Record(upkPath, packageBytes);                      // undo point: the live file as it is now
         if (!TryReplace(temp, upkPath)) return false;
         if (!SameHash(File.ReadAllBytes(upkPath), packageBytes)) { Console.WriteLine("  WARNING: live file doesn't match what was written. Run --revert."); return false; }
-        Console.WriteLine($"  written: {Path.GetFileName(upkPath)} replaced and verified. Undo with --revert \"{upkPath}\"");
+        Console.WriteLine($"  written: {Path.GetFileName(upkPath)} replaced and verified. Undo with --undo \"{upkPath}\" (or --revert for the original)");
         return true;
     }
 
@@ -147,6 +148,7 @@ static class MeshImport
         if (!File.Exists(bak)) { Console.WriteLine($"No {Path.GetFileName(bak)} to revert from."); return 1; }
         if (File.Exists(upkPath) && SameBytes(upkPath, bak)) { Console.WriteLine($"{Path.GetFileName(upkPath)} already matches its .bak; nothing to do."); return 0; }
         if (Locked(upkPath)) return 1;
+        History.Record(upkPath, File.ReadAllBytes(bak));            // a revert can be undone too
         string temp = upkPath + ".reverttmp";
         File.Copy(bak, temp, overwrite: true);
         if (!SameBytes(temp, bak)) { File.Delete(temp); Console.WriteLine("Copy of the .bak didn't verify; live file untouched."); return 1; }
@@ -259,6 +261,22 @@ static class MeshImport
                 list.Add(corner);
             }
         return map;
+    }
+
+    /// <summary>
+    /// Puts exact bytes back as the live file (undo / redo): temp file next to it, hash checked, swap, hash checked
+    /// again. Writes nothing if the game holds the file.
+    /// </summary>
+    public static bool RestoreBytes(string upkPath, byte[] bytes)
+    {
+        if (Locked(upkPath)) return false;
+        string temp = upkPath + ".undotmp";
+        File.WriteAllBytes(temp, bytes);
+        if (!SameHash(File.ReadAllBytes(temp), bytes)) { File.Delete(temp); Console.WriteLine("  temp file didn't read back identically; live file untouched."); return false; }
+        if (!TryReplace(temp, upkPath)) return false;
+        if (!SameHash(File.ReadAllBytes(upkPath), bytes)) { Console.WriteLine("  WARNING: live file doesn't match what was restored. Run --revert."); return false; }
+        Console.WriteLine($"  restored {Path.GetFileName(upkPath)} (verified)");
+        return true;
     }
 
     /// <summary>True (with a message) if something — usually the running game — holds the file open.</summary>

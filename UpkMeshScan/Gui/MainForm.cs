@@ -353,18 +353,40 @@ sealed class MainForm : Form
     {
         var page = new TabPage("Backups");
         backups.Columns.Add("Package", 380); backups.Columns.Add("Status", 170); backups.Columns.Add("Live size", 110, HorizontalAlignment.Right);
-        backups.Columns.Add("Live date", 140); backups.Columns.Add("Original (.bak) size", 140, HorizontalAlignment.Right);
+        backups.Columns.Add("Live date", 140); backups.Columns.Add("Undo / redo", 100, HorizontalAlignment.Center);
+        backups.Columns.Add("Original (.bak) size", 140, HorizontalAlignment.Right);
         backups.Resize += (_, _) => FillLastColumn(backups);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        t.Controls.Add(Lbl("Packages with a .bak (the original). \"Modified\" = live file differs from its .bak."), 0, 0);
+        t.Controls.Add(Lbl("Packages with a .bak (the original). \"Modified\" = live file differs from its .bak. Undo / redo steps back through this tool's changes (Ctrl+Z / Ctrl+Y here)."), 0, 0);
         t.Controls.Add(backups, 0, 1);
         t.Controls.Add(Flow(
             Btn("Refresh", RefreshBackups),
+            Btn("Undo last change", () => UndoRedoSelected(undo: true)),
+            Btn("Redo", () => UndoRedoSelected(undo: false)),
             Btn("Revert selected to original…", RevertSelected),
             Btn("Open selected package", () => { if (backups.SelectedItems.Count == 1) OpenPackage(Path.Combine(gameFolder.Text, backups.SelectedItems[0].Text)); })), 0, 2);
+        backups.KeyDown += (_, e) =>
+        {
+            if (e.Control && e.KeyCode == Keys.Z) { UndoRedoSelected(undo: true); e.Handled = true; }
+            else if (e.Control && e.KeyCode == Keys.Y) { UndoRedoSelected(undo: false); e.Handled = true; }
+        };
         page.Controls.Add(t);
         return page;
+    }
+
+    /// <summary>Undo / redo the selected package's last change through the tool's history (verified restore; the .bak is untouched).</summary>
+    void UndoRedoSelected(bool undo)
+    {
+        if (backups.SelectedItems.Count != 1) { Log("Select a package in the Backups list first."); return; }
+        string live = Path.Combine(gameFolder.Text, backups.SelectedItems[0].Text);
+        var (u, r) = History.Counts(live);
+        if ((undo ? u : r) == 0) { Log($"{(undo ? "Nothing to undo" : "Nothing to redo")} for {Path.GetFileName(live)}."); return; }
+        Run($"{(undo ? "Undo" : "Redo")} {Path.GetFileName(live)}", () => undo ? History.Undo(live, false) : History.Redo(live, false), after: () =>
+        {
+            RefreshBackups();
+            if (string.Equals(Path.GetFullPath(live), packagePath, StringComparison.OrdinalIgnoreCase)) ReopenPackage();
+        });
     }
 
     // ---------------------------------------------------------------- package
@@ -693,7 +715,8 @@ sealed class MainForm : Form
                     size = li.Length.ToString("N0"); date = li.LastWriteTime.ToString("yyyy-MM-dd HH:mm");
                     status = li.Length != bi.Length ? "MODIFIED" : SameContent(live, bak) ? "same as original" : "MODIFIED";
                 }
-                var item = new ListViewItem([Path.GetFileName(live), status, size, date, bi.Length.ToString("N0")]);
+                var (undoSteps, redoSteps) = History.Counts(live);
+                var item = new ListViewItem([Path.GetFileName(live), status, size, date, undoSteps + redoSteps == 0 ? "" : $"{undoSteps} / {redoSteps}", bi.Length.ToString("N0")]);
                 if (status == "MODIFIED") item.Font = new Font(backups.Font, FontStyle.Bold);
                 backups.Items.Add(item);
             }
@@ -731,6 +754,7 @@ sealed class MainForm : Form
     void Run(string title, Func<int> work, Action? after = null)
     {
         CaptureSettings();
+        History.Label = title;                                            // what a write in this action is called in the undo history
         Log($"=== {title} ===");
         foreach (var c in busyDisabled) c.Enabled = false;
         UseWaitCursor = true;

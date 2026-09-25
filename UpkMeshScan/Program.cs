@@ -219,6 +219,16 @@ static class Program
             return MeshUsers.Run(args[usersAt + 1], args[usersAt + 2]);
         }
 
+        foreach (var (flag, act) in new (string, Func<string, bool, int>)[] { ("--undo", History.Undo), ("--redo", History.Redo), ("--history", (p, _) => History.List(p)) })
+        {
+            // --undo / --redo <package.upk> [--force]: step through the write history (snapshots outside the game folder).
+            // --history <package.upk>: list it.
+            int at = Array.FindIndex(args, a => a.Equals(flag, StringComparison.OrdinalIgnoreCase));
+            if (at < 0) continue;
+            if (at + 1 >= args.Length) { Usage(); return 2; }
+            return act(args[at + 1], args.Any(a => a.Equals("--force", StringComparison.OrdinalIgnoreCase)));
+        }
+
         int levelActorAt = Array.FindIndex(args, a => a.Equals("--add-level-actor", StringComparison.OrdinalIgnoreCase));
         if (levelActorAt >= 0)
         {
