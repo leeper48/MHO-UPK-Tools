@@ -25,7 +25,7 @@ static class ExportCopy
     static readonly HashSet<string> PlainStructs = new(StringComparer.OrdinalIgnoreCase)
         { "vector", "vector2d", "vector4", "guid", "color", "linearcolor", "rotator", "box", "matrix", "plane", "quat", "intpoint", "sphere", "twovectors" };
     /// <summary>Array properties known to hold object references (4 bytes each).</summary>
-    static readonly HashSet<string> ObjectArrays = new(StringComparer.OrdinalIgnoreCase) { "expressions" };
+    static readonly HashSet<string> ObjectArrays = new(StringComparer.OrdinalIgnoreCase) { "expressions", "functionexpressions" };
 
     public static int Run(string srcPath, string exportName, string dstPath, IReadOnlyCollection<string> cut, bool dryRun)
     {
@@ -221,7 +221,7 @@ static class ExportCopy
         var list = new List<Patch>();
         int p = Tags(pkg, d, 4, d.Length, "", list);           // after the 4-byte NetIndex
         string c = cls.ToLowerInvariant();
-        if (c == "package" || c.StartsWith("materialexpression"))
+        if (c is "package" or "materialfunction" || c.StartsWith("materialexpression"))
         {
             if (p != d.Length) throw new InvalidDataException($"{d.Length - p} bytes of native data (none expected)");
         }
@@ -329,6 +329,17 @@ static class ExportCopy
         int q = p + 4;
         for (int i = 0; i < count && q > 0; i++) q = TryTags(pkg, d, q, end, $"{where}[{i}].", inner);
         if (q == end) { list.AddRange(inner); return; }
+        // Array of strings (no references): each element an FString, together filling the array exactly.
+        {
+            int r = p + 4, i = 0;
+            for (; i < count && r + 4 <= end; i++)
+            {
+                int len = I32(d, r);
+                r += 4 + (len >= 0 ? len : -2 * len);
+                if (len == 0 || r > end) break;
+            }
+            if (i == count && r == end) return;
+        }
         if (ObjectArrays.Contains(where.Split('.', '[').Last()) && size - 4 == count * 4)
         {
             for (int i = 0; i < count; i++) list.Add(new Patch(p + 4 + 4 * i, Kind.Object, $"{where}[{i}]"));
