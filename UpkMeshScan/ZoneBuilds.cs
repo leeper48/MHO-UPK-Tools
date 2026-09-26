@@ -103,6 +103,12 @@ static class ZoneBuilds
                 "--replace-ref", $"{brood}.{brood}_stars=maptemplates.sky.icp_black",
                 "--replace-ref", $"{brood}.{brood}_alpha=maptemplates.sky.icp_mask"],
             ["--set-object", Target, skyComp, "materials[0]", $"{brood}.icp_sky_mat"],
+            // Night harbour mist (2026-09-26; stock: opacity 0.5, start 100, density 0.1, height 764, opposite light blue
+            // 138,182,244, inscattering warm 222,218,146): more distance fog (hides the LOD swap and the zone edge), clear
+            // around the player (MHO's camera sits high), hugging the water, cooler colours for the night sky.
+            ["--set-property", Target, "theworld.persistentlevel.exponentialheightfog_0.exponentialheightfogcomponent_0",
+                "FogMaxOpacity=0.8", "StartDistance=1200", "FogDensity=0.2", "FogHeight=400",
+                "OppositeLightColor=110,125,145", "LightInscatteringColor=150,145,130"],
         ];
     }
 
