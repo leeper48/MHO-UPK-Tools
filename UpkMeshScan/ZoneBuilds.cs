@@ -25,11 +25,57 @@ static class ZoneBuilds
             "Upper Madripoor / Hightown: sky dome, building boxes (MinDrawDistance 3500), always-drawn ground slabs, " +
             "two water layers with a hole over the GameCenter stairwell, night sky; textured: night facade walls + Kurt's baked ground plane, or all grey (with ground slabs).",
             HightownSteps),
+        new("IndustryCity", "Brooklyn_Docks_A.upk",
+            "Industry City (ICP): distant building boxes (Kurt's edit), Kurt's baked ground plane, the zone's water on planes " +
+            "(two layers just under the stock level, whose planes are removed from the tiles; AIM Sub pit kept), Kurt's photo sky (no clouds).",
+            IndustryCitySteps, HasFacade: false),
         new("OdinsPalace", "Asgard_Hub_B.upk",
             "Odin's Palace (Kurse operation): full starfield sky (backdrop copies for the sides and top), building boxes " +
             "(64-unit raster, MinDrawDistance 3500), always-drawn slabs under the floors and platforms, the real Bifrost deck at a distance. Grey walls only so far.",
             OdinsPalaceSteps, HasFacade: false),
     ];
+
+    /// <summary>
+    /// Industry City, ported from icp_build.sh (2026-09-24/25). Cells are laid out at run time and stored at the origin;
+    /// the placeholder FBX are already in final positions (IndustryCity_layout.txt). Sky: the Brood skydome material
+    /// copied as icp_sky_mat with Kurt's photo, a black "stars" slot and a plain grey mask (clouds are parked).
+    /// </summary>
+    static List<string[]> IndustryCitySteps(Walls walls)
+    {
+        const string lib = Library + "SCS__CH0201ShippingYardRegion_SF.upk";
+        const string water = "brooklyn_docks_lighting.brooklyn_docks_water_mat";
+        const string template = "maptemplates.sky.t_udk_sky_cloudmask01";
+        const string brood = "madripoor_broodship_skydome";
+        const string skyComp = "theworld.persistentlevel.staticmeshcollectionactor_0.sma_sm_skysphere_smc_16";
+        string[] around = ["-100224,-100224,100224,-1152", "-100224,1152,100224,100224", "-100224,-1152,-4608,1152", "0,-1152,100224,1152"];
+        // The hole itself gets water at pit level (-210 / -215, under the stock pit water at -205, so no flicker when the
+        // tile loads): from a distance the pit is otherwise empty (Kurt's bake is transparent over it).
+        string icpWater = string.Join(';', around.Concat(around.Select(b => b + ",-126")).Concat(["-4608,-1152,0,1152,-210", "-4608,-1152,0,1152,-215"]));
+        return
+        [
+            // Ground: Kurt's baked plane (from --export-placed, vertex-blended terrain baked top-down, alpha where there's no
+            // ground), DXT1 1-bit alpha at the 1/3 mask clip, on a masked copy of the library's pier-edge material, at the
+            // old stock-water height -116 (under the docks, over our water). It replaces the grey pier/ground slabs.
+            ["--import-texture", Target, template, "icp_groundplane_diff", Data + "icp_groundplane_diff.dds"],
+            ["--copy-export", lib, "brooklyn_pieredge_a.brooklyn_pieredge_mat", Target, "--cut", "physmaterial", "--rename", "icp_groundplane_mat",
+                "--replace-ref", "brooklyn_pieredge_a.brooklyn_pieredge_diff_a=maptemplates.sky.icp_groundplane_diff"],
+            ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live",
+                "--textured-fbx", Data + "groundplane.fbx", "--textured-material", "brooklyn_pieredge_a.icp_groundplane_mat", "--textured-z", "-116"],
+            ["--copy-export", lib, water, Target, "--cut", "physmaterial"],
+            // Water: the stock harbour water is terrain_flat_filler at -116 in the cells (removed from those tiles with
+            // --remove-components, 2026-09-25), so two layers just under it (-121, -126: translucent, reads as depth), with
+            // a hole over the two AIM Sub cells, which keep their own pit water at -205.
+            ["--add-sky-placeholders", Target, "none", "--ground-z", "-121", "--ground-box", icpWater, "--ground-material", water, "--ground-grid", "4608"],
+            ["--import-texture", Target, template, "icp_sky_photo", Data + "ICP_Sky.dds"],
+            ["--import-texture", Target, template, "icp_black", Data + "icp_black.dds"],
+            ["--import-texture", Target, template, "icp_mask", Data + "icp_mask.dds"],
+            ["--copy-export", Library + "BroodSpaceship_A.upk", $"{brood}.{brood}_mat", Target, "--rename", "icp_sky_mat",
+                "--replace-ref", $"{brood}.{brood}_milkyway_diff=maptemplates.sky.icp_sky_photo",
+                "--replace-ref", $"{brood}.{brood}_stars=maptemplates.sky.icp_black",
+                "--replace-ref", $"{brood}.{brood}_alpha=maptemplates.sky.icp_mask"],
+            ["--set-object", Target, skyComp, "materials[0]", $"{brood}.icp_sky_mat"],
+        ];
+    }
 
     /// <summary>
     /// Odin's Palace (tuned in-game 2026-09-25). Sky: the starfield backdrop only covered ~130 degrees below the horizon
@@ -110,7 +156,7 @@ static class ZoneBuilds
         else cells.AddRange(["--always-fbx", Data + "ground.fbx"]);
         steps.Add([.. cells]);
         steps.Add(["--copy-export", lib, water, Target, "--cut", "physmaterial"]);
-        steps.Add(["--add-sky-placeholders", Target, "none", "--ground-z", "-80", "--ground-box", boxes, "--ground-material", water, "--sky-drop", "0.2"]);
+        steps.Add(["--add-sky-placeholders", Target, "none", "--ground-z", "-80", "--ground-box", boxes, "--ground-material", water, "--ground-grid", "4608", "--sky-drop", "0.2"]);
         steps.Add(["--set-property", Target, "maptemplates.sky.m_procedural_sky_daytime", "param:horizoncolor=0.0312,0.0857,0.1355",
             "param:zenithcolor=0,0.0312,0.0829", "param:rimcolor=0.5,0.3688,0.1631", "param:sun=5,3,1", "param:cloudbrightness=0.5"]);
         return steps;

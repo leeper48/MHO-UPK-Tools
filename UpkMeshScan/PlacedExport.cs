@@ -13,7 +13,7 @@ namespace UpkMeshScan;
 /// </summary>
 static class PlacedExport
 {
-    public static int Run(string folder, string layout, string libraryPath, string outFbx, Vector3 offset, float minZ, float maxZ, float minFootprint, string[] skip, float maxHeight = float.MaxValue, string[]? skipMaterials = null)
+    public static int Run(string folder, string layout, string libraryPath, string outFbx, Vector3 offset, float minZ, float maxZ, float minFootprint, string[] skip, float maxHeight = float.MaxValue, string[]? skipMaterials = null, IReadOnlyList<(string Material, string Texture)>? diffuseOverride = null)
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         var files = Directory.EnumerateFiles(folder, "*.upk").Where(f => !Program.IsBackupName(f))
@@ -45,6 +45,7 @@ static class PlacedExport
         var parts = new Dictionary<string, (Mesh Mesh, string Diffuse)>();   // material path -> merged geometry
         var scene = new Scene { RootNode = new Node(Path.GetFileNameWithoutExtension(outFbx)) };
         var texWritten = new Dictionary<string, string>();
+        var report = new List<string>();
         int placedCount = 0, kept = 0, skippedSections = 0;
 
         // Resolve a material reference seen in package p to (package, export index, path).
@@ -119,19 +120,43 @@ static class PlacedExport
                         string diffuse = "";
                         if (mat is { } mm)
                         {
-                            var notes = new List<string>();
-                            foreach (var tx in TextureExport.MaterialTextures(mm.Pkg, mm.Index + 1, notes))
+                            string WriteTex(Package tp, int ti, string name)
                             {
-                                if (!tx.Parameter.Contains("diffuse", StringComparison.OrdinalIgnoreCase)) continue;
-                                string texKey = $"{mm.Pkg.GetHashCode()}:{tx.ExportIndex}";
+                                string texKey = $"{tp.GetHashCode()}:{ti}";
                                 if (!texWritten.TryGetValue(texKey, out string? rel))
                                 {
-                                    rel = Path.Combine(texFolder, TextureExport.SafeName(tx.Texture) + ".dds");
-                                    var size = TextureExport.WriteDds(mm.Pkg, tx.ExportIndex, Path.Combine(outDir, rel), out _, cacheFolder);
-                                    if (size is null) rel = "";
+                                    rel = Path.Combine(texFolder, TextureExport.SafeName(name) + ".dds");
+                                    if (TextureExport.WriteDds(tp, ti, Path.Combine(outDir, rel), out _, cacheFolder) is null) rel = "";
                                     texWritten[texKey] = rel;
                                 }
-                                diffuse = rel; break;
+                                return rel;
+                            }
+                            var notes = new List<string>();
+                            foreach (var tx in TextureExport.MaterialTextures(mm.Pkg, mm.Index + 1, notes))
+                                if (tx.Parameter.Contains("diffuse", StringComparison.OrdinalIgnoreCase)) { diffuse = WriteTex(mm.Pkg, tx.ExportIndex, tx.Texture); break; }
+                            if (diffuse.Length == 0)
+                            {
+                                // No diffuse parameter (e.g. a vertex-blended terrain Material): write every texture of its
+                                // compiled texture list, the first "diff" one as the FBX slot, and list them in a report.
+                                var e0 = mm.Pkg.Exports[mm.Index];
+                                var layers = new List<string>();
+                                try
+                                {
+                                    foreach (int tr in ExportCopy.MaterialNativeTextures(mm.Pkg, mm.Pkg.ReadExportBytes(e0), mm.Pkg.ClassOf(e0)))
+                                    {
+                                        if (tr <= 0 || !mm.Pkg.ClassOf(mm.Pkg.Exports[tr - 1]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) continue;
+                                        string tname = mm.Pkg.PathOf(mm.Pkg.Exports[tr - 1]);
+                                        string rel = WriteTex(mm.Pkg, tr - 1, mm.Pkg.Exports[tr - 1].ObjectName);
+                                        if (rel.Length == 0) continue;
+                                        layers.Add($"  {tname} -> {rel}");
+                                        // --diffuse material=texture picks the layer to link; otherwise the first "diff" one.
+                                        var pick = diffuseOverride?.FirstOrDefault(o => matPath.Contains(o.Material, StringComparison.OrdinalIgnoreCase));
+                                        if (pick is { } pk && pk.Texture != null ? tname.Contains(pk.Texture, StringComparison.OrdinalIgnoreCase)
+                                            : diffuse.Length == 0 && tname.Contains("diff", StringComparison.OrdinalIgnoreCase)) diffuse = rel;
+                                    }
+                                }
+                                catch (InvalidDataException) { }
+                                if (layers.Count > 0) report.Add($"{matPath}: no diffuse parameter; {layers.Count} texture(s) in its compiled list (blend them by the vertex colours in Blender)" + Environment.NewLine + string.Join(Environment.NewLine, layers));
                             }
                         }
                         parts[matPath] = part = (am, diffuse);
@@ -144,6 +169,11 @@ static class PlacedExport
                         if (used.ContainsKey(v)) continue;
                         used[v] = part.Mesh.VertexCount;
                         part.Mesh.Vertices.Add(new Vector3D(w[v].X, w[v].Z, w[v].Y));
+                        // Vertex colours (stored B, G, R, A) -> the FBX colour set; white where a mesh has none, so a merged
+                        // material mesh keeps one colour channel throughout.
+                        var col = mesh.ColorsBgra is { } cb && v * 4 + 3 < cb.Length
+                            ? new Color4D(cb[v * 4 + 2] / 255f, cb[v * 4 + 1] / 255f, cb[v * 4] / 255f, cb[v * 4 + 3] / 255f) : new Color4D(1, 1, 1, 1);
+                        part.Mesh.VertexColorChannels[0].Add(col);
                         Vector2 uv = mesh.TexCoords[0][v];
                         part.Mesh.TextureCoordinateChannels[0].Add(new Vector3D(uv.X, 1f - uv.Y, 0f));
                     }
@@ -166,6 +196,8 @@ static class PlacedExport
             scene.Meshes.Add(part.Mesh);
             scene.RootNode.MeshIndices.Add(scene.MeshCount - 1);
         }
+        if (report.Count > 0)
+            File.WriteAllText(Path.Combine(outDir, Path.GetFileNameWithoutExtension(outFbx) + "_layers.txt"), string.Join(Environment.NewLine + Environment.NewLine, report) + Environment.NewLine);
         using var ctx = new AssimpContext();
         if (!ctx.ExportFile(scene, outFbx, "fbx")) throw new IOException($"Assimp could not write {outFbx}");
         if (skippedSections > 0) Console.WriteLine($"  {skippedSections:N0} section(s) left out by --skip-material [{string.Join(", ", skipMaterials!)}]");

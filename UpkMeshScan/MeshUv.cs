@@ -21,7 +21,16 @@ static class MeshUv
         int i = FindMesh(pkg, meshName);
         if (i < 0) { Console.WriteLine($"No StaticMesh '{meshName}'."); return 2; }
         var m = StaticMesh.Read(pkg, pkg.Exports[i]);
-        Console.WriteLine($"{pkg.PathOf(pkg.Exports[i])}: {m.Positions.Length:N0} verts, {m.NumTexCoords} UV channel(s), {(m.FullPrecisionUVs ? "full-precision" : "half-float")} UVs");
+        Console.WriteLine($"{pkg.PathOf(pkg.Exports[i])}: {m.Positions.Length:N0} verts, {m.NumTexCoords} UV channel(s), {(m.FullPrecisionUVs ? "full-precision" : "half-float")} UVs, vertex colours: {(m.HasVertexColors ? "yes" : "no")}");
+        if (m.ColorsBgra is { } cb)
+        {
+            // Per channel (stored B, G, R, A): range, mean, and how many vertices are 0 / 255 / in between.
+            foreach (var (ch, k) in new[] { ("R", 2), ("G", 1), ("B", 0), ("A", 3) })
+            {
+                var vals = Enumerable.Range(0, cb.Length / 4).Select(v => (int)cb[v * 4 + k]).ToArray();
+                Console.WriteLine($"  colour {ch}: {vals.Min()}..{vals.Max()}, mean {vals.Average():0}, zero {vals.Count(x => x == 0):N0}, full {vals.Count(x => x == 255):N0}, between {vals.Count(x => x is > 0 and < 255):N0}");
+            }
+        }
         for (int s = 0; s < m.Sections.Length; s++)
         {
             var sec = m.Sections[s];

@@ -70,7 +70,8 @@ static class Program
                 float.Parse(POpt("--min-z", "-400"), inv), float.Parse(POpt("--max-z", "150"), inv), float.Parse(POpt("--min-footprint", "64"), inv),
                 POpt("--skip", "terrain_flat_filler,godray,lightbeam").Split(',', StringSplitOptions.RemoveEmptyEntries),
                 float.Parse(POpt("--max-height", "1e9"), inv),
-                POpt("--skip-material", "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+                POpt("--skip-material", "").Split(',', StringSplitOptions.RemoveEmptyEntries),
+                POpt("--diffuse", "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split('=')).Where(x => x.Length == 2).Select(x => (x[0], x[1])).ToList());
         }
 
         int namesAt = Array.FindIndex(args, a => a.Equals("--names", StringComparison.OrdinalIgnoreCase));
@@ -192,7 +193,7 @@ static class Program
         if (skyAt >= 0)
         {
             // --add-sky-placeholders <package.upk> <placeholders.fbx | none> [--mesh sm_skysphere] [--material m_procedural_sky_daytime] [--gray 0.03]
-            //     [--color R,G,B] [--ground-z Z [--ground-margin 4000 | --ground-box x0,y0,x1,y1]] [--ground-material pkg.obj [--ground-uv 2304]] [--sky-drop F] [--dry-run]
+            //     [--color R,G,B] [--ground-z Z [--ground-margin 4000 | --ground-box x0,y0,x1,y1]] [--ground-material pkg.obj [--ground-uv 2304]] [--ground-grid N] [--sky-drop F] [--dry-run]
             if (skyAt + 2 >= args.Length) { Usage(); return 2; }
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -211,7 +212,7 @@ static class Program
                 Opt("--color", "") is { Length: > 0 } col && col.Split(',').Select(v => float.Parse(v, inv)).ToArray() is { Length: 3 } c
                     ? new System.Numerics.Vector3(c[0], c[1], c[2]) : null,
                 Opt("--ground-material", "") is { Length: > 0 } gm ? gm : null, float.Parse(Opt("--ground-uv", "2304"), inv),
-                float.Parse(Opt("--sky-drop", "0"), inv));
+                float.Parse(Opt("--sky-drop", "0"), inv), float.Parse(Opt("--ground-grid", "0"), inv));
         }
 
         int testRebuildAt = Array.FindIndex(args, a => a.Equals("--test-rebuild", StringComparison.OrdinalIgnoreCase));
@@ -668,6 +669,8 @@ static class Program
                            [--ground-box minX,minY,maxX,maxY]  (exact ground extent instead of the margin)
                            [--ground-material package.object [--ground-uv 2304]]  (with "none": the plane uses that
                                MaterialInstanceConstant through new imports, UVs tiling every 2304 units)
+                           [--ground-grid N]  (split each ground box into cells of at most N units, so translucent
+                               water is fogged evenly; big boxes otherwise show as bands)
           <placeholders.fbx> may be "none" (with --ground-z and --ground-box): only the ground plane, for zones
           whose cells are placed at run time.
           Adds the FBX's geometry (world space, e.g. from --zone-placeholders) to the zone's sky sphere

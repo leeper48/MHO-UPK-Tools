@@ -30,6 +30,18 @@ static class ComponentRemove
             return string.Join('.', parts);
         }
 
+        // Components each collection actor still lists (one removed earlier stays in the package, off its list).
+        var listed = new HashSet<int>();
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            if (!pkg.ClassOf(pkg.Exports[i]).Equals("StaticMeshCollectionActor", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] a = pkg.ReadExportBytes(pkg.Exports[i]);
+            var l = TagWalker.Walk(pkg, a, 4)?.FirstOrDefault(t => t.Name.Equals("StaticMeshComponents", StringComparison.OrdinalIgnoreCase));
+            if (l == null) continue;
+            int n = BinaryPrimitives.ReadInt32LittleEndian(a.AsSpan(l.ValueAt));
+            for (int k = 0; k < n; k++) listed.Add(BinaryPrimitives.ReadInt32LittleEndian(a.AsSpan(l.ValueAt + 4 + 4 * k)));
+        }
+
         // Matching components, grouped by their collection actor.
         var remove = new Dictionary<int, HashSet<int>>();                 // actor index -> component refs to drop
         int found = 0;
@@ -62,6 +74,7 @@ static class ComponentRemove
             int actor = e.OuterIndex - 1;
             if (actor < 0 || !pkg.ClassOf(pkg.Exports[actor]).Equals("StaticMeshCollectionActor", StringComparison.OrdinalIgnoreCase))
             { Console.WriteLine($"  {pkg.PathOf(e)}: matches but isn't in a collection actor; left alone"); continue; }
+            if (!listed.Contains(i + 1)) continue;                        // already off its actor's list
             if (!remove.TryGetValue(actor, out var set)) remove[actor] = set = [];
             set.Add(i + 1);
             found++;

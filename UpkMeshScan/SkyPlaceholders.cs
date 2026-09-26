@@ -15,7 +15,7 @@ static class SkyPlaceholders
 {
     public static int Run(string upkPath, string fbxPath, string meshName, string micName, float gray, bool dryRun,
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink = 1f, IReadOnlyList<string>? addFbx = null,
-        float[]? groundBox = null, Vector3? color = null, string? groundMaterial = null, float groundUv = 2304f, float skyDrop = 0f)
+        float[]? groundBox = null, Vector3? color = null, string? groundMaterial = null, float groundUv = 2304f, float skyDrop = 0f, float groundGrid = 0f)
     {
         // fbxPath "none": no placeholders, only the ground plane (zones whose cells are laid out at run time, e.g. Industry City).
         bool groundOnly = fbxPath.Equals("none", StringComparison.OrdinalIgnoreCase);
@@ -97,7 +97,7 @@ static class SkyPlaceholders
             }
             Console.WriteLine($"  added {(idx.Count - before) / 3:N0} tris from {Path.GetFileName(extra)}");
         }
-        if (groundZ is float gz) AddGround(pos, nrm, idx, scale, gz, groundMargin, groundBox);
+        if (groundZ is float gz) AddGround(pos, nrm, idx, scale, gz, groundMargin, groundBox, groundGrid);
         var worldPos = pos.Select(p => p * scale).ToList();
         Vector3 wmin = worldPos.Aggregate(Vector3.Min), wmax = worldPos.Aggregate(Vector3.Max);
         Console.WriteLine($"  placeholders: {pos.Count:N0} verts, {idx.Count / 3:N0} tris, world ({wmin.X:0}, {wmin.Y:0}, {wmin.Z:0})..({wmax.X:0}, {wmax.Y:0}, {wmax.Z:0}); sky component scale {scale} -> mesh space /{scale}");
@@ -282,30 +282,42 @@ static class SkyPlaceholders
     /// exactly the given boxes — groups of five (minX, minY, maxX, maxY, z; z NaN = the --ground-z height), one quad
     /// each, e.g. a zone's main area and a sub-area at a different height (Hightown's rooftop).
     /// </summary>
-    static void AddGround(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float margin, float[]? box = null)
+    static void AddGround(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float margin, float[]? box = null, float grid = 0f)
     {
         if (box is { Length: > 0 } && box.Length % 5 == 0)
         {
             for (int k = 0; k < box.Length; k += 5)
-                Quad(pos, nrm, idx, scale, float.IsNaN(box[k + 4]) ? z : box[k + 4], box[k], box[k + 1], box[k + 2], box[k + 3]);
+                Quad(pos, nrm, idx, scale, float.IsNaN(box[k + 4]) ? z : box[k + 4], box[k], box[k + 1], box[k + 2], box[k + 3], grid);
             return;
         }
         Vector3 min = pos.Aggregate(Vector3.Min) * scale, max = pos.Aggregate(Vector3.Max) * scale;
         Quad(pos, nrm, idx, scale, z, min.X - margin, min.Y - margin, max.X + margin, max.Y + margin);
     }
 
-    static void Quad(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float x0, float y0, float x1, float y1)
+    /// <summary>
+    /// A flat box at z. grid > 0 splits it into cells of at most that size (shared vertices): translucent materials
+    /// (water) get their fog per vertex, so a huge quad with far-away corners is fogged differently from a thin one
+    /// whose corners are near the player, and the boxes show as bands (Industry City, 2026-09-25).
+    /// </summary>
+    static void Quad(List<Vector3> pos, List<Vector3> nrm, List<int> idx, float scale, float z, float x0, float y0, float x1, float y1, float grid = 0f)
     {
+        int nx = grid > 0 ? Math.Max(1, (int)MathF.Ceiling((x1 - x0) / grid)) : 1, ny = grid > 0 ? Math.Max(1, (int)MathF.Ceiling((y1 - y0) / grid)) : 1;
         int b = pos.Count;
-        foreach (var v in new[] { new Vector3(x0, y0, z), new Vector3(x1, y0, z), new Vector3(x1, y1, z), new Vector3(x0, y1, z) })
-        { pos.Add(v / scale); nrm.Add(Vector3.UnitZ); }
+        for (int j = 0; j <= ny; j++)
+            for (int i = 0; i <= nx; i++)
+            { pos.Add(new Vector3(x0 + (x1 - x0) * i / nx, y0 + (y1 - y0) * j / ny, z) / scale); nrm.Add(Vector3.UnitZ); }
         // Engine winding: cross(v1-v0, v2-v0) points against the normal (checked on stock meshes).
-        foreach (var (i0, i1, i2) in new[] { (0, 1, 2), (0, 2, 3) })
-        {
-            Vector3 c = Vector3.Cross(pos[b + i1] - pos[b + i0], pos[b + i2] - pos[b + i0]);
-            if (c.Z > 0) idx.AddRange([b + i0, b + i2, b + i1]); else idx.AddRange([b + i0, b + i1, b + i2]);
-        }
-        Console.WriteLine($"  ground plane: z = {z}, x {x0:0}..{x1:0}, y {y0:0}..{y1:0}");
+        for (int j = 0; j < ny; j++)
+            for (int i = 0; i < nx; i++)
+            {
+                int a = b + j * (nx + 1) + i, c1 = a + 1, c2 = a + nx + 2, c3 = a + nx + 1;
+                foreach (var (i0, i1, i2) in new[] { (a, c1, c2), (a, c2, c3) })
+                {
+                    Vector3 c = Vector3.Cross(pos[i1] - pos[i0], pos[i2] - pos[i0]);
+                    if (c.Z > 0) idx.AddRange([i0, i2, i1]); else idx.AddRange([i0, i1, i2]);
+                }
+            }
+        Console.WriteLine($"  ground plane: z = {z}, x {x0:0}..{x1:0}, y {y0:0}..{y1:0}{(nx * ny > 1 ? $", {nx}x{ny} grid" : "")}");
     }
 
     /// <summary>Reads the rebuilt package back: sky section and geometry unchanged, placeholder section present, new material's values.</summary>

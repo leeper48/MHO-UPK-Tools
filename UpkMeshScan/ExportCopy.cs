@@ -252,6 +252,10 @@ static class ExportCopy
     }
 
     /// <summary>Every name and object reference in an export's data (offsets into it). Throws on anything unknown.</summary>
+    /// <summary>A Material's (or MIC's) compiled texture list (the native resource's texture references), for exports.</summary>
+    public static List<int> MaterialNativeTextures(Package pkg, byte[] d, string cls) =>
+        Parse(pkg, d, cls).Where(x => x.Where.Contains(".textures[")).Select(x => I32(d, x.Offset)).Where(r => r != 0).Distinct().ToList();
+
     /// <summary>A material instance's static switches (name, value) per quality level, from the exact parser; for --dump-export.</summary>
     public static List<string> StaticSwitches(Package pkg, byte[] d)
     {

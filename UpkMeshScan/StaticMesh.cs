@@ -34,6 +34,8 @@ public sealed class StaticMesh
     public required StaticMeshLayout Layout { get; init; }
     public required bool FullPrecisionUVs { get; init; }
     public required bool HasVertexColors { get; init; }
+    /// <summary>Vertex colours as stored (B, G, R, A per vertex), or null: e.g. the paint of vertex-blended terrain.</summary>
+    public byte[]? ColorsBgra { get; init; }
     public required ushort[] Adjacency { get; init; }
     public required int KdopTriangleCount { get; init; }
     public required Vector3 BoundsOrigin { get; init; }
@@ -180,7 +182,13 @@ public sealed class StaticMesh
 
         // Color buffer: stride, count, and data only when count > 0.
         int colorStride = r.I32(), colorVerts = r.I32();
-        if (colorVerts > 0) { int n = r.BulkArrayHeader(out int e); r.Skip(n * e); }
+        byte[]? colors = null;                                   // FColor per vertex, as stored: B, G, R, A
+        if (colorVerts > 0)
+        {
+            int n = r.BulkArrayHeader(out int e);
+            if (e == 4) { colors = new byte[n * 4]; for (int k = 0; k < colors.Length; k++) colors[k] = r.U8(); }
+            else r.Skip(n * e);
+        }
         if (colorVerts != 0 && colorVerts != numVerts) Fail(exportName, $"color buffer has {colorVerts} verts (stride {colorStride}), mesh has {numVerts}");
 
         if (r.I32() != numVerts) Fail(exportName, "NumVertices after the vertex buffers doesn't match");
@@ -236,7 +244,7 @@ public sealed class StaticMesh
         {
             Name = exportName, InternalVersion = internalVersion, LodCount = lodCount, NumTexCoords = numTexCoords,
             Positions = positions, Normals = normals, TexCoords = uvs, Indices = indices, Sections = sections, Notes = notes, Facts = facts,
-            TangentX = tangentX, TangentZ = tangentZ, ColorStride = colorStride, FullPrecisionUVs = fullUVs, HasVertexColors = colorVerts > 0,
+            TangentX = tangentX, TangentZ = tangentZ, ColorStride = colorStride, FullPrecisionUVs = fullUVs, HasVertexColors = colorVerts > 0, ColorsBgra = colors,
             Adjacency = adjacency, KdopTriangleCount = kdopTriangles,
             BoundsOrigin = boundsOrigin, BoundsExtent = boundsExtent, BoundsRadius = boundsRadius,
             Layout = new StaticMeshLayout(boundsAt, internalVersionAt, bulkAt, sectionsAt, lod0End, d),
