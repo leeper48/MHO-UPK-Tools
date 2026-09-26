@@ -6,7 +6,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.17.1
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.19.0
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `UpkMeshScan/publish/` (gitignored). Generated files go in `publish/exports`; `publish/imports` holds only Kurt's edited files.
@@ -133,6 +133,12 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
   5. Kurt's edited multi-level ground slabs (`groundboxes.py ... -200,300 0 64`: each slab 8 under its own surface).
   6. `--add-mesh-instances` recreating the 11 deck placements from the bridge tiles at z −2, MinDrawDistance 3500. Confirmed in-game.
 - `--add-mesh-instances <level> <tile> <meshes> --template <comp>` recreates a tile's placements of chosen meshes, with their materials, in the main level: real geometry as a distant stand-in. Copy the meshes and materials first; `--copy-export` reuses objects the level already has.
+- **Hightown baked ground (textured mode), confirmed in-game:**
+  - `--export-placed <folder> <layout> <library> --out f.fbx [--offset] [--max-height] [--min-footprint] [--skip-material]` exports the real placed tile meshes in world position, with component materials and textures. For Hightown's flat ground: `--max-height 16 --min-footprint 128 --skip-material water,cell_dev.,(no material)`.
+  - Kurt bakes that top-down onto one quad (diffuse + alpha).
+  - The recipe imports it as DXT1 with a 1-bit alpha (split at 85/255 = the default masked clip; half DXT5's size, identical cut-out), copies the library's masked `brooklyn_pieredge_mat` as `ht_groundplane_mat`, and places the quad with `--textured-fbx ... --textured-material ... --textured-z -75`, always drawn.
+  - Grey mode keeps the height-map slabs (`--top-material` can texture slab tops instead).
+- `--remove-components <tile> --mesh X --material Y [--library]` takes components off their collection actor's list (their data stays). It removed Hightown's 52 stock water planes (`terrain_flat_filler`, z −75) from 36 tiles, so our −80/−85 layers are the only harbour water. Always add `--mesh`: sidewalk fillers, shop floors and fountains also have water sections.
 - `publish/scans/tools/ht_build.sh` / `icp_build.sh` are the older script recipes (Industry City is still script-only).
 
 ## Sky backdrops: confirmed in-game

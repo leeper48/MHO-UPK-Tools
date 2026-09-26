@@ -48,6 +48,31 @@ static class Program
 
     internal static int Run(string[] args, string version)
     {
+        int removeAt = Array.FindIndex(args, a => a.Equals("--remove-components", StringComparison.OrdinalIgnoreCase));
+        if (removeAt >= 0)
+        {
+            // --remove-components <package.upk> [--material text] [--mesh text] [--library lib.upk] [--dry-run]
+            string ROpt(string name) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : ""; }
+            if (removeAt + 1 >= args.Length || (ROpt("--material").Length == 0 && ROpt("--mesh").Length == 0)) { Usage(); return 2; }
+            return ComponentRemove.Run(args[removeAt + 1], ROpt("--material") is { Length: > 0 } m ? m : null, ROpt("--mesh") is { Length: > 0 } me ? me : null,
+                ROpt("--library") is { Length: > 0 } l ? l : null, args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int placedAt = Array.FindIndex(args, a => a.Equals("--export-placed", StringComparison.OrdinalIgnoreCase));
+        if (placedAt >= 0)
+        {
+            // --export-placed <folder> <layout.txt> <library.upk> --out file.fbx [--offset X,Y[,Z]] [--min-z -400] [--max-z 150] [--min-footprint 64] [--skip a,b]
+            string POpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            if (placedAt + 3 >= args.Length || POpt("--out", "").Length == 0) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var o = POpt("--offset", "0,0,0").Split(',').Select(v => float.Parse(v, inv)).Concat([0f, 0f, 0f]).Take(3).ToArray();
+            return PlacedExport.Run(args[placedAt + 1], args[placedAt + 2], args[placedAt + 3], POpt("--out", ""), new System.Numerics.Vector3(o[0], o[1], o[2]),
+                float.Parse(POpt("--min-z", "-400"), inv), float.Parse(POpt("--max-z", "150"), inv), float.Parse(POpt("--min-footprint", "64"), inv),
+                POpt("--skip", "terrain_flat_filler,godray,lightbeam").Split(',', StringSplitOptions.RemoveEmptyEntries),
+                float.Parse(POpt("--max-height", "1e9"), inv),
+                POpt("--skip-material", "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+        }
+
         int namesAt = Array.FindIndex(args, a => a.Equals("--names", StringComparison.OrdinalIgnoreCase));
         if (namesAt >= 0 && namesAt + 1 < args.Length)
         {
@@ -149,7 +174,11 @@ static class Program
                 offset: Opt("--offset", "0,0,0").Split(',').Select(v => float.Parse(v, inv)).Concat([0f, 0f, 0f]).Take(3).ToArray() is var o ? new System.Numerics.Vector3(o[0], o[1], o[2]) : default,
                 alwaysFbx: Multi("--always-fbx"),
                 wallMaterial: Opt("--wall-material", "") is { Length: > 0 } wm ? wm : null, wallUv: float.Parse(Opt("--wall-uv", "512"), inv),
-                componentTemplate: Opt("--component-template", "") is { Length: > 0 } ct ? ct : null);
+                componentTemplate: Opt("--component-template", "") is { Length: > 0 } ct ? ct : null,
+                topMaterial: Opt("--top-material", "") is { Length: > 0 } tm ? tm : null, topUv: float.Parse(Opt("--top-uv", "512"), inv),
+                texturedFbx: Opt("--textured-fbx", "") is { Length: > 0 } tf ? tf : null,
+                texturedMaterial: Opt("--textured-material", "") is { Length: > 0 } tmat ? tmat : null,
+                texturedZ: Opt("--textured-z", "") is { Length: > 0 } tz ? float.Parse(tz, inv) : null);
         }
 
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));

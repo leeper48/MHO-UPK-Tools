@@ -23,7 +23,7 @@ static class ZoneBuilds
     [
         new("Hightown", "Madripoor_HighTown_B.upk",
             "Upper Madripoor / Hightown: sky dome, building boxes (MinDrawDistance 3500), always-drawn ground slabs, " +
-            "two water layers with a hole over the GameCenter stairwell, night sky; walls: generated night facade or grey.",
+            "two water layers with a hole over the GameCenter stairwell, night sky; textured: night facade walls + Kurt's baked ground plane, or all grey (with ground slabs).",
             HightownSteps),
         new("OdinsPalace", "Asgard_Hub_B.upk",
             "Odin's Palace (Kurse operation): full starfield sky (backdrop copies for the sides and top), building boxes " +
@@ -95,10 +95,19 @@ static class ZoneBuilds
             steps.Add(["--copy-export", lib, sf + "_mat", Target, "--cut", "physmaterial", "--rename", "ht_facade_mat",
                 "--replace-ref", sf + "_diff=maptemplates.sky.ht_facade_diff", "--replace-ref", sf + "_spec=maptemplates.sky.ht_facade_spec",
                 "--replace-ref", sf + "_nrml=maptemplates.sky.ht_flat_nrml"]);
+            // Ground: Kurt's baked plane (the real streets, alpha where there's no ground) with a copy of the library's
+            // masked pier-edge material (envbaseshaderv3_masked, diffuse only) pointing at the baked texture (DXT1 with 1-bit alpha at the 1/3 mask clip: half DXT5's size, same cut-out; RGB x0.8
+            // from Kurt's TopDown_D.png: "darken 20%", 2026-09-25).
+            steps.Add(["--import-texture", Target, template, "ht_groundplane_diff", Data + "ht_groundplane_diff.dds"]);
+            steps.Add(["--copy-export", lib, "brooklyn_pieredge_a.brooklyn_pieredge_mat", Target, "--cut", "physmaterial", "--rename", "ht_groundplane_mat",
+                "--replace-ref", "brooklyn_pieredge_a.brooklyn_pieredge_diff_a=maptemplates.sky.ht_groundplane_diff"]);
         }
-        var cells = new List<string> { "--add-cell-placeholders", Target, Data + "raster.fbx", "--always-fbx", Data + "ground.fbx",
-            "--from-live", "--offset", shift, "--min-draw", "3500" };
-        if (walls == Walls.Facade) cells.AddRange(["--wall-material", "madripoor_hitown_buildings.ht_facade_mat", "--wall-uv", "512"]);
+        var cells = new List<string> { "--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live", "--offset", shift, "--min-draw", "3500" };
+        // Textured: the baked ground plane at the old stock-water height (-75: under the real ground, over our water layers)
+        // replaces the grey slabs, which would sit on top of it. Grey: the slabs.
+        if (walls == Walls.Facade) cells.AddRange(["--wall-material", "madripoor_hitown_buildings.ht_facade_mat", "--wall-uv", "512",
+            "--textured-fbx", Data + "groundplane.fbx", "--textured-material", "brooklyn_pieredge_a.ht_groundplane_mat", "--textured-z", "-75"]);
+        else cells.AddRange(["--always-fbx", Data + "ground.fbx"]);
         steps.Add([.. cells]);
         steps.Add(["--copy-export", lib, water, Target, "--cut", "physmaterial"]);
         steps.Add(["--add-sky-placeholders", Target, "none", "--ground-z", "-80", "--ground-box", boxes, "--ground-material", water, "--sky-drop", "0.2"]);
