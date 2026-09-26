@@ -46,6 +46,7 @@ static class ZoneBuilds
         const string water = "brooklyn_docks_lighting.brooklyn_docks_water_mat";
         const string template = "maptemplates.sky.t_udk_sky_cloudmask01";
         const string brood = "madripoor_broodship_skydome";
+        const string sf = "madripoor_hitown_buildings.madripoor_hitown_storefront_a";
         const string skyComp = "theworld.persistentlevel.staticmeshcollectionactor_0.sma_sm_skysphere_smc_16";
         string[] around = ["-100224,-100224,100224,-1152", "-100224,1152,100224,100224", "-100224,-1152,-4608,1152", "0,-1152,100224,1152"];
         // The hole itself gets water at pit level (-210 / -215, under the stock pit water at -205, so no flicker when the
@@ -62,8 +63,23 @@ static class ZoneBuilds
             ["--import-texture", Target, template, "icp_groundplane_diff", Data + "icp_groundplane_diff.dds"],
             ["--copy-export", lib, "brooklyn_pieredge_a.brooklyn_pieredge_mat", Target, "--cut", "physmaterial", "--rename", "icp_groundplane_mat",
                 "--replace-ref", "brooklyn_pieredge_a.brooklyn_pieredge_diff_a=maptemplates.sky.icp_groundplane_diff"],
+            // Building LODs: Kurt's low-poly textured bakes of the --export-placed building pieces (height >= 100, side
+            // >= 100), drawn like the grey boxes (MinDrawDistance 3500); the boxes under each are excluded. First test:
+            // the WareSuper_Bot_A warehouse (x 2800..4608, y +-656), 2026-09-26. Unlit: the bake already has its lighting,
+            // and our components have no lightmap, so a lit material left the side away from the sun nearly black. Hightown's
+            // emissive storefront material (emissive = diffuse x spec G x EmissiveMult 1) with G full, no specular (R 0) or
+            // reflection (B 0), flat normal: the bake shows as it is. Bakes converted with make_mips.py --scale 0.6 (0.7 read a
+            // little bright next to the real buildings).
+            ["--import-texture", Target, template, "icp_lod_waresuper_bot_a_diff", Data + "lod_WareSuper_Bot_A_diff.dds"],
+            ["--import-texture", Target, template, "icp_lod_emissive_spec", Data + "lod_emissive_spec.dds"],
+            ["--import-texture", Target, template, "icp_lod_flat_nrml", Data + "lod_flat_nrml.dds"],
+            ["--copy-export", Library + "SCS__DailyRHighTownInvasionRegionL30_SF.upk", sf + "_mat", Target, "--cut", "physmaterial", "--rename", "icp_lod_waresuper_bot_a_mat",
+                "--replace-ref", sf + "_diff=maptemplates.sky.icp_lod_waresuper_bot_a_diff", "--replace-ref", sf + "_spec=maptemplates.sky.icp_lod_emissive_spec",
+                "--replace-ref", sf + "_nrml=maptemplates.sky.icp_lod_flat_nrml"],
             ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live",
-                "--textured-fbx", Data + "groundplane.fbx", "--textured-material", "brooklyn_pieredge_a.icp_groundplane_mat", "--textured-z", "-116"],
+                "--textured-fbx", Data + "groundplane.fbx", "--textured-material", "brooklyn_pieredge_a.icp_groundplane_mat", "--textured-z", "-116",
+                "--lod", Data + "lod_WareSuper_Bot_A.fbx=madripoor_hitown_buildings.icp_lod_waresuper_bot_a_mat",
+                "--exclude-box", "2780,-680,4630,680", "--lod-inset", "0.98", "--lod-drop", "4"],
             ["--copy-export", lib, water, Target, "--cut", "physmaterial"],
             // Water: the stock harbour water is terrain_flat_filler at -116 in the cells (removed from those tiles with
             // --remove-components, 2026-09-25), so two layers just under it (-121, -126: translucent, reads as depth), with

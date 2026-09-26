@@ -26,7 +26,7 @@ static class CellPlaceholders
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink, IReadOnlyList<string> addFbx,
         string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false, float lift = 0, Vector3 offset = default, IReadOnlyList<string>? alwaysFbx = null,
         string? wallMaterial = null, float wallUv = 512f, string? componentTemplate = null, string? topMaterial = null, float topUv = 512f,
-        string? texturedFbx = null, string? texturedMaterial = null, float? texturedZ = null)
+        string? texturedFbx = null, string? texturedMaterial = null, float? texturedZ = null, IReadOnlyList<(string Fbx, string Material)>? lods = null, float lodInset = 1f, float lodDrop = 0f)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -245,30 +245,44 @@ static class CellPlaceholders
         // --textured-fbx: a mesh placed as it is in the FBX (already in-game coordinates: no --offset), with the FBX's
         // own UVs and --textured-material, drawn at every distance — e.g. a ground plane with the real streets baked in
         // (Kurt's Blender bake, alpha-masked). --textured-z flattens it to that height.
-        if (texturedFbx != null)
+        // --lod fbx=material (repeatable): the same for a textured low-poly stand-in of a building (Kurt's bake of the
+        // --export-placed pieces), drawn like the grey boxes (--min-draw); --exclude-box takes the boxes under it out.
+        // --lod-inset F / --lod-drop Z: the LOD shrunk toward its centre (x/y about the middle, height about its base)
+        // and lowered, so it sits just inside the real building: where ICP's cells are still drawn past 3500 the two
+        // coincided and z-fought (flicker, 2026-09-26).
+        var textured = new List<(string Fbx, string? Material, float? Z, float MinDraw)>();
+        if (texturedFbx != null) textured.Add((texturedFbx, texturedMaterial, texturedZ, 0f));
+        foreach (var (lf, lm) in lods ?? []) textured.Add((lf, lm, null, minDrawDistance));
+        foreach (var (tFbx, tMaterial, tZ, texturedMinDraw) in textured)
         {
-            int tmRef = Array.FindIndex(live.Exports, e => live.PathOf(e).Equals(texturedMaterial ?? "", StringComparison.OrdinalIgnoreCase)
+            int tmRef = Array.FindIndex(live.Exports, e => live.PathOf(e).Equals(tMaterial ?? "", StringComparison.OrdinalIgnoreCase)
                 && live.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)) + 1;
-            if (tmRef == 0 || tmRef > n0) { Console.WriteLine($"  --textured-material: no material instance '{texturedMaterial}' among the package's existing exports"); return 1; }
+            if (tmRef == 0 || tmRef > n0) { Console.WriteLine($"  --textured-material: no material instance '{tMaterial}' among the package's existing exports"); return 1; }
             var tp = new List<Vector3>(); var tn = new List<Vector3>(); var tuv = new List<Vector2>(); var ti = new List<int>();
-            foreach (var sct in FbxMeshReader.Read(texturedFbx, 1))
+            foreach (var sct in FbxMeshReader.Read(tFbx, 1))
             {
                 int b = tp.Count;
-                tp.AddRange(sct.Positions.Select(q => texturedZ is float z ? new Vector3(q.X, q.Y, z) : q));
+                tp.AddRange(sct.Positions.Select(q => tZ is float z ? new Vector3(q.X, q.Y, z) : q));
                 tn.AddRange(sct.Normals); tuv.AddRange(sct.TexCoords[0]); ti.AddRange(sct.Indices.Select(i => i + b));
             }
-            if (ti.Count == 0) { Console.WriteLine($"  --textured-fbx: no triangles in {texturedFbx}"); return 1; }
+            if (ti.Count == 0) { Console.WriteLine($"  --textured-fbx: no triangles in {tFbx}"); return 1; }
+            if (texturedMinDraw > 0 && (lodInset != 1f || lodDrop != 0f))
+            {
+                Vector3 l0 = tp.Aggregate(Vector3.Min), l1 = tp.Aggregate(Vector3.Max), mid = (l0 + l1) / 2;
+                for (int v = 0; v < tp.Count; v++)
+                    tp[v] = new Vector3(mid.X + (tp[v].X - mid.X) * lodInset, mid.Y + (tp[v].Y - mid.Y) * lodInset, l0.Z + (tp[v].Z - l0.Z) * lodInset - lodDrop);
+            }
             var tmesh = StaticMeshBuilder.BuildGeometry(skyTemplate, tp, tn, ti, tmRef, "textured", tuv);
             int tmeshRef = n0 + add.Count + 1;
             add.Add(new NewExport(skyMesh, NextNumber(bak, skyMesh, k2), off => StaticMeshBuilder.Serialize(skyTemplate, tmesh, off, dropBodySetup: true)));
-            byte[] tcomp = BuildComponent(bak, skyComp, tw, tmeshRef, tmRef, 0f, componentTemplate != null);
+            byte[] tcomp = BuildComponent(bak, skyComp, tw, tmeshRef, tmRef, texturedMinDraw, componentTemplate != null);
             compRefs.Add(n0 + add.Count + 1);
             add.Add(new NewExport(skyComp, NextNumber(bak, skyComp, k2), _ => tcomp));
-            minDraws.Add(0f);
+            minDraws.Add(texturedMinDraw);
             cellMeshes.Add(("textured", tmeshRef, tmesh));
             k2++;
             Vector3 lo = tp.Aggregate(Vector3.Min), hi = tp.Aggregate(Vector3.Max);
-            Console.WriteLine($"  textured mesh: {Path.GetFileName(texturedFbx)}, {ti.Count / 3} tris, ({lo.X:0}, {lo.Y:0}, {lo.Z:0})..({hi.X:0}, {hi.Y:0}, {hi.Z:0}), material {texturedMaterial}, always drawn");
+            Console.WriteLine($"  textured mesh: {Path.GetFileName(tFbx)}, {ti.Count / 3} tris, ({lo.X:0}, {lo.Y:0}, {lo.Z:0})..({hi.X:0}, {hi.Y:0}, {hi.Z:0}), material {tMaterial}, {(texturedMinDraw > 0 ? $"MinDrawDistance {texturedMinDraw}" : "always drawn")}");
         }
 
         // Collection actor: the sky component plus the new ones.

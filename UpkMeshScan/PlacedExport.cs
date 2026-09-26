@@ -13,7 +13,7 @@ namespace UpkMeshScan;
 /// </summary>
 static class PlacedExport
 {
-    public static int Run(string folder, string layout, string libraryPath, string outFbx, Vector3 offset, float minZ, float maxZ, float minFootprint, string[] skip, float maxHeight = float.MaxValue, string[]? skipMaterials = null, IReadOnlyList<(string Material, string Texture)>? diffuseOverride = null)
+    public static int Run(string folder, string layout, string libraryPath, string outFbx, Vector3 offset, float minZ, float maxZ, float minFootprint, string[] skip, float maxHeight = float.MaxValue, string[]? skipMaterials = null, IReadOnlyList<(string Material, string Texture)>? diffuseOverride = null, float minHeight = 0f)
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         var files = Directory.EnumerateFiles(folder, "*.upk").Where(f => !Program.IsBackupName(f))
@@ -97,7 +97,7 @@ static class PlacedExport
                 var m = ZonePlaceholders.RotatorMatrix(rot);
                 var w = mesh.Positions.Select(v => Vector3.Transform(v * sc, m) + t + tileOffset + offset).ToArray();
                 Vector3 lo = w.Aggregate(Vector3.Min), hi = w.Aggregate(Vector3.Max);
-                if (hi.Z - offset.Z > maxZ || lo.Z - offset.Z < minZ || MathF.Max(hi.X - lo.X, hi.Y - lo.Y) < minFootprint || hi.Z - lo.Z > maxHeight) continue;
+                if (hi.Z - offset.Z > maxZ || lo.Z - offset.Z < minZ || MathF.Max(hi.X - lo.X, hi.Y - lo.Y) < minFootprint || hi.Z - lo.Z > maxHeight || hi.Z - lo.Z < minHeight) continue;
                 kept++;
 
                 // Component materials by section index (Materials array), else the mesh section's own.

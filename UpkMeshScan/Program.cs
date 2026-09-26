@@ -61,7 +61,7 @@ static class Program
         int placedAt = Array.FindIndex(args, a => a.Equals("--export-placed", StringComparison.OrdinalIgnoreCase));
         if (placedAt >= 0)
         {
-            // --export-placed <folder> <layout.txt> <library.upk> --out file.fbx [--offset X,Y[,Z]] [--min-z -400] [--max-z 150] [--min-footprint 64] [--skip a,b]
+            // --export-placed <folder> <layout.txt> <library.upk> --out file.fbx [--offset X,Y[,Z]] [--min-z -400] [--max-z 150] [--min-footprint 64] [--min-height 0] [--skip a,b]
             string POpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
             if (placedAt + 3 >= args.Length || POpt("--out", "").Length == 0) { Usage(); return 2; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -71,7 +71,8 @@ static class Program
                 POpt("--skip", "terrain_flat_filler,godray,lightbeam").Split(',', StringSplitOptions.RemoveEmptyEntries),
                 float.Parse(POpt("--max-height", "1e9"), inv),
                 POpt("--skip-material", "").Split(',', StringSplitOptions.RemoveEmptyEntries),
-                POpt("--diffuse", "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split('=')).Where(x => x.Length == 2).Select(x => (x[0], x[1])).ToList());
+                POpt("--diffuse", "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split('=')).Where(x => x.Length == 2).Select(x => (x[0], x[1])).ToList(),
+                float.Parse(POpt("--min-height", "0"), inv));
         }
 
         int namesAt = Array.FindIndex(args, a => a.Equals("--names", StringComparison.OrdinalIgnoreCase));
@@ -160,7 +161,7 @@ static class Program
         if (cellAt >= 0)
         {
             // --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304] [--gray 0.03] [--exclude-box ...]
-            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--from-live] [--offset X,Y[,Z]] [--lift Z] [--always-fbx f.fbx ...] [--wall-material pkg.obj [--wall-uv 512]] [--dry-run]
+            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--from-live] [--offset X,Y[,Z]] [--lift Z] [--always-fbx f.fbx ...] [--wall-material pkg.obj [--wall-uv 512]] [--lod f.fbx=pkg.mat ... [--lod-inset 0.98] [--lod-drop 4]] [--dry-run]
             if (cellAt + 2 >= args.Length) { Usage(); return 2; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
@@ -179,7 +180,9 @@ static class Program
                 topMaterial: Opt("--top-material", "") is { Length: > 0 } tm ? tm : null, topUv: float.Parse(Opt("--top-uv", "512"), inv),
                 texturedFbx: Opt("--textured-fbx", "") is { Length: > 0 } tf ? tf : null,
                 texturedMaterial: Opt("--textured-material", "") is { Length: > 0 } tmat ? tmat : null,
-                texturedZ: Opt("--textured-z", "") is { Length: > 0 } tz ? float.Parse(tz, inv) : null);
+                texturedZ: Opt("--textured-z", "") is { Length: > 0 } tz ? float.Parse(tz, inv) : null,
+                lods: Multi("--lod").Select(l => l.Split('=', 2)).Where(l => l.Length == 2).Select(l => (l[0], l[1])).ToList(),
+                lodInset: float.Parse(Opt("--lod-inset", "1"), inv), lodDrop: float.Parse(Opt("--lod-drop", "0"), inv));
         }
 
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));
