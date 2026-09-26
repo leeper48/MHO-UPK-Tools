@@ -6,7 +6,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.22.1
+UpkMeshScan/     StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.22.2
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `UpkMeshScan/publish/` (gitignored). Generated files go in `publish/exports`; `publish/imports` holds only Kurt's edited files.
@@ -141,7 +141,7 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
   - Grey mode keeps the height-map slabs (`--top-material` can texture slab tops instead).
 - `--remove-components <tile> --mesh X --material Y [--library]` takes components off their collection actor's list (their data stays). It removed Hightown's 52 stock water planes (`terrain_flat_filler`, z −75) from 36 tiles, so our −80/−85 layers are the only harbour water. Always add `--mesh`: sidewalk fillers, shop floors and fountains also have water sections. Only components still on their actor's list are reported.
 - **Industry City tiles (done 2026-09-25):** stock water (`terrain_flat_filler`, −116) removed, and the dirt seabeds under the water (`terrain_flat_filler` with `mtntslms_foundation.dirt`, −484) removed from all 11 water cell types, AIM Sub pits included. The seabed made cell water darker than our open water.
-- **Industry City** (`Brooklyn_Docks_A`, 10 steps): Kurt's baked ground plane at −116 (DXT1 1-bit alpha on a masked `brooklyn_pieredge_mat` copy), building boxes, the water at −121/−126 in 4 boxes around the AIM Sub hole plus pit water at −210/−215, and the photo sky.
+- **Industry City** (`Brooklyn_Docks_A`, 8 steps): building boxes, the water at −121/−126 in 4 boxes around the AIM Sub hole plus pit water at −210/−215, and the photo sky. **No ground plane:** all ICP cells stay loaded within view, so a plane under the ground never shows (a red test plane was invisible at −116 and visible at +300, 2026-09-26). The ground's noisy look is the stock terrain's vertex paint.
 - ICP ground is `brooklyn_terrain_docks_vertexpaint_mat` (docks / dockscracked / mud blended by vertex colour). Its node graph is cooked out, so the channel mapping is unknown. Only the 3 `shipping_*_ground_a` meshes and the cargo-ship terrain carry real paint (mostly R and B). The 1,059 `hk_street_straighta` tiles that also use it (via component override) have black/white leftover colours.
 - `publish/scans/tools/ht_build.sh` / `icp_build.sh` are the older script recipes.
 
