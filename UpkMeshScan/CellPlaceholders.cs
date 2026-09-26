@@ -26,7 +26,7 @@ static class CellPlaceholders
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink, IReadOnlyList<string> addFbx,
         string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false, float lift = 0, Vector3 offset = default, IReadOnlyList<string>? alwaysFbx = null,
         string? wallMaterial = null, float wallUv = 512f, string? componentTemplate = null, string? topMaterial = null, float topUv = 512f,
-        string? texturedFbx = null, string? texturedMaterial = null, float? texturedZ = null, IReadOnlyList<(string Fbx, string Material)>? lods = null, float lodInset = 1f, float lodDrop = 0f)
+        string? texturedFbx = null, string? texturedMaterial = null, float? texturedZ = null, IReadOnlyList<(string Fbx, string Material)>? lods = null, float lodInset = 1f, float lodDrop = 0f, float lodShrink = 0f)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -266,23 +266,84 @@ static class CellPlaceholders
                 tn.AddRange(sct.Normals); tuv.AddRange(sct.TexCoords[0]); ti.AddRange(sct.Indices.Select(i => i + b));
             }
             if (ti.Count == 0) { Console.WriteLine($"  --textured-fbx: no triangles in {tFbx}"); return 1; }
+            // --lod-shrink D: every vertex D units in along its normal (works for a whole-zone bundle; the inset scales about
+            // the mesh's centre, which only suits a single building).
+            if (texturedMinDraw > 0 && lodShrink != 0f)
+                for (int v = 0; v < tp.Count; v++)
+                    if (tn[v].LengthSquared() > 1e-6f) tp[v] -= Vector3.Normalize(tn[v]) * lodShrink;
             if (texturedMinDraw > 0 && (lodInset != 1f || lodDrop != 0f))
             {
                 Vector3 l0 = tp.Aggregate(Vector3.Min), l1 = tp.Aggregate(Vector3.Max), mid = (l0 + l1) / 2;
                 for (int v = 0; v < tp.Count; v++)
                     tp[v] = new Vector3(mid.X + (tp[v].X - mid.X) * lodInset, mid.Y + (tp[v].Y - mid.Y) * lodInset, l0.Z + (tp[v].Z - l0.Z) * lodInset - lodDrop);
             }
-            var tmesh = StaticMeshBuilder.BuildGeometry(skyTemplate, tp, tn, ti, tmRef, "textured", tuv);
-            int tmeshRef = n0 + add.Count + 1;
-            add.Add(new NewExport(skyMesh, NextNumber(bak, skyMesh, k2), off => StaticMeshBuilder.Serialize(skyTemplate, tmesh, off, dropBodySetup: true)));
-            byte[] tcomp = BuildComponent(bak, skyComp, tw, tmeshRef, tmRef, texturedMinDraw, componentTemplate != null);
-            compRefs.Add(n0 + add.Count + 1);
-            add.Add(new NewExport(skyComp, NextNumber(bak, skyComp, k2), _ => tcomp));
-            minDraws.Add(texturedMinDraw);
-            cellMeshes.Add(("textured", tmeshRef, tmesh));
-            k2++;
+            // Over 16-bit indices (65,535 vertices): split into several meshes (same material and placement), in triangle
+            // order, each under the limit — e.g. a whole-zone LOD bundle part.
+            // LODs are also split per cell (cellSize grid): the game measures a component's draw distance to the centre of
+            // its bounds, so one zone-wide mesh appeared only when its middle was 3500 away (a gap where neither it nor the
+            // unloaded real cell drew). Each connected piece (welded by position) goes to the cell of its centre.
+            const int maxVerts = 60000;
+            var groups = new List<List<int>>();                           // triangle start indices per output group
+            if (texturedMinDraw > 0)
+            {
+                var parent = Enumerable.Range(0, tp.Count).ToArray();
+                int Find(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
+                var byPos = new Dictionary<(int, int, int), int>();
+                for (int v = 0; v < tp.Count; v++)
+                {
+                    var key = ((int)MathF.Round(tp[v].X), (int)MathF.Round(tp[v].Y), (int)MathF.Round(tp[v].Z));
+                    if (byPos.TryGetValue(key, out int o)) parent[Find(v)] = Find(o); else byPos[key] = v;
+                }
+                for (int t = 0; t < ti.Count; t += 3) { parent[Find(ti[t + 1])] = Find(ti[t]); parent[Find(ti[t + 2])] = Find(ti[t]); }
+                var islandLo = new Dictionary<int, Vector3>(); var islandHi = new Dictionary<int, Vector3>();
+                foreach (int v in ti)
+                {
+                    int r = Find(v);
+                    islandLo[r] = islandLo.TryGetValue(r, out var l) ? Vector3.Min(l, tp[v]) : tp[v];
+                    islandHi[r] = islandHi.TryGetValue(r, out var h) ? Vector3.Max(h, tp[v]) : tp[v];
+                }
+                var byCell = new SortedDictionary<(int, int), List<int>>();
+                for (int t = 0; t < ti.Count; t += 3)
+                {
+                    int r = Find(ti[t]); var c = (islandLo[r] + islandHi[r]) / 2;
+                    var cell = ((int)MathF.Floor(c.X / cellSize), (int)MathF.Floor(c.Y / cellSize));
+                    if (!byCell.TryGetValue(cell, out var list)) byCell[cell] = list = [];
+                    list.Add(t);
+                }
+                groups.AddRange(byCell.Values);
+            }
+            else groups.Add(Enumerable.Range(0, ti.Count / 3).Select(t => t * 3).ToList());
+            var chunks = new List<(List<Vector3> P, List<Vector3> N, List<Vector2> U, List<int> I)>();
+            foreach (var g in groups)
+            {
+                (List<Vector3> P, List<Vector3> N, List<Vector2> U, List<int> I) cur = ([], [], [], []);
+                var map = new Dictionary<int, int>();
+                foreach (int t in g)
+                {
+                    if (cur.P.Count + 3 > maxVerts) { chunks.Add(cur); cur = ([], [], [], []); map.Clear(); }
+                    for (int c = 0; c < 3; c++)
+                    {
+                        int v = ti[t + c];
+                        if (!map.TryGetValue(v, out int nv)) { nv = cur.P.Count; map[v] = nv; cur.P.Add(tp[v]); cur.N.Add(tn[v]); cur.U.Add(tuv[v]); }
+                        cur.I.Add(nv);
+                    }
+                }
+                if (cur.I.Count > 0) chunks.Add(cur);
+            }
+            foreach (var ch in chunks)
+            {
+                var tmesh = StaticMeshBuilder.BuildGeometry(skyTemplate, ch.P, ch.N, ch.I, tmRef, "textured", ch.U);
+                int tmeshRef = n0 + add.Count + 1;
+                add.Add(new NewExport(skyMesh, NextNumber(bak, skyMesh, k2), off => StaticMeshBuilder.Serialize(skyTemplate, tmesh, off, dropBodySetup: true)));
+                byte[] tcomp = BuildComponent(bak, skyComp, tw, tmeshRef, tmRef, texturedMinDraw, componentTemplate != null);
+                compRefs.Add(n0 + add.Count + 1);
+                add.Add(new NewExport(skyComp, NextNumber(bak, skyComp, k2), _ => tcomp));
+                minDraws.Add(texturedMinDraw);
+                cellMeshes.Add(("textured", tmeshRef, tmesh));
+                k2++;
+            }
             Vector3 lo = tp.Aggregate(Vector3.Min), hi = tp.Aggregate(Vector3.Max);
-            Console.WriteLine($"  textured mesh: {Path.GetFileName(tFbx)}, {ti.Count / 3} tris, ({lo.X:0}, {lo.Y:0}, {lo.Z:0})..({hi.X:0}, {hi.Y:0}, {hi.Z:0}), material {tMaterial}, {(texturedMinDraw > 0 ? $"MinDrawDistance {texturedMinDraw}" : "always drawn")}");
+            Console.WriteLine($"  textured mesh: {Path.GetFileName(tFbx)}, {ti.Count / 3} tris{(chunks.Count > 1 ? $" in {chunks.Count} meshes (per cell, each under 16-bit indices)" : "")}, ({lo.X:0}, {lo.Y:0}, {lo.Z:0})..({hi.X:0}, {hi.Y:0}, {hi.Z:0}), material {tMaterial}, {(texturedMinDraw > 0 ? $"MinDrawDistance {texturedMinDraw}" : "always drawn")}");
         }
 
         // Collection actor: the sky component plus the new ones.

@@ -161,7 +161,7 @@ static class Program
         if (cellAt >= 0)
         {
             // --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304] [--gray 0.03] [--exclude-box ...]
-            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--from-live] [--offset X,Y[,Z]] [--lift Z] [--always-fbx f.fbx ...] [--wall-material pkg.obj [--wall-uv 512]] [--lod f.fbx=pkg.mat ... [--lod-inset 0.98] [--lod-drop 4]] [--dry-run]
+            //     [--shrink F] [--add-fbx f.fbx ...] [--ground-z -40 [--ground-margin 4000]] [--from-live] [--offset X,Y[,Z]] [--lift Z] [--always-fbx f.fbx ...] [--wall-material pkg.obj [--wall-uv 512]] [--lod f.fbx=pkg.mat ... [--lod-inset 0.98 | --lod-shrink 6] [--lod-drop 4]] [--dry-run]
             if (cellAt + 2 >= args.Length) { Usage(); return 2; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string Opt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
@@ -182,7 +182,8 @@ static class Program
                 texturedMaterial: Opt("--textured-material", "") is { Length: > 0 } tmat ? tmat : null,
                 texturedZ: Opt("--textured-z", "") is { Length: > 0 } tz ? float.Parse(tz, inv) : null,
                 lods: Multi("--lod").Select(l => l.Split('=', 2)).Where(l => l.Length == 2).Select(l => (l[0], l[1])).ToList(),
-                lodInset: float.Parse(Opt("--lod-inset", "1"), inv), lodDrop: float.Parse(Opt("--lod-drop", "0"), inv));
+                lodInset: float.Parse(Opt("--lod-inset", "1"), inv), lodDrop: float.Parse(Opt("--lod-drop", "0"), inv),
+                lodShrink: float.Parse(Opt("--lod-shrink", "0"), inv));
         }
 
         int matAt = Array.FindIndex(args, a => a.Equals("--material-params", StringComparison.OrdinalIgnoreCase));

@@ -40,6 +40,10 @@ static class ZoneBuilds
     /// the placeholder FBX are already in final positions (IndustryCity_layout.txt). Sky: the Brood skydome material
     /// copied as icp_sky_mat with Kurt's photo, a black "stars" slot and a plain grey mask (clouds are parked).
     /// </summary>
+    // ZoneData/IndustryCity/lod_bundle<n>.fbx + lod_bundle<n>_diff.dds (make_mips.py --scale: 1 warehouses 0.45, read too
+    // bright next to the real ones at 0.6; 2 sub area, 3 containers, 4 cargo ship 0.6).
+    const int LodBundles = 4;
+
     static List<string[]> IndustryCitySteps(Walls walls)
     {
         const string lib = Library + "SCS__CH0201ShippingYardRegion_SF.upk";
@@ -63,23 +67,29 @@ static class ZoneBuilds
             ["--import-texture", Target, template, "icp_groundplane_diff", Data + "icp_groundplane_diff.dds"],
             ["--copy-export", lib, "brooklyn_pieredge_a.brooklyn_pieredge_mat", Target, "--cut", "physmaterial", "--rename", "icp_groundplane_mat",
                 "--replace-ref", "brooklyn_pieredge_a.brooklyn_pieredge_diff_a=maptemplates.sky.icp_groundplane_diff"],
-            // Building LODs: Kurt's low-poly textured bakes of the --export-placed building pieces (height >= 100, side
-            // >= 100), drawn like the grey boxes (MinDrawDistance 3500); the boxes under each are excluded. First test:
-            // the WareSuper_Bot_A warehouse (x 2800..4608, y +-656), 2026-09-26. Unlit: the bake already has its lighting,
-            // and our components have no lightmap, so a lit material left the side away from the sun nearly black. Hightown's
-            // emissive storefront material (emissive = diffuse x spec G x EmissiveMult 1) with G full, no specular (R 0) or
-            // reflection (B 0), flat normal: the bake shows as it is. Bakes converted with make_mips.py --scale 0.6 (0.7 read a
-            // little bright next to the real buildings).
-            ["--import-texture", Target, template, "icp_lod_waresuper_bot_a_diff", Data + "lod_WareSuper_Bot_A_diff.dds"],
+            // Building LODs: Kurt's low-poly textured bakes of every --export-placed piece 100+ tall and 100+ long (fences,
+            // trees, poles, railings, cables, ladders skipped), in 4 parts, each with its own 2048 atlas (2026-09-26); they
+            // replace the grey boxes (all excluded). Drawn like the boxes (MinDrawDistance 3500). Unlit: the bake already has
+            // its lighting, and our components have no lightmap, so a lit material left the side away from the sun nearly
+            // black. Hightown's emissive storefront material (emissive = diffuse x spec G x EmissiveMult 1) with G full, no
+            // specular (R 0) or reflection (B 0), flat normal: the bake shows as it is. Atlases converted with make_mips.py
+            // --scale 0.6 (0.7 read a little bright next to the real buildings). --lod-shrink pulls every face 6 units in
+            // along its normal and --lod-drop 4 lowers it, so each LOD surface sits just inside the real one (ICP's cells
+            // are still drawn past 3500: coincident surfaces z-fought).
             ["--import-texture", Target, template, "icp_lod_emissive_spec", Data + "lod_emissive_spec.dds"],
             ["--import-texture", Target, template, "icp_lod_flat_nrml", Data + "lod_flat_nrml.dds"],
-            ["--copy-export", Library + "SCS__DailyRHighTownInvasionRegionL30_SF.upk", sf + "_mat", Target, "--cut", "physmaterial", "--rename", "icp_lod_waresuper_bot_a_mat",
-                "--replace-ref", sf + "_diff=maptemplates.sky.icp_lod_waresuper_bot_a_diff", "--replace-ref", sf + "_spec=maptemplates.sky.icp_lod_emissive_spec",
-                "--replace-ref", sf + "_nrml=maptemplates.sky.icp_lod_flat_nrml"],
-            ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live",
+            .. Enumerable.Range(1, LodBundles).SelectMany(n => new[]
+            {
+                new[] { "--import-texture", Target, template, $"icp_lod_bundle{n}_diff", Data + $"lod_bundle{n}_diff.dds" },
+                ["--copy-export", Library + "SCS__DailyRHighTownInvasionRegionL30_SF.upk", sf + "_mat", Target, "--cut", "physmaterial", "--rename", $"icp_lod_bundle{n}_mat",
+                    "--replace-ref", sf + $"_diff=maptemplates.sky.icp_lod_bundle{n}_diff", "--replace-ref", sf + "_spec=maptemplates.sky.icp_lod_emissive_spec",
+                    "--replace-ref", sf + "_nrml=maptemplates.sky.icp_lod_flat_nrml"],
+            }),
+            // MinDrawDistance 2500 (3500 left a small gap where the real cells had already streamed out).
+            ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live", "--min-draw", "2500",
                 "--textured-fbx", Data + "groundplane.fbx", "--textured-material", "brooklyn_pieredge_a.icp_groundplane_mat", "--textured-z", "-116",
-                "--lod", Data + "lod_WareSuper_Bot_A.fbx=madripoor_hitown_buildings.icp_lod_waresuper_bot_a_mat",
-                "--exclude-box", "2780,-680,4630,680", "--lod-inset", "0.98", "--lod-drop", "4"],
+                .. Enumerable.Range(1, LodBundles).SelectMany(n => new[] { "--lod", Data + $"lod_bundle{n}.fbx=madripoor_hitown_buildings.icp_lod_bundle{n}_mat" }),
+                "--exclude-box", "-200000,-200000,200000,200000", "--lod-shrink", "6", "--lod-drop", "4"],
             ["--copy-export", lib, water, Target, "--cut", "physmaterial"],
             // Water: the stock harbour water is terrain_flat_filler at -116 in the cells (removed from those tiles with
             // --remove-components, 2026-09-25), so two layers just under it (-121, -126: translucent, reads as depth), with
