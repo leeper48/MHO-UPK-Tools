@@ -26,7 +26,7 @@ static class CellPlaceholders
         IReadOnlyList<float[]> excludeBoxes, float? groundZ, float groundMargin, float shrink, IReadOnlyList<string> addFbx,
         string meshName = "sm_skysphere", string micName = "m_procedural_sky_daytime", bool fromLive = false, float lift = 0, Vector3 offset = default, IReadOnlyList<string>? alwaysFbx = null,
         string? wallMaterial = null, float wallUv = 512f, string? componentTemplate = null, string? topMaterial = null, float topUv = 512f,
-        string? texturedFbx = null, string? texturedMaterial = null, float? texturedZ = null, IReadOnlyList<(string Fbx, string Material)>? lods = null, float lodInset = 1f, float lodDrop = 0f, float lodShrink = 0f)
+        string? texturedFbx = null, string? texturedMaterial = null, float? texturedZ = null, IReadOnlyList<(string Fbx, string Material)>? lods = null, float lodInset = 1f, float lodDrop = 0f, float lodShrink = 0f, IReadOnlyList<float[]>? lodExcludeBoxes = null)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -302,15 +302,20 @@ static class CellPlaceholders
                     islandLo[r] = islandLo.TryGetValue(r, out var l) ? Vector3.Min(l, tp[v]) : tp[v];
                     islandHi[r] = islandHi.TryGetValue(r, out var h) ? Vector3.Max(h, tp[v]) : tp[v];
                 }
+                // --lod-exclude-box x0,y0,x1,y1: pieces centred inside are left out (e.g. a zone's randomly arranged cells,
+                // where a fixed LOD would show buildings in the wrong place for some seeds).
                 var byCell = new SortedDictionary<(int, int), List<int>>();
+                var dropped = new HashSet<int>();
                 for (int t = 0; t < ti.Count; t += 3)
                 {
                     int r = Find(ti[t]); var c = (islandLo[r] + islandHi[r]) / 2;
+                    if (lodExcludeBoxes?.Any(b => c.X >= b[0] && c.X <= b[2] && c.Y >= b[1] && c.Y <= b[3]) == true) { dropped.Add(r); continue; }
                     var cell = ((int)MathF.Floor(c.X / cellSize), (int)MathF.Floor(c.Y / cellSize));
                     if (!byCell.TryGetValue(cell, out var list)) byCell[cell] = list = [];
                     list.Add(t);
                 }
                 groups.AddRange(byCell.Values);
+                if (dropped.Count > 0) Console.WriteLine($"  {Path.GetFileName(tFbx)}: {dropped.Count} piece(s) left out by --lod-exclude-box");
             }
             else groups.Add(Enumerable.Range(0, ti.Count / 3).Select(t => t * 3).ToList());
             var chunks = new List<(List<Vector3> P, List<Vector3> N, List<Vector2> U, List<int> I)>();

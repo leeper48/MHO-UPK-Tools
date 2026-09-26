@@ -89,11 +89,20 @@ static class ZoneBuilds
             ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live", "--min-draw", "2500",
                 "--textured-fbx", Data + "groundplane.fbx", "--textured-material", "brooklyn_pieredge_a.icp_groundplane_mat", "--textured-z", "-116",
                 .. Enumerable.Range(1, LodBundles).SelectMany(n => new[] { "--lod", Data + $"lod_bundle{n}.fbx=madripoor_hitown_buildings.icp_lod_bundle{n}_mat" }),
-                "--exclude-box", "-200000,-200000,200000,200000", "--lod-shrink", "6", "--lod-drop", "4"],
+                "--exclude-box", "-200000,-200000,200000,200000", "--lod-shrink", "6", "--lod-drop", "4",
+                // The random middle block (two rows of 3 cells that swap between seeds): no building LOD there, or a
+                // swapped run would show warehouses in the wrong row. The ground plane still covers it.
+                "--lod-exclude-box", "2304,-1152,9216,3456"],
             ["--copy-export", lib, water, Target, "--cut", "physmaterial"],
             // Water: the stock harbour water is terrain_flat_filler at -116 in the cells (removed from those tiles with
             // --remove-components, 2026-09-25), so two layers just under it (-121, -126: translucent, reads as depth), with
             // a hole over the two AIM Sub cells, which keep their own pit water at -205.
+            // No --sky-drop: the dome maps the photo's bottom rows (v 0.9..1) to 0..6 degrees above the horizon and v 0 to the
+            // poles (mirrored top/bottom; colour-band test 2026-09-26), so the city already sits on the horizon and any drop
+            // hides it. City size is set in the texture instead: ICP_Sky.dds (4096x2048) = ICP_Sky_photo.dds with its city
+            // rows (bottom 10%) squeezed into the bottom 2.5% (about 3 degrees tall), twice around below v 0.55 (small city) and once around above v
+            // 0.45 (no repeated cloud streaks where the copies converge toward the pole), crossfaded between; rows above v
+            // 0.25 flattened to their average colour (fading back to the photo by 0.40), so nothing pinches at the zenith.
             ["--add-sky-placeholders", Target, "none", "--ground-z", "-121", "--ground-box", icpWater, "--ground-material", water, "--ground-grid", "4608"],
             ["--import-texture", Target, template, "icp_sky_photo", Data + "ICP_Sky.dds"],
             ["--import-texture", Target, template, "icp_black", Data + "icp_black.dds"],
@@ -103,6 +112,10 @@ static class ZoneBuilds
                 "--replace-ref", $"{brood}.{brood}_stars=maptemplates.sky.icp_black",
                 "--replace-ref", $"{brood}.{brood}_alpha=maptemplates.sky.icp_mask"],
             ["--set-object", Target, skyComp, "materials[0]", $"{brood}.icp_sky_mat"],
+            // The Brood shader samples the photo at 2 x v (the city showed twice: at the horizon and ~45-50 degrees up), so
+            // the dome's own UV0 v is halved (0.499, so the horizon row doesn't wrap to the top): the photo spans pole to
+            // horizon once (2026-09-26).
+            ["--scale-uv", Target, "maptemplates.sky.sm_skysphere", "0", "1,0.499", "--section", "0"],
             // Night harbour mist (2026-09-26; stock: opacity 0.5, start 100, density 0.1, height 764, opposite light blue
             // 138,182,244, inscattering warm 222,218,146): more distance fog (hides the LOD swap and the zone edge), clear
             // around the player (MHO's camera sits high), hugging the water, cooler colours for the night sky.

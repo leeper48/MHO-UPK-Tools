@@ -40,11 +40,32 @@ static class MeshUv
                 var uv = m.TexCoords[c][sec.MinVertexIndex..(sec.MaxVertexIndex + 1)];
                 Console.WriteLine($"    uv{c}: u {uv.Min(t => t.X):0.###}..{uv.Max(t => t.X):0.###}, v {uv.Min(t => t.Y):0.###}..{uv.Max(t => t.Y):0.###}");
             }
+            // How v relates to height (e.g. a sky dome: which rows of a panorama land at the horizon): uv0 in 10 v-bands,
+            // each with its vertices' mean elevation angle seen from the bounds centre.
+            var idx = Enumerable.Range(sec.MinVertexIndex, sec.MaxVertexIndex - sec.MinVertexIndex + 1).ToList();
+            var ctr = idx.Aggregate(Vector3.Zero, (a, v) => a + m.Positions[v]) / idx.Count;
+            double El(int v) { var d = m.Positions[v] - ctr; return Math.Atan2(d.Z, Math.Sqrt(d.X * d.X + d.Y * d.Y)) * 180 / Math.PI; }
+            var lo = idx.Aggregate(m.Positions[idx[0]], (a, v) => Vector3.Min(a, m.Positions[v])); var hi = idx.Aggregate(m.Positions[idx[0]], (a, v) => Vector3.Max(a, m.Positions[v]));
+            Console.WriteLine($"    section centre {ctr.X:0.#}, {ctr.Y:0.#}, {ctr.Z:0.#}; bounds {lo.X:0.#},{lo.Y:0.#},{lo.Z:0.#} .. {hi.X:0.#},{hi.Y:0.#},{hi.Z:0.#} (mesh units)");
+            // Seen from the mesh-space origin (where the level is, for a component at the origin): elevation of the uv0 v bands.
+            double El0(int v) { var d = m.Positions[v]; return Math.Atan2(d.Z, Math.Sqrt(d.X * d.X + d.Y * d.Y)) * 180 / Math.PI; }
+            for (int b = 0; b < 10; b++)
+            {
+                var vs = idx.Where(v => m.TexCoords[0][v].Y >= b / 10f && m.TexCoords[0][v].Y < (b + 1) / 10f + (b == 9 ? 0.01f : 0)).ToList();
+                if (vs.Count > 0) Console.WriteLine($"    from origin: uv0 v {b / 10f:0.0}..{(b + 1) / 10f:0.0}: elevation {vs.Min(El0),6:0.0}..{vs.Max(El0),6:0.0}°");
+            }
+            foreach (var (axis, get) in new (string, Func<int, float>)[] { ("u", v => m.TexCoords[0][v].X), ("v", v => m.TexCoords[0][v].Y) })
+                for (int b = 0; b < 10; b++)
+                {
+                    var vs = idx.Where(v => get(v) >= b / 10f && get(v) < (b + 1) / 10f + (b == 9 ? 0.01f : 0)).ToList();
+                    if (vs.Count == 0) continue;
+                    Console.WriteLine($"    uv0 {axis} {b / 10f:0.0}..{(b + 1) / 10f:0.0}: {vs.Count,5} verts, elevation {vs.Min(El),6:0.0}..{vs.Max(El),6:0.0}° (mean {vs.Average(El):0.0})");
+                }
         }
         return 0;
     }
 
-    public static int Scale(string upkPath, string meshName, int channel, float factor, int section, bool dryRun)
+    public static int Scale(string upkPath, string meshName, int channel, Vector2 factor, int section, bool dryRun)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -52,7 +73,7 @@ static class MeshUv
         int index = FindMesh(pkg, meshName);
         if (index < 0) { Console.WriteLine($"No StaticMesh '{meshName}'."); return 2; }
         var m = StaticMesh.Read(pkg, pkg.Exports[index]);
-        Console.WriteLine($"Scale UV: {pkg.PathOf(pkg.Exports[index])} uv{channel} x{factor} (section {section}){(dryRun ? "  [dry run]" : "")}");
+        Console.WriteLine($"Scale UV: {pkg.PathOf(pkg.Exports[index])} uv{channel} x({factor.X}, {factor.Y}) (section {section}){(dryRun ? "  [dry run]" : "")}");
         if (channel < 0 || channel >= m.NumTexCoords) { Console.WriteLine($"  the mesh has {m.NumTexCoords} UV channel(s)"); return 2; }
         if (section < 0 || section >= m.Sections.Length) { Console.WriteLine($"  the mesh has {m.Sections.Length} section(s)"); return 2; }
         var sec = m.Sections[section];
