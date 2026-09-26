@@ -3,15 +3,17 @@ using System.Buffers.Binary;
 namespace UpkMeshScan;
 
 /// <summary>
-/// --import-texture: adds a new Texture2D to a package from a .dds (DXT1/DXT5, top mip only), as other mod tools
-/// inject textures (e.g. the WinterSoldier package's 2048x2048 DXT1 maps, which load in game): one full-size mip
-/// stored inline in the package, no texture cache. The new export's table entry is the template texture's under a
+/// --import-texture: adds a new Texture2D to a package from a .dds (DXT1/DXT5), as other mod tools inject textures
+/// (e.g. the WinterSoldier package's 2048x2048 DXT1 maps, which load in game): mips stored inline in the package, no
+/// texture cache. Every mip in the .dds is stored (stock textures carry several inline mips too); a .dds without a
+/// mip chain gives one full-size mip, which shimmers from a distance (Industry City's baked ground plane, 2026-09-26).
+/// publish/scans/tools/make_mips.py writes a DXT1 .dds with the full chain. The new export's table entry is the template texture's under a
 /// new name (same class and outer). Properties: SizeX, SizeY, OriginalSizeX, OriginalSizeY, Format, NeverStream
 /// = true, and the template's LODGroup — no TextureFileCacheName / MipTailBaseIdx / FirstResourceMemMip, like
 /// the injected ones. Native data as theirs: empty source-art bulk header (offset -1), one mip (flags 0, count =
-/// size = data length, offset = the data's own position in the file), width, height, then the template's trailing
-/// 48 bytes with the cache GUID zeroed. Same .bak / verified temp / swap as the other writers; verified by reading
-/// the texture back (one inline mip, pixels identical to the .dds, offset pointing at them).
+/// size = data length, offset = the data's own position in the file, the data, width, height) per mip, then the
+/// template's trailing 48 bytes with the cache GUID zeroed. Same .bak / verified temp / swap as the other writers;
+/// verified by reading the texture back (every mip inline, pixels identical to the .dds, offsets pointing at them).
 /// </summary>
 static class TextureImport
 {
@@ -39,11 +41,20 @@ static class TextureImport
         if (blockBytes == 0) { Console.WriteLine($"  pixel format '{fourCC}' not supported (DXT1 or DXT5)"); return 2; }
         if (width % 4 != 0 || height % 4 != 0) { Console.WriteLine($"  {width}x{height}: DXT needs sizes divisible by 4"); return 2; }
         if ((width & (width - 1)) != 0 || (height & (height - 1)) != 0) Console.WriteLine($"  warning: {width}x{height} isn't a power of two");
-        int dataLength = width / 4 * (height / 4) * blockBytes;
-        if (dds.Length < 128 + dataLength) { Console.WriteLine($"  .dds too short for {width}x{height} {fourCC}"); return 2; }
-        byte[] pixels = dds.AsSpan(128, dataLength).ToArray();
+        // Mip chain: DDSD_MIPMAPCOUNT (0x20000) in the header flags, then the count at byte 28; each level halves
+        // (at least 1), stored in 4x4 blocks (at least one).
+        int mipCount = (BinaryPrimitives.ReadUInt32LittleEndian(dds.AsSpan(8)) & 0x20000) != 0 ? Math.Max(1, BinaryPrimitives.ReadInt32LittleEndian(dds.AsSpan(28))) : 1;
+        var levels = new List<(int W, int H, byte[] Pixels)>();
+        int at = 128;
+        for (int m = 0, w = width, h = height; m < mipCount; m++, w = Math.Max(1, w / 2), h = Math.Max(1, h / 2))
+        {
+            int len = Math.Max(1, (w + 3) / 4) * Math.Max(1, (h + 3) / 4) * blockBytes;
+            if (dds.Length < at + len) { Console.WriteLine($"  .dds too short for mip {m} ({w}x{h} {fourCC})"); return 2; }
+            levels.Add((w, h, dds.AsSpan(at, len).ToArray()));
+            at += len;
+        }
         string format = "PF_" + fourCC;
-        Console.WriteLine($"  .dds: {width}x{height} {fourCC}, top mip {dataLength:N0} bytes (other mips in the file ignored)");
+        Console.WriteLine($"  .dds: {width}x{height} {fourCC}, {levels.Count} mip(s) ({levels[^1].W}x{levels[^1].H} smallest), {levels.Sum(l => l.Pixels.Length):N0} bytes");
 
         // Names the new export needs.
         var addNames = new List<string>();
@@ -78,17 +89,18 @@ static class TextureImport
         if (lod != null) props.Write(td, lod.Start, lod.End - lod.Start);
         props.Write(tw.NameRef("None"));
         byte[] head = props.ToArray();
-        int dataAt = head.Length + 16 + 4 + 16;                             // where the pixels start inside the export
-
         byte[] Build(long offset)
         {
             using var ms = new MemoryStream();
             ms.Write(head);
             ms.Write(I(0)); ms.Write(I(0)); ms.Write(I(0)); ms.Write(I(-1));   // source-art bulk data: empty
-            ms.Write(I(1));                                                   // one mip
-            ms.Write(I(0)); ms.Write(I(dataLength)); ms.Write(I(dataLength)); ms.Write(I(checked((int)(offset + dataAt))));
-            ms.Write(pixels);
-            ms.Write(I(width)); ms.Write(I(height));
+            ms.Write(I(levels.Count));
+            foreach (var (w, h, px) in levels)
+            {
+                ms.Write(I(0)); ms.Write(I(px.Length)); ms.Write(I(px.Length)); ms.Write(I(checked((int)(offset + ms.Position + 4))));
+                ms.Write(px);
+                ms.Write(I(w)); ms.Write(I(h));
+            }
             ms.Write(tail);
             return ms.ToArray();
         }
@@ -112,14 +124,15 @@ static class TextureImport
             {
                 var ti = TextureInfo.Read(w, e);
                 if (ti.SizeX != width || ti.SizeY != height || !ti.Format.Equals(format, StringComparison.OrdinalIgnoreCase)) problems.Add($"reads back as {ti}");
-                if (ti.Mips.Count != 1 || !ti.Mips[0].Inline) problems.Add("not exactly one inline mip");
+                if (ti.Mips.Count != levels.Count || ti.Mips.Any(m => !m.Inline)) problems.Add($"{ti.Mips.Count} mip(s), expected {levels.Count} inline");
                 else
-                {
-                    var m = ti.Mips[0];
-                    if (!ti.Data.AsSpan(m.InlineAt, m.Size).SequenceEqual(pixels)) problems.Add("pixels differ from the .dds");
-                    if (m.Offset != e.SerialOffset + m.InlineAt) problems.Add("mip offset doesn't point at its data");
-                    if (m.Width != width || m.Height != height) problems.Add("mip size wrong");
-                }
+                    for (int k = 0; k < levels.Count; k++)
+                    {
+                        var m = ti.Mips[k];
+                        if (!ti.Data.AsSpan(m.InlineAt, m.Size).SequenceEqual(levels[k].Pixels)) problems.Add($"mip {k}: pixels differ from the .dds");
+                        if (m.Offset != e.SerialOffset + m.InlineAt) problems.Add($"mip {k}: offset doesn't point at its data");
+                        if (m.Width != levels[k].W || m.Height != levels[k].H) problems.Add($"mip {k}: size wrong");
+                    }
                 if (!string.IsNullOrEmpty(ti.Cache)) problems.Add($"has a texture cache '{ti.Cache}'");
             }
             catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { problems.Add($"doesn't read back: {ex.Message}"); }
@@ -129,7 +142,7 @@ static class TextureImport
         Console.WriteLine($"  new export #{newIndex + 1} {outerPath}{newName}; names added: {(addNames.Count == 0 ? "none" : string.Join(", ", addNames))}");
         Console.WriteLine($"  package: {pkg.RawFile.Length:N0} -> {output.Length:N0} bytes");
         if (problems.Count > 0) { Console.WriteLine("  verify: FAIL"); problems.ForEach(x => Console.WriteLine($"    - {x}")); Console.WriteLine("  Nothing written."); return 1; }
-        Console.WriteLine("  verify: PASS (tables = original + additions, existing exports byte-identical; texture reads back with one inline mip, pixels identical to the .dds, offset pointing at them, no cache)");
+        Console.WriteLine($"  verify: PASS (tables = original + additions, existing exports byte-identical; texture reads back with {levels.Count} inline mip(s), pixels identical to the .dds, offsets pointing at them, no cache)");
 
         if (dryRun)
         {

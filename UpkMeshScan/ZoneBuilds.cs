@@ -49,13 +49,21 @@ static class ZoneBuilds
         const string skyComp = "theworld.persistentlevel.staticmeshcollectionactor_0.sma_sm_skysphere_smc_16";
         string[] around = ["-100224,-100224,100224,-1152", "-100224,1152,100224,100224", "-100224,-1152,-4608,1152", "0,-1152,100224,1152"];
         // The hole itself gets water at pit level (-210 / -215, under the stock pit water at -205, so no flicker when the
-        // tile loads): from a distance the pit is otherwise empty.
-        string icpWater = string.Join(';', around.Concat(around.Select(b => b + ",-126")).Concat(["-4608,-1152,0,1152,-210", "-4608,-1152,0,1152,-215"]));
+        // tile loads): from a distance the pit is otherwise empty. 10x the hole (Kurt, 2026-09-26), reaching under the main water, so
+        // no view through the hole's edge finds the sky.
+        string icpWater = string.Join(';', around.Concat(around.Select(b => b + ",-126")).Concat(["-25344,-11520,20736,11520,-210", "-25344,-11520,20736,11520,-215"]));
         return
         [
-            // No ground plane: all of Industry City's cells stay loaded within view, so a baked plane under the ground
-            // (tested at -116, 2026-09-26) never shows. Only the building boxes, for the zone's far edge.
-            ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live"],
+            // Ground: Kurt's baked plane (from --export-placed, vertex-blended terrain baked top-down, alpha where there's no
+            // ground) on a masked copy of the library's pier-edge material, at the old stock-water height -116 (under the
+            // docks, over our water). It shows where the real ground isn't drawn: the distance and the pit ring (red test,
+            // 2026-09-26). DXT1 1-bit alpha at the 1/3 mask clip, with a full mip chain (make_mips.py --scale 0.7, to match the real ground): with one mip it
+            // shimmered from a distance.
+            ["--import-texture", Target, template, "icp_groundplane_diff", Data + "icp_groundplane_diff.dds"],
+            ["--copy-export", lib, "brooklyn_pieredge_a.brooklyn_pieredge_mat", Target, "--cut", "physmaterial", "--rename", "icp_groundplane_mat",
+                "--replace-ref", "brooklyn_pieredge_a.brooklyn_pieredge_diff_a=maptemplates.sky.icp_groundplane_diff"],
+            ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live",
+                "--textured-fbx", Data + "groundplane.fbx", "--textured-material", "brooklyn_pieredge_a.icp_groundplane_mat", "--textured-z", "-116"],
             ["--copy-export", lib, water, Target, "--cut", "physmaterial"],
             // Water: the stock harbour water is terrain_flat_filler at -116 in the cells (removed from those tiles with
             // --remove-components, 2026-09-25), so two layers just under it (-121, -126: translucent, reads as depth), with
