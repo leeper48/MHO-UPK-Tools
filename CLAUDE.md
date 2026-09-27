@@ -6,12 +6,14 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
-UpkMeshScan/     MHO Package Modifier (MHO_UPK_Mod.exe; the folder/namespace keep the old UpkMeshScan name). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default, manual on F1), AssimpNet. v2.46.0
+MhoPackageModifier/  MHO Package Modifier (MHO_UPK_Mod.exe; called UpkMeshScan until 2.50.0, see "Rename" below). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default, manual on F1), AssimpNet. v2.46.0
 ```
 
-Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `UpkMeshScan/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
+Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `MhoPackageModifier/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
 
-Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds UpkMeshScan into AnimExportCli. UpkMeshScan now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
+Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds MhoPackageModifier into AnimExportCli. MhoPackageModifier now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
+
+**Rename (2.50.0, 2026-09-27):** the folder, project (`MhoPackageModifier.csproj`) and namespace went from `UpkMeshScan` to `MhoPackageModifier`, and git keeps the files' history as renames. Settings and undo history moved to `%APPDATA%\MhoPackageModifier` / `%LOCALAPPDATA%\MhoPackageModifier`: `AppFolders` moves an old `UpkMeshScan` folder across on the first run. The old folder path is a junction to the new one (gitignored), so absolute paths saved in Kurt's Blender files keep working. The antivirus needs `C:\Dev\MHO-UPK-Tools` excluded: it quarantined freshly built DLLs twice ("application to execute does not exist", "Bad IL format").
 
 ## Rules that are not negotiable
 
@@ -25,7 +27,7 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 ## Build conventions
 
 - Every `.bat` file **must use CRLF line endings** and **`goto`-based flow control**. Don't use multi-line parenthesized `if/else` blocks. With LF endings or those blocks, `cmd.exe` fails silently and the window flash-closes.
-- UpkMeshScan follows the same pattern as AnimExportCli (`net8.0-windows` WinExe, `AttachConsole(-1)` for CLI), and writes UTF-8 **without a BOM**. With a BOM, stray bytes appeared before the version banner. The GUI (`Gui/MainForm.cs`) contains no write logic. It calls the same entry points as the CLI, and every game-folder write still goes through `MeshImport.WriteLive` / `Revert`.
+- MhoPackageModifier follows the same pattern as AnimExportCli (`net8.0-windows` WinExe, `AttachConsole(-1)` for CLI), and writes UTF-8 **without a BOM**. With a BOM, stray bytes appeared before the version banner. The GUI (`Gui/MainForm.cs`) contains no write logic. It calls the same entry points as the CLI, and every game-folder write still goes through `MeshImport.WriteLive` / `Revert`.
 - AnimExportCli: `net8.0-windows`, `OutputType=WinExe`, x64, AssimpNet. When launched with CLI args it calls `AttachConsole(-1)` and **must set console encoding to UTF-8 after attaching** (this regressed once).
 - Kurt runs builds via a Send To shortcut to a stable copy in `C:\Tools\`.
 - **GUI (2.46.0), workflow-first:** tabs Start (task cards, safety rules, status), Browse, Properties (material parameters appear as `param:` rows), Meshes, Textures (image import), Placements (the 3-step Blender round trip with zone presets), Zones (recipes + export for baking), Objects (copy / remove / find material), Backups, and Tools (every command, with a filled-in example). The header shows whether the game is running, and every write action is refused while it is (`Run(..., writes: true)`). New actions call `Program.Run(args)`, the same path as the CLI.
@@ -37,7 +39,7 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 - **Texture viewer (2.47.0):** `TextureViewer` (a panel on the Textures tab showing the clicked texture, decoded in the background; Pop out opens `TexturePreviewForm`) (channels, zoom, pixel readout, Save as PNG) on `TextureExport.ReadBestMip` (the largest mip, inline or from the .tfc) and `TextureDecode` (DXT1/3/5, BC5, V8U8, A8R8G8B8, G8, .dds files, images). `--texture-png <pkg> <texture> <out.png>` does the same from the CLI. Checked on DXT1 (the Hightown facade), DXT5 alpha (the ICP skyline) and V8U8 from Textures.tfc.
 - **Replacing a texture (2.48.0, not yet confirmed in-game):** `--replace-texture` (the Textures tab's default mode) rebuilds an existing Texture2D in place with `TextureImport`'s builder, so the path is the same and every material picks it up. All of the original's tags are kept except size, format and storage (TextureFileCacheName, MipTailBaseIdx, FirstResourceMemMip ...). NeverStream is added and every mip is stored inline, the form other mod tools use for injected textures. Hypothesis to check in-game: the engine then ignores the texture's old .tfc manifest entry. Dry run on Hightown's stock cloud mask: the result reads back as the new image and keeps its skybox LOD group. The same path can exist in several packages; the copy loaded first wins.
 - **3D mesh view (2.49.0):** `MeshViewer` (Meshes tab) is a software renderer with no graphics dependency: depth buffer, perspective-correct nearest-texel texturing, alpha below 64 cut out, flat head-light shading, half resolution while dragging. Positions are mirrored in Y for display, because UE is left-handed. Which winding faces outward is taken from the stored normals (majority vote). Backfaces are drawn red. Section textures come from `TextureExport.MaterialTextures` (MIC parameters), or failing that `ExportCopy.MaterialNativeTextures` (a base Material's compiled texture list), then the first colour-like texture. Checked on the Hightown library's shops_e_top and lion (2 of 2 sections textured). `--gui-snapshot` takes `MHO_SNAPSHOT_PKG` / `MHO_SNAPSHOT_MESH`.
-- `MHO_UPK_Mod.exe --gui-snapshot <dir>` renders every tab to PNG (and writes the rendered manual): check the layout after GUI changes. Fixed pixel column widths don't follow display scaling, so use `FitColumns`. Since v2.40.0 the executable is `MHO_UPK_Mod.exe` (product name 'MHO Package Modifier'); settings and undo history stay under `%APPDATA%` / `%LOCALAPPDATA%\UpkMeshScan`, so nothing is lost.
+- `MHO_UPK_Mod.exe --gui-snapshot <dir>` renders every tab to PNG (and writes the rendered manual): check the layout after GUI changes. Fixed pixel column widths don't follow display scaling, so use `FitColumns`. Since v2.40.0 the executable is `MHO_UPK_Mod.exe` (product name 'MHO Package Modifier'); settings and undo history stay under `%APPDATA%` / `%LOCALAPPDATA%\MhoPackageModifier`, so nothing is lost.
 
 ## Package format facts (confirmed on real files)
 
@@ -57,7 +59,7 @@ Each tool has its own `build.bat`. Neither tool references the other yet. The pl
 - **Static switches are baked into shaders.** A material instance can only use a static-switch combination that already exists in the shader cache. To get a feature (for example emissive), copy an existing MIC whose switches already have it and change only its textures and scalar/vector parameters. `--dump-export` prints a MIC's static switches.
 - Mesh UVs are half floats. Keep them near zero (shift by whole repeats per object): at |u| ≈ 24, the precision is only 1/64 of a repeat.
 - **Level actors:** a Level's native data starts with its Actors list (owner = the level, count, refs). An actor copied into a level must be appended there (`--add-level-actor`) or the game ignores it.
-- UpkMeshScan validates the header's compressed-chunk table. If that table doesn't check out, it locates the table by scanning byte-by-byte for chunk signatures (the header isn't 4-byte aligned, because of the FolderName FString).
+- MhoPackageModifier validates the header's compressed-chunk table. If that table doesn't check out, it locates the table by scanning byte-by-byte for chunk signatures (the header isn't 4-byte aligned, because of the FolderName FString).
 
 ## Hard-won animation knowledge (don't re-derive)
 
@@ -79,7 +81,7 @@ Goal: import animations that include **new bones not in the original AnimSequenc
 - **Phase 3** (package writer): **next, highest risk**. It needs to:
   - Build the full AnimSequence property block around the encoder output (NumFrames, SequenceLength, CompressedTrackOffsets, format names).
   - **Add new track slots** for new bones (CompressedTrackOffsets entries, track/bone-name list entries, byte data), not just re-encode existing tracks.
-  - Patch the export table by appending the resized export and rewriting only its entry. **This is solved:** reuse UpkMeshScan's `PackageWriter`.
+  - Patch the export table by appending the resized export and rewriting only its entry. **This is solved:** reuse MhoPackageModifier's `PackageWriter`.
   - An LZO1X compressor is **not needed**. Uncompressed packages load in-game (see Package format facts).
   - Add a `--verify-package-write` self-test in the style of the other verifiers.
 - **Phase 4** (CLI/GUI wiring): deliberately last.
@@ -89,7 +91,7 @@ Open questions for Kurt before Phase 3 design:
 2. Where does the bone/track-name list live: AnimSet or AnimSequence?
 3. Is a before/after UPK pair from the other modder's tool available for a binary diff?
 
-## Static meshes (UpkMeshScan): done, confirmed in-game
+## Static meshes (MhoPackageModifier): done, confirmed in-game
 
 - `--export-fbx` (with textures), `--import-fbx` (`--dry-run`, `.bak`, verified temp, swap), `--revert`, `--verify-import-roundtrip` (self-test: export, then FBX, then import).
 - `--decode-static` (folder-wide parser check: all 37,107 meshes decode).
@@ -113,7 +115,7 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 - occasional Hightown client crash (tbbmalloc, also happened before the mods; DXVK + ReShade)
 - ICP clouds
 
-## Zones and placeholders (UpkMeshScan): confirmed in-game
+## Zones and placeholders (MhoPackageModifier): confirmed in-game
 
 - A tiled zone is a main level package (sky sphere, fog, sun, one StaticMeshCollectionActor) plus `<Prefix>_X#Y#` tile packages. Tiles store placements in **world** coordinates on a 2304-unit grid, and import meshes from one `SCS__*` region library (find it with `--import-sources`). Examples: Midtown = `MidTown_Static`/`_Dynamic` + `UES_Static_*`; Cannery Row = `JerseyDocks_Cannery_A` + `JerseyDocks_Cannery_X*`.
 - Zones built from exit-named cells (`Shipping_A_NESW_A`, `Industrial_Processing_*`, `SiegeCity_A_*`) are laid out at run time. Every cell is stored at the origin, so placeholders at fixed positions can't work there. Industry City's main level is `Brooklyn_Docks_A` (Shipping cells).
@@ -126,7 +128,7 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 - A zone's main level is its region's `ClientMap` asset (`Regions/RegionClientMap.type`; see publish/scans/tools/cally.py). Examples: Industry City = `Brooklyn_Docks_A`, Cannery Row = `JerseyDocks_Cannery_A`, Midtown = `MidTown_Static`, Hightown = `Madripoor_HighTown_B`, Odin's Palace (Kurse) = `Asgard_Hub_B`.
 - Ground slabs come from the cells' height maps (72×72 samples of 32 units; −32768 = none) via `publish/scans/tools/groundboxes.py <cells> <out> [lo,hi] [pull]`. Hightown uses band −6..110, pulled back 4 samples from anything lower, so stairwells stay open. Slabs sit at −78..−8.
 
-## Zone builds (UpkMeshScan): confirmed in-game
+## Zone builds (MhoPackageModifier): confirmed in-game
 
 - `--build-zone <zone> <game-folder> [--walls facade|grey] [--dry-run]` and the GUI **Zones** tab rebuild a zone's main level from stock with its whole recipe (`ZoneBuilds.cs`). Every step runs as a dry run on a scratch copy of the `.bak` and verifies itself; the result is written once, so one undo step takes the whole rebuild back. Inputs that aren't in the game ship in `ZoneData/<Zone>/` (copied next to the exe; the `C:\Tools` copy needs it too). `--build-zone` reads the exe's copy, so **after changing a ZoneData file, run `dotnet build` before building the zone** (a stale copy once pushed an old ICP bake).
 - **Hightown** (`Madripoor_HighTown_B`, which originally had no mesh actor), 10 steps:
@@ -169,7 +171,7 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 - `--add-component-copies <pkg> <component> --yaw y[:pitch[:roll]],...` adds rotated copies of a placed component to its collection actor, with an empty lighting record.
 - Odin's Palace (`Asgard_Hub_B`): the `starfield_a` backdrop (unlit nebula + stars) covered only ~130° below the horizon. Copies at yaw +90/180/270 fix the sides, and roll 180 at 4 yaws fixes the top: 100% coverage, "perfect".
 
-## Placement round trip (UpkMeshScan): confirmed in-game
+## Placement round trip (MhoPackageModifier): confirmed in-game
 
 - `--export-placements <folder> <layout> <library> --out f.fbx --offset X,Y[,Z]` writes one FBX object per placement (`T<tile>_E<export>_<mesh>`) plus `<name>_placements.txt` (id, tile, component path, game matrix, `# offset`).
 - `--import-placements <folder> <sidecar> <edited.fbx> --keep-lighting [--apply-deletes] [--dry-run]` applies changes with one verified write per tile. The file-to-game map is fitted from the originals (outliers refitted out), so Blender's export settings don't matter:
@@ -183,9 +185,9 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 
 ## Undo / redo
 
-- `MeshImport.WriteLive` and `--revert` snapshot the previous live file to `%LOCALAPPDATA%\UpkMeshScan\history\<file>_<hash>\` (last 20 steps, `History.cs`). `--undo` / `--redo` / `--history <pkg>` restore through the same verified path and refuse if the live file isn't the expected version (`--force` overrides). The GUI Backups tab has Undo / Redo (Ctrl+Z / Ctrl+Y). The `.bak` is never touched.
+- `MeshImport.WriteLive` and `--revert` snapshot the previous live file to `%LOCALAPPDATA%\MhoPackageModifier\history\<file>_<hash>\` (last 20 steps, `History.cs`). `--undo` / `--redo` / `--history <pkg>` restore through the same verified path and refuse if the live file isn't the expected version (`--force` overrides). The GUI Backups tab has Undo / Redo (Ctrl+Z / Ctrl+Y). The `.bak` is never touched.
 
-## Copying materials between packages (UpkMeshScan): confirmed in-game
+## Copying materials between packages (MhoPackageModifier): confirmed in-game
 
 - `--copy-export <src.upk> <export-path> <dst.upk> [--cut prop,...] [--dry-run]` copies an export and everything it references. An exact parser finds every name and object reference: tags, struct arrays, known object arrays (`expressions`, `functionexpressions`), string arrays, the Material/MIC native resource, and Texture2D inline-mip offsets. Everything is renumbered into the target. Anything unknown stops the copy. Verification re-parses every copy and checks each reference resolves to the same path.
 - Material/MIC native layout: quality mask (3 = two levels), then per level CompileErrors (0), TextureDependencyLengthMap (0), MaxTextureDependencyLength, Id GUID, NumUserTexCoords, UniformExpressionTextures (object refs), 6 ints, TextureLookups, 4 ints. For a MIC, add StaticParameters: BaseMaterialId, StaticSwitchParameters (name, value, override, GUID), then 3 empty arrays.
