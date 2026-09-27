@@ -179,7 +179,10 @@ sealed class MainForm : Form
         var nexusMore = Ui.FlatButton("▾", () => { }, "Nexus account, checking at start, the Nexus mod pages.");
         nexusMore.Click += (_, _) => NexusBarMenu().Show(nexusMore, new Point(0, nexusMore.Height));
         nexusCheck.Padding = nexusFind.Padding = new Padding(4, 0, 4, 0); nexusMore.Padding = new Padding(2, 0, 2, 0);
-        nexusButtons.Controls.AddRange([nexusCheck, nexusFind, nexusMore]);
+        var nexusBrowse = Ui.FlatButton("Browse Nexus", () => Process.Start(new ProcessStartInfo(Nexus.SiteMods) { UseShellExecute = true }),
+            "Open the Marvel Heroes Omega mods on Nexus in your browser.");
+        nexusBrowse.Padding = new Padding(4, 0, 4, 0);
+        nexusButtons.Controls.AddRange([nexusCheck, nexusFind, nexusBrowse, nexusMore]);
         nexusRow.Controls.Add(nexusButtons, 1, 0);
         nexusStatus.StatusClicked += NexusStatusClicked;
         writeControls.Add(nexusFind);
