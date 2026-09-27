@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace MhoPackageModifier;
 
 /// <summary>
-/// Update check and self-update from the GitHub releases of leeper48/MHO-UPK-Tools. A release is a tag vX.Y.Z with an
+/// Update check and self-update from the GitHub releases of leeper48/MHO-UPK-Tools. A release is a tag mpm-vX.Y.Z with an
 /// asset MHO_Package_Modifier_vX.Y.Z.zip and its checksum MHO_Package_Modifier_vX.Y.Z.zip.sha256 (release.bat makes both).
 /// Updating downloads the zip, refuses it unless its SHA-256 matches, unpacks it, renames the running exe aside (Windows
 /// allows renaming a file in use, not overwriting it), copies the release's files over the app folder (only those: the
@@ -18,6 +18,8 @@ static class Updater
 {
     public const string Repo = "leeper48/MHO-UPK-Tools";
     public const string AssetPrefix = "MHO_Package_Modifier_v";
+    /// <summary>Release tags of this app: mpm-v&lt;version&gt; (MHO Extended Mod Manager's are extmm-v...).</summary>
+    public const string TagPrefix = "mpm-v";
 
     public sealed record Release(Version Version, string Tag, string Notes, string PageUrl, string? ZipUrl, string? ShaUrl, string? ZipName);
 
@@ -38,27 +40,37 @@ static class Updater
         }
     }
 
-    /// <summary>The newest release on GitHub, or null (none yet, or offline: the reason in note).</summary>
+    /// <summary>
+    /// The newest release of this app on GitHub, or null (none yet, or offline: the reason in note). The repository also
+    /// holds MHO Extended Mod Manager's releases (tags extmm-v...), so GitHub's single "latest" release may be the other
+    /// app's: the list is read and only published releases tagged mpm-v&lt;version&gt; count.
+    /// </summary>
     public static async Task<(Release? Release, string Note)> LatestAsync()
     {
         try
         {
-            using var resp = await http.GetAsync($"https://api.github.com/repos/{Repo}/releases/latest");
-            if ((int)resp.StatusCode == 404) return (null, "no releases published yet");
+            using var resp = await http.GetAsync($"https://api.github.com/repos/{Repo}/releases?per_page=100");
             if (!resp.IsSuccessStatusCode) return (null, $"GitHub answered {(int)resp.StatusCode}");
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
-            var root = doc.RootElement;
-            string tag = root.GetProperty("tag_name").GetString() ?? "";
-            if (!Version.TryParse(tag.TrimStart('v', 'V'), out var version)) return (null, $"release tag '{tag}' isn't a version");
-            string? zipUrl = null, shaUrl = null, zipName = null;
-            foreach (var a in root.GetProperty("assets").EnumerateArray())
+            Release? best = null;
+            foreach (var root in doc.RootElement.EnumerateArray())
             {
-                string name = a.GetProperty("name").GetString() ?? "", url = a.GetProperty("browser_download_url").GetString() ?? "";
-                if (name.StartsWith(AssetPrefix, StringComparison.OrdinalIgnoreCase) && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { zipUrl = url; zipName = name; }
+                if (root.TryGetProperty("draft", out var d) && d.GetBoolean()) continue;
+                if (root.TryGetProperty("prerelease", out var pr) && pr.GetBoolean()) continue;
+                string tag = root.GetProperty("tag_name").GetString() ?? "";
+                if (!tag.StartsWith(TagPrefix, StringComparison.OrdinalIgnoreCase) || !Version.TryParse(tag[TagPrefix.Length..], out var version)) continue;
+                if (best != null && version <= best.Version) continue;
+                string? zipUrl = null, shaUrl = null, zipName = null;
+                foreach (var a in root.GetProperty("assets").EnumerateArray())
+                {
+                    string name = a.GetProperty("name").GetString() ?? "", url = a.GetProperty("browser_download_url").GetString() ?? "";
+                    if (name.StartsWith(AssetPrefix, StringComparison.OrdinalIgnoreCase) && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { zipUrl = url; zipName = name; }
+                }
+                foreach (var a in root.GetProperty("assets").EnumerateArray())
+                    if (zipName != null && (a.GetProperty("name").GetString() ?? "").Equals(zipName + ".sha256", StringComparison.OrdinalIgnoreCase)) shaUrl = a.GetProperty("browser_download_url").GetString();
+                best = new Release(version, tag, root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "", root.GetProperty("html_url").GetString() ?? "", zipUrl, shaUrl, zipName);
             }
-            foreach (var a in root.GetProperty("assets").EnumerateArray())
-                if (zipName != null && (a.GetProperty("name").GetString() ?? "").Equals(zipName + ".sha256", StringComparison.OrdinalIgnoreCase)) shaUrl = a.GetProperty("browser_download_url").GetString();
-            return (new Release(version, tag, root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "", root.GetProperty("html_url").GetString() ?? "", zipUrl, shaUrl, zipName), "");
+            return best == null ? (null, "no MHO Package Modifier release published yet") : (best, "");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException)
         {

@@ -1,5 +1,5 @@
 # Builds a release of MHO Package Modifier: releases\MHO_Package_Modifier_v<version>.zip and its .sha256.
-# Upload both to a GitHub release tagged v<version> (the app's updater looks there), and the zip to Nexus Mods.
+# Upload both to a GitHub release tagged mpm-v<version> (MHO Extended Mod Manager's tags are extmm-v...) (the app's updater looks there), and the zip to Nexus Mods.
 # Self-contained (users need no .NET install); assimp.dll ships next to the exe. Run it through release.bat.
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -49,6 +49,6 @@ Write-Host "Release ready: $zip ($size)"
 Write-Host "Checksum:      $zip.sha256"
 Write-Host ''
 Write-Host 'Next:'
-Write-Host "  1. GitHub: Releases > Draft a new release, tag v$version, title 'MHO Package Modifier $version',"
+Write-Host "  1. GitHub: Releases > Draft a new release, tag mpm-v$version, title 'MHO Package Modifier $version',"
 Write-Host '     what changed in the description, attach BOTH files, Publish. The app finds it within a day.'
 Write-Host '  2. Nexus Mods: upload the same zip as a new file version.'
