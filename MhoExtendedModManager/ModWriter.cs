@@ -16,6 +16,8 @@ sealed class ModDraft
     public List<(string Texture, string Source)>[] Textures = [[], [], []];
     public List<StringReplacement> Strings = [];
     public List<string> SoundPacks = [];
+    /// <summary>Extension: textures in other icon packages (package file, texture, .dds source).</summary>
+    public List<(string Package, string Texture, string Source)> Extra = [];
 
     public static ModDraft From(Mod m)
     {
@@ -25,10 +27,11 @@ sealed class ModDraft
             d.Textures[k] = Applier.IconPackages[k].List(m.Manifest).Select(r => (r.TextureName, Path.Combine(m.Folder, r.DdsFileName))).ToList();
         d.Strings = [.. m.Strings];
         d.SoundPacks = m.Manifest.AudioPacks.Select(f => Path.Combine(m.Folder, f)).ToList();
+        d.Extra = m.Manifest.Extra.Select(r => (r.Package, r.TextureName, Path.Combine(m.Folder, r.DdsFileName))).ToList();
         return d;
     }
 
-    public int TextureCount => Textures.Sum(t => t.Count);
+    public int TextureCount => Textures.Sum(t => t.Count) + Extra.Count;
 
     /// <summary>What's wrong before saving (empty = fine).</summary>
     public List<string> Problems()
@@ -40,7 +43,8 @@ sealed class ModDraft
         for (int k = 0; k < Textures.Length; k++)
             foreach (var g in Textures[k].GroupBy(x => x.Texture, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1)) p.Add($"{g.Key} is replaced twice.");
         foreach (var g in Strings.GroupBy(s => (s.Language, s.File.ToLowerInvariant(), s.Id)).Where(g => g.Count() > 1)) p.Add($"String {g.Key.Id} is changed twice.");
-        foreach (string f in Packages.Select(x => x.Source).Concat(Textures.SelectMany(t => t.Select(x => x.Source))).Concat(SoundPacks))
+        foreach (var g in Extra.GroupBy(x => (x.Package.ToLowerInvariant(), x.Texture.ToLowerInvariant())).Where(g => g.Count() > 1)) p.Add($"{g.Key.Item2} ({g.Key.Item1}) is replaced twice.");
+        foreach (string f in Packages.Select(x => x.Source).Concat(Textures.SelectMany(t => t.Select(x => x.Source))).Concat(Extra.Select(x => x.Source)).Concat(SoundPacks))
             if (!File.Exists(f)) p.Add($"File not found: {f}");
         return p;
     }
@@ -87,6 +91,9 @@ static class ModWriter
             for (int k = 0; k < lists.Length; k++)
                 foreach (var (tex, source) in d.Textures[k]) lists[k].Add(new TextureReplacement { TextureName = tex, DdsFileName = Place(source) });
             foreach (string s in d.SoundPacks) manifest.AudioPacks.Add(Place(s));
+            // Extension: only written when used, so mods without it keep MHModManager's exact manifest.
+            if (d.Extra.Count > 0)
+                manifest.ExtraIconReplacements = d.Extra.Select(x => new ExtraIconReplacement { Package = x.Package, TextureName = x.Texture, DdsFileName = Place(x.Source) }).ToList();
 
             // Strings: one <lang>.json per language, grouped by file, as MHModManager writes them.
             // In the order they were added (MHModManager keeps insertion order; re-saving an unchanged mod gives the same file).
@@ -115,7 +122,7 @@ static class ModWriter
             manifest.HasAudio = manifest.AudioPacks.Count > 0;
             manifest.TextureReplacementCount = lists.Sum(l => l.Count);
             var kinds = new List<ModType>();
-            if (manifest.HasTextures) kinds.Add(ModType.Texture);
+            if (manifest.HasTextures || d.Extra.Count > 0) kinds.Add(ModType.Texture);
             if (manifest.HasStrings) kinds.Add(ModType.String);
             if (manifest.HasUpkReplacements) kinds.Add(ModType.Upk);
             if (manifest.HasAudio) kinds.Add(ModType.Audio);
@@ -153,6 +160,7 @@ static class ModWriter
             st.ModOrder = lib.Mods.OrderBy(m => m.Priority).Select(m => m == editing ? name : m.FolderName).ToList();
             st.EnabledMods = lib.Mods.Where(m => m.Enabled).OrderBy(m => m.Priority).Select(m => m == editing ? name : m.FolderName).ToList();
         }
+        st.ApplyLocks();   // locked mods keep their place at the top / bottom
         File.WriteAllText(Path.Combine(lib.DataFolder, "state.json"), JsonSerializer.Serialize(st, ModManifest.Json));
         return name;
     }

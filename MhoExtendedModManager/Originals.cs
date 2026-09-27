@@ -1,3 +1,5 @@
+using MhoPackageModifier;
+
 namespace MhoExtendedModManager;
 
 /// <summary>
@@ -80,6 +82,20 @@ sealed class Originals(string libraryData, GameState game)
     /// file's size (MHIconManager and MHModManager 1.0.0 wrote icon images into Icons.tfc in place).
     /// </summary>
     public string TfcFolder => Path.Combine(Folder, "tfc");
+
+    /// <summary>
+    /// Where to read a streamed texture's original image from: the kept original cache when it is that texture's cache
+    /// (Icons), else the game folder (e.g. Textures.tfc, which has no kept original; its images aren't replaced by mods).
+    /// </summary>
+    public string CacheFolderFor(Package pkg, int exportIndex)
+    {
+        try
+        {
+            string cache = TextureInfo.Read(pkg, pkg.Exports[exportIndex]).Cache;
+            return !string.IsNullOrEmpty(cache) && FindTfc(cache) != null ? TfcFolder : game.Cooked;
+        }
+        catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException or IndexOutOfRangeException) { return game.Cooked; }
+    }
 
     public string? FindTfc(string cache)
     {

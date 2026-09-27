@@ -2,6 +2,12 @@ using MhoPackageModifier;
 
 namespace MhoExtendedModManager;
 
+/// <summary>A texture in an icon package (its file name, e.g. ICO__MarvelUIIcons_SF.upk).</summary>
+sealed record TexEntry(string File, string Name)
+{
+    public override string ToString() => Name;
+}
+
 /// <summary>
 /// What a mod can target, read from the originals (never the modded live files): the texture names of the three icon
 /// packages with previews, and every original string per language for searching. Loaded on demand and cached.
@@ -9,6 +15,7 @@ namespace MhoExtendedModManager;
 sealed class StockCatalog(ModLibrary lib, GameState game)
 {
     readonly Originals originals = new(lib.DataFolder, game);
+    public GameState Game => game;
     string Legacy => Path.Combine(lib.DataFolder, "legacy");
     readonly Dictionary<string, (Package Pkg, Dictionary<string, int> Textures)> packages = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, List<(string File, ulong Id, string Text)>> strings = new(StringComparer.OrdinalIgnoreCase);
@@ -31,12 +38,29 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
         }
     }
 
+    /// <summary>
+    /// A store image by name (store_…). The icons package also holds 6 store_… textures, but every one of them exists in the
+    /// store package too (2 identical, 4 larger variants: the boost images); the store package's 750 are the store images
+    /// (747 store_… plus punisher_deadwinter, punisher_nightcrawler_aoa, omegaboostpotion_store). Checked 2026-09-27.
+    /// </summary>
+    public static bool IsStoreName(string name) => name.StartsWith("store", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The textures a view lists: 0 icons, 1 achievement icons, 2 store images, each simply its own package (every store
+    /// image is in the store package; see IsStoreName). Null while a needed original is missing.
+    /// </summary>
+    public List<TexEntry>? Entries(int view) => EntriesFor(Applier.IconPackages[view].File);
+
+    /// <summary>Every texture of one icon package (any stock ICO__ package), or null without a verified original.</summary>
+    public List<TexEntry>? EntriesFor(string packageFile) =>
+        Textures(packageFile)?.Keys.Select(n => new TexEntry(packageFile, n)).ToList();
+
     /// <summary>The stock image: BGRA, size and format (largest mip, from the package or the game's .tfc).</summary>
     public (byte[] Bgra, int W, int H, string Format)? Preview(string iconPackage, string texture)
     {
         if (Textures(iconPackage) is not { } t || !t.TryGetValue(texture, out int index)) return null;
         Package pkg; lock (packages) pkg = packages[iconPackage].Pkg;
-        var mip = TextureExport.ReadBestMip(pkg, index, out _, originals.FindTfc("Icons") != null ? originals.TfcFolder : game.Cooked);
+        var mip = TextureExport.ReadBestMip(pkg, index, out _, originals.CacheFolderFor(pkg, index));
         if (mip == null) return null;
         var bgra = TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _);
         return bgra == null ? null : (bgra, mip.Width, mip.Height, mip.Format);
@@ -56,8 +80,7 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
     {
         if (Textures(iconPackage) is not { } t || !t.TryGetValue(texture, out int index)) return $"no texture '{texture}' in the original {iconPackage}";
         Package pkg; lock (packages) pkg = packages[iconPackage].Pkg;
-        string cache = originals.FindTfc("Icons") != null ? originals.TfcFolder : game.Cooked;
-        return TextureExport.WriteDds(pkg, index, path, out string note, cache) == null ? note : null;
+        return TextureExport.WriteDds(pkg, index, path, out string note, originals.CacheFolderFor(pkg, index)) == null ? note : null;
     }
 
     /// <summary>

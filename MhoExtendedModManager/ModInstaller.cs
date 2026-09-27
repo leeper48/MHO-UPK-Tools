@@ -66,6 +66,7 @@ static class ModInstaller
                 var order = installed.Concat(lib.Mods.OrderBy(x => x.Priority).Select(x => x.FolderName)).ToList();
                 lib.State.ModOrder = order;
                 lib.State.EnabledMods = lib.Mods.Where(x => x.Enabled).OrderBy(x => x.Priority).Select(x => x.FolderName).ToList();
+                lib.State.ApplyLocks();   // locked mods keep their place at the top / bottom
                 File.WriteAllText(Path.Combine(lib.DataFolder, "state.json"), JsonSerializer.Serialize(lib.State, ModManifest.Json));
             }
         }
@@ -87,14 +88,43 @@ static class ModInstaller
         }
     }
 
-    /// <summary>The mod's folder as a .zip with manifest.json at the top (installable here and in MHModManager).</summary>
-    public static void Export(Mod mod, string zipPath)
+    /// <summary>
+    /// The mod's folder as a .zip with manifest.json at the top, installable here and in MHModManager (which ignores the
+    /// ExtraIconReplacements extension). <paramref name="legacy"/>: leave the extension out entirely (its field and the
+    /// .dds files only it uses), for a strictly MHModManager-format mod.
+    /// </summary>
+    public static void Export(Mod mod, string zipPath, bool legacy = false)
     {
         string temp = zipPath + ".tmp";
         if (File.Exists(temp)) File.Delete(temp);
-        ZipFile.CreateFromDirectory(mod.Folder, temp, CompressionLevel.Optimal, includeBaseDirectory: false);
+        var files = Directory.GetFiles(mod.Folder, "*", SearchOption.AllDirectories).ToList();
+        byte[]? manifest = null;
+        if (legacy && mod.Manifest.Extra.Any())
+        {
+            var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
+            var keep = m.Replacements.Concat(m.AchievementReplacements).Concat(m.StoreReplacements).Select(r => r.DdsFileName).Concat(m.UpkReplacements).Concat(m.AudioPacks).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var dropOnly = m.Extra.Select(r => r.DdsFileName).Where(f => !keep.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            files.RemoveAll(f => dropOnly.Contains(Path.GetRelativePath(mod.Folder, f)));
+            m.ExtraIconReplacements = null;
+            if (!m.HasTextures && m.Replacements.Count + m.AchievementReplacements.Count + m.StoreReplacements.Count == 0 && m.Type == ModType.Texture)
+                m.Type = m.HasUpkReplacements ? ModType.Upk : m.HasStrings ? ModType.String : m.HasAudio ? ModType.Audio : ModType.Texture;
+            manifest = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, ModManifest.Json));
+        }
+        using (var z = ZipFile.Open(temp, ZipArchiveMode.Create))
+        {
+            foreach (string f in files)
+            {
+                string name = Path.GetRelativePath(mod.Folder, f).Replace('\\', '/');
+                if (manifest != null && name.Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var s = z.CreateEntry(name, CompressionLevel.Optimal).Open();
+                    s.Write(manifest);
+                }
+                else z.CreateEntryFromFile(f, name, CompressionLevel.Optimal);
+            }
+        }
         using (var z = ZipFile.OpenRead(temp))
-            if (z.GetEntry("manifest.json") == null || z.Entries.Count != Directory.GetFiles(mod.Folder, "*", SearchOption.AllDirectories).Length)
+            if (z.GetEntry("manifest.json") == null || z.Entries.Count != files.Count)
                 throw new IOException("the zip doesn't read back complete");
         File.Move(temp, zipPath, overwrite: true);
     }

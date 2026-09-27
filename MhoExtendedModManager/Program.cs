@@ -24,7 +24,7 @@ static class Program
         ("--check", "--check", "Mods with a broken manifest or files missing from their folder."),
         ("--migrate", "--migrate <old folder> [--to <lib>]", "Copy MHModManager's mods, order, verified stock backups and settings into a new library (default %LOCALAPPDATA%\\MhoExtendedModManager\\library). The old folder is left as it is."),
         ("--install", "--install <archive.zip|.7z|folder>", "Add the mod(s) in an archive or folder to the library (top of the list, disabled)."),
-        ("--export", "--export <mod> <out.zip>", "Save a mod from the library as a .zip (installable here and in MHModManager)."),
+        ("--export", "--export <mod> <out.zip> [--legacy]", "Save a mod from the library as a .zip (installable here and in MHModManager; --legacy also leaves out the other-icon-package extension)."),
         ("--remove", "--remove <mod>", "Remove a disabled mod from the library (to the Recycle Bin). Apply first so none of it is left in the game."),
         ("--enable", "--enable <mod>", "Enable a mod (library state only; run --apply to change the game)."),
         ("--disable", "--disable <mod>", "Disable a mod (library state only; run --apply to change the game)."),
@@ -69,11 +69,11 @@ static class Program
             Application.Run(main);
             return 0;
         }
-        if (args.Length == 2 && args[0].Equals("--extract-snapshot", StringComparison.OrdinalIgnoreCase))
+        if (args.Length is 2 or 3 && args[0].Equals("--extract-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             var main = new Gui.MainForm();
-            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.ExtractSnapshot(args[1]); main.Close(); });
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.ExtractSnapshot(args[1], args.Length == 3 ? args[2] : "store_vision_classic"); main.Close(); });
             Application.Run(main);
             return 0;
         }
@@ -85,7 +85,7 @@ static class Program
             Application.Run(main);
             return 0;
         }
-        if (args.Length == 0 || (args.Length == 2 && args[0].Equals("--gui-snapshot", StringComparison.OrdinalIgnoreCase)))
+        if (args.Length == 0 || (args.Length is 2 or 3 && args[0].Equals("--gui-snapshot", StringComparison.OrdinalIgnoreCase)))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
@@ -108,7 +108,7 @@ static class Program
                 if (setup.ShowDialog() != DialogResult.OK) return 0;
             }
             var form = new Gui.MainForm();
-            if (args.Length == 2) form.Shown += (_, _) => form.BeginInvoke(async () => { await form.Snapshot(args[1]); form.Close(); });
+            if (args.Length >= 2) form.Shown += (_, _) => form.BeginInvoke(async () => { await form.Snapshot(args[1], args.Length == 3 ? args[2] : null); form.Close(); });
             Application.Run(form);
             return 0;
         }
@@ -169,6 +169,8 @@ static class Program
             return 0;
         }
 
+        if (rest[0].Equals("--test-locks", StringComparison.OrdinalIgnoreCase)) return LockTest.Run();
+
         if (rest[0].Equals("--migrate", StringComparison.OrdinalIgnoreCase))
         {
             if (rest.Count < 2) { Usage(); return 1; }
@@ -206,8 +208,8 @@ static class Program
             case "--export":
             {
                 var m = rest.Count > 2 ? lib.Find(rest[1]) : null;
-                if (m == null) { Console.WriteLine("Usage: --export <mod> <out.zip> (no such mod?)"); return 1; }
-                ModInstaller.Export(m, rest[2]);
+                if (m == null) { Console.WriteLine("Usage: --export <mod> <out.zip> [--legacy] (no such mod?)"); return 1; }
+                ModInstaller.Export(m, rest[2], rest.Any(a => a.Equals("--legacy", StringComparison.OrdinalIgnoreCase)));
                 Console.WriteLine($"Exported {m.Name} to {rest[2]} ({new FileInfo(rest[2]).Length:N0} bytes).");
                 return 0;
             }

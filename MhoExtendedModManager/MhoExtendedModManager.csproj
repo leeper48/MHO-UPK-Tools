@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.9.0</Version>
+    <Version>0.16.1</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -14,8 +14,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- MHO_UPK_Mod is referenced as a library; publishing with -r would otherwise stop on NETSDK1151. -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
-    <!-- Same icon as MHO Package Modifier for now. -->
-    <ApplicationIcon>..\MhoPackageModifier\Assets\app.ico</ApplicationIcon>
+    <!-- App icon: a comic "POW" burst with an M (Assets\make_icon.py draws every size). -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <!-- Package reader/writer, the one game-folder write path (MeshImport.WriteLive), undo history, theme. -->

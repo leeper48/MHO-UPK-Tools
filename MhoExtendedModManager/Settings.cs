@@ -116,6 +116,24 @@ sealed class Settings
     [System.Text.Json.Serialization.JsonIgnore] public bool IsSetUp =>
         GameRoot != null && IsGameRoot(GameRoot) && Settings.LibraryData(LibraryPath) is string d && File.Exists(Path.Combine(d, "state.json"));
 
+    /// <summary>The path with each folder name as it is on disk (Steam's library list is lower case: "g:\\program files (x86)\\…").</summary>
+    public static string TrueCase(string path)
+    {
+        try
+        {
+            var dir = new DirectoryInfo(Path.GetFullPath(path));
+            if (!dir.Exists) return path;
+            var parts = new Stack<string>();
+            while (dir.Parent != null)
+            {
+                parts.Push(dir.Parent.GetDirectories(dir.Name).FirstOrDefault()?.Name ?? dir.Name);
+                dir = dir.Parent;
+            }
+            return Path.Combine([dir.Name.ToUpperInvariant(), .. parts]);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { return path; }
+    }
+
     public static string Cooked(string gameRoot) => Path.Combine(gameRoot, "UnrealEngine3", "MarvelGame", "CookedPCConsole");
     public static bool IsGameRoot(string root) => Directory.Exists(Cooked(root));
 
@@ -149,7 +167,7 @@ sealed class Settings
             string common = Path.Combine(lib, "steamapps", "common");
             if (!Directory.Exists(common)) continue;
             foreach (string dir in Directory.GetDirectories(common, "Marvel Heroes*"))
-                if (IsGameRoot(dir) && !found.Contains(dir, StringComparer.OrdinalIgnoreCase)) found.Add(dir);
+                if (IsGameRoot(dir) && !found.Contains(dir, StringComparer.OrdinalIgnoreCase)) found.Add(TrueCase(dir));
         }
         return found;
     }

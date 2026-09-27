@@ -68,48 +68,62 @@ static class Applier
             steps.Add(new Step(file, mod != null ? $"install from {mod.Name}" : "restore stock original", source, null, want));
         }
 
-        foreach (var (file, label, list) in IconPackages)
+        // Icon packages: the three MHModManager lists, plus every other icon package a mod names in ExtraIconReplacements.
+        var targets = IconPackages.Select(p => (p.File, p.Label, Extra: false,
+                (Func<ModManifest, IEnumerable<(string Tex, string Dds)>>)(man => p.List(man).Select(r => (r.TextureName, r.DdsFileName)))))
+            .Concat(lib.Mods.SelectMany(m => m.Manifest.Extra.Select(r => r.Package)).Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(f => !IconPackages.Any(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase))).Order(StringComparer.OrdinalIgnoreCase)
+                .Select(f => (File: f, Label: "icon", Extra: true,
+                    (Func<ModManifest, IEnumerable<(string Tex, string Dds)>>)(man => man.Extra.Where(r => r.Package.Equals(f, StringComparison.OrdinalIgnoreCase)).Select(r => (r.TextureName, r.DdsFileName))))))
+            .ToList();
+        foreach (var (file, label, extra, list) in targets)
         {
             string live = Path.Combine(game.Cooked, file);
-            if (!File.Exists(live)) continue;
+            if (!File.Exists(live)) { if (extra) problems.Add($"{file}: not in the game folder"); continue; }
             // Each texture's winner: the highest-priority enabled mod that replaces it.
-            var chosen = new Dictionary<string, (Mod Mod, TextureReplacement R)>(StringComparer.OrdinalIgnoreCase);
+            var chosen = new Dictionary<string, (Mod Mod, string Dds)>(StringComparer.OrdinalIgnoreCase);
             foreach (var m in lib.Mods.Where(m => m.Enabled).OrderBy(m => m.Priority))
-                foreach (var r in list(m.Manifest))
-                    chosen.TryAdd(r.TextureName, (m, r));
+                foreach (var (tex, dds) in list(m.Manifest))
+                    chosen.TryAdd(tex, (m, dds));
             string? original = originals.Find(file, legacy);
             if (original == null)
             {
                 if (chosen.Count > 0 || game.IsStock(file) != true) problems.Add($"{file}: no clean original available, so its {label}s aren't changed");
                 continue;
             }
-            if (chosen.Count == 0)
-            {
-                uint stock = game.Crc(original);
-                if (game.Crc(live) == stock) upToDate++;
-                else steps.Add(new Step(file, $"restore stock original (no {label} replacements enabled)", original, null, stock));
-                continue;
-            }
             // Rebuild from the original; sorted so the same state always gives the same bytes.
             var items = new List<TextureImport.Replacement>();
-            foreach (var (tex, (m, r)) in chosen.OrderBy(c => c.Key, StringComparer.OrdinalIgnoreCase))
+            foreach (var (tex, (m, ddsName)) in chosen.OrderBy(c => c.Key, StringComparer.OrdinalIgnoreCase))
             {
-                string dds = Path.Combine(m.Folder, r.DdsFileName);
-                if (!File.Exists(dds)) { problems.Add($"{file}: {m.Name} is missing {r.DdsFileName}"); continue; }
-                items.Add(new TextureImport.Replacement(tex, File.ReadAllBytes(dds), $"{m.Name}: {r.DdsFileName}"));
+                string dds = Path.Combine(m.Folder, ddsName);
+                if (!File.Exists(dds)) { problems.Add($"{file}: {m.Name} is missing {ddsName}"); continue; }
+                items.Add(new TextureImport.Replacement(tex, File.ReadAllBytes(dds), $"{m.Name}: {ddsName}"));
             }
-            byte[]? built;
-            List<string> buildProblems;
-            Func<byte[], List<string>> verify;
-            try { built = TextureImport.ReplaceMany(Package.Open(original), items, out buildProblems, out verify); }
-            catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or IOException) { built = null; buildProblems = [ex.Message]; verify = _ => []; }
-            if (built == null) { problems.AddRange(buildProblems.Select(p => $"{file}: {p}")); continue; }
-            uint crc = game.CrcOf(built);
-            if (game.Crc(live) == crc) { upToDate++; continue; }
-            int mods = chosen.Values.Select(c => c.Mod).Distinct().Count();
-            steps.Add(new Step(file, $"rebuild from stock with {items.Count} {label}(s) from {mods} mod(s)", null, built, crc, verify));
+            byte[]? built = null;
+            Func<byte[], List<string>>? verify = null;
+            uint want;
+            if (chosen.Count == 0) want = game.Crc(original);
+            else
+            {
+                List<string> buildProblems;
+                try { built = TextureImport.ReplaceMany(Package.Open(original), items, out buildProblems, out var v); verify = v; }
+                catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or IOException) { buildProblems = [ex.Message]; }
+                if (built == null) { problems.AddRange(buildProblems.Select(p => $"{file}: {p}")); continue; }
+                want = game.CrcOf(built);
+            }
+            if (game.Crc(live) == want) { upToDate++; continue; }
+            // An extra package that some other tool changed: a rebuild from stock would drop those images (capture them first).
+            if (extra)
+            {
+                var claimed = lib.Mods.SelectMany(m => list(m.Manifest)).Select(x => x.Tex).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var orphans = IconCapture.ChangedTextures(game, live, original, originals).Where(t => !claimed.Contains(t)).ToList();
+                if (orphans.Count > 0) { problems.Add($"{file}: {orphans.Count} image(s) in it were changed outside any mod ({string.Join(", ", orphans.Take(5))}{(orphans.Count > 5 ? ", …" : "")}); use Capture icon changes first"); continue; }
+            }
+            int modCount = chosen.Values.Select(c => c.Mod).Distinct().Count();
+            steps.Add(built == null
+                ? new Step(file, $"restore stock original (no {label} replacements enabled)", original, null, want)
+                : new Step(file, $"rebuild from stock with {items.Count} {label}(s) from {modCount} mod(s)", null, built, want, verify));
         }
-
         // Strings: every .string file of every language, rebuilt from its original with each ID's winner.
         if (Directory.Exists(game.Loco))
             foreach (string langDir in Directory.GetDirectories(game.Loco, "*.all").Order(StringComparer.OrdinalIgnoreCase))

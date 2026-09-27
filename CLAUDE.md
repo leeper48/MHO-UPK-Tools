@@ -7,7 +7,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
 MhoPackageModifier/  MHO Package Modifier (MHO_UPK_Mod.exe; called UpkMeshScan until 2.50.0, see "Rename" below). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default, manual on F1), AssimpNet. v2.46.0
-MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.9.0: extract, Icons.tfc managed, portable data folder next to the exe, mod editor (New Mod / Edit), first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
+MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.16.1: priority locks and top/bottom moves, store image column, costume icons on cards, gradient look, more icon packages (extension), redesigned main window with Editor and Extract tabs, own icon, extract, Icons.tfc managed, portable data folder next to the exe, mod editor (New Mod / Edit), first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `MhoPackageModifier/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
@@ -207,6 +207,8 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 
 ## MHO Extended Mod Manager (started 2026-09-27)
 
+**Compatibility rule (Kurt, 2026-09-27):** mods the new manager saves or exports must stay installable in the old MHModManager 1.0.1, or at the very least there must be an export in the legacy format. Extensions go only where the old manager ignores them (never change fields it reads), and are checked against its own code before shipping. Checked 2026-09-27: MHModManager's own `UnifiedManifest.LoadFromFile` (via the reflection harness) loads a manifest with an unknown extra field (`ExtendedIconReplacements`) and ignores it, so an extra manifest field plus extra files is a safe place for extensions. The old manager then simply doesn't apply that part.
+
 Goal: replicate MHModManager 1.0.1 (Kurt's copy: `C:\Users\kjord\OneDrive\Music\Documents\Apps\MHModManager (v1.0.1)`, a .NET 8 WPF app) and leave room for new features. Kurt publishes his own mods through it; his zone work ships as the "Freecam Falloff Helper" mod (the zone main levels plus tiles as whole-package replacements).
 
 **What the old manager does** (from its data files and assembly metadata; no decompiled code is copied):
@@ -297,6 +299,69 @@ Committed 2026-09-27: `9cd8d28` (MPM 2.50.1), `bdddd75` (manager 0.6.0). `StockD
 **0.9.0 (2026-09-27): Extract** (`Gui/ExtractForm.cs`, `StockCatalog.ExportDds` / `ExportStrings`; CLI `--extract-texture <icons|achievements|store> <texture> <out.dds>`, `--extract-strings <lang> <out.json>`). Everything comes from the originals (the original package, the original Icons.tfc), never the live files. The editor's texture tabs have "Save original as .dds…". Checked: the extracted `store_vision_classic` is the stock Vision (not Sentry); PIL reads the .dds; put back into the original package with `--replace-texture` it gives 750/750 identical images (lossless). All 77,089 extracted eng strings match the original files (text, flags, variants). `--extract-snapshot <dir>` renders the window. Kurt confirmed Extract works 2026-09-27.
 
 With that, every MHModManager feature is replicated.
+
+**0.9.1: own icon** (`MhoExtendedModManager\Assets\app.ico`, drawn by `Assets\make_icon.py`: `python make_icon.py app.ico [preview.png]`). A comic "POW" burst with an M, drawn per size:
+- 16–24 px: a yellow 8-spike burst with a black M (no disc: contrast).
+- 32 px and up: a red disc with a white Impact M outlined in black; halftone dots and a drop shadow from 48 px.
+
+It differs from MPM's blue-circle bolt.
+
+**0.10.0: main window redesigned** after MHModManager's look (Kurt: "at least as nice/modern as the original"). `Gui/Ui.cs`:
+- Palette: purple accent, badge colours P/T/S/A, green "Enabled".
+- `ModListBox`: owner-drawn mod cards (name, author, badges, a clickable checkbox, "Enabled · N modification(s)", a red "!" for conflicts).
+- `FlatTabs`: flat tabs with an accent underline.
+- `DetailsHeader`: name, version, by-line, badges and a clickable Enabled pill.
+- Accent and flat buttons (re-coloured after MPM's theme: `Ui.RestyleButtons`).
+
+`MainForm`:
+- Top bar: Game Root (in its real letter case: `Settings.TrueCase`), a running indicator, + New Mod, Extract, Install, and a Settings menu (change game folder, move library, open library folder, capture, migrate, refresh, About).
+- Left: INSTALLED MODS with an on-count, ▲▼ priority and a filter box.
+- Right: the header, then tabs only when the mod has that content: Packages (live "applied ✓"), Textures (thumbnails in a DataGridView image column), Strings, Sound packs, Conflicts, Info.
+- Bottom: Remove / Edit / Export, a status line, and Apply Changes (N).
+- Detail tables are styled DataGridViews (`Grid` / `StyleGrid`), not ListViews (MPM's theme draws those with thin rows and full-height column lines).
+
+`--gui-snapshot <dir> [mod]` renders the window and each details tab.
+
+**0.11.0: editor and Extract as tabs in the main window** (Kurt: tabs, not pop-up windows).
+- Top-level `FlatTabs` (`pages`): **Mods** (the list and details with their bottom bar and Apply Changes), **Editor** (`Gui/ModEditorView.cs`, was ModEditorForm; a placeholder with + New Mod until one is open; its title becomes "New Mod" / "Edit: <name>"; Saved / Cancelled events return to Mods and select the mod; opening another asks before discarding), and **Extract** (`Gui/ExtractView.cs`, was ExtractForm; built on first view, rebuilt only if the library or game folder changes).
+- Both views use the same style: flat sub-tabs, `Ui.Grid` tables (the texture replacements with thumbnails and green ✓ / orange checks), `NameList`, `Ui.CardPanel` previews, and accent / flat buttons.
+- Right side of a texture page: table 55% over the two previews 45%.
+- `Ui.FitToScreen` sizes the remaining dialogs (the log) by display scaling.
+- **Store image names (checked 2026-09-27, Kurt asked about "storecharactername"):**
+  - The store package's 750 textures are 747 `store_…` plus `punisher_deadwinter`, `punisher_nightcrawler_aoa` and `omegaboostpotion_store`. None are named without the underscore.
+  - The icons package also has 6 `store_…` textures, all of which exist in the store package too: 2 identical, and 4 boost images as larger variants.
+  - So each Extract / editor view is exactly one package (`StockCatalog.Entries`).
+  - `ICO__SilverSurferIcons_SF.upk` has 2 more store images, which the mod format (three icon packages only) can't target.
+- The snapshot and save-test hooks drive the tabs. The unchanged save through the embedded editor stays byte-identical (Sentry 34 files, 90's X-Men NPC's 16, Miles 7).
+
+**0.12.0: more icon packages (extension, Kurt 2026-09-27).**
+- Other stock icon packages can be modded: 14 of them, all stock on Kurt's game, e.g. `ICO__SilverSurferIcons_SF` (Silver Surfer Classic and Silver Savage costume / hero / store images and 25 power icons), `ICO__MarvelUIIcons_HD_SF` (3,491), CharacterSelect, Loading, Talents, Waypoints, OmegaSystem, InfinitySystem, SecretInvasion, controller glyphs.
+- Four Silver Surfer costumes: Classic, Silver Savage, Exiles, Keeper. Exiles and Keeper have their images in the main packages.
+- Manifest field `ExtraIconReplacements: [{ Package, TextureName, DdsFileName }]`, written only when used (null otherwise; `ModManifest.Extra` is `[JsonIgnore]`). Legacy fields (HasTextures, TextureReplacementCount) only count the three classic lists.
+- Apply rebuilds each named extra package from its verified original like the classic three, and refuses a package with images changed outside any mod (`IconCapture.ChangedTextures`). Capture covers every non-stock ICO__ package (`IconCapture.ExtraPackages`).
+- The editor has a "More icon packages" tab with a package picker; Extract lists the extra packages too.
+- `Originals.CacheFolderFor` reads a streamed original image from the kept cache only when it's that texture's cache (Icons). Some of these packages stream from Textures.tfc, which has no kept original.
+- Export asks for a mod with the extension: everything (still installable in MHModManager, which skips those images) or a legacy copy (`--export … --legacy`: field and its .dds files dropped).
+- Checked on a scratch library:
+  - The rebuilt `ICO__SilverSurferIcons_SF` differs from the original in exactly the 2 replaced images (30 identical).
+  - MHModManager's own loader reads the manifest.
+  - Full export: manifest plus 2 .dds; legacy export: manifest only, without the field.
+  - Unchanged editor re-save: byte-identical .dds, field kept.
+  - `--verify-writer`: all old-manager manifests still byte-identical.
+
+**0.13.0: own look (Kurt: "I don't want it to look exactly like the previous one").**
+- The window background is a vertical gradient from Kurt's navy (10,35,74, sampled from his reference image) to the dark grey (`Ui.PaintGradient`, aligned to the whole form so every control continues it).
+- Containers and labels are transparent; the bars are a translucent dark overlay (`Ui.BarOverlay`).
+- `ModListBox` / `NameList` paint the gradient between and below items (WM_ERASEBKGND), `GradientGrid` in a table's empty area, `GradientSplit` behind split panels. Cards, table rows and text fields stay solid.
+- The main form double-buffers with WS_EX_COMPOSITED.
+- Badges and the Enabled pill are solid colour with dark text (`Ui.OnColor`), not outlined with coloured text.
+- 0.13.1: badge letters bold (`Ui.Heavy`, Kurt: legibility).
+
+**0.14.0: costume icon on each mod card** (Kurt): the first `costume…` texture the mod replaces (classic Replacements, then ExtraIconReplacements, manifest order; `Mod.CostumeIconFile`), decoded in the background (`Ui.DdsThumb`, cached by path + write time). Mods without one get a tile with the name's first letter. 66 of Kurt's 79 mods have one.
+
+**0.15.0: store image column** (Kurt): StorePreview (Ui.cs) between the mod list and the details shows the selected mod's StoreReplacements (300×420 in the mods) at that aspect, with the texture name; click steps through a mod with several (4 mods). No store image: a placeholder. 70 of 79 mods have one.
+
+**0.16.0: priority to top / bottom, padlocks** (Kurt). Buttons ⤒ ▲ ▼ ⤓ (▲/▼ with a drawn bar, Ui.AddEndBar). A padlock under each card's checkbox: a mod at the top or bottom, or next to a mod locked there, can be locked (open grey padlock shown only then; closed gold when locked). ModLibrary.Normalize keeps top-locked mods first and bottom-locked last on every load, so a new mod written at the top lands under the top lock and a capture appended at the bottom lands above the bottom lock; locked mods can't be moved and moves stop at the locks; unlocking an outer locked mod drops it just inside the remaining run. Stored as LockedTop / LockedBottom in state.json (extension, omitted when empty). --test-locks is the self-test (temp library, 15 checks).
 
 **Next:** optionally the clean download (needs Kurt's OK on the Google Drive links). Later: New features beyond the old manager.
 

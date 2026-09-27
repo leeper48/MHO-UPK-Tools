@@ -26,8 +26,15 @@ sealed class ModLibrary
         var order = lib.State.ModOrder.Select((n, i) => (n, i)).GroupBy(x => x.n, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().i, StringComparer.OrdinalIgnoreCase);
         var enabled = new HashSet<string>(lib.State.EnabledMods, StringComparer.OrdinalIgnoreCase);
         mods = mods.OrderBy(m => order.TryGetValue(m.FolderName, out int i) ? i : int.MaxValue).ThenBy(m => m.FolderName, StringComparer.OrdinalIgnoreCase).ToList();
-        for (int i = 0; i < mods.Count; i++) { mods[i].Priority = i; mods[i].Enabled = enabled.Contains(mods[i].FolderName); }
+        var top = new HashSet<string>(lib.State.LockedTop ?? [], StringComparer.OrdinalIgnoreCase);
+        var bottom = new HashSet<string>(lib.State.LockedBottom ?? [], StringComparer.OrdinalIgnoreCase);
+        foreach (var m in mods)
+        {
+            m.Enabled = enabled.Contains(m.FolderName);
+            m.Lock = top.Contains(m.FolderName) ? ModLock.Top : bottom.Contains(m.FolderName) ? ModLock.Bottom : ModLock.None;
+        }
         lib.Mods.AddRange(mods);
+        lib.Normalize();
         return lib;
     }
 
@@ -77,6 +84,7 @@ sealed class ModLibrary
         foreach (var r in m.Manifest.Replacements) yield return "icon:" + r.TextureName.ToLowerInvariant();
         foreach (var r in m.Manifest.AchievementReplacements) yield return "achievement:" + r.TextureName.ToLowerInvariant();
         foreach (var r in m.Manifest.StoreReplacements) yield return "store:" + r.TextureName.ToLowerInvariant();
+        foreach (var r in m.Manifest.Extra) yield return $"extra:{r.Package.ToLowerInvariant()}/{r.TextureName.ToLowerInvariant()}";
         foreach (var s in m.Strings) yield return $"string:{s.Language}/{s.File.ToLowerInvariant()}/{s.Id}";
     }
 
@@ -93,21 +101,70 @@ sealed class ModLibrary
     /// <summary>Writes state.json in MHModManager's format: enabled mods, then the full order (top = highest priority).</summary>
     public void SaveState()
     {
+        Normalize();
         State.ModOrder = Mods.OrderBy(m => m.Priority).Select(m => m.FolderName).ToList();
         State.EnabledMods = Mods.Where(m => m.Enabled).OrderBy(m => m.Priority).Select(m => m.FolderName).ToList();
+        List<string>? Locked(ModLock l) { var x = Mods.Where(m => m.Lock == l).OrderBy(m => m.Priority).Select(m => m.FolderName).ToList(); return x.Count > 0 ? x : null; }
+        State.LockedTop = Locked(ModLock.Top);
+        State.LockedBottom = Locked(ModLock.Bottom);
         string path = Path.Combine(DataFolder, "state.json"), tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(State, ModManifest.Json));
         File.Move(tmp, path, overwrite: true);
     }
 
-    /// <summary>Moves a mod one place up (-1) or down (+1) in the priority order.</summary>
-    public void Move(Mod m, int delta)
+    /// <summary>
+    /// Locked mods first: top-locked, then the rest, then bottom-locked, each in its current order; priorities renumbered.
+    /// Whatever put a mod elsewhere (a new mod written at the top, a capture appended at the bottom, a mod unlocked from
+    /// the middle of a locked run) lands at the edge of the unlocked range, so a lock always holds.
+    /// </summary>
+    public void Normalize()
     {
-        int to = m.Priority + delta;
-        if (to < 0 || to >= Mods.Count) return;
+        var sorted = Mods.OrderBy(m => m.Lock == ModLock.Top ? 0 : m.Lock == ModLock.None ? 1 : 2).ThenBy(m => m.Priority).ToList();
+        Mods.Clear(); Mods.AddRange(sorted);
+        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+    }
+
+    int TopLocked => Mods.Count(m => m.Lock == ModLock.Top);
+    int BottomLocked => Mods.Count(m => m.Lock == ModLock.Bottom);
+
+    /// <summary>The lock a click on this mod's padlock would set: Top if it's at the top or right under the top-locked run,
+    /// Bottom likewise at the bottom; None if it's in the middle (or already locked).</summary>
+    public ModLock CanLock(Mod m) =>
+        m.Lock != ModLock.None ? ModLock.None
+        : m.Priority == TopLocked ? ModLock.Top
+        : m.Priority == Mods.Count - 1 - BottomLocked ? ModLock.Bottom
+        : ModLock.None;
+
+    /// <summary>Locks the mod where it can be locked, or unlocks a locked one. False if it can't be locked where it is.</summary>
+    public bool ToggleLock(Mod m)
+    {
+        if (m.Lock != ModLock.None) m.Lock = ModLock.None;
+        else if (CanLock(m) is var l && l != ModLock.None) m.Lock = l;
+        else return false;
+        Normalize();
+        return true;
+    }
+
+    /// <summary>Moves a mod one place up (-1) or down (+1) within the unlocked range. False for a locked mod.</summary>
+    public bool Move(Mod m, int delta)
+    {
+        if (m.Lock != ModLock.None) return false;
+        int to = Math.Clamp(m.Priority + delta, TopLocked, Mods.Count - 1 - BottomLocked);
+        if (to == m.Priority) return true;
         var other = Mods.First(x => x.Priority == to);
         (other.Priority, m.Priority) = (m.Priority, to);
         Mods.Sort((a, b) => a.Priority.CompareTo(b.Priority));
+        return true;
+    }
+
+    /// <summary>Moves a mod to the top (-1) or bottom (+1) of the unlocked range. False for a locked mod.</summary>
+    public bool MoveToEnd(Mod m, int direction)
+    {
+        if (m.Lock != ModLock.None) return false;
+        Mods.Remove(m);
+        Mods.Insert(direction < 0 ? TopLocked : Mods.Count - BottomLocked, m);
+        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        return true;
     }
 
     public Mod? Find(string name) =>
