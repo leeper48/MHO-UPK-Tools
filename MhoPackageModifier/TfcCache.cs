@@ -55,6 +55,9 @@ static class TfcCache
         return manifests[folder] = map;
     }
 
+    /// <summary>Every manifest entry in a folder (e.g. all textures of one cache), or none.</summary>
+    public static IEnumerable<Entry> All(string folder) => Manifest(folder)?.Values.SelectMany(l => l) ?? [];
+
     /// <summary>The manifest entry for a texture (by path; the GUID picks among several), or null.</summary>
     public static Entry? Find(string folder, string texturePath, byte[] guid)
     {

@@ -28,7 +28,10 @@ static class History
 
     sealed record Entry(int Id, DateTime Time, string Before, string After, string Label);
 
-    static string Root => Path.Combine(AppFolders.Local, "history");
+    /// <summary>Where snapshots go instead of %LOCALAPPDATA%\MhoPackageModifier\history (MHO Extended Mod Manager keeps them in its data folder next to the exe).</summary>
+    public static string? RootOverride { get; set; }
+
+    static string Root => RootOverride ?? Path.Combine(AppFolders.Local, "history");
 
     /// <summary>One folder per live file: its name plus a short hash of its full path (two game folders don't mix).</summary>
     static string Folder(string upkPath)
