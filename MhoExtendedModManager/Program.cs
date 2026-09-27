@@ -56,6 +56,13 @@ static class Program
             return 2;
         }
         Updater.CleanUp();   // the *.old files a self-update left behind
+        if (args.Length == 2 && args[0].Equals("--apply-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.ApplyForm.Snapshot(args[1]);
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--update-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: the update window for a made-up release, rendered to a PNG.

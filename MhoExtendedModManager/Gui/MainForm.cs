@@ -221,7 +221,7 @@ sealed class MainForm : Form
         tips.SetToolTip(edit, "Open the selected mod in the Editor tab (or double-click it).");
         tips.SetToolTip(export, "Save the selected mod as a .zip to share.");
         tips.SetToolTip(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
-        tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.");
+        tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
         bottom.Controls.Add(leftButtons, 0, 0);
         bottom.Controls.Add(status, 1, 0);
         applyButton.Anchor = AnchorStyles.Right;
@@ -315,7 +315,7 @@ sealed class MainForm : Form
     void UpdateRunning()
     {
         bool running = Process.GetProcessesByName("MarvelHeroesOmega").Length > 0;
-        runningLabel.Text = running ? "●  Game running: close it to apply" : "●  Game not running";
+        runningLabel.Text = running ? "●  Game Running: Close It to Apply" : "●  Game Not Running";
         runningLabel.ForeColor = running ? Ui.Warn : Ui.Subtle;
     }
 
@@ -335,7 +335,7 @@ sealed class MainForm : Form
             if (manual) MessageBox.Show(this, $"You have the latest version ({Program.Version}).", "Updates");
             return;
         }
-        if (!manual && settings.SkipVersion == r.Version.ToString()) { status.Text = $"Version {r.Version} is available (skipped: Settings → Check for updates)."; return; }
+        if (!manual && settings.SkipVersion == r.Version.ToString()) { status.Text = $"Version {r.Version} Is Available (Skipped: Settings → Check for Updates)"; return; }
         using var f = new UpdateForm(r);
         f.ShowDialog(this);
         if (f.SkipThis) { settings.SkipVersion = r.Version.ToString(); settings.Save(); }
@@ -378,10 +378,10 @@ sealed class MainForm : Form
         var conflicts = lib.Conflicts();
         conflicted = conflicts.SelectMany(c => c.Mods).ToHashSet();
         list.Conflicted = conflicted;
-        countLabel.Text = $"{lib.Mods.Count(m => m.Enabled)} of {lib.Mods.Count} on";
+        countLabel.Text = $"{lib.Mods.Count(m => m.Enabled)} of {lib.Mods.Count} On";
         countLabel.ForeColor = Ui.Subtle;
-        status.Text = (note != null ? note + "  ·  " : "") + (game == null ? "Game folder not found" : conflicts.Count > 0 ? $"{conflicts.Count} conflicting change(s): the mod higher in the list wins" : "No conflicts") +
-                      (readOnly ? "  ·  MHModManager's own folder: read-only here (Settings → Migrate)" : "");
+        status.Text = Ui.TitleCase((note != null ? note + "  ·  " : "") + (game == null ? "Game folder not found" : conflicts.Count > 0 ? $"{conflicts.Count} conflicting change(s): the mod higher in the list wins" : "No conflicts") +
+                      (readOnly ? "  ·  MHModManager's own folder: read-only here (Settings → Migrate)" : ""));
         status.ForeColor = Ui.Subtle;
         note = null;
         applyButton.Text = "Apply Changes";
@@ -525,12 +525,11 @@ sealed class MainForm : Form
         undo.Add((before, label));
         if (undo.Count > 100) undo.RemoveAt(0);
         redo.Clear();
-        note = Capital(label) + ".";
+        note = Ui.TitleCase(label);
         Reload();
         return true;
     }
 
-    static string Capital(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
     void Undo()
     {
@@ -539,7 +538,7 @@ sealed class MainForm : Form
         undo.RemoveAt(undo.Count - 1);
         redo.Add((ReadState(), label));
         WriteState(json);
-        note = $"Undone: {label}";
+        note = Ui.TitleCase($"Undone: {label}");
         Reload();
     }
 
@@ -550,7 +549,7 @@ sealed class MainForm : Form
         redo.RemoveAt(redo.Count - 1);
         undo.Add((ReadState(), label));
         WriteState(json);
-        note = $"Redone: {label}";
+        note = Ui.TitleCase($"Redone: {label}");
         Reload();
     }
 
@@ -564,6 +563,12 @@ sealed class MainForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // Ctrl+Enter: Apply Changes (Kurt), anywhere on the Mods tab.
+        if (keyData == (Keys.Control | Keys.Enter) && pages.SelectedIndex == 0 && applyButton.Enabled && applyButton.Visible)
+        {
+            Apply();
+            return true;
+        }
         if (pages.SelectedIndex == 0 && ActiveControl is not TextBoxBase)
         {
             if (keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
@@ -579,7 +584,7 @@ sealed class MainForm : Form
         noteMod = m;
         noteBox.Text = (m?.Note ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n");
         noteBox.ReadOnly = readOnly || m == null;
-        noteSource.Text = m == null ? "" : m.LocalNote != null ? (m.Manifest.Notes != null ? "yours (replaces the mod's)" : "yours, on this PC") : m.Manifest.Notes != null ? "from the mod" : "none yet: type to add one";
+        noteSource.Text = m == null ? "" : m.LocalNote != null ? (m.Manifest.Notes != null ? "Yours (Replaces the Mod's)" : "Yours, on This PC") : m.Manifest.Notes != null ? "From the Mod" : "None Yet: Type to Add One";
         noteReset.Visible = m?.LocalNote != null && m.Manifest.Notes != null;
     }
 
@@ -750,8 +755,8 @@ sealed class MainForm : Form
             if (t.IsFaulted || lib != l) return;
             int n = t.Result.Steps.Count;
             applyButton.Text = n == 0 ? "Apply Changes" : $"Apply Changes ({n})";
-            status.Text = baseText + (n == 0 ? "  ·  the game matches your list" : $"  ·  {n} file(s) to change") +
-                          (t.Result.Problems.Count > 0 ? $"  ·  {t.Result.Problems.Count} can't be (see Apply)" : "");
+            status.Text = baseText + Ui.TitleCase((n == 0 ? "  ·  the game matches your list" : $"  ·  {n} file(s) to change") +
+                          (t.Result.Problems.Count > 0 ? $"  ·  {t.Result.Problems.Count} can't be (see Apply)" : ""));
             status.ForeColor = n == 0 ? Ui.Subtle : Ui.Text;
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
@@ -763,7 +768,7 @@ sealed class MainForm : Form
         if (readOnly || lib == null || Selected is not Mod m || !ReorderView) return;
         if (m.Lock != ModLock.None)
         {
-            status.Text = $"'{m.Name}' is locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: click its padlock to unlock it first.";
+            status.Text = Ui.TitleCase($"\"{m.Name}\" is locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: click its padlock to unlock it first");
             return;
         }
         int before = m.Priority;
@@ -800,8 +805,8 @@ sealed class MainForm : Form
             foreach (string f in m.Manifest.UpkReplacements)
             {
                 string path = Path.Combine(m.Folder, f);
-                string size = File.Exists(path) ? $"{new FileInfo(path).Length / 1048576.0:0.0} MB" : "missing";
-                string state = !m.Enabled ? "turned off" : winners.TryGetValue(f, out var w) && w != m ? $"overridden by {w.Name}" : game == null ? "" : "checking…";
+                string size = File.Exists(path) ? $"{new FileInfo(path).Length / 1048576.0:0.0} MB" : "Missing";
+                string state = !m.Enabled ? "Turned Off" : winners.TryGetValue(f, out var w) && w != m ? $"Overridden by {w.Name}" : game == null ? "" : "Checking…";
                 rows[f] = grid.Rows[grid.Rows.Add(f, size, state)];
             }
             tabs.Add("Packages", grid);
@@ -816,7 +821,7 @@ sealed class MainForm : Form
                         foreach (var (f, s) in t.Result)
                             if (rows.TryGetValue(f, out var row))
                             {
-                                row.Cells[2].Value = s == PackageState.Applied ? "applied ✓" : GameState.Describe(s) + " (Apply)";
+                                row.Cells[2].Value = s == PackageState.Applied ? "Applied ✓" : Ui.TitleCase(GameState.Describe(s)) + " (Apply)";
                                 row.Cells[2].Style.ForeColor = s == PackageState.Applied ? Ui.Enabled : Ui.Packages;
                             }
                     }, TaskScheduler.FromCurrentSynchronizationContext());
@@ -851,7 +856,7 @@ sealed class MainForm : Form
             {
                 string events = "?", pcks = "";
                 try { var p = SoundPack.Load(Path.Combine(m.Folder, f)); events = p.Patches.Count.ToString(); pcks = string.Join(", ", p.Patches.Select(x => x.PckFile).Distinct()); }
-                catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { pcks = "unreadable"; }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { pcks = "Unreadable"; }
                 grid.Rows.Add(f, events, pcks);
             }
             tabs.Add("Sound Packs", grid);
@@ -863,7 +868,7 @@ sealed class MainForm : Form
             var grid = Grid(false, ("Change", 0), ("Result", 420));
             foreach (var (claim, mods) in mineConflicts)
             {
-                int i = grid.Rows.Add(claim, mods[0] == m ? "wins over " + string.Join(", ", mods.Skip(1).Select(x => x.Name)) : "loses to " + mods[0].Name);
+                int i = grid.Rows.Add(claim, mods[0] == m ? "Wins over " + string.Join(", ", mods.Skip(1).Select(x => x.Name)) : "Loses to " + mods[0].Name);
                 grid.Rows[i].Cells[1].Style.ForeColor = mods[0] == m ? Ui.Enabled : Ui.Warn;
             }
             tabs.Add($"Conflicts ({mineConflicts.Count})", grid);
@@ -875,11 +880,11 @@ sealed class MainForm : Form
         InfoRow("Name", m.Name);
         InfoRow("Author", m.Manifest.Author ?? "");
         InfoRow("Version", m.Manifest.Version ?? "");
-        InfoRow("Priority", $"{m.Priority + 1} of {lib.Mods.Count} (higher wins)" + (m.Lock != ModLock.None ? $", locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}" : ""));
-        InfoRow("State", m.Enabled ? "enabled" : "disabled", m.Enabled ? Ui.Enabled : null);
-        InfoRow("Automatic Tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "none (nothing recognised in the content)");
-        InfoRow("The Mod's Tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "none (set them in Edit Mod → Tags)");
-        InfoRow("Your Tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "none (right-click the mod, or + Tag above)");
+        InfoRow("Priority", $"{m.Priority + 1} of {lib.Mods.Count} (Higher Wins)" + (m.Lock != ModLock.None ? $", Locked at the {(m.Lock == ModLock.Top ? "Top" : "Bottom")}" : ""));
+        InfoRow("State", m.Enabled ? "Enabled" : "Disabled", m.Enabled ? Ui.Enabled : null);
+        InfoRow("Automatic Tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "None (Nothing Recognised in the Content)");
+        InfoRow("The Mod's Tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "None (Set Them in Edit Mod → Tags)");
+        InfoRow("Your Tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "None (Right-Click the Mod, or + Tag Above)");
         if (m.HiddenTags.Count > 0) InfoRow("Hidden Here", string.Join(", ", m.HiddenTags));
         InfoRow("Folder", m.Folder);
         if (m.LoadError != null) InfoRow("Error", m.LoadError, Ui.Warn);
@@ -934,13 +939,15 @@ sealed class MainForm : Form
         var plan = await Task.Run(() => Applier.MakePlan(l, g, originals));
         UseWaitCursor = false;
         string planText = CaptureOutput(() => Applier.Print(plan));
-        if (plan.Steps.Count == 0) { ShowLog("Apply", planText); return; }
-        if (MessageBox.Show(this, planText + "\n\nWrite these changes to the game folder? Each file is verified and can be undone.", "Apply", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
-        UseWaitCursor = true;
-        string log = await Task.Run(() => CaptureOutput(() => Applier.Execute(plan, g, originals, l.DataFolder)));
-        UseWaitCursor = false;
-        ShowLog("Apply", log);
-        Reload();
+        // One window (Kurt): the plan and the question, then "Success" or what went wrong.
+        using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : () => Task.Run(() =>
+        {
+            bool ok = false;
+            string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
+            return (ok, log);
+        }));
+        f.ShowDialog(this);
+        if (plan.Steps.Count > 0 && f.DialogResult == DialogResult.OK) Reload();
     }
 
     /// <summary>Icon changes in the game that no mod accounts for, saved as a mod so Apply's rebuild from stock keeps them.</summary>
@@ -1022,7 +1029,7 @@ sealed class MainForm : Form
             Reload();
             SelectMod(name);
             pages.Select(0);
-            status.Text = (m == null ? $"Created '{name}' (top of the list, off: tick it, then Apply Changes)." : $"Saved '{name}'.") + (m?.Enabled == true ? "  Apply Changes to update the game." : "");
+            status.Text = Ui.TitleCase((m == null ? $"Created \"{name}\" (top of the list, off: tick it, then Apply Changes)" : $"Saved \"{name}\"") + (m?.Enabled == true ? "  ·  Apply Changes to update the game" : ""));
         };
         ed.Cancelled += () => { CloseEditor(); pages.Select(0); };
         editor = ed;

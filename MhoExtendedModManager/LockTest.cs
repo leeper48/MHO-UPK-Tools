@@ -168,6 +168,22 @@ static class LockTest
             bool clean = !File.ReadAllText(Path.Combine(data, "state.json")).Contains("Locked");
             if (!clean) fails++;
             Console.WriteLine($"  {(clean ? "ok  " : "FAIL")} no lock fields left in state.json");
+            foreach (var (input, want) in new[]
+            {
+                ("●  Game not running", "●  Game Not Running"),
+                ("No conflicts  ·  the game matches your list", "No Conflicts  ·  The Game Matches Your List"),
+                ("3 file(s) to change", "3 File(s) to Change"),
+                ("turn off \"storm classic\"", "Turn Off \"storm classic\""),
+                ("Undone: tag \"Storm\" as \"x-men\"", "Undone: Tag \"Storm\" as \"x-men\""),
+                ("MHModManager's own folder: read-only here (Settings → Migrate)", "MHModManager's Own Folder: Read-Only Here (Settings → Migrate)"),
+                ("save as .dds or .png", "Save as .dds or .png"),
+            })
+            {
+                string got = MhoExtendedModManager.Gui.Ui.TitleCase(input);
+                bool ok = got == want;
+                if (!ok) fails++;
+                Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} Title Case: {got}{(ok ? "" : "   expected " + want)}");
+            }
             Console.WriteLine(fails == 0 ? "All lock checks passed." : $"{fails} lock check(s) FAILED.");
             return fails == 0 ? 0 : 1;
         }

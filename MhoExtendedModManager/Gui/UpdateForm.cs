@@ -50,13 +50,13 @@ sealed class UpdateForm : Form
         update.Enabled = page.Enabled = skip.Enabled = later.Enabled = false;
         UseWaitCursor = true;
         string? why;
-        try { why = await Updater.Install(release, s => BeginInvoke(() => progress.Text = s)); }
+        try { why = await Updater.Install(release, s => BeginInvoke(() => progress.Text = Ui.TitleCase(s))); }
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or InvalidDataException or TaskCanceledException)
         { why = ex.Message + " (nothing was changed)"; }
         UseWaitCursor = false;
         if (why != null)
         {
-            progress.Text = "Not updated: " + why;
+            progress.Text = "Not Updated: " + why;
             later.Enabled = page.Enabled = skip.Enabled = true;
             return;
         }

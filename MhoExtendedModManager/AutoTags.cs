@@ -4,7 +4,7 @@ namespace MhoExtendedModManager;
 /// Automatic tags, worked out from what a mod contains (never stored): the characters and their teams, and what kind of
 /// change it is. Read from the names the game uses (checked on Kurt's library, 2026-09-27):
 ///   UC__MarvelPlayer_&lt;Hero&gt;[_&lt;Costume&gt;]_SF   costume (hero model)          → Costume
-///   UC__MarvelTeamUp_&lt;Hero&gt;_SF                 team-up                        → Team-up
+///   UC__MarvelTeamUp_&lt;Hero&gt;_SF                 team-up                        → Team-Up
 ///   UC__MarvelNPC_&lt;Name&gt;_SF                    NPC                            → NPC
 ///   UC__MarvelAgent_…Pet_SF                   pet                            → Pet  (other agents: the character only)
 ///   UC__PowerTeamUp_&lt;Hero&gt;_…                  team-up powers                 → Team-up, Power effects
@@ -91,7 +91,7 @@ static class AutoTags
     }
 
     public enum TagClass { Character, Team, Content, Other }
-    static readonly string[] Kinds = ["Costume", "Team-up", "NPC", "Power effects", "Power icons", "Pet", "Zone", "Sounds"];
+    static readonly string[] Kinds = ["Costume", "Team-Up", "NPC", "Power Effects", "Power Icons", "Pet", "Zone", "Sounds"];
     static readonly HashSet<string> CharacterNames = new(Heroes.Values.Select(h => h.Name), StringComparer.OrdinalIgnoreCase);
     static readonly HashSet<string> TeamNames = new(Heroes.Values.SelectMany(h => h.Teams), StringComparer.OrdinalIgnoreCase);
 
@@ -117,10 +117,10 @@ static class AutoTags
             string n = Path.GetFileNameWithoutExtension(file);
             string l = n.ToLowerInvariant();
             if (l.StartsWith("uc__marvelplayer_")) { AddHero(Hero(Part(n[17..], 0))); AddKind("Costume"); }
-            else if (l.StartsWith("uc__marvelteamup_")) { AddHero(Hero(Part(n[17..], 0))); AddKind("Team-up"); }
+            else if (l.StartsWith("uc__marvelteamup_")) { AddHero(Hero(Part(n[17..], 0))); AddKind("Team-Up"); }
             else if (l.StartsWith("uc__marvelnpc_")) { AddHero(Hero(Part(n[14..], 0))); AddKind("NPC"); }
-            else if (l.StartsWith("uc__powerteamup_")) { AddHero(Hero(Part(n[16..], 0))); AddKind("Team-up"); AddKind("Power effects"); }
-            else if (l.StartsWith("uc__power")) { AddHero(Hero(Part(n[9..], 0))); AddKind("Power effects"); }
+            else if (l.StartsWith("uc__powerteamup_")) { AddHero(Hero(Part(n[16..], 0))); AddKind("Team-Up"); AddKind("Power Effects"); }
+            else if (l.StartsWith("uc__power")) { AddHero(Hero(Part(n[9..], 0))); AddKind("Power Effects"); }
             else if (l.StartsWith("uc__marvelagent_"))
             {
                 // Agents: pets (…Pet), bosses and enemies. A pet adds only "Pet" (Unique333GambitPet isn't a Gambit mod).
@@ -128,7 +128,7 @@ static class AutoTags
                 else AddHero(HeroInside(n[16..]));
             }
             else if (l.StartsWith("uc__marvelprojectile_") || l.StartsWith("uc__marvelentity_hotspot_") || l.StartsWith("uc__marvelconditioneffect_"))
-            { AddHero(HeroInside(n[(n.IndexOf('_', 4) + 1)..])); AddKind("Power effects"); }
+            { AddHero(HeroInside(n[(n.IndexOf('_', 4) + 1)..])); AddKind("Power Effects"); }
             else if (!l.StartsWith("uc__") && !l.StartsWith("ico__")) AddKind("Zone");
         }
 
@@ -139,12 +139,12 @@ static class AutoTags
             if (l.StartsWith("costume"))
             {
                 string rest = l[7..].TrimStart('_');
-                if (rest.StartsWith("teamup")) { AddHero(Hero(Part(rest.Length > 6 ? rest[6..] : "", 0))); AddKind("Team-up"); }
+                if (rest.StartsWith("teamup")) { AddHero(Hero(Part(rest.Length > 6 ? rest[6..] : "", 0))); AddKind("Team-Up"); }
                 else AddHero(Hero(Part(rest, 0)));
                 AddKind("Costume");
             }
-            else if (l.StartsWith("power_")) { AddHero(Hero(Part(l, 1))); AddKind("Power icons"); }
-            else if (l.StartsWith("teamup_")) { AddHero(Hero(Part(l, 1))); AddKind("Team-up"); }
+            else if (l.StartsWith("power_")) { AddHero(Hero(Part(l, 1))); AddKind("Power Icons"); }
+            else if (l.StartsWith("teamup_")) { AddHero(Hero(Part(l, 1))); AddKind("Team-Up"); }
             else if (l.StartsWith("store_") || l.StartsWith("herohor_"))
             {
                 string p1 = Part(l, 1);

@@ -156,6 +156,45 @@ static class Ui
         return f.ShowDialog(owner) == DialogResult.OK && !string.IsNullOrWhiteSpace(box.Text) ? box.Text.Trim() : null;
     }
 
+    // Microsoft-style Title Case: articles, conjunctions and prepositions of four letters or fewer stay lower case,
+    // except as the first word of the text or after ":" / "·" / "(" / "—".
+    static readonly HashSet<string> MinorWords = new(StringComparer.OrdinalIgnoreCase)
+    { "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at", "by", "in", "of", "on", "per", "to", "via", "from", "into", "onto", "with", "over", "than", "like" };   // not "off" / "up": Turn Off, Set Up
+
+    /// <summary>
+    /// Title Case for labels and status lines (Kurt: every UI text in Title Case). Text in double quotes (mod and
+    /// tag names) is left as it is, and so is the rest of each word (MHModManager, PC, .dds stay).
+    /// </summary>
+    public static string TitleCase(string text)
+    {
+        var sb = new System.Text.StringBuilder(text.Length);
+        bool quoted = false, start = true;
+        int i = 0;
+        while (i < text.Length)
+        {
+            char c = text[i];
+            if (c == '"') { quoted = !quoted; sb.Append(c); i++; continue; }
+            if (!quoted && char.IsLetter(c))
+            {
+                int j = i;
+                while (j < text.Length && (char.IsLetterOrDigit(text[j]) || text[j] == '\'' || text[j] == '’')) j++;
+                string word = text[i..j];
+                bool afterDot = i > 0 && text[i - 1] == '.';   // .dds, .png, file extensions
+                bool plural = word == "s" && i > 0 && text[i - 1] == '(';   // file(s), mod(s)
+                bool minor = MinorWords.Contains(word) && !start;
+                sb.Append(afterDot || minor || plural ? word : char.ToUpperInvariant(word[0]) + word[1..]);
+                start = false;
+                i = j;
+                continue;
+            }
+            if (!quoted && (c == ':' || c == '·' || c == '(' || c == '—')) start = true;
+            else if (!quoted && !char.IsWhiteSpace(c) && c != '-' && c != '●') start = start && (c == ' ');
+            sb.Append(c);
+            i++;
+        }
+        return sb.ToString();
+    }
+
     /// <summary>A small preview of a .dds (null if it can't be read).</summary>
     public static Image? DdsThumb(string path, int size)
     {
@@ -191,7 +230,7 @@ static class Ui
         m.Manifest.UpkReplacements.Count + m.Manifest.Replacements.Count + m.Manifest.AchievementReplacements.Count + m.Manifest.StoreReplacements.Count + m.Manifest.Extra.Count() + m.Strings.Count + m.Manifest.AudioPacks.Count;
 
     public static string CountText(Mod m) =>
-        Badges(m) is [("Packages", _)] ? $"{m.Manifest.UpkReplacements.Count} package(s)" : $"{Modifications(m)} modification(s)";
+        Badges(m) is [("Packages", _)] ? $"{m.Manifest.UpkReplacements.Count} Package(s)" : $"{Modifications(m)} Modification(s)";
 
     public static GraphicsPath Round(RectangleF r, float radius)
     {
@@ -239,13 +278,24 @@ static class Ui
             float w = size.Width * 0.9f, x = (b.Width - w) / 2f;
             float glyphTop = (b.Height - size.Height) / 2f + size.Height * 0.22f, glyphBottom = (b.Height + size.Height) / 2f - size.Height * 0.2f;
             float y = top ? glyphTop - 2.5f * s : glyphBottom + 1f * s;
-            using var brush = new SolidBrush(b.Enabled ? b.ForeColor : SystemColors.GrayText);
+            using var brush = new SolidBrush(b.Enabled ? b.ForeColor : Ui.DisabledText);
             e.Graphics.FillRectangle(brush, x, y, w, Math.Max(1.5f, 1.6f * s));
         };
     }
 
+    /// <summary>Text of a disabled button (Kurt: medium grey, not the near-black Windows draws on our dark buttons).</summary>
+    public static readonly Color DisabledText = Color.FromArgb(128, 128, 136);
+
     static Button Style(Button b, Action onClick, bool accent)
     {
+        b.Paint += (_, e) =>
+        {
+            if (b.Enabled) return;
+            var r = b.ClientRectangle;
+            using (var bg = new SolidBrush(b.BackColor)) e.Graphics.FillRectangle(bg, Rectangle.Inflate(r, -1, -1));
+            TextRenderer.DrawText(e.Graphics, b.Text, b.Font, r, DisabledText,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
+        };
         b.Click += (_, _) => onClick();
         b.Tag = accent ? "accent" : "flat";
         b.FlatStyle = FlatStyle.Flat;
@@ -578,7 +628,7 @@ sealed class ModListBox : ListBox
 
         // Second row: author and tag chips on the left, state and count on the right.
         var second = new Rectangle(textLeft, card.Y + (int)(25 * S), card.Right - pad - textLeft, (int)(16 * S));
-        string state = broken ? "Missing files" : m.Enabled ? "Enabled" : "Disabled";
+        string state = broken ? "Missing Files" : m.Enabled ? "Enabled" : "Disabled";
         string count = "  ·  " + Ui.CountText(m);
         var countSize = TextRenderer.MeasureText(g, count, smallFont, Size.Empty, TextFormatFlags.NoPadding);
         var stateSize = TextRenderer.MeasureText(g, state, smallFont, Size.Empty, TextFormatFlags.NoPadding);
@@ -788,7 +838,7 @@ sealed class StorePreview : Control
             }
             else
             {
-                string text = mod == null ? "" : items.Count == 0 ? "No store image\nin this mod" : "Loading…";
+                string text = mod == null ? "" : items.Count == 0 ? "No Store Image\nin This Mod" : "Loading…";
                 TextRenderer.DrawText(g, text, smallFont, card, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.WordBreak);
             }
         }
@@ -968,7 +1018,7 @@ sealed class DetailsHeader : Control
         TextRenderer.DrawText(g, m.Name, title, new Rectangle(x, (int)(8 * S), Math.Min(ts.Width, maxName), ts.Height), Ui.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         if (!string.IsNullOrEmpty(m.Manifest.Version))
             TextRenderer.DrawText(g, m.Manifest.Version, version, new Point(x + Math.Min(ts.Width, maxName) + (int)(4 * S), (int)(8 * S) + ts.Height - TextRenderer.MeasureText(m.Manifest.Version, version).Height - (int)(2 * S)), Ui.Subtle, TextFormatFlags.NoPrefix);
-        string line = (string.IsNullOrEmpty(m.Manifest.Author) ? "" : $"by {m.Manifest.Author}   ") + Ui.CountText(m) + (m.Enabled ? "" : "   ·   turned off");
+        string line = (string.IsNullOrEmpty(m.Manifest.Author) ? "" : $"by {m.Manifest.Author}   ") + Ui.CountText(m) + (m.Enabled ? "" : "   ·   Turned Off");
         var byPos = new Point(x, (int)(8 * S) + ts.Height + (int)(2 * S));
         TextRenderer.DrawText(g, line, by, byPos, Ui.Subtle, TextFormatFlags.NoPrefix);
 

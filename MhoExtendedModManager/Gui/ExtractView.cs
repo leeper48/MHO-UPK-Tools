@@ -88,7 +88,7 @@ sealed class ExtractView : UserControl
         kind.SelectedIndex = 0;
         foreach (string l in catalog.Languages()) lang.Items.Add(l);
         lang.SelectedItem = lang.Items.Contains("eng") ? "eng" : lang.Items.Count > 0 ? lang.Items[0] : null;
-        status.Text = "Nothing is written to the game folder here.";
+        status.Text = "Nothing Is Written to the Game Folder Here";
     }
 
     void Filter()
@@ -120,7 +120,7 @@ sealed class ExtractView : UserControl
             using var d = new SaveFileDialog { Title = "Save Original", Filter = ext == ".png" ? "PNG image (*.png)|*.png" : "DDS texture (*.dds)|*.dds", FileName = sel[0].Name + ext };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string? why = catalog.ExportImage(Pkg(sel[0]), sel[0].Name, d.FileName);
-            status.Text = why == null ? $"Saved {d.FileName}" : $"Not saved: {why}";
+            status.Text = why == null ? $"Saved {d.FileName}" : $"Not Saved: {why}";
             return;
         }
         using (var d = new FolderBrowserDialog { Description = $"Folder for {sel.Count} textures", UseDescriptionForTitle = true })
@@ -142,6 +142,6 @@ sealed class ExtractView : UserControl
         UseWaitCursor = true; status.Text = "Saving…";
         int n = await Task.Run(() => catalog.ExportStrings(l, d.FileName));
         UseWaitCursor = false;
-        status.Text = $"Saved {n:N0} {l} strings to {d.FileName}";
+        status.Text = $"Saved {n:N0} {l} Strings to {d.FileName}";
     }
 }
