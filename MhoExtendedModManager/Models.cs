@@ -41,6 +41,10 @@ sealed class ModManifest
     /// <summary>Extension; null (and left out of the file) when unused, so legacy manifests re-save byte-identical.</summary>
     public List<ExtraIconReplacement>? ExtraIconReplacements { get; set; }
     [System.Text.Json.Serialization.JsonIgnore] public IEnumerable<ExtraIconReplacement> Extra => ExtraIconReplacements ?? [];
+    /// <summary>Extension: the mod's own tags (set in the editor; they travel with the mod). Null when none.</summary>
+    public List<string>? Tags { get; set; }
+    /// <summary>Extension: the mod's note (shown under the store image; travels with the mod). Null when none.</summary>
+    public string? Notes { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }
@@ -66,6 +70,38 @@ sealed class ModState
     /// Null when there are none, so a state.json without locks stays in the old manager's form.</summary>
     public List<string>? LockedTop { get; set; }
     public List<string>? LockedBottom { get; set; }
+    /// <summary>Extension: the user's tags per mod folder (for search, sort and group). Null when no mod has tags.</summary>
+    public Dictionary<string, List<string>>? Tags { get; set; }
+    /// <summary>Extension: automatic or mod tags the user took off a mod on this PC.</summary>
+    public Dictionary<string, List<string>>? HiddenTags { get; set; }
+    /// <summary>Extension: the user's own note per mod (replaces the mod's note on this PC).</summary>
+    public Dictionary<string, string>? Notes { get; set; }
+
+    /// <summary>A mod folder was renamed (editor): its lock and tags follow it.</summary>
+    public void RenameMod(string from, string to)
+    {
+        foreach (var l in new[] { LockedTop, LockedBottom })
+            if (l != null) for (int i = 0; i < l.Count; i++) if (l[i].Equals(from, StringComparison.OrdinalIgnoreCase)) l[i] = to;
+        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to);
+    }
+
+    static void Move<T>(Dictionary<string, T>? d, string from, string to)
+    {
+        if (d != null && d.Keys.FirstOrDefault(k => k.Equals(from, StringComparison.OrdinalIgnoreCase)) is string key) { var v = d[key]; d.Remove(key); d[to] = v; }
+    }
+
+    static void Drop<T>(Dictionary<string, T>? d, string name)
+    {
+        if (d != null && d.Keys.FirstOrDefault(k => k.Equals(name, StringComparison.OrdinalIgnoreCase)) is string key) d.Remove(key);
+    }
+
+    /// <summary>A mod was removed: drop its lock and tags.</summary>
+    public void ForgetMod(string name)
+    {
+        LockedTop?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+        LockedBottom?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
+        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name);
+    }
 
     /// <summary>
     /// ModOrder with the locks applied: top-locked mods first, bottom-locked last, the rest between in their given order.
@@ -103,6 +139,28 @@ sealed class Mod
     public bool Enabled { get; set; }
     public int Priority { get; set; }
     public ModLock Lock { get; set; }
+    /// <summary>The user's own tags (state.json, this PC only).</summary>
+    public List<string> UserTags { get; set; } = [];
+    /// <summary>Automatic or mod tags the user took off this mod (state.json).</summary>
+    public List<string> HiddenTags { get; set; } = [];
+    List<string>? auto;
+    /// <summary>Tags worked out from the content (characters, teams, costume, powers …; AutoTags).</summary>
+    public List<string> AutoTags => auto ??= MhoExtendedModManager.AutoTags.For(Manifest);
+    public List<string> ModTags => Manifest.Tags ?? [];
+
+    /// <summary>Every tag the mod shows: automatic, the mod's own and the user's, minus the ones the user took off.</summary>
+    public List<string> Tags =>
+        AutoTags.Concat(ModTags).Concat(UserTags).Where(t => !string.IsNullOrWhiteSpace(t) && !HiddenTags.Contains(t, StringComparer.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    public enum TagKind { Auto, Mod, User }
+    /// <summary>Where a tag comes from: the user (theirs), the mod (its author), or worked out automatically.</summary>
+    public TagKind KindOf(string tag) =>
+        UserTags.Contains(tag, StringComparer.OrdinalIgnoreCase) ? TagKind.User : ModTags.Contains(tag, StringComparer.OrdinalIgnoreCase) ? TagKind.Mod : TagKind.Auto;
+
+    /// <summary>The user's own note (state.json); null = the mod's note is shown.</summary>
+    public string? LocalNote { get; set; }
+    public string Note => LocalNote ?? Manifest.Notes ?? "";
     public List<StringReplacement> Strings { get; } = [];
 
     public string Name => string.IsNullOrWhiteSpace(Manifest.Name) ? FolderName : Manifest.Name;

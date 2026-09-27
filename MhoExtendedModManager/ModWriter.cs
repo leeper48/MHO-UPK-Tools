@@ -18,6 +18,9 @@ sealed class ModDraft
     public List<string> SoundPacks = [];
     /// <summary>Extension: textures in other icon packages (package file, texture, .dds source).</summary>
     public List<(string Package, string Texture, string Source)> Extra = [];
+    /// <summary>Extension: the mod's own tags and note (they travel with the mod).</summary>
+    public List<string> Tags = [];
+    public string Notes = "";
 
     public static ModDraft From(Mod m)
     {
@@ -28,6 +31,8 @@ sealed class ModDraft
         d.Strings = [.. m.Strings];
         d.SoundPacks = m.Manifest.AudioPacks.Select(f => Path.Combine(m.Folder, f)).ToList();
         d.Extra = m.Manifest.Extra.Select(r => (r.Package, r.TextureName, Path.Combine(m.Folder, r.DdsFileName))).ToList();
+        d.Tags = [.. m.ModTags];
+        d.Notes = m.Manifest.Notes ?? "";
         return d;
     }
 
@@ -86,6 +91,9 @@ static class ModWriter
 
             // Empty author / version are left out, as in MHModManager's manifests.
             var manifest = new ModManifest { Name = d.Name.Trim(), Author = NullIfEmpty(d.Author), Version = NullIfEmpty(d.Version) };
+            var tags = d.Tags.Select(t => t.Trim()).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            manifest.Tags = tags.Count > 0 ? tags : null;
+            manifest.Notes = string.IsNullOrWhiteSpace(d.Notes) ? null : d.Notes.Trim().Replace("\r\n", "\n");
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };
             for (int k = 0; k < lists.Length; k++)
@@ -159,6 +167,7 @@ static class ModWriter
         {
             st.ModOrder = lib.Mods.OrderBy(m => m.Priority).Select(m => m == editing ? name : m.FolderName).ToList();
             st.EnabledMods = lib.Mods.Where(m => m.Enabled).OrderBy(m => m.Priority).Select(m => m == editing ? name : m.FolderName).ToList();
+            if (!name.Equals(editing.FolderName, StringComparison.OrdinalIgnoreCase)) st.RenameMod(editing.FolderName, name);   // lock and tags follow a rename
         }
         st.ApplyLocks();   // locked mods keep their place at the top / bottom
         File.WriteAllText(Path.Combine(lib.DataFolder, "state.json"), JsonSerializer.Serialize(st, ModManifest.Json));

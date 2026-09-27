@@ -49,6 +49,100 @@ static class Ui
         g.FillRectangle(brush, area);
     }
 
+    /// <summary>
+    /// A dark tooltip (owner-drawn: the system one is a pale yellow box). <paramref name="text"/> supplies the text for
+    /// tips shown with Show() (the mod list); otherwise the SetToolTip text is used.
+    /// </summary>
+    public static ToolTip NewTips(Func<string?>? text = null)
+    {
+        var tip = new ToolTip { OwnerDraw = true, InitialDelay = 450, ReshowDelay = 150, AutoPopDelay = 20000, ShowAlways = true };
+        const TextFormatFlags flags = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
+        static (int Pad, int Max) Metrics(Control? c) { float s = (c?.DeviceDpi ?? 96) / 96f; return ((int)(7 * s), (int)(380 * s)); }
+        tip.Popup += (_, e) =>
+        {
+            string t = text?.Invoke() ?? (e.AssociatedControl != null ? tip.GetToolTip(e.AssociatedControl) ?? "" : "");
+            var (pad, max) = Metrics(e.AssociatedControl);
+            var size = TextRenderer.MeasureText(t, TipFont, new Size(max, 0), flags);
+            e.ToolTipSize = new Size(size.Width + 2 * pad, size.Height + 2 * pad);
+        };
+        tip.Draw += (_, e) =>
+        {
+            var (pad, _) = Metrics(e.AssociatedControl);
+            using (var bg = new SolidBrush(Color.FromArgb(34, 36, 46))) e.Graphics.FillRectangle(bg, e.Bounds);
+            using (var pen = new Pen(Color.FromArgb(108, 99, 255))) e.Graphics.DrawRectangle(pen, e.Bounds.X, e.Bounds.Y, e.Bounds.Width - 1, e.Bounds.Height - 1);
+            TextRenderer.DrawText(e.Graphics, e.ToolTipText, TipFont, Rectangle.Inflate(e.Bounds, -pad, -pad), Text, flags);
+        };
+        return tip;
+    }
+    static readonly Font TipFont = Regular(9f);
+
+    /// <summary>A tag's colour: a hue from its name (the same tag always gets the same colour), light enough for dark text.</summary>
+    public static Color TagColor(string tag)
+    {
+        uint h = 2166136261;
+        foreach (char c in tag.ToLowerInvariant()) h = (h ^ c) * 16777619;
+        double hue = h % 360 / 360.0, sat = 0.55, lig = 0.66;
+        double q = lig + sat - lig * sat, p = 2 * lig - q;
+        double Ch(double t) { t = t < 0 ? t + 1 : t > 1 ? t - 1 : t; return t < 1 / 6.0 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2 / 3.0 ? p + (q - p) * (2 / 3.0 - t) * 6 : p; }
+        return Color.FromArgb((int)(Ch(hue + 1 / 3.0) * 255), (int)(Ch(hue) * 255), (int)(Ch(hue - 1 / 3.0) * 255));
+    }
+
+    /// <summary>
+    /// Draws a tag chip at x, vertically centred on midY; returns its rectangle. Filled (tag colour, dark text) for the
+    /// mod's own and the user's tags; <paramref name="soft"/> (tinted, coloured text and border) for automatic tags;
+    /// <paramref name="outline"/> (subtle) for "+ Tag" / "+N".
+    /// </summary>
+    public static Rectangle DrawChip(Graphics g, string text, Font font, int x, int midY, float s, bool outline = false, bool soft = false)
+    {
+        var size = TextRenderer.MeasureText(g, text, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+        var r = new Rectangle(x, midY - (size.Height + (int)(3 * s)) / 2, size.Width + (int)(12 * s), size.Height + (int)(3 * s));
+        var color = TagColor(text);
+        using (var path = Round(r, r.Height / 2f))
+        {
+            if (outline) { using var pen = new Pen(Subtle, Math.Max(1f, 1f * s)); g.DrawPath(pen, path); }
+            else if (soft)
+            {
+                using var f = new SolidBrush(Color.FromArgb(45, color)); g.FillPath(f, path);
+                using var pen = new Pen(Color.FromArgb(150, color), Math.Max(1f, 1f * s)); g.DrawPath(pen, path);
+            }
+            else { using var f = new SolidBrush(color); g.FillPath(f, path); }
+        }
+        TextRenderer.DrawText(g, text, font, r, outline ? Subtle : soft ? color : OnColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
+        return r;
+    }
+
+    /// <summary>"automatic", "from the mod" or "yours", for tooltips.</summary>
+    public static string TagSource(Mod m, string tag) => m.KindOf(tag) switch { Mod.TagKind.User => "yours", Mod.TagKind.Mod => "from the mod", _ => "automatic" };
+
+    public static int ChipWidth(Graphics g, string text, Font font, float s) =>
+        TextRenderer.MeasureText(g, text, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + (int)(12 * s);
+
+    /// <summary>A one-line text prompt in the dark theme (with suggestions); null when cancelled or empty.</summary>
+    public static string? Prompt(IWin32Window owner, string title, string label, string initial = "", IEnumerable<string>? suggestions = null)
+    {
+        using var f = new Form { Text = title, FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false,
+                                 StartPosition = FormStartPosition.CenterParent, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Font = Regular(9.5f), Padding = new Padding(12) };
+        var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill };
+        t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
+        var box = new TextBox { Text = initial, Width = (int)(320 * f.DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 10) };
+        if (suggestions != null)
+        {
+            box.AutoCompleteMode = AutoCompleteMode.SuggestAppend; box.AutoCompleteSource = AutoCompleteSource.CustomSource;
+            box.AutoCompleteCustomSource.AddRange(suggestions.ToArray());
+        }
+        t.Controls.Add(box);
+        var buttons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0) };
+        var ok = AccentButton("OK", () => f.DialogResult = DialogResult.OK); var cancel = FlatButton("Cancel", () => f.DialogResult = DialogResult.Cancel);
+        buttons.Controls.AddRange([cancel, ok]);
+        t.Controls.Add(buttons);
+        f.Controls.Add(t);
+        f.AcceptButton = ok; f.CancelButton = cancel;
+        MhoPackageModifier.Gui.Theme.Apply(f, MhoPackageModifier.Gui.Palette.Dark);
+        RestyleButtons(f);
+        box.SelectAll();
+        return f.ShowDialog(owner) == DialogResult.OK && !string.IsNullOrWhiteSpace(box.Text) ? box.Text.Trim() : null;
+    }
+
     /// <summary>A small preview of a .dds (null if it can't be read).</summary>
     public static Image? DdsThumb(string path, int size)
     {
@@ -269,32 +363,67 @@ static class Ui
     }
 }
 
-/// <summary>The mod list as cards: name, author, category badges, a checkbox (enable), status and change count.</summary>
+/// <summary>A group header in the mod list (grouped by tag or author); click to fold it.</summary>
+sealed class ModGroup(string key, string name, int count, bool collapsed)
+{
+    public string Key { get; } = key;
+    public string Name { get; } = name;
+    public int Count { get; } = count;
+    public bool Collapsed { get; } = collapsed;
+}
+
+/// <summary>
+/// The mod list as cards: costume icon, name, author and tag chips, category badges, a checkbox (enable), a padlock,
+/// status and change count. Items are Mods, or ModGroup headers when the list is grouped. Hovering a part of a card
+/// shows what it does (dark tooltip, after a short pause).
+/// </summary>
 sealed class ModListBox : ListBox
 {
     public HashSet<Mod> Conflicted { get; set; } = [];
     public event Action<Mod>? CheckClicked;
     /// <summary>Padlock clicked (a locked mod, or one that can be locked where it is).</summary>
     public event Action<Mod>? LockClicked;
+    public event Action<ModGroup>? GroupClicked;
+    public event Action<string>? TagClicked;
+    /// <summary>Right-click on a card (already selected), at a screen point.</summary>
+    public event Action<Mod, Point>? MenuRequested;
     /// <summary>What a padlock click would lock the mod to (ModLibrary.CanLock); None hides the padlock of an unlocked mod.</summary>
     public Func<Mod, ModLock>? CanLock { get; set; }
     int hover = -1;
-    readonly Font nameFont = Ui.Bold(10f), smallFont = Ui.Regular(8.25f), badgeFont = Ui.Heavy(7.5f), initialFont = Ui.Bold(14f);
+    readonly Font nameFont = Ui.Bold(10f), smallFont = Ui.Regular(8.25f), badgeFont = Ui.Heavy(7.5f), initialFont = Ui.Bold(14f), chipFont = Ui.Heavy(7.25f), groupFont = Ui.Bold(8.75f);
     // Costume icons (first costume… replacement of each mod), decoded in the background. Key: .dds path + write time,
     // so an edited mod shows its new icon. A null value = no icon / unreadable / still loading.
     readonly Dictionary<string, Image?> icons = new(StringComparer.OrdinalIgnoreCase);
+    // Where each card's badges and tag chips were drawn (item index), for the tooltips and chip clicks.
+    readonly Dictionary<int, (Rectangle Badges, List<(Rectangle Rect, string Tag)> Chips)> regions = [];
+    readonly ToolTip tips;
+    readonly System.Windows.Forms.Timer tipTimer = new() { Interval = 450 };
+    string? tipText;
+    bool tipShown;
 
     public ModListBox()
     {
-        DrawMode = DrawMode.OwnerDrawFixed;
+        DrawMode = DrawMode.OwnerDrawVariable;
         BorderStyle = BorderStyle.None;
         IntegralHeight = false;
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        tips = Ui.NewTips(() => tipText);
+        tipTimer.Tick += (_, _) =>
+        {
+            tipTimer.Stop();
+            if (tipText == null || !IsHandleCreated) return;
+            var p = PointToClient(MousePosition);
+            tips.Show(tipText, this, p.X + (int)(14 * S), p.Y + (int)(20 * S), 15000);
+            tipShown = true;
+        };
     }
 
     float S => DeviceDpi / 96f;
 
-    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); ItemHeight = Math.Min(255, (int)(50 * S)); }
+    protected override void OnMeasureItem(MeasureItemEventArgs e)
+    {
+        e.ItemHeight = Math.Min(255, (int)((e.Index >= 0 && e.Index < Items.Count && Items[e.Index] is ModGroup ? 30 : 50) * S));
+    }
 
     // Cards are laid out from the right edge (badges, checkbox): a width change must repaint every card, not just the
     // newly exposed strip, or the old badges stay behind (Kurt, 2026-09-27: "it repeats the status icons").
@@ -342,15 +471,42 @@ sealed class ModListBox : ListBox
         g.FillEllipse(hole, body.X + body.Width / 2 - k / 2, body.Y + body.Height * 0.3f, k, k);
     }
 
+    void DrawGroup(Graphics g, ModGroup grp, Rectangle b)
+    {
+        int x = b.X + (int)(8 * S), mid = b.Y + b.Height / 2 + (int)(2 * S);
+        // Chevron: pointing right when folded, down when open.
+        float c = 4.5f * S;
+        using (var br = new SolidBrush(Ui.Subtle))
+            g.FillPolygon(br, grp.Collapsed
+                ? [new PointF(x, mid - c), new PointF(x + c * 1.3f, mid), new PointF(x, mid + c)]
+                : [new PointF(x - c * 0.2f, mid - c * 0.6f), new PointF(x + c * 1.5f, mid - c * 0.6f), new PointF(x + c * 0.65f, mid + c * 0.7f)]);
+        x += (int)(14 * S);
+        var r = grp.Key.StartsWith("tag:") && grp.Name != "Untagged" ? Ui.DrawChip(g, grp.Name, chipFont, x, mid, S) : Rectangle.Empty;
+        if (r.IsEmpty)
+        {
+            string label = grp.Name.ToUpperInvariant();
+            var sz = TextRenderer.MeasureText(g, label, groupFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(g, label, groupFont, new Point(x, mid - sz.Height / 2), Ui.Subtle, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            r = new Rectangle(x, mid - sz.Height / 2, sz.Width, sz.Height);
+        }
+        string count = grp.Count.ToString();
+        var cs = TextRenderer.MeasureText(g, count, smallFont, Size.Empty, TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, count, smallFont, new Point(r.Right + (int)(8 * S), mid - cs.Height / 2), Ui.Subtle, TextFormatFlags.NoPadding);
+        using var pen = new Pen(Color.FromArgb(50, 255, 255, 255));
+        int lx = r.Right + cs.Width + (int)(16 * S);
+        if (lx < b.Right - (int)(8 * S)) g.DrawLine(pen, lx, mid, b.Right - (int)(8 * S), mid);
+    }
+
     protected override void OnDrawItem(DrawItemEventArgs e)
     {
         if (e.Index < 0 || e.Index >= Items.Count) return;
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        var m = (Mod)Items[e.Index];
         var b = e.Bounds;
-        bool sel = (e.State & DrawItemState.Selected) != 0;
         Ui.PaintGradient(g, this, b);
+        if (Items[e.Index] is ModGroup grp) { DrawGroup(g, grp, b); return; }
+        var m = (Mod)Items[e.Index];
+        bool sel = (e.State & DrawItemState.Selected) != 0;
         var card = new Rectangle(b.X + (int)(4 * S), b.Y + (int)(2 * S), b.Width - (int)(8 * S), b.Height - (int)(4 * S));
         using (var path = Ui.Round(card, 4 * S))
         using (var fill = new SolidBrush(sel ? Ui.CardSelected : e.Index == hover ? Ui.CardHover : Ui.Card))
@@ -406,15 +562,36 @@ sealed class ModListBox : ListBox
 
         var nameRect = new Rectangle(textLeft, card.Y + (int)(5 * S), badgesLeft - textLeft, (int)(20 * S));
         TextRenderer.DrawText(g, m.Name, nameFont, nameRect, m.Enabled ? Ui.Text : Color.FromArgb(200, 200, 205), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+
+        // Second row: author and tag chips on the left, state and count on the right.
         var second = new Rectangle(textLeft, card.Y + (int)(25 * S), card.Right - pad - textLeft, (int)(16 * S));
-        TextRenderer.DrawText(g, m.Manifest.Author ?? "", smallFont, second, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         string state = broken ? "Missing files" : m.Enabled ? "Enabled" : "Disabled";
         string count = "  ·  " + Ui.CountText(m);
         var countSize = TextRenderer.MeasureText(g, count, smallFont, Size.Empty, TextFormatFlags.NoPadding);
         var stateSize = TextRenderer.MeasureText(g, state, smallFont, Size.Empty, TextFormatFlags.NoPadding);
         int right = check.Left - (int)(8 * S);
+        int stateLeft = right - countSize.Width - stateSize.Width;
+        string author = m.Manifest.Author ?? "";
+        int authorW = author.Length == 0 ? 0 : Math.Min(TextRenderer.MeasureText(g, author, smallFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width, Math.Max(0, stateLeft - textLeft - (int)(8 * S)));
+        TextRenderer.DrawText(g, author, smallFont, new Rectangle(second.X, second.Y, authorW + 1, second.Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
+        var chips = new List<(Rectangle, string)>();
+        int cx = textLeft + authorW + (authorW > 0 ? (int)(8 * S) : 0), mid = second.Y + second.Height / 2;
+        int limit = stateLeft - (int)(8 * S);
+        foreach (string tag in m.Tags)
+        {
+            int w = Ui.ChipWidth(g, tag, chipFont, S);
+            if (cx + w > limit)
+            {
+                string more = $"+{m.Tags.Count - chips.Count}";
+                if (cx + Ui.ChipWidth(g, more, chipFont, S) <= limit) Ui.DrawChip(g, more, chipFont, cx, mid, S, outline: true);
+                break;
+            }
+            chips.Add((Ui.DrawChip(g, tag, chipFont, cx, mid, S, soft: m.KindOf(tag) == Mod.TagKind.Auto), tag));
+            cx += w + (int)(4 * S);
+        }
+        regions[e.Index] = (new Rectangle(badgesLeft, check.Top - (int)(2 * S), check.Left - badgesLeft, check.Height + (int)(4 * S)), chips);
         TextRenderer.DrawText(g, count, smallFont, new Point(right - countSize.Width, second.Y + (second.Height - countSize.Height) / 2), Ui.Subtle, TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(g, state, smallFont, new Point(right - countSize.Width - stateSize.Width, second.Y + (second.Height - stateSize.Height) / 2),
+        TextRenderer.DrawText(g, state, smallFont, new Point(stateLeft, second.Y + (second.Height - stateSize.Height) / 2),
             broken ? Ui.Warn : m.Enabled ? Ui.Enabled : Ui.Subtle, TextFormatFlags.NoPadding);
     }
 
@@ -437,21 +614,55 @@ sealed class ModListBox : ListBox
         return null;
     }
 
+    /// <summary>What the part of the list under the mouse does (the tooltip text), or null.</summary>
+    string? TipAt(Point p)
+    {
+        int i = IndexFromPoint(p);
+        if (i < 0 || i >= Items.Count || !GetItemRectangle(i).Contains(p)) return null;
+        var b = GetItemRectangle(i);
+        if (Items[i] is ModGroup grp) return $"{grp.Name}: {grp.Count} mod(s). Click to {(grp.Collapsed ? "open" : "fold")} the group.";
+        var m = (Mod)Items[i];
+        if (CheckRect(b).Contains(p)) return m.Enabled ? "On. Click to turn it off, then Apply Changes." : "Off. Click to turn it on, then Apply Changes.";
+        if (LockRect(b).Contains(p))
+            return m.Lock != ModLock.None ? $"Locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: it keeps its place, and new or moved mods can't pass it. Click to unlock."
+                 : LockOffer(m) is var l && l != ModLock.None ? $"Click to lock it at the {(l == ModLock.Top ? "top" : "bottom")}: it keeps its place, and new or moved mods can't pass it."
+                 : null;
+        if (regions.TryGetValue(i, out var r))
+        {
+            foreach (var (rect, tag) in r.Chips) if (rect.Contains(p)) return $"Tag \"{tag}\" ({Ui.TagSource(m, tag)}). Click to show only mods with this tag.";
+            if (r.Badges.Contains(p))
+                return "Changes: " + m.Summary() + (Conflicted.Contains(m) ? ".\n! Some of them are also changed by another enabled mod: the one higher in the list wins (see Conflicts)." : ".");
+        }
+        return $"{m.Name}\n{m.Summary()}\nDouble-click to edit. Right-click for tags and more.";
+    }
+
+    /// <summary>Test hook: the centre of item <paramref name="i"/>'s padlock or checkbox (client coordinates).</summary>
+    public Point PartCentre(int i, bool padlock)
+    {
+        var r = padlock ? LockRect(GetItemRectangle(i)) : CheckRect(GetItemRectangle(i));
+        return new Point(r.X + r.Width / 2, r.Y + r.Height / 2);
+    }
+
     protected override void OnMouseDown(MouseEventArgs e)
     {
+        HideTip();
         int i = IndexFromPoint(e.Location);
-        if (e.Button == MouseButtons.Left && i >= 0 && i < Items.Count && CheckRect(GetItemRectangle(i)).Contains(e.Location))
+        if (i < 0 || i >= Items.Count || !GetItemRectangle(i).Contains(e.Location)) { base.OnMouseDown(e); return; }
+        var b = GetItemRectangle(i);
+        if (Items[i] is ModGroup grp) { if (e.Button == MouseButtons.Left) GroupClicked?.Invoke(grp); return; }
+        var m = (Mod)Items[i];
+        if (e.Button == MouseButtons.Right)
         {
             SelectedIndex = i;
-            CheckClicked?.Invoke((Mod)Items[i]);
+            MenuRequested?.Invoke(m, PointToScreen(e.Location));
             return;
         }
-        if (e.Button == MouseButtons.Left && i >= 0 && i < Items.Count && LockRect(GetItemRectangle(i)).Contains(e.Location) && LockOffer((Mod)Items[i]) != ModLock.None)
-        {
-            SelectedIndex = i;
-            LockClicked?.Invoke((Mod)Items[i]);
-            return;
-        }
+        if (e.Button != MouseButtons.Left) { base.OnMouseDown(e); return; }
+        if (CheckRect(b).Contains(e.Location)) { SelectedIndex = i; CheckClicked?.Invoke(m); return; }
+        if (LockRect(b).Contains(e.Location) && LockOffer(m) != ModLock.None) { SelectedIndex = i; LockClicked?.Invoke(m); return; }
+        if (regions.TryGetValue(i, out var r))
+            foreach (var (rect, tag) in r.Chips)
+                if (rect.Contains(e.Location)) { TagClicked?.Invoke(tag); return; }
         base.OnMouseDown(e);
     }
 
@@ -459,16 +670,23 @@ sealed class ModListBox : ListBox
     {
         base.OnMouseMove(e);
         int i = IndexFromPoint(e.Location);
+        if (i >= 0 && (i >= Items.Count || !GetItemRectangle(i).Contains(e.Location))) i = -1;
         if (i != hover) { int old = hover; hover = i; if (old >= 0 && old < Items.Count) Invalidate(GetItemRectangle(old)); if (i >= 0 && i < Items.Count) Invalidate(GetItemRectangle(i)); }
+        string? t = TipAt(e.Location);
+        if (t != tipText) { HideTip(); tipText = t; if (t != null) tipTimer.Start(); }
     }
 
-    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (hover >= 0 && hover < Items.Count) Invalidate(GetItemRectangle(hover)); hover = -1; }
+    void HideTip() { tipTimer.Stop(); if (tipShown) { tips.Hide(this); tipShown = false; } }
+
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); HideTip(); tipText = null; if (hover >= 0 && hover < Items.Count) Invalidate(GetItemRectangle(hover)); hover = -1; }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.KeyCode == Keys.Space && SelectedItem is Mod m) { CheckClicked?.Invoke(m); e.Handled = true; return; }
         base.OnKeyDown(e);
     }
+
+    protected override void Dispose(bool disposing) { if (disposing) { tipTimer.Dispose(); tips.Dispose(); } base.Dispose(disposing); }
 }
 
 /// <summary>The middle column of the Mods page: the selected mod's store image(s) (StoreReplacements, 300×420 in the
@@ -643,7 +861,17 @@ sealed class FlatTabs : UserControl
         strip.Paint += (_, e) => { using var pen = new Pen(Color.FromArgb(60, 255, 255, 255)); e.Graphics.DrawLine(pen, 0, strip.Height - 1, strip.Width, strip.Height - 1); };
     }
 
-    public void Clear() { strip.Controls.Clear(); body.Controls.Clear(); tabs.Clear(); SelectedIndex = -1; }
+    /// <summary>
+    /// Removes and disposes every tab and page. A removed control that isn't disposed keeps its window, and once the
+    /// garbage collector takes the .NET side, the next message to that window kills the process ("callback was made on a
+    /// garbage collected delegate": Kurt's padlock-click crash in 0.17.0, reproduced by --ui-selftest).
+    /// </summary>
+    public void Clear()
+    {
+        var old = strip.Controls.Cast<Control>().Concat(body.Controls.Cast<Control>()).ToList();
+        strip.Controls.Clear(); body.Controls.Clear(); tabs.Clear(); SelectedIndex = -1;
+        foreach (var c in old) c.Dispose();
+    }
 
     public void Add(string title, Control page)
     {
@@ -683,7 +911,10 @@ sealed class DetailsHeader : Control
     public Mod? Mod { get; set; }
     public bool Conflicted { get; set; }
     public event Action? PillClicked;
-    Rectangle pill;
+    /// <summary>A tag chip or "+ Tag" clicked, at a screen point (opens the tags menu).</summary>
+    public event Action<Point>? TagsClicked;
+    Rectangle pill, tagArea;
+    readonly Font chipFont = Ui.Heavy(8f);
     readonly Font title = Ui.Bold(14f), version = Ui.Regular(9.5f), by = Ui.Regular(9.5f), badge = Ui.Heavy(8.25f), pillFont = Ui.Heavy(8.5f);
 
     public DetailsHeader()
@@ -725,9 +956,30 @@ sealed class DetailsHeader : Control
         if (!string.IsNullOrEmpty(m.Manifest.Version))
             TextRenderer.DrawText(g, m.Manifest.Version, version, new Point(x + Math.Min(ts.Width, maxName) + (int)(4 * S), (int)(8 * S) + ts.Height - TextRenderer.MeasureText(m.Manifest.Version, version).Height - (int)(2 * S)), Ui.Subtle, TextFormatFlags.NoPrefix);
         string line = (string.IsNullOrEmpty(m.Manifest.Author) ? "" : $"by {m.Manifest.Author}   ") + Ui.CountText(m) + (m.Enabled ? "" : "   ·   turned off");
-        TextRenderer.DrawText(g, line, by, new Point(x, (int)(8 * S) + ts.Height + (int)(2 * S)), Ui.Subtle, TextFormatFlags.NoPrefix);
+        var byPos = new Point(x, (int)(8 * S) + ts.Height + (int)(2 * S));
+        TextRenderer.DrawText(g, line, by, byPos, Ui.Subtle, TextFormatFlags.NoPrefix);
+
+        // The mod's tags, then "+ Tag" (both open the tags menu).
+        var ls = TextRenderer.MeasureText(g, line, by, Size.Empty, TextFormatFlags.NoPrefix);
+        int cx = x + ls.Width + (int)(12 * S), mid = byPos.Y + ls.Height / 2;
+        tagArea = Rectangle.Empty;
+        for (int i = 0; i <= m.Tags.Count; i++)
+        {
+            bool add = i == m.Tags.Count;
+            string tag = add ? "+ Tag" : m.Tags[i];
+            if (cx + Ui.ChipWidth(g, tag, chipFont, S) > right) break;
+            var r = Ui.DrawChip(g, tag, chipFont, cx, mid, S, outline: add, soft: !add && m.KindOf(tag) == Mod.TagKind.Auto);
+            tagArea = tagArea.IsEmpty ? r : Rectangle.Union(tagArea, r);
+            cx = r.Right + (int)(4 * S);
+        }
     }
 
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); Cursor = pill.Contains(e.Location) && Mod != null ? Cursors.Hand : Cursors.Default; }
-    protected override void OnMouseClick(MouseEventArgs e) { base.OnMouseClick(e); if (pill.Contains(e.Location) && Mod != null) PillClicked?.Invoke(); }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); Cursor = (pill.Contains(e.Location) || tagArea.Contains(e.Location)) && Mod != null ? Cursors.Hand : Cursors.Default; }
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        if (Mod == null) return;
+        if (pill.Contains(e.Location)) PillClicked?.Invoke();
+        else if (tagArea.Contains(e.Location)) TagsClicked?.Invoke(PointToScreen(new Point(e.X, tagArea.Bottom)));
+    }
 }

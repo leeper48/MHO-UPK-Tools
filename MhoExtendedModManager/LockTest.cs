@@ -72,6 +72,87 @@ static class LockTest
             Console.WriteLine($"  {(raw == "BJINAEDFCGH" ? "ok  " : "FAIL")} {"New Mod: state.json as written" + (err != null ? " (" + err + ")" : ""),-44} {raw}");
             lib = ModLibrary.Load(data);
             Expect("New Mod: under the top lock", "[B]JINAEDFC{G}{H}");
+            // Tags and a lock follow a rename in the editor.
+            if (!Lock("J")) fails++;
+            ModLibrary.AddTag(M("J"), "costume"); ModLibrary.AddTag(M("E"), "x-men");
+            Expect("lock J under B, tags", "[B][J]INAEDFC{G}{H}");
+            var draft = ModDraft.From(M("J")); draft.Name = "J2";
+            if (ModWriter.Save(lib, draft, M("J"), out string? err2) == null) { fails++; Console.WriteLine("  FAIL rename: " + err2); }
+            lib = ModLibrary.Load(data);
+            bool renamed = lib.Find("J2") is Mod j2 && j2.Lock == ModLock.Top && j2.UserTags.SequenceEqual(["costume"]) && M("E").UserTags.SequenceEqual(["x-men"]);
+            if (!renamed) fails++;
+            Console.WriteLine($"  {(renamed ? "ok  " : "FAIL")} rename J to J2: lock and tag follow it");
+            // Export: the mod's own tags and note travel; the user's are added when asked; a legacy copy has neither.
+            {
+                var j = M("J2");
+                j.LocalNote = "my note"; lib.SaveState();
+                var d2 = ModDraft.From(j); d2.Tags = ["Author Tag"]; d2.Notes = "The author's note.";
+                ModWriter.Save(lib, d2, j, out _);
+                lib = ModLibrary.Load(data);
+                j = M("J2");
+                string zip = Path.Combine(data, "export.zip"), zipL = Path.Combine(data, "export_legacy.zip");
+                ModInstaller.Export(j, zip, false, j.UserTags, j.LocalNote);
+                ModInstaller.Export(j, zipL, legacy: true);
+                ModManifest Read(string z) { using var a = System.IO.Compression.ZipFile.OpenRead(z); using var r = new StreamReader(a.GetEntry("manifest.json")!.Open()); return System.Text.Json.JsonSerializer.Deserialize<ModManifest>(r.ReadToEnd(), ModManifest.Json)!; }
+                var full = Read(zip); var leg = Read(zipL);
+                bool travels = j.ModTags.SequenceEqual(["Author Tag"]) && j.Note == "my note" && j.Manifest.Notes == "The author's note."
+                            && full.Tags != null && full.Tags.SequenceEqual(["Author Tag", "costume"]) && full.Notes == "my note"
+                            && leg.Tags == null && leg.Notes == null
+                            && !File.ReadAllText(Path.Combine(j.Folder, "manifest.json")).Contains("my note");
+                if (!travels) fails++;
+                Console.WriteLine($"  {(travels ? "ok  " : "FAIL")} export: mod tags / note travel, yours on request, legacy has none");
+                bool lockKept = j.Lock == ModLock.Top && j.UserTags.SequenceEqual(["costume"]);
+                if (!lockKept) fails++;
+                Console.WriteLine($"  {(lockKept ? "ok  " : "FAIL")} edit keeps lock and your tags");
+                j.LocalNote = null;
+                var d3 = ModDraft.From(j); d3.Tags = []; d3.Notes = "";
+                ModWriter.Save(lib, d3, j, out _);
+                lib = ModLibrary.Load(data);
+                File.Delete(zip); File.Delete(zipL);
+            }
+            // Updating: the same name installed again replaces in place (asked); "Update from a file" with another name too.
+            {
+                var j = M("J2");
+                j.LocalNote = "keep me"; lib.SaveState();
+                lib = ModLibrary.Load(data); j = M("J2");
+                int prio = j.Priority;
+                string zipName = ModInstaller.ZipName(j);
+                string src2 = Path.Combine(data + "_upd", "J2");
+                Directory.CreateDirectory(src2);
+                File.WriteAllBytes(Path.Combine(src2, "Dummy.upk"), [9, 9, 9, 9]);
+                File.WriteAllText(Path.Combine(src2, "manifest.json"), "{ \"Name\": \"J2\", \"Version\": \"2.0\", \"UpkReplacements\": [\"Dummy.upk\"] }");
+                var log2 = new List<string>();
+                ModInstaller.Install(src2, lib, log2);   // no answer: refused
+                lib = ModLibrary.Load(data);
+                bool refused = M("J2").Manifest.Version != "2.0";
+                bool asked = false;
+                ModInstaller.Install(src2, lib, log2, (ex, inc) => { asked = ex.FolderName == "J2" && inc.Version == "2.0"; return true; });
+                lib = ModLibrary.Load(data); j = M("J2");
+                bool kept = asked && refused && j.Manifest.Version == "2.0" && j.Priority == prio && j.Lock == ModLock.Top && j.UserTags.SequenceEqual(["costume"]) && j.LocalNote == "keep me"
+                            && File.ReadAllBytes(Path.Combine(j.Folder, "Dummy.upk")).Length == 4 && !Directory.Exists(j.Folder + ".new");
+                if (!kept) { fails++; log2.ForEach(x => Console.WriteLine("    " + x)); }
+                Console.WriteLine($"  {(kept ? "ok  " : "FAIL")} update in place: asked, version 2.0, same place, lock, tags, note");
+                // Another name, into this mod.
+                string src3 = Path.Combine(data + "_upd", "Other");
+                Directory.CreateDirectory(src3);
+                File.WriteAllBytes(Path.Combine(src3, "Dummy.upk"), [7, 7, 7, 7, 7]);
+                File.WriteAllText(Path.Combine(src3, "manifest.json"), "{ \"Name\": \"J2 Renamed\", \"Version\": \"3\", \"UpkReplacements\": [\"Dummy.upk\"] }");
+                ModInstaller.Install(src3, lib, log2, (_, _) => true, into: j);
+                lib = ModLibrary.Load(data); j = M("J2");
+                bool into = j.Name == "J2 Renamed" && j.Manifest.Version == "3" && j.Priority == prio && j.Lock == ModLock.Top && lib.Mods.Count(x => x.Name.StartsWith("J2")) == 1;
+                if (!into) fails++;
+                Console.WriteLine($"  {(into ? "ok  " : "FAIL")} update from a file with another name: same folder and place, new name");
+                bool zn = zipName == "J2 - v1.0.zip" && ModInstaller.ZipName(j) == "J2 Renamed - v3.zip" && ModInstaller.ZipName(j, legacy: true) == "J2 Renamed - v3 (legacy).zip";
+                if (!zn) { fails++; Console.WriteLine($"    names: {zipName} / {ModInstaller.ZipName(j)}"); }
+                Console.WriteLine($"  {(zn ? "ok  " : "FAIL")} export file name: <name> - v<version>.zip");
+                Directory.Delete(data + "_upd", true);
+                j.LocalNote = null; lib.SaveState();
+            }
+            Lock("J2"); ModLibrary.RemoveTag(M("J2"), "costume"); ModLibrary.RemoveTag(M("E"), "x-men"); lib.SaveState();
+            Directory.Move(Path.Combine(data, "mods", "J2"), Path.Combine(data, "mods", "J"));
+            lib.State.ModOrder = lib.State.ModOrder.Select(n => n == "J2" ? "J" : n).ToList();
+            File.WriteAllText(Path.Combine(data, "state.json"), System.Text.Json.JsonSerializer.Serialize(lib.State, ModManifest.Json));
+            lib = ModLibrary.Load(data);
             // A mod appended at the bottom (as capture does) lands above the bottom lock.
             Directory.CreateDirectory(Path.Combine(data, "mods", "K"));
             File.WriteAllText(Path.Combine(data, "mods", "K", "manifest.json"), "{ \"Name\": \"K\" }");

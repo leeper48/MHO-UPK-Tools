@@ -24,6 +24,10 @@ sealed class ModEditorView : UserControl
     readonly ModDraft draft;
     public string? SavedName { get; private set; }
 
+    // The mod's own tags and note (manifest extension fields: they travel with the mod).
+    readonly TextBox tagsBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f) };
+    readonly TextBox notesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f), Multiline = true, ScrollBars = ScrollBars.Vertical };
+    readonly Label autoLabel = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Font = Ui.Regular(8.5f), Margin = new Padding(3, 2, 3, 6) };
     readonly TextBox nameBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, authorBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, versionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) };
     readonly DataGridView packages, sounds;
     readonly TexturePage[] texturePages;
@@ -53,6 +57,18 @@ sealed class ModEditorView : UserControl
         info.Controls.Add(Caption("Author"), 2, 0); info.Controls.Add(authorBox, 3, 0);
         info.Controls.Add(Caption("Version"), 4, 0); info.Controls.Add(versionBox, 5, 0);
         nameBox.Text = draft.Name; authorBox.Text = draft.Author; versionBox.Text = draft.Version;
+        info.Controls.Add(Caption("Tags"), 0, 1); info.Controls.Add(tagsBox, 1, 1); info.SetColumnSpan(tagsBox, 5);
+        info.Controls.Add(autoLabel, 1, 2); info.SetColumnSpan(autoLabel, 5);
+        info.Controls.Add(Caption("Note"), 0, 3); info.Controls.Add(notesBox, 1, 3); info.SetColumnSpan(notesBox, 5);
+        notesBox.Dock = DockStyle.None; notesBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;   // Fill would shrink it to one line in the auto-sized row
+        notesBox.Height = (int)(58 * S);
+        tagsBox.Text = string.Join(", ", draft.Tags);
+        notesBox.Text = draft.Notes.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        tagsBox.AutoCompleteMode = AutoCompleteMode.Append; tagsBox.AutoCompleteSource = AutoCompleteSource.CustomSource;
+        tagsBox.AutoCompleteCustomSource.AddRange(lib.AllTags().ToArray());
+        autoLabel.Text = editing != null && editing.AutoTags.Count > 0
+            ? "Separate tags with commas; they go with the mod. Added automatically from the content: " + string.Join(", ", editing.AutoTags)
+            : "Separate tags with commas; they go with the mod. Characters, teams, costume, powers … are added automatically from the content.";
 
         tabs.Add("Packages", PackagesPage());
         texturePages = Enumerable.Range(0, 4).Select(k => new TexturePage(this, k)).ToArray();
@@ -171,6 +187,8 @@ sealed class ModEditorView : UserControl
     void Save()
     {
         draft.Name = nameBox.Text; draft.Author = authorBox.Text; draft.Version = versionBox.Text;
+        draft.Tags = tagsBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => lib.CleanTag(t) ?? t).ToList();
+        draft.Notes = notesBox.Text;
         draft.Strings = stringsPage.Collect();
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
         if (saved == null) { MessageBox.Show(this, error, "Can't save yet"); return; }
@@ -232,11 +250,11 @@ sealed class ModEditorView : UserControl
             var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = new Padding(0) };
             right.RowStyles.Add(new RowStyle(SizeType.AutoSize)); right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 55)); right.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-            string hintText = "Pick the stock texture on the left (search, then click), then choose its replacement .dds (DXT1, or DXT5 for soft alpha). Double-click a name to choose straight away.";
+            string hintText = "Pick the stock texture on the left (search, then click), then choose its replacement: a .dds (DXT1, or DXT5 for soft alpha) or a PNG / JPG, converted to match the original. Double-click a name to choose straight away.";
             if (Extra) hintText += "  These packages are an extension: the old MHModManager installs the mod but skips these images.";
             var hint = new Label { Text = hintText, AutoSize = true, Tag = "subtle", Padding = new Padding(2, 8, 2, 2), Dock = DockStyle.Fill };
             right.Controls.Add(hint, 0, 0);
-            var tools = Toolbar(Ui.AccentButton("Choose .dds for the selected texture…", ChooseDds), Ui.FlatButton("Remove replacement", RemoveRow), Ui.FlatButton("Save original as .dds…", SaveOriginal));
+            var tools = Toolbar(Ui.AccentButton("Choose .dds or .png for the selected texture…", ChooseDds), Ui.FlatButton("Remove replacement", RemoveRow), Ui.FlatButton("Save original as .dds / .png…", SaveOriginal));
             tools.Dock = DockStyle.Fill;
             right.Controls.Add(tools, 0, 1);
             right.Controls.Add(rows, 0, 2);
@@ -315,35 +333,48 @@ sealed class ModEditorView : UserControl
             return stock is { } s && (s.W != img.Width || s.H != img.Height) ? ($"{size}; original is {s.W}×{s.H} (may show scaled)", false) : (size + "  ✓", true);
         }
 
+        string? convertNote;
+
         void ChooseDds()
         {
             if (names.SelectedItem is not TexEntry e) { MessageBox.Show(this, "Select the stock texture to replace first (search on the left).", "Textures"); return; }
-            using var d = new OpenFileDialog { Title = $"Replacement for {e.Name}", Filter = "DDS textures (*.dds)|*.dds" };
+            using var d = new OpenFileDialog { Title = $"Replacement for {e.Name}", Filter = "Textures and images (*.dds;*.png;*.jpg;*.jpeg;*.bmp)|*.dds;*.png;*.jpg;*.jpeg;*.bmp|DDS textures (*.dds)|*.dds|Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
-            var (check, _) = Check(e.File, e.Name, d.FileName);
-            if (check.StartsWith("can't")) { MessageBox.Show(this, $"{Path.GetFileName(d.FileName)} {check}\n\nSave it as DXT1 (no or 1-bit alpha) or DXT5 (soft alpha).", "Textures"); return; }
+            string chosen = d.FileName;
+            if (!chosen.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+            {
+                // An image: made into a .dds like the original (size, DXT1 / DXT5); the mod gets the .dds.
+                if (f.catalog == null) { MessageBox.Show(this, "Set the game folder first: the original texture's size and format are needed to convert an image.", "Textures"); return; }
+                string outDds = Path.Combine(Settings.Home, "converted", ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(chosen)) + ".dds");
+                try { convertNote = $"{Path.GetFileName(chosen)}: " + f.catalog.ImageToDds(e.File, e.Name, chosen, outDds); chosen = outDds; }
+                catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException or System.Runtime.InteropServices.ExternalException) { MessageBox.Show(this, $"{Path.GetFileName(chosen)} can't be converted: {ex.Message}", "Textures"); return; }
+            }
+            else convertNote = null;
+            var (check, _) = Check(e.File, e.Name, chosen);
+            if (check.StartsWith("can't")) { MessageBox.Show(this, $"{Path.GetFileName(chosen)} {check}\n\nSave it as DXT1 (no or 1-bit alpha) or DXT5 (soft alpha), or choose a PNG and it's converted.", "Textures"); return; }
             if (Extra)
             {
                 f.draft.Extra.RemoveAll(x => x.Package.Equals(e.File, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(e.Name, StringComparison.OrdinalIgnoreCase));
-                f.draft.Extra.Add((e.File, e.Name, d.FileName));
+                f.draft.Extra.Add((e.File, e.Name, chosen));
             }
             else
             {
                 var list = f.draft.Textures[view];
                 list.RemoveAll(r => r.Texture.Equals(e.Name, StringComparison.OrdinalIgnoreCase));
-                list.Add((e.Name, d.FileName));
+                list.Add((e.Name, chosen));
             }
             RefreshRows();
-            ShowNew(d.FileName);
+            ShowNew(chosen);
+            if (convertNote != null) newInfo.Text = convertNote + "  ·  " + newInfo.Text;
         }
 
         /// <summary>The selected stock texture as .dds (a starting point for its replacement).</summary>
         void SaveOriginal()
         {
             if (f.catalog == null || names.SelectedItem is not TexEntry e) { MessageBox.Show(this, "Select a stock texture on the left first.", "Textures"); return; }
-            using var d = new SaveFileDialog { Title = $"Save original {e.Name}", Filter = "DDS texture (*.dds)|*.dds", FileName = e.Name + ".dds" };
+            using var d = new SaveFileDialog { Title = $"Save original {e.Name}", Filter = "DDS texture (*.dds)|*.dds|PNG image (*.png)|*.png", FileName = e.Name + ".dds" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
-            string? why = f.catalog.ExportDds(e.File, e.Name, d.FileName);
+            string? why = f.catalog.ExportImage(e.File, e.Name, d.FileName);
             if (why != null) MessageBox.Show(this, "Not saved: " + why, "Textures");
         }
 

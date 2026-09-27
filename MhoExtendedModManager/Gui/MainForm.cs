@@ -29,10 +29,29 @@ sealed class MainForm : Form
     readonly TextBox filter = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f) };
     readonly Label countLabel = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(8.25f), Padding = new Padding(4, 0, 0, 0) };
     readonly DetailsHeader header = new() { Dock = DockStyle.Top };
-    readonly StorePreview storePreview = new() { Dock = DockStyle.Left };
+    readonly StorePreview storePreview = new() { Dock = DockStyle.Fill };
+    // Middle column: the store image, and the note under it (the mod's note, or the user's own on this PC).
+    readonly Panel middle = new() { Dock = DockStyle.Left };
+    readonly TableLayoutPanel notesPanel = new() { Dock = DockStyle.Bottom, ColumnCount = 2, RowCount = 2, Padding = new Padding(6, 6, 6, 4) };
+    readonly TextBox noteBox = new() { Dock = DockStyle.Fill, Multiline = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, Font = Ui.Regular(9.25f) };
+    readonly Label noteSource = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(8f), Tag = "subtle" };
+    readonly Button noteReset;
+    Mod? noteMod;
     readonly FlatTabs tabs = new() { Dock = DockStyle.Fill };
     readonly Label status = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(9f), Padding = new Padding(12, 0, 0, 0) };
     readonly Button applyButton;
+    // Dark hover tips on the buttons and boxes (the mod list shows its own, per part of a card).
+    readonly ToolTip tips = Ui.NewTips();
+    // Undo / redo of list changes (on/off, order, locks, tags): state.json as it was before each change, with a label.
+    // Cleared when the set of mods changes (install, remove, rename): an older state.json would put those in the wrong place.
+    readonly List<(string Json, string Label)> undo = [], redo = [];
+    string? foldersKey;
+    // A note for the status line, shown by the next Reload (a later status update would otherwise overwrite it).
+    string? note;
+    readonly Button undoButton, redoButton, sortButton, groupButton, tagsButton;
+    readonly CheckBox allVisible = new() { Text = "All", AutoSize = true, AutoCheck = false, ThreeState = true, Anchor = AnchorStyles.Left, Margin = new Padding(8, 3, 2, 0) };
+    readonly HashSet<string> collapsed = new(StringComparer.OrdinalIgnoreCase);
+    readonly List<Button> priorityButtons = [];
     readonly Font mono = new("Consolas", 9.5f);
     List<Mod> shown = [];
     Control? topBar, bottomBar;
@@ -79,10 +98,20 @@ sealed class MainForm : Form
         menu.Items.Add("Migrate from MHModManager…", null, (_, _) => Migrate());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Refresh", null, (_, _) => Reload());
+        menu.Items.Add("Check for updates…", null, (_, _) => CheckForUpdates(manual: true));
+        var autoCheck = new ToolStripMenuItem("Check for updates at start") { CheckOnClick = true };
+        autoCheck.CheckedChanged += (_, _) => { if (settings.CheckUpdates != autoCheck.Checked) { settings.CheckUpdates = autoCheck.Checked; settings.Save(); } };
+        menu.Opening += (_, _) => autoCheck.Checked = settings.CheckUpdates;
+        menu.Items.Add(autoCheck);
         menu.Items.Add("About", null, (_, _) => About());
         settingsButton.Click += (_, _) => menu.Show(settingsButton, new Point(0, settingsButton.Height));
         topButtons.Controls.AddRange([newMod, extractButton, install, settingsButton]);
         writeControls.AddRange([newMod, install]);
+        tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
+        tips.SetToolTip(extractButton, "Save original game icons, store images or strings, to make replacements from.");
+        tips.SetToolTip(install, "Add a mod from a .zip, .7z, .rar or folder. You can also drop it on the window.");
+        tips.SetToolTip(settingsButton, "Game folder, library folder, capture icon changes, migrate from MHModManager, about.");
+        tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
         top.Controls.Add(topButtons, 3, 0);
 
         // ---- Left: installed mods
@@ -90,42 +119,85 @@ sealed class MainForm : Form
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var lhead = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 7, Margin = new Padding(0) };
+        var lhead = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 9, Margin = new Padding(0) };
         lhead.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         lhead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 5; i++) lhead.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        for (int i = 0; i < 7; i++) lhead.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         lhead.Controls.Add(new Label { Text = "INSTALLED MODS", AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Bold(8.5f), Tag = "subtle" }, 0, 0);
         lhead.Controls.Add(countLabel, 1, 0);
-        lhead.Controls.Add(new Label { Text = "Priority:", AutoSize = true, Anchor = AnchorStyles.Right, Font = Ui.Regular(8.5f), Tag = "subtle" }, 2, 0);
+        undoButton = Ui.FlatButton("Undo", Undo); redoButton = Ui.FlatButton("Redo", Redo);
+        undoButton.Padding = redoButton.Padding = new Padding(2, 0, 2, 0);
+        lhead.Controls.Add(undoButton, 2, 0); lhead.Controls.Add(redoButton, 3, 0);
+        lhead.Controls.Add(new Label { Text = "Priority:", AutoSize = true, Anchor = AnchorStyles.Right, Font = Ui.Regular(8.5f), Tag = "subtle", Margin = new Padding(10, 0, 0, 0) }, 4, 0);
         var first = Ui.FlatButton("▲", () => MoveSelected(-1, toEnd: true)); var up = Ui.FlatButton("▲", () => MoveSelected(-1));
         var down = Ui.FlatButton("▼", () => MoveSelected(1)); var last = Ui.FlatButton("▼", () => MoveSelected(1, toEnd: true));
         Ui.AddEndBar(first, top: true); Ui.AddEndBar(last, top: false);   // ▲ with a bar over it = to the top; ▼ with one under it = to the bottom
-        var priorityTips = new ToolTip();
-        priorityTips.SetToolTip(first, "To the top (below any mods locked there)"); priorityTips.SetToolTip(up, "Up one");
-        priorityTips.SetToolTip(down, "Down one"); priorityTips.SetToolTip(last, "To the bottom (above any mods locked there)");
+        tips.SetToolTip(first, "To the top (below any mods locked there)."); tips.SetToolTip(up, "Up one. Higher mods win where two change the same thing.");
+        tips.SetToolTip(down, "Down one."); tips.SetToolTip(last, "To the bottom (above any mods locked there).");
         first.Padding = up.Padding = down.Padding = last.Padding = new Padding(2, 0, 2, 0);
-        lhead.Controls.Add(first, 3, 0); lhead.Controls.Add(up, 4, 0); lhead.Controls.Add(down, 5, 0); lhead.Controls.Add(last, 6, 0);
-        writeControls.AddRange([first, up, down, last]);
-        var filterRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 4, 0, 4) };
+        lhead.Controls.Add(first, 5, 0); lhead.Controls.Add(up, 6, 0); lhead.Controls.Add(down, 7, 0); lhead.Controls.Add(last, 8, 0);
+        priorityButtons.AddRange([first, up, down, last]);
+
+        // Filter row: search box, sort, group, and the box that turns every mod in the list on or off.
+        var filterRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 5, Margin = new Padding(0, 4, 0, 4) };
         filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (int i = 0; i < 3; i++) filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         filterRow.Controls.Add(new Label { Text = "Filter", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle", Padding = new Padding(0, 0, 4, 0) }, 0, 0);
         filterRow.Controls.Add(filter, 1, 0);
+        sortButton = Ui.FlatButton("Sort", () => { }); groupButton = Ui.FlatButton("Group", () => { });
+        sortButton.Click += (_, _) => SortMenu().Show(sortButton, new Point(0, sortButton.Height));
+        groupButton.Click += (_, _) => GroupMenu().Show(groupButton, new Point(0, groupButton.Height));
+        filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
+        allVisible.Click += (_, _) => SetAllVisible();
+        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged");
+        tips.SetToolTip(sortButton, "Order the list by priority, name, author, tag, or on first. Priority buttons and padlocks work in the priority order only.");
+        tips.SetToolTip(groupButton, "Group the list by tag or author. Click a group's header to fold it.");
         left.Controls.Add(lhead, 0, 0); left.Controls.Add(filterRow, 0, 1); left.Controls.Add(list, 0, 2);
         filter.TextChanged += (_, _) => FillList(Selected?.FolderName);
         list.SelectedIndexChanged += (_, _) => ShowDetails();
         list.CheckClicked += m => Toggle(m);
         list.LockClicked += m => ToggleLock(m);
-        list.CanLock = m => lib?.CanLock(m) ?? ModLock.None;
+        list.CanLock = m => ReorderView ? lib?.CanLock(m) ?? ModLock.None : ModLock.None;
         list.DoubleClick += (_, _) => { if (Selected is Mod m) EditMod(m); };
+        list.GroupClicked += g => { if (!collapsed.Remove(g.Key)) collapsed.Add(g.Key); FillList(Selected?.FolderName); };
+        list.TagClicked += t => filter.Text = t.Contains(' ') ? $"tag:\"{t}\"" : $"tag:{t}";
+        list.MenuRequested += (m, pt) => CardMenu(m).Show(pt);
 
         // ---- Right: the selected mod
         var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 4, 8, 0) };
         right.Controls.Add(tabs); right.Controls.Add(header);
         header.PillClicked += () => { if (Selected is Mod m) Toggle(m); };
+        header.TagsClicked += pt => { if (Selected is Mod m && !readOnly) TagsMenu(m).Show(pt); };
+        tips.SetToolTip(header, "Click Enabled / Disabled to turn the mod on or off, and its tags or + Tag to change the tags.");
 
         // Middle column: the selected mod's store image (Kurt), between the list and the details.
         var middleAndRight = new Panel { Dock = DockStyle.Fill };
-        middleAndRight.Controls.Add(right); middleAndRight.Controls.Add(storePreview);
+        noteReset = Ui.FlatButton("Use the mod's note", ResetNote);
+        noteReset.Font = Ui.Regular(8f); noteReset.Padding = new Padding(2, 0, 2, 0); noteReset.Anchor = AnchorStyles.Right;
+        notesPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); notesPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        notesPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)); notesPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var noteHead = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
+        noteHead.Controls.Add(new Label { Text = "NOTE", AutoSize = true, Font = Ui.Bold(8.5f), Tag = "subtle", Margin = new Padding(0, 3, 6, 0) });
+        noteSource.Margin = new Padding(0, 4, 0, 0);
+        noteHead.Controls.Add(noteSource);
+        notesPanel.Controls.Add(noteHead, 0, 0); notesPanel.Controls.Add(noteReset, 1, 0);
+        var noteCard = new Panel { Dock = DockStyle.Fill, Tag = "card", Padding = new Padding(8, 6, 4, 6), Margin = new Padding(0, 4, 0, 0) };
+        noteCard.Controls.Add(noteBox);
+        notesPanel.Controls.Add(noteCard, 0, 1); notesPanel.SetColumnSpan(noteCard, 2);
+        noteBox.Leave += (_, _) => SaveNote();
+        tips.SetToolTip(noteBox, "The mod's note travels with it. What you type here is kept on this PC only (it replaces the mod's note for you); Undo takes it back.");
+        tips.SetToolTip(noteReset, "Throw away your note and show the mod's own note again.");
+        middle.Controls.Add(storePreview); middle.Controls.Add(notesPanel);
+        middleAndRight.Controls.Add(right); middleAndRight.Controls.Add(middle);
+        // As large as the column's height allows (store images are 300×420), but at most 28% of the space beside the list (Kurt: between the first size and 40%).
+        middleAndRight.Resize += (_, _) =>
+        {
+            float sc = DeviceDpi / 96f;
+            notesPanel.Height = (int)(170 * sc);
+            int cardH = middleAndRight.Height - notesPanel.Height - (int)(80 * sc);
+            int w = (int)(cardH * 300f / 420f) + (int)(12 * sc);
+            middle.Width = Math.Max((int)(200 * sc), Math.Min(w, (int)(middleAndRight.Width * 0.28f)));
+        };
 
         var split = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterWidth = 5 };
         split.Panel1.Controls.Add(left);
@@ -141,8 +213,15 @@ sealed class MainForm : Form
         var remove = Ui.FlatButton("Remove Mod", RemoveMod);
         var edit = Ui.FlatButton("Edit Mod…", () => { if (Selected is Mod m) EditMod(m); });
         var export = Ui.FlatButton("Export to ZIP…", ExportMod);
-        leftButtons.Controls.AddRange([remove, edit, export]);
-        writeControls.AddRange([remove, edit, applyButton]);
+        tagsButton = Ui.FlatButton("Tags  ▾", () => { });
+        tagsButton.Click += (_, _) => { if (Selected is Mod m) TagsMenu(m).Show(tagsButton, new Point(0, tagsButton.Height)); };
+        leftButtons.Controls.AddRange([remove, edit, export, tagsButton]);
+        writeControls.AddRange([remove, edit, applyButton, tagsButton]);
+        tips.SetToolTip(remove, "Send the selected mod to the Recycle Bin (turn it off and Apply first).");
+        tips.SetToolTip(edit, "Open the selected mod in the Editor tab (or double-click it).");
+        tips.SetToolTip(export, "Save the selected mod as a .zip to share.");
+        tips.SetToolTip(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
+        tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.");
         bottom.Controls.Add(leftButtons, 0, 0);
         bottom.Controls.Add(status, 1, 0);
         applyButton.Anchor = AnchorStyles.Right;
@@ -178,10 +257,16 @@ sealed class MainForm : Form
         {
             Theme.Apply(this, Palette.Dark);
             Restyle(this);
-            storePreview.Width = (int)(250 * DeviceDpi / 96f);   // DeviceDpi is only right once the handle exists
             Reload();
         };
         Shown += (_, _) => split.SplitterDistance = (int)(split.Width * 0.30);   // after maximizing
+        FormClosing += (_, _) => SaveNote();
+        // A quiet look for a new version, at most once a day (Settings: Check for updates at start).
+        Shown += (_, _) =>
+        {
+            if (settings.CheckUpdates && (settings.LastUpdateCheck == null || DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromDays(1)))
+                CheckForUpdates(manual: false);
+        };
         var timer = new System.Windows.Forms.Timer { Interval = 3000 };
         timer.Tick += (_, _) => UpdateRunning();
         timer.Start();
@@ -209,12 +294,12 @@ sealed class MainForm : Form
         string key = lib.DataFolder + "|" + game.Root;
         if (extract != null && extractKey == key) return;
         extract?.Dispose();
-        extractHost.Controls.Clear();
+        foreach (var c in extractHost.Controls.Cast<Control>().ToList()) c.Dispose();   // the "set the game folder" label, if any
         extract = new ExtractView(new StockCatalog(lib, game));
         extractKey = key;
         extractHost.Controls.Add(extract);
-        Theme.Apply(this, Palette.Dark);
-        Restyle(this);
+        Theme.ApplyTree(extractHost, Palette.Dark);   // not the whole form: see ShowDetails
+        Restyle(extractHost);
     }
 
     void UpdateRunning()
@@ -222,6 +307,32 @@ sealed class MainForm : Form
         bool running = Process.GetProcessesByName("MarvelHeroesOmega").Length > 0;
         runningLabel.Text = running ? "●  Game running: close it to apply" : "●  Game not running";
         runningLabel.ForeColor = running ? Ui.Warn : Ui.Subtle;
+    }
+
+    /// <summary>Looks for a newer release (GitHub); offers it. Quiet (no messages when there's nothing, or no network) unless <paramref name="manual"/>.</summary>
+    async void CheckForUpdates(bool manual)
+    {
+        Updater.Release? r;
+        try { r = await Updater.Latest(); }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException or KeyNotFoundException or InvalidOperationException)
+        {
+            if (manual) MessageBox.Show(this, "Couldn't check for updates: " + ex.Message, "Updates");
+            return;
+        }
+        settings.LastUpdateCheck = DateTime.Now; settings.Save();
+        if (r == null || r.Version <= Updater.Current)
+        {
+            if (manual) MessageBox.Show(this, $"You have the latest version ({Program.Version}).", "Updates");
+            return;
+        }
+        if (!manual && settings.SkipVersion == r.Version.ToString()) { status.Text = $"Version {r.Version} is available (skipped: Settings → Check for updates)."; return; }
+        using var f = new UpdateForm(r);
+        f.ShowDialog(this);
+        if (f.SkipThis) { settings.SkipVersion = r.Version.ToString(); settings.Save(); }
+        if (!f.Installed) return;
+        SaveNote();
+        Updater.Restart();
+        Close();
     }
 
     void About() => MessageBox.Show(this,
@@ -247,6 +358,9 @@ sealed class MainForm : Form
         lib = null; game = null;
         if (data == null) { list.Items.Clear(); header.Mod = null; header.Invalidate(); tabs.Clear(); status.Text = "No mod library yet: Settings → Migrate from MHModManager, or restart for the first-run setup."; return; }
         lib = ModLibrary.Load(data);
+        string key = lib.DataFolder + "|" + string.Join("|", lib.Mods.Select(m => m.FolderName).Order(StringComparer.OrdinalIgnoreCase));
+        if (foldersKey != null && key != foldersKey) { undo.Clear(); redo.Clear(); }
+        foldersKey = key;
         string? gameRoot = settings.ResolvedGameRoot(data);
         gameLabel.Text = gameRoot != null ? Settings.TrueCase(gameRoot) : "(not set: Settings → Change game folder)";
         if (gameRoot != null && Directory.Exists(Settings.Cooked(gameRoot))) game = new GameState(gameRoot, data);
@@ -256,33 +370,364 @@ sealed class MainForm : Form
         list.Conflicted = conflicted;
         countLabel.Text = $"{lib.Mods.Count(m => m.Enabled)} of {lib.Mods.Count} on";
         countLabel.ForeColor = Ui.Subtle;
-        status.Text = (game == null ? "Game folder not found" : conflicts.Count > 0 ? $"{conflicts.Count} conflicting change(s): the mod higher in the list wins" : "No conflicts") +
+        status.Text = (note != null ? note + "  ·  " : "") + (game == null ? "Game folder not found" : conflicts.Count > 0 ? $"{conflicts.Count} conflicting change(s): the mod higher in the list wins" : "No conflicts") +
                       (readOnly ? "  ·  MHModManager's own folder: read-only here (Settings → Migrate)" : "");
         status.ForeColor = Ui.Subtle;
+        note = null;
         applyButton.Text = "Apply Changes";
         FillList(keep);
+        UpdateUndo();
         if (!readOnly && game != null && game.HasStockList) CountPending();
     }
 
-    /// <summary>The list, filtered by the filter box (name or author), keeping the selection.</summary>
+    static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On first")];
+    static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author")];
+
+    /// <summary>The list shows the priority order as it is: the priority buttons and padlocks work only then.</summary>
+    bool ReorderView => settings.ListSort == "priority" && settings.ListGroup == "none";
+
+    /// <summary>One search word: plain text (name, author, tags), tag:x / #x (tags only), or is:on / off / locked / untagged.</summary>
+    static bool Matches(Mod m, string t)
+    {
+        if (t.StartsWith("is:", StringComparison.OrdinalIgnoreCase))
+            return t[3..].ToLowerInvariant() switch { "on" => m.Enabled, "off" => !m.Enabled, "locked" => m.Lock != ModLock.None, "untagged" => m.Tags.Count == 0, _ => true };
+        if (t.StartsWith("tag:", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#'))
+        {
+            string x = t.StartsWith('#') ? t[1..] : t[4..];
+            return m.Tags.Any(tag => tag.Contains(x, StringComparison.OrdinalIgnoreCase));
+        }
+        return m.Name.Contains(t, StringComparison.OrdinalIgnoreCase) || (m.Manifest.Author ?? "").Contains(t, StringComparison.OrdinalIgnoreCase) ||
+               m.Tags.Any(tag => tag.Contains(t, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The filter box's words; "quoted text" (also after tag:) stays one word.</summary>
+    static List<string> SearchWords(string text) =>
+        System.Text.RegularExpressions.Regex.Matches(text, "(?:tag:|#)?\"[^\"]*\"?|\\S+").Select(x => x.Value.Replace("\"", "")).Where(x => x.Length > 0).ToList();
+
+    /// <summary>The list: filtered, sorted and grouped as chosen, keeping the selection.</summary>
     void FillList(string? keep)
     {
         if (lib == null) return;
-        string q = filter.Text.Trim();
-        shown = lib.Mods.Where(m => q.Length == 0 || m.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || (m.Manifest.Author ?? "").Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+        var words = SearchWords(filter.Text);
+        var mods = lib.Mods.Where(m => words.All(w => Matches(m, w)));
+        var cmp = StringComparer.OrdinalIgnoreCase;
+        var modList = (settings.ListSort switch
+        {
+            "name" => mods.OrderBy(m => m.Name, cmp),
+            "author" => mods.OrderBy(m => string.IsNullOrWhiteSpace(m.Manifest.Author) ? "\uffff" : m.Manifest.Author, cmp).ThenBy(m => m.Name, cmp),
+            "tag" => mods.OrderBy(m => m.Tags.Count == 0 ? "\uffff" : m.Tags.Order(cmp).First(), cmp).ThenBy(m => m.Name, cmp),
+            "enabled" => mods.OrderByDescending(m => m.Enabled).ThenBy(m => m.Priority),
+            _ => mods.OrderBy(m => m.Priority),
+        }).ToList();
+
+        var items = new List<object>();
+        string grouping = settings.ListGroup;
+        if (grouping is "tag" or "author")
+        {
+            string none = grouping == "tag" ? "Untagged" : "(no author)";
+            List<string> KeysOf(Mod m) => grouping == "tag" ? (m.Tags.Count > 0 ? m.Tags : [none]) : [string.IsNullOrWhiteSpace(m.Manifest.Author) ? none : m.Manifest.Author.Trim()];
+            foreach (string k in modList.SelectMany(KeysOf).Distinct(cmp).OrderBy(k => k == none ? 1 : 0).ThenBy(k => k, cmp))
+            {
+                var members = modList.Where(m => KeysOf(m).Contains(k, cmp)).ToList();
+                string gk = grouping + ":" + k;
+                bool folded = collapsed.Contains(gk);
+                items.Add(new ModGroup(gk, k, members.Count, folded));
+                if (!folded) items.AddRange(members);
+            }
+        }
+        else items.AddRange(modList);
+        shown = items.OfType<Mod>().Distinct().ToList();
+
         list.BeginUpdate();
         list.Items.Clear();
-        foreach (var m in shown) list.Items.Add(m);
+        foreach (var o in items) list.Items.Add(o);
         list.EndUpdate();
-        int i = shown.FindIndex(m => m.FolderName == keep);
-        if (i < 0 && shown.Count > 0) i = 0;
-        if (i >= 0) { list.SelectedIndex = i; } else { header.Mod = null; header.Invalidate(); tabs.Clear(); }
+        int i = items.FindIndex(o => o is Mod m && m.FolderName == keep);
+        if (i < 0) i = items.FindIndex(o => o is Mod);
+        if (i >= 0) list.SelectedIndex = i; else { header.Mod = null; header.Invalidate(); tabs.Clear(); storePreview.Mod = null; ShowNote(null); }
+
+        int on = shown.Count(m => m.Enabled);
+        allVisible.CheckState = on == 0 ? CheckState.Unchecked : on == shown.Count ? CheckState.Checked : CheckState.Indeterminate;
+        allVisible.Enabled = !readOnly && shown.Count > 0;
+        tips.SetToolTip(allVisible, shown.Count == 0 ? "No mods in the list." :
+            (on == shown.Count ? $"All {shown.Count} mods in the list are on: click to turn them all off." : $"{on} of {shown.Count} mods in the list are on: click to turn them all on.") +
+            (shown.Count < lib.Mods.Count ? "\nOnly the mods the filter shows (and open groups) change." : ""));
+        foreach (var b in priorityButtons) b.Enabled = !readOnly && ReorderView;
+        sortButton.Text = "Sort: " + Sorts.First(x => x.Key == settings.ListSort || x.Key == "priority" && !Sorts.Any(y => y.Key == settings.ListSort)).Name + "  ▾";
+        groupButton.Text = "Group: " + Groups.First(x => x.Key == settings.ListGroup || x.Key == "none" && !Groups.Any(y => y.Key == settings.ListGroup)).Name + "  ▾";
     }
 
     void SelectMod(string? folderName)
     {
-        int i = shown.FindIndex(m => m.FolderName == folderName);
+        int i = list.Items.Cast<object>().ToList().FindIndex(o => o is Mod m && m.FolderName == folderName);
         if (i >= 0) list.SelectedIndex = i;
+    }
+
+    // Menus are made fresh each time; the previous one is disposed then (an undisposed, unreferenced menu keeps a
+    // window whose .NET side the garbage collector can take: see FlatTabs.Clear).
+    ContextMenuStrip? lastMenu;
+    ContextMenuStrip NewMenu()
+    {
+        lastMenu?.Dispose();
+        return lastMenu = new() { Font = Ui.Regular(9.5f), RenderMode = ToolStripRenderMode.System };
+    }
+
+    ContextMenuStrip SortMenu()
+    {
+        var menu = NewMenu();
+        foreach (var (k, n) in Sorts)
+            menu.Items.Add(new ToolStripMenuItem(n, null, (_, _) => { settings.ListSort = k; settings.Save(); FillList(Selected?.FolderName); }) { Checked = settings.ListSort == k });
+        return menu;
+    }
+
+    ContextMenuStrip GroupMenu()
+    {
+        var menu = NewMenu();
+        foreach (var (k, n) in Groups)
+            menu.Items.Add(new ToolStripMenuItem(n, null, (_, _) => { settings.ListGroup = k; settings.Save(); FillList(Selected?.FolderName); }) { Checked = settings.ListGroup == k });
+        if (settings.ListGroup != "none")
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Open all groups", null, (_, _) => { collapsed.Clear(); FillList(Selected?.FolderName); });
+            menu.Items.Add("Fold all groups", null, (_, _) =>
+            {
+                foreach (var g in list.Items.OfType<ModGroup>()) collapsed.Add(g.Key);
+                FillList(Selected?.FolderName);
+            });
+        }
+        return menu;
+    }
+
+    // ---- Undo / redo (list changes only; Apply keeps its own history of game files)
+
+    string StatePath => Path.Combine(lib!.DataFolder, "state.json");
+    string ReadState() => File.Exists(StatePath) ? File.ReadAllText(StatePath) : "";
+    void WriteState(string json) { string tmp = StatePath + ".tmp"; File.WriteAllText(tmp, json); File.Move(tmp, StatePath, overwrite: true); }
+
+    /// <summary>Makes a list change as one undo step: <paramref name="change"/> edits the mods (false = nothing to do),
+    /// then the state is saved and the list reloaded.</summary>
+    bool Change(string label, Func<bool> change)
+    {
+        if (readOnly || lib == null) return false;
+        string before = ReadState();
+        if (!change()) return false;
+        lib.SaveState();
+        undo.Add((before, label));
+        if (undo.Count > 100) undo.RemoveAt(0);
+        redo.Clear();
+        note = Capital(label) + ".";
+        Reload();
+        return true;
+    }
+
+    static string Capital(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+
+    void Undo()
+    {
+        if (readOnly || lib == null || undo.Count == 0) return;
+        var (json, label) = undo[^1];
+        undo.RemoveAt(undo.Count - 1);
+        redo.Add((ReadState(), label));
+        WriteState(json);
+        note = $"Undone: {label}";
+        Reload();
+    }
+
+    void Redo()
+    {
+        if (readOnly || lib == null || redo.Count == 0) return;
+        var (json, label) = redo[^1];
+        redo.RemoveAt(redo.Count - 1);
+        undo.Add((ReadState(), label));
+        WriteState(json);
+        note = $"Redone: {label}";
+        Reload();
+    }
+
+    void UpdateUndo()
+    {
+        undoButton.Enabled = !readOnly && undo.Count > 0;
+        redoButton.Enabled = !readOnly && redo.Count > 0;
+        tips.SetToolTip(undoButton, undo.Count > 0 ? $"Undo: {undo[^1].Label}  (Ctrl+Z)" : "Nothing to undo. Turning mods on or off, moving, locking and tags can be undone.");
+        tips.SetToolTip(redoButton, redo.Count > 0 ? $"Redo: {redo[^1].Label}  (Ctrl+Y)" : "Nothing to redo.");
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (pages.SelectedIndex == 0 && ActiveControl is not TextBoxBase)
+        {
+            if (keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
+            if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z)) { Redo(); return true; }
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    // ---- Note (under the store image)
+
+    void ShowNote(Mod? m)
+    {
+        noteMod = m;
+        noteBox.Text = (m?.Note ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n");
+        noteBox.ReadOnly = readOnly || m == null;
+        noteSource.Text = m == null ? "" : m.LocalNote != null ? (m.Manifest.Notes != null ? "yours (replaces the mod's)" : "yours, on this PC") : m.Manifest.Notes != null ? "from the mod" : "none yet: type to add one";
+        noteReset.Visible = m?.LocalNote != null && m.Manifest.Notes != null;
+    }
+
+    /// <summary>Keeps what's typed in the note box as the user's note (one undo step), or drops the user's note when the
+    /// text is the mod's own again. No reload: the list doesn't show notes.</summary>
+    void SaveNote()
+    {
+        if (readOnly || lib == null || noteMod == null) return;
+        var m = lib.Find(noteMod.FolderName);
+        if (m == null) return;
+        string text = noteBox.Text.Replace("\r\n", "\n").TrimEnd();
+        if (text == m.Note.Replace("\r\n", "\n").TrimEnd()) return;
+        string? local = text == (m.Manifest.Notes ?? "").Replace("\r\n", "\n").TrimEnd() ? null : text;
+        string before = ReadState();
+        m.LocalNote = local;
+        lib.SaveState();
+        undo.Add((before, $"edit the note of \"{m.Name}\""));
+        redo.Clear();
+        UpdateUndo();
+        ShowNote(m);
+    }
+
+    void ResetNote()
+    {
+        if (readOnly || lib == null || noteMod == null || lib.Find(noteMod.FolderName) is not Mod m) return;
+        Change($"use the mod's note for \"{m.Name}\"", () => { if (m.LocalNote == null) return false; m.LocalNote = null; return true; });
+    }
+
+    // ---- Tags
+
+    static string Short(string name) => name.Length > 40 ? name[..40] + "…" : name;
+
+    /// <summary>Turns every mod in the list (as filtered, open groups only) on, or off when all are on already.</summary>
+    void SetAllVisible()
+    {
+        var targets = shown.ToList();
+        if (targets.Count == 0) return;
+        bool turnOn = targets.Any(m => !m.Enabled);
+        Change($"turn {(turnOn ? "on" : "off")} {targets.Count} mod(s) in the list", () =>
+        {
+            foreach (var m in targets) m.Enabled = turnOn;
+            return true;
+        });
+    }
+
+    /// <summary>A card's right-click menu: on/off, edit, export, then the tags.</summary>
+    ContextMenuStrip CardMenu(Mod m)
+    {
+        var menu = TagsMenu(m);
+        int at = 0;
+        menu.Items.Insert(at++, new ToolStripMenuItem(m.Enabled ? "Turn off" : "Turn on", null, (_, _) => Toggle(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem("Edit…", null, (_, _) => EditMod(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP…", null, (_, _) => ExportMod()));
+        menu.Items.Insert(at++, new ToolStripMenuItem("Update from a file…", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at, new ToolStripSeparator());
+        return menu;
+    }
+
+    /// <summary>
+    /// The tags menu of one mod. Its tags are listed with where they come from (automatic, from the mod, yours): unticking
+    /// an automatic or mod tag hides it on this PC, ticking it again shows it. Then: add a tag, tag / untag every mod in
+    /// the list, and rename or delete your own tags (automatic and mod tags can't be renamed).
+    /// </summary>
+    ContextMenuStrip TagsMenu(Mod m)
+    {
+        var menu = NewMenu();
+        if (lib == null) return menu;
+        var l = lib;
+        var cmp = StringComparer.OrdinalIgnoreCase;
+        var all = l.AllTags();
+        menu.Items.Add(new ToolStripLabel($"Tags of \"{Short(m.Name)}\"") { ForeColor = Color.Gray });
+        var own = m.Tags.Concat(m.HiddenTags.Where(h => m.AutoTags.Contains(h, cmp) || m.ModTags.Contains(h, cmp))).Distinct(cmp).ToList();
+        foreach (string tag in own)
+        {
+            bool has = ModLibrary.HasTag(m, tag);
+            string from = m.KindOf(tag) switch { Mod.TagKind.Auto => "automatic", Mod.TagKind.Mod => "from the mod", _ => "" };
+            var item = new ToolStripMenuItem(tag + (from.Length > 0 ? $"      ({from}{(has ? "" : ", hidden here")})" : ""), null, (_, _) =>
+                Change(has ? $"take tag \"{tag}\" off \"{m.Name}\"" : $"tag \"{m.Name}\" as \"{tag}\"", () =>
+                {
+                    if (has) ModLibrary.RemoveTag(m, tag); else ModLibrary.AddTag(m, tag);
+                    return true;
+                })) { Checked = has, Enabled = !readOnly };
+            menu.Items.Add(item);
+        }
+        if (own.Count == 0) menu.Items.Add(new ToolStripMenuItem("(no tags yet)") { Enabled = false });
+
+        var add = new ToolStripMenuItem("Add a tag") { Enabled = !readOnly };
+        add.DropDownItems.Add("New tag…", null, (_, _) =>
+        {
+            string? t = l.CleanTag(Ui.Prompt(this, "New tag", $"Tag for \"{Short(m.Name)}\":", "", all));
+            if (t != null) Change($"tag \"{m.Name}\" as \"{t}\"", () => { if (ModLibrary.HasTag(m, t)) return false; ModLibrary.AddTag(m, t); return true; });
+        });
+        var others = all.Where(t => !own.Contains(t, cmp)).ToList();
+        if (others.Count > 0) add.DropDownItems.Add(new ToolStripSeparator());
+        foreach (string tag in others)
+            add.DropDownItems.Add(tag, null, (_, _) => Change($"tag \"{m.Name}\" as \"{tag}\"", () => { ModLibrary.AddTag(m, tag); return true; }));
+        menu.Items.Add(add);
+
+        var targets = shown.ToList();
+        if (targets.Count > 1 && !readOnly)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            var addAll = new ToolStripMenuItem($"Tag all {targets.Count} mods in the list");
+            void TagAll(string t) => Change($"tag {targets.Count} mods as \"{t}\"", () =>
+            {
+                bool any = targets.Any(x => !ModLibrary.HasTag(x, t));
+                foreach (var x in targets) ModLibrary.AddTag(x, t);
+                return any;
+            });
+            addAll.DropDownItems.Add("New tag…", null, (_, _) =>
+            {
+                string? t = l.CleanTag(Ui.Prompt(this, "Tag the list", $"Tag for all {targets.Count} mods in the list:", "", all));
+                if (t != null) TagAll(t);
+            });
+            addAll.DropDownItems.Add(new ToolStripSeparator());
+            foreach (string tag in all) addAll.DropDownItems.Add(tag, null, (_, _) => TagAll(tag));
+            menu.Items.Add(addAll);
+            var inList = targets.SelectMany(x => x.Tags).Distinct(cmp).Order(cmp).ToList();
+            if (inList.Count > 0)
+            {
+                var remAll = new ToolStripMenuItem("Take a tag off the mods in the list");
+                foreach (string tag in inList)
+                    remAll.DropDownItems.Add(tag, null, (_, _) => Change($"take tag \"{tag}\" off the list", () => { foreach (var x in targets) ModLibrary.RemoveTag(x, tag); return true; }));
+                menu.Items.Add(remAll);
+            }
+        }
+        var mine = l.Mods.SelectMany(x => x.UserTags).Distinct(cmp).Order(cmp).ToList();
+        if (mine.Count > 0 && !readOnly)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            var rename = new ToolStripMenuItem("Rename one of your tags");
+            var delete = new ToolStripMenuItem("Delete one of your tags");
+            foreach (string tag in mine)
+            {
+                rename.DropDownItems.Add(tag, null, (_, _) =>
+                {
+                    string? raw = Ui.Prompt(this, "Rename tag", $"New name for \"{tag}\" (on every mod):", tag, all);
+                    // Same name in other letter case = a case change (CleanTag would map it back to the old spelling).
+                    string? t = raw == null ? null : raw.Trim().Equals(tag, StringComparison.OrdinalIgnoreCase) ? raw.Trim() : l.CleanTag(raw);
+                    if (t == null || t == tag) return;
+                    Change($"rename tag \"{tag}\" to \"{t}\"", () =>
+                    {
+                        foreach (var x in l.Mods.Where(x => x.UserTags.Contains(tag, cmp)))
+                        {
+                            x.UserTags.RemoveAll(u => u.Equals(tag, StringComparison.OrdinalIgnoreCase));
+                            ModLibrary.AddTag(x, t);
+                        }
+                        return true;
+                    });
+                });
+                int users = l.Mods.Count(x => x.UserTags.Contains(tag, cmp));
+                delete.DropDownItems.Add($"{tag}  ({users})", null, (_, _) =>
+                    Change($"delete tag \"{tag}\" ({users} mod(s))", () => { foreach (var x in l.Mods) x.UserTags.RemoveAll(u => u.Equals(tag, StringComparison.OrdinalIgnoreCase)); return true; }));
+            }
+            menu.Items.Add(rename);
+            menu.Items.Add(delete);
+        }
+        return menu;
     }
 
     /// <summary>"Apply Changes (N)" and a status note once the (hashing) plan is ready.</summary>
@@ -301,35 +746,29 @@ sealed class MainForm : Form
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    void Toggle(Mod m)
-    {
-        if (readOnly || lib == null) return;
-        m.Enabled = !m.Enabled;
-        lib.SaveState();
-        Reload();
-    }
+    void Toggle(Mod m) => Change($"turn {(m.Enabled ? "off" : "on")} \"{m.Name}\"", () => { m.Enabled = !m.Enabled; return true; });
 
     void MoveSelected(int delta, bool toEnd = false)
     {
-        if (readOnly || lib == null || Selected is not Mod m) return;
-        if (!(toEnd ? lib.MoveToEnd(m, delta) : lib.Move(m, delta)))
+        if (readOnly || lib == null || Selected is not Mod m || !ReorderView) return;
+        if (m.Lock != ModLock.None)
         {
             status.Text = $"'{m.Name}' is locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: click its padlock to unlock it first.";
             return;
         }
-        lib.SaveState();
-        Reload();
+        int before = m.Priority;
+        var l = lib;
+        Change($"move \"{m.Name}\" {(toEnd ? (delta < 0 ? "to the top" : "to the bottom") : delta < 0 ? "up" : "down")}",
+            () => (toEnd ? l.MoveToEnd(m, delta) : l.Move(m, delta)) && m.Priority != before);
     }
 
     /// <summary>Padlock: locks a mod at the top or bottom (it must be there, or next to a mod locked there), or unlocks it.</summary>
     void ToggleLock(Mod m)
     {
         if (readOnly || lib == null) return;
-        bool wasLocked = m.Lock != ModLock.None;
-        if (!lib.ToggleLock(m)) return;
-        lib.SaveState();
-        Reload();
-        status.Text = wasLocked ? $"Unlocked '{m.Name}'." : $"Locked '{m.Name}' at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: it stays there and other mods can't move past it.";
+        var l = lib;
+        string label = m.Lock != ModLock.None ? $"unlock \"{m.Name}\"" : $"lock \"{m.Name}\" at the {(l.CanLock(m) == ModLock.Top ? "top" : "bottom")}";
+        Change(label, () => l.ToggleLock(m));
     }
 
     // ---- Details
@@ -339,6 +778,7 @@ sealed class MainForm : Form
         if (Selected is not Mod m || lib == null) return;
         header.Mod = m; header.Conflicted = conflicted.Contains(m); header.Invalidate();
         storePreview.Mod = m;
+        ShowNote(m);
         int keepTab = Math.Max(0, tabs.SelectedIndex);
         tabs.SuspendLayout();
         tabs.Clear();
@@ -419,18 +859,28 @@ sealed class MainForm : Form
             tabs.Add($"Conflicts ({mineConflicts.Count})", grid);
         }
 
-        var info = new List<string>
-        {
-            $"Name:      {m.Name}", $"Author:    {m.Manifest.Author}", $"Version:   {m.Manifest.Version}", $"Priority:  {m.Priority + 1} of {lib.Mods.Count} (higher wins)",
-            $"State:     {(m.Enabled ? "enabled" : "disabled")}", $"Folder:    {m.Folder}",
-        };
-        if (m.LoadError != null) info.Add($"\nERROR: {m.LoadError}");
+        // Info: a table like the other tabs (it was monospaced text; Kurt: the font should match the others).
+        var infoGrid = Grid(false, ("Field", 130), ("Value", 0));
+        void InfoRow(string field, string value, Color? color = null) { int r = infoGrid.Rows.Add(field, value); if (color is Color c) infoGrid.Rows[r].Cells[1].Style.ForeColor = c; }
+        InfoRow("Name", m.Name);
+        InfoRow("Author", m.Manifest.Author ?? "");
+        InfoRow("Version", m.Manifest.Version ?? "");
+        InfoRow("Priority", $"{m.Priority + 1} of {lib.Mods.Count} (higher wins)" + (m.Lock != ModLock.None ? $", locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}" : ""));
+        InfoRow("State", m.Enabled ? "enabled" : "disabled", m.Enabled ? Ui.Enabled : null);
+        InfoRow("Automatic tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "none (nothing recognised in the content)");
+        InfoRow("The mod's tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "none (set them in Edit Mod → Tags)");
+        InfoRow("Your tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "none (right-click the mod, or + Tag above)");
+        if (m.HiddenTags.Count > 0) InfoRow("Hidden here", string.Join(", ", m.HiddenTags));
+        InfoRow("Folder", m.Folder);
+        if (m.LoadError != null) InfoRow("Error", m.LoadError, Ui.Warn);
         var missing = m.MissingFiles().ToList();
-        if (missing.Count > 0) info.Add("\nMISSING FILES: " + string.Join(", ", missing));
-        tabs.Add("Info", new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, BackColor = Ui.Back, ForeColor = Ui.Text, Font = mono, Text = string.Join("\r\n", info).Replace("\n", "\r\n").Replace("\r\r", "\r") });
+        if (missing.Count > 0) InfoRow("Missing files", string.Join(", ", missing), Ui.Warn);
+        tabs.Add("Info", infoGrid);
 
-        Theme.Apply(this, Palette.Dark);   // colours for the new controls
-        Restyle(this);
+        // Colours for the new pages only. Theming the whole form set the mod list's border (FixedSingle, then back to
+        // None), which recreates its window; from inside the list's own click (padlock, checkbox) that crashed the app.
+        Theme.ApplyTree(tabs, Palette.Dark);
+        Ui.Restyle(tabs);
         tabs.Select(Math.Min(keepTab, 99));
         tabs.ResumeLayout();
     }
@@ -501,7 +951,21 @@ sealed class MainForm : Form
         if (d.ShowDialog(this) == DialogResult.OK) Install(d.FileNames);
     }
 
-    async void Install(string[] sources)
+    /// <summary>Asked (on the UI thread) when an installed mod would be replaced.</summary>
+    bool AskReplace(Mod existing, ModManifest incoming) => (bool)Invoke(() =>
+        MessageBox.Show(this, $"\"{existing.Name}\" is installed already (version {existing.Manifest.Version ?? "?"} by {existing.Manifest.Author ?? "?"}).\n\n" +
+            $"Replace it with version {incoming.Version ?? "?"} by {incoming.Author ?? "?"}?\n\nIt keeps its place in the list, on/off, lock, tags and note. The old files go to the Recycle Bin." +
+            (existing.Enabled ? "\n\nIt's on: Apply Changes afterwards puts the new version in the game." : ""),
+            "Update mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes);
+
+    /// <summary>A card's "Update from a file…": the chosen archive / folder replaces this mod (even under another name).</summary>
+    void UpdateFromFile(Mod m)
+    {
+        using var d = new OpenFileDialog { Title = $"Update \"{m.Name}\" from", Filter = "Mod archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|All files|*.*" };
+        if (d.ShowDialog(this) == DialogResult.OK) Install([d.FileName], m);
+    }
+
+    async void Install(string[] sources, Mod? into = null)
     {
         if (readOnly || lib == null) return;
         var l = lib;
@@ -512,7 +976,7 @@ sealed class MainForm : Form
             foreach (string s in sources)
             {
                 log.Add(Path.GetFileName(s) + ":");
-                try { all.AddRange(ModInstaller.Install(s, ModLibrary.Load(l.DataFolder), log)); }
+                try { all.AddRange(ModInstaller.Install(s, ModLibrary.Load(l.DataFolder), log, AskReplace, into)); }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException) { log.Add("  couldn't read it: " + ex.Message); }
             }
             return (log, all);
@@ -555,8 +1019,8 @@ sealed class MainForm : Form
         editorHost.Controls.Clear();
         editorHost.Controls.Add(ed);
         pages.SetTitle(1, ed.Title.Length > 40 ? ed.Title[..40] + "…" : ed.Title);
-        Theme.Apply(this, Palette.Dark);
-        Restyle(this);
+        Theme.ApplyTree(editorHost, Palette.Dark);   // not the whole form (a double-click on the list opens this): see ShowDetails
+        Restyle(editorHost);
     }
 
     void CloseEditor()
@@ -567,6 +1031,138 @@ sealed class MainForm : Form
         editor = null;
         editorHost.Controls.Add(editorPlaceholder);
         pages.SetTitle(1, "Editor");
+    }
+
+    /// <summary>
+    /// --ui-selftest (scratch library only): tags, on/off, "All", undo / redo back to the original state.json, filter,
+    /// grouping, and a screenshot of a tooltip. Writes selftest.txt and PNGs to <paramref name="dir"/>.
+    /// </summary>
+    public async Task UiSelfTest(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        var log = new List<string>();
+        int fails = 0;
+        void Check(string what, bool ok) { if (!ok) fails++; log.Add($"{(ok ? "ok  " : "FAIL")} {what}"); }
+        if (lib == null || lib.Mods.Count < 3) { File.WriteAllText(Path.Combine(dir, "selftest.txt"), "no library"); return; }
+        settings.ListSort = "priority"; settings.ListGroup = "none"; filter.Text = "";
+        string original = ReadState();
+        string a = lib.Mods[0].FolderName, b = lib.Mods[1].FolderName, c = lib.Mods[2].FolderName;
+        Mod M(string n) => lib!.Find(n)!;
+        bool aOn = M(a).Enabled;
+
+        // Real mouse clicks (window messages) on a padlock and a checkbox, as a user makes them.
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
+        void Click(Point p)
+        {
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();   // a leaked window whose .NET side is gone fails here, not by chance
+            var lp = (IntPtr)((p.Y << 16) | (p.X & 0xFFFF));
+            SendMessage(list.Handle, 0x0201, (IntPtr)1, lp);   // WM_LBUTTONDOWN
+            SendMessage(list.Handle, 0x0202, IntPtr.Zero, lp); // WM_LBUTTONUP
+            Application.DoEvents();
+        }
+        IntPtr listHandle = list.Handle;
+        int topIndex = list.Items.Cast<object>().ToList().FindIndex(o => o is Mod);
+        var lockBefore = M(a).Lock;   // the library may have it locked already
+        Click(list.PartCentre(topIndex, padlock: true));
+        await Task.Delay(300);
+        Check($"padlock click {(lockBefore == ModLock.None ? "locks" : "unlocks")} the top mod", M(a).Lock == (lockBefore == ModLock.None ? ModLock.Top : ModLock.None));
+        Click(list.PartCentre(topIndex, padlock: true));
+        await Task.Delay(300);
+        Check("second padlock click puts it back", M(a).Lock == lockBefore);
+        Click(list.PartCentre(topIndex, padlock: false));
+        await Task.Delay(300);
+        Check("checkbox click toggles", M(a).Enabled != aOn);
+        Click(list.PartCentre(topIndex, padlock: false));
+        await Task.Delay(300);
+        Check("checkbox click again restores", M(a).Enabled == aOn);
+        Check("the list keeps its window through the clicks", list.Handle == listHandle);
+        {
+            var pt = list.PartCentre(topIndex, padlock: false); pt.X -= (int)(200 * DeviceDpi / 96f);
+            var lp = (IntPtr)((pt.Y << 16) | (pt.X & 0xFFFF));
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            SendMessage(list.Handle, 0x0201, (IntPtr)1, lp); SendMessage(list.Handle, 0x0202, IntPtr.Zero, lp);
+            SendMessage(list.Handle, 0x0203, (IntPtr)1, lp); SendMessage(list.Handle, 0x0202, IntPtr.Zero, lp);   // WM_LBUTTONDBLCLK
+            Application.DoEvents();
+            await Task.Delay(500);
+            Check("double-click opens the Editor tab", editor != null && pages.SelectedIndex == 1);
+            CloseEditor(); pages.Select(0);
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            Check("the list keeps its window through the double-click", list.Handle == listHandle);
+        }
+
+        Change("tag a", () => { ModLibrary.AddTag(M(a), "Selftest-One"); return true; });
+        Change("tag b", () => { ModLibrary.AddTag(M(b), "Selftest-One"); ModLibrary.AddTag(M(b), "Selftest-Two"); return true; });
+        Change("tag c", () => { ModLibrary.AddTag(M(c), "selftest-two"); return true; });   // other case: same tag
+        Check("tags saved and reloaded", M(a).UserTags.SequenceEqual(["Selftest-One"]) && M(b).UserTags.Count == 2 && M(c).UserTags.SequenceEqual(["selftest-two"]) && ReadState().Contains("\"Tags\""));
+        Check("AllTags merges case", lib.AllTags().Count(t => t.StartsWith("selftest", StringComparison.OrdinalIgnoreCase)) == 2);
+        Toggle(M(a));
+        Check("toggle", M(a).Enabled != aOn);
+        Undo();
+        Check("undo toggle", M(a).Enabled == aOn);
+        Redo();
+        Check("redo toggle", M(a).Enabled != aOn);
+        Undo();
+
+        // Note: typed, saved as the user's (one undo step), undone.
+        SelectMod(a);
+        string noteBefore = M(a).Note;
+        noteBox.Text = "Test note" + "\r\n" + "line two";
+        SaveNote();
+        Check("note saved as yours", M(a).LocalNote == "Test note" + "\n" + "line two" && ReadState().Contains("Test note"));
+        Undo();
+        Check("undo note", M(a).Note == noteBefore && noteBox.Text.Replace("\r\n", "\n") == noteBefore.Replace("\r\n", "\n"));
+        // An automatic tag taken off one mod is hidden there, and comes back when ticked again.
+        var withAuto = lib.Mods.FirstOrDefault(x => x.AutoTags.Count > 0);
+        if (withAuto != null)
+        {
+            string autoTag = withAuto.AutoTags[0], wn = withAuto.FolderName;
+            Change("hide auto tag", () => { ModLibrary.RemoveTag(M(wn), autoTag); return true; });
+            Check($"automatic tag \"{autoTag}\" hidden", !ModLibrary.HasTag(M(wn), autoTag) && M(wn).HiddenTags.Contains(autoTag));
+            Change("show auto tag", () => { ModLibrary.AddTag(M(wn), autoTag); return true; });
+            Check("and shown again", ModLibrary.HasTag(M(wn), autoTag) && M(wn).HiddenTags.Count == 0 && !M(wn).UserTags.Contains(autoTag));
+        }
+
+        filter.Text = "tag:selftest-one";
+        Check("filter tag:selftest-one shows 2", shown.Count == 2);
+        filter.Text = "#selftest-two";
+        Check("filter #selftest-two shows b and c", shown.Select(m => m.FolderName).Order().SequenceEqual(new[] { b, c }.Order()));
+        bool bOn = M(b).Enabled, cOn = M(c).Enabled;
+        SetAllVisible();
+        Check("All: every mod in the list changed together", M(b).Enabled == M(c).Enabled && shown.All(m => m.Enabled == M(b).Enabled));
+        Undo();
+        Check("undo All", M(b).Enabled == bOn && M(c).Enabled == cOn);
+        filter.Text = "";
+
+        settings.ListGroup = "tag"; FillList(null);
+        var groups = list.Items.OfType<ModGroup>().Select(g => g.Name).ToList();
+        log.Add("groups: " + string.Join(", ", groups));
+        Check("grouped by tag: test tags and automatic ones, Untagged last", groups.Contains("Selftest-One") && groups.Count >= 3 && groups[^1] == "Untagged");
+        Check("priority buttons off while grouped", priorityButtons.All(x => !x.Enabled));
+        await Task.Delay(1500);
+        using (var bmp = new Bitmap(Width, Height)) { DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height)); bmp.Save(Path.Combine(dir, "grouped.png")); }
+        var first = list.Items.OfType<ModGroup>().First();
+        list.Items.OfType<ModGroup>().ToList();
+        collapsed.Add(first.Key); FillList(null);
+        Check("fold a group", list.Items.OfType<ModGroup>().First().Collapsed);
+        collapsed.Clear();
+        settings.ListGroup = "none"; FillList(null);
+
+        // Tooltip: shown on the Apply button, captured from the screen.
+        tips.Show("Sample tooltip: the dark tip the buttons and cards show." + Environment.NewLine + "Second line.", applyButton, 0, -(int)(60 * DeviceDpi / 96f), 5000);
+        await Task.Delay(700);
+        var at = applyButton.PointToScreen(new Point(-(int)(300 * DeviceDpi / 96f), -(int)(70 * DeviceDpi / 96f)));
+        using (var shot = new Bitmap((int)(500 * DeviceDpi / 96f), (int)(80 * DeviceDpi / 96f)))
+        {
+            using (var g = Graphics.FromImage(shot)) g.CopyFromScreen(at, Point.Empty, shot.Size);
+            shot.Save(Path.Combine(dir, "tooltip.png"));
+        }
+        tips.Hide(applyButton);
+
+        while (undo.Count > 0) Undo();
+        Check("undo everything: state.json back byte for byte", ReadState() == original);
+        Check("redo stack holds the undone steps", redo.Count >= 4);
+        log.Add(fails == 0 ? "All UI checks passed." : fails + " FAILED");
+        File.WriteAllLines(Path.Combine(dir, "selftest.txt"), log);
     }
 
     /// <summary>--editor-snapshot: every sub-tab of the Editor tab as PNG (layout check), for a new mod or the named one.</summary>
@@ -623,9 +1219,20 @@ sealed class MainForm : Form
             if (answer == DialogResult.Cancel) return;
             legacy = answer == DialogResult.No;
         }
-        using var d = new SaveFileDialog { Title = legacy ? "Export mod (legacy)" : "Export mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.Sanitise(m.Name) + (legacy ? " (legacy)" : "") + ".zip" };
+        // The user's own tags and note live on this PC; offered for the exported copy (the mod's own always go along).
+        List<string>? addTags = null; string? note = null;
+        var mineTags = m.UserTags.Where(t => !m.ModTags.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (!legacy && (mineTags.Count > 0 || m.LocalNote != null))
+        {
+            string what = (mineTags.Count > 0 ? $"your tags ({string.Join(", ", mineTags)})" : "") + (mineTags.Count > 0 && m.LocalNote != null ? " and " : "") + (m.LocalNote != null ? "your note" : "");
+            var a = MessageBox.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far. The mod's own tags and note go along anyway; automatic tags are worked out again by whoever installs it.",
+                "Export", MessageBoxButtons.YesNoCancel);
+            if (a == DialogResult.Cancel) return;
+            if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; }
+        }
+        using var d = new SaveFileDialog { Title = legacy ? "Export mod (legacy)" : "Export mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        try { ModInstaller.Export(m, d.FileName, legacy); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages left out)" : ""); }
+        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags and note left out)" : addTags != null ? " (with your tags / note)" : ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { MessageBox.Show(this, "Export failed: " + ex.Message, Text); }
     }
 

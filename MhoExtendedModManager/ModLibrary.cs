@@ -28,9 +28,15 @@ sealed class ModLibrary
         mods = mods.OrderBy(m => order.TryGetValue(m.FolderName, out int i) ? i : int.MaxValue).ThenBy(m => m.FolderName, StringComparer.OrdinalIgnoreCase).ToList();
         var top = new HashSet<string>(lib.State.LockedTop ?? [], StringComparer.OrdinalIgnoreCase);
         var bottom = new HashSet<string>(lib.State.LockedBottom ?? [], StringComparer.OrdinalIgnoreCase);
+        var tags = new Dictionary<string, List<string>>(lib.State.Tags ?? [], StringComparer.OrdinalIgnoreCase);
+        var hidden = new Dictionary<string, List<string>>(lib.State.HiddenTags ?? [], StringComparer.OrdinalIgnoreCase);
+        var notes = new Dictionary<string, string>(lib.State.Notes ?? [], StringComparer.OrdinalIgnoreCase);
         foreach (var m in mods)
         {
             m.Enabled = enabled.Contains(m.FolderName);
+            m.UserTags = tags.TryGetValue(m.FolderName, out var t) ? t.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [];
+            m.HiddenTags = hidden.TryGetValue(m.FolderName, out var h) ? h.ToList() : [];
+            m.LocalNote = notes.TryGetValue(m.FolderName, out var n) ? n : null;
             m.Lock = top.Contains(m.FolderName) ? ModLock.Top : bottom.Contains(m.FolderName) ? ModLock.Bottom : ModLock.None;
         }
         lib.Mods.AddRange(mods);
@@ -107,6 +113,12 @@ sealed class ModLibrary
         List<string>? Locked(ModLock l) { var x = Mods.Where(m => m.Lock == l).OrderBy(m => m.Priority).Select(m => m.FolderName).ToList(); return x.Count > 0 ? x : null; }
         State.LockedTop = Locked(ModLock.Top);
         State.LockedBottom = Locked(ModLock.Bottom);
+        var tagged = Mods.Where(m => m.UserTags.Count > 0).OrderBy(m => m.Priority).ToList();
+        State.Tags = tagged.Count > 0 ? tagged.ToDictionary(m => m.FolderName, m => m.UserTags.ToList()) : null;
+        var hid = Mods.Where(m => m.HiddenTags.Count > 0).OrderBy(m => m.Priority).ToList();
+        State.HiddenTags = hid.Count > 0 ? hid.ToDictionary(m => m.FolderName, m => m.HiddenTags.ToList()) : null;
+        var noted = Mods.Where(m => m.LocalNote != null).OrderBy(m => m.Priority).ToList();
+        State.Notes = noted.Count > 0 ? noted.ToDictionary(m => m.FolderName, m => m.LocalNote!) : null;
         string path = Path.Combine(DataFolder, "state.json"), tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(State, ModManifest.Json));
         File.Move(tmp, path, overwrite: true);
@@ -165,6 +177,34 @@ sealed class ModLibrary
         Mods.Insert(direction < 0 ? TopLocked : Mods.Count - BottomLocked, m);
         for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
         return true;
+    }
+
+    /// <summary>Every tag in use, sorted.</summary>
+    public List<string> AllTags() => Mods.SelectMany(m => m.Tags).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>A tag as typed, cleaned up, and spelled like an existing tag that differs only in case.</summary>
+    public string? CleanTag(string? text)
+    {
+        string t = string.Join(' ', (text ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim().TrimStart('#');
+        if (t.Length == 0) return null;
+        if (t.Length > 30) t = t[..30];
+        return AllTags().FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase)) ?? t;
+    }
+
+    public static bool HasTag(Mod m, string tag) => m.Tags.Any(t => t.Equals(tag, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Puts a tag on a mod: un-hides an automatic / mod tag, else adds it to the user's tags.</summary>
+    public static void AddTag(Mod m, string tag)
+    {
+        m.HiddenTags.RemoveAll(t => t.Equals(tag, StringComparison.OrdinalIgnoreCase));
+        if (!HasTag(m, tag)) m.UserTags.Add(tag);
+    }
+
+    /// <summary>Takes a tag off a mod: removes the user's tag, and hides an automatic / mod tag on this PC.</summary>
+    public static void RemoveTag(Mod m, string tag)
+    {
+        m.UserTags.RemoveAll(t => t.Equals(tag, StringComparison.OrdinalIgnoreCase));
+        if (HasTag(m, tag)) m.HiddenTags.Add(tag);
     }
 
     public Mod? Find(string name) =>

@@ -75,6 +75,53 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
         catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { return null; }
     }
 
+    /// <summary>Extract: the stock image as .dds, or as .png when the path ends in .png (decoded, with alpha). Returns why not, or null.</summary>
+    public string? ExportImage(string iconPackage, string texture, string path)
+    {
+        if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return ExportDds(iconPackage, texture, path);
+        if (Preview(iconPackage, texture) is not { } p) return $"'{texture}' can't be decoded";
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        using var bmp = TextureDecode.ToBitmap(p.Bgra, p.W, p.H);
+        bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        return null;
+    }
+
+    /// <summary>
+    /// A PNG / JPG / BMP made into a replacement .dds for a stock texture: scaled to the original's size if it differs,
+    /// DXT1 (1-bit alpha cut at 85, the masked clip) or DXT5 as the original, no mips (as 387 of the library's 420 mod
+    /// .dds files). Written to <paramref name="outDds"/>. Returns a note on what was done, or throws.
+    /// </summary>
+    public string ImageToDds(string iconPackage, string texture, string image, string outDds)
+    {
+        var size = Size(iconPackage, texture);
+        using var src = new System.Drawing.Bitmap(image);
+        int w = size?.W ?? src.Width, h = size?.H ?? src.Height;
+        w = Math.Max(4, w / 4 * 4); h = Math.Max(4, h / 4 * 4);
+        string note = src.Width == w && src.Height == h ? "" : $"scaled {src.Width}×{src.Height} → {w}×{h}; ";
+        string temp = Path.Combine(Path.GetTempPath(), "mhoextmm_img_" + Guid.NewGuid().ToString("N")[..8] + ".png");
+        try
+        {
+            using (var fit = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (var g = System.Drawing.Graphics.FromImage(fit))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                    g.DrawImage(src, 0, 0, w, h);
+                }
+                fit.Save(temp, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            string fmt = size?.Format ?? "";
+            string? want = fmt.Contains("DXT1", StringComparison.OrdinalIgnoreCase) ? "dxt1" : fmt.Contains("DXT5", StringComparison.OrdinalIgnoreCase) ? "dxt5" : null;
+            var r = TextureEncode.FromImage(temp, want, 85, 1f, noMips: true);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outDds))!);
+            File.WriteAllBytes(outDds, TextureImport.WriteDds(r));
+            return note + $"converted to {r.FourCC}";
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
     /// <summary>Extract: the stock image (largest mip, from the original package or original cache) as a .dds. Returns why not, or null.</summary>
     public string? ExportDds(string iconPackage, string texture, string path)
     {

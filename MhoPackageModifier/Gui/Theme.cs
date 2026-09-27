@@ -49,7 +49,8 @@ static class Theme
         form.Invalidate(true);
     }
 
-    static void ApplyTree(Control c, Palette p)
+    /// <summary>The palette on one control and its children (for controls added after the form was themed).</summary>
+    internal static void ApplyTree(Control c, Palette p)
     {
         switch (c)
         {

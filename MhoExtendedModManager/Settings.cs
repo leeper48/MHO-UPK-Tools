@@ -19,6 +19,13 @@ sealed class Settings
     public string? GameRoot { get; set; }
     /// <summary>Null = the default location. May also be MHModManager's folder (read-only there until migrated).</summary>
     public string? Library { get; set; }
+    /// <summary>The mod list's sort (priority, name, author, tag, enabled) and grouping (none, tag, author).</summary>
+    public string ListSort { get; set; } = "priority";
+    public string ListGroup { get; set; } = "none";
+    /// <summary>Updates: look for a new version at start (at most once a day); a version the user chose to skip.</summary>
+    public bool CheckUpdates { get; set; } = true;
+    public DateTime? LastUpdateCheck { get; set; }
+    public string? SkipVersion { get; set; }
 
     static string? TestHome => Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
     /// <summary>The data folder: next to the exe (or MHO_EXTMM_HOME).</summary>

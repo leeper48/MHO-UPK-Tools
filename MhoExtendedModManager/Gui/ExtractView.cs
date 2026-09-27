@@ -38,7 +38,7 @@ sealed class ExtractView : UserControl
         var tex = new Panel { Dock = DockStyle.Fill };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
         bar.Controls.AddRange([new Label { Text = "Package", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, kind,
-            Ui.AccentButton("Save selected as .dds…", SaveTextures)]);
+            Ui.AccentButton("Save selected as .dds…", () => SaveTextures(".dds")), Ui.FlatButton("Save selected as .png…", () => SaveTextures(".png"))]);
         var left = new TableLayoutPanel { Dock = DockStyle.Left, Width = (int)(380 * s), ColumnCount = 1, RowCount = 2, Padding = new Padding(0, 0, 8, 0) };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var searchRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 0, 0, 6) };
@@ -109,7 +109,7 @@ sealed class ExtractView : UserControl
         await Task.Delay(2500);
     }
 
-    async void SaveTextures()
+    async void SaveTextures(string ext)
     {
         var sel = names.SelectedItems.OfType<TexEntry>().ToList();
         if (sel.Count == 0) { MessageBox.Show(this, "Select one or more textures first.", "Extract"); return; }
@@ -117,9 +117,9 @@ sealed class ExtractView : UserControl
         string? folder;
         if (sel.Count == 1)
         {
-            using var d = new SaveFileDialog { Title = "Save original", Filter = "DDS texture (*.dds)|*.dds", FileName = sel[0].Name + ".dds" };
+            using var d = new SaveFileDialog { Title = "Save original", Filter = ext == ".png" ? "PNG image (*.png)|*.png" : "DDS texture (*.dds)|*.dds", FileName = sel[0].Name + ext };
             if (d.ShowDialog(this) != DialogResult.OK) return;
-            string? why = catalog.ExportDds(Pkg(sel[0]), sel[0].Name, d.FileName);
+            string? why = catalog.ExportImage(Pkg(sel[0]), sel[0].Name, d.FileName);
             status.Text = why == null ? $"Saved {d.FileName}" : $"Not saved: {why}";
             return;
         }
@@ -129,7 +129,7 @@ sealed class ExtractView : UserControl
             folder = d.SelectedPath;
         }
         UseWaitCursor = true;
-        var failed = await Task.Run(() => sel.Select(e => (n: e.Name, why: catalog.ExportDds(Pkg(e), e.Name, Path.Combine(folder, e.Name + ".dds")))).Where(x => x.why != null).ToList());
+        var failed = await Task.Run(() => sel.Select(e => (n: e.Name, why: catalog.ExportImage(Pkg(e), e.Name, Path.Combine(folder, e.Name + ext)))).Where(x => x.why != null).ToList());
         UseWaitCursor = false;
         status.Text = $"Saved {sel.Count - failed.Count} of {sel.Count} to {folder}" + (failed.Count > 0 ? $" (not: {string.Join(", ", failed.Select(f => f.n))})" : "");
     }

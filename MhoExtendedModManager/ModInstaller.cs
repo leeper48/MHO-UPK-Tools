@@ -26,7 +26,10 @@ static class ModInstaller
     }
 
     /// <summary>Installs every mod in the archive or folder. New mods go at the top of the order, disabled. Returns the installed folder names.</summary>
-    public static List<string> Install(string source, ModLibrary lib, List<string> log)
+    /// <param name="replace">Asked when a mod with the same name is installed already (existing, incoming): true replaces
+    /// it, keeping its folder, so its place, on/off, lock, tags and note stay. Null: refuse, as before.</param>
+    /// <param name="into">Update this mod with the archive's (single) mod, whatever its name ("Update from a file…").</param>
+    public static List<string> Install(string source, ModLibrary lib, List<string> log, Func<Mod, ModManifest, bool>? replace = null, Mod? into = null)
     {
         var installed = new List<string>();
         string temp = Path.Combine(Path.GetTempPath(), "MhoExtMM_install_" + Guid.NewGuid().ToString("N")[..8]);
@@ -43,6 +46,8 @@ static class ModInstaller
             var manifests = Directory.GetFiles(root, "manifest.json", SearchOption.AllDirectories)
                 .Where(m => Path.GetRelativePath(root, m).Count(c => c == Path.DirectorySeparatorChar) <= 2).OrderBy(m => m).ToList();
             if (manifests.Count == 0) { log.Add("No manifest.json in it: not a mod in MHModManager's format."); return installed; }
+            if (into != null && manifests.Count != 1) { log.Add($"It holds {manifests.Count} mods: to update '{into.Name}' it has to hold exactly one."); return installed; }
+            var updated = new List<string>();
             foreach (string manifestPath in manifests)
             {
                 string dir = Path.GetDirectoryName(manifestPath)!;
@@ -54,16 +59,36 @@ static class ModInstaller
                 var missing = probe.MissingFiles().ToList();
                 if (missing.Count > 0) { log.Add($"{name}: files missing from the archive: {string.Join(", ", missing)}"); continue; }
                 string target = Path.Combine(lib.DataFolder, "mods", name);
-                if (Directory.Exists(target)) { log.Add($"{name}: a mod with this name is already installed (remove it first to replace it)."); continue; }
+                var existing = into ?? lib.Mods.FirstOrDefault(x => x.FolderName.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (existing == null && Directory.Exists(target)) { log.Add($"{name}: a folder with this name is in the library already."); continue; }
+                if (existing != null)
+                {
+                    if (replace == null || !replace(existing, m)) { log.Add($"{name}: already installed, left as it was."); continue; }
+                    // Update in place: the new files next to the old, checked, then the old folder to the Recycle Bin and the
+                    // new one in its place. Same folder name, so state.json (order, on/off, lock, tags, note) still applies.
+                    string fresh = existing.Folder + ".new";
+                    if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
+                    CopyDirectory(dir, fresh);
+                    var want = Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Select(f => (Path.GetRelativePath(dir, f), new FileInfo(f).Length)).Order().ToList();
+                    var got = Directory.GetFiles(fresh, "*", SearchOption.AllDirectories).Select(f => (Path.GetRelativePath(fresh, f), new FileInfo(f).Length)).Order().ToList();
+                    if (!want.SequenceEqual(got)) { Directory.Delete(fresh, true); log.Add($"{name}: the copy didn't check out, nothing changed."); continue; }
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(existing.Folder, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+                    Directory.Move(fresh, existing.Folder);
+                    updated.Add(existing.FolderName);
+                    installed.Add(existing.FolderName);
+                    log.Add($"Updated '{existing.Name}' ({existing.Manifest.Version ?? "?"} → {m.Version ?? "?"}): kept its place, on/off, lock, tags and note; the old files are in the Recycle Bin." +
+                            (existing.Enabled ? " It's on: Apply Changes puts the new version in the game." : ""));
+                    continue;
+                }
                 CopyDirectory(dir, target + ".tmp");
                 Directory.Move(target + ".tmp", target);
                 installed.Add(name);
                 log.Add($"Installed '{name}' by {m.Author ?? "?"}, version {m.Version ?? "?"} (disabled, top of the list).");
             }
-            if (installed.Count > 0)
+            if (installed.Count > updated.Count)
             {
                 // Top of the order, disabled: enable it and Apply when ready.
-                var order = installed.Concat(lib.Mods.OrderBy(x => x.Priority).Select(x => x.FolderName)).ToList();
+                var order = installed.Except(updated).Concat(lib.Mods.OrderBy(x => x.Priority).Select(x => x.FolderName)).ToList();
                 lib.State.ModOrder = order;
                 lib.State.EnabledMods = lib.Mods.Where(x => x.Enabled).OrderBy(x => x.Priority).Select(x => x.FolderName).ToList();
                 lib.State.ApplyLocks();   // locked mods keep their place at the top / bottom
@@ -93,15 +118,32 @@ static class ModInstaller
     /// ExtraIconReplacements extension). <paramref name="legacy"/>: leave the extension out entirely (its field and the
     /// .dds files only it uses), for a strictly MHModManager-format mod.
     /// </summary>
-    public static void Export(Mod mod, string zipPath, bool legacy = false)
+    /// <summary>The export's file name: "&lt;name&gt; - v&lt;version&gt;.zip" (no version: just the name), " (legacy)" for a legacy copy.</summary>
+    public static string ZipName(Mod mod, bool legacy = false)
+    {
+        string v = (mod.Manifest.Version ?? "").Trim().TrimStart('v', 'V').Trim();
+        return Sanitise(mod.Name + (v.Length > 0 ? " - v" + v : "")) + (legacy ? " (legacy)" : "") + ".zip";
+    }
+
+    public static void Export(Mod mod, string zipPath, bool legacy = false, IEnumerable<string>? addTags = null, string? note = null)
     {
         string temp = zipPath + ".tmp";
         if (File.Exists(temp)) File.Delete(temp);
         var files = Directory.GetFiles(mod.Folder, "*", SearchOption.AllDirectories).ToList();
         byte[]? manifest = null;
-        if (legacy && mod.Manifest.Extra.Any())
+        var extraTags = (addTags ?? []).Where(t => !mod.ModTags.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (!legacy && (extraTags.Count > 0 || note != null))
+        {
+            // The user's tags / note go into the exported copy (the library's manifest isn't changed).
+            var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
+            if (extraTags.Count > 0) m.Tags = [.. m.Tags ?? [], .. extraTags];
+            if (note != null) m.Notes = note.Length > 0 ? note : null;
+            manifest = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, ModManifest.Json));
+        }
+        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null))
         {
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
+            m.Tags = null; m.Notes = null;   // extensions: a legacy copy is MHModManager's format only
             var keep = m.Replacements.Concat(m.AchievementReplacements).Concat(m.StoreReplacements).Select(r => r.DdsFileName).Concat(m.UpkReplacements).Concat(m.AudioPacks).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var dropOnly = m.Extra.Select(r => r.DdsFileName).Where(f => !keep.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             files.RemoveAll(f => dropOnly.Contains(Path.GetRelativePath(mod.Folder, f)));
@@ -144,6 +186,7 @@ static class ModInstaller
         Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(mod.Folder, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
         lib.State.ModOrder.RemoveAll(n => n.Equals(mod.FolderName, StringComparison.OrdinalIgnoreCase));
         lib.State.EnabledMods.RemoveAll(n => n.Equals(mod.FolderName, StringComparison.OrdinalIgnoreCase));
+        lib.State.ForgetMod(mod.FolderName);
         File.WriteAllText(Path.Combine(lib.DataFolder, "state.json"), JsonSerializer.Serialize(lib.State, ModManifest.Json));
         return null;
     }

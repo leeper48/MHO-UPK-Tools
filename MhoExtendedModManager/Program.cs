@@ -23,7 +23,7 @@ static class Program
         ("--status", "--status", "For each enabled mod's packages: is its copy live? Plus modified game packages no enabled mod claims."),
         ("--check", "--check", "Mods with a broken manifest or files missing from their folder."),
         ("--migrate", "--migrate <old folder> [--to <lib>]", "Copy MHModManager's mods, order, verified stock backups and settings into a new library (default %LOCALAPPDATA%\\MhoExtendedModManager\\library). The old folder is left as it is."),
-        ("--install", "--install <archive.zip|.7z|folder>", "Add the mod(s) in an archive or folder to the library (top of the list, disabled)."),
+        ("--install", "--install <archive.zip|.7z|folder> [--replace]", "Add the mod(s) in an archive or folder to the library (top of the list, disabled). --replace updates a mod of the same name in place (keeps its place, on/off, lock, tags and note)."),
         ("--export", "--export <mod> <out.zip> [--legacy]", "Save a mod from the library as a .zip (installable here and in MHModManager; --legacy also leaves out the other-icon-package extension)."),
         ("--remove", "--remove <mod>", "Remove a disabled mod from the library (to the Recycle Bin). Apply first so none of it is left in the game."),
         ("--enable", "--enable <mod>", "Enable a mod (library state only; run --apply to change the game)."),
@@ -33,9 +33,12 @@ static class Program
         ("--verify-strings", "--verify-strings", "Self-test: every .string file in the game and in the library's originals reads and writes back byte for byte."),
         ("--build-sound", "--build-sound <pack.mhsfx> <original.pck> <out.pck>", "Test: patch a copy of a sound package with one sound pack (never into the game folder)."),
         ("--add-original", "--add-original <file.tfc>", "Keep a clean copy of a texture cache (e.g. Icons.tfc) as its original: must carry the stock date (2024-03-14) and the game file's size. Apply then keeps the live one original."),
-        ("--extract-texture", "--extract-texture <icons|achievements|store> <texture> <out.dds>", "Save a stock icon / achievement / store image (from the originals) as .dds."),
+        ("--extract-texture", "--extract-texture <icons|achievements|store> <texture> <out.dds|out.png>", "Save a stock icon / achievement / store image (from the originals) as .dds, or as .png."),
         ("--extract-strings", "--extract-strings <lang> <out.json>", "Save every original string of a language (eng, deu, …) as .json in the mod format."),
         ("--compare-textures", "--compare-textures <a.upk> <b.upk> [<cache folder a> <cache folder b>]", "Every Texture2D in two packages: same size, format and best-mip pixels? (Checks a rebuild against another tool's.)"),
+        ("--check-update", "--check-update", "Look for a newer version (GitHub releases of leeper48/MHO-UPK-Tools, tag extmm-v<version>)."),
+        ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
+        ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
     ];
 
@@ -50,6 +53,26 @@ static class Program
             string msg = $"MHO Extended Mod Manager keeps its settings and mods in a \"data\" folder next to the program, and can't write there:\n\n{notWritable}\n\nMove the program's folder somewhere you can write to (not Program Files), e.g. C:\\Games\\MHO Extended Mod Manager.";
             if (gui) MessageBox.Show(msg, "MHO Extended Mod Manager"); else { AttachCliConsole(); Console.WriteLine(msg); }
             return 2;
+        }
+        Updater.CleanUp();   // the *.old files a self-update left behind
+        if (args.Length == 2 && args[0].Equals("--update-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: the update window for a made-up release, rendered to a PNG.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var r = new Updater.Release(new Version(9, 9, 9), "extmm-v9.9.9", "MHO Extended Mod Manager 9.9.9",
+                string.Join("\n", "What's new", "- Tags travel with mods", "- Update in place", "- PNG export and import"), Updater.ReleasesPage, "", "", 0);
+            using var f = new Gui.UpdateForm(r);
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(500);
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[1]);
+                f.Close();
+            });
+            Application.Run(f);
+            return 0;
         }
         if (args.Length == 2 && args[0].Equals("--first-run-snapshot", StringComparison.OrdinalIgnoreCase))
         {
@@ -74,6 +97,17 @@ static class Program
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             var main = new Gui.MainForm();
             main.Shown += (_, _) => main.BeginInvoke(async () => { await main.ExtractSnapshot(args[1], args.Length == 3 ? args[2] : "store_vision_classic"); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 2 && args[0].Equals("--ui-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test hook (needs MHO_EXTMM_HOME on a scratch library: it changes tags and on/off, then undoes them).
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("--ui-selftest needs MHO_EXTMM_HOME (a scratch library)."); return 1; }
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.UiSelfTest(args[1]); main.Close(); });
             Application.Run(main);
             return 0;
         }
@@ -170,6 +204,20 @@ static class Program
         }
 
         if (rest[0].Equals("--test-locks", StringComparison.OrdinalIgnoreCase)) return LockTest.Run();
+        if (rest[0].Equals("--check-update", StringComparison.OrdinalIgnoreCase) || rest[0].Equals("--update", StringComparison.OrdinalIgnoreCase))
+        {
+            Updater.CleanUp();
+            Updater.Release? r;
+            try { r = Updater.Latest().GetAwaiter().GetResult(); }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException or KeyNotFoundException or InvalidOperationException)
+            { Console.WriteLine("Couldn't check: " + ex.Message); return 1; }
+            if (r == null || r.Version <= Updater.Current) { Console.WriteLine($"Up to date ({Program.Version}); latest release: {r?.Version.ToString() ?? "none"}."); return 0; }
+            Console.WriteLine($"Version {r.Version} is available ({r.PageUrl}).");
+            if (rest[0].Equals("--check-update", StringComparison.OrdinalIgnoreCase)) return 0;
+            string? why = Updater.Install(r, Console.WriteLine).GetAwaiter().GetResult();
+            if (why != null) { Console.WriteLine("Not updated: " + why); return 1; }
+            return 0;
+        }
 
         if (rest[0].Equals("--migrate", StringComparison.OrdinalIgnoreCase))
         {
@@ -187,6 +235,53 @@ static class Program
 
         switch (rest[0].ToLowerInvariant())
         {
+            case "--test-images":
+            {
+                // Test: stock image → .png / .dds, .png → .dds (same size and format as the original), and a 2× image scaled.
+                string? tgr = settings.ResolvedGameRoot(data);
+                if (rest.Count < 2 || tgr == null || !Directory.Exists(Settings.Cooked(tgr))) { Console.WriteLine("--test-images <scratch folder> (needs the game folder)"); return 1; }
+                var game = new GameState(tgr, data);
+                string dir = rest[1];
+                if (Path.GetFullPath(dir).Contains(@"\CookedPCConsole", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("Refusing the game folder."); return 1; }
+                Directory.CreateDirectory(dir);
+                var cat = new StockCatalog(lib, game);
+                int fails = 0;
+                void Check(string what, bool ok) { if (!ok) fails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}"); }
+                foreach (var (pk, tex) in new[] { (Applier.IconPackages[2].File, "store_storm_classicblack"), (Applier.IconPackages[0].File, "costumestorm_classic") })
+                {
+                    var size = cat.Size(pk, tex);
+                    var prev = cat.Preview(pk, tex);
+                    if (size == null || prev == null) { Check($"{tex}: in the originals", false); continue; }
+                    string png = Path.Combine(dir, tex + ".png"), dds = Path.Combine(dir, tex + ".dds"), back = Path.Combine(dir, tex + "_from_png.dds");
+                    Check($"{tex}: saved as .png", cat.ExportImage(pk, tex, png) == null && File.Exists(png));
+                    Check($"{tex}: saved as .dds", cat.ExportImage(pk, tex, dds) == null && File.Exists(dds));
+                    string note = cat.ImageToDds(pk, tex, png, back);
+                    var img = MhoPackageModifier.TextureImport.ParseDds(File.ReadAllBytes(back), out string? err);
+                    bool same = img != null && img.Width == size.Value.W && img.Height == size.Value.H && size.Value.Format.Contains(img.FourCC, StringComparison.OrdinalIgnoreCase);
+                    Check($"{tex}: .png → .dds {img?.Width}×{img?.Height} {img?.FourCC} like the original ({size.Value.W}×{size.Value.H} {size.Value.Format}): {note}", same);
+                    // Pixels against the original (largest stored mip; the original may keep only a smaller one in the package).
+                    var d = MhoPackageModifier.TextureDecode.ReadDds(back, out _);
+                    var bgra = d is { } x ? MhoPackageModifier.TextureDecode.ToBgra(x.Format, x.W, x.H, x.Data, out _) : null;
+                    if (bgra != null && prev.Value.W == d!.Value.W && prev.Value.H == d.Value.H)
+                    {
+                        double se = 0; int n = 0;
+                        for (int i = 0; i < bgra.Length; i += 4) if (prev.Value.Bgra[i + 3] > 128) for (int c = 0; c < 3; c++) { double e = bgra[i + c] - prev.Value.Bgra[i + c]; se += e * e; n++; }
+                        double psnr = n == 0 ? 99 : 10 * Math.Log10(255.0 * 255.0 / Math.Max(1e-9, se / n));
+                        Check($"{tex}: round trip PSNR {psnr:0.0} dB (opaque pixels)", psnr > 30);
+                    }
+                    // A 2× image: scaled back to the original's size.
+                    using (var big = new System.Drawing.Bitmap(png))
+                    using (var twice = new System.Drawing.Bitmap(big, big.Width * 2, big.Height * 2)) twice.Save(Path.Combine(dir, tex + "_2x.png"));
+                    string note2 = cat.ImageToDds(pk, tex, Path.Combine(dir, tex + "_2x.png"), Path.Combine(dir, tex + "_2x.dds"));
+                    var img2 = MhoPackageModifier.TextureImport.ParseDds(File.ReadAllBytes(Path.Combine(dir, tex + "_2x.dds")), out _);
+                    Check($"{tex}: 2× image scaled to the original's size ({note2})", img2 != null && img2.Width == size.Value.W && img2.Height == size.Value.H);
+                }
+                Console.WriteLine(fails == 0 ? "All image checks passed." : $"{fails} image check(s) FAILED.");
+                return fails == 0 ? 0 : 1;
+            }
+            case "--auto-tags":
+                foreach (var m in lib.Mods) Console.WriteLine($"{m.Name}: {string.Join(", ", m.AutoTags)}");
+                return 0;
             case "--list": return List(lib);
             case "--conflicts": return Conflicts(lib);
             case "--check": return Check(lib);
@@ -200,7 +295,8 @@ static class Program
                 if (rest.Count < 2) { Usage(); return 1; }
                 var log = new List<string>();
                 List<string> done;
-                try { done = ModInstaller.Install(rest[1], lib, log); }
+                bool replace = rest.Any(a => a.Equals("--replace", StringComparison.OrdinalIgnoreCase));
+                try { done = ModInstaller.Install(rest[1], lib, log, replace ? (_, _) => true : null); }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException) { Console.WriteLine("Couldn't install it: " + ex.Message); return 1; }
                 log.ForEach(Console.WriteLine);
                 return done.Count > 0 ? 0 : 1;
@@ -248,7 +344,7 @@ static class Program
                 if (rest.Count < 4) { Usage(); return 1; }
                 int k = rest[1].ToLowerInvariant() switch { "icons" => 0, "achievements" => 1, "store" => 2, _ => -1 };
                 if (k < 0) { Console.WriteLine("Package kind: icons, achievements or store."); return 1; }
-                string? why = cat.ExportDds(Applier.IconPackages[k].File, rest[2], rest[3]);
+                string? why = cat.ExportImage(Applier.IconPackages[k].File, rest[2], rest[3]);
                 Console.WriteLine(why == null ? $"Saved the stock {rest[2]} to {rest[3]}." : $"Not saved: {why}");
                 return why == null ? 0 : 1;
             }

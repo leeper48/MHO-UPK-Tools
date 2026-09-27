@@ -26,7 +26,7 @@ static class TextureImport
     }
 
     /// <summary>A DDS file (header + mip chain) for encoded levels, so images take the same path as .dds files.</summary>
-    static byte[] WriteDds(TextureEncode.Result r)
+    internal static byte[] WriteDds(TextureEncode.Result r)
     {
         var h = new byte[128];
         void U(int at, uint v) => BitConverter.GetBytes(v).CopyTo(h, at);
