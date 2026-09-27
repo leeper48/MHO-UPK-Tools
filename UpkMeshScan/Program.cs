@@ -452,6 +452,8 @@ static class Program
             return 0;
         }
 
+        int planesAt = Array.FindIndex(args, a => a.Equals("--mesh-planes", StringComparison.OrdinalIgnoreCase));
+        if (planesAt >= 0 && planesAt + 2 < args.Length) return MeshPlanes.Run(args[planesAt + 1], args[planesAt + 2]);
         int meshCmpAt = Array.FindIndex(args, a => a.Equals("--mesh-compare", StringComparison.OrdinalIgnoreCase));
         // --mesh-compare <stock.upk> <mesh> <edited.upk> <mesh>
         if (meshCmpAt >= 0 && meshCmpAt + 4 < args.Length) return MeshCompare.Run(args[meshCmpAt + 1], args[meshCmpAt + 2], args[meshCmpAt + 3], args[meshCmpAt + 4]);

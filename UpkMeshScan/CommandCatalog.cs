@@ -34,6 +34,8 @@ static class CommandCatalog
         new("Meshes", "--scale-uv", "<package.upk> <staticmesh> <channel> <factor | fu,fv> [--section 0] [--dry-run]", "Scale one UV channel of a mesh (e.g. tile a texture more often).", true, "--scale-uv {pkg} {export} 0 2 --dry-run"),
         new("Meshes", "--mesh-compare", "<stock.upk> <mesh> <edited.upk> <mesh>", "Compare an edited mesh with its stock original triangle by triangle: normals, tangents, lightmap UVs (diagnoses odd lighting on edits).", false, "--mesh-compare <stock.upk> <mesh> {pkg} {export}"),
 
+        new("Meshes", "--mesh-planes", "<package.upk> <mesh>", "A mesh's vertical faces by wall line and the side they face: a wall line facing both ways has a part turned round (diagnoses walls that look wrong from outside).", false, "--mesh-planes {pkg} {export}"),
+
         // ---- Textures
         new("Textures", "--texture-info", "<package.upk> [name-filter]", "Textures: size, format, and where each mip's data lives (package or .tfc cache).", false, "--texture-info {pkg}"),
         new("Textures", "--texture-png", "<package.upk> <texture> <out.png>", "Save a texture as PNG (largest mip available, including from the .tfc caches; alpha kept).", false,

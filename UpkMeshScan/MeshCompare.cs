@@ -118,3 +118,52 @@ static class MeshCompare
         return 0;
     }
 }
+
+/// <summary>
+/// --mesh-planes &lt;package.upk&gt; &lt;mesh&gt;: the mesh's vertical faces grouped by wall line (the plane they lie in) and the side
+/// they face. Faces on one wall line normally all face the same way: a line with faces both ways has a part turned
+/// round (a copy facing into a building shows its back from outside). The outward side is taken from the stored normals.
+/// </summary>
+static class MeshPlanes
+{
+    public static int Run(string pkgPath, string meshName)
+    {
+        var p = Package.Open(pkgPath);
+        int i = Array.FindIndex(p.Exports, e => p.PathOf(e).Equals(meshName, StringComparison.OrdinalIgnoreCase)
+            || (e.ObjectName.Equals(meshName, StringComparison.OrdinalIgnoreCase) && p.ClassOf(e).Equals("StaticMesh", StringComparison.OrdinalIgnoreCase)));
+        if (i < 0) { Console.WriteLine($"No mesh {meshName}."); return 1; }
+        var m = StaticMesh.Read(p, p.Exports[i]);
+        // Outward = the side the stored normals are on (majority over the triangles), as the 3D view decides it.
+        int agree = 0;
+        for (int t = 0; t + 2 < m.Indices.Length; t += 3)
+        {
+            var c = System.Numerics.Vector3.Cross(m.Positions[m.Indices[t + 1]] - m.Positions[m.Indices[t]], m.Positions[m.Indices[t + 2]] - m.Positions[m.Indices[t]]);
+            agree += System.Numerics.Vector3.Dot(c, m.Normals[m.Indices[t]]) > 0 ? 1 : -1;
+        }
+        float sign = agree >= 0 ? 1 : -1;
+        var lines = new Dictionary<(char Axis, int At), (float Pos, float Neg, System.Numerics.Vector3 Lo, System.Numerics.Vector3 Hi)>();
+        for (int t = 0; t + 2 < m.Indices.Length; t += 3)
+        {
+            var a = m.Positions[m.Indices[t]]; var b = m.Positions[m.Indices[t + 1]]; var c = m.Positions[m.Indices[t + 2]];
+            var n = System.Numerics.Vector3.Cross(b - a, c - a) * sign;
+            float area = n.Length() / 2;
+            if (area < 1) continue;
+            n /= 2 * area;
+            char axis = MathF.Abs(n.X) > 0.95f ? 'x' : MathF.Abs(n.Y) > 0.95f ? 'y' : ' ';
+            if (axis == ' ') continue;
+            var ce = (a + b + c) / 3;
+            var key = (axis, (int)MathF.Round((axis == 'x' ? ce.X : ce.Y) / 4));
+            var cur = lines.TryGetValue(key, out var v) ? v : (0f, 0f, new System.Numerics.Vector3(float.MaxValue), new System.Numerics.Vector3(float.MinValue));
+            bool pos = (axis == 'x' ? n.X : n.Y) > 0;
+            lines[key] = (cur.Item1 + (pos ? area : 0), cur.Item2 + (pos ? 0 : area), System.Numerics.Vector3.Min(cur.Item3, ce), System.Numerics.Vector3.Max(cur.Item4, ce));
+        }
+        Console.WriteLine($"{m.Name}: vertical wall lines (area facing + / -, extent of the faces):");
+        foreach (var (k, v) in lines.OrderBy(k => k.Key.Axis).ThenBy(k => k.Key.At))
+        {
+            if (v.Pos + v.Neg < 500) continue;
+            bool mixed = MathF.Min(v.Pos, v.Neg) > 0.1f * (v.Pos + v.Neg);
+            Console.WriteLine($"  {k.Axis} = {k.At * 4,6}: +{k.Axis} {v.Pos,9:N0}  -{k.Axis} {v.Neg,9:N0}   x {v.Lo.X:0}..{v.Hi.X:0}, y {v.Lo.Y:0}..{v.Hi.Y:0}, z {v.Lo.Z:0}..{v.Hi.Z:0}{(mixed ? "   <- faces both ways" : "")}");
+        }
+        return 0;
+    }
+}

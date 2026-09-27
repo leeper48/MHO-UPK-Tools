@@ -133,6 +133,13 @@ sealed partial class MainForm
             meshes.SelectedIndex = pick >= 0 ? pick : Math.Min(meshes.Items.Count - 1, 3);
             var until = DateTime.Now.AddSeconds(15);
             while (DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(50); if (meshViewer.HasMesh) break; }
+            // MHO_SNAPSHOT_VIEW = "back,yaw,pitch" (e.g. "1,-40,20"): backfaces on/off and the angle.
+            if (Environment.GetEnvironmentVariable("MHO_SNAPSHOT_VIEW") is { Length: > 0 } v)
+            {
+                var p = v.Split(',');
+                meshViewer.SetView(backfaces: p[0] == "1", yawDeg: p.Length > 1 ? float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture) : null,
+                    pitchDeg: p.Length > 2 ? float.Parse(p[2], System.Globalization.CultureInfo.InvariantCulture) : null);
+            }
         }
         if (HelpForm.Render(dark: false) is string manual) File.Copy(manual, Path.Combine(dir, "manual.html"), overwrite: true);
         // The texture preview, on an image that ships with the app (the ICP skyline: soft alpha).

@@ -63,6 +63,17 @@ sealed class MeshViewer : UserControl
 
     public bool HasMesh => idx.Length > 0;
 
+    /// <summary>For --gui-snapshot: the view options and angle.</summary>
+    public void SetView(bool? tex = null, bool? wireframe = null, bool? backfaces = null, float? yawDeg = null, float? pitchDeg = null)
+    {
+        if (tex is bool t) textured.Checked = t;
+        if (wireframe is bool w) wire.Checked = w;
+        if (backfaces is bool b) back.Checked = b;
+        if (yawDeg is float y) yaw = y * MathF.PI / 180;
+        if (pitchDeg is float p) pitch = p * MathF.PI / 180;
+        Redraw();
+    }
+
     /// <summary>A mesh to show: engine-space positions, UV0, triangle indices, per-triangle section, per-section texture.</summary>
     public void ShowMesh(string name, Vector3[] positions, Vector3[] normals, Vector2[] uv0, int[] indices, int[] triangleSection, Tex?[] textures, string info)
     {
