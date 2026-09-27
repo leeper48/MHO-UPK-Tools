@@ -16,7 +16,7 @@ static class CloudDome
     static readonly byte[] EmptyLighting = [1, 0, 0, 0, .. new byte[17]];
 
     public static int Run(string upkPath, string componentPath, string materialPath, Vector2 uvScale, float shrink, bool dryRun,
-        float planarScale = 0f, float planarAngle = 0f, float horizonDeg = 3f, Vector2? horizonFade = null)
+        float planarScale = 0f, float planarAngle = 0f, float horizonDeg = 3f, Vector2? horizonFade = null, int? sortPriority = null)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -87,6 +87,12 @@ static class CloudDome
         var meshTag = tags.First(t => t.Name.Equals("StaticMesh", StringComparison.OrdinalIgnoreCase));
         var matsTag = tags.FirstOrDefault(t => t.Name.Equals("Materials", StringComparison.OrdinalIgnoreCase));
         if (matsTag == null || BinaryPrimitives.ReadInt32LittleEndian(src.AsSpan(matsTag.ValueAt)) < 1) { Console.WriteLine("  the component has no Materials entry to replace"); return 1; }
+        // --sort-priority N: TranslucencySortPriority on the copy, so a translucent dome draws in a fixed order against other
+        // translucent things at a similar distance (the water in the sky mesh flickered through the city dome's lower half).
+        var addNames = new List<string>();
+        foreach (string n in new[] { "TranslucencySortPriority", "IntProperty" })
+            if (sortPriority != null && !pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))) addNames.Add(n);
+        var tw = new TagWriter(pkg, addNames);
         using var ms = new MemoryStream();
         ms.Write(src, 0, 8);
         foreach (var t in tags)
@@ -94,22 +100,23 @@ static class CloudDome
             byte[] tag = src[t.Start..t.End];
             if (t == meshTag) BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(t.ValueAt - t.Start), newMeshRef);
             if (t == matsTag) BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(t.ValueAt - t.Start + 4), mat + 1);
+            if (sortPriority != null && t.Name.Equals("TranslucencySortPriority", StringComparison.OrdinalIgnoreCase)) continue;
             ms.Write(tag);
         }
+        if (sortPriority is int sp) ms.Write(tw.Tag("TranslucencySortPriority", "IntProperty", null, BitConverter.GetBytes(sp)));
         ms.Write(src, tags.NoneAt, 8);
         ms.Write(EmptyLighting);
         byte[] compBytes = ms.ToArray();
         int newCompRef = pkg.Exports.Length + 2;
         add.Add(new NewExport(comp, CellPlaceholders.NextNumber(pkg, comp, 0), _ => compBytes));
 
-        var tw = new TagWriter(pkg);
         byte[] actorBytes = CellPlaceholders.BuildActor(pkg, actor, tw, [newCompRef]);
         var replace = new Dictionary<int, Func<long, byte[]>> { [actor] = _ => actorBytes };
-        byte[] output = PackageRebuilder.Rebuild(pkg, replace, add, out var written);
+        byte[] output = PackageRebuilder.Rebuild(pkg, replace, add, out var written, addNames);
 
         List<string> Check(byte[] bytes)
         {
-            var problems = PackageRebuilder.Verify(pkg, bytes, [actor], add, written);
+            var problems = PackageRebuilder.Verify(pkg, bytes, [actor], add, written, addNames);
             var w = Package.FromBytes(bytes);
             var m = StaticMesh.Parse(w, w.Exports[newMeshRef - 1].ObjectName, w.ReadExportBytes(w.Exports[newMeshRef - 1]), w.Exports[newMeshRef - 1].SerialOffset);
             if (m.Positions.Length != built.Positions.Length || m.Indices.Length != built.Indices.Length) problems.Add("cloud mesh doesn't read back with the sky section's geometry");
@@ -123,6 +130,11 @@ static class CloudDome
             if (c == null || c.MeshRef != newMeshRef || c.Scale != c0.Scale || c.Translation != c0.Translation) problems.Add("cloud component doesn't place the new mesh like the sky");
             var mt = TagWalker.Walk(w, cb, 8)?.FirstOrDefault(t => t.Name.Equals("Materials", StringComparison.OrdinalIgnoreCase));
             if (mt == null || BinaryPrimitives.ReadInt32LittleEndian(cb.AsSpan(mt.ValueAt + 4)) != mat + 1) problems.Add("cloud component's material isn't the cloud material");
+            if (sortPriority is int want)
+            {
+                var sp = TagWalker.Walk(w, cb, 8)?.FirstOrDefault(t => t.Name.Equals("TranslucencySortPriority", StringComparison.OrdinalIgnoreCase));
+                if (sp == null || BinaryPrimitives.ReadInt32LittleEndian(cb.AsSpan(sp.ValueAt)) != want) problems.Add("cloud component's TranslucencySortPriority doesn't read back");
+            }
             return problems;
         }
         var problems = Check(output);

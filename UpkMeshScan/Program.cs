@@ -98,10 +98,21 @@ static class Program
                 float.Parse(IOpt("--min-draw", "3500"), inv), float.Parse(IOpt("--z-offset", "0"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
         }
 
+        int findMicAt = Array.FindIndex(args, a => a.Equals("--find-mic", StringComparison.OrdinalIgnoreCase));
+        if (findMicAt >= 0)
+        {
+            // --find-mic <folder> <parent-name-part> [switch=true|false ...] [--limit 20]
+            if (findMicAt + 2 >= args.Length) { Usage(); return 2; }
+            int li = Array.FindIndex(args, a => a.Equals("--limit", StringComparison.OrdinalIgnoreCase));
+            var wanted = args.Skip(findMicAt + 3).Where(a => a.Contains('=') && !a.StartsWith("--"))
+                .Select(a => a.Split('=')).Select(p => (p[0], p[1].Equals("true", StringComparison.OrdinalIgnoreCase))).ToList();
+            return FindMic.Run(args[findMicAt + 1], args[findMicAt + 2], wanted, li >= 0 && li + 1 < args.Length ? int.Parse(args[li + 1]) : 20);
+        }
+
         int cloudAt = Array.FindIndex(args, a => a.Equals("--add-cloud-dome", StringComparison.OrdinalIgnoreCase));
         if (cloudAt >= 0)
         {
-            // --add-cloud-dome <package.upk> <sky-component> <material> [--uv fu,fv] [--planar S[,angle] [--horizon 3]] [--horizon-fade lo,hi] [--shrink 0.98] [--dry-run]
+            // --add-cloud-dome <package.upk> <sky-component> <material> [--uv fu,fv] [--planar S[,angle] [--horizon 3]] [--horizon-fade lo,hi] [--sort-priority N] [--shrink 0.98] [--dry-run]
             if (cloudAt + 3 >= args.Length) { Usage(); return 2; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string COpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
@@ -110,7 +121,8 @@ static class Program
             return CloudDome.Run(args[cloudAt + 1], args[cloudAt + 2], args[cloudAt + 3], new System.Numerics.Vector2(f[0], f.Length > 1 ? f[1] : f[0]),
                 float.Parse(COpt("--shrink", "0.98"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
                 pl[0], pl.Length > 1 ? pl[1] : 0f, float.Parse(COpt("--horizon", "3"), inv),
-                COpt("--horizon-fade", "") is { Length: > 0 } hfo && hfo.Split(',').Select(x => float.Parse(x, inv)).ToArray() is { Length: 2 } hfa ? new System.Numerics.Vector2(hfa[0], hfa[1]) : null);
+                COpt("--horizon-fade", "") is { Length: > 0 } hfo && hfo.Split(',').Select(x => float.Parse(x, inv)).ToArray() is { Length: 2 } hfa ? new System.Numerics.Vector2(hfa[0], hfa[1]) : null,
+                COpt("--sort-priority", "") is { Length: > 0 } spo ? int.Parse(spo) : null);
         }
 
         int copiesAt = Array.FindIndex(args, a => a.Equals("--add-component-copies", StringComparison.OrdinalIgnoreCase));
@@ -381,10 +393,14 @@ static class Program
         int texImportAt = Array.FindIndex(args, a => a.Equals("--import-texture", StringComparison.OrdinalIgnoreCase));
         if (texImportAt >= 0)
         {
-            // --import-texture <package.upk> <template-texture-path> <new-name> <file.dds> [--dry-run]
+            // --import-texture <package.upk> <template-texture-path> <new-name> <file.dds|png|jpg|bmp> [--format dxt1|dxt5] [--split 85] [--scale 1] [--no-mips] [--dry-run]
             if (texImportAt + 4 >= args.Length) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string TOpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
             return TextureImport.Run(args[texImportAt + 1], args[texImportAt + 2], args[texImportAt + 3], args[texImportAt + 4],
-                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                TOpt("--format", "") is { Length: > 0 } tf ? tf : null, int.Parse(TOpt("--split", "85")), float.Parse(TOpt("--scale", "1"), inv),
+                args.Any(a => a.Equals("--no-mips", StringComparison.OrdinalIgnoreCase)));
         }
 
         int copyAt = Array.FindIndex(args, a => a.Equals("--copy-export", StringComparison.OrdinalIgnoreCase));

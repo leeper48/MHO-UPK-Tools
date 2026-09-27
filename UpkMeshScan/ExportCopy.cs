@@ -47,9 +47,26 @@ static class ExportCopy
         foreach (var (from, to) in replaceRefs ?? new Dictionary<string, string>())
         {
             int f = Array.FindIndex(src.Exports, e => src.PathOf(e).Equals(from, StringComparison.OrdinalIgnoreCase));
+            int fRef = f + 1;
+            if (f < 0)
+            {
+                // An import of the source (an object in another package, e.g. a shared texture) can be replaced too.
+                string ImportPath(int i)
+                {
+                    var parts = new List<string>();
+                    for (int r = -(i + 1), guard = 0; r != 0 && guard < 32; guard++)
+                    {
+                        if (r < 0) { var im = src.Imports[-r - 1]; parts.Insert(0, im.ObjectName); r = im.OuterIndex; }
+                        else { parts.Insert(0, src.PathOf(src.Exports[r - 1])); break; }
+                    }
+                    return string.Join('.', parts);
+                }
+                int fi = Enumerable.Range(0, src.Imports.Length).FirstOrDefault(i => ImportPath(i).Equals(from, StringComparison.OrdinalIgnoreCase), -1);
+                if (fi >= 0) fRef = -(fi + 1);
+            }
             int t = Array.FindIndex(dst.Exports, e => dst.PathOf(e).Equals(to, StringComparison.OrdinalIgnoreCase));
-            if (f < 0 || t < 0) { Console.WriteLine($"  --replace-ref {from}={to}: {(f < 0 ? "no such export in the source" : "no such export in the target")}"); return 2; }
-            replaced[f + 1] = t + 1;
+            if (fRef == 0 || t < 0) { Console.WriteLine($"  --replace-ref {from}={to}: {(fRef == 0 ? "no such export or import in the source" : "no such export in the target")}"); return 2; }
+            replaced[fRef] = t + 1;
             Console.WriteLine($"  replacing references to {from} with the target's {to} ({dst.ClassOf(dst.Exports[t])})");
         }
         if (rename != null) Console.WriteLine($"  copied root renamed: {rootPath} -> {newRootPath}");
@@ -480,7 +497,11 @@ static class ExportCopy
                 int sw = I32(d, p); p += 4;
                 if (sw < 0 || sw > 256) throw new InvalidDataException($"static switches {sw}");
                 for (int i = 0; i < sw; i++) { list.Add(new Patch(p, Kind.Name, $"native.static{level}.switch[{i}]")); p += 8 + 4 + 4 + 16; }
-                for (int i = 0; i < 3; i++) { if (I32(d, p) != 0) throw new InvalidDataException("static parameter array other than switches not empty"); p += 4; }
+                // StaticComponentMaskParameters: name, R, G, B, A (UBOOL each), bOverride, ExpressionGUID = 44 bytes.
+                int masks = I32(d, p); p += 4;
+                if (masks < 0 || masks > 256) throw new InvalidDataException($"static component masks {masks}");
+                for (int i = 0; i < masks; i++) { list.Add(new Patch(p, Kind.Name, $"native.static{level}.mask[{i}]")); p += 8 + 16 + 4 + 16; }
+                for (int i = 0; i < 2; i++) { if (I32(d, p) != 0) throw new InvalidDataException("static normal / terrain-layer parameters not empty"); p += 4; }
             }
         }
         if (p != d.Length) throw new InvalidDataException($"material native data: layout ends at {p}, data at {d.Length}");

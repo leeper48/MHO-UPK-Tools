@@ -47,12 +47,36 @@ static class ZoneBuilds
     // bright next to the real ones at 0.6; 2 sub area, 3 containers, 4 cargo ship 0.6).
     const int LodBundles = 4;
 
+    // A cloud layer of our own (2026-09-26, parked 2026-09-27 in favour of the stock sky's clouds): a translucent inner dome.
+    const bool IcpCloudLayer = false;
+    const string Template = "maptemplates.sky.t_udk_sky_cloudmask01";
+
+    static string[][] IcpCloudSteps(string skyComp) =>
+    [
+        // Gambit's hotspot VFX instance mic_cloudy_glow_03 (parent mat_vfxbasev2_spriteemissive in MarvelGame.upk): translucent
+        // emissive, two layers; l1 panner (x, y, all) = scroll speed, l1 scale = tiling. Layer 0 (a sprite mask, multiplied in)
+        // white. Came out inverted (white = clear) and still fast: to do. The Asgard dome material before it spun at a fixed rate.
+        // icp_clouds_big: icp_clouds_big_src.png (make_clouds.py --cells 2x2 --coverage 0.5 --softness 0.35, RGB = A), DXT5 + mips.
+        ["--import-texture", Target, Template, "icp_black", Data + "icp_black.dds"],
+        ["--import-texture", Target, Template, "icp_clouds_big", Data + "icp_clouds_big.dds"],
+        ["--import-texture", Target, Template, "icp_white", Data + "icp_white.dds"],
+        ["--copy-export", Library + "UC__MarvelEntity_Hotspot_GambitStreetSweepHotspot_SF.upk", "vfx_gambit_d.materials.mic_cloudy_glow_03", Target,
+            "--rename", "icp_cloud_layer_mat",
+            "--replace-ref", "vfx_shared_textures.textures.tex_cloud_basic=maptemplates.sky.icp_clouds_big",
+            "--replace-ref", "vfx_shared_textures.textures.tex_glow_soft=maptemplates.sky.icp_white",
+            "--replace-ref", "vfx_shared_textures.textures.tex_butterflies_2=maptemplates.sky.icp_black"],
+        ["--set-property", Target, "vfx_gambit_d.materials.icp_cloud_layer_mat",
+            "param:l1: uvs: panner: (x, y, all)=0.7,-0.3,0.2,0", "param:l1: uvs: scale: (x, y, all)=1,1,1,0"],
+        // 70% (inside the 80% city dome). Planar UV0: a flat cloud ceiling seen through the dome (clouds shrink and flatten
+        // toward the horizon), scale 0.2, soft floor at 6 degrees; vertex alpha fades them out from 20 down to 2 degrees.
+        ["--add-cloud-dome", Target, skyComp, "vfx_gambit_d.materials.icp_cloud_layer_mat", "--uv", "1,1", "--planar", "0.2,0", "--horizon", "6", "--horizon-fade", "2,20", "--shrink", "0.7"],
+    ];
+
     static List<string[]> IndustryCitySteps(Walls walls)
     {
         const string lib = Library + "SCS__CH0201ShippingYardRegion_SF.upk";
         const string water = "brooklyn_docks_lighting.brooklyn_docks_water_mat";
         const string template = "maptemplates.sky.t_udk_sky_cloudmask01";
-        const string brood = "madripoor_broodship_skydome";
         const string sf = "madripoor_hitown_buildings.madripoor_hitown_storefront_a";
         const string skyComp = "theworld.persistentlevel.staticmeshcollectionactor_0.sma_sm_skysphere_smc_16";
         string[] around = ["-100224,-100224,100224,-1152", "-100224,1152,100224,100224", "-100224,-1152,-4608,1152", "0,-1152,100224,1152"];
@@ -107,38 +131,25 @@ static class ZoneBuilds
             // 0.45 (no repeated cloud streaks where the copies converge toward the pole), crossfaded between; rows above v
             // 0.25 flattened to their average colour (fading back to the photo by 0.40), so nothing pinches at the zenith.
             ["--add-sky-placeholders", Target, "none", "--ground-z", "-121", "--ground-box", icpWater, "--ground-material", water, "--ground-grid", "4608"],
-            ["--import-texture", Target, template, "icp_sky_photo", Data + "ICP_Sky.dds"],
-            ["--import-texture", Target, template, "icp_black", Data + "icp_black.dds"],
-            ["--import-texture", Target, template, "icp_mask", Data + "icp_mask.dds"],
-            ["--import-texture", Target, template, "icp_cloudcolor", Data + "icp_cloudcolor.dds"],
-            ["--import-texture", Target, template, "icp_clouds", Data + "icp_clouds.dds"],
-            ["--copy-export", Library + "BroodSpaceship_A.upk", $"{brood}.{brood}_mat", Target, "--rename", "icp_sky_mat",
-                "--replace-ref", $"{brood}.{brood}_milkyway_diff=maptemplates.sky.icp_sky_photo",
-                "--replace-ref", $"{brood}.{brood}_stars=maptemplates.sky.icp_black",
-                "--replace-ref", $"{brood}.{brood}_alpha=maptemplates.sky.icp_mask"],
-            // Cloud material: Age of Ultron's Asgard cloud-dome instance (vfx_asgard mat_clouds_swirl parent: translucent,
-            // unlit, its own tex_clouds_tiled; params color, fade, distortion_multiplier). The Brood material is opaque, so a
-            // Brood copy on the inner dome hid the photo and z-fought with it (2026-09-26).
-            // Its tex_clouds_tiled (grey, same in RGB and alpha) replaced by icp_clouds_big (from icp_clouds_big_src.png, made
-            // with make_clouds.py --cells 2x2 --coverage 0.5 --softness 0.35: 2x2 big cells with
-            // clear gaps (DXT5 with mips via make_mips.py --dxt5), RGB = A = the cloud shape at full strength: the material takes
-            // opacity from the colour (a white RGB turned the whole dome opaque white) and fade acts like an offset (at half
-            // strength and fade -1.5 the clouds vanished), so transparency is tuned with fade only.
-            ["--import-texture", Target, template, "icp_clouds_big", Data + "icp_clouds_big.dds"],
-            ["--copy-export", Library + "AgeOfUltron.upk", "vfx_asgard.materials.mat_clouds_swir_dome_inst", Target, "--rename", "icp_cloud_dome_mat",
-                "--replace-ref", "vfx_asgard.textures.tex_clouds_tiled=maptemplates.sky.icp_clouds_big"],
-            // Stock fade -5 left it invisible and 1 made a solid overcast (fade seems to raise opacity); light grey for a day sky.
-            ["--set-property", Target, "vfx_asgard.materials.icp_cloud_dome_mat", "param:fade=-1.5", "param:color=0.75,0.75,0.77,1"],
-            ["--set-object", Target, skyComp, "materials[0]", $"{brood}.icp_sky_mat"],
-            // The Brood shader samples the photo at 2 x v (the city showed twice: at the horizon and ~45-50 degrees up), so
-            // the dome's own UV0 v is halved (0.499, so the horizon row doesn't wrap to the top): the photo spans pole to
-            // horizon once (2026-09-26).
-            ["--scale-uv", Target, "maptemplates.sky.sm_skysphere", "0", "1,0.499", "--section", "0"],
-            // Cloud dome: 80% of the sky (at 98% it z-fought with the photo dome: too little depth at ~2M units). Planar UV0 (a
-            // flat cloud ceiling seen through the dome: clouds shrink and flatten toward the horizon, Kurt's reference photo,
-            // 2026-09-26), scale 0.2 (1.5 packed dozens of tiles into the low sky the game camera sees), held above 6 degrees; the
-            // angle turns the drift direction.
-            ["--add-cloud-dome", Target, skyComp, "vfx_asgard.materials.icp_cloud_dome_mat", "--uv", "1,1", "--planar", "0.2,0", "--horizon", "6", "--horizon-fade", "2,20", "--shrink", "0.8"],
+            // Sky (2026-09-27, Kurt's option A): the stock procedural sky and its moving clouds stay on the stock dome. Our city
+            // skyline is an inner dome (80%: 2% z-fought at ~2M units) with a masked, two-sided, emissive copy of
+            // madripoor_marketfood_mat (emissive = diffuse x spec G, as the building LODs): icp_city_src.png, converted by the
+            // import (DXT5, its soft alpha kept, no mips, colour x0.45: the Brood mask showed the photo at about a third) = Kurt's
+            // cut-out skyline icp_city_kurt.png as it is (once around; he sets its size and position in the image). Before this the photo was on the stock
+            // dome itself (Brood skydome copy, UV0 v x0.499 for its 2 x v sampling); see git history.
+            ["--import-texture", Target, template, "icp_city", Data + "icp_city_kurt.png", "--scale", "0.45", "--format", "dxt5", "--no-mips"],
+            // Translucent (Kurt 2026-09-27: the PNG's own soft alpha, no mask, no mips): a copy of madripoor_shops_misc_mat
+            // (envbaseshaderv3_translucent, emissive = diffuse x spec G; one-sided). The masked madripoor_marketfood_mat before
+            // it cut the alpha at 1/3.
+            ["--copy-export", Library + "Brooklyn_Speakeasy_A.upk", "madripoor_shops.madripoor_shops_misc_mat", Target, "--cut", "physmaterial",
+                "--rename", "icp_city_mat",
+                "--replace-ref", "madripoor_shops.madripoor_shops_misc_diff=maptemplates.sky.icp_city",
+                "--replace-ref", "madripoor_shops.madripoor_shops_misc_spec=maptemplates.sky.icp_lod_emissive_spec",
+                "--replace-ref", "madripoor_shops.madripoor_shops_misc_nrml=maptemplates.sky.icp_lod_flat_nrml"],
+            // Sort priority -3: drawn before the water (sky mesh, 0) every frame; the mirrored lower half shows through the water
+            // like a reflection and flickered while the two swapped order.
+            ["--add-cloud-dome", Target, skyComp, "madripoor_shops.icp_city_mat", "--uv", "1,1", "--shrink", "0.8", "--sort-priority", "-3"],
+            .. (IcpCloudLayer ? IcpCloudSteps(skyComp) : []),
             // Night harbour mist (2026-09-26; stock: opacity 0.5, start 100, density 0.1, height 764, opposite light blue
             // 138,182,244, inscattering warm 222,218,146): more distance fog (hides the LOD swap and the zone edge), clear
             // around the player (MHO's camera sits high), hugging the water, cooler colours for the night sky.

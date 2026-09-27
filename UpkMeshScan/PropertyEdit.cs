@@ -119,7 +119,7 @@ static class PropertyEdit
             .Where(t => t.Length > 0).ToArray();
         if (parts.Length is < 3 or > 4) return false;
         for (int i = 0; i < parts.Length; i++)
-            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out rgba[i]) || rgba[i] < 0 || rgba[i] > max) return false;
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out rgba[i]) || rgba[i] < (max == 255 ? 0 : -max) || rgba[i] > max) return false;   // LinearColor may be negative (e.g. a pan direction)
         if (parts.Length == 3) rgba[3] = keepAlpha;
         if (max == 255) for (int i = 0; i < 4; i++) rgba[i] = MathF.Round(rgba[i]);
         return true;

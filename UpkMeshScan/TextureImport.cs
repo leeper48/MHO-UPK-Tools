@@ -17,7 +17,22 @@ namespace UpkMeshScan;
 /// </summary>
 static class TextureImport
 {
-    public static int Run(string upkPath, string templatePath, string newName, string ddsPath, bool dryRun)
+    /// <summary>A DDS file (header + mip chain) for encoded levels, so images take the same path as .dds files.</summary>
+    static byte[] WriteDds(TextureEncode.Result r)
+    {
+        var h = new byte[128];
+        void U(int at, uint v) => BitConverter.GetBytes(v).CopyTo(h, at);
+        U(0, 0x20534444); U(4, 124); U(8, 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | 0x80000);
+        U(12, (uint)r.Height); U(16, (uint)r.Width); U(20, (uint)r.Levels[0].Data.Length); U(28, (uint)r.Levels.Count);
+        U(76, 32); U(80, 4); System.Text.Encoding.ASCII.GetBytes(r.FourCC).CopyTo(h, 84);
+        U(108, 0x1000 | 0x400000 | 0x8);
+        using var ms = new MemoryStream();
+        ms.Write(h);
+        foreach (var l in r.Levels) ms.Write(l.Data);
+        return ms.ToArray();
+    }
+
+    public static int Run(string upkPath, string templatePath, string newName, string ddsPath, bool dryRun, string? encodeFormat = null, int split = 85, float scale = 1f, bool noMips = false)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -32,8 +47,18 @@ static class TextureImport
         if (pkg.Exports.Any(e => pkg.PathOf(e).Equals(outerPath + newName, StringComparison.OrdinalIgnoreCase)))
         { Console.WriteLine($"  '{outerPath + newName}' already exists in the package"); return 1; }
 
+        // An image (PNG, JPG, BMP) is converted here (TextureEncode: DXT1 / DXT5 with every mip); a .dds is taken as it is.
+        string ext = Path.GetExtension(ddsPath).ToLowerInvariant();
+        if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp")
+        {
+            var enc = TextureEncode.FromImage(ddsPath, encodeFormat, split, scale, noMips);
+            Console.WriteLine($"  {Path.GetFileName(ddsPath)}: {enc.Width}x{enc.Height} -> {enc.FourCC}, {enc.Levels.Count} mips{(scale != 1f ? $", colour x{scale}" : "")}{(enc.FourCC == "DXT1" ? $" (alpha cut at {split})" : "")}");
+            ddsPath = Path.Combine(Path.GetTempPath(), $"upkmeshscan_{Guid.NewGuid():N}.dds");
+            File.WriteAllBytes(ddsPath, WriteDds(enc));
+        }
         // The .dds: header, pixel format, top mip.
         byte[] dds = File.ReadAllBytes(ddsPath);
+        if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp") File.Delete(ddsPath);
         if (dds.Length < 128 || BinaryPrimitives.ReadUInt32LittleEndian(dds) != 0x20534444) { Console.WriteLine("  not a .dds file"); return 2; }
         int height = BinaryPrimitives.ReadInt32LittleEndian(dds.AsSpan(12)), width = BinaryPrimitives.ReadInt32LittleEndian(dds.AsSpan(16));
         string fourCC = System.Text.Encoding.ASCII.GetString(dds, 84, 4);
