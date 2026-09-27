@@ -31,12 +31,14 @@ sealed class ModLibrary
         var tags = new Dictionary<string, List<string>>(lib.State.Tags ?? [], StringComparer.OrdinalIgnoreCase);
         var hidden = new Dictionary<string, List<string>>(lib.State.HiddenTags ?? [], StringComparer.OrdinalIgnoreCase);
         var notes = new Dictionary<string, string>(lib.State.Notes ?? [], StringComparer.OrdinalIgnoreCase);
+        var nexus = new Dictionary<string, NexusLink>(lib.State.NexusLinks ?? [], StringComparer.OrdinalIgnoreCase);
         foreach (var m in mods)
         {
             m.Enabled = enabled.Contains(m.FolderName);
             m.UserTags = tags.TryGetValue(m.FolderName, out var t) ? t.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [];
             m.HiddenTags = hidden.TryGetValue(m.FolderName, out var h) ? h.ToList() : [];
             m.LocalNote = notes.TryGetValue(m.FolderName, out var n) ? n : null;
+            m.NexusLink = nexus.TryGetValue(m.FolderName, out var nl) ? nl : null;
             m.Lock = top.Contains(m.FolderName) ? ModLock.Top : bottom.Contains(m.FolderName) ? ModLock.Bottom : ModLock.None;
         }
         lib.Mods.AddRange(mods);
@@ -119,6 +121,8 @@ sealed class ModLibrary
         State.HiddenTags = hid.Count > 0 ? hid.ToDictionary(m => m.FolderName, m => m.HiddenTags.ToList()) : null;
         var noted = Mods.Where(m => m.LocalNote != null).OrderBy(m => m.Priority).ToList();
         State.Notes = noted.Count > 0 ? noted.ToDictionary(m => m.FolderName, m => m.LocalNote!) : null;
+        var linked = Mods.Where(m => m.NexusLink != null).OrderBy(m => m.Priority).ToList();
+        State.NexusLinks = linked.Count > 0 ? linked.ToDictionary(m => m.FolderName, m => m.NexusLink!) : null;
         string path = Path.Combine(DataFolder, "state.json"), tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(State, ModManifest.Json));
         File.Move(tmp, path, overwrite: true);

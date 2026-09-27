@@ -131,14 +131,14 @@ static class Ui
         TextRenderer.MeasureText(g, text, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + (int)(12 * s);
 
     /// <summary>A one-line text prompt in the dark theme (with suggestions); null when cancelled or empty.</summary>
-    public static string? Prompt(IWin32Window owner, string title, string label, string initial = "", IEnumerable<string>? suggestions = null)
+    public static string? Prompt(IWin32Window owner, string title, string label, string initial = "", IEnumerable<string>? suggestions = null, bool secret = false)
     {
         using var f = new Form { Text = title, FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false,
                                  StartPosition = FormStartPosition.CenterParent, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Font = Regular(9.5f), Padding = new Padding(12) };
         var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill };
         t.Controls.Add(new Label { Text = TitleCase(title), AutoSize = true, Font = Bold(12f), Margin = new Padding(0, 0, 0, 8) });   // as every popup
-        t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
-        var box = new TextBox { Text = initial, Width = (int)(320 * f.DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 10) };
+        t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 0, 0, 6), MaximumSize = new Size((int)(460 * f.DeviceDpi / 96f), 0) });
+        var box = new TextBox { Text = initial, Width = (int)(320 * f.DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 10), UseSystemPasswordChar = secret };
         if (suggestions != null)
         {
             box.AutoCompleteMode = AutoCompleteMode.SuggestAppend; box.AutoCompleteSource = AutoCompleteSource.CustomSource;
@@ -469,6 +469,9 @@ sealed class ModListBox : ListBox
     public event Action<string>? TagClicked;
     /// <summary>Right-click on a card (already selected), at a screen point.</summary>
     public event Action<Mod, Point>? MenuRequested;
+    /// <summary>The newer Nexus version for a mod (null: none), and a click on its ↑ badge.</summary>
+    public Func<Mod, string?>? UpdateFor { get; set; }
+    public event Action<Mod>? UpdateClicked;
     /// <summary>What a padlock click would lock the mod to (ModLibrary.CanLock); None hides the padlock of an unlocked mod.</summary>
     public Func<Mod, ModLock>? CanLock { get; set; }
     int hover = -1;
@@ -478,6 +481,9 @@ sealed class ModListBox : ListBox
     readonly Dictionary<string, Image?> icons = new(StringComparer.OrdinalIgnoreCase);
     // Where each card's badges and tag chips were drawn (item index), for the tooltips and chip clicks.
     readonly Dictionary<int, (Rectangle Badges, List<(Rectangle Rect, string Tag)> Chips)> regions = [];
+    // Where each card's Update pill and Nexus mark were drawn (item index).
+    readonly Dictionary<int, (Rectangle Pill, Rectangle Mark)> nexusParts = [];
+    readonly Font pillFont = Ui.Heavy(7.5f), markFont = Ui.Heavy(6.5f);
     readonly ToolTip tips;
     readonly System.Windows.Forms.Timer tipTimer = new() { Interval = 450 };
     string? tipText;
@@ -501,6 +507,7 @@ sealed class ModListBox : ListBox
     }
 
     float S => DeviceDpi / 96f;
+    static readonly Color NexusOrange = Color.FromArgb(230, 140, 60);
 
     protected override void OnMeasureItem(MeasureItemEventArgs e)
     {
@@ -619,6 +626,24 @@ sealed class ModListBox : ListBox
                 TextRenderer.DrawText(g, initial, initialFont, iconRect, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
             }
         }
+        // Nexus mark on the icon's corner: a green disc with ↑ when Nexus has a newer version, an orange N when linked.
+        string? newer = UpdateFor?.Invoke(m);
+        var mark = Rectangle.Empty;
+        if (newer != null || m.NexusModId != null)
+        {
+            int ms = (int)((newer != null ? 17 : 14) * S);
+            mark = new Rectangle(iconRect.Right - ms + (int)(3 * S), iconRect.Bottom - ms + (int)(3 * S), ms, ms);
+            using (var ring = new SolidBrush(sel ? Ui.CardSelected : Ui.Card)) g.FillEllipse(ring, Rectangle.Inflate(mark, (int)(2 * S), (int)(2 * S)));
+            using (var f = new SolidBrush(newer != null ? Ui.Enabled : NexusOrange)) g.FillEllipse(f, mark);
+            if (newer != null)
+            {
+                float cx0 = mark.X + mark.Width / 2f, top = mark.Y + mark.Height * 0.22f, bot = mark.Bottom - mark.Height * 0.22f, w = mark.Width * 0.24f;
+                using var p = new Pen(Ui.OnColor, Math.Max(1.5f, 1.8f * S)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+                g.DrawLine(p, cx0, bot, cx0, top);
+                g.DrawLines(p, [new PointF(cx0 - w, top + w), new PointF(cx0, top), new PointF(cx0 + w, top + w)]);
+            }
+            else TextRenderer.DrawText(g, "N", markFont, mark, Ui.OnColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
         int textLeft = iconRect.Right + (int)(8 * S);
         // Checkbox: white box, accent fill with a tick when enabled.
         using (var path = Ui.Round(check, 2.5f * S))
@@ -641,6 +666,20 @@ sealed class ModListBox : ListBox
         bool broken = m.LoadError != null || m.MissingFiles().Any();
         if (Conflicted.Contains(m)) badges.Insert(0, ("!", Ui.Warn));
         int badgesLeft = Ui.DrawBadges(g, badges, check.Left - (int)(8 * S), check.Top + check.Height / 2, badgeFont, S);
+        // A newer version on Nexus: a green "↑ Update" pill before the badges (click: update).
+        var pill = Rectangle.Empty;
+        if (newer != null)
+        {
+            const string label = "↑ UPDATE";
+            var ts = TextRenderer.MeasureText(g, label, pillFont, Size.Empty, TextFormatFlags.NoPadding);
+            int ph = (int)(16 * S), pw = ts.Width + (int)(12 * S);
+            pill = new Rectangle(badgesLeft - pw - (int)(6 * S), check.Top + check.Height / 2 - ph / 2, pw, ph);
+            using (var path = Ui.Round(pill, ph / 2f))
+            using (var f = new SolidBrush(Ui.Enabled)) g.FillPath(f, path);
+            TextRenderer.DrawText(g, label, pillFont, pill, Ui.OnColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            badgesLeft = pill.Left;
+        }
+        nexusParts[e.Index] = (pill, mark);
 
         var nameRect = new Rectangle(textLeft, card.Y + (int)(5 * S), badgesLeft - textLeft, (int)(20 * S));
         TextRenderer.DrawText(g, m.Name, nameFont, nameRect, m.Enabled ? Ui.Text : Color.FromArgb(200, 200, 205), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
@@ -709,6 +748,12 @@ sealed class ModListBox : ListBox
             return m.Lock != ModLock.None ? $"Locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: it keeps its place, and new or moved mods can't pass it. Click to unlock."
                  : LockOffer(m) is var l && l != ModLock.None ? $"Click to lock it at the {(l == ModLock.Top ? "top" : "bottom")}: it keeps its place, and new or moved mods can't pass it."
                  : null;
+        if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(p) || np.Mark.Contains(p)))
+        {
+            string have = (m.NexusLink?.Version ?? m.Manifest.Version ?? "?").TrimStart('v', 'V');
+            if (UpdateFor?.Invoke(m) is string nv) return $"Update on Nexus: v{nv.TrimStart('v', 'V')} (you have v{have}). Click to update.";
+            if (m.NexusModId is int id) return $"Linked to Nexus mod #{id} (you have v{have}). Right-click → Nexus for its page.";
+        }
         if (regions.TryGetValue(i, out var r))
         {
             foreach (var (rect, tag) in r.Chips) if (rect.Contains(p)) return $"Tag \"{tag}\" ({Ui.TagDescription(m, tag)}). Click to show only mods with this tag.";
@@ -742,9 +787,14 @@ sealed class ModListBox : ListBox
         if (e.Button != MouseButtons.Left) { base.OnMouseDown(e); return; }
         if (CheckRect(b).Contains(e.Location)) { SelectedIndex = i; CheckClicked?.Invoke(m); return; }
         if (LockRect(b).Contains(e.Location) && LockOffer(m) != ModLock.None) { SelectedIndex = i; LockClicked?.Invoke(m); return; }
+        if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(e.Location) || np.Mark.Contains(e.Location)) && UpdateFor?.Invoke(m) != null)
+        { SelectedIndex = i; UpdateClicked?.Invoke(m); return; }
         if (regions.TryGetValue(i, out var r))
+        {
             foreach (var (rect, tag) in r.Chips)
                 if (rect.Contains(e.Location)) { TagClicked?.Invoke(tag); return; }
+
+        }
         base.OnMouseDown(e);
     }
 

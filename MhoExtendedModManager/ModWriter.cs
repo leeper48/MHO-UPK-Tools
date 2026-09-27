@@ -28,6 +28,8 @@ sealed class ModDraft
     /// <summary>The mod's saved post (Kurt: kept in the mod, written out next to an exported zip): its Nexus and Discord
     /// text (null = not saved, made fresh) and its images (source files), stored in the mod folder's Post\ subfolder.</summary>
     public string? PostNexus, PostDiscord;
+    /// <summary>Extension: the mod's Nexus page (mod ID), set by its author.</summary>
+    public int? NexusModId;
     public List<string> PostImages = [];
 
     /// <summary>The changelog as it will be saved: this version's changes (if any) on top of the earlier entries.</summary>
@@ -68,6 +70,7 @@ sealed class ModDraft
         d.Notes = m.Manifest.Notes ?? "";
         d.Description = m.Manifest.Description ?? "";
         (d.PostNexus, d.PostDiscord, d.PostImages) = ModPost.Read(m.Folder);
+        d.NexusModId = m.Manifest.NexusModId;
         var log = m.Manifest.Changelog ?? [];
         d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
         d.Changelog = log.Select(e => new ChangelogEntry { Version = e.Version, Changes = e.Changes }).ToList();
@@ -135,6 +138,7 @@ static class ModWriter
             manifest.Description = string.IsNullOrWhiteSpace(d.Description) ? null : d.Description.Trim().Replace("\r\n", "\n");
             var changelog = d.FullChangelog();
             manifest.Changelog = changelog.Count > 0 ? changelog : null;
+            manifest.NexusModId = d.NexusModId;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };
             for (int k = 0; k < lists.Length; k++)

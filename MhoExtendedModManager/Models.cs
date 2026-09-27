@@ -48,6 +48,8 @@ sealed class ModManifest
     /// <summary>Extension: the mod's description and per-version changelog (newest first), for its Nexus / Discord posts.</summary>
     public string? Description { get; set; }
     public List<ChangelogEntry>? Changelog { get; set; }
+    /// <summary>Extension: the mod's Nexus Mods page (mod ID on nexusmods.com/marvelheroesomega), set by its author.</summary>
+    public int? NexusModId { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }
@@ -79,13 +81,15 @@ sealed class ModState
     public Dictionary<string, List<string>>? HiddenTags { get; set; }
     /// <summary>Extension: the user's own note per mod (replaces the mod's note on this PC).</summary>
     public Dictionary<string, string>? Notes { get; set; }
+    /// <summary>Extension: each mod's link to its Nexus page and the installed file / version (this PC).</summary>
+    public Dictionary<string, NexusLink>? NexusLinks { get; set; }
 
     /// <summary>A mod folder was renamed (editor): its lock and tags follow it.</summary>
     public void RenameMod(string from, string to)
     {
         foreach (var l in new[] { LockedTop, LockedBottom })
             if (l != null) for (int i = 0; i < l.Count; i++) if (l[i].Equals(from, StringComparison.OrdinalIgnoreCase)) l[i] = to;
-        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to);
+        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to);
     }
 
     static void Move<T>(Dictionary<string, T>? d, string from, string to)
@@ -103,7 +107,7 @@ sealed class ModState
     {
         LockedTop?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
         LockedBottom?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
-        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name);
+        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name); Drop(NexusLinks, name);
     }
 
     /// <summary>
@@ -171,6 +175,20 @@ sealed class Mod
     /// <summary>The user's own note (state.json); null = the mod's note is shown.</summary>
     public string? LocalNote { get; set; }
     public string Note => LocalNote ?? Manifest.Notes ?? "";
+
+    /// <summary>The link to this mod's Nexus page (state.json); failing that, the mod's own NexusModId.</summary>
+    public NexusLink? NexusLink { get; set; }
+    public int? NexusModId => NexusLink?.ModId ?? Manifest.NexusModId;
+
+    DateTime? filesMade;
+    /// <summary>
+    /// When this copy of the mod was made: the newest write time of its files (not manifest.json, which the editor re-saves,
+    /// nor Post\). Installs keep the archive's file times, so this is when the author made the version the user has.
+    /// </summary>
+    public DateTime FilesMade => filesMade ??= Directory.Exists(Folder)
+        ? Directory.EnumerateFiles(Folder).Where(f => !Path.GetFileName(f).Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+            .Select(File.GetLastWriteTimeUtc).DefaultIfEmpty(DateTime.MinValue).Max()
+        : DateTime.MinValue;
     public List<StringReplacement> Strings { get; } = [];
 
     public string Name => string.IsNullOrWhiteSpace(Manifest.Name) ? FolderName : Manifest.Name;

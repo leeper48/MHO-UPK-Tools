@@ -158,6 +158,7 @@ static class PostWriter
             if (f.Changes.Count > 0) { b.AppendLine(); b.AppendLine("**What It Changes**"); foreach (var c in f.Changes) b.AppendLine($"• {c}"); }
             if (withChanges && f.Latest != null) { b.AppendLine(); b.AppendLine($"**What's New in v{f.Latest.Version.TrimStart('v', 'V')}**"); b.AppendLine(f.Latest.Changes.Trim()); }
             b.AppendLine();
+            if (s.Manifest.NexusModId is int nid) b.AppendLine($"Download: <{MhoExtendedModManager.Nexus.SiteMods}{nid}>");
             b.AppendLine($"Install with MHO Extended Mod Manager (<{ManagerUrl}>) or MHModManager: install the zip, turn it on, Apply. Close the game first.");
             if (f.UsesExtension) b.AppendLine("The images in other icon packages need MHO Extended Mod Manager.");
             return b.ToString().TrimEnd();

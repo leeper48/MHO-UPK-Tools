@@ -27,6 +27,8 @@ sealed class MainForm : Form
     readonly Label runningLabel = new() { AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(12, 0, 0, 0), Font = Ui.Regular(9f) };
     readonly ModListBox list = new() { Dock = DockStyle.Fill };
     readonly TextBox filter = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f) };
+    readonly NexusStatus nexusStatus = new() { Dock = DockStyle.Fill };
+    string? nexusBusy;   // what Nexus work is running ("Checking 23 Linked Mods…"), shown in the Nexus strip
     readonly Label countLabel = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(8.25f), Padding = new Padding(4, 0, 0, 0) };
     readonly DetailsHeader header = new() { Dock = DockStyle.Top };
     readonly StorePreview storePreview = new() { Dock = DockStyle.Fill };
@@ -52,6 +54,9 @@ sealed class MainForm : Form
     readonly CheckBox allVisible = new() { Text = "All", AutoSize = true, AutoCheck = false, ThreeState = true, Anchor = AnchorStyles.Left, Margin = new Padding(8, 3, 2, 0) };
     readonly HashSet<string> collapsed = new(StringComparer.OrdinalIgnoreCase);
     readonly List<Button> priorityButtons = [];
+    // Nexus: the last fetched info per mod ID (data\nexus_cache.json), and a watch on Downloads for a free account's update.
+    NexusCache nexus = NexusCache.Load(Settings.Home);
+    FileSystemWatcher? downloadWatch;
     readonly Font mono = new("Consolas", 9.5f);
     List<Mod> shown = [];
     Control? topBar, bottomBar;
@@ -65,6 +70,7 @@ sealed class MainForm : Form
 
     public MainForm()
     {
+        current = this;
         Text = $"MHO Extended Mod Manager v{Program.Version}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Width = 1400; Height = 850; WindowState = FormWindowState.Maximized;
@@ -98,6 +104,14 @@ sealed class MainForm : Form
         menu.Items.Add("Migrate from MHModManager…", null, (_, _) => Migrate());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Refresh", null, (_, _) => Reload());
+        menu.Items.Add("Nexus Account…", null, (_, _) => NexusAccount());
+        menu.Items.Add("Find My Mods on Nexus…", null, (_, _) => FindOnNexus(null));
+        menu.Items.Add("Check Mods on Nexus", null, (_, _) => CheckNexus(manual: true));
+        var nexusAtStart = new ToolStripMenuItem("Check Mods on Nexus at Start") { CheckOnClick = true };
+        nexusAtStart.CheckedChanged += (_, _) => { if (settings.NexusCheckAtStart != nexusAtStart.Checked) { settings.NexusCheckAtStart = nexusAtStart.Checked; settings.Save(); } };
+        menu.Opening += (_, _) => nexusAtStart.Checked = settings.NexusCheckAtStart;
+        menu.Items.Add(nexusAtStart);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Check for Updates…", null, (_, _) => CheckForUpdates(manual: true));
         var autoCheck = new ToolStripMenuItem("Check for Updates at Start") { CheckOnClick = true };
         autoCheck.CheckedChanged += (_, _) => { if (settings.CheckUpdates != autoCheck.Checked) { settings.CheckUpdates = autoCheck.Checked; settings.Save(); } };
@@ -115,7 +129,8 @@ sealed class MainForm : Form
         top.Controls.Add(topButtons, 3, 0);
 
         // ---- Left: installed mods
-        var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(6, 4, 2, 0) };
+        var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(6, 4, 2, 0) };
+        left.RowStyles.Add(new RowStyle(SizeType.Absolute, 46 * DeviceDpi / 96f));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -149,11 +164,27 @@ sealed class MainForm : Form
         groupButton.Click += (_, _) => GroupMenu().Show(groupButton, new Point(0, groupButton.Height));
         filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
         allVisible.Click += (_, _) => SetAllVisible();
-        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged");
-        tips.SetToolTip(sortButton, "Order the list by priority, name, author, tag, or on first. Priority buttons and padlocks work in the priority order only.");
+        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   (Nexus updates, linked mods)");
+        tips.SetToolTip(sortButton, "Order the list by priority, name, author, tag, on first, or Nexus updates first. Priority buttons and padlocks work in the priority order only.");
         tips.SetToolTip(groupButton, "Group the list by tag or author. Click a group's header to fold it.");
-        left.Controls.Add(lhead, 0, 0); left.Controls.Add(filterRow, 0, 1); left.Controls.Add(list, 0, 2);
-        filter.TextChanged += (_, _) => FillList(Selected?.FolderName);
+        // Nexus strip (Kurt: status and actions by the list, not in Settings): status (click = the next step), Check for Updates, Find My Mods, ▾.
+        var nexusRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0, 0, 0, 2) };
+        nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        nexusRow.Controls.Add(nexusStatus, 0, 0);
+        var nexusButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(4, 0, 0, 0) };
+        var nexusCheck = Ui.FlatButton("Check for Updates", () => CheckNexus(manual: true),
+            "Ask Nexus whether your linked mods have newer versions (needs your Nexus API key). Mods with one get a green Update mark.");
+        var nexusFind = Ui.FlatButton("Find My Mods…", () => FindOnNexus(null),
+            "Look up your mods that aren't linked yet among the Nexus mods for Marvel Heroes Omega, and link the right ones (no API key needed).");
+        var nexusMore = Ui.FlatButton("▾", () => { }, "Nexus account, checking at start, the Nexus mod pages.");
+        nexusMore.Click += (_, _) => NexusBarMenu().Show(nexusMore, new Point(0, nexusMore.Height));
+        nexusCheck.Padding = nexusFind.Padding = new Padding(4, 0, 4, 0); nexusMore.Padding = new Padding(2, 0, 2, 0);
+        nexusButtons.Controls.AddRange([nexusCheck, nexusFind, nexusMore]);
+        nexusRow.Controls.Add(nexusButtons, 1, 0);
+        nexusStatus.StatusClicked += NexusStatusClicked;
+        writeControls.Add(nexusFind);
+        left.Controls.Add(nexusRow, 0, 0); left.Controls.Add(lhead, 0, 1); left.Controls.Add(filterRow, 0, 2); left.Controls.Add(list, 0, 3);
+        filter.TextChanged += (_, _) => { FillList(Selected?.FolderName); UpdateNexusStatus(); };
         list.SelectedIndexChanged += (_, _) => ShowDetails();
         list.CheckClicked += m => Toggle(m);
         list.LockClicked += m => ToggleLock(m);
@@ -162,6 +193,8 @@ sealed class MainForm : Form
         list.GroupClicked += g => { if (!collapsed.Remove(g.Key)) collapsed.Add(g.Key); FillList(Selected?.FolderName); };
         list.TagClicked += t => filter.Text = t.Contains(' ') ? $"tag:\"{t}\"" : $"tag:{t}";
         list.MenuRequested += (m, pt) => CardMenu(m).Show(pt);
+        list.UpdateFor = m => NexusUpdates.UpdateFor(m, nexus);
+        list.UpdateClicked += m => UpdateFromNexus(m);
 
         // ---- Right: the selected mod
         var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 4, 8, 0) };
@@ -277,6 +310,9 @@ sealed class MainForm : Form
             }
             if (settings.CheckUpdates && (settings.LastUpdateCheck == null || DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromDays(1)))
                 CheckForUpdates(manual: false);
+            // Nexus: only with the user's own API key (entering it is the consent), at most every 6 hours.
+            if (settings.NexusApiKey != null && settings.NexusCheckAtStart && (nexus.Checked == null || DateTime.Now - nexus.Checked > TimeSpan.FromHours(6)))
+                CheckNexus(manual: false);
         };
         var timer = new System.Windows.Forms.Timer { Interval = 3000 };
         timer.Tick += (_, _) => UpdateRunning();
@@ -315,6 +351,7 @@ sealed class MainForm : Form
 
     void UpdateRunning()
     {
+        UpdateNexusStatus();
         bool running = Process.GetProcessesByName("MarvelHeroesOmega").Length > 0;
         runningLabel.Text = running ? "●  Game Running: Close It to Apply" : "●  Game Not Running";
         runningLabel.ForeColor = running ? Ui.Warn : Ui.Subtle;
@@ -380,6 +417,7 @@ sealed class MainForm : Form
         conflicted = conflicts.SelectMany(c => c.Mods).ToHashSet();
         list.Conflicted = conflicted;
         countLabel.Text = $"{lib.Mods.Count(m => m.Enabled)} of {lib.Mods.Count} On";
+        UpdateNexusStatus();
         countLabel.ForeColor = Ui.Subtle;
         status.Text = Ui.TitleCase((note != null ? note + "  ·  " : "") + (game == null ? "Game folder not found" : conflicts.Count > 0 ? $"{conflicts.Count} conflicting change(s): the mod higher in the list wins" : "No conflicts") +
                       (readOnly ? "  ·  MHModManager's own folder: read-only here (Settings → Migrate)" : ""));
@@ -391,17 +429,20 @@ sealed class MainForm : Form
         if (!readOnly && game != null && game.HasStockList) CountPending();
     }
 
-    static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On First")];
+    static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On First"), ("update", "Updates First")];
     static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author")];
 
     /// <summary>The list shows the priority order as it is: the priority buttons and padlocks work only then.</summary>
     bool ReorderView => settings.ListSort == "priority" && settings.ListGroup == "none";
 
+    static MainForm? current;   // for the static filter (is:update reads the Nexus cache)
+
     /// <summary>One search word: plain text (name, author, tags), tag:x / #x (tags only), or is:on / off / locked / untagged.</summary>
     static bool Matches(Mod m, string t)
     {
         if (t.StartsWith("is:", StringComparison.OrdinalIgnoreCase))
-            return t[3..].ToLowerInvariant() switch { "on" => m.Enabled, "off" => !m.Enabled, "locked" => m.Lock != ModLock.None, "untagged" => m.Tags.Count == 0, _ => true };
+            return t[3..].ToLowerInvariant() switch { "on" => m.Enabled, "off" => !m.Enabled, "locked" => m.Lock != ModLock.None, "untagged" => m.Tags.Count == 0,
+                "update" => current?.nexus is NexusCache c && NexusUpdates.UpdateFor(m, c) != null, "nexus" => m.NexusModId != null, _ => true };
         if (t.StartsWith("tag:", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#'))
         {
             string x = t.StartsWith('#') ? t[1..] : t[4..];
@@ -428,6 +469,8 @@ sealed class MainForm : Form
             "author" => mods.OrderBy(m => string.IsNullOrWhiteSpace(m.Manifest.Author) ? "\uffff" : m.Manifest.Author, cmp).ThenBy(m => m.Name, cmp),
             "tag" => mods.OrderBy(m => m.Tags.Count == 0 ? "\uffff" : m.Tags.Order(cmp).First(), cmp).ThenBy(m => m.Name, cmp),
             "enabled" => mods.OrderByDescending(m => m.Enabled).ThenBy(m => m.Priority),
+            // Nexus updates first, then the other linked mods, then the rest; each in priority order.
+            "update" => mods.OrderByDescending(m => NexusUpdates.UpdateFor(m, nexus) != null).ThenByDescending(m => m.NexusModId != null).ThenBy(m => m.Priority),
             _ => mods.OrderBy(m => m.Priority),
         }).ToList();
 
@@ -648,6 +691,7 @@ sealed class MainForm : Form
         menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP…", null, (_, _) => ExportMod()));
         menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File…", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Create Post…", null, (_, _) => CreatePost(m)));
+        menu.Items.Insert(at++, NexusMenu(m));
         menu.Items.Insert(at, new ToolStripSeparator());
         return menu;
     }
@@ -895,6 +939,14 @@ sealed class MainForm : Form
         InfoRow("The Mod's Tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "None (Set Them in Edit Mod → Tags)");
         InfoRow("Your Tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "None (Right-Click the Mod, or + Tag Above)");
         if (m.HiddenTags.Count > 0) InfoRow("Hidden Here", string.Join(", ", m.HiddenTags));
+        if (m.NexusModId is int nid)
+        {
+            string latest = nexus.Mods.TryGetValue(nid, out var ni) && Nexus.Latest(ni) is { } lf
+                ? $"  ·  Nexus Has v{lf.Version.TrimStart('v', 'V')} (Uploaded {DateTimeOffset.FromUnixTimeSeconds(lf.Uploaded).LocalDateTime:yyyy-MM-dd}){(m.NexusLink?.Ignore == lf.FileId ? ", Ignored" : "")}" : "";
+            string how = m.NexusLink is { FromNexus: false, FileId: null } ? "  ·  Linked by Name (Update = a Higher Version Uploaded After Your Copy Was Made)" : "";
+            string upd = NexusUpdates.UpdateFor(m, nexus) is string nv ? "  ·  Update Available" : latest.Length > 0 ? "  ·  Up to Date" : "";
+            InfoRow("Nexus", $"{Nexus.SiteMods}{nid}  ·  Installed v{(m.NexusLink?.Version ?? m.Manifest.Version ?? "?").TrimStart('v', 'V')}{latest}{upd}{how}", upd.Contains("Update") ? Ui.Enabled : null);
+        }
         InfoRow("Folder", m.Folder);
         if (m.LoadError != null) InfoRow("Error", m.LoadError, Ui.Warn);
         var missing = m.MissingFiles().ToList();
@@ -991,9 +1043,14 @@ sealed class MainForm : Form
         if (d.ShowDialog(this) == DialogResult.OK) Install([d.FileName], m);
     }
 
-    async void Install(string[] sources, Mod? into = null)
+    void Install(string[] sources, Mod? into = null) => _ = InstallAsync(sources, into);
+
+    /// <summary>Installs (or with <paramref name="into"/> updates) mods; Nexus downloads are linked to their page. Returns the installed folders.</summary>
+    List<string> lastInstallLog = [];
+
+    async Task<List<string>> InstallAsync(string[] sources, Mod? into = null, bool ask = true, bool showLog = true)
     {
-        if (readOnly || lib == null) return;
+        if (readOnly || lib == null) return [];
         var l = lib;
         UseWaitCursor = true;
         var (log, installed) = await Task.Run(() =>
@@ -1002,19 +1059,349 @@ sealed class MainForm : Form
             foreach (string s in sources)
             {
                 log.Add(Path.GetFileName(s) + ":");
-                try { all.AddRange(ModInstaller.Install(s, ModLibrary.Load(l.DataFolder), log, AskReplace, into)); }
+                try
+                {
+                    var lib2 = ModLibrary.Load(l.DataFolder);
+                    var done = ModInstaller.Install(s, lib2, log, ask ? AskReplace : (_, _) => true, into);
+                    all.AddRange(done);
+                    if (done.Count > 0) NexusUpdates.Link(ModLibrary.Load(l.DataFolder), s, done, Nexus.Unprotect(settings.NexusApiKey)).GetAwaiter().GetResult();
+                }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException) { log.Add("  couldn't read it: " + ex.Message); }
             }
             return (log, all);
         });
         UseWaitCursor = false;
+        lastInstallLog = log;
         filter.Text = "";
         Reload();
         if (installed.Count > 0) SelectMod(installed[0]);
         // Like Apply's result: a coloured heading, then what happened.
-        ShowLog(installed.Count > 0 ? "Installed" : "Nothing Installed",
-            string.Join("\n", log) + (installed.Count > 0 ? "\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes." : ""),
-            installed.Count > 0 ? Dialog.Tone.Good : Dialog.Tone.Bad);
+        if (showLog)
+            ShowLog(installed.Count > 0 ? "Installed" : "Nothing Installed",
+                string.Join("\n", log) + (installed.Count > 0 ? "\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes." : ""),
+                installed.Count > 0 ? Dialog.Tone.Good : Dialog.Tone.Bad);
+        return installed;
+    }
+
+    // ---- Nexus
+
+    /// <summary>Settings → Nexus Account…: the user's personal API key (Nexus → account → API keys), checked with Nexus.</summary>
+    async void NexusAccount()
+    {
+        string intro = settings.NexusAccount != null ? $"Signed in as {settings.NexusAccount} ({(settings.NexusPremium ? "Premium" : "free account")}). Paste a new key to change it, or leave it empty to remove it." :
+            "Paste your personal API key from nexusmods.com (your account → Site Preferences → API Keys). It's kept encrypted on this PC and only sent to Nexus.";
+        string? key = Ui.Prompt(this, "Nexus Account", intro, "", null, secret: true);
+        if (key == null)
+        {
+            if (settings.NexusApiKey != null && Dialog.Show(this, "Remove the saved Nexus API key? Update checks on Nexus stop.", "Nexus Account", MessageBoxButtons.YesNo) == DialogResult.Yes)
+            { settings.NexusApiKey = null; settings.NexusAccount = null; settings.NexusPremium = false; settings.Save(); }
+            return;
+        }
+        try
+        {
+            UseWaitCursor = true;
+            var a = await Nexus.Validate(key);
+            settings.NexusApiKey = Nexus.Protect(key); settings.NexusAccount = a.Name; settings.NexusPremium = a.Premium; settings.Save();
+            UseWaitCursor = false;
+            Dialog.Show(this, a.Premium ? $"Signed in as {a.Name} (Premium): updates download and install with one click." :
+                $"Signed in as {a.Name} (free account): the app shows which mods have updates. Nexus only lets Premium members download through apps, so an update opens the mod's Files page; download it there and the app picks it up from your Downloads folder.",
+                "Nexus Account", MessageBoxButtons.OK, MessageBoxIcon.None);
+            CheckNexus(manual: false);
+        }
+        catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or TaskCanceledException)
+        { UseWaitCursor = false; Dialog.Show(this, ex.Message, "Nexus Account", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    /// <summary>Fetches every linked mod's Nexus info; the list then shows ↑ on mods with a newer version.</summary>
+    async void CheckNexus(bool manual)
+    {
+        if (lib == null) return;
+        string? key = Nexus.Unprotect(settings.NexusApiKey);
+        if (key == null) { if (manual) NexusAccount(); return; }
+        int linked = lib.Mods.Count(m => m.NexusModId != null);
+        if (linked == 0) { if (manual) Dialog.Show(this, "No mod is linked to a Nexus page yet. Mods installed from a Nexus download are linked by their file name; for others, right-click → Nexus → Link to Nexus Page….", "Check Mods on Nexus"); return; }
+        var l = lib;
+        nexusBusy = $"Checking {linked} Linked Mod(s) on Nexus…"; UpdateNexusStatus();
+        int n; List<string> problems;
+        try { (n, problems) = await Task.Run(() => NexusUpdates.Check(l, key, nexus)); }
+        finally { nexusBusy = null; UpdateNexusStatus(); }
+        try { nexus.Save(Settings.Home); } catch (IOException) { }
+        int updates = l.Mods.Count(m => NexusUpdates.UpdateFor(m, nexus) != null);
+        note = updates > 0 ? $"{updates} Mod Update(s) on Nexus" : $"Checked {n} Mod(s) on Nexus: Up to Date";
+        Reload();
+        if (manual) Dialog.Show(this, (updates > 0 ? $"{updates} mod(s) have a newer version on Nexus (marked ↑ in the list; filter is:update)." : $"All {n} linked mod(s) are up to date.") +
+            (problems.Count > 0 ? "\n\nNot checked: " + string.Join("; ", problems) : ""), "Check Mods on Nexus", MessageBoxButtons.OK, problems.Count > 0 && n == 0 ? MessageBoxIcon.Error : MessageBoxIcon.None);
+    }
+
+    /// <summary>The Nexus strip's state: connected?, anything linked?, checked when?, updates?</summary>
+    void UpdateNexusStatus()
+    {
+        if (lib == null) { nexusStatus.Set(NexusStatus.State.NotConnected, "Nexus", "No mod library yet"); return; }
+        int linked = lib.Mods.Count(m => m.NexusModId != null);
+        int updates = lib.Mods.Count(m => NexusUpdates.UpdateFor(m, nexus) != null);
+        string linkedText = $"{linked} of {lib.Mods.Count} Linked";
+        string who = settings.NexusAccount is string a ? $"{a}{(settings.NexusPremium ? " (Premium)" : "")}" : "";
+        NexusStatus.State s; string one, two, tip;
+        if (nexusBusy != null) { s = NexusStatus.State.Busy; one = nexusBusy; two = linkedText; tip = "Working with Nexus…"; }
+        else if (settings.NexusApiKey == null)
+        {
+            s = NexusStatus.State.NotConnected; one = "Nexus: Not Connected"; two = "Click to Add Your API Key";
+            tip = "Update checks need your personal Nexus API key (nexusmods.com → your account → Site Preferences → API Keys). Click to add it.\nFind My Mods works without one.";
+        }
+        else if (linked == 0)
+        {
+            s = NexusStatus.State.NothingLinked; one = $"Nexus: Signed In as {who}"; two = "No Mods Linked Yet  ·  Click to Find Them";
+            tip = "Only linked mods can be checked for updates. Click to look up your mods on Nexus and link the right ones.";
+        }
+        else if (nexus.Checked is not DateTime at)
+        {
+            s = NexusStatus.State.NotChecked; one = "Nexus: Not Checked Yet"; two = linkedText + "  ·  Click to Check";
+            tip = "Click to ask Nexus whether your linked mods have newer versions.";
+        }
+        else if (updates > 0)
+        {
+            s = NexusStatus.State.Updates; one = $"{updates} Update(s) on Nexus  ·  {(IsUpdateFilter ? "Show All" : "Show")}"; two = $"Checked {NexusStatus.Ago(at)}  ·  {linkedText}";
+            tip = IsUpdateFilter ? "Click to show every mod again." : "Click to show only the mods with an update (filter is:update). Click a mod's green Update mark to update it.";
+        }
+        else if (DateTime.Now - at > TimeSpan.FromDays(1))
+        {
+            s = NexusStatus.State.Stale; one = $"Nexus: Last Checked {NexusStatus.Ago(at)}"; two = linkedText + "  ·  Click to Check";
+            tip = "The last check is over a day old. Click to check again.";
+        }
+        else
+        {
+            s = NexusStatus.State.UpToDate; one = "Nexus: Up to Date"; two = $"Checked {NexusStatus.Ago(at)}  ·  {linkedText}";
+            tip = $"Every linked mod had its newest version at the last check{(who.Length > 0 ? $" (signed in as {who})" : "")}. Click to check again.";
+        }
+        nexusStatus.Set(s, one, two);
+        if (tips.GetToolTip(nexusStatus) != tip) tips.SetToolTip(nexusStatus, tip);
+    }
+
+    bool IsUpdateFilter => filter.Text.Trim().Equals("is:update", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A click on the Nexus status: its next step (connect, find, check, show the updates).</summary>
+    void NexusStatusClicked()
+    {
+        switch (nexusStatus.Current)
+        {
+            case NexusStatus.State.Busy: return;
+            case NexusStatus.State.NotConnected: NexusAccount(); return;
+            case NexusStatus.State.NothingLinked: FindOnNexus(null); return;
+            case NexusStatus.State.Updates: filter.Text = IsUpdateFilter ? "" : "is:update"; return;
+            default: CheckNexus(manual: true); return;
+        }
+    }
+
+    ContextMenuStrip NexusBarMenu()
+    {
+        var menu = NewMenu();
+        menu.Items.Add(settings.NexusApiKey == null ? "Add Nexus API Key…" : "Nexus Account…", null, (_, _) => NexusAccount());
+        var atStart = new ToolStripMenuItem("Check for Updates at Start") { Checked = settings.NexusCheckAtStart, Enabled = settings.NexusApiKey != null };
+        atStart.Click += (_, _) => { settings.NexusCheckAtStart = !settings.NexusCheckAtStart; settings.Save(); };
+        menu.Items.Add(atStart);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Show Mods With Updates", null, (_, _) => filter.Text = "is:update");
+        menu.Items.Add("Show Linked Mods", null, (_, _) => filter.Text = "is:nexus");
+        menu.Items.Add("Sort: Updates First", null, (_, _) => { settings.ListSort = "update"; settings.Save(); FillList(Selected?.FolderName); });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Open Marvel Heroes Omega Mods on Nexus", null, (_, _) => Process.Start(new ProcessStartInfo(Nexus.SiteMods) { UseShellExecute = true }));
+        return menu;
+    }
+
+    ToolStripMenuItem NexusMenu(Mod m)
+    {
+        var sub = new ToolStripMenuItem("Nexus");
+        if (m.NexusModId is int id)
+        {
+            sub.DropDownItems.Add("Open the Nexus Page", null, (_, _) => Process.Start(new ProcessStartInfo(Nexus.SiteMods + id) { UseShellExecute = true }));
+            if (NexusUpdates.UpdateFor(m, nexus) is string v)
+            {
+                sub.DropDownItems.Add($"Update to v{v.TrimStart('v', 'V')}…", null, (_, _) => UpdateFromNexus(m));
+                if (nexus.Mods.TryGetValue(id, out var ni) && Nexus.Latest(ni) is { } lf) sub.DropDownItems.Add("Ignore This Update", null, (_, _) => IgnoreUpdate(m, lf.FileId));
+            }
+            sub.DropDownItems.Add("Check for an Update Now", null, (_, _) => CheckNexus(manual: true));
+            sub.DropDownItems.Add("Change the Nexus Link…", null, (_, _) => LinkToNexus(m));
+            if (m.NexusLink != null) sub.DropDownItems.Add("Unlink", null, (_, _) => { if (lib != null) { m.NexusLink = null; lib.SaveState(); Reload(); } });
+        }
+        else
+        {
+            sub.DropDownItems.Add("Find on Nexus…", null, (_, _) => FindOnNexus(m));
+            sub.DropDownItems.Add("Link to Nexus Page…", null, (_, _) => LinkToNexus(m));
+        }
+        sub.Enabled = !readOnly;
+        return sub;
+    }
+
+    /// <summary>
+    /// Find My Mods on Nexus: the game's mod list from Nexus (public, no key), matched against the unlinked mods (or one
+    /// mod); the user ticks the right pages and they're linked.
+    /// </summary>
+    async void FindOnNexus(Mod? only)
+    {
+        if (readOnly || lib == null) return;
+        var targets = only != null ? [only] : lib.Mods.Where(m => m.NexusModId == null).ToList();
+        if (targets.Count == 0) { Dialog.Show(this, "Every mod is linked to a Nexus page already.", "Find My Mods on Nexus"); return; }
+        List<NexusMatch.NexusMod> all;
+        try
+        {
+            UseWaitCursor = true;
+            nexusBusy = "Reading the Nexus Mod List…"; UpdateNexusStatus();
+            var progress = new Progress<string>(s => status.Text = s);
+            all = await NexusMatch.AllMods(progress);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException or KeyNotFoundException or InvalidOperationException)
+        { Dialog.Show(this, "Couldn't read the mod list from Nexus: " + ex.Message, "Find My Mods on Nexus", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        finally { UseWaitCursor = false; nexusBusy = null; UpdateNexusStatus(); }
+        using var f = new NexusScanForm(targets, all);
+        if (f.ShowDialog(this) != DialogResult.OK || f.Confirmed.Count == 0) { Reload(); return; }
+        var l = lib;
+        Change($"link {f.Confirmed.Count} mod(s) to Nexus", () =>
+        {
+            foreach (var (m, id, version) in f.Confirmed)
+                if (l.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod mm)
+                    mm.NexusLink = new NexusLink { ModId = id, Version = mm.Manifest.Version, Installed = DateTime.Now };
+            return true;
+        });
+        if (settings.NexusApiKey != null) CheckNexus(manual: false);
+    }
+
+    void LinkToNexus(Mod m)
+    {
+        if (lib == null) return;
+        string? text = Ui.Prompt(this, "Link to Nexus Page", $"The Nexus page of \"{m.Name}\" (paste its address, or the mod number):", m.NexusModId is int id ? Nexus.SiteMods + id : "");
+        if (text == null) return;
+        if (Nexus.ParseModId(text) is not int newId) { Dialog.Show(this, "That isn't a Nexus mod page (…/marvelheroesomega/mods/<number>) or a mod number.", "Not a Nexus Page", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        m.NexusLink = new NexusLink { ModId = newId, Version = m.Manifest.Version, Installed = DateTime.Now };
+        lib.SaveState();
+        CheckNexus(manual: false);
+        Reload();
+    }
+
+    /// <summary>
+    /// Updates a mod from Nexus, as far as the account allows: Premium downloads the newest main file and installs it in
+    /// place (place, on/off, lock, tags and note kept); a free account gets the Files page opened, and the app installs
+    /// the file when it arrives in Downloads.
+    /// </summary>
+    async void UpdateFromNexus(Mod m)
+    {
+        if (readOnly || lib == null || m.NexusModId is not int id) return;
+        string? key = Nexus.Unprotect(settings.NexusApiKey);
+        if (key == null)
+        {
+            if (Dialog.Show(this, "Updating from Nexus needs your Nexus API key. Enter it now?", "Nexus Account", MessageBoxButtons.YesNo) == DialogResult.Yes) NexusAccount();
+            return;
+        }
+        if (!settings.NexusPremium)
+        {
+            WatchDownloads(m, id);
+            Process.Start(new ProcessStartInfo(Nexus.SiteMods + id + "?tab=files") { UseShellExecute = true });
+            status.Text = Ui.TitleCase($"Download the update of \"{m.Name}\" on Nexus (Manual Download): the app installs it when it arrives in your Downloads folder");
+            return;
+        }
+        try
+        {
+            UseWaitCursor = true;
+            var progress = new Progress<string>(s => status.Text = s);
+            var (path, file) = await NexusUpdates.DownloadLatest(m, key, nexus, Settings.Home, progress);
+            UseWaitCursor = false;
+            await FinishNexusUpdate(m, id, path, file.FileId, file.Version);
+        }
+        catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or IOException or TaskCanceledException)
+        { UseWaitCursor = false; Dialog.Show(this, ex.Message, "Not Updated", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    async Task FinishNexusUpdate(Mod m, int id, string archive, long? fileId, string? version)
+    {
+        string folder = m.FolderName;
+        var done = await InstallAsync([archive], m, ask: false, showLog: false);
+        if (done.Count == 0 || lib == null)
+        {
+            // Say why (the install log), and offer to ignore that file: e.g. a Nexus file for another tool (no manifest.json).
+            bool noManifest = !ArchiveHasManifest(archive);
+            string why = noManifest
+                ? "It isn't a mod for this manager or MHModManager: it has no manifest.json. It's probably for another tool; the mod's Nexus page says how to install it."
+                : string.Join("\n", lastInstallLog.Skip(1).Take(8)).Trim();
+            long? ignore = fileId ?? (nexus.Mods.TryGetValue(id, out var info) ? Nexus.Latest(info)?.FileId : null);
+            if (Dialog.Show(this, $"{Path.GetFileName(archive)} couldn't be installed as the update of \"{m.Name}\".\n\n{why}" +
+                    (ignore != null ? "\n\nIgnore this Nexus file from now on? The Update mark goes away until a newer file is uploaded." : ""),
+                    "Not Updated", ignore != null ? MessageBoxButtons.YesNo : MessageBoxButtons.OK, MessageBoxIcon.Error) == DialogResult.Yes && ignore != null)
+                IgnoreUpdate(m, ignore.Value);
+            return;
+        }
+        NexusUpdates.Record(lib, folder, id, fileId, version ?? Nexus.FromFileName(archive)?.Version);
+        Reload();
+        SelectMod(folder);
+        Dialog.ShowLog(this, "Updated", $"\"{m.Name}\" is now v{(version ?? "?").TrimStart('v', 'V')}, from Nexus.\n\nIt kept its place, on/off, lock, tags and note." +
+            (m.Enabled ? "\n\nIt's on: Apply Changes (Ctrl+Enter) puts the new version in the game." : ""), Dialog.Tone.Good);
+    }
+
+    static bool ArchiveHasManifest(string archive)
+    {
+        try
+        {
+            using var a = SharpCompress.Archives.ArchiveFactory.Open(archive);
+            return a.Entries.Any(e => !e.IsDirectory && (e.Key ?? "").Replace('\\', '/').Split('/').Last().Equals("manifest.json", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or ArgumentException) { return true; }
+    }
+
+    /// <summary>Not an update for this user: this Nexus file no longer marks the mod (a newer upload does again).</summary>
+    void IgnoreUpdate(Mod m, long fileId)
+    {
+        if (lib == null) return;
+        var l = lib;
+        Change($"ignore the Nexus update of \"{m.Name}\"", () =>
+        {
+            if (l.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod mm && mm.NexusLink is NexusLink link) link.Ignore = fileId;
+            else if (l.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod m2 && m2.NexusModId is int mid) m2.NexusLink = new NexusLink { ModId = mid, Installed = DateTime.Now, Ignore = fileId };
+            return true;
+        });
+    }
+
+    /// <summary>Free accounts: watch Downloads (30 minutes) for this mod's file from Nexus ("Name-&lt;id&gt;-&lt;version&gt;-&lt;time&gt;.zip").</summary>
+    void WatchDownloads(Mod m, int id)
+    {
+        downloadWatch?.Dispose();
+        string? folder = DownloadsFolder();
+        if (folder == null || !Directory.Exists(folder)) return;
+        var w = new FileSystemWatcher(folder) { IncludeSubdirectories = false, EnableRaisingEvents = true };
+        downloadWatch = w;
+        var until = DateTime.Now.AddMinutes(30);
+        bool taken = false;
+        async void Seen(string path)
+        {
+            if (taken || DateTime.Now > until || Nexus.FromFileName(path) is not { } f || f.ModId != id) return;
+            // Wait until the browser has finished writing it (size steady, no .part / .crdownload).
+            long last = -1;
+            for (int i = 0; i < 120; i++)
+            {
+                await Task.Delay(1000);
+                if (!File.Exists(path)) return;
+                long len = new FileInfo(path).Length;
+                if (len > 0 && len == last) break;
+                last = len;
+            }
+            if (taken) return;
+            taken = true;
+            BeginInvoke(async () =>
+            {
+                downloadWatch?.Dispose(); downloadWatch = null;
+                if (Dialog.Show(this, $"{Path.GetFileName(path)} arrived in Downloads.\n\nInstall it as the update of \"{m.Name}\" (v{f.Version})?", "Nexus Update Downloaded", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                    await FinishNexusUpdate(m, id, path, null, f.Version);
+            });
+        }
+        w.Created += (_, e) => Seen(e.FullPath);
+        w.Renamed += (_, e) => Seen(e.FullPath);
+    }
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll")]
+    static extern int SHGetKnownFolderPath([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStruct)] Guid id, uint flags, IntPtr token, out IntPtr path);
+
+    static string? DownloadsFolder()
+    {
+        if (SHGetKnownFolderPath(new Guid("374DE290-123F-4565-9164-39C4925E467B"), 0, IntPtr.Zero, out var p) != 0) return null;
+        try { return System.Runtime.InteropServices.Marshal.PtrToStringUni(p); }
+        finally { System.Runtime.InteropServices.Marshal.FreeCoTaskMem(p); }
     }
 
     /// <summary>Opens a mod (or a new one) in the Editor tab. Saving or cancelling returns to the Mods tab.</summary>

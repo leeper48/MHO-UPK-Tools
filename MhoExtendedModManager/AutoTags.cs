@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 namespace MhoExtendedModManager;
 
 /// <summary>
@@ -103,6 +104,21 @@ static class AutoTags
             list.AddRange(Alias.Where(a => a.Value == id).Select(a => a.Key.ToLowerInvariant()));
         }
         return list.Distinct().ToList();
+    }
+
+    /// <summary>The characters a title names (display names, lower case), matched on whole words ignoring punctuation:
+    /// "Capitan America Infinity war" → {} (misspelt), "Spider-Man - Miles Morales" → {spider-man, miles morales}.</summary>
+    public static HashSet<string> CharactersIn(string text)
+    {
+        string Squash(string s) => " " + Regex.Replace(s.ToLowerInvariant(), "[^a-z0-9]+", " ").Trim() + " ";
+        string t = Squash(text), joined = t.Replace(" ", "");
+        var found = new HashSet<string>();
+        foreach (var (id, (name, _)) in Heroes)
+        {
+            string n = Squash(name);
+            if (t.Contains(n) || (n.Trim().Contains(' ') && joined.Contains(n.Replace(" ", ""))) || t.Contains(" " + id + " ")) found.Add(name.ToLowerInvariant());
+        }
+        return found;
     }
 
     public enum TagClass { Character, Team, Content, Other }

@@ -26,6 +26,12 @@ sealed class Settings
     public bool CheckUpdates { get; set; } = true;
     /// <summary>The user was asked once whether the app may look for updates at start (nothing is sent without that).</summary>
     public bool UpdateCheckAsked { get; set; }
+    /// <summary>Nexus Mods: the user's personal API key, encrypted for this Windows user (DPAPI); whether to check the
+    /// linked mods at start; the account's name and Premium state as last validated.</summary>
+    public string? NexusApiKey { get; set; }
+    public bool NexusCheckAtStart { get; set; } = true;
+    public string? NexusAccount { get; set; }
+    public bool NexusPremium { get; set; }
     public DateTime? LastUpdateCheck { get; set; }
     public string? SkipVersion { get; set; }
 

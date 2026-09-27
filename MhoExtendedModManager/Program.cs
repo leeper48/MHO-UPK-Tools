@@ -95,6 +95,26 @@ static class Program
             Gui.ApplyForm.Snapshot(args[1]);
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--nexus-scan-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: Find My Mods on Nexus for the library's unlinked mods (the real list, or MHO_EXTMM_NEXUS_API's), to a PNG.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var st = Settings.Load();
+            var scanLib = ModLibrary.Load(st.LibraryPath);
+            var all = NexusMatch.AllMods().GetAwaiter().GetResult();
+            using var f = new Gui.NexusScanForm(scanLib.Mods.Where(m => m.NexusModId == null), all);
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(500);
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[1]);
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--update-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: the update window for a made-up release, rendered to a PNG.
@@ -254,6 +274,7 @@ static class Program
         }
 
         if (rest[0].Equals("--test-locks", StringComparison.OrdinalIgnoreCase)) return LockTest.Run();
+        if (rest[0].Equals("--test-nexus", StringComparison.OrdinalIgnoreCase)) return NexusTest.Run();
         if (rest[0].Equals("--make-checksums", StringComparison.OrdinalIgnoreCase) && rest.Count >= 3)
         {
             int ci = rest.FindIndex(x => x.Equals("--compare", StringComparison.OrdinalIgnoreCase));
@@ -383,6 +404,23 @@ static class Program
                     foreach (var x in u.Take(5)) Console.WriteLine("    " + StringUsage.Describe(x));
                     if (u.Count > 5) Console.WriteLine($"    … {u.Count - 5} more");
                 }
+                return 0;
+            }
+            case "--nexus-scan":
+            {
+                // --nexus-scan: likely Nexus pages for every unlinked mod (the Find My Mods on Nexus window), read only.
+                var all = NexusMatch.AllMods().GetAwaiter().GetResult();
+                Console.WriteLine($"{all.Count} mods on Nexus.");
+                int sure = 0, some = 0, none = 0;
+                foreach (var m in lib.Mods.Where(x => x.NexusModId == null))
+                {
+                    var c = NexusMatch.Candidates(m, all, 3);
+                    if (c.Count == 0) { none++; Console.WriteLine($"  --  {m.Name}  (by {m.Manifest.Author ?? "?"}): no match"); continue; }
+                    bool ok = NexusMatch.Confident(c); if (ok) sure++; else some++;
+                    Console.WriteLine($"  {(ok ? "OK" : "? ")}  {m.Name}  (by {m.Manifest.Author ?? "?"})");
+                    foreach (var x in c) Console.WriteLine($"        {x.Score:0.00}  #{x.Mod.ModId} {x.Mod.Name}  (by {x.Mod.Author}{(x.Mod.Uploader != x.Mod.Author && x.Mod.Uploader.Length > 0 ? " / " + x.Mod.Uploader : "")}, v{x.Mod.Version})");
+                }
+                Console.WriteLine($"{sure} confident, {some} to choose, {none} without a match.");
                 return 0;
             }
             case "--auto-tags":

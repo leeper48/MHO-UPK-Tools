@@ -30,6 +30,7 @@ sealed class ModEditorView : UserControl
     readonly TextBox descriptionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f), Multiline = true, ScrollBars = ScrollBars.Vertical, AcceptsReturn = true };
     readonly TextBox changesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f), Multiline = true, ScrollBars = ScrollBars.Vertical, AcceptsReturn = true };
     readonly Label changesCaption = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 10, 0, 4) };
+    readonly TextBox nexusBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f) };
     readonly TextBox notesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f), Multiline = true, ScrollBars = ScrollBars.Vertical };
     readonly Label autoLabel = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Font = Ui.Regular(8.5f), Margin = new Padding(3, 2, 3, 6) };
     readonly TextBox nameBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, authorBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, versionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) };
@@ -257,6 +258,7 @@ sealed class ModEditorView : UserControl
         draft.Name = nameBox.Text; draft.Author = authorBox.Text; draft.Version = versionBox.Text;
         draft.Description = descriptionBox.Text;
         draft.Changes = changesBox.Text;
+        draft.NexusModId = Nexus.ParseModId(nexusBox.Text);
         draft.Tags = tagsBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => lib.CleanTag(t) ?? t).ToList();
         draft.Notes = notesBox.Text;
     }
@@ -273,7 +275,7 @@ sealed class ModEditorView : UserControl
 
     Control DescriptionPage()
     {
-        var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(0, 8, 0, 0) };
+        var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(0, 8, 0, 0) };
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -282,6 +284,13 @@ sealed class ModEditorView : UserControl
         p.Controls.Add(changesCaption, 0, 2);
         p.Controls.Add(changesBox, 0, 3);
         var older = draft.Changelog.Where(e => !e.Version.Trim().Equals(draft.Version.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        var nexusRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 10, 0, 0) };
+        nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        nexusRow.Controls.Add(new Label { Text = "NEXUS PAGE  ·  address or mod number (users get update notices)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0) }, 0, 0);
+        nexusRow.Controls.Add(nexusBox, 1, 0);
+        nexusBox.Text = draft.NexusModId is int nid ? Nexus.SiteMods + nid : "";
+        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        p.Controls.Add(nexusRow, 0, 5);
         p.Controls.Add(new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 0) }, 0, 4);
         descriptionBox.Text = draft.Description.Replace("\r\n", "\n").Replace("\n", "\r\n");
         changesBox.Text = draft.Changes.Replace("\r\n", "\n").Replace("\n", "\r\n");

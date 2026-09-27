@@ -143,10 +143,10 @@ static class ModInstaller
             if (note != null) m.Notes = note.Length > 0 ? note : null;
             manifest = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, ModManifest.Json));
         }
-        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null))
+        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null))
         {
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
-            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null;   // extensions: a legacy copy is MHModManager's format only
+            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null;   // extensions: a legacy copy is MHModManager's format only
             var keep = m.Replacements.Concat(m.AchievementReplacements).Concat(m.StoreReplacements).Select(r => r.DdsFileName).Concat(m.UpkReplacements).Concat(m.AudioPacks).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var dropOnly = m.Extra.Select(r => r.DdsFileName).Where(f => !keep.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             files.RemoveAll(f => dropOnly.Contains(Path.GetRelativePath(mod.Folder, f)));
