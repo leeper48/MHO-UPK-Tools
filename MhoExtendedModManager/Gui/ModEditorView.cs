@@ -46,7 +46,7 @@ sealed class ModEditorView : UserControl
         Dock = DockStyle.Fill;
         Font = Ui.Regular(9.5f);
         packages = Ui.Grid(S, false, ("Package", 0), ("Size", 90), ("From", 520));
-        sounds = Ui.Grid(S, false, ("Sound pack", 0), ("Events", 80), ("Sound files it patches", 360), ("From", 360));
+        sounds = Ui.Grid(S, false, ("Sound Pack", 0), ("Events", 80), ("Sound Files It Patches", 360), ("From", 360));
 
         // ---- Info bar: name, author, version
         var info = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 6, Padding = new Padding(12, 10, 12, 10) };
@@ -72,10 +72,10 @@ sealed class ModEditorView : UserControl
 
         tabs.Add("Packages", PackagesPage());
         texturePages = Enumerable.Range(0, 4).Select(k => new TexturePage(this, k)).ToArray();
-        foreach (var (tp, title) in texturePages.Zip(new[] { "Icons", "Achievement icons", "Store images", "More icon packages" })) tabs.Add(title, tp);
+        foreach (var (tp, title) in texturePages.Zip(new[] { "Icons", "Achievement Icons", "Store Images", "More Icon Packages" })) tabs.Add(title, tp);
         stringsPage = new StringsPage(this);
         tabs.Add("Strings", stringsPage);
-        tabs.Add("Sound packs", SoundsPage());
+        tabs.Add("Sound Packs", SoundsPage());
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 
@@ -107,7 +107,7 @@ sealed class ModEditorView : UserControl
     }
 
     // ---- Packages
-    Control PackagesPage() => Page(packages, Toolbar(Ui.FlatButton("Add .upk files…", AddPackages), Ui.FlatButton("Remove", () =>
+    Control PackagesPage() => Page(packages, Toolbar(Ui.FlatButton("Add .upk Files…", AddPackages), Ui.FlatButton("Remove", () =>
         {
             foreach (DataGridViewRow r in packages.SelectedRows) draft.Packages.RemoveAll(x => x.File == (string)r.Tag!);
             RefreshPackages();
@@ -115,7 +115,7 @@ sealed class ModEditorView : UserControl
 
     void AddPackages()
     {
-        using var d = new OpenFileDialog { Title = "Add packages", Filter = "Unreal packages (*.upk)|*.upk", Multiselect = true };
+        using var d = new OpenFileDialog { Title = "Add Packages", Filter = "Unreal packages (*.upk)|*.upk", Multiselect = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         var notGame = new List<string>();
         foreach (string f in d.FileNames)
@@ -138,7 +138,7 @@ sealed class ModEditorView : UserControl
     }
 
     // ---- Sound packs
-    Control SoundsPage() => Page(sounds, Toolbar(Ui.FlatButton("Add .mhsfx files…", AddSounds), Ui.FlatButton("Remove", () =>
+    Control SoundsPage() => Page(sounds, Toolbar(Ui.FlatButton("Add .mhsfx Files…", AddSounds), Ui.FlatButton("Remove", () =>
         {
             foreach (DataGridViewRow r in sounds.SelectedRows) draft.SoundPacks.Remove((string)r.Tag!);
             RefreshSounds();
@@ -146,12 +146,12 @@ sealed class ModEditorView : UserControl
 
     void AddSounds()
     {
-        using var d = new OpenFileDialog { Title = "Add sound packs", Filter = "Sound packs (*.mhsfx)|*.mhsfx", Multiselect = true };
+        using var d = new OpenFileDialog { Title = "Add Sound Packs", Filter = "Sound packs (*.mhsfx)|*.mhsfx", Multiselect = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         foreach (string f in d.FileNames)
         {
             try { SoundPack.Load(f); }
-            catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { MessageBox.Show(this, $"{Path.GetFileName(f)} isn't a readable sound pack: {ex.Message}", "Sound packs"); continue; }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { MessageBox.Show(this, $"{Path.GetFileName(f)} isn't a readable sound pack: {ex.Message}", "Sound Packs"); continue; }
             if (!draft.SoundPacks.Contains(f, StringComparer.OrdinalIgnoreCase)) draft.SoundPacks.Add(f);
         }
         RefreshSounds();
@@ -191,7 +191,7 @@ sealed class ModEditorView : UserControl
         draft.Notes = notesBox.Text;
         draft.Strings = stringsPage.Collect();
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
-        if (saved == null) { MessageBox.Show(this, error, "Can't save yet"); return; }
+        if (saved == null) { MessageBox.Show(this, error, "Can't Save Yet"); return; }
         SavedName = saved;
         Saved?.Invoke(saved);
     }
@@ -254,7 +254,7 @@ sealed class ModEditorView : UserControl
             if (Extra) hintText += "  These packages are an extension: the old MHModManager installs the mod but skips these images.";
             var hint = new Label { Text = hintText, AutoSize = true, Tag = "subtle", Padding = new Padding(2, 8, 2, 2), Dock = DockStyle.Fill };
             right.Controls.Add(hint, 0, 0);
-            var tools = Toolbar(Ui.AccentButton("Choose .dds or .png for the selected texture…", ChooseDds), Ui.FlatButton("Remove replacement", RemoveRow), Ui.FlatButton("Save original as .dds / .png…", SaveOriginal));
+            var tools = Toolbar(Ui.AccentButton("Choose .dds or .png for the Selected Texture…", ChooseDds), Ui.FlatButton("Remove Replacement", RemoveRow), Ui.FlatButton("Save Original as .dds / .png…", SaveOriginal));
             tools.Dock = DockStyle.Fill;
             right.Controls.Add(tools, 0, 1);
             right.Controls.Add(rows, 0, 2);
@@ -372,7 +372,7 @@ sealed class ModEditorView : UserControl
         void SaveOriginal()
         {
             if (f.catalog == null || names.SelectedItem is not TexEntry e) { MessageBox.Show(this, "Select a stock texture on the left first.", "Textures"); return; }
-            using var d = new SaveFileDialog { Title = $"Save original {e.Name}", Filter = "DDS texture (*.dds)|*.dds|PNG image (*.png)|*.png", FileName = e.Name + ".dds" };
+            using var d = new SaveFileDialog { Title = $"Save Original {e.Name}", Filter = "DDS texture (*.dds)|*.dds|PNG image (*.png)|*.png", FileName = e.Name + ".dds" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string? why = f.catalog.ExportImage(e.File, e.Name, d.FileName);
             if (why != null) MessageBox.Show(this, "Not saved: " + why, "Textures");
@@ -429,9 +429,9 @@ sealed class ModEditorView : UserControl
             this.f = f; Dock = DockStyle.Fill;
             float s = f.S;
             search.Width = (int)(420 * s); lang.Width = (int)(90 * s);
-            results = Ui.Grid(s, false, ("ID", 190), ("Original text", 0));
+            results = Ui.Grid(s, false, ("ID", 190), ("Original Text", 0));
             results.Tag = "keepselection";
-            grid = Ui.Grid(s, false, ("Lang", 60), ("File", 250), ("ID", 190), ("Original", 0), ("Replacement (type here)", 0));
+            grid = Ui.Grid(s, false, ("Lang", 60), ("File", 250), ("ID", 190), ("Original", 0), ("Replacement (Type Here)", 0));
             grid.ReadOnly = false;
             foreach (DataGridViewColumn c in grid.Columns) c.ReadOnly = c.Name != "Replacement (type here)";
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
@@ -440,14 +440,14 @@ sealed class ModEditorView : UserControl
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
             bar.Controls.AddRange([new Label { Text = "Language", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, lang,
-                new Label { Text = "Find text or ID", AutoSize = true, Padding = new Padding(12, 8, 4, 0), Tag = "subtle" }, search, Ui.AccentButton("Search", Search), found]);
+                new Label { Text = "Find Text or ID", AutoSize = true, Padding = new Padding(12, 8, 4, 0), Tag = "subtle" }, search, Ui.AccentButton("Search", Search), found]);
             search.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Search(); } };
             var split = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 5 };
             split.Panel1.Controls.Add(results);
-            split.Panel1.Controls.Add(Toolbar(Ui.FlatButton("Add selected to the mod  ↓", AddSelected), new Label { Text = "GAME TEXT", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
+            split.Panel1.Controls.Add(Toolbar(Ui.FlatButton("Add Selected to the Mod  ↓", AddSelected), new Label { Text = "GAME TEXT", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
             split.Panel2.Controls.Add(grid);
-            split.Panel2.Controls.Add(Toolbar(Ui.FlatButton("Remove selected rows", () => { foreach (DataGridViewRow r in grid.SelectedRows) grid.Rows.Remove(r); }),
-                Ui.FlatButton("Import changes (.json)…", ImportJson), new Label { Text = "THIS MOD'S CHANGES", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
+            split.Panel2.Controls.Add(Toolbar(Ui.FlatButton("Remove Selected Rows", () => { foreach (DataGridViewRow r in grid.SelectedRows) grid.Rows.Remove(r); }),
+                Ui.FlatButton("Import Changes (.json)…", ImportJson), new Label { Text = "THIS MOD'S CHANGES", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
             Controls.Add(split); Controls.Add(bar);
             results.CellDoubleClick += (_, _) => AddSelected();
             VisibleChanged += (_, _) =>
@@ -497,7 +497,7 @@ sealed class ModEditorView : UserControl
         /// <summary>A &lt;lang&gt;.json in MHModManager's format (e.g. from another mod or an extract).</summary>
         void ImportJson()
         {
-            using var d = new OpenFileDialog { Title = "Import string changes", Filter = "JSON (*.json)|*.json" };
+            using var d = new OpenFileDialog { Title = "Import String Changes", Filter = "JSON (*.json)|*.json" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string l = Path.GetFileNameWithoutExtension(d.FileName);
             if (l.Length != 3) l = lang.SelectedItem as string ?? "eng";

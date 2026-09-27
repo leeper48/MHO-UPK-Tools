@@ -16,7 +16,7 @@ sealed class UpdateForm : Form
     public UpdateForm(Updater.Release r)
     {
         release = r;
-        Text = "Update available";
+        Text = "Update Available";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         FormBorderStyle = FormBorderStyle.Sizable; MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterParent;
@@ -31,10 +31,10 @@ sealed class UpdateForm : Form
         t.Controls.Add(notes, 0, 1);
         t.Controls.Add(progress, 0, 2);
         var buttons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 10, 0, 0) };
-        update = Ui.AccentButton("Update and restart", InstallUpdate);
+        update = Ui.AccentButton("Update and Restart", InstallUpdate);
         later = Ui.FlatButton("Later", () => { DialogResult = DialogResult.Cancel; });
-        skip = Ui.FlatButton("Skip this version", () => { SkipThis = true; DialogResult = DialogResult.Cancel; });
-        page = Ui.FlatButton("Release page", () => Process.Start(new ProcessStartInfo(r.PageUrl) { UseShellExecute = true }));
+        skip = Ui.FlatButton("Skip This Version", () => { SkipThis = true; DialogResult = DialogResult.Cancel; });
+        page = Ui.FlatButton("Release Page", () => Process.Start(new ProcessStartInfo(r.PageUrl) { UseShellExecute = true }));
         buttons.Controls.AddRange([update, later, skip, page]);
         t.Controls.Add(buttons, 0, 3);
         Controls.Add(t);

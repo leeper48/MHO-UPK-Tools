@@ -90,6 +90,16 @@ static class AutoTags
                      .Select(k => Alias.TryGetValue(k, out var b) ? b : k).FirstOrDefault();
     }
 
+    public enum TagClass { Character, Team, Content, Other }
+    static readonly string[] Kinds = ["Costume", "Team-up", "NPC", "Power effects", "Power icons", "Pet", "Zone", "Sounds"];
+    static readonly HashSet<string> CharacterNames = new(Heroes.Values.Select(h => h.Name), StringComparer.OrdinalIgnoreCase);
+    static readonly HashSet<string> TeamNames = new(Heroes.Values.SelectMany(h => h.Teams), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What a tag names, whoever set it: a character, a team, a kind of content, or something else (tag colours).</summary>
+    public static TagClass Classify(string tag) =>
+        CharacterNames.Contains(tag) ? TagClass.Character : TeamNames.Contains(tag) ? TagClass.Team
+        : Kinds.Contains(tag, StringComparer.OrdinalIgnoreCase) ? TagClass.Content : TagClass.Other;
+
     public static List<string> For(ModManifest m)
     {
         // Characters are counted: a mod mostly about one hero can touch a few others in passing (Rogue's stolen-power

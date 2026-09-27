@@ -90,16 +90,16 @@ sealed class MainForm : Form
         var install = Ui.FlatButton("Install Mod…", InstallMod);
         var settingsButton = Ui.FlatButton("Settings  ▾", () => { });
         var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f), RenderMode = ToolStripRenderMode.System };
-        menu.Items.Add("Change game folder…", null, (_, _) => BrowseGame());
-        menu.Items.Add("Move library…", null, (_, _) => MoveLibrary());
-        menu.Items.Add("Open library folder", null, (_, _) => { if (Settings.LibraryData(settings.LibraryPath) is string d) Process.Start("explorer.exe", $"\"{d}\""); });
+        menu.Items.Add("Change Game Folder…", null, (_, _) => BrowseGame());
+        menu.Items.Add("Move Library…", null, (_, _) => MoveLibrary());
+        menu.Items.Add("Open Library Folder", null, (_, _) => { if (Settings.LibraryData(settings.LibraryPath) is string d) Process.Start("explorer.exe", $"\"{d}\""); });
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Capture icon changes", null, (_, _) => CaptureIcons());
+        menu.Items.Add("Capture Icon Changes", null, (_, _) => CaptureIcons());
         menu.Items.Add("Migrate from MHModManager…", null, (_, _) => Migrate());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Refresh", null, (_, _) => Reload());
-        menu.Items.Add("Check for updates…", null, (_, _) => CheckForUpdates(manual: true));
-        var autoCheck = new ToolStripMenuItem("Check for updates at start") { CheckOnClick = true };
+        menu.Items.Add("Check for Updates…", null, (_, _) => CheckForUpdates(manual: true));
+        var autoCheck = new ToolStripMenuItem("Check for Updates at Start") { CheckOnClick = true };
         autoCheck.CheckedChanged += (_, _) => { if (settings.CheckUpdates != autoCheck.Checked) { settings.CheckUpdates = autoCheck.Checked; settings.Save(); } };
         menu.Opening += (_, _) => autoCheck.Checked = settings.CheckUpdates;
         menu.Items.Add(autoCheck);
@@ -172,7 +172,7 @@ sealed class MainForm : Form
 
         // Middle column: the selected mod's store image (Kurt), between the list and the details.
         var middleAndRight = new Panel { Dock = DockStyle.Fill };
-        noteReset = Ui.FlatButton("Use the mod's note", ResetNote);
+        noteReset = Ui.FlatButton("Use the Mod's Note", ResetNote);
         noteReset.Font = Ui.Regular(8f); noteReset.Padding = new Padding(2, 0, 2, 0); noteReset.Anchor = AnchorStyles.Right;
         notesPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); notesPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         notesPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)); notesPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -233,9 +233,9 @@ sealed class MainForm : Form
         // Editor tab: a placeholder until + New Mod or Edit Mod opens one.
         var ph = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
         ph.RowStyles.Add(new RowStyle(SizeType.Percent, 40)); ph.RowStyles.Add(new RowStyle(SizeType.AutoSize)); ph.RowStyles.Add(new RowStyle(SizeType.AutoSize)); ph.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
-        ph.Controls.Add(new Label { Text = "No mod open", AutoSize = true, Anchor = AnchorStyles.None, Font = Ui.Bold(14f), Tag = "subtle" }, 0, 1);
+        ph.Controls.Add(new Label { Text = "No Mod Open", AutoSize = true, Anchor = AnchorStyles.None, Font = Ui.Bold(14f), Tag = "subtle" }, 0, 1);
         var phButtons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.None, Padding = new Padding(0, 10, 0, 0) };
-        phButtons.Controls.AddRange([Ui.AccentButton("+  New Mod", () => EditMod(null)), Ui.FlatButton("Edit the selected mod", () => { if (Selected is Mod m) EditMod(m); })]);
+        phButtons.Controls.AddRange([Ui.AccentButton("+  New Mod", () => EditMod(null)), Ui.FlatButton("Edit the Selected Mod", () => { if (Selected is Mod m) EditMod(m); })]);
         ph.Controls.Add(phButtons, 0, 2);
         editorPlaceholder = ph;
         editorHost.Controls.Add(ph);
@@ -262,8 +262,18 @@ sealed class MainForm : Form
         Shown += (_, _) => split.SplitterDistance = (int)(split.Width * 0.30);   // after maximizing
         FormClosing += (_, _) => SaveNote();
         // A quiet look for a new version, at most once a day (Settings: Check for updates at start).
+        // The first time: ask whether it may look (code signing policy: nothing goes over the network without consent).
         Shown += (_, _) =>
         {
+            if (!settings.UpdateCheckAsked)
+            {
+                settings.CheckUpdates = MessageBox.Show(this, "Look for new versions of MHO Extended Mod Manager when it starts (at most once a day)?" + Environment.NewLine + Environment.NewLine +
+                    "It asks GitHub (api.github.com) for the latest release; nothing about you, your game or your mods is sent. " +
+                    "You can change this in Settings, and Settings → Check for updates… works either way.",
+                    "Updates", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+                settings.UpdateCheckAsked = true;
+                settings.Save();
+            }
             if (settings.CheckUpdates && (settings.LastUpdateCheck == null || DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromDays(1)))
                 CheckForUpdates(manual: false);
         };
@@ -380,7 +390,7 @@ sealed class MainForm : Form
         if (!readOnly && game != null && game.HasStockList) CountPending();
     }
 
-    static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On first")];
+    static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On First")];
     static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author")];
 
     /// <summary>The list shows the priority order as it is: the priority buttons and padlocks work only then.</summary>
@@ -424,7 +434,7 @@ sealed class MainForm : Form
         string grouping = settings.ListGroup;
         if (grouping is "tag" or "author")
         {
-            string none = grouping == "tag" ? "Untagged" : "(no author)";
+            string none = grouping == "tag" ? "Untagged" : "(No Author)";
             List<string> KeysOf(Mod m) => grouping == "tag" ? (m.Tags.Count > 0 ? m.Tags : [none]) : [string.IsNullOrWhiteSpace(m.Manifest.Author) ? none : m.Manifest.Author.Trim()];
             foreach (string k in modList.SelectMany(KeysOf).Distinct(cmp).OrderBy(k => k == none ? 1 : 0).ThenBy(k => k, cmp))
             {
@@ -488,8 +498,8 @@ sealed class MainForm : Form
         if (settings.ListGroup != "none")
         {
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Open all groups", null, (_, _) => { collapsed.Clear(); FillList(Selected?.FolderName); });
-            menu.Items.Add("Fold all groups", null, (_, _) =>
+            menu.Items.Add("Open All Groups", null, (_, _) => { collapsed.Clear(); FillList(Selected?.FolderName); });
+            menu.Items.Add("Fold All Groups", null, (_, _) =>
             {
                 foreach (var g in list.Items.OfType<ModGroup>()) collapsed.Add(g.Key);
                 FillList(Selected?.FolderName);
@@ -620,10 +630,10 @@ sealed class MainForm : Form
     {
         var menu = TagsMenu(m);
         int at = 0;
-        menu.Items.Insert(at++, new ToolStripMenuItem(m.Enabled ? "Turn off" : "Turn on", null, (_, _) => Toggle(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem(m.Enabled ? "Turn Off" : "Turn On", null, (_, _) => Toggle(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Edit…", null, (_, _) => EditMod(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP…", null, (_, _) => ExportMod()));
-        menu.Items.Insert(at++, new ToolStripMenuItem("Update from a file…", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File…", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
         menu.Items.Insert(at, new ToolStripSeparator());
         return menu;
     }
@@ -654,12 +664,12 @@ sealed class MainForm : Form
                 })) { Checked = has, Enabled = !readOnly };
             menu.Items.Add(item);
         }
-        if (own.Count == 0) menu.Items.Add(new ToolStripMenuItem("(no tags yet)") { Enabled = false });
+        if (own.Count == 0) menu.Items.Add(new ToolStripMenuItem("(No Tags Yet)") { Enabled = false });
 
-        var add = new ToolStripMenuItem("Add a tag") { Enabled = !readOnly };
-        add.DropDownItems.Add("New tag…", null, (_, _) =>
+        var add = new ToolStripMenuItem("Add a Tag") { Enabled = !readOnly };
+        add.DropDownItems.Add("New Tag…", null, (_, _) =>
         {
-            string? t = l.CleanTag(Ui.Prompt(this, "New tag", $"Tag for \"{Short(m.Name)}\":", "", all));
+            string? t = l.CleanTag(Ui.Prompt(this, "New Tag", $"Tag for \"{Short(m.Name)}\":", "", all));
             if (t != null) Change($"tag \"{m.Name}\" as \"{t}\"", () => { if (ModLibrary.HasTag(m, t)) return false; ModLibrary.AddTag(m, t); return true; });
         });
         var others = all.Where(t => !own.Contains(t, cmp)).ToList();
@@ -672,16 +682,16 @@ sealed class MainForm : Form
         if (targets.Count > 1 && !readOnly)
         {
             menu.Items.Add(new ToolStripSeparator());
-            var addAll = new ToolStripMenuItem($"Tag all {targets.Count} mods in the list");
+            var addAll = new ToolStripMenuItem($"Tag All {targets.Count} Mods in the List");
             void TagAll(string t) => Change($"tag {targets.Count} mods as \"{t}\"", () =>
             {
                 bool any = targets.Any(x => !ModLibrary.HasTag(x, t));
                 foreach (var x in targets) ModLibrary.AddTag(x, t);
                 return any;
             });
-            addAll.DropDownItems.Add("New tag…", null, (_, _) =>
+            addAll.DropDownItems.Add("New Tag…", null, (_, _) =>
             {
-                string? t = l.CleanTag(Ui.Prompt(this, "Tag the list", $"Tag for all {targets.Count} mods in the list:", "", all));
+                string? t = l.CleanTag(Ui.Prompt(this, "Tag the List", $"Tag for all {targets.Count} mods in the list:", "", all));
                 if (t != null) TagAll(t);
             });
             addAll.DropDownItems.Add(new ToolStripSeparator());
@@ -690,7 +700,7 @@ sealed class MainForm : Form
             var inList = targets.SelectMany(x => x.Tags).Distinct(cmp).Order(cmp).ToList();
             if (inList.Count > 0)
             {
-                var remAll = new ToolStripMenuItem("Take a tag off the mods in the list");
+                var remAll = new ToolStripMenuItem("Take a Tag Off the Mods in the List");
                 foreach (string tag in inList)
                     remAll.DropDownItems.Add(tag, null, (_, _) => Change($"take tag \"{tag}\" off the list", () => { foreach (var x in targets) ModLibrary.RemoveTag(x, tag); return true; }));
                 menu.Items.Add(remAll);
@@ -700,13 +710,13 @@ sealed class MainForm : Form
         if (mine.Count > 0 && !readOnly)
         {
             menu.Items.Add(new ToolStripSeparator());
-            var rename = new ToolStripMenuItem("Rename one of your tags");
-            var delete = new ToolStripMenuItem("Delete one of your tags");
+            var rename = new ToolStripMenuItem("Rename One of Your Tags");
+            var delete = new ToolStripMenuItem("Delete One of Your Tags");
             foreach (string tag in mine)
             {
                 rename.DropDownItems.Add(tag, null, (_, _) =>
                 {
-                    string? raw = Ui.Prompt(this, "Rename tag", $"New name for \"{tag}\" (on every mod):", tag, all);
+                    string? raw = Ui.Prompt(this, "Rename Tag", $"New name for \"{tag}\" (on every mod):", tag, all);
                     // Same name in other letter case = a case change (CleanTag would map it back to the old spelling).
                     string? t = raw == null ? null : raw.Trim().Equals(tag, StringComparison.OrdinalIgnoreCase) ? raw.Trim() : l.CleanTag(raw);
                     if (t == null || t == tag) return;
@@ -785,7 +795,7 @@ sealed class MainForm : Form
 
         if (m.Manifest.UpkReplacements.Count > 0)
         {
-            var grid = Grid(false, ("UPK Filename", 0), ("Size", 90), ("In the game", 330));
+            var grid = Grid(false, ("UPK Filename", 0), ("Size", 90), ("In the Game", 330));
             var rows = new Dictionary<string, DataGridViewRow>(StringComparer.OrdinalIgnoreCase);
             foreach (string f in m.Manifest.UpkReplacements)
             {
@@ -836,7 +846,7 @@ sealed class MainForm : Form
 
         if (m.Manifest.AudioPacks.Count > 0)
         {
-            var grid = Grid(false, ("Sound pack", 0), ("Events", 80), ("Sound files it patches", 380));
+            var grid = Grid(false, ("Sound Pack", 0), ("Events", 80), ("Sound Files It Patches", 380));
             foreach (string f in m.Manifest.AudioPacks)
             {
                 string events = "?", pcks = "";
@@ -844,7 +854,7 @@ sealed class MainForm : Form
                 catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { pcks = "unreadable"; }
                 grid.Rows.Add(f, events, pcks);
             }
-            tabs.Add("Sound packs", grid);
+            tabs.Add("Sound Packs", grid);
         }
 
         var mineConflicts = lib.Conflicts().Where(c => c.Mods.Contains(m)).ToList();
@@ -867,14 +877,14 @@ sealed class MainForm : Form
         InfoRow("Version", m.Manifest.Version ?? "");
         InfoRow("Priority", $"{m.Priority + 1} of {lib.Mods.Count} (higher wins)" + (m.Lock != ModLock.None ? $", locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}" : ""));
         InfoRow("State", m.Enabled ? "enabled" : "disabled", m.Enabled ? Ui.Enabled : null);
-        InfoRow("Automatic tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "none (nothing recognised in the content)");
-        InfoRow("The mod's tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "none (set them in Edit Mod → Tags)");
-        InfoRow("Your tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "none (right-click the mod, or + Tag above)");
-        if (m.HiddenTags.Count > 0) InfoRow("Hidden here", string.Join(", ", m.HiddenTags));
+        InfoRow("Automatic Tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "none (nothing recognised in the content)");
+        InfoRow("The Mod's Tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "none (set them in Edit Mod → Tags)");
+        InfoRow("Your Tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "none (right-click the mod, or + Tag above)");
+        if (m.HiddenTags.Count > 0) InfoRow("Hidden Here", string.Join(", ", m.HiddenTags));
         InfoRow("Folder", m.Folder);
         if (m.LoadError != null) InfoRow("Error", m.LoadError, Ui.Warn);
         var missing = m.MissingFiles().ToList();
-        if (missing.Count > 0) InfoRow("Missing files", string.Join(", ", missing), Ui.Warn);
+        if (missing.Count > 0) InfoRow("Missing Files", string.Join(", ", missing), Ui.Warn);
         tabs.Add("Info", infoGrid);
 
         // Colours for the new pages only. Theming the whole form set the mod list's border (FixedSingle, then back to
@@ -941,13 +951,13 @@ sealed class MainForm : Form
         UseWaitCursor = true;
         string log = await Task.Run(() => CaptureOutput(() => IconCapture.Run(l, g, new Originals(l.DataFolder, g), null)));
         UseWaitCursor = false;
-        ShowLog("Capture icon changes", log);
+        ShowLog("Capture Icon Changes", log);
         Reload();
     }
 
     void InstallMod()
     {
-        using var d = new OpenFileDialog { Title = "Install mod", Filter = "Mod archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|All files|*.*", Multiselect = true };
+        using var d = new OpenFileDialog { Title = "Install Mod", Filter = "Mod archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|All files|*.*", Multiselect = true };
         if (d.ShowDialog(this) == DialogResult.OK) Install(d.FileNames);
     }
 
@@ -956,9 +966,9 @@ sealed class MainForm : Form
         MessageBox.Show(this, $"\"{existing.Name}\" is installed already (version {existing.Manifest.Version ?? "?"} by {existing.Manifest.Author ?? "?"}).\n\n" +
             $"Replace it with version {incoming.Version ?? "?"} by {incoming.Author ?? "?"}?\n\nIt keeps its place in the list, on/off, lock, tags and note. The old files go to the Recycle Bin." +
             (existing.Enabled ? "\n\nIt's on: Apply Changes afterwards puts the new version in the game." : ""),
-            "Update mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes);
+            "Update Mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes);
 
-    /// <summary>A card's "Update from a file…": the chosen archive / folder replaces this mod (even under another name).</summary>
+    /// <summary>A card's "Update from a File…": the chosen archive / folder replaces this mod (even under another name).</summary>
     void UpdateFromFile(Mod m)
     {
         using var d = new OpenFileDialog { Title = $"Update \"{m.Name}\" from", Filter = "Mod archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|All files|*.*" };
@@ -1230,7 +1240,7 @@ sealed class MainForm : Form
             if (a == DialogResult.Cancel) return;
             if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; }
         }
-        using var d = new SaveFileDialog { Title = legacy ? "Export mod (legacy)" : "Export mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
+        using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         try { ModInstaller.Export(m, d.FileName, legacy, addTags, note); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags and note left out)" : addTags != null ? " (with your tags / note)" : ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { MessageBox.Show(this, "Export failed: " + ex.Message, Text); }

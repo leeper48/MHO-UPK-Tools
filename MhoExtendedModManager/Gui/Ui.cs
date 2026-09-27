@@ -76,15 +76,28 @@ static class Ui
     }
     static readonly Font TipFont = Regular(9f);
 
-    /// <summary>A tag's colour: a hue from its name (the same tag always gets the same colour), light enough for dark text.</summary>
-    public static Color TagColor(string tag)
+    // Tag colours by category (Kurt: all teams one colour, all characters another). Chosen apart from the badge
+    // colours (orange packages, blue-violet textures, green strings, pink audio).
+    public static readonly Color TagCharacter = Color.FromArgb(240, 200, 80);    // gold
+    public static readonly Color TagTeam = Color.FromArgb(90, 175, 240);         // sky blue
+    public static readonly Color TagContent = Color.FromArgb(60, 200, 190);      // teal: Costume, Power effects …
+    public static readonly Color TagMod = Color.FromArgb(200, 170, 250);         // lavender: the mod's own tags
+    public static readonly Color TagUser = Color.FromArgb(205, 205, 215);        // light grey: your tags
+
+    /// <summary>A tag's colour: by what it names (character, team, content), else by who set it (the mod, or you).</summary>
+    public static Color TagColor(string tag, Mod? m = null) => AutoTags.Classify(tag) switch
     {
-        uint h = 2166136261;
-        foreach (char c in tag.ToLowerInvariant()) h = (h ^ c) * 16777619;
-        double hue = h % 360 / 360.0, sat = 0.55, lig = 0.66;
-        double q = lig + sat - lig * sat, p = 2 * lig - q;
-        double Ch(double t) { t = t < 0 ? t + 1 : t > 1 ? t - 1 : t; return t < 1 / 6.0 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2 / 3.0 ? p + (q - p) * (2 / 3.0 - t) * 6 : p; }
-        return Color.FromArgb((int)(Ch(hue + 1 / 3.0) * 255), (int)(Ch(hue) * 255), (int)(Ch(hue - 1 / 3.0) * 255));
+        AutoTags.TagClass.Character => TagCharacter,
+        AutoTags.TagClass.Team => TagTeam,
+        AutoTags.TagClass.Content => TagContent,
+        _ => m != null && m.KindOf(tag) == Mod.TagKind.Mod ? TagMod : TagUser,
+    };
+
+    /// <summary>"team, automatic", "character, yours", "from the mod" … for tooltips.</summary>
+    public static string TagDescription(Mod m, string tag)
+    {
+        string what = AutoTags.Classify(tag) switch { AutoTags.TagClass.Character => "character, ", AutoTags.TagClass.Team => "team, ", AutoTags.TagClass.Content => "content, ", _ => "" };
+        return what + TagSource(m, tag);
     }
 
     /// <summary>
@@ -92,11 +105,11 @@ static class Ui
     /// mod's own and the user's tags; <paramref name="soft"/> (tinted, coloured text and border) for automatic tags;
     /// <paramref name="outline"/> (subtle) for "+ Tag" / "+N".
     /// </summary>
-    public static Rectangle DrawChip(Graphics g, string text, Font font, int x, int midY, float s, bool outline = false, bool soft = false)
+    public static Rectangle DrawChip(Graphics g, string text, Font font, int x, int midY, float s, bool outline = false, bool soft = false, Mod? mod = null)
     {
         var size = TextRenderer.MeasureText(g, text, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
         var r = new Rectangle(x, midY - (size.Height + (int)(3 * s)) / 2, size.Width + (int)(12 * s), size.Height + (int)(3 * s));
-        var color = TagColor(text);
+        var color = TagColor(text, mod);
         using (var path = Round(r, r.Height / 2f))
         {
             if (outline) { using var pen = new Pen(Subtle, Math.Max(1f, 1f * s)); g.DrawPath(pen, path); }
@@ -586,7 +599,7 @@ sealed class ModListBox : ListBox
                 if (cx + Ui.ChipWidth(g, more, chipFont, S) <= limit) Ui.DrawChip(g, more, chipFont, cx, mid, S, outline: true);
                 break;
             }
-            chips.Add((Ui.DrawChip(g, tag, chipFont, cx, mid, S, soft: m.KindOf(tag) == Mod.TagKind.Auto), tag));
+            chips.Add((Ui.DrawChip(g, tag, chipFont, cx, mid, S, soft: m.KindOf(tag) == Mod.TagKind.Auto, mod: m), tag));
             cx += w + (int)(4 * S);
         }
         regions[e.Index] = (new Rectangle(badgesLeft, check.Top - (int)(2 * S), check.Left - badgesLeft, check.Height + (int)(4 * S)), chips);
@@ -629,7 +642,7 @@ sealed class ModListBox : ListBox
                  : null;
         if (regions.TryGetValue(i, out var r))
         {
-            foreach (var (rect, tag) in r.Chips) if (rect.Contains(p)) return $"Tag \"{tag}\" ({Ui.TagSource(m, tag)}). Click to show only mods with this tag.";
+            foreach (var (rect, tag) in r.Chips) if (rect.Contains(p)) return $"Tag \"{tag}\" ({Ui.TagDescription(m, tag)}). Click to show only mods with this tag.";
             if (r.Badges.Contains(p))
                 return "Changes: " + m.Summary() + (Conflicted.Contains(m) ? ".\n! Some of them are also changed by another enabled mod: the one higher in the list wins (see Conflicts)." : ".");
         }
@@ -932,7 +945,7 @@ sealed class DetailsHeader : Control
         Ui.PaintGradient(g, this, ClientRectangle);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         using (var pen = new Pen(Color.FromArgb(70, 255, 255, 255))) g.DrawLine(pen, 0, Height - 1, Width, Height - 1);
-        if (Mod is not Mod m) { TextRenderer.DrawText(g, "Select a mod", title, new Point((int)(12 * S), (int)(14 * S)), Ui.Subtle); return; }
+        if (Mod is not Mod m) { TextRenderer.DrawText(g, "Select a Mod", title, new Point((int)(12 * S), (int)(14 * S)), Ui.Subtle); return; }
         int x = (int)(12 * S), right = Width - (int)(12 * S);
 
         // Right side: the Enabled / Disabled pill, then the badges.
@@ -968,7 +981,7 @@ sealed class DetailsHeader : Control
             bool add = i == m.Tags.Count;
             string tag = add ? "+ Tag" : m.Tags[i];
             if (cx + Ui.ChipWidth(g, tag, chipFont, S) > right) break;
-            var r = Ui.DrawChip(g, tag, chipFont, cx, mid, S, outline: add, soft: !add && m.KindOf(tag) == Mod.TagKind.Auto);
+            var r = Ui.DrawChip(g, tag, chipFont, cx, mid, S, outline: add, soft: !add && m.KindOf(tag) == Mod.TagKind.Auto, mod: m);
             tagArea = tagArea.IsEmpty ? r : Rectangle.Union(tagArea, r);
             cx = r.Right + (int)(4 * S);
         }

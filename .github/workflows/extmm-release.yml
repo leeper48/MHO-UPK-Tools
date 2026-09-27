@@ -1,0 +1,50 @@
+# Release of MHO Extended Mod Manager, built from source on GitHub.
+# Push a tag extmm-v<version> (the version in MhoExtendedModManager.csproj) to run it:
+#   git tag -a extmm-v0.21.1 -m "What changed ..."   then   git push origin extmm-v0.21.1
+# Result: a DRAFT GitHub release with the zip, the Setup.exe and their .sha256 files, and the tag message as notes.
+# Check it, then press Publish (the app's updater ignores drafts until then).
+# The builds are not code-signed (Kurt's decision, 2026-09-27); README.txt tells users how to check a download.
+name: MHO Extended Mod Manager release
+
+on:
+  push:
+    tags: ['extmm-v*']
+
+permissions:
+  contents: write   # create the draft release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Version from the tag
+        id: v
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $ver = $tag -replace '^extmm-v', ''
+          $csproj = ([xml](Get-Content MhoExtendedModManager/MhoExtendedModManager.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ($ver -ne $csproj) { throw "tag $tag doesn't match the csproj version $csproj" }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build the zip and the installer
+        shell: pwsh
+        run: ./MhoExtendedModManager/make_release.ps1 -Out out/release
+
+      - name: Draft the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.v.outputs.version }}'
+          $files = Get-ChildItem out/release -File | Where-Object { $_.Name -like "MHO_Ext_ModManager-$v*" } | ForEach-Object { $_.FullName }
+          gh release create '${{ github.ref_name }}' @files --draft --title "MHO Extended Mod Manager $v" --notes-from-tag

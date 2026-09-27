@@ -15,13 +15,13 @@ sealed class FirstRunForm : Form
     readonly RadioButton migrate = new() { Text = "Yes, bring its mods, their order and its backups over (its folder is left as it is):", AutoSize = true };
     readonly ComboBox oldBox = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown, Enabled = false };
     readonly TextBox log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Visible = false };
-    readonly Button ok = new() { Text = "Set up", AutoSize = true };
+    readonly Button ok = new() { Text = "Set Up", AutoSize = true };
     bool finished;
 
     public FirstRunForm(Settings settings)
     {
         this.settings = settings;
-        Text = "MHO Extended Mod Manager: first-run setup";
+        Text = "MHO Extended Mod Manager: First-Run Setup";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Width = 900; Height = 640; StartPosition = FormStartPosition.CenterScreen;
 
@@ -108,7 +108,7 @@ sealed class FirstRunForm : Form
         UseWaitCursor = false;
         log.Text = output.Replace("\r\n", "\n").Replace("\n", "\r\n");
         finished = settings.IsSetUp;
-        if (finished) ok.Text = "Open the mod list";
+        if (finished) ok.Text = "Open the Mod List";
         ok.Enabled = true;
     }
 }

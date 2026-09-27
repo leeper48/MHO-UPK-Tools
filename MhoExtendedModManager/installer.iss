@@ -27,6 +27,12 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=MHO_Ext_ModManager-{#AppVersion}-Setup
+; File metadata (shown in the file's Properties).
+VersionInfoProductName=MHO Extended Mod Manager
+VersionInfoDescription=MHO Extended Mod Manager Setup
+VersionInfoCompany=leeper48
+VersionInfoVersion={#AppVersion}
+VersionInfoProductVersion={#AppVersion}
 SetupIconFile=Assets\app.ico
 UninstallDisplayIcon={app}\MHO_Ext_ModManager.exe
 LicenseFile=..\LICENSE

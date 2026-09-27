@@ -24,6 +24,8 @@ sealed class Settings
     public string ListGroup { get; set; } = "none";
     /// <summary>Updates: look for a new version at start (at most once a day); a version the user chose to skip.</summary>
     public bool CheckUpdates { get; set; } = true;
+    /// <summary>The user was asked once whether the app may look for updates at start (nothing is sent without that).</summary>
+    public bool UpdateCheckAsked { get; set; }
     public DateTime? LastUpdateCheck { get; set; }
     public string? SkipVersion { get; set; }
 

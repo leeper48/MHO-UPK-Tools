@@ -33,12 +33,12 @@ sealed class ExtractView : UserControl
 
         // ---- Textures
         // The three MHModManager packages, then every other stock icon package (Silver Surfer, HD, character select, …).
-        foreach (string k in new[] { "Icons", "Achievement icons", "Store images" }) kind.Items.Add(k);
+        foreach (string k in new[] { "Icons", "Achievement Icons", "Store Images" }) kind.Items.Add(k);
         foreach (string p in IconCapture.ExtraPackages(catalog.Game)) kind.Items.Add(p);
         var tex = new Panel { Dock = DockStyle.Fill };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
         bar.Controls.AddRange([new Label { Text = "Package", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, kind,
-            Ui.AccentButton("Save selected as .dds…", () => SaveTextures(".dds")), Ui.FlatButton("Save selected as .png…", () => SaveTextures(".png"))]);
+            Ui.AccentButton("Save Selected as .dds…", () => SaveTextures(".dds")), Ui.FlatButton("Save Selected as .png…", () => SaveTextures(".png"))]);
         var left = new TableLayoutPanel { Dock = DockStyle.Left, Width = (int)(380 * s), ColumnCount = 1, RowCount = 2, Padding = new Padding(0, 0, 8, 0) };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var searchRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 0, 0, 6) };
@@ -54,7 +54,7 @@ sealed class ExtractView : UserControl
         // ---- Strings
         var str = new Panel { Dock = DockStyle.Fill };
         var sbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
-        sbar.Controls.AddRange([new Label { Text = "Language", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, lang, Ui.AccentButton("Save all as .json…", SaveStrings)]);
+        sbar.Controls.AddRange([new Label { Text = "Language", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, lang, Ui.AccentButton("Save All as .json…", SaveStrings)]);
         str.Controls.Add(sbar);
         str.Controls.Add(new Label { Text = "Every original string of a language, in the mod format ({ file: { id: { String … } } }). Edit the ones you want, then use Import changes (.json) on the mod editor's Strings tab, or copy entries into a mod's <lang>.json.", Dock = DockStyle.Top, AutoSize = true, MaximumSize = new Size((int)(1150 * s), 0), Tag = "subtle", Padding = new Padding(2, 8, 2, 2) });
         tabs.Add("Strings", str);
@@ -117,7 +117,7 @@ sealed class ExtractView : UserControl
         string? folder;
         if (sel.Count == 1)
         {
-            using var d = new SaveFileDialog { Title = "Save original", Filter = ext == ".png" ? "PNG image (*.png)|*.png" : "DDS texture (*.dds)|*.dds", FileName = sel[0].Name + ext };
+            using var d = new SaveFileDialog { Title = "Save Original", Filter = ext == ".png" ? "PNG image (*.png)|*.png" : "DDS texture (*.dds)|*.dds", FileName = sel[0].Name + ext };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string? why = catalog.ExportImage(Pkg(sel[0]), sel[0].Name, d.FileName);
             status.Text = why == null ? $"Saved {d.FileName}" : $"Not saved: {why}";
@@ -137,7 +137,7 @@ sealed class ExtractView : UserControl
     async void SaveStrings()
     {
         if (lang.SelectedItem is not string l) return;
-        using var d = new SaveFileDialog { Title = "Save strings", Filter = "JSON (*.json)|*.json", FileName = $"{l}_strings.json" };
+        using var d = new SaveFileDialog { Title = "Save Strings", Filter = "JSON (*.json)|*.json", FileName = $"{l}_strings.json" };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         UseWaitCursor = true; status.Text = "Saving…";
         int n = await Task.Run(() => catalog.ExportStrings(l, d.FileName));

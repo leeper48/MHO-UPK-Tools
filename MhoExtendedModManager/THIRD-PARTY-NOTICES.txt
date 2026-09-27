@@ -1,0 +1,48 @@
+MHO Extended Mod Manager uses the following third-party software and data.
+
+MHModManager (mod format and behaviour replicated; no code copied)
+  By its original author. The mod format (manifest.json, string .json files, .mhsfx sound packs) and the library layout
+  follow MHModManager 1.0.1 so mods stay interchangeable.
+
+SharpCompress (reading .7z and .rar mod archives)
+  https://github.com/adamhathcock/sharpcompress
+  License: MIT
+  Copyright (c) 2014 Adam Hathcock
+
+ZstdSharp.Port (used by SharpCompress)
+  https://github.com/oleg-st/ZstdSharp
+  License: MIT
+  Copyright Oleg Stepanischev 2024 (Zstandard: Copyright (c) Meta Platforms, Inc., BSD)
+
+System.IO.Hashing (CRC-32 of game packages)
+  https://github.com/dotnet/runtime
+  License: MIT
+  Copyright (c) .NET Foundation and Contributors
+
+AssimpNet (C# wrapper for the Open Asset Import Library; part of MHO Package Modifier, which this program uses)
+  https://bitbucket.org/Starnick/assimpnet
+  License: MIT
+  Copyright (c) 2012-2020 Nicholas Woodfield
+
+Open Asset Import Library (assimp), shipped as assimp.dll
+  https://github.com/assimp/assimp
+  License: BSD 3-Clause
+  Copyright (c) 2006-2021, assimp team. All rights reserved.
+  Redistribution and use in source and binary forms, with or without modification, are permitted provided
+  that the following conditions are met: redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer; redistributions in binary form must
+  reproduce the above copyright notice, this list of conditions and the following disclaimer in the
+  documentation and/or other materials provided with the distribution; neither the name of the assimp
+  team, nor the names of its contributors may be used to endorse or promote products derived from this
+  software without specific prior written permission of the assimp team.
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+  WARRANTIES ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY
+  DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE.
+
+.NET 8 Desktop Runtime (installed separately by the user)
+  https://github.com/dotnet/runtime
+  License: MIT
+  Copyright (c) .NET Foundation and Contributors
+
+Stock package checksum list (StockData\upk_checksums.json), when included
+  From MHModManager: CRC-32 values of the game's stock packages, used only to recognise unmodified originals.
