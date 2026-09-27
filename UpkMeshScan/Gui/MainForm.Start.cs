@@ -15,7 +15,7 @@ sealed partial class MainForm
             ("Change a value", "Fog, sun and sky colours, material parameters, any number or colour in an object. Browse to the object, then edit it on the Properties tab; the same change can go to every package that has the object.", () => browsePage),
             ("Add, move or reshape buildings in a zone", "Export a zone's placed meshes to Blender, duplicate, move, scale or edit them, and bring the changes back (Hightown, Odin's Palace).", () => placementsPage),
             ("Replace one mesh with my own model", "Export a single StaticMesh to FBX, edit it, and import it back into its package.", () => meshesPage),
-            ("Import an image as a texture", "PNG, JPG, BMP or DDS to a compressed game texture (with or without alpha, mipmaps, size limit).", () => texturesPage),
+            ("Replace or add a texture", "See every texture as you click it; replace one with your own PNG, JPG, BMP or DDS, or add a new one.", () => texturesPage),
             ("Rebuild a zone's distant view", "One click rebuilds a zone's main level with its whole recipe: sky, distant buildings or LODs, ground, water. Also: export placed meshes to bake LODs.", () => zonesPage),
             ("Copy a material or object between packages", "Copy an object with everything it needs, rename it, swap its textures; remove placed meshes; find material instances.", () => objectsPage),
             ("Undo, redo or restore originals", "Every write can be undone step by step, or the package restored from its original .bak.", () => backupsPage),

@@ -27,6 +27,7 @@ sealed partial class MainForm : Form
         public string BakeFbx { get; set; } = "";
         public string TextureImage { get; set; } = "";
         public bool ShowStartOnLaunch { get; set; } = true;
+        public int HelpTextSize { get; set; } = 100;
     }
 
     static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "UpkMeshScan", "settings.json");
@@ -51,7 +52,7 @@ sealed partial class MainForm : Form
 
     readonly TextBox gameFolder = new() { Dock = DockStyle.Fill };
     readonly ComboBox packageBox = new() { Dock = DockStyle.Fill, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
-    readonly Label packageInfo = new() { AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
+    readonly Label packageInfo = new() { AutoSize = true, Padding = new Padding(0, 4, 0, 4), MaximumSize = new Size(900, 0) };
     readonly ThemedTabControl tabs = new() { Dock = DockStyle.Fill };
     Button? themeToggle;
     Palette palette = Palette.Dark;
@@ -117,13 +118,15 @@ sealed partial class MainForm : Form
         : page == texturesPage ? "textures" : page == placementsPage ? "placements" : page == zonesPage ? "zones" : page == objectsPage ? "objects"
         : page == backupsPage ? "backups" : page == toolsPage ? "tools" : "start";
 
-    void ShowHelp(string anchor) => HelpForm.Show(this, anchor, settings.DarkMode);
+    void ShowHelp(string anchor) => HelpForm.Show(this, anchor, settings.DarkMode, settings.HelpTextSize, v => { settings.HelpTextSize = v; SaveSettings(); });
 
     public MainForm(string version)
     {
         Text = $"MHO Package Modifier v{version}";
         Width = 1400; Height = 1000;
         StartPosition = FormStartPosition.CenterScreen;
+        WindowState = FormWindowState.Maximized;                              // opens filling the screen; restore gives 1400 x 1000
+        try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? Application.ExecutablePath); } catch (Exception ex) when (ex is ArgumentException or IOException) { }
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(6) };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -236,6 +239,18 @@ sealed partial class MainForm : Form
                 string? filter = SelectedExport() is int i && package.ClassOf(package.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) ? package.Exports[i].ObjectName : null;
                 string dir = Path.Combine(exportFolder.Text, "textures", Path.GetFileNameWithoutExtension(packagePath));
                 Run(filter == null ? "Export all textures" : $"Export texture {filter}", () => TextureExport.Run(packagePath, filter, dir));
+            }),
+            Btn("Preview", () =>
+            {
+                if (package == null || SelectedExport() is not int i) return;
+                string cls = package.ClassOf(package.Exports[i]);
+                if (cls.Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) ShowTextureOnTab(package.PathOf(package.Exports[i]));
+                else if (cls.Equals("StaticMesh", StringComparison.OrdinalIgnoreCase))
+                {
+                    tabs.SelectedTab = meshesPage;
+                    for (int k = 0; k < meshes.Items.Count; k++) if (meshes.Items[k] is MeshItem m && m.Index == i) { meshes.SelectedIndex = k; break; }
+                }
+                else Log("Preview shows a Texture2D or a StaticMesh: select one (filter the list by texture2d or staticmesh).");
             }),
             Btn("What does it need?", () => { if (SelectedExport() is int i) RunCommand("Dependencies", ["--export-deps", packagePath, package!.PathOf(package.Exports[i])], false); }),
             Btn("Save full dump", () => { if (SelectedExport() is int i) RunCommand("Dump export", ["--dump-export", packagePath, package!.PathOf(package.Exports[i]), "--out", Path.Combine(exportFolder.Text, "dumps")], false, () => OpenFolder(Path.Combine(exportFolder.Text, "dumps"))); }),
@@ -377,34 +392,38 @@ sealed partial class MainForm : Form
     TabPage BuildMeshesTab()
     {
         var page = new TabPage("Meshes");
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 6 };
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 4; i++) t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        // One column: what this tab is for, the mesh list (it takes the free height), then export and import.
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        t.Controls.Add(Hint("Click a mesh to see it. To replace it: export, edit in Blender, import (F1: the rules). To change placed buildings, use Placements.", 540), 0, 0);
+        t.Controls.Add(Lbl("StaticMeshes in this package (click one to see it):"), 0, 1);
+        t.Controls.Add(meshes, 0, 2);
 
-        t.Controls.Add(Hint("Replace one mesh with your own model: export it, edit it in Blender, import it back. Keep the object names (<mesh>_section<N>) and the " +
-            "material names (Blender's .001 suffixes are ignored). A mesh can have at most 65,535 vertices, and the imported mesh has no collision. " +
-            "To add, move or reshape placed buildings, use the Placements tab. StaticMeshes in this package:"), 0, 0); t.SetColumnSpan(t.GetControlFromPosition(0, 0)!, 3);
-        t.Controls.Add(meshes, 0, 1); t.SetColumnSpan(meshes, 3);
-
-        t.Controls.Add(Lbl("Export folder:"), 0, 2); t.Controls.Add(exportFolder, 1, 2);
-        t.Controls.Add(NoWrap(
+        var g = new FieldGrid();
+        g.Row("Export folder:", exportFolder, NoWrap(
             Btn("Browse…", () => { using var d = new FolderBrowserDialog { SelectedPath = exportFolder.Text }; if (d.ShowDialog(this) == DialogResult.OK) exportFolder.Text = d.SelectedPath; }),
-            Btn("Open folder", () => OpenFolder(exportFolder.Text))), 2, 2);
-        t.Controls.Add(Flow(Btn("Export selected mesh to FBX (+ textures)", ExportSelectedMesh),
+            Btn("Open folder", () => OpenFolder(exportFolder.Text))));
+        g.Full(Flow(Btn("Export to FBX (+ textures)", ExportSelectedMesh),
             Btn("UV info", () => { if (SelectedMesh() is { } m) RunCommand($"UV info {m.Name}", ["--uv-info", packagePath, m.Path], false); }),
-            Btn("Round-trip self-test", () => { if (SelectedMesh() is { } m) RunCommand($"Round-trip test {m.Name}", ["--verify-import-roundtrip", packagePath, m.Path], false); })), 1, 3);
-
-        t.Controls.Add(Lbl("FBX to import:"), 0, 4); t.Controls.Add(fbxPath, 1, 4);
-        t.Controls.Add(Btn("Browse…", () =>
+            Btn("Round-trip self-test", () => { if (SelectedMesh() is { } m) RunCommand($"Round-trip test {m.Name}", ["--verify-import-roundtrip", packagePath, m.Path], false); })));
+        g.Row("FBX to import:", fbxPath, Btn("Browse…", () =>
         {
             using var d = new OpenFileDialog { Filter = "FBX (*.fbx)|*.fbx|All files|*.*", FileName = fbxPath.Text };
             if (d.ShowDialog(this) == DialogResult.OK) fbxPath.Text = d.FileName;
-        }), 2, 4);
-        t.Controls.Add(Flow(
-            Btn("Dry run import (game untouched)", () => ImportSelectedMesh(dryRun: true)),
-            Btn("Import into game file…", () => ImportSelectedMesh(dryRun: false))), 1, 5);
-        page.Controls.Add(t);
+        }));
+        g.Full(Flow(
+            Btn("Dry run import", () => ImportSelectedMesh(dryRun: true)),
+            Btn("Import into game file…", () => ImportSelectedMesh(dryRun: false))));
+        t.Controls.Add(g, 0, 3);
+        meshes.SelectedIndexChanged += (_, _) => { if (meshes.SelectedItem is MeshItem m) PreviewMesh(m); };
+        // Left: the list and the export/import controls; right: the 3D view of the selected mesh.
+        var split = new SplitContainer { Dock = DockStyle.Fill };
+        split.Panel1.Controls.Add(t);
+        split.Panel2.Controls.Add(meshViewer);
+        page.Controls.Add(split);
+        Shown += (_, _) => { if (split.Width > 600) split.SplitterDistance = (int)(split.Width * 0.42); };
         return page;
     }
 
@@ -607,6 +626,8 @@ sealed partial class MainForm : Form
     void FillMeshes()
     {
         meshes.Items.Clear();
+        meshRequest++;
+        meshViewer.ShowMessage("Select a mesh in the list to see it here.");
         if (package == null) return;
         for (int i = 0; i < package.Exports.Length; i++)
             if (package.ClassOf(package.Exports[i]).Equals("StaticMesh", StringComparison.OrdinalIgnoreCase))
@@ -943,6 +964,7 @@ sealed partial class MainForm : Form
         ["Edit properties →"] = "Load the selected export into the Properties tab. Double-clicking a row does the same.",
         ["Where does this mesh come from?"] = "Scan the game folder: for every StaticMesh this package imports, list the packages that hold its geometry. Read-only.",
         ["Find name in folder"] = "List every package that exports or imports an object with the selected export's name. Read-only.",
+        ["Preview"] = "Show the selected texture (Textures tab) or mesh (Meshes tab, in 3D).",
         ["Export texture(s)"] = "Write the selected texture (or every texture, if the selection isn't a texture) as .dds into the export folder. The largest mip available is written, including full-size mips from the game's .tfc texture caches.",
         ["Find matching packages"] = "Scan the game folder for other packages that have this exact export, and list their current values. Packages with the same name prefix are pre-checked. Read-only.",
         ["Check all shown"] = "Tick every package currently shown in the list (use the filter first to narrow it).",
@@ -951,8 +973,8 @@ sealed partial class MainForm : Form
         ["Apply to game file(s)…"] = "Write the edits into the game package(s): each gets a verified .bak of its original first, then a verified temp file is swapped in. Close the game first. The Backups tab reverts.",
         ["Reset edits"] = "Throw away unsaved edits and reload the values from the file.",
         ["Open folder"] = "Open the export folder in Explorer.",
-        ["Export selected mesh to FBX (+ textures)"] = "Write the selected StaticMesh as FBX, with its textures (.dds) linked, into the export folder.",
-        ["Dry run import (game untouched)"] = "Build and verify the package with the FBX imported and write it to import_out. Nothing in the game folder changes.",
+        ["Export to FBX (+ textures)"] = "Write the selected StaticMesh as FBX, with its textures (.dds) linked, into the export folder.",
+        ["Dry run import"] = "Build and verify the package with the FBX imported and write it to import_out. Nothing in the game folder changes.",
         ["Import into game file…"] = "Import the FBX into the game package: verified .bak first (if none yet), verified temp file, then swap. Collision on the mesh becomes empty. Close the game first.",
         ["Refresh"] = "Re-check every package that has a .bak: modified, or same as the original.",
         ["Revert selected to original…"] = "Copy the .bak (the original) back over the live package, verified. The .bak is kept. Also undoes mods made by other tools if their backup is the .bak.",

@@ -34,6 +34,31 @@ static class Program
             return 0;
         }
 
+        // --help-selftest <out.txt>: loads the manual in the help window's browser engine, searches it, writes the result.
+        if (args.Length == 2 && args[0].Equals("--help-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var form = new Form { Width = 800, Height = 600, ShowInTaskbar = false, Opacity = 0 };
+            var wb = new WebBrowser { Dock = DockStyle.Fill, ScriptErrorsSuppressed = true };
+            form.Controls.Add(wb);
+            var log = new List<string>();
+            wb.DocumentCompleted += (_, _) =>
+            {
+                try
+                {
+                    foreach (string term in new[] { "undo", "keep baked lighting", "zzqq" })
+                        log.Add($"{term}: {wb.Document!.InvokeScript("mhoSearch", [term])} matches, next = {wb.Document.InvokeScript("mhoNext", [1])}, again = {wb.Document.InvokeScript("mhoNext", [1])}, back = {wb.Document.InvokeScript("mhoNext", [-1])}");
+                    log.Add($"document mode: {wb.Document!.InvokeScript("eval", ["document.documentMode"])}");
+                }
+                catch (Exception ex) { log.Add("error: " + ex.Message); }
+                File.WriteAllLines(args[1], log);
+                form.Close();
+            };
+            form.Shown += (_, _) => { string? f = Gui.HelpForm.Render(false); if (f == null) { File.WriteAllText(args[1], "no manual"); form.Close(); } else wb.Navigate(f); };
+            Application.Run(form);
+            return 0;
+        }
+
         // No arguments: the GUI. It's a WinExe so a double-click shows no console window.
         if (args.Length == 0)
         {
@@ -408,6 +433,25 @@ static class Program
             return LevelEdit.AddActor(args[levelActorAt + 1], args[levelActorAt + 2], args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
         }
 
+        int texPngAt = Array.FindIndex(args, a => a.Equals("--texture-png", StringComparison.OrdinalIgnoreCase));
+        if (texPngAt >= 0)
+        {
+            // --texture-png <package.upk> <texture> <out.png>: the largest mip available (package or .tfc cache) as a PNG.
+            if (texPngAt + 3 >= args.Length) { Usage(); return 2; }
+            var pkg = Package.Open(args[texPngAt + 1]);
+            string want = args[texPngAt + 2];
+            int ti = Array.FindIndex(pkg.Exports, e => pkg.ClassOf(e).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)
+                && (pkg.PathOf(e).Equals(want, StringComparison.OrdinalIgnoreCase) || e.ObjectName.Equals(want, StringComparison.OrdinalIgnoreCase)));
+            if (ti < 0) { Console.WriteLine($"No Texture2D '{want}'."); return 1; }
+            if (TextureExport.ReadBestMip(pkg, ti, out string note, Path.GetDirectoryName(Path.GetFullPath(args[texPngAt + 1]))) is not { } m) { Console.WriteLine($"  {note}"); return 1; }
+            if (TextureDecode.ToBgra(m.Format, m.Width, m.Height, m.Pixels, out string why) is not byte[] px) { Console.WriteLine($"  {why}"); return 1; }
+            using var bmp = TextureDecode.ToBitmap(px, m.Width, m.Height);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(args[texPngAt + 3]))!);
+            bmp.Save(args[texPngAt + 3], System.Drawing.Imaging.ImageFormat.Png);
+            Console.WriteLine($"  {pkg.PathOf(pkg.Exports[ti])}: {m.Format} {m.Width}x{m.Height} ({note}) -> {args[texPngAt + 3]}");
+            return 0;
+        }
+
         int meshCmpAt = Array.FindIndex(args, a => a.Equals("--mesh-compare", StringComparison.OrdinalIgnoreCase));
         // --mesh-compare <stock.upk> <mesh> <edited.upk> <mesh>
         if (meshCmpAt >= 0 && meshCmpAt + 4 < args.Length) return MeshCompare.Run(args[meshCmpAt + 1], args[meshCmpAt + 2], args[meshCmpAt + 3], args[meshCmpAt + 4]);
@@ -437,6 +481,19 @@ static class Program
             if (setObjAt + 4 >= args.Length) { Usage(); return 2; }
             return ObjectEdit.Run(args[setObjAt + 1], args[setObjAt + 2], args[setObjAt + 3], args[setObjAt + 4],
                 args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        int texReplaceAt = Array.FindIndex(args, a => a.Equals("--replace-texture", StringComparison.OrdinalIgnoreCase));
+        if (texReplaceAt >= 0)
+        {
+            // --replace-texture <package.upk> <texture> <file.png|jpg|bmp|dds> [--format dxt1|dxt5] [--split 85] [--scale 1] [--no-mips] [--max-size N] [--dry-run]
+            if (texReplaceAt + 3 >= args.Length) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string TOpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            return TextureImport.Run(args[texReplaceAt + 1], args[texReplaceAt + 2], "", args[texReplaceAt + 3],
+                args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                TOpt("--format", "") is { Length: > 0 } tf ? tf : null, int.Parse(TOpt("--split", "85")), float.Parse(TOpt("--scale", "1"), inv),
+                args.Any(a => a.Equals("--no-mips", StringComparison.OrdinalIgnoreCase)), int.Parse(TOpt("--max-size", "0")), replace: true);
         }
 
         int texImportAt = Array.FindIndex(args, a => a.Equals("--import-texture", StringComparison.OrdinalIgnoreCase));

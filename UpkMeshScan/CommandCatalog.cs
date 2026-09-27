@@ -36,10 +36,16 @@ static class CommandCatalog
 
         // ---- Textures
         new("Textures", "--texture-info", "<package.upk> [name-filter]", "Textures: size, format, and where each mip's data lives (package or .tfc cache).", false, "--texture-info {pkg}"),
+        new("Textures", "--texture-png", "<package.upk> <texture> <out.png>", "Save a texture as PNG (largest mip available, including from the .tfc caches; alpha kept).", false,
+            "--texture-png {pkg} {export} \"{out}\\texture.png\""),
         new("Textures", "--export-textures", "<package.upk> [name-filter] [--out folder]", "Write textures as .dds (largest mip available, including from the .tfc caches).", false, "--export-textures {pkg} --out \"{out}\\textures\""),
         new("Textures", "--import-texture", "<package.upk> <template-texture> <new-name> <file.png|jpg|bmp|dds> [--format dxt1|dxt5] [--split 85] [--scale 1] [--no-mips] [--max-size N] [--dry-run]",
             "Add a new texture to a package from an image, using an existing texture as the template (compression settings, group). PNG alpha: DXT1 with a 1-bit cut at --split, or DXT5 for soft alpha.", true,
             "--import-texture {pkg} {export} my_texture \"{out}\\image.png\" --dry-run"),
+
+        new("Textures", "--replace-texture", "<package.upk> <texture> <file.png|jpg|bmp|dds> [--format dxt1|dxt5] [--split 85] [--scale 1] [--no-mips] [--max-size N] [--dry-run]",
+            "Replace an existing texture's image (same name and path, so every material using it shows the new one). Its other settings are kept; the new mips are stored in the package.", true,
+            "--replace-texture {pkg} {export} \"{out}\\image.png\" --dry-run"),
 
         // ---- Properties and materials
         new("Properties and materials", "--set-property", "<package.upk> <export> <Name=Value> [...] [--dry-run]",

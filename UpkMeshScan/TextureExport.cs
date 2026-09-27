@@ -85,8 +85,14 @@ static class TextureExport
         return (list, parent);
     }
 
-    /// <summary>Writes the largest inline mip as a DDS. Returns (width, height, note) or null with a reason in note.</summary>
-    public static (int W, int H)? WriteDds(Package pkg, int exportIndex, string path, out string note, string? cacheFolder = null)
+    /// <summary>The largest mip available: its format, size and pixel data (decompressed), from the package or its texture cache.</summary>
+    public sealed record MipData(string Format, int Width, int Height, byte[] Pixels, string Source, int FullWidth, int FullHeight);
+
+    /// <summary>
+    /// The largest mip of a texture: inline in the package, or larger from the game's .tfc cache when a cache folder is given.
+    /// Null with the reason in note when there's none. On success note says where it came from and what's missing.
+    /// </summary>
+    public static MipData? ReadBestMip(Package pkg, int exportIndex, out string note, string? cacheFolder = null)
     {
         TextureInfo tex;
         try { tex = TextureInfo.Read(pkg, pkg.Exports[exportIndex]); }
@@ -109,14 +115,23 @@ static class TextureExport
             pixels = tex.Data.AsSpan(mip.InlineAt, mip.Size).ToArray();
             if (mip.Lzo) pixels = DecompressChunk(pixels, mip.Count);
         }
-        byte[]? header = DdsHeader(tex.Format, mip.Width, mip.Height, pixels.Length, out note);
-        if (header is null) return null;
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using (var f = File.Create(path)) { f.Write(header); f.Write(pixels); }
         int largestStored = tex.Mips.Where(x => !x.Unused).Select(x => x.Width).DefaultIfEmpty(0).Max();
         note = (mip.Width >= largestStored ? "largest stored" : $"largest stored {largestStored} is only in '{tex.Cache}.tfc' (not found)")
              + (mip.Width < tex.SizeX ? $"; {tex.SizeX}x{tex.SizeY} itself was cooked out" : "") + $"; from {source}";
-        return (mip.Width, mip.Height);
+        return new MipData(tex.Format, mip.Width, mip.Height, pixels, source, tex.SizeX, tex.SizeY);
+    }
+
+    /// <summary>Writes the largest mip available as a DDS. Returns (width, height) or null with a reason in note.</summary>
+    public static (int W, int H)? WriteDds(Package pkg, int exportIndex, string path, out string note, string? cacheFolder = null)
+    {
+        if (ReadBestMip(pkg, exportIndex, out note, cacheFolder) is not { } m) return null;
+        string where = note;
+        byte[]? header = DdsHeader(m.Format, m.Width, m.Height, m.Pixels.Length, out note);
+        if (header is null) return null;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using (var f = File.Create(path)) { f.Write(header); f.Write(m.Pixels); }
+        note = where;
+        return (m.Width, m.Height);
     }
 
     /// <summary>UE3 compressed-chunk format: magic, block size, summary (comp, uncomp), block sizes, blocks.</summary>

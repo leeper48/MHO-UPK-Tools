@@ -5,12 +5,14 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.46.0</Version>
+    <Version>2.49.1</Version>
     <AssemblyName>MHO_UPK_Mod</AssemblyName>
     <Product>MHO Package Modifier</Product>
     <AssemblyTitle>MHO Package Modifier</AssemblyTitle>
     <RootNamespace>UpkMeshScan</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- App icon (Explorer, taskbar, title bars): yellow lightning bolt on a blue circle. -->
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="AssimpNet" Version="5.0.0-beta1" />

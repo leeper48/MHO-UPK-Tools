@@ -116,7 +116,37 @@ sealed partial class MainForm
     public void Snapshot(string dir)
     {
         Directory.CreateDirectory(dir);
+        // With the last package open (or MHO_SNAPSHOT_PKG) and its first texture shown, so the tabs have content.
+        if (Environment.GetEnvironmentVariable("MHO_SNAPSHOT_PKG") is { Length: > 0 } sp) packageBox.Text = sp;
+        OpenSelectedPackage();
+        if (texList.Items.Count > 0)
+        {
+            texList.Items[0].Selected = true;
+            var until = DateTime.Now.AddSeconds(8);
+            while (DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(50); if (texViewer.HasImage) break; }
+        }
+        // And the first mesh (the 3D view).
+        if (meshes.Items.Count > 0)
+        {
+            string want = Environment.GetEnvironmentVariable("MHO_SNAPSHOT_MESH") ?? "";
+            int pick = want.Length > 0 ? meshes.Items.Cast<MeshItem>().ToList().FindIndex(x => x.Name.Equals(want, StringComparison.OrdinalIgnoreCase)) : -1;
+            meshes.SelectedIndex = pick >= 0 ? pick : Math.Min(meshes.Items.Count - 1, 3);
+            var until = DateTime.Now.AddSeconds(15);
+            while (DateTime.Now < until) { Application.DoEvents(); Thread.Sleep(50); if (meshViewer.HasMesh) break; }
+        }
         if (HelpForm.Render(dark: false) is string manual) File.Copy(manual, Path.Combine(dir, "manual.html"), overwrite: true);
+        // The texture preview, on an image that ships with the app (the ICP skyline: soft alpha).
+        string sample = Path.Combine(AppContext.BaseDirectory, "ZoneData", "IndustryCity", "icp_city_kurt.png");
+        if (File.Exists(sample))
+        {
+            using var img = new Bitmap(sample);
+            var f = TexturePreviewForm.Open(this, palette, "icp_city_kurt", TextureDecode.FromBitmap(img), img.Width, img.Height, sample);
+            Application.DoEvents();
+            using var shot = new Bitmap(f.Width, f.Height);
+            f.DrawToBitmap(shot, new Rectangle(0, 0, f.Width, f.Height));
+            shot.Save(Path.Combine(dir, "preview.png"));
+            f.Close();
+        }
         for (int i = 0; i < tabs.TabPages.Count; i++)
         {
             tabs.SelectedIndex = i;

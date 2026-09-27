@@ -32,20 +32,35 @@ static class TextureImport
         return ms.ToArray();
     }
 
-    public static int Run(string upkPath, string templatePath, string newName, string ddsPath, bool dryRun, string? encodeFormat = null, int split = 85, float scale = 1f, bool noMips = false, int maxSize = 0)
+    /// <param name="replace">
+    /// --replace-texture: the image replaces <paramref name="templatePath"/>'s own pixels (same export, same path, so every
+    /// material using it shows the new image) instead of becoming a new texture. All of the original's settings are kept
+    /// (sRGB, compression settings, address modes, LOD group ...) except the ones describing its size, format and
+    /// storage; its mips go inline (NeverStream, no texture cache), as for a new texture.
+    /// </param>
+    public static int Run(string upkPath, string templatePath, string newName, string ddsPath, bool dryRun, string? encodeFormat = null, int split = 85, float scale = 1f, bool noMips = false, int maxSize = 0, bool replace = false)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
         var pkg = Package.Open(upkPath);
-        Console.WriteLine($"Import texture: {Path.GetFileName(ddsPath)} -> {Path.GetFileName(upkPath)} as '{newName}' (template {templatePath}){(dryRun ? "  [dry run]" : "")}");
-
-        int template = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(templatePath, StringComparison.OrdinalIgnoreCase)
+        int template = Array.FindIndex(pkg.Exports, e => (pkg.PathOf(e).Equals(templatePath, StringComparison.OrdinalIgnoreCase) || (replace && e.ObjectName.Equals(templatePath, StringComparison.OrdinalIgnoreCase)))
             && pkg.ClassOf(e).Equals("Texture2D", StringComparison.OrdinalIgnoreCase));
         if (template < 0) { Console.WriteLine($"  no Texture2D '{templatePath}' in the package (give the full path)"); return 2; }
         var t = pkg.Exports[template];
+        if (replace) newName = t.ObjectName;
+        Console.WriteLine(replace
+            ? $"Replace texture: {Path.GetFileName(ddsPath)} -> {Path.GetFileName(upkPath)} :: {pkg.PathOf(t)}{(dryRun ? "  [dry run]" : "")}"
+            : $"Import texture: {Path.GetFileName(ddsPath)} -> {Path.GetFileName(upkPath)} as '{newName}' (template {templatePath}){(dryRun ? "  [dry run]" : "")}");
         string outerPath = t.OuterIndex > 0 ? pkg.PathOf(pkg.Exports[t.OuterIndex - 1]) + "." : "";
-        if (pkg.Exports.Any(e => pkg.PathOf(e).Equals(outerPath + newName, StringComparison.OrdinalIgnoreCase)))
-        { Console.WriteLine($"  '{outerPath + newName}' already exists in the package"); return 1; }
+        if (!replace && pkg.Exports.Any(e => pkg.PathOf(e).Equals(outerPath + newName, StringComparison.OrdinalIgnoreCase)))
+        { Console.WriteLine($"  '{outerPath + newName}' already exists in the package (to change its image, replace it instead)"); return 1; }
+        if (replace)
+            try
+            {
+                var old = TextureInfo.Read(pkg, t);
+                Console.WriteLine($"  original: {old.SizeX}x{old.SizeY} {old.Format}{(string.IsNullOrEmpty(old.Cache) ? "" : $", large mips in {old.Cache}.tfc")}");
+            }
+            catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { Console.WriteLine($"  original: header doesn't read ({ex.Message})"); }
 
         // An image (PNG, JPG, BMP) is converted here (TextureEncode: DXT1 / DXT5 with every mip); a .dds is taken as it is.
         string ext = Path.GetExtension(ddsPath).ToLowerInvariant();
@@ -94,7 +109,7 @@ static class TextureImport
 
         // Names the new export needs.
         var addNames = new List<string>();
-        foreach (string n in new[] { newName, "NeverStream", "BoolProperty", "IntProperty", "ByteProperty", "EPixelFormat", format })
+        foreach (string n in (replace ? [] : new[] { newName }).Concat(["NeverStream", "BoolProperty", "IntProperty", "ByteProperty", "EPixelFormat", format]))
             if (!pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase)) && !addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
         var tw = new TagWriter(pkg, addNames);
 
@@ -122,7 +137,14 @@ static class TextureImport
         props.Write(tw.Tag("OriginalSizeY", "IntProperty", null, I(height)));
         props.Write(tw.Tag("Format", "ByteProperty", "EPixelFormat", tw.NameRef(format)));
         props.Write(tw.NameRef("NeverStream")); props.Write(tw.NameRef("BoolProperty")); props.Write(I(0)); props.Write(I(0)); props.WriteByte(1);
-        if (lod != null) props.Write(td, lod.Start, lod.End - lod.Start);
+        if (replace)
+        {
+            // Every other setting of the original, as it was: only the tags describing the old size, format and storage go.
+            string[] storage = ["SizeX", "SizeY", "OriginalSizeX", "OriginalSizeY", "Format", "NeverStream", "TextureFileCacheName", "MipTailBaseIdx",
+                "FirstResourceMemMip", "bIsStreamable", "bHasBeenLoadedFromPersistentArchive", "TextureFileCacheGuid"];
+            foreach (var tg in tags) if (!storage.Any(x => tg.Name.Equals(x, StringComparison.OrdinalIgnoreCase))) props.Write(td, tg.Start, tg.End - tg.Start);
+        }
+        else if (lod != null) props.Write(td, lod.Start, lod.End - lod.Start);
         props.Write(tw.NameRef("None"));
         byte[] head = props.ToArray();
         byte[] Build(long offset)
@@ -141,18 +163,24 @@ static class TextureImport
             return ms.ToArray();
         }
 
-        byte[] entry = pkg.Body.AsSpan(pkg.ExportEntryStart[template], pkg.ExportEntryEnd[template] - pkg.ExportEntryStart[template]).ToArray();
-        int nameIndex = Array.FindIndex(pkg.Names, x => x.Equals(newName, StringComparison.OrdinalIgnoreCase));
-        if (nameIndex < 0) nameIndex = pkg.Names.Length + addNames.FindIndex(x => x.Equals(newName, StringComparison.OrdinalIgnoreCase));
-        BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), nameIndex);
-        BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 0);
-        var add = new List<NewExport> { new(template, 0, Build) { Entry = entry } };
+        var add = new List<NewExport>();
+        var replaced = new Dictionary<int, Func<long, byte[]>>();
+        if (replace) replaced[template] = Build;
+        else
+        {
+            byte[] entry = pkg.Body.AsSpan(pkg.ExportEntryStart[template], pkg.ExportEntryEnd[template] - pkg.ExportEntryStart[template]).ToArray();
+            int nameIndex = Array.FindIndex(pkg.Names, x => x.Equals(newName, StringComparison.OrdinalIgnoreCase));
+            if (nameIndex < 0) nameIndex = pkg.Names.Length + addNames.FindIndex(x => x.Equals(newName, StringComparison.OrdinalIgnoreCase));
+            BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), nameIndex);
+            BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 0);
+            add.Add(new(template, 0, Build) { Entry = entry });
+        }
 
-        byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), add, out var written, addNames);
-        int newIndex = pkg.Exports.Length;
+        byte[] output = PackageRebuilder.Rebuild(pkg, replaced, add, out var written, addNames);
+        int newIndex = replace ? template : pkg.Exports.Length;
         List<string> Check(byte[] bytes)
         {
-            var problems = PackageRebuilder.Verify(pkg, bytes, [], add, written, addNames);
+            var problems = PackageRebuilder.Verify(pkg, bytes, [.. replaced.Keys], add, written, addNames);
             var w = Package.FromBytes(bytes);
             var e = w.Exports[newIndex];
             if (!w.PathOf(e).Equals(outerPath + newName, StringComparison.OrdinalIgnoreCase)) problems.Add($"new export is {w.PathOf(e)}");
@@ -175,10 +203,11 @@ static class TextureImport
             return problems;
         }
         var problems = Check(output);
-        Console.WriteLine($"  new export #{newIndex + 1} {outerPath}{newName}; names added: {(addNames.Count == 0 ? "none" : string.Join(", ", addNames))}");
+        Console.WriteLine($"  {(replace ? "replaced" : "new")} export #{newIndex + 1} {outerPath}{newName}; names added: {(addNames.Count == 0 ? "none" : string.Join(", ", addNames))}");
         Console.WriteLine($"  package: {pkg.RawFile.Length:N0} -> {output.Length:N0} bytes");
         if (problems.Count > 0) { Console.WriteLine("  verify: FAIL"); problems.ForEach(x => Console.WriteLine($"    - {x}")); Console.WriteLine("  Nothing written."); return 1; }
-        Console.WriteLine($"  verify: PASS (tables = original + additions, existing exports byte-identical; texture reads back with {levels.Count} inline mip(s), pixels identical to the .dds, offsets pointing at them, no cache)");
+        Console.WriteLine($"  verify: PASS (tables = original + additions, {(replace ? "every other export" : "existing exports")} byte-identical; texture reads back with {levels.Count} inline mip(s), pixels identical to the .dds, offsets pointing at them, no cache)");
+        if (replace) Console.WriteLine("  note: other packages may hold their own copy of this texture (same path); the game uses the one loaded first. \"Find name in folder\" lists them.");
 
         if (dryRun)
         {

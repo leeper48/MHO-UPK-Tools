@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- saved from url=(0014)about:internet -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -31,12 +32,71 @@ body.dark a { color: #6fb0ff; }
 body.dark .note { background: #1f2b38; border-left-color: #4f9be0; }
 body.dark .warn { background: #33291a; border-left-color: #e0a040; }
 body.dark .sub { color: #9a9a9a; }
+.hit { background: #ffe066; color: #000000; }
+.hit.cur { background: #ff9800; color: #000000; }
 </style>
+<script>
+// Search for the help window (ES5: the built-in browser is Internet Explorer's engine). mhoSearch marks every match
+// and returns the count; mhoNext moves to the next (+1) or previous (-1) one and returns "n of m".
+var mhoHits = [], mhoAt = -1;
+function mhoClear() {
+  for (var i = 0; i < mhoHits.length; i++) {
+    var m = mhoHits[i], p = m.parentNode;
+    if (!p) continue;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  }
+  mhoHits = []; mhoAt = -1;
+}
+function mhoSearch(term) {
+  mhoClear();
+  if (!term) return 0;
+  var t = term.toLowerCase(), nodes = [];
+  function collect(n) {
+    for (var c = n.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType == 3) nodes.push(c);
+      else if (c.nodeType == 1 && c.tagName != 'SCRIPT' && c.tagName != 'STYLE') collect(c);
+    }
+  }
+  collect(document.body);
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i], text = node.nodeValue, low = text.toLowerCase(), idx = low.indexOf(t);
+    if (idx < 0) continue;
+    var frag = document.createDocumentFragment(), last = 0;
+    while (idx >= 0) {
+      frag.appendChild(document.createTextNode(text.substring(last, idx)));
+      var mk = document.createElement('span');
+      mk.className = 'hit';
+      mk.appendChild(document.createTextNode(text.substr(idx, t.length)));
+      frag.appendChild(mk);
+      mhoHits.push(mk);
+      last = idx + t.length;
+      idx = low.indexOf(t, last);
+    }
+    frag.appendChild(document.createTextNode(text.substring(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+  return mhoHits.length;
+}
+function mhoNext(dir) {
+  if (!mhoHits.length) return 'no matches';
+  if (mhoAt >= 0) mhoHits[mhoAt].className = 'hit';
+  mhoAt = (mhoAt + dir + mhoHits.length) % mhoHits.length;
+  var h = mhoHits[mhoAt];
+  h.className = 'hit cur';
+  h.scrollIntoView();
+  window.scrollBy(0, -80);
+  return (mhoAt + 1) + ' of ' + mhoHits.length;
+}
+</script>
 </head>
 <body>
 
 <h1 id="contents">MHO Package Modifier</h1>
-<p class="sub">Version <!--VERSION-->. Press <kbd>F1</kbd> on any tab of the app to open this manual at that tab's section.</p>
+<p class="sub">Version <!--VERSION-->. Press <kbd>F1</kbd> on any tab of the app to open this manual at that tab's section.
+<b>A&minus;</b> / <b>A+</b> at the top of this window change the text size (remembered). To search, type in the
+<b>Search</b> box at the top (<kbd>Ctrl+F</kbd>): every match is highlighted; <kbd>Enter</kbd> goes to the next one,
+<kbd>Shift+Enter</kbd> to the previous one.</p>
 
 <ul class="toc">
 <li><a href="#start">What the app does</a></li>
@@ -46,14 +106,14 @@ body.dark .sub { color: #9a9a9a; }
 <li><a href="#flow-value">Task: change a value</a></li>
 <li><a href="#flow-mesh">Task: replace a mesh</a></li>
 <li><a href="#placements">Task: edit a zone's buildings in Blender</a></li>
-<li><a href="#textures">Task: import an image as a texture</a></li>
+<li><a href="#textures">Task: replace a texture, or add a new one</a></li>
 <li><a href="#flow-material">Task: make your own material</a></li>
 <li><a href="#zones">Task: rebuild a zone's distant view</a></li>
 <li><a href="#flow-bake">Task: bake LODs or a ground plane</a></li>
 <li><a href="#browse">Tab: Browse</a></li>
 <li><a href="#properties">Tab: Properties</a></li>
-<li><a href="#meshes">Tab: Meshes</a></li>
-<li><a href="#tab-textures">Tab: Textures</a></li>
+<li><a href="#meshes">Tab: Meshes</a> (and <a href="#meshview">3D view</a>)</li>
+<li><a href="#tab-textures">Tab: Textures</a> (and <a href="#preview">texture viewer</a>)</li>
 <li><a href="#tab-placements">Tab: Placements</a></li>
 <li><a href="#tab-zones">Tab: Zones</a></li>
 <li><a href="#objects">Tab: Objects</a></li>
@@ -72,7 +132,7 @@ body.dark .sub { color: #9a9a9a; }
 <li>change numbers and colours (fog, sun, sky, material parameters), in one package or in every package that has the same object;</li>
 <li>export meshes to FBX with their textures, edit them in Blender and import them back;</li>
 <li>edit the buildings of a whole zone in Blender: add missing walls, move, rotate, scale, reshape or delete pieces;</li>
-<li>turn images (PNG, JPG, BMP, DDS) into game textures, and build materials that use them;</li>
+<li>replace a texture with your own image, or add new textures, and build materials that use them;</li>
 <li>copy materials, meshes and other objects from one package to another;</li>
 <li>rebuild a zone's distant view (sky, far-away buildings, ground, water) with one click;</li>
 <li>undo any change, or put a package back to its original.</li>
@@ -211,18 +271,30 @@ windows light like the originals. Mirrored parts are turned the right way out.</
 their own actor instead of the tile's list; moving, reshaping or deleting those is skipped and reported. The round trip
 works for tiled zones only. <b>Self-test</b> checks the maths on your export without changing anything.</div>
 
-<h2 id="textures">Task: import an image as a texture</h2>
+<h2 id="textures">Task: replace a texture, or add a new one</h2>
+<p>On <b>Textures</b>, <b>Import an image</b> works two ways:</p>
+<ul>
+<li><b>Replace the selected texture</b>: the texture you select in the list gets your image. It keeps its name and path, so
+every material that uses it shows the new image, with nothing else to change. All its other settings (texture group,
+sRGB, normal-map compression, clamping) stay as they were.</li>
+<li><b>Add as a new texture</b>: a new texture next to the selected one, which serves as the template (a diffuse for a
+diffuse, a normal map for a normal map); the new one copies its settings. Give it a <b>New name</b> (no spaces or dots).
+It isn't used by anything until you <a href="#flow-material">make a material</a> that uses it.</li>
+</ul>
 <ol class="steps">
-<li>Open the package that should hold the texture (usually the one whose material will use it).</li>
-<li>On <b>Textures</b>, select a <b>template</b>: an existing texture of the same kind (a diffuse for a diffuse, a normal map for a normal map).
-The new texture copies its settings.</li>
-<li>Give it a <b>New name</b> (no spaces or dots) and choose the <b>Image</b>.</li>
+<li>Open the package that holds the texture (to add one: the package whose material will use it).</li>
+<li>Select the texture in the list: the viewer shows it, so you can check it's the right one. Choose the mode.</li>
+<li>Choose the <b>Image</b> (PNG, JPG, BMP or DDS). <b>Preview</b> shows it in the viewer.</li>
 <li><b>Compression</b>: <i>Automatic</i> picks DXT1 for opaque images and cut-outs, DXT5 when the image has soft transparency.
 <b>Alpha cut-off</b> (DXT1 only) keeps pixels whose alpha is above it (85 matches the game's masked materials).
 <b>Brightness</b> scales the colour. <b>Largest size</b> shrinks big images (512 is plenty for distant LODs).
 <b>No mipmaps</b> only for things always seen at one distance, such as a sky: without mipmaps, distant surfaces shimmer.</li>
-<li><b>Check (dry run)</b>, then <b>Import into game file…</b>. Next, <a href="#flow-material">make a material</a> that uses it.</li>
+<li><b>Check (dry run)</b>, then <b>Import into game file…</b>. After a replace, the viewer shows the texture with its new image.</li>
 </ol>
+<div class="warn">Stock textures keep their large sizes in the game's <code>.tfc</code> texture caches. A replaced texture
+stores all its sizes inside the package instead (the way other mod tools do it), so the package grows. The same texture
+can also exist in several packages (same path); the game uses the copy it loads first. If your replacement doesn't show,
+<b>Find name in folder</b> (Browse tab) lists the other packages that have it: replace it there too.</div>
 
 <h2 id="flow-material">Task: make your own material</h2>
 <p>The game can't compile new shaders: every material must match one it already has. So you copy an existing material
@@ -276,6 +348,7 @@ path. Selecting an object shows its details on the right (properties, references
 <tr><td>Where does this mesh come from?</td><td>For every mesh this package uses from elsewhere: which packages hold it. This is how you find a zone's region library.</td></tr>
 <tr><td>Find name in folder</td><td>Every package that has or uses an object with this name.</td></tr>
 <tr><td>Export texture(s)</td><td>The selected texture (or all of them) as <code>.dds</code> into the export folder.</td></tr>
+<tr><td>Preview</td><td>Shows the selected texture in the <a href="#preview">texture viewer</a> (Textures tab), or the selected mesh in the <a href="#meshview">3D view</a> (Meshes tab).</td></tr>
 <tr><td>What does it need?</td><td>Everything the object references: what a copy would bring along.</td></tr>
 <tr><td>Save full dump</td><td>The object's raw bytes and an annotated dump, for troubleshooting.</td></tr>
 <tr><td>Open in Tools…</td><td>Jump to the Tools tab, whose examples use the selected object.</td></tr>
@@ -290,15 +363,55 @@ lists their values; tick the ones that should get the change. <b>Dry run</b> che
 <b>Apply to game file(s)…</b> writes them all. <b>Reset edits</b> discards changes you haven't applied yet.</p>
 
 <h2 id="meshes">Tab: Meshes</h2>
-<p>The open package's StaticMeshes. <b>Export selected mesh to FBX</b> (with its textures), <b>UV info</b> (texture
+<p>The open package's StaticMeshes on the left, the selected one in <a href="#meshview">3D</a> on the right.
+<b>Export to FBX (+ textures)</b>, <b>UV info</b> (texture
 coordinate ranges per section), <b>Round-trip self-test</b> (exports and re-imports the mesh in memory and compares: a quick
 check that a mesh can be edited). <b>FBX to import</b> + <b>Dry run import</b> / <b>Import into game file…</b> replace the
 mesh. <b>Export folder</b> sets where every export of the app goes. See <a href="#flow-mesh">Task: replace a mesh</a>.</p>
 
+<h3 id="meshview">3D view</h3>
+<p>Click a mesh in the list and it shows on the right in 3D, with its textures when the package has them (each
+section's material is followed to its colour texture, from the package or the <code>.tfc</code> caches; the log says how
+many sections got one). Meshes cooked into map tiles carry no materials of their own (the placed piece supplies them):
+their sections show in plain colours.</p>
+<table>
+<tr><th>To…</th><th>Do this</th></tr>
+<tr><td>Rotate round the mesh</td><td>Drag with the left mouse button.</td></tr>
+<tr><td>Pan</td><td>Drag with the right or middle mouse button.</td></tr>
+<tr><td>Zoom</td><td>Mouse wheel.</td></tr>
+<tr><td>Frame the whole mesh again</td><td>Double-click, or <b>Frame</b>.</td></tr>
+</table>
+<ul>
+<li><b>Textured</b>: with its textures, or plain grey shading when unticked (shows the shape best).</li>
+<li><b>Wireframe</b>: the triangle edges over the surface.</li>
+<li><b>Backfaces</b>: the game draws only the front of each face. Ticked, back sides are drawn red, so a face turned the
+wrong way (for example a mirrored copy, or a wall seen from inside) stands out.</li>
+<li><b>Grid</b>: a ground grid under the mesh, for scale.</li>
+</ul>
+<p class="sub">The status line gives the vertex and triangle counts, the sections and the size in game units.</p>
+
 <h2 id="tab-textures">Tab: Textures</h2>
-<p>Left: the open package's textures, with <b>Export selected as .dds</b>, <b>Export all textures</b>, <b>Texture details</b>
-(size, format, and where each mip is stored: in the package or in the game's <code>.tfc</code> texture caches). Right:
-<b>Import an image as a new texture</b>, see <a href="#textures">Task: import an image as a texture</a>.</p>
+<p>Top left: the open package's textures, with <b>Export selected as .dds</b>, <b>Export all textures</b> and <b>Texture
+details</b> (size, format, and where each mip is stored: in the package or in the game's <code>.tfc</code> texture caches).
+Bottom left: <b>Import an image</b> (replace the selected texture, or add a new one), see <a href="#textures">Task: replace a texture, or add a new one</a>; its
+<b>Preview</b> button shows the chosen image file in the viewer before you import it. Right: the texture viewer. Drag the
+dividers to give the viewer more room.</p>
+<h3 id="preview">Texture viewer</h3>
+<p>Click a texture in the list and it shows on the right (you can move through the list with the arrow keys). The viewer
+shows the largest version of the texture the game has (from the package, or the bigger one in the
+<code>.tfc</code> caches). Many stock textures only keep smaller sizes: the status line says when the full size isn't
+stored anywhere.</p>
+<ul>
+<li><b>Show</b>: <i>Colour with alpha</i> over a checkerboard (transparent parts show the squares), <i>Colour only</i>,
+<i>Alpha only</i> (white = opaque), or one channel (<i>Red</i>, <i>Green</i>, <i>Blue</i>), which is useful for packed
+textures such as a spec map whose green channel is the glow.</li>
+<li><b>Zoom</b>: <i>Fit</i> to the window, or 25&ndash;800% (<kbd>Ctrl</kbd>+mouse wheel). Zoomed in, pixels stay sharp.</li>
+<li>The pixel under the mouse is shown with its R, G, B and A values.</li>
+<li><b>Save as PNG…</b> writes the texture, with its alpha, at full resolution.</li>
+<li><b>Pop out</b> opens the same image in its own window (e.g. on a second screen); you can open several.</li>
+</ul>
+<p class="sub">Formats shown: DXT1, DXT3, DXT5, BC5 and V8U8 normal maps (their third axis is rebuilt so they look like
+normal maps), 32-bit colour and greyscale.</p>
 
 <h2 id="tab-placements">Tab: Placements</h2>
 <p>The Blender round trip for a zone's buildings, in three sections: <b>Zone</b>, <b>1. Export</b>, <b>2. Edit in Blender</b>
