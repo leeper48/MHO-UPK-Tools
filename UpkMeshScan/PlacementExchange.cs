@@ -364,7 +364,17 @@ static class PlacementExchange
 
         // ---- geometry: each placement's file geometry against its stock mesh (in the mesh's own space)
         var tilePkgs = new Dictionary<string, Package>(StringComparer.OrdinalIgnoreCase);
-        Package TilePkg(string file) => tilePkgs.TryGetValue(file, out var p) ? p : tilePkgs[file] = Package.Open(Path.Combine(folder, file));
+        // A tile this sidecar was imported into before is read and rebuilt from its version before those imports: the
+        // file holds all its edits, so importing on top would add its duplicates twice (Kurt keeps updating one file).
+        var bases = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+        byte[]? Base(string file)
+        {
+            if (bases.TryGetValue(file, out var b)) return b;
+            b = History.BeforeSteps(Path.Combine(folder, file), ["--import-placements", Path.GetFileName(sidecarPath)], out int n);
+            if (b != null) Console.WriteLine($"  {file}: starting from its version before {n} earlier import(s) of this sidecar");
+            return bases[file] = b;
+        }
+        Package TilePkg(string file) => tilePkgs.TryGetValue(file, out var p) ? p : tilePkgs[file] = Base(file) is { } bb ? Package.FromBytes(bb) : Package.Open(Path.Combine(folder, file));
         Package? lib = null; bool libTried = false, libWarned = false;
         Dictionary<string, int>? libByName = null;
         var meshCache = new Dictionary<string, StaticMesh?>(StringComparer.OrdinalIgnoreCase);
@@ -408,6 +418,7 @@ static class PlacementExchange
         int same = 0, reversed = 0;
         var fileTris = new Dictionary<string, List<(int Section, Vector3[] P, Vector3[] N, Vector2[] Uv)>>();
         var edited = new HashSet<string>();
+        var partReport = new Dictionary<string, List<string>>();              // edited placement -> parts moved/copied in Blender
         var sectionProblems = new List<string>();
         foreach (var (owner, pl) in parts)
         {
@@ -448,8 +459,14 @@ static class PlacementExchange
                 for (int i = sm.Sections[si].FirstIndex; i < sm.Sections[si].FirstIndex + sm.Sections[si].NumTriangles * 3; i++)
                     (sectionsAt[posId[sm.Indices[i]]] ??= []).Add(si);
             bool bad = false;
+            var partNotes = new List<string>();
             foreach (var part in pl)
             {
+                var rel = part.World * Winv;
+                // A part with negative scale (mirrored in Blender) turns its triangles inside out: flip them back.
+                bool mirrored = rel.GetDeterminant() < 0;
+                if (mirrored || rel.Translation.Length() > 0.5f || MaxDiff(rel, Matrix4x4.Identity, rotationOnly: true) > 1e-3f)
+                    partNotes.Add(DupSuffix.Replace(part.Name, m => m.Value) + (mirrored ? " (mirrored: faces turned outward)" : ""));
                 var A = part.World * Winv * LcInv;                                        // file vertex -> mesh space
                 Matrix4x4.Invert(A, out var Ainv);
                 var Nm = Matrix4x4.Transpose(Ainv);
@@ -481,6 +498,7 @@ static class PlacementExchange
                             nn[k] = mesh.HasNormals ? Vector3.Normalize(Vector3.TransformNormal(new Vector3(mesh.Normals[v].X, mesh.Normals[v].Y, mesh.Normals[v].Z), Nm)) : Vector3.UnitZ;
                             uv[k] = mesh.HasTextureCoords(0) ? new Vector2(mesh.TextureCoordinateChannels[0][v].X, 1f - mesh.TextureCoordinateChannels[0][v].Y) : Vector2.Zero;
                         }
+                        if (mirrored) { (p[1], p[2]) = (p[2], p[1]); (nn[1], nn[2]) = (nn[2], nn[1]); (uv[1], uv[2]) = (uv[2], uv[1]); }
                         tris.Add((sec, p, nn, uv));
                     }
                 }
@@ -535,7 +553,7 @@ static class PlacementExchange
                     if (changed) break;
                 }
             }
-            if (changed) { edited.Add(owner); fileTris[owner] = tris; }
+            if (changed) { edited.Add(owner); fileTris[owner] = tris; if (partNotes.Count > 0) partReport[owner] = partNotes; }
         }
         if (sectionProblems.Count > 0)
             Console.WriteLine($"  {sectionProblems.Count} placement(s) with geometry whose section can't be told (objects should keep their _s<N> names); geometry not checked: {string.Join(", ", sectionProblems.Take(5))}");
@@ -543,12 +561,13 @@ static class PlacementExchange
         Console.WriteLine($"  triangle winding in the file: {same:N0} as stock, {reversed:N0} reversed{(flip ? " (reversing on import)" : "")}; {edited.Count} placement(s) with edited geometry");
 
         // Pass 2: the edited geometry, per stock section, in mesh space. Sections the file doesn't have keep their stock
-        // triangles (the export leaves some out). UV0 from the file; the other channels (lightmap UVs) from the stock
-        // vertex nearest in UV0, so a stretched piece keeps its lightmap corners.
+        // triangles (the export leaves some out). UV0 from the file; lightmap UVs and normals from each triangle's stock
+        // source (below).
         List<ImportedSection> BuildGeometry(string owner, StaticMesh sm)
         {
             var result = new List<ImportedSection>();
             var tris = fileTris[owner];
+            int unmatched = 0;
             for (int s = 0; s < sm.Sections.Length; s++)
             {
                 var sec = sm.Sections[s];
@@ -576,26 +595,85 @@ static class PlacementExchange
                 }
                 else
                 {
+                    // Each file triangle is matched to the stock triangle it came from: the one with the same UV0 at its
+                    // three corners (a copy in Blender keeps them). It gives the lightmap UVs and the normals (turned with
+                    // the copy: file-triangle frame * stock-triangle frame^-1). Among equal candidates (windows sharing
+                    // one texture region) prefer one at the same position, then one agreeing with corners already
+                    // assigned (a quad's two halves). Picking per vertex by nearest UV0 mixed windows: streaky lighting.
                     var range = Enumerable.Range(sec.MinVertexIndex, Math.Max(0, sec.MaxVertexIndex - sec.MinVertexIndex + 1)).ToArray();
                     if (range.Length == 0) range = Enumerable.Range(0, sm.Positions.Length).ToArray();
+                    static (int, int) Q(Vector2 uv) => ((int)MathF.Round(uv.X * 1024), (int)MathF.Round(uv.Y * 1024));
+                    static ((int, int), (int, int), (int, int)) Key(Vector2 a, Vector2 b, Vector2 c)
+                    {
+                        var l = new[] { Q(a), Q(b), Q(c) }.OrderBy(x => x.Item1).ThenBy(x => x.Item2).ToArray();
+                        return (l[0], l[1], l[2]);
+                    }
+                    var byUv = new Dictionary<((int, int), (int, int), (int, int)), List<int>>();
+                    for (int i = sec.FirstIndex; i + 2 < sec.FirstIndex + sec.NumTriangles * 3; i += 3)
+                    {
+                        var key = Key(sm.TexCoords[0][sm.Indices[i]], sm.TexCoords[0][sm.Indices[i + 1]], sm.TexCoords[0][sm.Indices[i + 2]]);
+                        if (!byUv.TryGetValue(key, out var l)) byUv[key] = l = [];
+                        l.Add(i);
+                    }
+                    int[][] perms = [[0, 1, 2], [1, 2, 0], [2, 0, 1], [0, 2, 1], [2, 1, 0], [1, 0, 2]];
+                    float tolP = 0.05f + 1e-4f * sm.BoundsExtent.Length();
+                    var assigned = new Dictionary<(Vector3, (int, int)), Vector2>();
+                    static (Vector3 E1, Vector3 E2, Vector3 N)? Frame(Vector3 a, Vector3 b, Vector3 c)
+                    {
+                        var e1 = b - a; var n = Vector3.Cross(b - a, c - a);
+                        if (e1.LengthSquared() < 1e-10f || n.LengthSquared() < 1e-12f) return null;
+                        e1 = Vector3.Normalize(e1); n = Vector3.Normalize(n);
+                        return (e1, Vector3.Cross(n, e1), n);
+                    }
+                    Vector3 RoundP(Vector3 p) => new(MathF.Round(p.X * 100) / 100, MathF.Round(p.Y * 100) / 100, MathF.Round(p.Z * 100) / 100);
                     foreach (var tr in mine)
                     {
                         int[] order = flip ? [0, 2, 1] : [0, 1, 2];
-                        foreach (int k in order)
+                        var P = order.Select(k => tr.P[k]).ToArray(); var N = order.Select(k => tr.N[k]).ToArray(); var U = order.Select(k => tr.Uv[k]).ToArray();
+                        int[]? src = null; int bestScore = -1; bool srcSameWinding = false;
+                        if (sm.NumTexCoords > 1 && byUv.TryGetValue(Key(U[0], U[1], U[2]), out var cands))
+                            foreach (int ci in cands)
+                                foreach (var pm in perms)
+                                {
+                                    int[] sv = [sm.Indices[ci + pm[0]], sm.Indices[ci + pm[1]], sm.Indices[ci + pm[2]]];
+                                    if (Enumerable.Range(0, 3).Any(k => Vector2.Distance(sm.TexCoords[0][sv[k]], U[k]) > 2e-3f)) continue;
+                                    int score = Enumerable.Range(0, 3).All(k => Vector3.Distance(sm.Positions[sv[k]], P[k]) <= tolP) ? 1000 : 0;
+                                    for (int k = 0; k < 3; k++)
+                                        if (assigned.TryGetValue((RoundP(P[k]), Q(U[k])), out var a1) && Vector2.Distance(a1, sm.TexCoords[1][sv[k]]) < 1e-5f) score += 10;
+                                    bool sameWinding = pm[0] + 1 == pm[1] || (pm[0] == 2 && pm[1] == 0);
+                                    if (sameWinding) score += 100000;                                           // a mirrored match only if nothing else
+                                    if (score > bestScore) { bestScore = score; src = sv; srcSameWinding = sameWinding; }
+                                }
+                        var fs = src == null ? null : Frame(sm.Positions[src[0]], sm.Positions[src[1]], sm.Positions[src[2]]);
+                        var ff = Frame(P[0], P[1], P[2]);
+                        for (int k = 0; k < 3; k++)
                         {
                             var uvs = new Vector2[Math.Max(1, sm.NumTexCoords)];
-                            uvs[0] = tr.Uv[k];
-                            if (sm.NumTexCoords > 1)
+                            uvs[0] = U[k];
+                            var n = N[k];
+                            if (src != null)
                             {
-                                int best = range.MinBy(v => Vector2.DistanceSquared(sm.TexCoords[0][v], tr.Uv[k]) * 1e6f + Vector3.DistanceSquared(sm.Positions[v], tr.P[k]));
-                                for (int c = 1; c < sm.NumTexCoords; c++) uvs[c] = sm.TexCoords[c][best];
+                                for (int c = 1; c < sm.NumTexCoords; c++) uvs[c] = sm.TexCoords[c][src[k]];
+                                if (srcSameWinding && fs is { } a && ff is { } b)
+                                {
+                                    var sn = sm.Normals[src[k]];
+                                    n = Vector3.Normalize(Vector3.Dot(sn, a.E1) * b.E1 + Vector3.Dot(sn, a.E2) * b.E2 + Vector3.Dot(sn, a.N) * b.N);
+                                }
                             }
-                            Add(tr.P[k], tr.N[k], uvs);
+                            else if (sm.NumTexCoords > 1)
+                            {
+                                int best = range.MinBy(v => Vector2.DistanceSquared(sm.TexCoords[0][v], U[k]) * 1e6f + Vector3.DistanceSquared(sm.Positions[v], P[k]));
+                                for (int c = 1; c < sm.NumTexCoords; c++) uvs[c] = sm.TexCoords[c][best];
+                                unmatched++;
+                            }
+                            if (sm.NumTexCoords > 1) assigned[(RoundP(P[k]), Q(U[k]))] = uvs[1];
+                            Add(P[k], n, uvs);
                         }
                     }
                 }
                 result.Add(o);
             }
+            if (unmatched > 0) Console.WriteLine($"  {owner}: {unmatched / 3:N0} triangle(s) with UVs no stock triangle has (edited UVs): lightmap UVs from the nearest stock vertex");
             return result;
         }
 
@@ -617,6 +695,7 @@ static class PlacementExchange
         void Report(string what, string name, Matrix4x4 G, Vector3 rot, Vector3 s, string tile, bool geo) =>
             Console.WriteLine($"  {what} {name}: in-game ({G.Translation.X:0}, {G.Translation.Y:0}, {G.Translation.Z:0}) = tile ({G.Translation.X - offset.X:0}, {G.Translation.Y - offset.Y:0}, {G.Translation.Z - offset.Z:0}), yaw {rot.Y * 360f / 65536f:0.#}, pitch {rot.X * 360f / 65536f:0.#}, roll {rot.Z * 360f / 65536f:0.#}, scale ({s.X:0.###}, {s.Y:0.###}, {s.Z:0.###}){(geo ? ", edited mesh" : "")} -> {tile}");
         void AddTo<TV>(Dictionary<string, List<TV>> d, string tile, TV v) { if (!d.TryGetValue(tile, out var l)) d[tile] = l = []; l.Add(v); }
+        void Parts(string key) { if (partReport.TryGetValue(key, out var pn)) Console.WriteLine($"      parts moved or copied in Blender: {string.Join(", ", pn)}"); }
 
         foreach (var (name, id, W) in dups)
         {
@@ -625,6 +704,7 @@ static class PlacementExchange
             var geo = edited.Contains(name) ? BuildGeometry(name, StockMesh(id)!) : null;
             AddTo(adds, orig[id].Tile, new Change(name, orig[id].Comp, true, G.Translation - offset, rot, s, geo));
             Report("add ", name, G, rot, s, orig[id].Tile, geo != null);
+            Parts(name);
         }
         // Originals: moved (position off by more than 0.5 units or 3x the fit's rms, or rotation / scale changed) and/or
         // with edited geometry.
@@ -642,6 +722,7 @@ static class PlacementExchange
             AddTo(changes, orig[id].Tile, new Change(id, orig[id].Comp, moved, G.Translation - offset, rot, s, geo));
             if (moved) Report("move", id, G, rot, s, orig[id].Tile, geo != null);
             else Console.WriteLine($"  mesh {id}: edited geometry, placement unchanged -> {orig[id].Tile}");
+            Parts(id);
         }
         // Originals missing from the file: taken off their collection actor's list, only with --apply-deletes.
         if (missing.Count > 0)
@@ -655,11 +736,12 @@ static class PlacementExchange
                     Console.WriteLine($"  delete {id} -> {orig[id].Tile}");
                 }
         }
-        if (adds.Count + changes.Count + deletes.Count == 0) { Console.WriteLine("  nothing to change (duplicates are named like the original plus .001, .002 ...)"); return 0; }
+        var rebased = bases.Where(kv => kv.Value != null).Select(kv => kv.Key).ToList();
+        if (adds.Count + changes.Count + deletes.Count + rebased.Count == 0) { Console.WriteLine("  nothing to change (duplicates are named like the original plus .001, .002 ...)"); return 0; }
 
         int failures = 0;
-        foreach (string tile in adds.Keys.Concat(changes.Keys).Concat(deletes.Keys).Distinct())
-            if (ApplyToTile(folder, tile, library, adds.GetValueOrDefault(tile) ?? [], changes.GetValueOrDefault(tile) ?? [], deletes.GetValueOrDefault(tile) ?? [], dryRun, keepLighting) != 0) failures++;
+        foreach (string tile in adds.Keys.Concat(changes.Keys).Concat(deletes.Keys).Concat(rebased).Distinct(StringComparer.OrdinalIgnoreCase))
+            if (ApplyToTile(folder, tile, library, adds.GetValueOrDefault(tile) ?? [], changes.GetValueOrDefault(tile) ?? [], deletes.GetValueOrDefault(tile) ?? [], dryRun, keepLighting, bases.GetValueOrDefault(tile)) != 0) failures++;
         return failures == 0 ? 0 : 1;
     }
 
@@ -828,7 +910,7 @@ static class PlacementExchange
     /// run on a scratch copy; the live file is written once. Components placed by a standalone actor can't be changed
     /// or deleted this way: reported and skipped.
     /// </summary>
-    static int ApplyToTile(string folder, string tile, string? library, List<Change> adds, List<Change> changes, List<(string Name, string Comp)> deletes, bool dryRun, bool keepLighting)
+    static int ApplyToTile(string folder, string tile, string? library, List<Change> adds, List<Change> changes, List<(string Name, string Comp)> deletes, bool dryRun, bool keepLighting, byte[]? baseBytes = null)
     {
         string live = Path.GetFullPath(Path.Combine(folder, tile));
         if (Program.IsBackupName(live)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -836,12 +918,16 @@ static class PlacementExchange
         var meshFor = new Dictionary<string, int>();                            // change name -> its new mesh
         var edits = adds.Concat(changes).Where(c => c.Geometry != null).ToList();
         string outFile = Path.Combine(AppContext.BaseDirectory, "import_out", tile);
-        if (edits.Count > 0)
+        if (edits.Count > 0 || baseBytes != null)
         {
+            // Scratch copy: of the version before this sidecar's earlier imports, or of the live file.
             string dir = Path.Combine(Path.GetTempPath(), "UpkMeshScan_placements");
             Directory.CreateDirectory(dir);
             work = Path.Combine(dir, tile);
-            File.Copy(live, work, overwrite: true);
+            if (baseBytes != null) File.WriteAllBytes(work, baseBytes); else File.Copy(live, work, overwrite: true);
+        }
+        if (edits.Count > 0)
+        {
             Package? lib = null;
             string tileTag = Path.GetFileNameWithoutExtension(tile);
             foreach (var ch in edits)
@@ -960,11 +1046,16 @@ static class PlacementExchange
             if (ListOf(pkg.Exports[comp].OuterIndex - 1).Remove(comp + 1)) removed++;
         }
         foreach (var (actor, list) in lists) { byte[] ab = WithList(pkg, pkg.ReadExportBytes(pkg.Exports[actor]), tw, list); replace[actor] = _ => ab; }
-        if (replace.Count == 0 && add.Count == 0) { Console.WriteLine($"  {tile}: nothing to change"); return 0; }
+        if (replace.Count == 0 && add.Count == 0 && baseBytes == null) { Console.WriteLine($"  {tile}: nothing to change"); return 0; }
 
-        byte[] output = PackageRebuilder.Rebuild(pkg, replace, add, out var written, addNames);
+        // Nothing left to change on a tile this sidecar changed before: it goes back to its version before those imports.
+        bool restoreOnly = replace.Count == 0 && add.Count == 0;
+        byte[] output = baseBytes!;
+        var written = default(Dictionary<int, byte[]>?);
+        if (!restoreOnly) { output = PackageRebuilder.Rebuild(pkg, replace, add, out var w0, addNames); written = w0; }
         List<string> Check(byte[] b)
         {
+            if (written == null) return b.AsSpan().SequenceEqual(baseBytes) ? [] : ["the file isn't its version before this sidecar's imports"];
             var problems = PackageRebuilder.Verify(pkg, b, [.. replace.Keys], add, written, addNames);
             var w = Package.FromBytes(b);
             foreach (var (rf, mesh, t, r, s) in expect)

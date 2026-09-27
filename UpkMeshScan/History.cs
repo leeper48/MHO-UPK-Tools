@@ -87,6 +87,35 @@ static class History
         }
     }
 
+    /// <summary>
+    /// The live file as it was before its most recent run of consecutive recorded steps whose labels contain every one of
+    /// <paramref name="marks"/> (e.g. imports of one placement sidecar), read from the snapshot and hash-checked; null if
+    /// the last step isn't one of them or the live file isn't the recorded result (changed outside this tool).
+    /// </summary>
+    public static byte[]? BeforeSteps(string upkPath, string[] marks, out int steps)
+    {
+        steps = 0;
+        try
+        {
+            string dir = Folder(upkPath);
+            var (undo, _) = Load(dir);
+            if (undo.Count == 0 || !File.Exists(upkPath)) return null;
+            if (undo[^1].After != Hash(File.ReadAllBytes(upkPath))) return null;
+            Entry? first = null;
+            for (int i = undo.Count - 1; i >= 0; i--)
+            {
+                var e = undo[i];
+                if (!marks.All(m => e.Label.Contains(m, StringComparison.OrdinalIgnoreCase))) break;
+                if (first != null && e.After != first.Before) break;
+                first = e; steps++;
+            }
+            if (first == null) return null;
+            byte[] b = File.ReadAllBytes(Snap(dir, first));
+            return Hash(b) == first.Before ? b : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
     public static int Undo(string upkPath, bool force) => Step(upkPath, force, undoing: true);
     public static int Redo(string upkPath, bool force) => Step(upkPath, force, undoing: false);
 

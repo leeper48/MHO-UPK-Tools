@@ -396,6 +396,9 @@ static class Program
             return LevelEdit.AddActor(args[levelActorAt + 1], args[levelActorAt + 2], args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
         }
 
+        int meshCmpAt = Array.FindIndex(args, a => a.Equals("--mesh-compare", StringComparison.OrdinalIgnoreCase));
+        // --mesh-compare <stock.upk> <mesh> <edited.upk> <mesh>
+        if (meshCmpAt >= 0 && meshCmpAt + 4 < args.Length) return MeshCompare.Run(args[meshCmpAt + 1], args[meshCmpAt + 2], args[meshCmpAt + 3], args[meshCmpAt + 4]);
         int uvInfoAt = Array.FindIndex(args, a => a.Equals("--uv-info", StringComparison.OrdinalIgnoreCase));
         if (uvInfoAt >= 0)
         {
