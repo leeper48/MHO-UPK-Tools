@@ -73,6 +73,39 @@ sealed class Originals(string libraryData, GameState game)
         return dst;
     }
 
+    /// <summary>
+    /// Texture caches (.tfc) with a kept original: originals\tfc holds &lt;cache&gt;.tfc plus a copy of the game's
+    /// TextureFileCacheManifest.bin (so MPM's TfcCache can read original images from there). There are no stock
+    /// checksums for .tfc files, so a copy is only accepted with the stock date (File.Copy keeps it) and the live
+    /// file's size (MHIconManager and MHModManager 1.0.0 wrote icon images into Icons.tfc in place).
+    /// </summary>
+    public string TfcFolder => Path.Combine(Folder, "tfc");
+
+    public string? FindTfc(string cache)
+    {
+        string have = Path.Combine(TfcFolder, cache + ".tfc");
+        return File.Exists(have) && File.Exists(Path.Combine(TfcFolder, "TextureFileCacheManifest.bin")) ? have : null;
+    }
+
+    /// <summary>Keeps <paramref name="file"/> as the original of &lt;cache&gt;.tfc. Returns why not, or null when done.</summary>
+    public string? AddTfc(string file, string cache)
+    {
+        if (FindTfc(cache) != null) return $"{cache}.tfc already has an original";
+        string live = Path.Combine(game.Cooked, cache + ".tfc"), manifest = Path.Combine(game.Cooked, "TextureFileCacheManifest.bin");
+        if (!File.Exists(file)) return "file not found";
+        if (!File.Exists(live) || !File.Exists(manifest)) return $"{cache}.tfc or the texture cache manifest isn't in the game folder";
+        if (File.GetLastWriteTime(file).Date != GameState.StockDate) return $"it's dated {File.GetLastWriteTime(file):yyyy-MM-dd}, not the stock date 2024-03-14, so it can't be trusted as the original";
+        if (new FileInfo(file).Length != new FileInfo(live).Length) return "its size differs from the game's file";
+        Directory.CreateDirectory(TfcFolder);
+        string dst = Path.Combine(TfcFolder, cache + ".tfc");
+        File.Copy(file, dst + ".tmp", overwrite: true);
+        if (game.Crc(dst + ".tmp") != game.Crc(file)) { File.Delete(dst + ".tmp"); return "the copy didn't verify"; }
+        File.Move(dst + ".tmp", dst);
+        string man = Path.Combine(TfcFolder, "TextureFileCacheManifest.bin");
+        if (!File.Exists(man)) File.Copy(manifest, man);
+        return null;
+    }
+
     public string? EnsureString(string rel, string legacy)
     {
         string dst = Path.Combine(Folder, "strings", rel);

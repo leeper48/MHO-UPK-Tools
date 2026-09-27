@@ -36,7 +36,7 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
     {
         if (Textures(iconPackage) is not { } t || !t.TryGetValue(texture, out int index)) return null;
         Package pkg; lock (packages) pkg = packages[iconPackage].Pkg;
-        var mip = TextureExport.ReadBestMip(pkg, index, out _, game.Cooked);
+        var mip = TextureExport.ReadBestMip(pkg, index, out _, originals.FindTfc("Icons") != null ? originals.TfcFolder : game.Cooked);
         if (mip == null) return null;
         var bgra = TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _);
         return bgra == null ? null : (bgra, mip.Width, mip.Height, mip.Format);

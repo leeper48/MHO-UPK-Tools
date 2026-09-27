@@ -7,7 +7,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
 MhoPackageModifier/  MHO Package Modifier (MHO_UPK_Mod.exe; called UpkMeshScan until 2.50.0, see "Rename" below). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default, manual on F1), AssimpNet. v2.46.0
-MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.8.0: portable data folder next to the exe, mod editor (New Mod / Edit), first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
+MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.8.1: Icons.tfc managed, portable data folder next to the exe, mod editor (New Mod / Edit), first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `MhoPackageModifier/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
@@ -286,7 +286,15 @@ Committed 2026-09-27: `9cd8d28` (MPM 2.50.1), `bdddd75` (manager 0.6.0). `StockD
 
 **0.8.0 (2026-09-27): portable data folder** (Kurt: "just use an adjacent folder to the exe"). `Settings.Home` = `<exe folder>\data` (or `MHO_EXTMM_HOME`). It refuses to start if that folder can't be written (for example Program Files), with a message. First GUI start with no `data\settings.json` but an AppData library → offers to move it. Tested on scratch copies (`--move-from-appdata-test`): default library moved with files identical and old gone; a moved-elsewhere library left in place; settings saved without the computed `LibraryPath` / `IsSetUp` (now `[JsonIgnore]`). **Use one copy of the exe** (publish): a copy elsewhere has its own `data`.
 
-**Next phases:** the Icons.tfc fix above, Extract (textures to DDS, strings to JSON), and optionally the clean download.
+**0.8.1 (2026-09-27): Icons.tfc managed.**
+- `--add-original <file.tfc>` keeps a clean cache copy in `originals\tfc` together with a copy of TextureFileCacheManifest.bin. It is accepted only with the stock date and the live size. Kurt's is the MHIconManager copy named above.
+- Capture and the editor's "Original" preview read streamed images from that original cache (`IconCapture`, `StockCatalog`).
+- Apply restores Icons.tfc (Kind.Tfc, no .bak in the game folder). Safety net (`TfcCheck.Changed`): refused while a changed image in it belongs to **no** mod; images of **disabled** mods go back to stock and are named in the plan.
+- On Kurt's library: 4 captured into "Captured store images (Icons.tfc)" (Beast Uncanny, Captain Marvel ANAD, Rogue 90s, Storm ClassicWhite). 3 leftovers of disabled mods go back to stock: HumanTorch Inhumans (Firestar), SheHulk SGF (Savage She-Hulk), MsMarvel VU (Dazzler). 4 are provided inline by enabled mods.
+- Proof before Apply (`--compare-textures a b <cacheA> <cacheB>`): built store package + original cache against live: 747/750 identical, and only those 3 differ. The icons package with the original cache: 7988/7988 identical. Kurt applied it 2026-09-27 (2 files: the store package and Icons.tfc); **store images confirmed right in-game**.
+- For other users there are no automatic tfc candidates yet: `--add-original` only.
+
+**Next phases:** Extract (textures to DDS, strings to JSON), and optionally the clean download.
 
 Build: `MhoExtendedModManager\build.bat`. MPM's ZoneData/Help are kept out of this app's output by two targets in the csproj. `ValidateExecutableReferencesMatchSelfContained=false` is needed because MHO_UPK_Mod is an exe.
 

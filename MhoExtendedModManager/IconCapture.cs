@@ -14,6 +14,9 @@ static class IconCapture
     public static int Run(ModLibrary lib, GameState game, Originals originals, string? name)
     {
         string legacy = Path.Combine(lib.DataFolder, "legacy");
+        // Original images of streamed textures come from the kept original Icons.tfc when there is one (the live cache
+        // may itself be modded: 11 store images were, 2026-09-27); otherwise from the live cache.
+        string originalCache = originals.FindTfc("Icons") != null ? originals.TfcFolder : game.Cooked;
         name ??= $"Captured icon changes {DateTime.Now:yyyy-MM-dd}";
         string folder = Path.Combine(lib.DataFolder, "mods", name);
         if (Directory.Exists(folder)) { Console.WriteLine($"A mod folder '{name}' already exists. Nothing captured."); return 1; }
@@ -39,7 +42,7 @@ static class IconCapture
                 if (!pl.ClassOf(e).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) || claimed.Contains(e.ObjectName)) continue;
                 if (!stock.TryGetValue(pl.PathOf(e), out int si)) continue;       // not a stock texture: a rebuild from stock can't hold it
                 var ml = TextureExport.ReadBestMip(pl, i, out _, game.Cooked);
-                var ms = TextureExport.ReadBestMip(po, si, out _, game.Cooked);
+                var ms = TextureExport.ReadBestMip(po, si, out _, originalCache);
                 if (ml == null || ms == null) continue;
                 if (ml.Format.Equals(ms.Format, StringComparison.OrdinalIgnoreCase) && ml.Width == ms.Width && ml.Height == ms.Height && ml.Pixels.AsSpan().SequenceEqual(ms.Pixels)) continue;
                 string dds = e.ObjectName + ".dds";

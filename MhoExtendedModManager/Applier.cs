@@ -31,7 +31,7 @@ static class Applier
 
     /// <param name="File">A package name in CookedPCConsole, or for strings a path under Loco (&lt;lang&gt;.all\&lt;file&gt;.string).</param>
     /// <param name="Source">File to copy in (a mod's package or an original); null when <paramref name="Built"/> holds the bytes.</param>
-    public enum Kind { Package, Strings, Sound }
+    public enum Kind { Package, Strings, Sound, Tfc }
 
     public sealed record Step(string File, string What, string? Source, byte[]? Built, uint Crc, Func<byte[], List<string>>? Verify = null, Kind Type = Kind.Package)
     {
@@ -180,6 +180,29 @@ static class Applier
             steps.Add(new Step(pck, $"rebuild from original with {events} new sound event(s) from {packs.Count} pack(s)", null, built, crc, SoundVerify, Kind.Sound));
         }
 
+        // Texture caches with a kept original (Icons.tfc): back to the original. Every icon replacement is stored inside
+        // the icon packages, so nothing needs the cache modded; but only once every changed image in it belongs to an
+        // enabled mod, or restoring would drop images nothing else provides (capture them first).
+        string cooked = game.Cooked;
+        if (originals.FindTfc("Icons") is string tfcOriginal && File.Exists(Path.Combine(cooked, "Icons.tfc")))
+        {
+            uint want = game.Crc(tfcOriginal);
+            if (game.Crc(Path.Combine(cooked, "Icons.tfc")) == want) upToDate++;
+            else
+            {
+                // Changed images: an enabled mod's (it's in the package anyway), a disabled mod's (a leftover: goes back to
+                // stock, like a disabled mod's packages), or nobody's (would be lost: capture first).
+                var enabledNames = lib.Mods.Where(m => m.Enabled).SelectMany(m => IconPackages.SelectMany(p => p.List(m.Manifest))).Select(r => r.TextureName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var anyNames = lib.Mods.SelectMany(m => IconPackages.SelectMany(p => p.List(m.Manifest))).Select(r => r.TextureName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var changed = TfcCheck.Changed(cooked, "Icons", tfcOriginal).Select(t => t[(t.LastIndexOf('.') + 1)..]).ToList();
+                var orphans = changed.Where(n => !anyNames.Contains(n)).ToList();
+                var leftovers = changed.Where(n => anyNames.Contains(n) && !enabledNames.Contains(n)).ToList();
+                if (orphans.Count > 0) problems.Add($"Icons.tfc: {orphans.Count} changed image(s) in it belong to no mod ({string.Join(", ", orphans.Take(5))}{(orphans.Count > 5 ? ", …" : "")}); use Capture icon changes first, so restoring it loses nothing");
+                else steps.Add(new Step("Icons.tfc", "restore the original texture cache (all icon changes are in the icon packages)" +
+                    (leftovers.Count > 0 ? $"; back to stock, as their mods are off: {string.Join(", ", leftovers)}" : ""), tfcOriginal, null, want, null, Kind.Tfc));
+            }
+        }
+
         var notHandled = new List<string>();
         return new Plan(steps, problems, upToDate, notHandled);
     }
@@ -216,7 +239,11 @@ static class Applier
         {
             Console.WriteLine($"{s.File}: {s.What}");
             string live = s.Strings ? Path.Combine(game.Loco, s.File) : Path.Combine(game.Cooked, s.File);
-            if (s.Type != Kind.Package)
+            if (s.Type == Kind.Tfc)
+            {
+                if (originals.FindTfc(Path.GetFileNameWithoutExtension(s.File)) == null) { Console.WriteLine("  no original kept; stopping."); return false; }
+            }
+            else if (s.Type != Kind.Package)
             {
                 // The original goes into the library, not next to the file (strings: a folder the game reads; sounds: 300+ MB).
                 if ((s.Strings ? originals.EnsureString(s.File, legacy) : originals.EnsureSound(s.File, legacy)) == null) { Console.WriteLine("  no original to keep; stopping."); return false; }

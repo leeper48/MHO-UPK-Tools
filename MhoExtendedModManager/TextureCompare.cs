@@ -9,11 +9,13 @@ namespace MhoExtendedModManager;
 /// </summary>
 static class TextureCompare
 {
-    public static int Run(string a, string b)
+    /// <param name="cacheA">Where a's streamed images are read from (default: the game folder); same for b.</param>
+    public static int Run(string a, string b, string? cacheA = null, string? cacheB = null)
     {
         var settings = Settings.Load();
         string? root = settings.ResolvedGameRoot(Settings.LibraryData(settings.LibraryPath));
         string? cache = root == null ? null : Settings.Cooked(root);
+        cacheA ??= cache; cacheB ??= cache;
         var pa = Package.Open(a); var pb = Package.Open(b);
         var ta = Textures(pa); var tb = Textures(pb);
         int same = 0; var differ = new List<string>();
@@ -21,8 +23,8 @@ static class TextureCompare
         {
             if (!ta.TryGetValue(path, out int ia)) { differ.Add($"{path}: only in {Path.GetFileName(b)}"); continue; }
             if (!tb.TryGetValue(path, out int ib)) { differ.Add($"{path}: only in {Path.GetFileName(a)}"); continue; }
-            var ma = TextureExport.ReadBestMip(pa, ia, out string na, cache);
-            var mb = TextureExport.ReadBestMip(pb, ib, out string nb, cache);
+            var ma = TextureExport.ReadBestMip(pa, ia, out string na, cacheA);
+            var mb = TextureExport.ReadBestMip(pb, ib, out string nb, cacheB);
             if (ma == null || mb == null) { differ.Add($"{path}: unreadable ({(ma == null ? na : nb)})"); continue; }
             if (!ma.Format.Equals(mb.Format, StringComparison.OrdinalIgnoreCase) || ma.Width != mb.Width || ma.Height != mb.Height)
                 differ.Add($"{path}: {ma.Width}x{ma.Height} {ma.Format} vs {mb.Width}x{mb.Height} {mb.Format}");

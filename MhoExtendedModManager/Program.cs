@@ -32,7 +32,8 @@ static class Program
         ("--capture-icons", "--capture-icons [mod name]", "Save icon changes in the game that no mod accounts for (other tools, deleted mods) as a new texture mod, so Apply keeps them."),
         ("--verify-strings", "--verify-strings", "Self-test: every .string file in the game and in the library's originals reads and writes back byte for byte."),
         ("--build-sound", "--build-sound <pack.mhsfx> <original.pck> <out.pck>", "Test: patch a copy of a sound package with one sound pack (never into the game folder)."),
-        ("--compare-textures", "--compare-textures <a.upk> <b.upk>", "Every Texture2D in two packages: same size, format and best-mip pixels? (Checks a rebuild against another tool's.)"),
+        ("--add-original", "--add-original <file.tfc>", "Keep a clean copy of a texture cache (e.g. Icons.tfc) as its original: must carry the stock date (2024-03-14) and the game file's size. Apply then keeps the live one original."),
+        ("--compare-textures", "--compare-textures <a.upk> <b.upk> [<cache folder a> <cache folder b>]", "Every Texture2D in two packages: same size, format and best-mip pixels? (Checks a rebuild against another tool's.)"),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
     ];
 
@@ -114,7 +115,7 @@ static class Program
             else rest.Add(args[i]);
         }
         if (rest.Count == 0) { Usage(); return 1; }
-        if (rest[0].Equals("--compare-textures", StringComparison.OrdinalIgnoreCase) && rest.Count == 3) return TextureCompare.Run(rest[1], rest[2]);
+        if (rest[0].Equals("--compare-textures", StringComparison.OrdinalIgnoreCase) && rest.Count is 3 or 5) return TextureCompare.Run(rest[1], rest[2], rest.Count == 5 ? rest[3] : null, rest.Count == 5 ? rest[4] : null);
         if (rest[0].Equals("--move-from-appdata-test", StringComparison.OrdinalIgnoreCase) && rest.Count == 4)
         {
             // Test of the AppData → data move with explicit old paths (scratch only: needs MHO_EXTMM_HOME).
@@ -219,6 +220,17 @@ static class Program
                 lib.SaveState();
                 Console.WriteLine($"{m.Name}: {(m.Enabled ? "enabled" : "disabled")}. Run --apply to update the game.");
                 return 0;
+            }
+            case "--add-original":
+            {
+                if (IsOldManager(data)) { Console.WriteLine(OldManagerRefusal); return 1; }
+                string? gr = settings.ResolvedGameRoot(data);
+                if (gr == null || rest.Count < 2) { Usage(); return 1; }
+                var g = new GameState(gr, data);
+                string cache = Path.GetFileNameWithoutExtension(rest[1]).Split('.')[0];   // Icons.tfc.bak -> Icons
+                string? why = new Originals(data, g).AddTfc(rest[1], cache);
+                Console.WriteLine(why == null ? $"Kept {rest[1]} as the original {cache}.tfc (with a copy of the texture cache manifest)." : $"Not kept: {why}.");
+                return why == null ? 0 : 1;
             }
             case "--capture-icons":
             {
