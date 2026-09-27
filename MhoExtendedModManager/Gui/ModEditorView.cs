@@ -126,7 +126,7 @@ sealed class ModEditorView : UserControl
             draft.Packages.Add((name, f));
         }
         RefreshPackages();
-        if (notGame.Count > 0) MessageBox.Show(this, "Not a game package name, so Apply won't find a file to replace:\n" + string.Join("\n", notGame) + "\n\nThe file name must match the package it replaces.", "Packages");
+        if (notGame.Count > 0) Dialog.Show(this, "Not a game package name, so Apply won't find a file to replace:\n" + string.Join("\n", notGame) + "\n\nThe file name must match the package it replaces.", "Packages");
     }
 
     void RefreshPackages()
@@ -151,7 +151,7 @@ sealed class ModEditorView : UserControl
         foreach (string f in d.FileNames)
         {
             try { SoundPack.Load(f); }
-            catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { MessageBox.Show(this, $"{Path.GetFileName(f)} isn't a readable sound pack: {ex.Message}", "Sound Packs"); continue; }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { Dialog.Show(this, $"{Path.GetFileName(f)} isn't a readable sound pack: {ex.Message}", "Sound Packs"); continue; }
             if (!draft.SoundPacks.Contains(f, StringComparer.OrdinalIgnoreCase)) draft.SoundPacks.Add(f);
         }
         RefreshSounds();
@@ -191,7 +191,7 @@ sealed class ModEditorView : UserControl
         draft.Notes = notesBox.Text;
         draft.Strings = stringsPage.Collect();
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
-        if (saved == null) { MessageBox.Show(this, error, "Can't Save Yet"); return; }
+        if (saved == null) { Dialog.Show(this, error ?? "", "Can't Save Yet"); return; }
         SavedName = saved;
         Saved?.Invoke(saved);
     }
@@ -337,21 +337,21 @@ sealed class ModEditorView : UserControl
 
         void ChooseDds()
         {
-            if (names.SelectedItem is not TexEntry e) { MessageBox.Show(this, "Select the stock texture to replace first (search on the left).", "Textures"); return; }
+            if (names.SelectedItem is not TexEntry e) { Dialog.Show(this, "Select the stock texture to replace first (search on the left).", "Textures"); return; }
             using var d = new OpenFileDialog { Title = $"Replacement for {e.Name}", Filter = "Textures and images (*.dds;*.png;*.jpg;*.jpeg;*.bmp)|*.dds;*.png;*.jpg;*.jpeg;*.bmp|DDS textures (*.dds)|*.dds|Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string chosen = d.FileName;
             if (!chosen.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
             {
                 // An image: made into a .dds like the original (size, DXT1 / DXT5); the mod gets the .dds.
-                if (f.catalog == null) { MessageBox.Show(this, "Set the game folder first: the original texture's size and format are needed to convert an image.", "Textures"); return; }
+                if (f.catalog == null) { Dialog.Show(this, "Set the game folder first: the original texture's size and format are needed to convert an image.", "Textures"); return; }
                 string outDds = Path.Combine(Settings.Home, "converted", ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(chosen)) + ".dds");
                 try { convertNote = $"{Path.GetFileName(chosen)}: " + f.catalog.ImageToDds(e.File, e.Name, chosen, outDds); chosen = outDds; }
-                catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException or System.Runtime.InteropServices.ExternalException) { MessageBox.Show(this, $"{Path.GetFileName(chosen)} can't be converted: {ex.Message}", "Textures"); return; }
+                catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException or System.Runtime.InteropServices.ExternalException) { Dialog.Show(this, $"{Path.GetFileName(chosen)} can't be converted: {ex.Message}", "Textures"); return; }
             }
             else convertNote = null;
             var (check, _) = Check(e.File, e.Name, chosen);
-            if (check.StartsWith("can't")) { MessageBox.Show(this, $"{Path.GetFileName(chosen)} {check}\n\nSave it as DXT1 (no or 1-bit alpha) or DXT5 (soft alpha), or choose a PNG and it's converted.", "Textures"); return; }
+            if (check.StartsWith("can't")) { Dialog.Show(this, $"{Path.GetFileName(chosen)} {check}\n\nSave it as DXT1 (no or 1-bit alpha) or DXT5 (soft alpha), or choose a PNG and it's converted.", "Textures"); return; }
             if (Extra)
             {
                 f.draft.Extra.RemoveAll(x => x.Package.Equals(e.File, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(e.Name, StringComparison.OrdinalIgnoreCase));
@@ -371,11 +371,11 @@ sealed class ModEditorView : UserControl
         /// <summary>The selected stock texture as .dds (a starting point for its replacement).</summary>
         void SaveOriginal()
         {
-            if (f.catalog == null || names.SelectedItem is not TexEntry e) { MessageBox.Show(this, "Select a stock texture on the left first.", "Textures"); return; }
+            if (f.catalog == null || names.SelectedItem is not TexEntry e) { Dialog.Show(this, "Select a stock texture on the left first.", "Textures"); return; }
             using var d = new SaveFileDialog { Title = $"Save Original {e.Name}", Filter = "DDS texture (*.dds)|*.dds|PNG image (*.png)|*.png", FileName = e.Name + ".dds" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string? why = f.catalog.ExportImage(e.File, e.Name, d.FileName);
-            if (why != null) MessageBox.Show(this, "Not saved: " + why, "Textures");
+            if (why != null) Dialog.Show(this, "Not saved: " + why, "Textures");
         }
 
         void RemoveRow()
@@ -513,9 +513,9 @@ sealed class ModEditorView : UserControl
                             grid.Rows.Add(l, file.Name, e.Name, "", s.GetString() ?? ""); n++;
                         }
             }
-            catch (System.Text.Json.JsonException ex) { MessageBox.Show(this, "Not a string file: " + ex.Message, "Import"); return; }
+            catch (System.Text.Json.JsonException ex) { Dialog.Show(this, "Not a string file: " + ex.Message, "Import"); return; }
             FillOriginals();
-            MessageBox.Show(this, $"Imported {n} string(s) as language '{l}'.", "Import");
+            Dialog.Show(this, $"Imported {n} string(s) as language '{l}'.", "Import");
         }
 
         public List<StringReplacement> Collect()

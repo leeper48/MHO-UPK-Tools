@@ -52,10 +52,17 @@ static class Program
         if (Settings.CheckWritable() is string notWritable)
         {
             string msg = $"MHO Extended Mod Manager keeps its settings and mods in a \"data\" folder next to the program, and can't write there:\n\n{notWritable}\n\nMove the program's folder somewhere you can write to (not Program Files), e.g. C:\\Games\\MHO Extended Mod Manager.";
-            if (gui) MessageBox.Show(msg, "MHO Extended Mod Manager"); else { AttachCliConsole(); Console.WriteLine(msg); }
+            if (gui) Gui.Dialog.Show(msg, "MHO Extended Mod Manager"); else { AttachCliConsole(); Console.WriteLine(msg); }
             return 2;
         }
         Updater.CleanUp();   // the *.old files a self-update left behind
+        if (args.Length == 2 && args[0].Equals("--dialog-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Dialog.Snapshot(args[1]);
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--apply-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
@@ -135,12 +142,12 @@ static class Program
             // A library from an earlier version (0.7.0 and before kept it in AppData): offer to move it next to the exe.
             if (args.Length == 0 && Settings.FindAppDataLibrary() is string oldLib)
             {
-                var answer = MessageBox.Show($"Your mod library is in AppData:\n{oldLib}\n\nThis version keeps everything next to the program instead:\n{Settings.Home}\n\nMove the library there now? (Yes is recommended. No starts the first-run setup; your AppData library is left alone.)",
+                var answer = Gui.Dialog.Show($"Your mod library is in AppData:\n{oldLib}\n\nThis version keeps everything next to the program instead:\n{Settings.Home}\n\nMove the library there now? (Yes is recommended. No starts the first-run setup; your AppData library is left alone.)",
                     "MHO Extended Mod Manager", MessageBoxButtons.YesNoCancel);
                 if (answer == DialogResult.Cancel) return 0;
                 if (answer == DialogResult.Yes)
-                    try { Settings.MoveFromAppData(oldLib); MessageBox.Show($"Moved. Your mods are now in\n{Settings.DefaultLibrary}", "MHO Extended Mod Manager"); }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { MessageBox.Show("The move didn't finish, and nothing was changed: " + ex.Message, "MHO Extended Mod Manager"); return 1; }
+                    try { Settings.MoveFromAppData(oldLib); Gui.Dialog.Show($"Moved. Your mods are now in\n{Settings.DefaultLibrary}", "MHO Extended Mod Manager"); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Gui.Dialog.Show("The move didn't finish, and nothing was changed: " + ex.Message, "MHO Extended Mod Manager"); return 1; }
             }
             // First run (no game folder or library yet): the setup window, then the mod list.
             var s = Settings.Load();

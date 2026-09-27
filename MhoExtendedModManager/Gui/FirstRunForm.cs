@@ -84,8 +84,8 @@ sealed class FirstRunForm : Form
     async void Finish()
     {
         string game = gameBox.Text.Trim();
-        if (!Settings.IsGameRoot(game)) { MessageBox.Show(this, "That folder has no UnrealEngine3\\MarvelGame\\CookedPCConsole. Pick the Marvel Heroes folder.", Text); return; }
-        if (migrate.Checked && Settings.LibraryData(oldBox.Text.Trim()) == null) { MessageBox.Show(this, "That isn't MHModManager's folder (expected data\\mods inside it).", Text); return; }
+        if (!Settings.IsGameRoot(game)) { Dialog.Show(this, "That folder has no UnrealEngine3\\MarvelGame\\CookedPCConsole. Pick the Marvel Heroes folder.", "Not the Game Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (migrate.Checked && Settings.LibraryData(oldBox.Text.Trim()) == null) { Dialog.Show(this, "That isn't MHModManager's folder (expected data\\mods inside it).", "Not MHModManager's Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         settings.GameRoot = game;
         ok.Enabled = false; UseWaitCursor = true; log.Visible = true;
         string library = settings.LibraryPath, old = oldBox.Text.Trim();

@@ -112,7 +112,7 @@ sealed class ExtractView : UserControl
     async void SaveTextures(string ext)
     {
         var sel = names.SelectedItems.OfType<TexEntry>().ToList();
-        if (sel.Count == 0) { MessageBox.Show(this, "Select one or more textures first.", "Extract"); return; }
+        if (sel.Count == 0) { Dialog.Show(this, "Select one or more textures first.", "Extract"); return; }
         string Pkg(TexEntry e) => e.File;
         string? folder;
         if (sel.Count == 1)

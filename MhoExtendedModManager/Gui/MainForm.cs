@@ -267,7 +267,7 @@ sealed class MainForm : Form
         {
             if (!settings.UpdateCheckAsked)
             {
-                settings.CheckUpdates = MessageBox.Show(this, "Look for new versions of MHO Extended Mod Manager when it starts (at most once a day)?" + Environment.NewLine + Environment.NewLine +
+                settings.CheckUpdates = Dialog.Show(this, "Look for new versions of MHO Extended Mod Manager when it starts (at most once a day)?" + Environment.NewLine + Environment.NewLine +
                     "It asks GitHub (api.github.com) for the latest release; nothing about you, your game or your mods is sent. " +
                     "You can change this in Settings, and Settings → Check for updates… works either way.",
                     "Updates", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
@@ -326,13 +326,13 @@ sealed class MainForm : Form
         try { r = await Updater.Latest(); }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException or KeyNotFoundException or InvalidOperationException)
         {
-            if (manual) MessageBox.Show(this, "Couldn't check for updates: " + ex.Message, "Updates");
+            if (manual) Dialog.Show(this, ex.Message, "Couldn't Check for Updates", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
         settings.LastUpdateCheck = DateTime.Now; settings.Save();
         if (r == null || r.Version <= Updater.Current)
         {
-            if (manual) MessageBox.Show(this, $"You have the latest version ({Program.Version}).", "Updates");
+            if (manual) Dialog.Show(this, $"You have the latest version ({Program.Version}).", "Updates");
             return;
         }
         if (!manual && settings.SkipVersion == r.Version.ToString()) { status.Text = $"Version {r.Version} Is Available (Skipped: Settings → Check for Updates)"; return; }
@@ -345,7 +345,7 @@ sealed class MainForm : Form
         Close();
     }
 
-    void About() => MessageBox.Show(this,
+    void About() => Dialog.Show(this,
         $"MHO Extended Mod Manager {Program.Version}\n\nMods for Marvel Heroes Omega: packages, icons, strings and sound packs, in the MHModManager mod format. " +
         "Every change is written from verified originals, checked, and can be undone.\n\nSettings and mods: " + Settings.Home, "About");
 
@@ -353,7 +353,7 @@ sealed class MainForm : Form
     {
         using var d = new FolderBrowserDialog { Description = "The Marvel Heroes folder (holds UnrealEngine3 and Data)", UseDescriptionForTitle = true, SelectedPath = settings.GameRoot ?? "" };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        if (!Directory.Exists(Settings.Cooked(d.SelectedPath))) { MessageBox.Show(this, "No UnrealEngine3\\MarvelGame\\CookedPCConsole there.", Text); return; }
+        if (!Directory.Exists(Settings.Cooked(d.SelectedPath))) { Dialog.Show(this, "That folder has no UnrealEngine3\\MarvelGame\\CookedPCConsole. Pick the Marvel Heroes folder.", "Not the Game Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         settings.GameRoot = d.SelectedPath; settings.Save(); Reload();
     }
 
@@ -931,8 +931,8 @@ sealed class MainForm : Form
     async void Apply()
     {
         if (readOnly || lib == null || game == null) return;
-        if (!game.HasStockList) { MessageBox.Show(this, "No stock checksum list in the library, so originals can't be verified.", Text); return; }
-        if (Process.GetProcessesByName("MarvelHeroesOmega").Length > 0) { MessageBox.Show(this, "The game is running. Close it first.", Text); return; }
+        if (!game.HasStockList) { Dialog.Show(this, "There is no stock checksum list, so originals can't be verified. Reinstall the program to get it back (StockData folder).", "Can't Apply", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (Process.GetProcessesByName("MarvelHeroesOmega").Length > 0) { Dialog.Show(this, "Close the game first: changes can only be applied while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         var (l, g) = (lib, game);
         var originals = new Originals(l.DataFolder, g);
         UseWaitCursor = true;
@@ -970,7 +970,7 @@ sealed class MainForm : Form
 
     /// <summary>Asked (on the UI thread) when an installed mod would be replaced.</summary>
     bool AskReplace(Mod existing, ModManifest incoming) => (bool)Invoke(() =>
-        MessageBox.Show(this, $"\"{existing.Name}\" is installed already (version {existing.Manifest.Version ?? "?"} by {existing.Manifest.Author ?? "?"}).\n\n" +
+        Dialog.Show(this, $"\"{existing.Name}\" is installed already (version {existing.Manifest.Version ?? "?"} by {existing.Manifest.Author ?? "?"}).\n\n" +
             $"Replace it with version {incoming.Version ?? "?"} by {incoming.Author ?? "?"}?\n\nIt keeps its place in the list, on/off, lock, tags and note. The old files go to the Recycle Bin." +
             (existing.Enabled ? "\n\nIt's on: Apply Changes afterwards puts the new version in the game." : ""),
             "Update Mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes);
@@ -1002,7 +1002,10 @@ sealed class MainForm : Form
         filter.Text = "";
         Reload();
         if (installed.Count > 0) SelectMod(installed[0]);
-        ShowLog("Install", string.Join("\n", log) + (installed.Count > 0 ? "\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes." : ""));
+        // Like Apply's result: a coloured heading, then what happened.
+        ShowLog(installed.Count > 0 ? "Installed" : "Nothing Installed",
+            string.Join("\n", log) + (installed.Count > 0 ? "\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes." : ""),
+            installed.Count > 0 ? Dialog.Tone.Good : Dialog.Tone.Bad);
     }
 
     /// <summary>Opens a mod (or a new one) in the Editor tab. Saving or cancelling returns to the Mods tab.</summary>
@@ -1012,7 +1015,7 @@ sealed class MainForm : Form
         if (editor != null)
         {
             if (editor.Editing?.FolderName == m?.FolderName && m != null) { pages.Select(1); return; }
-            if (MessageBox.Show(this, $"\"{editor.Title}\" is open in the Editor. Close it (unsaved changes are lost) and open {(m == null ? "a new mod" : $"\"{m.Name}\"")}?", "Editor", MessageBoxButtons.OKCancel) != DialogResult.OK) { pages.Select(1); return; }
+            if (Dialog.Show(this, $"\"{editor.Title}\" is open in the Editor. Close it (unsaved changes are lost) and open {(m == null ? "a new mod" : $"\"{m.Name}\"")}?", "Editor", MessageBoxButtons.OKCancel) != DialogResult.OK) { pages.Select(1); return; }
         }
         OpenEditor(m);
         pages.Select(1);
@@ -1231,7 +1234,7 @@ sealed class MainForm : Form
         bool legacy = false;
         if (m.Manifest.Extra.Any())
         {
-            var answer = MessageBox.Show(this, $"{m.Name} replaces {m.Manifest.Extra.Count()} image(s) in other icon packages (an extension of the mod format).\n\n" +
+            var answer = Dialog.Show(this, $"{m.Name} replaces {m.Manifest.Extra.Count()} image(s) in other icon packages (an extension of the mod format).\n\n" +
                 "Yes: export everything. The old MHModManager still installs it, and simply skips those images.\nNo: export a legacy copy without them.", "Export", MessageBoxButtons.YesNoCancel);
             if (answer == DialogResult.Cancel) return;
             legacy = answer == DialogResult.No;
@@ -1242,7 +1245,7 @@ sealed class MainForm : Form
         if (!legacy && (mineTags.Count > 0 || m.LocalNote != null))
         {
             string what = (mineTags.Count > 0 ? $"your tags ({string.Join(", ", mineTags)})" : "") + (mineTags.Count > 0 && m.LocalNote != null ? " and " : "") + (m.LocalNote != null ? "your note" : "");
-            var a = MessageBox.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far. The mod's own tags and note go along anyway; automatic tags are worked out again by whoever installs it.",
+            var a = Dialog.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far. The mod's own tags and note go along anyway; automatic tags are worked out again by whoever installs it.",
                 "Export", MessageBoxButtons.YesNoCancel);
             if (a == DialogResult.Cancel) return;
             if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; }
@@ -1250,18 +1253,18 @@ sealed class MainForm : Form
         using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         try { ModInstaller.Export(m, d.FileName, legacy, addTags, note); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags and note left out)" : addTags != null ? " (with your tags / note)" : ""); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { MessageBox.Show(this, "Export failed: " + ex.Message, Text); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     async void RemoveMod()
     {
         if (readOnly || lib == null || Selected is not Mod m) return;
-        if (MessageBox.Show(this, $"Remove '{m.Name}' from the library? Its folder goes to the Recycle Bin.", "Remove", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+        if (Dialog.Show(this, $"Remove '{m.Name}' from the library? Its folder goes to the Recycle Bin.", "Remove", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
         var (l, g) = (lib, game);
         UseWaitCursor = true;
         string? why = await Task.Run(() => ModInstaller.Remove(m, l, g));
         UseWaitCursor = false;
-        if (why != null) { MessageBox.Show(this, $"Not removed. {why}", "Remove"); return; }
+        if (why != null) { Dialog.Show(this, why, "Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         Reload();
     }
 
@@ -1273,7 +1276,7 @@ sealed class MainForm : Form
         UseWaitCursor = true;
         string? error = await Task.Run(() => { try { ModInstaller.MoveLibrary(from, to); return null; } catch (IOException ex) { return ex.Message; } });
         UseWaitCursor = false;
-        if (error != null) { MessageBox.Show(this, "Not moved: " + error, Text); return; }
+        if (error != null) { Dialog.Show(this, error, "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         settings.Library = to.Equals(Settings.DefaultLibrary, StringComparison.OrdinalIgnoreCase) ? null : to;
         settings.Save();
         Reload();
@@ -1285,8 +1288,8 @@ sealed class MainForm : Form
         if (d.ShowDialog(this) != DialogResult.OK) return;
         string target = settings.LibraryPath;
         if (Settings.LibraryData(target) is string existing && Directory.EnumerateDirectories(Path.Combine(existing, "mods")).Any())
-        { MessageBox.Show(this, "Your library already has mods; migration only fills an empty library.", "Migrate"); return; }
-        if (MessageBox.Show(this, $"Copy its mods, order, verified stock backups and settings into\n{target}\n\nThe old folder is left as it is. Stop using the old manager afterwards, or the two will undo each other's changes.", "Migrate", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+        { Dialog.Show(this, "Your library already has mods; migration only fills an empty library.", "Migrate"); return; }
+        if (Dialog.Show(this, $"Copy its mods, order, verified stock backups and settings into\n{target}\n\nThe old folder is left as it is. Stop using the old manager afterwards, or the two will undo each other's changes.", "Migrate", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
         UseWaitCursor = true;
         string src = d.SelectedPath;
         string log = await Task.Run(() => CaptureOutput(() => { try { Migration.Run(src, target, settings); } catch (IOException ex) { Console.WriteLine("Migration stopped: " + ex.Message); } }));
@@ -1311,14 +1314,7 @@ sealed class MainForm : Form
         }
     }
 
-    void ShowLog(string title, string text)
-    {
-        using var f = new Form { Text = title, StartPosition = FormStartPosition.Manual, Icon = Icon, Owner = this };
-        Ui.FitToScreen(f, 1000, 600);
-        f.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = mono, Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n") });
-        Theme.Apply(f, Palette.Dark);
-        f.ShowDialog(this);
-    }
+    void ShowLog(string title, string text, Dialog.Tone tone = Dialog.Tone.Normal) => Dialog.ShowLog(this, title, text, tone);
 
     /// <summary>--gui-snapshot: waits for the package check and thumbnails, then saves the window as PNG (and each details tab).</summary>
     public async Task Snapshot(string dir, string? modName = null)
