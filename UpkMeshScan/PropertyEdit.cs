@@ -133,6 +133,8 @@ static class PropertyEdit
         byte[] d = pkg.ReadExportBytes(pkg.Exports[index]);
         var props = Locate(pkg, d);
         if (props is null) return null;
+        // A material instance's scalar and vector parameters, as param:<name> rows (what --set-property param:<name>= changes).
+        foreach (var (k, v) in Params(pkg, d, props)) props.TryAdd(k, v);
         var list = new List<PropertyView>();
         foreach (var (name, p) in props)
         {

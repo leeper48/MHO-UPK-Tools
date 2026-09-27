@@ -23,12 +23,13 @@ static class ZoneBuilds
     public static readonly Zone[] Zones =
     [
         new("Hightown", "Madripoor_HighTown_B.upk",
-            "Upper Madripoor / Hightown: sky dome, building boxes (MinDrawDistance 3500), always-drawn ground slabs, " +
-            "two water layers with a hole over the GameCenter stairwell, night sky; textured: night facade walls + Kurt's baked ground plane, or all grey (with ground slabs).",
+            "Upper Madripoor / Hightown (night): a sky dome, distant building boxes (hidden within 3500), the ground, two water layers around the " +
+            "GameCenter stairwell hole, and a night sky. Zone facade: night-window walls and a baked ground plane. Default grey: grey boxes and grey ground slabs.",
             HightownSteps),
         new("IndustryCity", "Brooklyn_Docks_A.upk",
-            "Industry City (ICP): distant building boxes (Kurt's edit), Kurt's baked ground plane, the zone's water on planes " +
-            "(two layers just under the stock level, whose planes are removed from the tiles; AIM Sub pit kept), Kurt's photo sky (no clouds).",
+            "Industry City (ICP, day): baked building LODs (4 parts, one piece per cell, drawn from 2500 away; the random middle block left out), " +
+            "a baked ground plane, the zone's water as two layers around the AIM Sub pit (the tiles' own water removed separately), harbour mist, " +
+            "and the stock sky with a city skyline on a translucent inner dome. The Walls choice doesn't apply here.",
             IndustryCitySteps, HasFacade: false),
         new("OdinsPalace", "Asgard_Hub_B.upk",
             "Odin's Palace (Kurse operation): full starfield sky (backdrop copies for the sides and top), building boxes " +

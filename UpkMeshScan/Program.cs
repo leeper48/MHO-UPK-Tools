@@ -22,6 +22,18 @@ static class Program
     {
         string version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "?";
 
+        // --gui-snapshot <folder>: renders every tab of the GUI to <folder>\<n>_<tab>.png and exits (layout check).
+        if (args.Length == 2 && args[0].Equals("--gui-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            var form = new Gui.MainForm(version);
+            form.Shown += (_, _) => form.BeginInvoke(() => { form.Snapshot(args[1]); form.Close(); });
+            Application.Run(form);
+            return 0;
+        }
+
         // No arguments: the GUI. It's a WinExe so a double-click shows no console window.
         if (args.Length == 0)
         {
@@ -691,87 +703,6 @@ static class Program
         return name.Contains("bak", StringComparison.OrdinalIgnoreCase) || name.Contains("copy", StringComparison.OrdinalIgnoreCase);
     }
 
-    static void Usage()
-    {
-        Console.WriteLine("""
-
-        Usage: MHO_UPK_Mod <folder> [options]
-          Scans every .upk/.umap under <folder> and lists the static meshes each one contains.
-
-          --out <file>       Report path (default: <FolderName>_MeshScan.txt next to the exe)
-          --top-only         Don't recurse into subfolders
-          --skeletal         Also list SkeletalMesh exports (tagged [Skel])
-          --include-empty    Also list packages that contain no meshes
-          --include-backups  Also scan files with "bak" or "copy" in the name (skipped by default)
-          --decode-static    Also run the StaticMesh parser on every static mesh (writes nothing) and
-                             report which ones decode, grouped by failure reason
-
-        Usage: MHO_UPK_Mod --dump-export <package.upk> <export-name-or-path> [--out <folder>]
-          Writes that export's raw bytes (.bin) and an annotated dump (.txt: property tags, then
-          hex of the native data) to <folder> (default: dumps\ next to the exe). Read-only.
-
-        Usage: MHO_UPK_Mod --export-fbx <package.upk> <staticmesh-name-or-path> [--out <folder>]
-          Writes LOD 0 of that StaticMesh to <folder>\<name>.fbx (default: exports\ next to the exe),
-          one part per material section. Read-only on the package.
-
-        Usage: MHO_UPK_Mod --import-fbx <package.upk> <staticmesh> <file.fbx> [--dry-run [--out <folder>]]
-          Replaces LOD 0 of that StaticMesh with the FBX (sections matched by material name).
-          Builds and verifies the new package in memory first. With --dry-run it's written to
-          <folder> (default: import_out\ next to the exe) and the game file is untouched.
-          Without it: <package>.upk.bak is created if missing (never overwritten), the new package
-          is written to a temp file, verified again from disk, then replaces the live file.
-          Collision for the imported mesh is removed (empty collision tree) for now.
-
-        Usage: MHO_UPK_Mod --export-textures <package.upk> [name-filter] [--out <folder>]
-          Writes each Texture2D's largest mip stored inside the package as .dds (DXT data kept as is;
-          default folder textures\<package>\ next to the exe). Stock textures only carry small mips
-          (mostly 64x64) in the package; full size is in .tfc files, which aren't read.
-          --export-fbx also writes the mesh's material textures and links them in the FBX.
-        Usage: MHO_UPK_Mod --set-property <package.upk> <export-path> <Name=Value> [...] [--dry-run]
-          Changes float/int properties that already exist in an export (e.g. fog density), with the
-          same .bak / verified temp / swap workflow as --import-fbx. --revert undoes it.
-        Usage: MHO_UPK_Mod --zone-placeholders <folder> <tile-prefix> <library.upk> [--out file.fbx]
-                           [--min-height 400] [--min-footprint 200] [--inset 0.90] [--skip tree,...] [--only mesh,...]
-          Low-poly footprint prisms for every building-sized placed mesh in the tiles (e.g. prefix UES_Static_,
-          library SCS__OpDailyBugleRegionBand_SF.upk), at their real world positions, into one FBX
-          (+ .txt list). Read-only.
-        Usage: MHO_UPK_Mod --add-sky-placeholders <package.upk> <placeholders.fbx> [--gray 0.03] [--dry-run]
-                           [--exclude-box minX,minY,maxX,maxY ...] [--ground-z -40 [--ground-margin 4000]]
-                           [--shrink F]  (scale each piece: 0.8/0.9 = 0.889 turns 90% placeholders into 80%)
-                           [--add-fbx more.fbx ...]  (merged as is, after exclusion and shrink)
-                           [--color R,G,B]  (flat colour instead of --gray, linear 0..1)
-                           [--ground-box minX,minY,maxX,maxY]  (exact ground extent instead of the margin)
-                           [--ground-material package.object [--ground-uv 2304]]  (with "none": the plane uses that
-                               MaterialInstanceConstant through new imports, UVs tiling every 2304 units)
-                           [--ground-grid N]  (split each ground box into cells of at most N units, so translucent
-                               water is fogged evenly; big boxes otherwise show as bands)
-          <placeholders.fbx> may be "none" (with --ground-z and --ground-box): only the ground plane, for zones
-          whose cells are placed at run time.
-          Adds the FBX's geometry (world space, e.g. from --zone-placeholders) to the zone's sky sphere
-          mesh as a second section with a new flat-grey copy of the sky material. The package is rebuilt
-          to hold the new material; everything else stays byte-identical. Same .bak / verify / swap.
-        Usage: MHO_UPK_Mod --build-zone <zone> <game-folder> [--walls facade|grey] [--lod-size 512] [--dry-run]
-          Rebuilds a zone's main level from stock with its whole placeholder recipe (zones: Hightown). Every step
-          runs on a scratch copy and verifies itself; the result is written once (.bak / verified temp / swap), so
-          --undo takes the whole rebuild back. Walls: the zone's facade texture (default) or flat grey.
-        Usage: MHO_UPK_Mod --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304]
-                           [--exclude-box ...] [--shrink F] [--add-fbx ...] [--ground-z -40] [--gray 0.03] [--dry-run]
-          Placeholders as one placed object per map cell with MinDrawDistance (hidden near the camera),
-          built from the package's .bak with the live file's other edits (e.g. fog) carried over.
-        Usage: MHO_UPK_Mod --test-rebuild <package.upk> [export-to-copy]
-          Self-test: rebuild the package (optionally with one export copied) and verify. Writes nothing.
-        Usage: MHO_UPK_Mod --list-exports <package.upk> [class-filter]
-          Lists exports (index, class, size, path), optionally only classes containing the filter.
-        Usage: MHO_UPK_Mod --texture-info <package.upk> [name-filter]
-          Lists textures: size, format, cache, and where each mip's data is stored.
-
-        Usage: MHO_UPK_Mod --revert <package.upk>
-          Restores <package>.upk from <package>.upk.bak (verified; the .bak is kept).
-
-        Usage: MHO_UPK_Mod --verify-import-roundtrip <package.upk> <staticmesh>
-          Self-test, writes nothing to the package folder: export -> FBX -> import, compared with
-          the original, plus the package writer and verifier run in memory.
-        """);
-    }
+    static void Usage() => Console.WriteLine(CommandCatalog.UsageText());
 
 }

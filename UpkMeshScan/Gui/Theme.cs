@@ -67,6 +67,28 @@ static class Theme
                 break;
             case ComboBox cb:
                 cb.BackColor = p.Field; cb.ForeColor = p.Text; cb.FlatStyle = p.IsDark ? FlatStyle.Flat : FlatStyle.Standard;
+                // A drop-down list paints its box in system colours whatever BackColor says: draw its items ourselves.
+                if (cb.DropDownStyle == ComboBoxStyle.DropDownList && ownerDrawnCombos.Add(cb))
+                {
+                    cb.DrawMode = DrawMode.OwnerDrawFixed;
+                    cb.DrawItem += (s, e) =>
+                    {
+                        var q = Current; var box = (ComboBox)s!;
+                        bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
+                        using var back = new SolidBrush(sel ? q.Selection : q.Field);
+                        e.Graphics.FillRectangle(back, e.Bounds);
+                        if (e.Index >= 0)
+                            TextRenderer.DrawText(e.Graphics, box.GetItemText(box.Items[e.Index]), box.Font, e.Bounds, sel ? q.SelectionText : q.Text,
+                                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+                    };
+                }
+                break;
+            case SplitterPanel sp:
+                sp.BackColor = p.Back;
+                break;
+            case TreeView tv:
+                tv.BackColor = p.Field; tv.ForeColor = p.Text; tv.BorderStyle = BorderStyle.FixedSingle; tv.LineColor = p.Border;
+                Scrollbars(tv, p);
                 break;
             case CheckedListBox or ListBox:
                 c.BackColor = p.Field; c.ForeColor = p.Text;
@@ -87,6 +109,22 @@ static class Theme
                 break;
             case TabPage tp:
                 tp.BackColor = p.Back; tp.ForeColor = p.Text; tp.UseVisualStyleBackColor = false;
+                break;
+            case NumericUpDown n:
+                n.BackColor = p.Field; n.ForeColor = p.Text; n.BorderStyle = BorderStyle.FixedSingle;
+                break;
+            case LinkLabel ll:
+                ll.BackColor = c.Parent?.BackColor ?? p.Back;
+                ll.LinkColor = p.IsDark ? Color.FromArgb(110, 170, 255) : Color.FromArgb(0, 90, 200);
+                ll.ActiveLinkColor = ll.LinkColor;
+                break;
+            case Label hint when hint.Tag is "hint":
+                hint.BackColor = c.Parent?.BackColor ?? p.Back;
+                hint.ForeColor = p.IsDark ? Color.FromArgb(170, 170, 170) : Color.FromArgb(90, 90, 90);
+                break;
+            case GroupBox gb:
+                gb.BackColor = c.Parent?.BackColor ?? p.Back;
+                gb.ForeColor = p.Text;
                 break;
             case SplitContainer sc:
                 sc.BackColor = p.Border;                   // the splitter bar
@@ -109,6 +147,7 @@ static class Theme
     }
 
     static readonly HashSet<ListView> ownerDrawn = new();
+    static readonly HashSet<ComboBox> ownerDrawnCombos = new();
 
     static void ThemeListView(ListView lv, Palette p)
     {

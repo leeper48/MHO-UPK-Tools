@@ -46,7 +46,13 @@ static class PlacementExchange
         foreach (string line in File.ReadLines(layout))
         {
             if (line.StartsWith('#') || line.Trim().Length == 0) continue;
-            string name = line.Split('\t')[0];
+            string[] cols = line.Split('\t');
+            string name = cols[0];
+            // Tiled zones store placements in world coordinates, one file per place (layout positions 0). A layout with
+            // positions (cells placed at run time, e.g. Industry City) reuses one cell file in several places: an edit
+            // there would change every copy, and the export would put them all at the origin.
+            if (cols.Length >= 3 && (float.Parse(cols[1], inv) != 0 || float.Parse(cols[2], inv) != 0))
+            { Console.WriteLine($"  {Path.GetFileName(layout)} places cells at run time ({name} at {cols[1]}, {cols[2]}); the placement round trip only works for tiled zones. Use --export-placed to export the scene."); return 2; }
             if (files.TryGetValue(name, out string? p)) tiles.Add(p); else Console.WriteLine($"  tile {name} not found, skipped");
         }
         var library = Package.Open(libraryPath);
@@ -739,6 +745,9 @@ static class PlacementExchange
         var rebased = bases.Where(kv => kv.Value != null).Select(kv => kv.Key).ToList();
         if (adds.Count + changes.Count + deletes.Count + rebased.Count == 0) { Console.WriteLine("  nothing to change (duplicates are named like the original plus .001, .002 ...)"); return 0; }
 
+        // The undo history names this step after the sidecar whatever the caller (CLI or GUI): a later import of the same
+        // sidecar finds it by that name to start from the version before it.
+        History.Label = $"--import-placements {Path.GetFileName(sidecarPath)} {Path.GetFileName(fbxPath)}";
         int failures = 0;
         foreach (string tile in adds.Keys.Concat(changes.Keys).Concat(deletes.Keys).Concat(rebased).Distinct(StringComparer.OrdinalIgnoreCase))
             if (ApplyToTile(folder, tile, library, adds.GetValueOrDefault(tile) ?? [], changes.GetValueOrDefault(tile) ?? [], deletes.GetValueOrDefault(tile) ?? [], dryRun, keepLighting, bases.GetValueOrDefault(tile)) != 0) failures++;

@@ -9,7 +9,7 @@ namespace UpkMeshScan.Gui;
 /// through MeshImport.WriteLive / MeshImport.Revert (.bak once, verified temp, swap), and every
 /// operation's console output is shown in the log panel. No write logic lives in this file.
 /// </summary>
-sealed class MainForm : Form
+sealed partial class MainForm : Form
 {
     // ---------------------------------------------------------------- settings
 
@@ -20,6 +20,13 @@ sealed class MainForm : Form
         public string LastPackage { get; set; } = "";
         public string LastFbx { get; set; } = "";
         public bool DarkMode { get; set; } = true;
+        public string PlacementZone { get; set; } = "Hightown";
+        public string PlacementFbx { get; set; } = "";
+        public string PlacementSidecar { get; set; } = "";
+        public string PlacementEdited { get; set; } = "";
+        public string BakeFbx { get; set; } = "";
+        public string TextureImage { get; set; } = "";
+        public bool ShowStartOnLaunch { get; set; } = true;
     }
 
     static readonly string SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "UpkMeshScan", "settings.json");
@@ -88,6 +95,29 @@ sealed class MainForm : Form
     readonly ListView backups = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
 
     readonly List<Control> busyDisabled = new();
+    TabPage startPage = null!, browsePage = null!, propertiesPage = null!, meshesPage = null!, texturesPage = null!, placementsPage = null!,
+        zonesPage = null!, objectsPage = null!, backupsPage = null!, toolsPage = null!;
+    readonly Label gameStatus = new() { AutoSize = true, Padding = new Padding(0, 6, 8, 0), Font = new Font("Segoe UI", 9f, FontStyle.Bold) };
+    readonly System.Windows.Forms.Timer gameTimer = new() { Interval = 2000 };
+    bool? gameWasRunning;
+
+    /// <summary>The header's game indicator: writes are blocked while the game runs (it holds the packages open).</summary>
+    void UpdateGameStatus()
+    {
+        bool running = ZoneBuilds.GameRunning();
+        if (gameWasRunning == running) return;
+        gameWasRunning = running;
+        gameStatus.Text = running ? "● Game running: close it before writing" : "● Game closed: ready to write";
+        gameStatus.ForeColor = running ? Color.FromArgb(230, 140, 40) : Color.FromArgb(80, 180, 90);
+    }
+
+    /// <summary>The manual section for a tab (F1).</summary>
+    string HelpAnchor(TabPage? page) =>
+        page == startPage ? "start" : page == browsePage ? "browse" : page == propertiesPage ? "properties" : page == meshesPage ? "meshes"
+        : page == texturesPage ? "textures" : page == placementsPage ? "placements" : page == zonesPage ? "zones" : page == objectsPage ? "objects"
+        : page == backupsPage ? "backups" : page == toolsPage ? "tools" : "start";
+
+    void ShowHelp(string anchor) => HelpForm.Show(this, anchor, settings.DarkMode);
 
     public MainForm(string version)
     {
@@ -104,12 +134,19 @@ sealed class MainForm : Form
         root.Controls.Add(BuildLog(), 0, 2);
         Controls.Add(root);
 
-        tabs.TabPages.Add(BuildBrowseTab());
-        tabs.TabPages.Add(BuildPropertiesTab());
-        tabs.TabPages.Add(BuildMeshesTab());
-        tabs.TabPages.Add(BuildZonesTab());
-        tabs.TabPages.Add(BuildBackupsTab());
+        tabs.TabPages.Add(startPage = BuildStartTab());
+        tabs.TabPages.Add(browsePage = BuildBrowseTab());
+        tabs.TabPages.Add(propertiesPage = BuildPropertiesTab());
+        tabs.TabPages.Add(meshesPage = BuildMeshesTab());
+        tabs.TabPages.Add(texturesPage = BuildTexturesTab());
+        tabs.TabPages.Add(placementsPage = BuildPlacementsTab());
+        tabs.TabPages.Add(zonesPage = BuildZonesTab());
+        tabs.TabPages.Add(objectsPage = BuildObjectsTab());
+        tabs.TabPages.Add(backupsPage = BuildBackupsTab());
+        tabs.TabPages.Add(toolsPage = BuildToolsTab());
         busyDisabled.Add(tabs);
+        KeyPreview = true;
+        KeyDown += (_, e) => { if (e.KeyCode == Keys.F1) { e.Handled = true; ShowHelp(HelpAnchor(tabs.SelectedTab)); } };
 
         gameFolder.Text = settings.GameFolder;
         exportFolder.Text = settings.ExportFolder;
@@ -123,8 +160,13 @@ sealed class MainForm : Form
             if (settings.LastPackage.Length > 0) packageBox.Text = settings.LastPackage;
             RefreshBackups();
             RefreshZones();
+            RefreshStart();
+            InitPlacements();
+            if (!settings.ShowStartOnLaunch) tabs.SelectedTab = browsePage;
         };
         FormClosing += (_, _) => { CaptureSettings(); SaveSettings(); };
+        gameTimer.Tick += (_, _) => UpdateGameStatus();
+        gameTimer.Start();
     }
 
     // ---------------------------------------------------------------- layout
@@ -146,7 +188,8 @@ sealed class MainForm : Form
         t.Controls.Add(Lbl("Game folder:"), 0, 0); t.Controls.Add(gameFolder, 1, 0); t.Controls.Add(browseFolder, 2, 0); t.Controls.Add(reload, 3, 0);
         themeToggle = Btn(ThemeButtonText(settings.DarkMode), () => SetTheme(!settings.DarkMode));
         tips.SetToolTip(themeToggle, "Switch between dark and light mode (remembered next time).");
-        t.Controls.Add(themeToggle, 4, 0);
+        var help = Btn("Help (F1)", () => ShowHelp(HelpAnchor(tabs.SelectedTab)));
+        t.Controls.Add(NoWrap(themeToggle, help), 4, 0);
 
         var open = Btn("Open", OpenSelectedPackage);
         var openFile = Btn("Open file…", () =>
@@ -157,6 +200,8 @@ sealed class MainForm : Form
         packageBox.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; OpenSelectedPackage(); } };
         t.Controls.Add(Lbl("Package:"), 0, 1); t.Controls.Add(packageBox, 1, 1); t.Controls.Add(open, 2, 1); t.Controls.Add(openFile, 3, 1);
         t.Controls.Add(packageInfo, 1, 2); t.SetColumnSpan(packageInfo, 3);
+        t.Controls.Add(gameStatus, 4, 1);
+        UpdateGameStatus();
         busyDisabled.AddRange([browseFolder, reload, open, openFile, packageBox, gameFolder]);
         return t;
     }
@@ -178,11 +223,11 @@ sealed class MainForm : Form
         exports.Columns.Add("#", 60); exports.Columns.Add("Class", 200); exports.Columns.Add("Size", 90, HorizontalAlignment.Right); exports.Columns.Add("Path", 600);
         exports.SelectedIndexChanged += (_, _) => ShowSelectedExport();
         // Double-click (or Enter) on a row = "Edit properties →".
-        exports.ItemActivate += (_, _) => { if (SelectedExport() is int i) { LoadProperties(i); tabs.SelectedIndex = 1; } };
+        exports.ItemActivate += (_, _) => { if (SelectedExport() is int i) { LoadProperties(i); tabs.SelectedTab = propertiesPage; } };
         classFilter.TextChanged += (_, _) => FillExports();
 
         var buttons = Flow(
-            Btn("Edit properties →", () => { if (SelectedExport() is int i) { LoadProperties(i); tabs.SelectedIndex = 1; } }),
+            Btn("Edit properties →", () => { if (SelectedExport() is int i) { LoadProperties(i); tabs.SelectedTab = propertiesPage; } }),
             Btn("Where does this mesh come from?", () => { if (package != null) Run("Import sources", () => ImportSources.Run(gameFolder.Text, packagePath)); }),
             Btn("Find name in folder", () => { if (SelectedExport() is int i) { string n = package!.Exports[i].ObjectName; Run($"Find '{n}'", () => FindName.Run(gameFolder.Text, n, false)); } }),
             Btn("Export texture(s)", () =>
@@ -191,7 +236,10 @@ sealed class MainForm : Form
                 string? filter = SelectedExport() is int i && package.ClassOf(package.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) ? package.Exports[i].ObjectName : null;
                 string dir = Path.Combine(exportFolder.Text, "textures", Path.GetFileNameWithoutExtension(packagePath));
                 Run(filter == null ? "Export all textures" : $"Export texture {filter}", () => TextureExport.Run(packagePath, filter, dir));
-            }));
+            }),
+            Btn("What does it need?", () => { if (SelectedExport() is int i) RunCommand("Dependencies", ["--export-deps", packagePath, package!.PathOf(package.Exports[i])], false); }),
+            Btn("Save full dump", () => { if (SelectedExport() is int i) RunCommand("Dump export", ["--dump-export", packagePath, package!.PathOf(package.Exports[i]), "--out", Path.Combine(exportFolder.Text, "dumps")], false, () => OpenFolder(Path.Combine(exportFolder.Text, "dumps"))); }),
+            Btn("Open in Tools…", () => tabs.SelectedTab = toolsPage));
 
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -334,14 +382,18 @@ sealed class MainForm : Form
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         for (int i = 0; i < 4; i++) t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        t.Controls.Add(Lbl("StaticMeshes in this package:"), 0, 0); t.SetColumnSpan(t.GetControlFromPosition(0, 0)!, 3);
+        t.Controls.Add(Hint("Replace one mesh with your own model: export it, edit it in Blender, import it back. Keep the object names (<mesh>_section<N>) and the " +
+            "material names (Blender's .001 suffixes are ignored). A mesh can have at most 65,535 vertices, and the imported mesh has no collision. " +
+            "To add, move or reshape placed buildings, use the Placements tab. StaticMeshes in this package:"), 0, 0); t.SetColumnSpan(t.GetControlFromPosition(0, 0)!, 3);
         t.Controls.Add(meshes, 0, 1); t.SetColumnSpan(meshes, 3);
 
         t.Controls.Add(Lbl("Export folder:"), 0, 2); t.Controls.Add(exportFolder, 1, 2);
-        t.Controls.Add(Flow(
+        t.Controls.Add(NoWrap(
             Btn("Browse…", () => { using var d = new FolderBrowserDialog { SelectedPath = exportFolder.Text }; if (d.ShowDialog(this) == DialogResult.OK) exportFolder.Text = d.SelectedPath; }),
             Btn("Open folder", () => OpenFolder(exportFolder.Text))), 2, 2);
-        t.Controls.Add(Flow(Btn("Export selected mesh to FBX (+ textures)", ExportSelectedMesh)), 1, 3);
+        t.Controls.Add(Flow(Btn("Export selected mesh to FBX (+ textures)", ExportSelectedMesh),
+            Btn("UV info", () => { if (SelectedMesh() is { } m) RunCommand($"UV info {m.Name}", ["--uv-info", packagePath, m.Path], false); }),
+            Btn("Round-trip self-test", () => { if (SelectedMesh() is { } m) RunCommand($"Round-trip test {m.Name}", ["--verify-import-roundtrip", packagePath, m.Path], false); })), 1, 3);
 
         t.Controls.Add(Lbl("FBX to import:"), 0, 4); t.Controls.Add(fbxPath, 1, 4);
         t.Controls.Add(Btn("Browse…", () =>
@@ -360,18 +412,20 @@ sealed class MainForm : Form
     {
         var page = new TabPage("Backups");
         backups.Columns.Add("Package", 380); backups.Columns.Add("Status", 170); backups.Columns.Add("Live size", 110, HorizontalAlignment.Right);
-        backups.Columns.Add("Live date", 140); backups.Columns.Add("Undo / redo", 100, HorizontalAlignment.Center);
+        backups.Columns.Add("Live date", 140); backups.Columns.Add("Undo / redo", 100);
         backups.Columns.Add("Original (.bak) size", 140, HorizontalAlignment.Right);
         backups.Resize += (_, _) => FillLastColumn(backups);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        t.Controls.Add(Lbl("Packages with a .bak (the original). \"Modified\" = live file differs from its .bak. Undo / redo steps back through this tool's changes (Ctrl+Z / Ctrl+Y here)."), 0, 0);
+        t.Controls.Add(Hint("Every package with its original kept as .bak. MODIFIED = the game file differs from its original. Select one: Undo steps back one write " +
+            "(Ctrl+Z), Redo steps forward (Ctrl+Y), Revert puts the original back. Undo / redo shows the steps available."), 0, 0);
         t.Controls.Add(backups, 0, 1);
         t.Controls.Add(Flow(
             Btn("Refresh", RefreshBackups),
             Btn("Undo last change", () => UndoRedoSelected(undo: true)),
             Btn("Redo", () => UndoRedoSelected(undo: false)),
             Btn("Revert selected to original…", RevertSelected),
+            Btn("Show history", () => { if (backups.SelectedItems.Count == 1) RunCommand("History", ["--history", Path.Combine(gameFolder.Text, backups.SelectedItems[0].Text)], false); }),
             Btn("Open selected package", () => { if (backups.SelectedItems.Count == 1) OpenPackage(Path.Combine(gameFolder.Text, backups.SelectedItems[0].Text)); })), 0, 2);
         backups.KeyDown += (_, e) =>
         {
@@ -386,12 +440,15 @@ sealed class MainForm : Form
     {
         var page = new TabPage("Zones");
         zones.Columns.Add("Zone", 160); zones.Columns.Add("Main level package", 260); zones.Columns.Add("Status", 200);
-        zones.Columns.Add("Undo / redo", 100, HorizontalAlignment.Center);
+        zones.Columns.Add("Undo / redo", 100);
         zones.Resize += (_, _) => FillLastColumn(zones);
         zones.SelectedIndexChanged += (_, _) => ShowZoneInfo();
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5 };
-        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, RowCount = 6 };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Absolute, 175));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        page.AutoScroll = true;
         t.Controls.Add(Lbl("Rebuild a zone's main level from its original with the full placeholder recipe (sky, distant building boxes, ground, water). " +
             "One verified write: Undo on the Backups tab takes the whole rebuild back."), 0, 0);
         t.Controls.Add(zones, 0, 1);
@@ -406,6 +463,7 @@ sealed class MainForm : Form
             Btn("Refresh", RefreshZones),
             Btn("Dry run (game untouched)", () => BuildSelectedZone(dryRun: true)),
             Btn("Build and write to game…", () => BuildSelectedZone(dryRun: false))), 0, 4);
+        t.Controls.Add(BuildBakeSection(), 0, 5);
         page.Controls.Add(t);
         return page;
     }
@@ -421,8 +479,10 @@ sealed class MainForm : Form
                 : new FileInfo(live).Length == new FileInfo(live + ".bak").Length && File.ReadAllBytes(live).AsSpan().SequenceEqual(File.ReadAllBytes(live + ".bak")) ? "original (same as .bak)"
                 : "modified";
             var (u, r) = File.Exists(live) ? History.Counts(live) : (0, 0);
-            zones.Items.Add(new ListViewItem([z.Name, z.Package, status, u + r == 0 ? "" : $"{u} / {r}"]) { Tag = z });
+            string shown = ZonePresets.All.FirstOrDefault(p => p.Name == z.Name)?.Display ?? z.Name;
+            zones.Items.Add(new ListViewItem([shown, z.Package, status, u + r == 0 ? "" : $"{u} / {r}"]) { Tag = z });
         }
+        FitColumns(zones);
         if (zones.Items.Count > 0 && zones.SelectedItems.Count == 0) zones.Items[0].Selected = true;
         ShowZoneInfo();
     }
@@ -446,7 +506,7 @@ sealed class MainForm : Form
             RefreshZones();
             RefreshBackups();
             if (string.Equals(Path.GetFullPath(Path.Combine(gameFolder.Text, z.Package)), packagePath, StringComparison.OrdinalIgnoreCase)) ReopenPackage();
-        });
+        }, writes: !dryRun);
     }
 
     /// <summary>Undo / redo the selected package's last change through the tool's history (verified restore; the .bak is untouched).</summary>
@@ -460,7 +520,7 @@ sealed class MainForm : Form
         {
             RefreshBackups();
             if (string.Equals(Path.GetFullPath(live), packagePath, StringComparison.OrdinalIgnoreCase)) ReopenPackage();
-        });
+        }, writes: true);
     }
 
     // ---------------------------------------------------------------- package
@@ -501,6 +561,7 @@ sealed class MainForm : Form
                                (hasBak ? ", has .bak" : "");
             FillExports();
             FillMeshes();
+            FillTextures();
             details.Clear();
             Log($"Opened {fi.Name}: {package.Exports.Length:N0} exports, {meshes.Items.Count} StaticMesh(es){(hasBak ? ", has .bak" : "")}");
         }
@@ -738,7 +799,7 @@ sealed class MainForm : Form
             int worst = 0;
             foreach (string t in targets) worst = Math.Max(worst, PropertyEdit.Run(t, exportPath, changes, dryRun));
             return worst;
-        }, after: () => { if (!dryRun) { bakPackagePath = ""; ReopenPackage(); LoadProperties(propExport); } });
+        }, after: () => { if (!dryRun) { bakPackagePath = ""; ReopenPackage(); LoadProperties(propExport); } }, writes: !dryRun);
     }
 
     // ---------------------------------------------------------------- meshes
@@ -766,7 +827,7 @@ sealed class MainForm : Form
         if (!dryRun && !Confirm($"Import\n  {Path.GetFileName(fbx)}\ninto\n  {Path.GetFileName(packagePath)} :: {m.Name}\n\nThe mesh's collision will be empty. A .bak of the original is kept; Backups tab reverts.\n\nTip: run the dry run first."))
             return;
         Run(dryRun ? $"Dry run import {m.Name}" : $"Import {m.Name}", () => MeshImport.Import(packagePath, m.Path, fbx, dryRun, null),
-            after: () => { if (!dryRun) ReopenPackage(); });
+            after: () => { if (!dryRun) ReopenPackage(); }, writes: !dryRun);
     }
 
     // ---------------------------------------------------------------- backups
@@ -796,7 +857,7 @@ sealed class MainForm : Form
             }
         }
         backups.EndUpdate();
-        FillLastColumn(backups);
+        FitColumns(backups);
     }
 
     static bool SameContent(string a, string b)
@@ -820,13 +881,20 @@ sealed class MainForm : Form
         {
             RefreshBackups();
             if (string.Equals(Path.GetFullPath(live), packagePath, StringComparison.OrdinalIgnoreCase)) ReopenPackage();
-        });
+        }, writes: true);
     }
 
     // ---------------------------------------------------------------- running work
 
-    void Run(string title, Func<int> work, Action? after = null)
+    void Run(string title, Func<int> work, Action? after = null, bool writes = false)
     {
+        if (writes && ZoneBuilds.GameRunning())
+        {
+            Log($"{title}: the game is running. Close it first (it keeps the packages open); nothing was written.");
+            MessageBox.Show(this, "The game is running. Close it first: it keeps the packages open, and a changed package only loads on the next start.\n\nNothing was written.",
+                "Close the game first", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         CaptureSettings();
         History.Label = title;                                            // what a write in this action is called in the undo history
         Log($"=== {title} ===");
@@ -850,6 +918,7 @@ sealed class MainForm : Form
         settings.GameFolder = gameFolder.Text;
         settings.ExportFolder = exportFolder.Text;
         settings.LastFbx = fbxPath.Text;
+        CapturePlacementSettings();
     }
 
     void Log(string line) => Console.WriteLine(line);
@@ -874,7 +943,7 @@ sealed class MainForm : Form
         ["Edit properties →"] = "Load the selected export into the Properties tab. Double-clicking a row does the same.",
         ["Where does this mesh come from?"] = "Scan the game folder: for every StaticMesh this package imports, list the packages that hold its geometry. Read-only.",
         ["Find name in folder"] = "List every package that exports or imports an object with the selected export's name. Read-only.",
-        ["Export texture(s)"] = "Write the selected texture (or every texture, if the selection isn't a texture) as .dds into the export folder. Largest mip stored in the package; full-size stock textures are in .tfc files and aren't read.",
+        ["Export texture(s)"] = "Write the selected texture (or every texture, if the selection isn't a texture) as .dds into the export folder. The largest mip available is written, including full-size mips from the game's .tfc texture caches.",
         ["Find matching packages"] = "Scan the game folder for other packages that have this exact export, and list their current values. Packages with the same name prefix are pre-checked. Read-only.",
         ["Check all shown"] = "Tick every package currently shown in the list (use the filter first to narrow it).",
         ["Uncheck all"] = "Untick every package in the list.",

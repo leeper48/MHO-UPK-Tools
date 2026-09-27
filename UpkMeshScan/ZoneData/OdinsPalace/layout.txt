@@ -1,0 +1,15 @@
+# Odin's Palace (AsgardInstanceDistrict.district): 14 cells, tiles store world positions; region not centred (server log 2026-09-25: area aabb = tile bounds)
+Asgardia_INS_X0Y0	0	0
+Asgardia_INS_X0Y1	0	0
+Asgardia_INS_X0Y2	0	0
+Asgardia_INS_X0Y3	0	0
+Asgardia_INS_X1Y0	0	0
+Asgardia_INS_X1Y1	0	0
+Asgardia_INS_X1Y2	0	0
+Asgardia_INS_X1Y3	0	0
+Asgardia_INS_X2Y0	0	0
+Asgardia_INS_X2Y1	0	0
+Asgardia_INS_X2Y2	0	0
+Asgardia_INS_X2Y3	0	0
+Asgardia_Bridge_EXT_INS_A	0	0
+Asgardia_Bridge_EXT_INS_B	0	0
