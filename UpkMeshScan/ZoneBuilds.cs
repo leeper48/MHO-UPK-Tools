@@ -103,6 +103,8 @@ static class ZoneBuilds
             // --scale 0.6 (0.7 read a little bright next to the real buildings). --lod-shrink pulls every face 6 units in
             // along its normal and --lod-drop 4 lowers it, so each LOD surface sits just inside the real one (ICP's cells
             // are still drawn past 3500: coincident surfaces z-fought).
+            // The water first: its cubemap (brooklyn_docks_cubea, ~68 KB) also stands in for the LOD materials' reflection slot.
+            ["--copy-export", lib, water, Target, "--cut", "physmaterial"],
             ["--import-texture", Target, template, "icp_lod_emissive_spec", Data + "lod_emissive_spec.dds"],
             ["--import-texture", Target, template, "icp_lod_flat_nrml", Data + "lod_flat_nrml.dds"],
             .. Enumerable.Range(1, LodBundles).SelectMany(n => new[]
@@ -110,7 +112,9 @@ static class ZoneBuilds
                 new[] { "--import-texture", Target, template, $"icp_lod_bundle{n}_diff", Data + $"lod_bundle{n}_diff.dds" },
                 ["--copy-export", Library + "SCS__DailyRHighTownInvasionRegionL30_SF.upk", sf + "_mat", Target, "--cut", "physmaterial", "--rename", $"icp_lod_bundle{n}_mat",
                     "--replace-ref", sf + $"_diff=maptemplates.sky.icp_lod_bundle{n}_diff", "--replace-ref", sf + "_spec=maptemplates.sky.icp_lod_emissive_spec",
-                    "--replace-ref", sf + "_nrml=maptemplates.sky.icp_lod_flat_nrml"],
+                    "--replace-ref", sf + "_nrml=maptemplates.sky.icp_lod_flat_nrml",
+                    // Reflection is off (spec B = 0), but the storefront's chrome cubemap (~790 KB) came along with it.
+                    "--replace-ref", "madripoor_hitown_trffcbarrier.madripoor_hitown_chromecuberef_mat=brooklyn_terrain.brooklyn_docks_cubea"],
             }),
             // MinDrawDistance 2500 (3500 left a small gap where the real cells had already streamed out).
             ["--add-cell-placeholders", Target, Data + "raster.fbx", "--from-live", "--min-draw", "2500",
@@ -120,16 +124,10 @@ static class ZoneBuilds
                 // The random middle block (two rows of 3 cells that swap between seeds): no building LOD there, or a
                 // swapped run would show warehouses in the wrong row. The ground plane still covers it.
                 "--lod-exclude-box", "2304,-1152,9216,3456"],
-            ["--copy-export", lib, water, Target, "--cut", "physmaterial"],
             // Water: the stock harbour water is terrain_flat_filler at -116 in the cells (removed from those tiles with
             // --remove-components, 2026-09-25), so two layers just under it (-121, -126: translucent, reads as depth), with
             // a hole over the two AIM Sub cells, which keep their own pit water at -205.
-            // No --sky-drop: the dome maps the photo's bottom rows (v 0.9..1) to 0..6 degrees above the horizon and v 0 to the
-            // poles (mirrored top/bottom; colour-band test 2026-09-26), so the city already sits on the horizon and any drop
-            // hides it. City size is set in the texture instead: ICP_Sky.dds (4096x2048) = ICP_Sky_photo.dds with its city
-            // rows (bottom 10%) squeezed into the bottom 2.5% (about 3 degrees tall), twice around below v 0.55 (small city) and once around above v
-            // 0.45 (no repeated cloud streaks where the copies converge toward the pole), crossfaded between; rows above v
-            // 0.25 flattened to their average colour (fading back to the photo by 0.40), so nothing pinches at the zenith.
+            // No --sky-drop: lowering the dome only sinks the horizon into the height fog (2026-09-26).
             ["--add-sky-placeholders", Target, "none", "--ground-z", "-121", "--ground-box", icpWater, "--ground-material", water, "--ground-grid", "4608"],
             // Sky (2026-09-27, Kurt's option A): the stock procedural sky and its moving clouds stay on the stock dome. Our city
             // skyline is an inner dome (80%: 2% z-fought at ~2M units) with a masked, two-sided, emissive copy of
@@ -238,7 +236,7 @@ static class ZoneBuilds
         else cells.AddRange(["--always-fbx", Data + "ground.fbx"]);
         steps.Add([.. cells]);
         steps.Add(["--copy-export", lib, water, Target, "--cut", "physmaterial"]);
-        steps.Add(["--add-sky-placeholders", Target, "none", "--ground-z", "-80", "--ground-box", boxes, "--ground-material", water, "--ground-grid", "4608", "--sky-drop", "0.2"]);
+        steps.Add(["--add-sky-placeholders", Target, "none", "--ground-z", "-80", "--ground-box", boxes, "--ground-material", water, "--ground-grid", "4608"]);
         steps.Add(["--set-property", Target, "maptemplates.sky.m_procedural_sky_daytime", "param:horizoncolor=0.0312,0.0857,0.1355",
             "param:zenithcolor=0,0.0312,0.0829", "param:rimcolor=0.5,0.3688,0.1631", "param:sun=5,3,1", "param:cloudbrightness=0.5"]);
         return steps;

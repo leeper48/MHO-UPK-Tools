@@ -124,7 +124,7 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
   2. Facade: import 3 textures, then copy `madripoor_hitown_storefront_a_mat` (opaque, UseEmissive on) as `ht_facade_mat` with our textures.
   3. Building boxes (raster from all pieces 150+ wide with tops ≥ 250, street props skipped; MinDrawDistance 3500) plus always-drawn ground slabs, `--offset 5208,-15512`, walls textured at `--wall-uv 512`.
   4. Copy the Hightown water, as two layers (−80 and −85) in 4 boxes around the GameCenter stairwell hole.
-  5. Sky dropped 0.2 and dimmed to night.
+  5. Sky dimmed to night (its 0.2 drop was removed 2026-09-27; the dome sits at its stock position).
 - The facade texture is generated (`make_facade.py`: DXT1 diffuse + spec with R = specular, G = emissive, B = reflection, plus a flat normal). Hightown's own textures are trim atlases, not tileable facades.
 - **Odin's Palace** (`Asgard_Hub_B`, district of 12 `Asgardia_INS` tiles + 2 bridge cells, library `SCS__DailyGAsgardINSTRegionL40_SF`; region not centred, no offset), 10 steps:
   1. Sky backdrop copies.
