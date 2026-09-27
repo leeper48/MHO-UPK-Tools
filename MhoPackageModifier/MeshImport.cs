@@ -121,11 +121,16 @@ static class MeshImport
         WriteLive(upkPath, packageBytes, onDisk => PackageWriter.Verify(original, Package.FromBytes(onDisk), exportIndex, exportBytes));
 
     /// <summary>Same as above, with the caller's verifier run on the temp file's bytes as read back from disk.</summary>
-    public static bool WriteLive(string upkPath, byte[] packageBytes, Func<byte[], List<string>> verifyFromDisk)
+    /// <param name="bakBeside">
+    /// False for files whose folder the game may scan wholesale (MHO Extended Mod Manager's .string files in Data\Game\Loco):
+    /// no .bak is put next to them; the caller keeps the original elsewhere. Temp file, verification, swap and undo history are the same.
+    /// </param>
+    public static bool WriteLive(string upkPath, byte[] packageBytes, Func<byte[], List<string>> verifyFromDisk, bool bakBeside = true)
     {
         if (Locked(upkPath)) return false;
         string bak = upkPath + ".bak";
-        if (!File.Exists(bak))
+        if (!bakBeside) Console.WriteLine("  backup: the original is kept outside the game folder by the caller");
+        else if (!File.Exists(bak))
         {
             if (File.GetLastWriteTime(upkPath).Date != StockDate)
                 Console.WriteLine($"  warning: {Path.GetFileName(upkPath)} is dated {File.GetLastWriteTime(upkPath):yyyy-MM-dd}, not the 2024-03-14 stock date; the backup will be of an already-modified file.");
@@ -146,6 +151,22 @@ static class MeshImport
         if (!TryReplace(temp, upkPath)) return false;
         if (!SameHash(File.ReadAllBytes(upkPath), packageBytes)) { Console.WriteLine("  WARNING: live file doesn't match what was written. Run --revert."); return false; }
         Console.WriteLine($"  written: {Path.GetFileName(upkPath)} replaced and verified. Undo with --undo \"{upkPath}\" (or --revert for the original)");
+        return true;
+    }
+
+    /// <summary>
+    /// Creates the missing .bak from a known-original copy (e.g. a stock-checksum-verified one) instead of from the live
+    /// file, which may already be modded. Never touches an existing .bak. Written to a temp file, verified, then renamed.
+    /// </summary>
+    public static bool CreateBak(string upkPath, byte[] original)
+    {
+        string bak = upkPath + ".bak";
+        if (File.Exists(bak)) return true;
+        string temp = bak + ".tmp";
+        File.WriteAllBytes(temp, original);
+        if (!SameHash(File.ReadAllBytes(temp), original)) { File.Delete(temp); Console.WriteLine($"  {Path.GetFileName(bak)}: temp copy didn't read back identically; not created."); return false; }
+        File.Move(temp, bak, overwrite: false);
+        Console.WriteLine($"  backup: created {Path.GetFileName(bak)} from the verified original");
         return true;
     }
 

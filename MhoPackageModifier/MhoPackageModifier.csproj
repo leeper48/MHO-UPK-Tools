@@ -5,7 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.50.0</Version>
+    <Version>2.50.1</Version>
     <AssemblyName>MHO_UPK_Mod</AssemblyName>
     <Product>MHO Package Modifier</Product>
     <AssemblyTitle>MHO Package Modifier</AssemblyTitle>
@@ -16,6 +16,10 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="AssimpNet" Version="5.0.0-beta1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- MHO Extended Mod Manager reuses the package code, the write path and the theme. -->
+    <InternalsVisibleTo Include="MHO_Ext_ModManager" />
   </ItemGroup>
   <ItemGroup>
     <!-- Zone recipe inputs (placeholder FBX, facade textures), used by the build-zone command and the Zones tab. -->

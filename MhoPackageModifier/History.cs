@@ -16,6 +16,13 @@ static class History
 {
     public const int MaxEntries = 20;
 
+    /// <summary>
+    /// Files over <see cref="LargeFileBytes"/> keep only this many undo steps: every step is a full copy (MHO Extended Mod
+    /// Manager's 316 MB sound package took 736 MB after one on/off), and such files can be rebuilt from their originals.
+    /// </summary>
+    public const int MaxEntriesLarge = 3;
+    public const long LargeFileBytes = 100L << 20;
+
     /// <summary>What the next recorded change is called (CLI: the command line; GUI: the action's title).</summary>
     public static string Label { get; set; } = string.Join(' ', Environment.GetCommandLineArgs().Skip(1).Select(a => Path.IsPathRooted(a) ? Path.GetFileName(a) : a));
 
@@ -77,7 +84,8 @@ static class History
             foreach (var r in redo) TryDelete(Snap(dir, r));
             redo.Clear();
             undo.Add(entry);
-            while (undo.Count > MaxEntries) { TryDelete(Snap(dir, undo[0])); undo.RemoveAt(0); }
+            int keep = Math.Max(before.Length, after.Length) > LargeFileBytes ? MaxEntriesLarge : MaxEntries;
+            while (undo.Count > keep) { TryDelete(Snap(dir, undo[0])); undo.RemoveAt(0); }
             Save(dir, undo, redo);
             Console.WriteLine($"  history: saved the previous version (undo with --undo \"{upkPath}\"; {undo.Count} step(s) kept)");
         }
