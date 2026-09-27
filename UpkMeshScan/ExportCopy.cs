@@ -64,6 +64,14 @@ static class ExportCopy
                 int fi = Enumerable.Range(0, src.Imports.Length).FirstOrDefault(i => ImportPath(i).Equals(from, StringComparison.OrdinalIgnoreCase), -1);
                 if (fi >= 0) fRef = -(fi + 1);
             }
+            if (to.Equals("none", StringComparison.OrdinalIgnoreCase) && fRef != 0)
+            {
+                // =none: references to it become null (e.g. a mesh's section material, when the placed component
+                // supplies the materials, as meshes cooked into tiles have).
+                replaced[fRef] = 0;
+                Console.WriteLine($"  references to {from} set to none");
+                continue;
+            }
             int t = Array.FindIndex(dst.Exports, e => dst.PathOf(e).Equals(to, StringComparison.OrdinalIgnoreCase));
             if (fRef == 0 || t < 0) { Console.WriteLine($"  --replace-ref {from}={to}: {(fRef == 0 ? "no such export or import in the source" : "no such export in the target")}"); return 2; }
             replaced[fRef] = t + 1;

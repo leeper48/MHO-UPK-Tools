@@ -26,6 +26,14 @@ static class MeshImport
         return Finish(pkg, index, original, built);
     }
 
+    /// <summary>The package with StaticMesh export <paramref name="index"/> rebuilt from <paramref name="built"/>, verified as --import-fbx is.</summary>
+    internal static byte[] ReplaceMesh(Package pkg, int index, BuiltMesh built, out List<string> problems)
+    {
+        var p = Finish(pkg, index, StaticMesh.Read(pkg, pkg.Exports[index]), built);
+        problems = p.Problems;
+        return p.PackageBytes;
+    }
+
     static Prepared Finish(Package pkg, int index, StaticMesh original, BuiltMesh built)
     {
         byte[]? exportBytes = null;

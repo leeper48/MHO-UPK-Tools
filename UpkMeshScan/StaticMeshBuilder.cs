@@ -46,15 +46,23 @@ static class StaticMeshBuilder
         if (missing.Count > 0)
             throw new InvalidDataException($"FBX has no triangles for material(s): {string.Join(", ", missing)} (sections are matched by material name; removing a section isn't supported yet)");
 
+        return BuildBySection(original, original.Sections.Select(o => byMaterial[o.MaterialName]).ToList());
+    }
+
+    /// <summary>As Build, with the imported geometry given per original section (index i = section i).</summary>
+    public static BuiltMesh BuildBySection(StaticMesh original, IReadOnlyList<ImportedSection> perSection)
+    {
+        if (perSection.Count != original.Sections.Length) throw new InvalidDataException($"{perSection.Count} imported sections for {original.Sections.Length} in the mesh");
         int channels = original.NumTexCoords;
         var positions = new List<Vector3>(); var normals = new List<Vector3>();
         var uvs = Enumerable.Range(0, channels).Select(_ => new List<Vector2>()).ToArray();
         var indices = new List<int>();
         var sections = new List<StaticMeshSection>();
 
-        foreach (StaticMeshSection o in original.Sections)
+        for (int si = 0; si < original.Sections.Length; si++)
         {
-            ImportedSection s = byMaterial[o.MaterialName];
+            StaticMeshSection o = original.Sections[si];
+            ImportedSection s = perSection[si];
             int baseVertex = positions.Count, firstIndex = indices.Count;
             positions.AddRange(s.Positions); normals.AddRange(s.Normals);
             for (int c = 0; c < channels; c++) uvs[c].AddRange(c < s.TexCoords.Length && s.TexCoords[c].Count == s.Positions.Count ? s.TexCoords[c] : Enumerable.Repeat(Vector2.Zero, s.Positions.Count));

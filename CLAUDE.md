@@ -9,7 +9,7 @@ AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation i
 UpkMeshScan/     MHO Package Modifier (MHO_UPK_Mod.exe; the folder/namespace keep the old UpkMeshScan name). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default), AssimpNet. v2.40.0
 ```
 
-Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `UpkMeshScan/publish/` (gitignored). Generated files go in `publish/exports`; `publish/imports` holds only Kurt's edited files.
+Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `UpkMeshScan/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
 
 Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds UpkMeshScan into AnimExportCli. UpkMeshScan now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
 
@@ -158,6 +158,16 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 - `--sky-coverage <pkg> <component[,...|prefix*]> [--from x,y,z]` maps which view directions placed backdrop meshes cover (# = mesh, . = black sky).
 - `--add-component-copies <pkg> <component> --yaw y[:pitch[:roll]],...` adds rotated copies of a placed component to its collection actor, with an empty lighting record.
 - Odin's Palace (`Asgard_Hub_B`): the `starfield_a` backdrop (unlit nebula + stars) covered only ~130° below the horizon. Copies at yaw +90/180/270 fix the sides, and roll 180 at 4 yaws fixes the top: 100% coverage, "perfect".
+
+## Placement round trip (UpkMeshScan): confirmed in-game
+
+- `--export-placements <folder> <layout> <library> --out f.fbx --offset X,Y[,Z]` writes one FBX object per placement (`T<tile>_E<export>_<mesh>`) plus `<name>_placements.txt` (id, tile, component path, game matrix, `# offset`).
+- `--import-placements <folder> <sidecar> <edited.fbx> --keep-lighting [--apply-deletes] [--dry-run]` applies changes with one verified write per tile. The file-to-game map is fitted from the originals (outliers refitted out), so Blender's export settings don't matter:
+  - `.001` duplicates are added as copies of the original's component.
+  - Moved, rotated or scaled originals are updated in place and keep their own lighting.
+  - With `--apply-deletes`, originals missing from the file are taken off their collection actor's list. This is refused if more than half are missing.
+- **Mesh edits (v2.44.0):** each placement's file geometry (its section children, mapped back through the fitted axis conversion) is compared with its stock mesh. Every file triangle centre must sit on a stock one, and every stock triangle with area must be present. Blender drops duplicate and degenerate faces, and near-coincident stock vertices make corner matching unreliable: counts gave 4 false edits, corner sets 77. Edited geometry becomes a new StaticMesh in the tile, `<mesh>_<tile>_e<N>` (unique across tiles, because objects are identified by path). It is copied from the tile or the region library (`--library`, which new sidecars name in a `# library` line), with its section materials and body setup nulled (`--replace-ref x=none`: the component supplies the materials), then rebuilt like `--import-fbx` (no collision). Sections are identified by object name (`_s0.004` in Blender, `_s0001` in our own export); Blender's mesh names (`Mesh.034`) carry nothing. Lightmap UVs come from the stock vertex nearest in UV0. The kept lighting record is safe when it's a texture lightmap (wall_a: 1 LOD, 0 shadow maps, 0 shadow-vertex buffers, type 2); per-vertex records get empty lighting. Winding is kept (5,000 sampled triangles, all as stock).
+- Always use `--keep-lighting`: new pieces copy the original's lighting record, otherwise they render dark. Components placed by a standalone actor can't be moved or deleted this way; they are skipped. `--test-placements` is the math self-test (one add, one move).
 
 ## Undo / redo
 

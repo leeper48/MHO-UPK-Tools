@@ -98,6 +98,38 @@ static class Program
                 float.Parse(IOpt("--min-draw", "3500"), inv), float.Parse(IOpt("--z-offset", "0"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
         }
 
+        int expPlAt = Array.FindIndex(args, a => a.Equals("--export-placements", StringComparison.OrdinalIgnoreCase));
+        if (expPlAt >= 0)
+        {
+            // --export-placements <folder> <layout.txt> <library.upk> --out f.fbx [--offset X,Y] [--min-footprint 100] [--min-height 100] [--skip a,b] [--skip-material a,b]
+            string EOpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            if (expPlAt + 3 >= args.Length || EOpt("--out", "").Length == 0) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var o = EOpt("--offset", "0,0,0").Split(',').Select(v => float.Parse(v, inv)).Concat([0f, 0f, 0f]).Take(3).ToArray();
+            return PlacementExchange.Export(args[expPlAt + 1], args[expPlAt + 2], args[expPlAt + 3], EOpt("--out", ""), new System.Numerics.Vector3(o[0], o[1], o[2]),
+                float.Parse(EOpt("--min-footprint", "100"), inv), float.Parse(EOpt("--min-height", "100"), inv),
+                EOpt("--skip", "terrain_flat_filler,godray,lightbeam").Split(',', StringSplitOptions.RemoveEmptyEntries),
+                EOpt("--skip-material", "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+        }
+        // --library <pkg>: the region library the tiles' meshes come from (for mesh edits; new sidecars name it).
+        string? PlLibrary(string folder)
+        {
+            int li = Array.FindIndex(args, a => a.Equals("--library", StringComparison.OrdinalIgnoreCase));
+            if (li < 0 || li + 1 >= args.Length) return null;
+            string l = args[li + 1];
+            return File.Exists(l) ? Path.GetFullPath(l) : Path.Combine(folder, l.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? l : l + ".upk");
+        }
+        int testPlAt = Array.FindIndex(args, a => a.Equals("--test-placements", StringComparison.OrdinalIgnoreCase));
+        if (testPlAt >= 0 && testPlAt + 3 < args.Length) return PlacementExchange.SelfTest(args[testPlAt + 1], args[testPlAt + 2], args[testPlAt + 3], PlLibrary(args[testPlAt + 1]));
+        int impPlAt = Array.FindIndex(args, a => a.Equals("--import-placements", StringComparison.OrdinalIgnoreCase));
+        if (impPlAt >= 0)
+        {
+            // --import-placements <folder> <placements.txt> <edited.fbx> [--keep-lighting] [--apply-deletes] [--library <pkg>] [--dry-run]
+            if (impPlAt + 3 >= args.Length) { Usage(); return 2; }
+            return PlacementExchange.Import(args[impPlAt + 1], args[impPlAt + 2], args[impPlAt + 3], args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                args.Any(a => a.Equals("--keep-lighting", StringComparison.OrdinalIgnoreCase)), args.Any(a => a.Equals("--apply-deletes", StringComparison.OrdinalIgnoreCase)), PlLibrary(args[impPlAt + 1]));
+        }
+
         int findMicAt = Array.FindIndex(args, a => a.Equals("--find-mic", StringComparison.OrdinalIgnoreCase));
         if (findMicAt >= 0)
         {
