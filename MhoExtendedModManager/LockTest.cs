@@ -148,6 +148,45 @@ static class LockTest
                 Directory.Delete(data + "_upd", true);
                 j.LocalNote = null; lib.SaveState();
             }
+            // The post: kept in the mod (Post\), through an edit and an update in place; out of the zip, written beside it.
+            {
+                var j = M("J2");
+                string shot = Path.Combine(data, "shot.png");
+                using (var bmp = new System.Drawing.Bitmap(8, 8)) bmp.Save(shot, System.Drawing.Imaging.ImageFormat.Png);
+                ModPost.Write(j.Folder, "NEXUS TEXT", "DISCORD TEXT", [shot]);
+                var (n1, d1, i1) = ModPost.Read(j.Folder);
+                bool stored = n1 == "NEXUS TEXT" && d1 == "DISCORD TEXT" && i1.Count == 1 && Path.GetFileName(i1[0]) == "shot.png";
+                var pd = ModDraft.From(j); pd.Description = "Edited.";
+                ModWriter.Save(lib, pd, j, out _);
+                lib = ModLibrary.Load(data); j = M("J2");
+                var (n2, _, i2) = ModPost.Read(j.Folder);
+                bool keptEdit = n2 == "NEXUS TEXT" && i2.Count == 1 && File.Exists(i2[0]);
+                string zip = Path.Combine(data, "post_export.zip");
+                ModInstaller.Export(j, zip);
+                string beside = ModPost.WriteBeside(j, zip);
+                bool zipClean;
+                using (var z = System.IO.Compression.ZipFile.OpenRead(zip)) zipClean = !z.Entries.Any(e => e.FullName.StartsWith("Post/", StringComparison.OrdinalIgnoreCase) || e.FullName.StartsWith("Post\\", StringComparison.OrdinalIgnoreCase));
+                bool besideOk = File.ReadAllText(Path.Combine(beside, "nexus.txt")) == "NEXUS TEXT" && File.ReadAllText(Path.Combine(beside, "discord.md")) == "DISCORD TEXT"
+                                && File.Exists(Path.Combine(beside, "Images", "shot.png")) && Path.GetFileName(beside) == "post_export - Post";
+                // Update in place from a copy without a post: the saved post stays.
+                string psrc = Path.Combine(data + "_upd2", "J2");
+                Directory.CreateDirectory(psrc);
+                File.WriteAllBytes(Path.Combine(psrc, "Dummy.upk"), [1, 2, 3]);
+                File.WriteAllText(Path.Combine(psrc, "manifest.json"), "{ \"Name\": \"J2 Renamed\", \"Version\": \"4\", \"UpkReplacements\": [\"Dummy.upk\"] }");
+                ModInstaller.Install(psrc, lib, new List<string>(), (_, _) => true, into: j);
+                Directory.Delete(data + "_upd2", true);
+                lib = ModLibrary.Load(data); j = M("J2");
+                var (n3, _, i3) = ModPost.Read(j.Folder);
+                bool keptUpdate = j.Manifest.Version == "4" && n3 == "NEXUS TEXT" && i3.Count == 1;
+                foreach (var (ok, what) in new[] { (stored, "post saved in the mod (text and image)"), (keptEdit, "post kept through an edit"), (zipClean, "post left out of the zip"),
+                                                   (besideOk, "post written beside the zip (texts and images)"), (keptUpdate, "post kept through an update in place") })
+                {
+                    if (!ok) fails++;
+                    Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}");
+                }
+                ModPost.Write(j.Folder, null, null, []);
+                File.Delete(zip); Directory.Delete(beside, true); File.Delete(shot);
+            }
             Lock("J2"); ModLibrary.RemoveTag(M("J2"), "costume"); ModLibrary.RemoveTag(M("E"), "x-men"); lib.SaveState();
             Directory.Move(Path.Combine(data, "mods", "J2"), Path.Combine(data, "mods", "J"));
             lib.State.ModOrder = lib.State.ModOrder.Select(n => n == "J2" ? "J" : n).ToList();

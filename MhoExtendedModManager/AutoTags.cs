@@ -90,6 +90,21 @@ static class AutoTags
                      .Select(k => Alias.TryGetValue(k, out var b) ? b : k).FirstOrDefault();
     }
 
+    /// <summary>A character's display name for a name part of a package ("Spiderman" → "Spider-Man"), or null.</summary>
+    public static string? DisplayName(string token) => Hero(token) is string id ? Heroes[id].Name : null;
+
+    /// <summary>Every spelling the game uses for a package name part's character (DoctorStrange → doctorstrange, drstrange).</summary>
+    public static List<string> Spellings(string token)
+    {
+        var list = new List<string> { token.ToLowerInvariant() };
+        if (Hero(token) is string id)
+        {
+            list.Add(id);
+            list.AddRange(Alias.Where(a => a.Value == id).Select(a => a.Key.ToLowerInvariant()));
+        }
+        return list.Distinct().ToList();
+    }
+
     public enum TagClass { Character, Team, Content, Other }
     static readonly string[] Kinds = ["Costume", "Team-Up", "NPC", "Power Effects", "Power Icons", "Pet", "Zone", "Sounds"];
     static readonly HashSet<string> CharacterNames = new(Heroes.Values.Select(h => h.Name), StringComparer.OrdinalIgnoreCase);

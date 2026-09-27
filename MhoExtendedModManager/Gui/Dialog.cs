@@ -101,7 +101,9 @@ static class Dialog
             for (int i = 0; i < choices.Length; i++)
             {
                 var (label, result) = choices[i];
-                var b = i == main ? Ui.AccentButton(label, () => { DialogResult = result; }) : Ui.FlatButton(label, () => { DialogResult = result; });
+                bool isCancel = result is DialogResult.Cancel or DialogResult.No;
+                string tip = i == main ? $"{label} (Enter)" : isCancel ? $"{label} (Esc)" : label;
+                var b = i == main ? Ui.AccentButton(label, () => { DialogResult = result; }, tip) : Ui.FlatButton(label, () => { DialogResult = result; }, tip);
                 made.Add(b);
             }
             for (int i = made.Count - 1; i >= 0; i--) bar.Controls.Add(made[i]);   // right to left: first choice on the left

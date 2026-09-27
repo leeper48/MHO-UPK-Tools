@@ -21,6 +21,39 @@ sealed class ModDraft
     /// <summary>Extension: the mod's own tags and note (they travel with the mod).</summary>
     public List<string> Tags = [];
     public string Notes = "";
+    /// <summary>Extension: description, this version's changes, and the earlier versions' changelog (newest first).</summary>
+    public string Description = "";
+    public string Changes = "";
+    public List<ChangelogEntry> Changelog = [];
+    /// <summary>The mod's saved post (Kurt: kept in the mod, written out next to an exported zip): its Nexus and Discord
+    /// text (null = not saved, made fresh) and its images (source files), stored in the mod folder's Post\ subfolder.</summary>
+    public string? PostNexus, PostDiscord;
+    public List<string> PostImages = [];
+
+    /// <summary>The changelog as it will be saved: this version's changes (if any) on top of the earlier entries.</summary>
+    public List<ChangelogEntry> FullChangelog()
+    {
+        var list = Changelog.Where(e => !e.Version.Trim().Equals(Version.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        if (!string.IsNullOrWhiteSpace(Changes)) list.Insert(0, new ChangelogEntry { Version = Version.Trim(), Changes = Changes.Trim().Replace("\r\n", "\n") });
+        return list;
+    }
+
+    /// <summary>What this draft would save, for posts made before saving: texture .dds names are the source paths.</summary>
+    public ModManifest Preview()
+    {
+        var m = new ModManifest { Name = Name.Trim(), Author = NullIfEmptyText(Author), Version = NullIfEmptyText(Version), Description = NullIfEmptyText(Description), Tags = Tags.Count > 0 ? [.. Tags] : null };
+        var log = FullChangelog();
+        m.Changelog = log.Count > 0 ? log : null;
+        m.UpkReplacements = Packages.Select(p => p.File).ToList();
+        var lists = new[] { m.Replacements, m.AchievementReplacements, m.StoreReplacements };
+        for (int k = 0; k < 3; k++) lists[k].AddRange(Textures[k].Select(t => new TextureReplacement { TextureName = t.Texture, DdsFileName = t.Source }));
+        m.ExtraIconReplacements = Extra.Count > 0 ? Extra.Select(x => new ExtraIconReplacement { Package = x.Package, TextureName = x.Texture, DdsFileName = x.Source }).ToList() : null;
+        m.AudioPacks = SoundPacks.Select(Path.GetFileName).OfType<string>().ToList();
+        m.Languages = Strings.Select(s => s.Language).Distinct().ToList();
+        return m;
+    }
+
+    static string? NullIfEmptyText(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     public static ModDraft From(Mod m)
     {
@@ -33,6 +66,11 @@ sealed class ModDraft
         d.Extra = m.Manifest.Extra.Select(r => (r.Package, r.TextureName, Path.Combine(m.Folder, r.DdsFileName))).ToList();
         d.Tags = [.. m.ModTags];
         d.Notes = m.Manifest.Notes ?? "";
+        d.Description = m.Manifest.Description ?? "";
+        (d.PostNexus, d.PostDiscord, d.PostImages) = ModPost.Read(m.Folder);
+        var log = m.Manifest.Changelog ?? [];
+        d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
+        d.Changelog = log.Select(e => new ChangelogEntry { Version = e.Version, Changes = e.Changes }).ToList();
         return d;
     }
 
@@ -94,6 +132,9 @@ static class ModWriter
             var tags = d.Tags.Select(t => t.Trim()).Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             manifest.Tags = tags.Count > 0 ? tags : null;
             manifest.Notes = string.IsNullOrWhiteSpace(d.Notes) ? null : d.Notes.Trim().Replace("\r\n", "\n");
+            manifest.Description = string.IsNullOrWhiteSpace(d.Description) ? null : d.Description.Trim().Replace("\r\n", "\n");
+            var changelog = d.FullChangelog();
+            manifest.Changelog = changelog.Count > 0 ? changelog : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };
             for (int k = 0; k < lists.Length; k++)
@@ -136,6 +177,7 @@ static class ModWriter
             if (manifest.HasAudio) kinds.Add(ModType.Audio);
             manifest.Type = kinds.Count == 1 ? kinds[0] : ModType.Mixed;
             File.WriteAllText(Path.Combine(temp, "manifest.json"), JsonSerializer.Serialize(manifest, ModManifest.Json));
+            ModPost.Write(temp, d.PostNexus, d.PostDiscord, d.PostImages);   // copied before the old folder goes away
 
             // Check it reads back as the same mod before swapping it in.
             var probe = new Mod { Folder = temp, FolderName = name, Manifest = ModManifest.Load(Path.Combine(temp, "manifest.json")) };
@@ -179,4 +221,67 @@ static class ModWriter
     static bool SameFile(string a, string b) =>
         Path.GetFullPath(a).Equals(Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase) ||
         (new FileInfo(a).Length == new FileInfo(b).Length && File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b)));
+}
+
+/// <summary>
+/// A mod's saved post: &lt;mod&gt;\Post\nexus.txt, discord.md and Images\*.png|jpg (Kurt: the post text and preview pictures
+/// are kept in the mod, and written out next to the zip when it's exported). Not listed in the manifest, not in the zip:
+/// MHModManager and mod users never see it.
+/// </summary>
+static class ModPost
+{
+    public const string Folder = "Post";
+    static readonly string[] ImageExt = [".png", ".jpg", ".jpeg", ".bmp", ".gif"];
+
+    public static (string? Nexus, string? Discord, List<string> Images) Read(string modFolder)
+    {
+        string p = Path.Combine(modFolder, Folder), img = Path.Combine(p, "Images");
+        string? Text(string f) => File.Exists(Path.Combine(p, f)) ? File.ReadAllText(Path.Combine(p, f)) : null;
+        var images = Directory.Exists(img) ? Directory.GetFiles(img).Where(f => ImageExt.Contains(Path.GetExtension(f).ToLowerInvariant())).Order(StringComparer.OrdinalIgnoreCase).ToList() : [];
+        return (Text("nexus.txt"), Text("discord.md"), images);
+    }
+
+    /// <summary>Writes the post into a mod folder (texts, and the images copied under their own names). Removes it when empty.</summary>
+    public static void Write(string modFolder, string? nexus, string? discord, IEnumerable<string> images)
+    {
+        string p = Path.Combine(modFolder, Folder), img = Path.Combine(p, "Images");
+        var list = images.Where(File.Exists).ToList();
+        // Read the sources first: they may be the files about to be replaced.
+        var bytes = list.Select(f => (Name: Path.GetFileName(f), Data: File.ReadAllBytes(f))).ToList();
+        if (Directory.Exists(p)) Directory.Delete(p, true);
+        if (nexus == null && discord == null && bytes.Count == 0) return;
+        Directory.CreateDirectory(p);
+        if (nexus != null) File.WriteAllText(Path.Combine(p, "nexus.txt"), nexus.Replace("\r\n", "\n"));
+        if (discord != null) File.WriteAllText(Path.Combine(p, "discord.md"), discord.Replace("\r\n", "\n"));
+        if (bytes.Count > 0)
+        {
+            Directory.CreateDirectory(img);
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, data) in bytes)
+            {
+                string n = name, stem = Path.GetFileNameWithoutExtension(name), ext = Path.GetExtension(name);
+                for (int i = 2; !used.Add(n); i++) n = $"{stem} ({i}){ext}";
+                File.WriteAllBytes(Path.Combine(img, n), data);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Export: "&lt;zip name&gt; - Post" next to the zip, with the saved post (or a fresh one) and the images (the saved ones,
+    /// or the mod's store images, costume icons and hero portraits). Returns the folder.
+    /// </summary>
+    public static string WriteBeside(Mod mod, string zipPath)
+    {
+        string dir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(zipPath))!, Path.GetFileNameWithoutExtension(zipPath) + " - Post");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        Directory.CreateDirectory(dir);
+        var (nexus, discord, images) = Read(mod.Folder);
+        var src = PostWriter.From(mod);
+        File.WriteAllText(Path.Combine(dir, "nexus.txt"), (nexus ?? PostWriter.Nexus(src)).Replace("\r\n", "\n"));
+        File.WriteAllText(Path.Combine(dir, "discord.md"), (discord ?? PostWriter.Discord(src)).Replace("\r\n", "\n"));
+        string imgDir = Path.Combine(dir, "Images");
+        if (images.Count > 0) { Directory.CreateDirectory(imgDir); foreach (string f in images) File.Copy(f, Path.Combine(imgDir, Path.GetFileName(f)), true); }
+        else PostWriter.SaveImages(src, mod.Folder, imgDir);
+        return dir;
+    }
 }

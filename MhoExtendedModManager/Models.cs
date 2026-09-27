@@ -45,6 +45,9 @@ sealed class ModManifest
     public List<string>? Tags { get; set; }
     /// <summary>Extension: the mod's note (shown under the store image; travels with the mod). Null when none.</summary>
     public string? Notes { get; set; }
+    /// <summary>Extension: the mod's description and per-version changelog (newest first), for its Nexus / Discord posts.</summary>
+    public string? Description { get; set; }
+    public List<ChangelogEntry>? Changelog { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }
@@ -125,6 +128,13 @@ sealed class ModState
 /// </summary>
 /// <param name="Variants">Null when the JSON's Variants list is empty: the original's variants are kept (as MHModManager does).</param>
 sealed record StringReplacement(string Language, string File, ulong Id, string Text, ushort FlagsProduced = 0, IReadOnlyList<StringFile.Variant>? Variants = null);
+
+/// <summary>One version's changes (manifest extension "Changelog").</summary>
+sealed class ChangelogEntry
+{
+    public string Version { get; set; } = "";
+    public string Changes { get; set; } = "";
+}
 
 /// <summary>A mod pinned to the top or bottom of the priority order (Kurt, 2026-09-27).</summary>
 enum ModLock { None, Top, Bottom }

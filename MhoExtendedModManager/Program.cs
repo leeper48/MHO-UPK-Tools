@@ -39,6 +39,7 @@ static class Program
         ("--check-update", "--check-update", "Look for a newer version (GitHub releases of leeper48/MHO-UPK-Tools, tag extmm-v<version>)."),
         ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
+        ("--post", "--post <mod> [nexus|discord]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown)."),
         ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
     ];
@@ -56,6 +57,30 @@ static class Program
             return 2;
         }
         Updater.CleanUp();   // the *.old files a self-update left behind
+        if (args.Length == 3 && args[0].Equals("--post-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: Create Post for a library mod (read only), both tabs as PNGs.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            string? d = Settings.LibraryData(Settings.Load().LibraryPath);
+            if (d == null || ModLibrary.Load(d).Find(args[2]) is not Mod pm) return 1;
+            Directory.CreateDirectory(args[1]);
+            using var f = new Gui.PostForm(PostWriter.From(pm), pm.Folder, ModPost.Read(pm.Folder), (_, _, _) => { });   // snapshot only: nothing saved
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                foreach (int tab in new[] { 0, 1 })
+                {
+                    f.SelectTabForSnapshot(tab);
+                    await Task.Delay(400);
+                    using var b = new Bitmap(f.Width, f.Height);
+                    f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                    b.Save(Path.Combine(args[1], tab == 0 ? "post_nexus.png" : "post_discord.png"));
+                }
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--dialog-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
@@ -125,6 +150,16 @@ static class Program
             main.Shown += (_, _) => main.BeginInvoke(async () => { await main.UiSelfTest(args[1]); main.Close(); });
             Application.Run(main);
             return 0;
+        }
+        if (args.Length == 2 && args[0].Equals("--tooltip-audit", StringComparison.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var main = new Gui.MainForm();
+            int code = 0;
+            main.Shown += (_, _) => main.BeginInvoke(async () => { code = await main.TooltipAudit(args[1]); main.Close(); });
+            Application.Run(main);
+            return code;
         }
         if (args.Length >= 2 && args[0].Equals("--editor-snapshot", StringComparison.OrdinalIgnoreCase))
         {
@@ -296,8 +331,59 @@ static class Program
                     var img2 = MhoPackageModifier.TextureImport.ParseDds(File.ReadAllBytes(Path.Combine(dir, tex + "_2x.dds")), out _);
                     Check($"{tex}: 2× image scaled to the original's size ({note2})", img2 != null && img2.Width == size.Value.W && img2.Height == size.Value.H);
                 }
+                // The editor's costume filter against the real icon and store lists.
+                var icons = cat.EntriesFor(Applier.IconPackages[0].File) ?? [];
+                var stores = cat.EntriesFor(Applier.IconPackages[2].File) ?? [];
+                foreach (string pkgName in new[] { "UC__MarvelPlayer_Storm_Classic_SF.upk", "UC__MarvelPlayer_Beast_Astonishing_SF.upk", "UC__MarvelPlayer_DoctorStrange_Classic_SF.upk",
+                                                    "UC__MarvelPlayer_Spiderman_CivilWarMovie_SF.upk", "UC__MarvelPlayer_CaptainAmerica_Avengers_SF.upk", "UC__MarvelPlayer_Storm_SF.upk" })
+                {
+                    var cf = Gui.ModEditorView.CostumeFilter.FromPackage(pkgName)!;
+                    var ic = icons.Where(e => cf.Matches(e.Name)).Select(e => e.Name).ToList();
+                    var st = stores.Where(e => cf.Matches(e.Name)).Select(e => e.Name).ToList();
+                    Console.WriteLine($"  {cf.Label,-28} icons {ic.Count,3}: {string.Join(", ", ic.Take(6))}{(ic.Count > 6 ? " …" : "")}");
+                    Console.WriteLine($"  {"",-28} store {st.Count,3}: {string.Join(", ", st.Take(6))}{(st.Count > 6 ? " …" : "")}");
+                }
                 Console.WriteLine(fails == 0 ? "All image checks passed." : $"{fails} image check(s) FAILED.");
                 return fails == 0 ? 0 : 1;
+            }
+            case "--post":
+            {
+                // --post <mod> [nexus|discord]: the mod's release post (what Create Post fills in).
+                if (rest.Count < 2 || lib.Find(rest[1]) is not Mod pm) { Console.WriteLine("--post <mod> [nexus|discord]"); return 1; }
+                var src = PostWriter.From(pm);
+                if (rest.Count > 3 && rest[2].Equals("images", StringComparison.OrdinalIgnoreCase))
+                {
+                    var files = PostWriter.SaveImages(src, pm.Folder, rest[3]);
+                    files.ForEach(Console.WriteLine);
+                    Console.WriteLine($"{files.Count} image(s) saved.");
+                    return files.Count > 0 ? 0 : 1;
+                }
+                bool discord = rest.Count > 2 && rest[2].Equals("discord", StringComparison.OrdinalIgnoreCase);
+                string text = discord ? PostWriter.Discord(src) : PostWriter.Nexus(src);
+                Console.WriteLine(text);
+                Console.WriteLine($"--- {text.Length} characters");
+                return 0;
+            }
+            case "--string-usage":
+            {
+                // --string-usage <text or id>: what uses the matching English strings (the editor's Used By column).
+                string? gr = settings.ResolvedGameRoot(data);
+                if (rest.Count < 2 || gr == null) { Console.WriteLine("--string-usage <text or id> (needs the game folder)"); return 1; }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var usage = StringUsage.Load(gr);
+                if (usage == null) { Console.WriteLine("Can't read Data\\Game\\Calligraphy.sip."); return 1; }
+                Console.WriteLine($"{usage.Count:N0} string ids used by the game's data ({sw.Elapsed.TotalSeconds:0.0}s).");
+                var cat = new StockCatalog(lib, new GameState(gr, data));
+                string q = rest[1];
+                foreach (var (file, id, text) in cat.Strings("eng").Where(x => x.Id.ToString() == q || x.Text.Equals(q, StringComparison.OrdinalIgnoreCase)).OrderBy(x => StringUsage.Rank(usage.For(x.Id))))
+                {
+                    Console.WriteLine($"{id}  \"{text}\"");
+                    var u = usage.For(id);
+                    if (u.Count == 0) Console.WriteLine("    (nothing in the game's data uses it)");
+                    foreach (var x in u.Take(5)) Console.WriteLine("    " + StringUsage.Describe(x));
+                    if (u.Count > 5) Console.WriteLine($"    … {u.Count - 5} more");
+                }
+                return 0;
             }
             case "--auto-tags":
                 foreach (var m in lib.Mods) Console.WriteLine($"{m.Name}: {string.Join(", ", m.AutoTags)}");

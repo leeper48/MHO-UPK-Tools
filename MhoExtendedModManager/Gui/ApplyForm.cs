@@ -34,9 +34,9 @@ sealed class ApplyForm : Form
         t.Controls.Add(body, 0, 1);
         t.Controls.Add(footer, 0, 2);
         var buttons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 10, 0, 0) };
-        apply = Ui.AccentButton("Apply", Run);
-        cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; });
-        close = Ui.AccentButton("Close", () => { DialogResult = DialogResult.OK; });
+        apply = Ui.AccentButton("Apply", Run, tip: "Write these changes to the game (Enter).");
+        cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; }, tip: "Change nothing (Esc).");
+        close = Ui.AccentButton("Close", () => { DialogResult = DialogResult.OK; }, tip: "Close (Enter).");
         buttons.Controls.AddRange([close, apply, cancel]);
         t.Controls.Add(buttons, 0, 3);
         Controls.Add(t);

@@ -41,7 +41,7 @@ sealed class MainForm : Form
     readonly Label status = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(9f), Padding = new Padding(12, 0, 0, 0) };
     readonly Button applyButton;
     // Dark hover tips on the buttons and boxes (the mod list shows its own, per part of a card).
-    readonly ToolTip tips = Ui.NewTips();
+    readonly ToolTip tips = Ui.Tips;
     // Undo / redo of list changes (on/off, order, locks, tags): state.json as it was before each change, with a label.
     // Cleared when the set of mods changes (install, remove, rename): an older state.json would put those in the wrong place.
     readonly List<(string Json, string Label)> undo = [], redo = [];
@@ -109,7 +109,7 @@ sealed class MainForm : Form
         writeControls.AddRange([newMod, install]);
         tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
         tips.SetToolTip(extractButton, "Save original game icons, store images or strings, to make replacements from.");
-        tips.SetToolTip(install, "Add a mod from a .zip, .7z, .rar or folder. You can also drop it on the window.");
+        tips.SetToolTip(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");
         tips.SetToolTip(settingsButton, "Game folder, library folder, capture icon changes, migrate from MHModManager, about.");
         tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
         top.Controls.Add(topButtons, 3, 0);
@@ -219,7 +219,7 @@ sealed class MainForm : Form
         writeControls.AddRange([remove, edit, applyButton, tagsButton]);
         tips.SetToolTip(remove, "Send the selected mod to the Recycle Bin (turn it off and Apply first).");
         tips.SetToolTip(edit, "Open the selected mod in the Editor tab (or double-click it).");
-        tips.SetToolTip(export, "Save the selected mod as a .zip to share.");
+        tips.SetToolTip(export, "Save the selected mod as a .ZIP to share.");
         tips.SetToolTip(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
         tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
         bottom.Controls.Add(leftButtons, 0, 0);
@@ -235,7 +235,8 @@ sealed class MainForm : Form
         ph.RowStyles.Add(new RowStyle(SizeType.Percent, 40)); ph.RowStyles.Add(new RowStyle(SizeType.AutoSize)); ph.RowStyles.Add(new RowStyle(SizeType.AutoSize)); ph.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
         ph.Controls.Add(new Label { Text = "No Mod Open", AutoSize = true, Anchor = AnchorStyles.None, Font = Ui.Bold(14f), Tag = "subtle" }, 0, 1);
         var phButtons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.None, Padding = new Padding(0, 10, 0, 0) };
-        phButtons.Controls.AddRange([Ui.AccentButton("+  New Mod", () => EditMod(null)), Ui.FlatButton("Edit the Selected Mod", () => { if (Selected is Mod m) EditMod(m); })]);
+        phButtons.Controls.AddRange([Ui.AccentButton("+  New Mod", () => EditMod(null), "Make a new mod from packages, icons, store images, strings or sound packs."),
+                                    Ui.FlatButton("Edit the Selected Mod", () => { if (Selected is Mod m) EditMod(m); }, "Open the mod selected on the Mods tab in the editor.")]);
         ph.Controls.Add(phButtons, 0, 2);
         editorPlaceholder = ph;
         editorHost.Controls.Add(ph);
@@ -577,6 +578,13 @@ sealed class MainForm : Form
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
+    /// <summary>Create Post for an installed mod: the post saved in it, kept in its Post\ folder (no reload needed).</summary>
+    void CreatePost(Mod m)
+    {
+        using var f = new PostForm(PostWriter.From(m), m.Folder, ModPost.Read(m.Folder), (n, d, imgs) => ModPost.Write(m.Folder, n, d, imgs));
+        f.ShowDialog(this);
+    }
+
     // ---- Note (under the store image)
 
     void ShowNote(Mod? m)
@@ -639,6 +647,7 @@ sealed class MainForm : Form
         menu.Items.Insert(at++, new ToolStripMenuItem("Edit…", null, (_, _) => EditMod(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP…", null, (_, _) => ExportMod()));
         menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File…", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem("Create Post…", null, (_, _) => CreatePost(m)));
         menu.Items.Insert(at, new ToolStripSeparator());
         return menu;
     }
@@ -1185,6 +1194,31 @@ sealed class MainForm : Form
         File.WriteAllLines(Path.Combine(dir, "selftest.txt"), log);
     }
 
+    /// <summary>
+    /// --tooltip-audit (Kurt: tooltips on all buttons, now and later): every button in the main window, a new-mod editor,
+    /// Extract, Create Post, Apply, Update and the first-run window that has no tooltip. Writes the list; exit code 1 if any.
+    /// </summary>
+    public async Task<int> TooltipAudit(string outFile)
+    {
+        var found = new List<string>();
+        void Check(string where, Control root) { foreach (string b in Ui.MissingTips(root)) found.Add($"{where}: {b}"); }
+        await Task.Delay(1500);
+        Check("Main window", this);
+        OpenEditor(null); pages.Select(1); await Task.Delay(800);
+        if (editor != null) { foreach (int i in Enumerable.Range(0, editor.TabCount)) { editor.SelectTab(i); await Task.Delay(150); } Check("Editor", editor); }
+        CloseEditor();
+        pages.Select(2); EnsureExtract(); await Task.Delay(800);
+        Check("Extract", extractHost);
+        pages.Select(0);
+        if (lib?.Mods.FirstOrDefault() is Mod m)
+            using (var p = new PostForm(PostWriter.From(m), m.Folder, ModPost.Read(m.Folder), (_, _, _) => { })) Check("Create Post", p);
+        using (var a = new ApplyForm("plan", () => Task.FromResult((true, "")))) Check("Apply", a);
+        using (var u = new UpdateForm(new Updater.Release(new Version(9, 9, 9), "extmm-v9.9.9", "", "", Updater.ReleasesPage, "", "", 0))) Check("Update", u);
+        using (var fr = new FirstRunForm(settings)) Check("First-run setup", fr);
+        File.WriteAllLines(outFile, found.Count == 0 ? ["Every button has a tooltip."] : found);
+        return found.Count == 0 ? 0 : 1;
+    }
+
     /// <summary>--editor-snapshot: every sub-tab of the Editor tab as PNG (layout check), for a new mod or the named one.</summary>
     public async Task EditorSnapshot(string dir, string? modName)
     {
@@ -1211,8 +1245,11 @@ sealed class MainForm : Form
         OpenEditor(m);
         pages.Select(1);
         var ed = editor!;
+        await ed.SearchStringsForTest("Vision");
+        string check = ed.StringsCheck();
+        using (var b = new Bitmap(Width, Height)) { DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_strings.png")); }
         string? saved = await ed.SaveForTest();
-        File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), saved ?? "not saved");
+        File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), (saved ?? "not saved") + Environment.NewLine + check);
     }
 
     /// <summary>--extract-snapshot: the Extract tab on the store images, with one selected (layout check).</summary>
@@ -1252,7 +1289,7 @@ sealed class MainForm : Form
         }
         using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags and note left out)" : addTags != null ? " (with your tags / note)" : ""); }
+        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags and note left out)" : addTags != null ? " (with your tags / note)" : ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 

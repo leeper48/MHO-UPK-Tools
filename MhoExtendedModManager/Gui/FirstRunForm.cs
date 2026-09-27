@@ -58,7 +58,10 @@ sealed class FirstRunForm : Form
         for (int i = 0; i < row; i++) t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         t.Controls.Add(log, 0, row); t.SetColumnSpan(log, 2); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); row++;
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-        var cancel = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
+        var cancel = Ui.Tip(new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel }, "Close without setting up (the app asks again next time).");
+        Ui.Tip(ok, "Set up with these choices.");
+        Ui.Tip(browseGame, "Pick the Marvel Heroes folder (it holds UnrealEngine3 and Data).");
+        Ui.Tip(browseOld, "Pick MHModManager's folder (the one with MHModManager.exe).");
         buttons.Controls.Add(cancel); buttons.Controls.Add(ok);
         t.Controls.Add(buttons, 0, row); t.SetColumnSpan(buttons, 2); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         Controls.Add(t);

@@ -146,7 +146,7 @@ static class Ui
         }
         t.Controls.Add(box);
         var buttons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0) };
-        var ok = AccentButton("OK", () => f.DialogResult = DialogResult.OK); var cancel = FlatButton("Cancel", () => f.DialogResult = DialogResult.Cancel);
+        var ok = AccentButton("OK", () => f.DialogResult = DialogResult.OK, "OK (Enter)"); var cancel = FlatButton("Cancel", () => f.DialogResult = DialogResult.Cancel, "Cancel (Esc)");
         buttons.Controls.AddRange([cancel, ok]);
         t.Controls.Add(buttons);
         f.Controls.Add(t);
@@ -265,8 +265,26 @@ static class Ui
         return x;
     }
 
-    public static Button AccentButton(string text, Action onClick) => Style(new Button { Text = text, AutoSize = true, Padding = new Padding(10, 3, 10, 3) }, onClick, accent: true);
-    public static Button FlatButton(string text, Action onClick) => Style(new Button { Text = text, AutoSize = true, Padding = new Padding(8, 3, 8, 3) }, onClick, accent: false);
+    public static Button AccentButton(string text, Action onClick, string? tip = null) => Tip(Style(new Button { Text = text, AutoSize = true, Padding = new Padding(10, 3, 10, 3) }, onClick, accent: true), tip);
+    public static Button FlatButton(string text, Action onClick, string? tip = null) => Tip(Style(new Button { Text = text, AutoSize = true, Padding = new Padding(8, 3, 8, 3) }, onClick, accent: false), tip);
+
+    /// <summary>The app's one tooltip (dark). Every button gets a tip where it's made (Kurt: tooltips on all buttons);
+    /// --tooltip-audit lists any that don't.</summary>
+    public static readonly ToolTip Tips = NewTips();
+    public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) Tips.SetToolTip(c, text); return c; }
+
+    /// <summary>Buttons under a control that have no tooltip (on the shared tooltip or <paramref name="other"/>).</summary>
+    public static List<string> MissingTips(Control root, params ToolTip[] other)
+    {
+        var missing = new List<string>();
+        void Walk(Control c)
+        {
+            if (c is Button b && string.IsNullOrEmpty(Tips.GetToolTip(b)) && other.All(o => string.IsNullOrEmpty(o.GetToolTip(b)))) missing.Add(b.Text.Replace("&", ""));
+            foreach (Control k in c.Controls) Walk(k);
+        }
+        Walk(root);
+        return missing;
+    }
 
     /// <summary>Draws a bar above (top) or below the button's ▲ / ▼, making it a "to the top / bottom" button that matches the
     /// weight of the plain arrows (the ⤒ ⤓ glyphs came out thin).</summary>

@@ -26,6 +26,10 @@ sealed class ModEditorView : UserControl
 
     // The mod's own tags and note (manifest extension fields: they travel with the mod).
     readonly TextBox tagsBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f) };
+    // Description tab: the mod's description and this version's changes (for its Nexus / Discord posts; they travel with the mod).
+    readonly TextBox descriptionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f), Multiline = true, ScrollBars = ScrollBars.Vertical, AcceptsReturn = true };
+    readonly TextBox changesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f), Multiline = true, ScrollBars = ScrollBars.Vertical, AcceptsReturn = true };
+    readonly Label changesCaption = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 10, 0, 4) };
     readonly TextBox notesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f), Multiline = true, ScrollBars = ScrollBars.Vertical };
     readonly Label autoLabel = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Font = Ui.Regular(8.5f), Margin = new Padding(3, 2, 3, 6) };
     readonly TextBox nameBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, authorBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, versionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) };
@@ -70,6 +74,7 @@ sealed class ModEditorView : UserControl
             ? "Separate tags with commas; they go with the mod. Added automatically from the content: " + string.Join(", ", editing.AutoTags)
             : "Separate tags with commas; they go with the mod. Characters, teams, costume, powers … are added automatically from the content.";
 
+        tabs.Add("Description", DescriptionPage());
         tabs.Add("Packages", PackagesPage());
         texturePages = Enumerable.Range(0, 4).Select(k => new TexturePage(this, k)).ToArray();
         foreach (var (tp, title) in texturePages.Zip(new[] { "Icons", "Achievement Icons", "Store Images", "More Icon Packages" })) tabs.Add(title, tp);
@@ -84,9 +89,10 @@ sealed class ModEditorView : UserControl
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bottom.Controls.Add(new Label { Text = editing == null ? "New mods are added at the top of the list, turned off. Nothing in the game changes until Apply Changes." : "Saving replaces the mod's folder (the old one goes to the Recycle Bin). Nothing in the game changes until Apply Changes.", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle" }, 0, 0);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
-        var cancel = Ui.FlatButton("Cancel", () => Cancelled?.Invoke());
-        var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", Save);
-        buttons.Controls.AddRange([cancel, save]);
+        var cancel = Ui.FlatButton("Cancel", () => Cancelled?.Invoke(), tip: "Close the editor without saving (the mod stays as it was).");
+        var post = Ui.FlatButton("Create Post…", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");
+        var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", Save, tip: "Save the mod to the library. Nothing in the game changes until Apply Changes.");
+        buttons.Controls.AddRange([post, cancel, save]);
         bottom.Controls.Add(buttons, 1, 0);
         Controls.Add(body); Controls.Add(info); Controls.Add(bottom);
         Bars = [info, bottom];
@@ -107,11 +113,11 @@ sealed class ModEditorView : UserControl
     }
 
     // ---- Packages
-    Control PackagesPage() => Page(packages, Toolbar(Ui.FlatButton("Add .upk Files…", AddPackages), Ui.FlatButton("Remove", () =>
+    Control PackagesPage() => Page(packages, Toolbar(Ui.FlatButton("Add .UPK Files…", AddPackages, tip: "Add game packages (.UPK) this mod replaces; each file name must match the package it replaces."), Ui.Tip(Ui.FlatButton("Remove", () =>
         {
             foreach (DataGridViewRow r in packages.SelectedRows) draft.Packages.RemoveAll(x => x.File == (string)r.Tag!);
             RefreshPackages();
-        })), "Whole packages that replace the game's own (same file name, in CookedPCConsole).");
+        }), "Take the selected packages out of the mod.")), "Whole packages that replace the game's own (same file name, in CookedPCConsole).");
 
     void AddPackages()
     {
@@ -138,11 +144,11 @@ sealed class ModEditorView : UserControl
     }
 
     // ---- Sound packs
-    Control SoundsPage() => Page(sounds, Toolbar(Ui.FlatButton("Add .mhsfx Files…", AddSounds), Ui.FlatButton("Remove", () =>
+    Control SoundsPage() => Page(sounds, Toolbar(Ui.FlatButton("Add .MHSFX Files…", AddSounds, tip: "Add sound packs (.MHSFX): new voice lines and sounds."), Ui.Tip(Ui.FlatButton("Remove", () =>
         {
             foreach (DataGridViewRow r in sounds.SelectedRows) draft.SoundPacks.Remove((string)r.Tag!);
             RefreshSounds();
-        })), "Sound packs (.mhsfx) add new voice or sound events to the game's sound files; the mod's packages play them by name.");
+        }), "Take the selected sound packs out of the mod.")), "Sound packs (.MHSFX) add new voice or sound events to the game's sound files; the mod's packages play them by name.");
 
     void AddSounds()
     {
@@ -173,6 +179,45 @@ sealed class ModEditorView : UserControl
     /// <summary>Test / snapshot hooks: the tab count, selecting a tab, its title.</summary>
     public int TabCount => tabs.Count;
     public void SelectTab(int i) => tabs.Select(i);
+
+    /// <summary>A costume the icon tabs can filter to (Kurt): from UC__MarvelPlayer_&lt;Hero&gt;[_&lt;Costume&gt;]_SF.</summary>
+    public sealed record CostumeFilter(string Label, List<string> Heroes, string Costume)
+    {
+        /// <summary>costume_storm_classic, costumestorm_classic, store_storm_classicblack, herohor_storm_classicblack …</summary>
+        public bool Matches(string texture)
+        {
+            string t = texture.ToLowerInvariant();
+            foreach (string prefix in new[] { "costume_", "costume", "store_", "herohor_", "teamup_" })
+                if (t.StartsWith(prefix)) { t = t[prefix.Length..]; break; }
+            int u = t.IndexOf('_');
+            string hero = u < 0 ? t : t[..u], rest = u < 0 ? "" : t[(u + 1)..];
+            if (!Heroes.Contains(hero)) return false;
+            if (Costume.Length == 0) return true;
+            string c = rest.Split('_')[0];
+            return c.Length > 0 && (c.StartsWith(Costume) || Costume.StartsWith(c));
+        }
+
+        /// <summary>The filter for a UC__MarvelPlayer_&lt;Hero&gt;[_&lt;Costume&gt;]_SF package, or null for other packages.</summary>
+        public static CostumeFilter? FromPackage(string file)
+        {
+            if (!file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) return null;
+            var p = Path.GetFileNameWithoutExtension(file).Split('_', StringSplitOptions.RemoveEmptyEntries);
+            if (p.Length < 3) return null;
+            var costume = p.Skip(3).Where(x => !x.Equals("SF", StringComparison.OrdinalIgnoreCase)).ToList();
+            string hero = AutoTags.DisplayName(p[2]) ?? p[2];
+            string spaced = System.Text.RegularExpressions.Regex.Replace(string.Join(" ", costume), "(?<=[a-z0-9])(?=[A-Z])", " ");   // CivilWarMovie → Civil War Movie
+            return new CostumeFilter(costume.Count > 0 ? $"{hero} {spaced}" : hero, AutoTags.Spellings(p[2]), string.Join("", costume).ToLowerInvariant());
+        }
+    }
+
+    /// <summary>The selected costume package on the Packages tab, else the only one in the mod; null if none.</summary>
+    CostumeFilter? SelectedCostume()
+    {
+        string? file = packages.SelectedRows.Count == 1 ? packages.SelectedRows[0].Tag as string : null;
+        var costumes = draft.Packages.Select(p => p.File).Where(f => f.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (file == null || !file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) file = costumes.Count == 1 ? costumes[0] : null;
+        return file == null ? null : CostumeFilter.FromPackage(file);
+    }
     public string TabTitle(int i) => tabs.TitleAt(i);
 
     /// <summary>Test hook (--editor-save-test): visits every tab so each page loads, then saves as the Save button does.</summary>
@@ -183,17 +228,68 @@ sealed class ModEditorView : UserControl
         return SavedName;
     }
 
+    /// <summary>Test hook: the Strings tab's state (replacement column editable, rows with a Used By text).</summary>
+    public string StringsCheck() => stringsPage.Check();
+
+    /// <summary>Test hook: search the Strings tab and wait for the results and the Used By column.</summary>
+    public async Task SearchStringsForTest(string text)
+    {
+        tabs.Select(tabs.Count - 2);   // Strings
+        await Task.Delay(4000);
+        stringsPage.SearchForTest(text);
+        await Task.Delay(3000);
+    }
+
     // ---- Save
     void Save()
     {
-        draft.Name = nameBox.Text; draft.Author = authorBox.Text; draft.Version = versionBox.Text;
-        draft.Tags = tagsBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => lib.CleanTag(t) ?? t).ToList();
-        draft.Notes = notesBox.Text;
+        Collect();
         draft.Strings = stringsPage.Collect();
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
         if (saved == null) { Dialog.Show(this, error ?? "", "Can't Save Yet"); return; }
         SavedName = saved;
         Saved?.Invoke(saved);
+    }
+
+    /// <summary>The info bar's and the Description tab's fields into the draft.</summary>
+    void Collect()
+    {
+        draft.Name = nameBox.Text; draft.Author = authorBox.Text; draft.Version = versionBox.Text;
+        draft.Description = descriptionBox.Text;
+        draft.Changes = changesBox.Text;
+        draft.Tags = tagsBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => lib.CleanTag(t) ?? t).ToList();
+        draft.Notes = notesBox.Text;
+    }
+
+    /// <summary>Create Post from what's in the editor now (saved or not).</summary>
+    void CreatePost()
+    {
+        Collect();
+        draft.Strings = stringsPage.Collect();
+        using var f = new PostForm(PostWriter.From(draft), "", (draft.PostNexus, draft.PostDiscord, draft.PostImages),
+            (n, d, imgs) => { draft.PostNexus = n; draft.PostDiscord = d; draft.PostImages = imgs; }, keptWithDraft: true);
+        f.ShowDialog(this);
+    }
+
+    Control DescriptionPage()
+    {
+        var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(0, 8, 0, 0) };
+        p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
+        p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        p.Controls.Add(new Label { Text = "DESCRIPTION  ·  what the mod is, for its Nexus / Discord post (it travels with the mod)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 0, 0, 4) }, 0, 0);
+        p.Controls.Add(descriptionBox, 0, 1);
+        p.Controls.Add(changesCaption, 0, 2);
+        p.Controls.Add(changesBox, 0, 3);
+        var older = draft.Changelog.Where(e => !e.Version.Trim().Equals(draft.Version.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        p.Controls.Add(new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 0) }, 0, 4);
+        descriptionBox.Text = draft.Description.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        changesBox.Text = draft.Changes.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        void Caption() => changesCaption.Text = $"CHANGES IN THIS VERSION{(versionBox.Text.Trim().Length > 0 ? " (v" + versionBox.Text.Trim().TrimStart('v', 'V') + ")" : "")}  ·  what's new, shown in the post";
+        Caption();
+        changesCaption.Font = Ui.Bold(8.5f);
+        versionBox.TextChanged += (_, _) => Caption();
+        return p;
     }
 
     /// <summary>
@@ -215,6 +311,12 @@ sealed class ModEditorView : UserControl
         readonly Label stockInfo = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 0) }, newInfo = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 0) };
         List<TexEntry> all = [];
         bool loaded;
+        // Costume filter from the Packages tab (Kurt: open on the costume of the selected package when there is one).
+        CostumeFilter? costume;
+        string? dismissed;   // the costume the user chose Show All for
+        readonly Label costumeLabel = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(8.75f) };
+        readonly Button showAll;
+        readonly FlowLayoutPanel costumeRow = new() { AutoSize = true, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 4), Visible = false };
         int thumbRequest;
         bool Extra => view == 3;
 
@@ -227,7 +329,7 @@ sealed class ModEditorView : UserControl
         {
             this.f = f; this.view = view; Dock = DockStyle.Fill;
             float s = f.S;
-            rows = Ui.Grid(s, true, ("Texture", 0), ("Replacement .dds", 240), ("Check", 330));
+            rows = Ui.Grid(s, true, ("Texture", 0), ("Replacement .DDS", 240), ("Check", 330));
             rows.Tag = "keepselection";
 
             var left = new TableLayoutPanel { Dock = DockStyle.Left, Width = (int)(360 * s), ColumnCount = 1, RowCount = 4, Padding = new Padding(0, 0, 8, 0) };
@@ -238,7 +340,13 @@ sealed class ModEditorView : UserControl
             searchRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); searchRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             searchRow.Controls.Add(new Label { Text = "Find", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle", Padding = new Padding(0, 0, 4, 0) }, 0, 0);
             searchRow.Controls.Add(search, 1, 0);
-            left.Controls.Add(searchRow, 0, 2);
+            var searchBlock = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 1, Margin = new Padding(0) };
+            searchBlock.Controls.Add(searchRow, 0, 0);
+            showAll = Ui.FlatButton("Show All", () => { dismissed = costume?.Label; costume = null; costumeRow.Visible = false; Filter(); }, tip: "Show every texture again, not only the selected package's costume.");
+            showAll.Padding = new Padding(4, 0, 4, 0); showAll.Font = Ui.Regular(8.5f);
+            costumeRow.Controls.AddRange([costumeLabel, showAll]);
+            searchBlock.Controls.Add(costumeRow, 0, 1);
+            left.Controls.Add(searchBlock, 0, 2);
             left.Controls.Add(names, 0, 3);
 
             var previews = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(0, 8, 0, 4), Margin = new Padding(0) };
@@ -250,11 +358,11 @@ sealed class ModEditorView : UserControl
             var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = new Padding(0) };
             right.RowStyles.Add(new RowStyle(SizeType.AutoSize)); right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 55)); right.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-            string hintText = "Pick the stock texture on the left (search, then click), then choose its replacement: a .dds (DXT1, or DXT5 for soft alpha) or a PNG / JPG, converted to match the original. Double-click a name to choose straight away.";
+            string hintText = "Pick the stock texture on the left (search, then click), then choose its replacement: a .DDS (DXT1, or DXT5 for soft alpha) or a .PNG / .JPG, converted to match the original. Double-click a name to choose straight away.";
             if (Extra) hintText += "  These packages are an extension: the old MHModManager installs the mod but skips these images.";
             var hint = new Label { Text = hintText, AutoSize = true, Tag = "subtle", Padding = new Padding(2, 8, 2, 2), Dock = DockStyle.Fill };
             right.Controls.Add(hint, 0, 0);
-            var tools = Toolbar(Ui.AccentButton("Choose .dds or .png for the Selected Texture…", ChooseDds), Ui.FlatButton("Remove Replacement", RemoveRow), Ui.FlatButton("Save Original as .dds / .png…", SaveOriginal));
+            var tools = Toolbar(Ui.AccentButton("Choose .DDS or .PNG for the Selected Texture…", ChooseDds, tip: "Pick the replacement for the texture selected on the left: a .DDS, or a .PNG / .JPG converted to match the original."), Ui.FlatButton("Remove Replacement", RemoveRow, tip: "Take the selected replacements out of the mod."), Ui.FlatButton("Save Original as .DDS / .PNG…", SaveOriginal, tip: "Save the game's original of the selected texture, as a starting point for your replacement."));
             tools.Dock = DockStyle.Fill;
             right.Controls.Add(tools, 0, 1);
             right.Controls.Add(rows, 0, 2);
@@ -267,6 +375,7 @@ sealed class ModEditorView : UserControl
             names.DoubleClick += (_, _) => ChooseDds();
             rows.SelectionChanged += (_, _) => { if (rows.SelectedRows.Count == 1 && rows.SelectedRows[0].Tag is (string file, string t, string src)) { ShowStock(file, t); ShowNew(src); } };
             packagePick.SelectedIndexChanged += async (_, _) => await LoadNames();
+            VisibleChanged += (_, _) => { if (Visible && loaded) ApplyCostume(); };
             VisibleChanged += async (_, _) =>
             {
                 if (!Visible || loaded) return;
@@ -295,6 +404,17 @@ sealed class ModEditorView : UserControl
             var t = await Task.Run(() => f.catalog.EntriesFor(pkg));
             all = t ?? [];
             if (t == null) { names.Items.Clear(); names.Items.Add("(no verified original of this package)"); return; }
+            ApplyCostume();
+        }
+
+        /// <summary>Filters to the Packages tab's costume when this page has textures for it; otherwise shows everything.</summary>
+        void ApplyCostume()
+        {
+            var c = f.SelectedCostume();
+            if (c != null && (c.Label == dismissed || !all.Any(e => c.Matches(e.Name)))) c = null;
+            costume = c;
+            costumeRow.Visible = c != null;
+            if (c != null) { costumeLabel.Text = $"Showing {c.Label} (from the selected package)"; costumeLabel.ForeColor = Ui.TagCharacter; }
             Filter();
         }
 
@@ -302,7 +422,7 @@ sealed class ModEditorView : UserControl
         {
             string q = search.Text.Trim();
             names.BeginUpdate(); names.Items.Clear();
-            foreach (var e in all.Where(e => q.Length == 0 || e.Name.Contains(q, StringComparison.OrdinalIgnoreCase)).Take(5000)) names.Items.Add(e);
+            foreach (var e in all.Where(e => (q.Length == 0 || e.Name.Contains(q, StringComparison.OrdinalIgnoreCase)) && (costume == null || costume.Matches(e.Name))).Take(5000)) names.Items.Add(e);
             names.EndUpdate();
         }
 
@@ -423,31 +543,38 @@ sealed class ModEditorView : UserControl
         readonly DataGridView results;
         readonly DataGridView grid;
         readonly Label found = new() { AutoSize = true, Padding = new Padding(8, 8, 0, 0), Tag = "subtle" };
+        // Columns are found by these names, not by their (Title Case) headers: 0.21.1 changed the replacement column's
+        // header and a lookup by the old text made it read-only (Kurt couldn't type replacements until 0.22.3).
+        const string ReplacementCol = "replacement", UsedByCol = "usedby";
+        // What each game string is attached to (hero name, NPC, item, power …), from the game's data (StringUsage).
+        StringUsage? usage;
 
         public StringsPage(ModEditorView f)
         {
             this.f = f; Dock = DockStyle.Fill;
             float s = f.S;
             search.Width = (int)(420 * s); lang.Width = (int)(90 * s);
-            results = Ui.Grid(s, false, ("ID", 190), ("Original Text", 0));
+            results = Ui.Grid(s, false, ("ID", 190), ("Original Text", 0), ("Used By", 420));
+            results.Columns[^1].Name = UsedByCol;
             results.Tag = "keepselection";
-            grid = Ui.Grid(s, false, ("Lang", 60), ("File", 250), ("ID", 190), ("Original", 0), ("Replacement (Type Here)", 0));
+            grid = Ui.Grid(s, false, ("Lang", 60), ("File", 250), ("ID", 190), ("Original", 0), ("Replacement (Type Here)", 0), ("Used By", 360));
+            grid.Columns[4].Name = ReplacementCol; grid.Columns[5].Name = UsedByCol;
             grid.ReadOnly = false;
-            foreach (DataGridViewColumn c in grid.Columns) c.ReadOnly = c.Name != "Replacement (type here)";
+            foreach (DataGridViewColumn c in grid.Columns) c.ReadOnly = c.Name != ReplacementCol;
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             Ui.StyleGrid(grid);
             foreach (var st in f.draft.Strings) grid.Rows[grid.Rows.Add(st.Language, st.File, st.Id.ToString(), "", st.Text)].Tag = st;
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
             bar.Controls.AddRange([new Label { Text = "Language", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, lang,
-                new Label { Text = "Find Text or ID", AutoSize = true, Padding = new Padding(12, 8, 4, 0), Tag = "subtle" }, search, Ui.AccentButton("Search", Search), found]);
+                new Label { Text = "Find Text or ID", AutoSize = true, Padding = new Padding(12, 8, 4, 0), Tag = "subtle" }, search, Ui.AccentButton("Search", Search, tip: "Search the game's original text of the chosen language (text or string ID)."), found]);
             search.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Search(); } };
             var split = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 5 };
             split.Panel1.Controls.Add(results);
-            split.Panel1.Controls.Add(Toolbar(Ui.FlatButton("Add Selected to the Mod  ↓", AddSelected), new Label { Text = "GAME TEXT", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
+            split.Panel1.Controls.Add(Toolbar(Ui.FlatButton("Add Selected to the Mod  ↓", AddSelected, tip: "Add the selected game strings to the mod, to type their new text below."), new Label { Text = "GAME TEXT", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
             split.Panel2.Controls.Add(grid);
-            split.Panel2.Controls.Add(Toolbar(Ui.FlatButton("Remove Selected Rows", () => { foreach (DataGridViewRow r in grid.SelectedRows) grid.Rows.Remove(r); }),
-                Ui.FlatButton("Import Changes (.json)…", ImportJson), new Label { Text = "THIS MOD'S CHANGES", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
+            split.Panel2.Controls.Add(Toolbar(Ui.Tip(Ui.FlatButton("Remove Selected Rows", () => { foreach (DataGridViewRow r in grid.SelectedRows) grid.Rows.Remove(r); }), "Take the selected string changes out of the mod."),
+                Ui.FlatButton("Import Changes (.JSON)…", ImportJson, tip: "Load string changes from a .JSON in the mod format (e.g. one saved from Extract)."), new Label { Text = "THIS MOD'S CHANGES", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
             Controls.Add(split); Controls.Add(bar);
             results.CellDoubleClick += (_, _) => AddSelected();
             VisibleChanged += (_, _) =>
@@ -456,7 +583,49 @@ sealed class ModEditorView : UserControl
                 foreach (string l in f.catalog.Languages()) lang.Items.Add(l);
                 lang.SelectedItem = lang.Items.Contains("eng") ? "eng" : lang.Items.Count > 0 ? lang.Items[0] : null;
                 FillOriginals();
+                LoadUsage();
             };
+        }
+
+        public string Check()
+        {
+            bool editable = !grid.Columns[ReplacementCol].ReadOnly && grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Name != ReplacementCol).All(c => c.ReadOnly);
+            int used = results.Rows.Cast<DataGridViewRow>().Count(r => (r.Cells[UsedByCol].Value as string ?? "").Length > 0);
+            string first = results.Rows.Count > 0 ? $"{results.Rows[0].Cells["Original Text"].Value} | {results.Rows[0].Cells[UsedByCol].Value}" : "";
+            return $"replacement editable: {editable}; results {results.Rows.Count}, with Used By {used}; first: {first}";
+        }
+
+        public void SearchForTest(string text) { search.Text = text; Search(); }
+
+        Task<StringUsage?>? usageTask;
+
+        /// <summary>Starts building the index (once); Search waits for it, so hero names can be put first.</summary>
+        Task<StringUsage?> UsageTask()
+        {
+            if (usageTask != null) return usageTask;
+            string? root = f.game?.Root;
+            return usageTask = root == null ? Task.FromResult<StringUsage?>(null) : Task.Run(() => StringUsage.Load(root));
+        }
+
+        async void LoadUsage()
+        {
+            usage = await UsageTask();
+            FillUsage(results); FillUsage(grid);
+        }
+
+        /// <summary>The Used By column: the first use in plain words (+N more); every use in the cell's tooltip.</summary>
+        void FillUsage(DataGridView g)
+        {
+            if (usage == null) return;
+            foreach (DataGridViewRow r in g.Rows)
+            {
+                ulong id = r.Tag is (string, string, ulong i, string) ? i : ulong.TryParse(r.Cells["ID"].Value as string, out ulong j) ? j : 0;
+                var uses = usage.For(id);
+                var cell = r.Cells[UsedByCol];
+                cell.Value = uses.Count == 0 ? "(not used by the game's data)" : StringUsage.Describe(uses[0]) + (uses.Count > 1 ? $"  (+{uses.Count - 1} more)" : "");
+                cell.ToolTipText = uses.Count == 0 ? "" : string.Join("\n", uses.Take(25).Select(StringUsage.Describe)) + (uses.Count > 25 ? $"\n… {uses.Count - 25} more" : "");
+                cell.Style.ForeColor = uses.Count > 0 && StringUsage.Rank(uses) == 0 ? Ui.TagCharacter : Ui.Subtle;
+            }
         }
 
         async void Search()
@@ -465,9 +634,17 @@ sealed class ModEditorView : UserControl
             string q = search.Text.Trim();
             if (q.Length < 2) return;
             found.Text = "Searching…";
-            var hits = await Task.Run(() => f.catalog.Strings(l).Where(s => s.Text.Contains(q, StringComparison.OrdinalIgnoreCase) || s.Id.ToString() == q).Take(501).ToList());
+            var u = usage ??= await UsageTask();
+            var hits = await Task.Run(() =>
+            {
+                var all = f.catalog.Strings(l).Where(s => s.Text.Contains(q, StringComparison.OrdinalIgnoreCase) || s.Id.ToString() == q);
+                // Hero names first, then costumes, team-ups, powers, NPCs, the rest (exact matches before partial ones).
+                if (u != null) all = all.OrderBy(s => s.Text.Equals(q, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(s => StringUsage.Rank(u.For(s.Id)));
+                return all.Take(501).ToList();
+            });
             results.Rows.Clear();
             foreach (var h in hits.Take(500)) results.Rows[results.Rows.Add(h.Id.ToString(), h.Text)].Tag = (l, h.File, h.Id, h.Text);
+            FillUsage(results);
             results.ClearSelection();
             found.Text = hits.Count > 500 ? "500+ found (showing 500; search more precisely)" : $"{hits.Count} found  ·  double-click or select and Add";
         }
@@ -480,6 +657,7 @@ sealed class ModEditorView : UserControl
                 if (grid.Rows.Cast<DataGridViewRow>().Any(x => (string)x.Cells["ID"].Value! == id.ToString() && (string)x.Cells["Lang"].Value! == l)) continue;
                 grid.Rows.Add(l, file, id.ToString(), text, text);
             }
+            FillUsage(grid);
         }
 
         /// <summary>Shows each existing row's original text (for comparison).</summary>
@@ -524,7 +702,7 @@ sealed class ModEditorView : UserControl
             var list = new List<StringReplacement>();
             foreach (DataGridViewRow r in grid.Rows)
             {
-                string l = (string)r.Cells["Lang"].Value!, file = (string)r.Cells["File"].Value!, text = r.Cells["Replacement (type here)"].Value as string ?? "";
+                string l = (string)r.Cells["Lang"].Value!, file = (string)r.Cells["File"].Value!, text = r.Cells[ReplacementCol].Value as string ?? "";
                 ulong id = ulong.Parse((string)r.Cells["ID"].Value!);
                 // Keep an edited string's variants and flags as they were in the mod.
                 var old = r.Tag as StringReplacement;

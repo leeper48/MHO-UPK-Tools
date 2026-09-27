@@ -31,10 +31,10 @@ sealed class UpdateForm : Form
         t.Controls.Add(notes, 0, 1);
         t.Controls.Add(progress, 0, 2);
         var buttons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 10, 0, 0) };
-        update = Ui.AccentButton("Update and Restart", InstallUpdate);
-        later = Ui.FlatButton("Later", () => { DialogResult = DialogResult.Cancel; });
-        skip = Ui.FlatButton("Skip This Version", () => { SkipThis = true; DialogResult = DialogResult.Cancel; });
-        page = Ui.FlatButton("Release Page", () => Process.Start(new ProcessStartInfo(r.PageUrl) { UseShellExecute = true }));
+        update = Ui.AccentButton("Update and Restart", InstallUpdate, tip: "Download this version, check it, install it over this one (your mods and settings stay) and restart.");
+        later = Ui.FlatButton("Later", () => { DialogResult = DialogResult.Cancel; }, tip: "Not now; the app asks again later.");
+        skip = Ui.FlatButton("Skip This Version", () => { SkipThis = true; DialogResult = DialogResult.Cancel; }, tip: "Don't offer this version again at start (Check for Updates still shows it).");
+        page = Ui.FlatButton("Release Page", () => Process.Start(new ProcessStartInfo(r.PageUrl) { UseShellExecute = true }), tip: "Open the release's page on GitHub.");
         buttons.Controls.AddRange([update, later, skip, page]);
         t.Controls.Add(buttons, 0, 3);
         Controls.Add(t);
