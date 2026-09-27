@@ -54,12 +54,13 @@ sealed class MainForm : Form
 
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(4, 0, 4, 0) };
         foreach (var (label, act) in new (string, Action)[] { ("Apply", Apply), ("Enable / Disable", Toggle), ("Move Up", () => MoveSelected(-1)), ("Move Down", () => MoveSelected(1)),
-            ("Install Mod…", InstallMod), ("Export…", ExportMod), ("Remove", RemoveMod), ("Capture icon changes", CaptureIcons) })
+            ("Install Mod…", InstallMod), ("+ New Mod", () => EditMod(null)), ("Edit", () => { if (Selected is Mod m) EditMod(m); }),
+            ("Export…", ExportMod), ("Remove", RemoveMod), ("Capture icon changes", CaptureIcons) })
         {
             var b = MakeButton(label, act); writeButtons.Add(b); actions.Controls.Add(b);
         }
-        // The old manager's mod authoring tools: a later phase.
-        foreach (string a in new[] { "+ New Mod", "Edit", "Extract…" })
+        // Extract (stock icons to .dds, strings to .json): a later phase.
+        foreach (string a in new[] { "Extract…" })
             actions.Controls.Add(new Button { Text = a, AutoSize = true, Enabled = false });
 
         // Drop .zip / .7z / folders on the window to install them.
@@ -256,6 +257,48 @@ sealed class MainForm : Form
             if (first != null) { list.SelectedItems.Clear(); first.Selected = true; first.EnsureVisible(); }
         }
         ShowLog("Install", string.Join("\n", log) + (installed.Count > 0 ? "\n\nNew mods are added at the top of the list, turned off: select one, Enable, then Apply." : ""));
+    }
+
+    void EditMod(Mod? m)
+    {
+        if (readOnly || lib == null) return;
+        using var ed = new ModEditorForm(lib, game, m);
+        if (ed.ShowDialog(this) != DialogResult.OK) return;
+        Reload();
+        var item = list.Items.Cast<ListViewItem>().FirstOrDefault(i => ((Mod)i.Tag!).FolderName == ed.SavedName);
+        if (item != null) { list.SelectedItems.Clear(); item.Selected = true; item.EnsureVisible(); }
+        status.Text = (m == null ? $"Created '{ed.SavedName}' (top of the list, off)." : $"Saved '{ed.SavedName}'.") + (m?.Enabled == true ? " Apply to update the game." : "");
+    }
+
+    /// <summary>--editor-snapshot: every tab of the mod editor as PNG (layout check), for a new mod or the named one.</summary>
+    public async Task EditorSnapshot(string dir, string? modName)
+    {
+        Directory.CreateDirectory(dir);
+        var m = modName == null ? null : lib?.Find(modName);
+        using var ed = new ModEditorForm(lib!, game, m);
+        ed.Show(this);
+        var tabs = ed.Controls.OfType<ThemedTabControl>().First();
+        for (int i = 0; i < tabs.TabPages.Count; i++)
+        {
+            tabs.SelectedIndex = i;
+            await Task.Delay(i is 1 or 3 ? 6000 : 1500);   // icon names / previews load in the background
+            using var b = new Bitmap(ed.Width, ed.Height);
+            ed.DrawToBitmap(b, new Rectangle(0, 0, ed.Width, ed.Height));
+            b.Save(Path.Combine(dir, $"editor_{i}_{tabs.TabPages[i].Text.Replace(' ', '_')}.png"));
+        }
+        ed.Close();
+    }
+
+    /// <summary>--editor-save-test: opens the editor on a mod, changes nothing, saves (use with MHO_EXTMM_HOME on a scratch library).</summary>
+    public async Task EditorSaveTest(string modName)
+    {
+        var m = lib?.Find(modName);
+        if (m == null) { File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), "no such mod"); return; }
+        var ed = new ModEditorForm(lib!, game, m);
+        ed.Show(this);
+        string? saved = await ed.SaveForTest();
+        File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), saved ?? "not saved");
+        if (!ed.IsDisposed) ed.Close();
     }
 
     void ExportMod()

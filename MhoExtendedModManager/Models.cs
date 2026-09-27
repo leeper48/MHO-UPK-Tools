@@ -26,14 +26,16 @@ sealed class ModManifest
     public List<string> Languages { get; set; } = [];
     public List<string> UpkReplacements { get; set; } = [];
     public List<string> AudioPacks { get; set; } = [];
-    public bool HasTextures { get; set; }
-    public bool HasStrings { get; set; }
-    public bool HasUpkReplacements { get; set; }
-    public bool HasAudio { get; set; }
+    // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasUpkReplacements { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasAudio { get; set; }
     public ModType Type { get; set; }
-    public int TextureReplacementCount { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public int TextureReplacementCount { get; set; }
 
-    public static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
+    public static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true, WriteIndented = true, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };   // & and ' as they are, like MHModManager's files
 
     public static ModManifest Load(string path) =>
         JsonSerializer.Deserialize<ModManifest>(File.ReadAllText(path), Json) ?? throw new InvalidDataException($"{path}: empty manifest");

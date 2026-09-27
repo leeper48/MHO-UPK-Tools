@@ -7,7 +7,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
 MhoPackageModifier/  MHO Package Modifier (MHO_UPK_Mod.exe; called UpkMeshScan until 2.50.0, see "Rename" below). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default, manual on F1), AssimpNet. v2.46.0
-MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.6.0: first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
+MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.8.0: portable data folder next to the exe, mod editor (New Mod / Edit), first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `MhoPackageModifier/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
@@ -15,6 +15,15 @@ Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per
 Each tool has its own `build.bat`. AnimExportCli and MhoPackageModifier don't reference each other yet; MhoExtendedModManager references MhoPackageModifier. The planned merge folds MhoPackageModifier into AnimExportCli. MhoPackageModifier now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
 
 **Rename (2.50.0, 2026-09-27):** the folder, project (`MhoPackageModifier.csproj`) and namespace went from `UpkMeshScan` to `MhoPackageModifier`, and git keeps the files' history as renames. Settings and undo history moved to `%APPDATA%\MhoPackageModifier` / `%LOCALAPPDATA%\MhoPackageModifier`: `AppFolders` moves an old `UpkMeshScan` folder across on the first run. The old folder path is a junction to the new one (gitignored), so absolute paths saved in Kurt's Blender files keep working. The antivirus needs `C:\Dev\MHO-UPK-Tools` excluded: it quarantined freshly built DLLs twice ("application to execute does not exist", "Bad IL format").
+
+## Claude's shell sees a private AppData (found 2026-09-27)
+
+Claude's commands run inside the Claude desktop app's package. Windows **redirects their `%APPDATA%` / `%LOCALAPPDATA%` reads and writes** to `C:\Users\kjord\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\{Roaming,Local}\…`. `C:\Dev` and `G:\` are not redirected. So:
+- The MPM settings and **undo history** Claude sees are not Kurt's. Every write Claude made to the game folder (any session) was real, but its undo snapshot went to the private copy. Kurt's MPM can't undo those; Claude's view can't undo his.
+- The mod manager library / settings Claude migrated at 7:53 (78 mods) exists only in the private copy. **Kurt's real library** is the one his first-run setup migrated at 8:51 (57 enabled, Miles on); it is the truth.
+- Running things outside the package to read Kurt's real AppData was blocked as a sandbox escape; don't try again.
+- Consequences: the mod manager (0.8.0) keeps **everything in a `data` folder next to its exe**: `data\settings.json`, `data\library`, `data\history` (MPM's `History.RootOverride`). Run from `C:\Dev\…\MhoExtendedModManager\publish`, Claude and Kurt see the same state. Kurt's first start of 0.8.0 offers to move his AppData library there (`Settings.MoveFromAppData`; same drive = instant `Directory.Move`, else copy + verify + delete). MPM itself still keeps settings and history in AppData (split).
+- The private copy (2.8 GB library, 1.7 GB MPM history, including earlier sessions' undo snapshots) went to the Recycle Bin 2026-09-27 at Kurt's request, after he moved his real library into `publish\data`. From then on, Claude's dry run of the shared library showed 0 files to change, 353 right.
 
 ## Rules that are not negotiable
 
@@ -264,7 +273,20 @@ Kurt confirmed the strings in-game 2026-09-27.
 - **Export:** a .zip with manifest.json at the top, read back before it's kept. **Remove:** only when the mod is disabled and the Apply plan is empty; the folder goes to the Recycle Bin.
 - Tested in a scratch home: export of Jeff (Pet) → install into an empty library (5 files identical) → reinstall refused → remove → install from a .7z with the mod one folder down (identical) → zip without a manifest and zip-slip both refused cleanly.
 
-**Next phases:** the new-mod wizard / Edit / Extract (textures to DDS, strings to JSON), and optionally the clean download.
+Committed 2026-09-27: `9cd8d28` (MPM 2.50.1), `bdddd75` (manager 0.6.0). `StockData/upk_checksums.json` is gitignored until Kurt decides whether it can be redistributed.
+
+**Phase 7 (v0.7.0, done 2026-09-27): + New Mod / Edit** (`Gui/ModEditorForm.cs`): one window with tabs instead of the old step wizard.
+- Tabs: Info, Packages (warns on non-game package names), Icons / Achievement icons / Store images (searchable stock names from the verified icon packages, original and replacement previews, DXT1/DXT5 and size check), Strings (search the game's original strings by text or ID, add rows, edit; import a `<lang>.json`), Sound packs.
+- `ModWriter` writes MHModManager's format. New mods go at the top, disabled. An edit swaps the folder in (the old one goes to the Recycle Bin), keeps the folder when not renamed, and keeps order and enabled state.
+- Tests: `--verify-writer <scratch>`: all 78 mods re-saved, 34/34 string files and all old-manager manifests byte-identical (after matching its conventions: insertion order, relaxed escaping of `&` / `'`, false flags and empty fields left out), 83/83 unchanged edits keep folder and files. `--editor-save-test` (scratch only, needs `MHO_EXTMM_HOME`): unchanged saves through the window are byte-identical (Sentry 34 files, 90's X-Men NPC's 16, Miles 7). `--editor-snapshot <dir> [mod]` renders every tab.
+- **Found: `Icons.tfc` is modded in place.** 11 store images (`--tfc-changes Icons <copy>`; `TfcCache.All` added to MPM) differ from a stock-dated copy: `C:\Users\kjord\OneDrive\Music\Documents\Apps\MHO_Mods\MHIconManager (v1.1.1)\data\Icons.tfc.bak`, dated 2024-03-14, the same size. It's from MHIconManager, the modder's earlier icon tool. They are Vision Classic, Storm ClassicWhite, Rogue 90s, IronFist WeaponOfAgamotto, Punisher MarvelDaredevil, Beast Uncanny, Psylocke LadyMandarin, HumanTorch Inhumans, SheHulk SGF, CaptainMarvel ANAD, MsMarvel VU. Icon capture missed them (it read both sides through the live .tfc). The editor's "Original" preview shows them modded. **Proposed fix, waiting for Kurt:**
+  1. Take that copy as the original of `Icons.tfc`.
+  2. Capture the 11 as inline store replacements.
+  3. Let Apply manage `Icons.tfc` (restore stock), after a check that every store image looks the same before and after.
+
+**0.8.0 (2026-09-27): portable data folder** (Kurt: "just use an adjacent folder to the exe"). `Settings.Home` = `<exe folder>\data` (or `MHO_EXTMM_HOME`). It refuses to start if that folder can't be written (for example Program Files), with a message. First GUI start with no `data\settings.json` but an AppData library → offers to move it. Tested on scratch copies (`--move-from-appdata-test`): default library moved with files identical and old gone; a moved-elsewhere library left in place; settings saved without the computed `LibraryPath` / `IsSetUp` (now `[JsonIgnore]`). **Use one copy of the exe** (publish): a copy elsewhere has its own `data`.
+
+**Next phases:** the Icons.tfc fix above, Extract (textures to DDS, strings to JSON), and optionally the clean download.
 
 Build: `MhoExtendedModManager\build.bat`. MPM's ZoneData/Help are kept out of this app's output by two targets in the csproj. `ValidateExecutableReferencesMatchSelfContained=false` is needed because MHO_UPK_Mod is an exe.
 

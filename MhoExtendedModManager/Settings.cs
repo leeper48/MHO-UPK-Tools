@@ -6,9 +6,13 @@ namespace MhoExtendedModManager;
 
 /// <summary>
 /// Where things are: the game root (the folder holding UnrealEngine3 and Data) and the mod library.
-/// The library is automatic: %LOCALAPPDATA%\MhoExtendedModManager\library unless moved (Settings… → Move library).
+/// Everything the manager keeps lives in a "data" folder next to the exe (portable, like MHModManager):
+/// data\settings.json, data\library (unless moved: Settings… → Move library), data\history (undo snapshots).
+/// Not AppData: Claude's shell sees a private AppData (it runs inside the Claude app's package), so the two never
+/// matched; a folder next to the exe is the same for everyone. Versions up to 0.7.0 used AppData; the first start of
+/// a later version offers to move that library here (MoveFromAppData).
 /// The game root is found from Steam on first run, or asked for once.
-/// MHO_EXTMM_HOME (tests): settings and the default library go under that folder instead.
+/// MHO_EXTMM_HOME (tests): the data folder is that folder instead.
 /// </summary>
 sealed class Settings
 {
@@ -17,11 +21,68 @@ sealed class Settings
     public string? Library { get; set; }
 
     static string? TestHome => Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
-    static string SettingsFile => Path.Combine(TestHome ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MhoExtendedModManager"), "settings.json");
-    public static string DefaultLibrary => TestHome != null ? Path.Combine(TestHome, "library")
-        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MhoExtendedModManager", "library");
+    /// <summary>The data folder: next to the exe (or MHO_EXTMM_HOME).</summary>
+    public static string Home => TestHome ?? Path.Combine(AppContext.BaseDirectory, "data");
+    static string SettingsFile => Path.Combine(Home, "settings.json");
+    public static string DefaultLibrary => Path.Combine(Home, "library");
+    public static string HistoryFolder => Path.Combine(Home, "history");
 
-    public string LibraryPath => string.IsNullOrEmpty(Library) ? DefaultLibrary : Library;
+    /// <summary>Null if the data folder can be written, else why not (e.g. the exe is under Program Files).</summary>
+    public static string? CheckWritable()
+    {
+        try
+        {
+            Directory.CreateDirectory(Home);
+            string probe = Path.Combine(Home, ".write_test");
+            File.WriteAllText(probe, "ok"); File.Delete(probe);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return $"{Home}: {ex.Message}"; }
+    }
+
+    // Where versions up to 0.7.0 kept things.
+    static string LegacySettingsFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MhoExtendedModManager", "settings.json");
+    static string LegacyLibrary => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MhoExtendedModManager", "library");
+
+    /// <summary>An AppData library from an earlier version, when this data folder has no settings yet (else null).</summary>
+    public static string? FindAppDataLibrary()
+    {
+        if (TestHome != null || File.Exists(SettingsFile)) return null;
+        Settings? old = null;
+        try { if (File.Exists(LegacySettingsFile)) old = JsonSerializer.Deserialize<Settings>(File.ReadAllText(LegacySettingsFile)); }
+        catch (Exception ex) when (ex is JsonException or IOException) { }
+        string lib = string.IsNullOrEmpty(old?.Library) ? LegacyLibrary : old.Library;
+        return File.Exists(Path.Combine(lib, "state.json")) ? lib : null;
+    }
+
+    /// <summary>
+    /// Moves an earlier version's AppData library into data\library (a library the user moved elsewhere stays there)
+    /// and carries the game folder over. Returns the new settings.
+    /// </summary>
+    /// <param name="legacySettings">Test hook: the old settings file (default: the AppData one).</param>
+    /// <param name="legacyDefault">Test hook: the old default library location (default: the AppData one).</param>
+    public static Settings MoveFromAppData(string oldLibrary, string? legacySettings = null, string? legacyDefault = null)
+    {
+        legacySettings ??= LegacySettingsFile; legacyDefault ??= LegacyLibrary;
+        Settings? old = null;
+        try { if (File.Exists(legacySettings)) old = JsonSerializer.Deserialize<Settings>(File.ReadAllText(legacySettings)); }
+        catch (Exception ex) when (ex is JsonException or IOException) { }
+        var s = new Settings { GameRoot = old?.GameRoot };
+        if (Path.GetFullPath(oldLibrary).Equals(Path.GetFullPath(legacyDefault), StringComparison.OrdinalIgnoreCase))
+        {
+            if (Path.GetPathRoot(Path.GetFullPath(oldLibrary))!.Equals(Path.GetPathRoot(Path.GetFullPath(DefaultLibrary)), StringComparison.OrdinalIgnoreCase) && !Directory.Exists(DefaultLibrary))
+            {
+                Directory.CreateDirectory(Home);
+                Directory.Move(oldLibrary, DefaultLibrary);          // same drive: instant
+            }
+            else ModInstaller.MoveLibrary(oldLibrary, DefaultLibrary);   // copy, verify, delete
+        }
+        else s.Library = oldLibrary;
+        s.Save();
+        return s;
+    }
+
+    [System.Text.Json.Serialization.JsonIgnore] public string LibraryPath => string.IsNullOrEmpty(Library) ? DefaultLibrary : Library;
 
     public static Settings Load()
     {
@@ -52,7 +113,7 @@ sealed class Settings
     }
 
     /// <summary>Set up = a game folder that exists and a library with a state file (first run otherwise).</summary>
-    public bool IsSetUp =>
+    [System.Text.Json.Serialization.JsonIgnore] public bool IsSetUp =>
         GameRoot != null && IsGameRoot(GameRoot) && Settings.LibraryData(LibraryPath) is string d && File.Exists(Path.Combine(d, "state.json"));
 
     public static string Cooked(string gameRoot) => Path.Combine(gameRoot, "UnrealEngine3", "MarvelGame", "CookedPCConsole");

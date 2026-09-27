@@ -39,6 +39,15 @@ static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        // Undo snapshots of the files Apply writes go to data\history next to the exe, not AppData.
+        MhoPackageModifier.History.RootOverride = Settings.HistoryFolder;
+        bool gui = args.Length == 0 || args[0].StartsWith("--gui", StringComparison.OrdinalIgnoreCase) || args[0].StartsWith("--editor", StringComparison.OrdinalIgnoreCase) || args[0].StartsWith("--first-run", StringComparison.OrdinalIgnoreCase);
+        if (Settings.CheckWritable() is string notWritable)
+        {
+            string msg = $"MHO Extended Mod Manager keeps its settings and mods in a \"data\" folder next to the program, and can't write there:\n\n{notWritable}\n\nMove the program's folder somewhere you can write to (not Program Files), e.g. C:\\Games\\MHO Extended Mod Manager.";
+            if (gui) MessageBox.Show(msg, "MHO Extended Mod Manager"); else { AttachCliConsole(); Console.WriteLine(msg); }
+            return 2;
+        }
         if (args.Length == 2 && args[0].Equals("--first-run-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check of the setup window (with MHO_EXTMM_HOME set to a scratch folder, so nothing real is touched).
@@ -48,11 +57,38 @@ static class Program
             Application.Run(f);
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--editor-save-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.EditorSaveTest(args[1]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length >= 2 && args[0].Equals("--editor-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.EditorSnapshot(args[1], args.Length > 2 ? args[2] : null); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 0 || (args.Length == 2 && args[0].Equals("--gui-snapshot", StringComparison.OrdinalIgnoreCase)))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // A library from an earlier version (0.7.0 and before kept it in AppData): offer to move it next to the exe.
+            if (args.Length == 0 && Settings.FindAppDataLibrary() is string oldLib)
+            {
+                var answer = MessageBox.Show($"Your mod library is in AppData:\n{oldLib}\n\nThis version keeps everything next to the program instead:\n{Settings.Home}\n\nMove the library there now? (Yes is recommended. No starts the first-run setup; your AppData library is left alone.)",
+                    "MHO Extended Mod Manager", MessageBoxButtons.YesNoCancel);
+                if (answer == DialogResult.Cancel) return 0;
+                if (answer == DialogResult.Yes)
+                    try { Settings.MoveFromAppData(oldLib); MessageBox.Show($"Moved. Your mods are now in\n{Settings.DefaultLibrary}", "MHO Extended Mod Manager"); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { MessageBox.Show("The move didn't finish, and nothing was changed: " + ex.Message, "MHO Extended Mod Manager"); return 1; }
+            }
             // First run (no game folder or library yet): the setup window, then the mod list.
             var s = Settings.Load();
             if (!s.IsSetUp && args.Length == 0)
@@ -66,14 +102,7 @@ static class Program
             return 0;
         }
 
-        // CLI: attach to the launching console, UTF-8 without a BOM (as MHO Package Modifier does).
-        if (AttachConsole(-1))
-        {
-            var utf8 = new UTF8Encoding(false);
-            Console.OutputEncoding = utf8;
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
-            Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true });
-        }
+        AttachCliConsole();
         Console.WriteLine($"MHO Extended Mod Manager v{Version}");
 
         var settings = Settings.Load();
@@ -86,6 +115,34 @@ static class Program
         }
         if (rest.Count == 0) { Usage(); return 1; }
         if (rest[0].Equals("--compare-textures", StringComparison.OrdinalIgnoreCase) && rest.Count == 3) return TextureCompare.Run(rest[1], rest[2]);
+        if (rest[0].Equals("--move-from-appdata-test", StringComparison.OrdinalIgnoreCase) && rest.Count == 4)
+        {
+            // Test of the AppData → data move with explicit old paths (scratch only: needs MHO_EXTMM_HOME).
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("Set MHO_EXTMM_HOME to a scratch folder."); return 2; }
+            var s = Settings.MoveFromAppData(rest[1], rest[2], rest[3]);
+            Console.WriteLine($"moved: library now {s.LibraryPath} (setting: {s.Library ?? "default"}), game {s.GameRoot}, set up: {s.IsSetUp}");
+            return 0;
+        }
+        if (rest[0].Equals("--tfc-changes", StringComparison.OrdinalIgnoreCase) && rest.Count == 3)
+        {
+            // Diagnostic: textures whose cached mips differ between the live <cache>.tfc and a copy (read-only).
+            string? gr0 = settings.ResolvedGameRoot(Settings.LibraryData(settings.LibraryPath));
+            if (gr0 == null) { Console.WriteLine("Game folder not found."); return 1; }
+            string cooked = Settings.Cooked(gr0), live = Path.Combine(cooked, rest[1] + ".tfc");
+            using var fa = File.OpenRead(live); using var fb = File.OpenRead(rest[2]);
+            var changed = new List<string>(); int checkedMips = 0;
+            foreach (var e in MhoPackageModifier.TfcCache.All(cooked).Where(e => e.Cache.Equals(rest[1], StringComparison.OrdinalIgnoreCase)))
+                foreach (var (mip, off, size) in e.Mips.Where(m => m.Size > 0))
+                {
+                    var x = new byte[size]; var y = new byte[size];
+                    fa.Position = off; fa.ReadExactly(x); fb.Position = off; fb.ReadExactly(y);
+                    checkedMips++;
+                    if (!x.AsSpan().SequenceEqual(y)) { changed.Add($"{e.Path} (mip {mip})"); break; }
+                }
+            changed.ForEach(c => Console.WriteLine("  " + c));
+            Console.WriteLine($"{changed.Count} texture(s) differ ({checkedMips} cached mips compared).");
+            return 0;
+        }
         if (rest[0].Equals("--build-sound", StringComparison.OrdinalIgnoreCase) && rest.Count == 4)
         {
             // Test command: patch a copy of a .pck with one sound pack, outside the game folder.
@@ -171,6 +228,58 @@ static class Program
                 var game = new GameState(gr, data);
                 return IconCapture.Run(lib, game, new Originals(data, game), rest.Count > 1 ? rest[1] : null);
             }
+            case "--verify-writer":
+            {
+                // Self-test: every mod in the library re-saved by ModWriter into a scratch library (never this one), then compared.
+                if (rest.Count < 2) { Console.WriteLine("Usage: --verify-writer <empty scratch folder>"); return 1; }
+                string scratch = Path.GetFullPath(rest[1]);
+                if (scratch.StartsWith(Path.GetFullPath(data), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("The scratch folder can't be inside the library."); return 1; }
+                ModInstaller.CreateEmptyLibrary(scratch);
+                // A folder whose name differs from its mod's name (MHModManager made "Bucky …_3"), copied as is, for the edit pass.
+                foreach (var m in lib.Mods.Where(m => m.FolderName != ModInstaller.Sanitise(m.Name)))
+                    foreach (string f in Directory.GetFiles(m.Folder)) { Directory.CreateDirectory(Path.Combine(scratch, "mods", m.FolderName)); File.Copy(f, Path.Combine(scratch, "mods", m.FolderName, Path.GetFileName(f))); }
+                int bad = 0, jsonSame = 0, jsonTotal = 0, manifestSame = 0, manifestTotal = 0; var manifestDiffs = new List<string>();
+                foreach (var m in lib.Mods)
+                {
+                    var target = ModLibrary.Load(scratch);
+                    string? name = ModWriter.Save(target, ModDraft.From(m), null, out string? err);
+                    if (name == null) { Console.WriteLine($"  {m.Name}: {err}"); bad++; continue; }
+                    var w = ModLibrary.Load(scratch).Find(name)!;
+                    var diffs = new List<string>();
+                    string Norm(ModManifest x) => System.Text.Json.JsonSerializer.Serialize(new { x.Name, x.Author, x.Version, R = x.Replacements.Select(r => r.TextureName), A = x.AchievementReplacements.Select(r => r.TextureName), S = x.StoreReplacements.Select(r => r.TextureName), x.UpkReplacements, x.AudioPacks, L = x.Languages.Order() });
+                    if (Norm(m.Manifest) != Norm(w.Manifest)) diffs.Add("manifest differs");
+                    // Each referenced file: same bytes as the original's.
+                    for (int k = 0; k < Applier.IconPackages.Length; k++)
+                    {
+                        var a = Applier.IconPackages[k].List(m.Manifest); var b = Applier.IconPackages[k].List(w.Manifest);
+                        for (int i = 0; i < a.Count; i++) if (!File.ReadAllBytes(Path.Combine(m.Folder, a[i].DdsFileName)).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(w.Folder, b[i].DdsFileName)))) diffs.Add($"{a[i].TextureName} image differs");
+                    }
+                    foreach (string f in m.Manifest.UpkReplacements.Concat(m.Manifest.AudioPacks))
+                        if (new FileInfo(Path.Combine(m.Folder, f)).Length != new FileInfo(Path.Combine(w.Folder, f)).Length) diffs.Add($"{f} differs");
+                    if (!m.Strings.OrderBy(s => s.Id).Select(s => (s.Language, s.File.ToLowerInvariant(), s.Id, s.Text, s.FlagsProduced)).SequenceEqual(w.Strings.OrderBy(s => s.Id).Select(s => (s.Language, s.File.ToLowerInvariant(), s.Id, s.Text, s.FlagsProduced)))) diffs.Add("strings differ");
+                    manifestTotal++;
+                    if (File.ReadAllBytes(Path.Combine(m.Folder, "manifest.json")).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(w.Folder, "manifest.json")))) manifestSame++;
+                    else if (manifestDiffs.Count < 5) manifestDiffs.Add(m.Name);
+                    foreach (string lang in m.Manifest.Languages)
+                    {
+                        jsonTotal++;
+                        if (File.ReadAllBytes(Path.Combine(m.Folder, lang + ".json")).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(w.Folder, lang + ".json")))) jsonSame++;
+                    }
+                    if (diffs.Count > 0) { bad++; Console.WriteLine($"  {m.Name}: {string.Join("; ", diffs.Take(3))}"); }
+                }
+                Console.WriteLine($"{lib.Mods.Count - bad} of {lib.Mods.Count} mods re-saved with the same content; {jsonSame} of {jsonTotal} string files and {manifestSame} of {manifestTotal} manifests byte-identical to the originals{(manifestDiffs.Count > 0 ? " (manifests differ: " + string.Join(", ", manifestDiffs) + ")" : "")}.");
+                // Pass 2: every mod in the scratch library saved again as an unchanged edit of itself: same folder, same files.
+                var sl = ModLibrary.Load(scratch); int editBad = 0;
+                foreach (var m in sl.Mods.ToList())
+                {
+                    var before = Directory.GetFiles(m.Folder).Select(f => (Path.GetFileName(f), new FileInfo(f).Length)).OrderBy(x => x.Item1).ToList();
+                    string? name = ModWriter.Save(ModLibrary.Load(scratch), ModDraft.From(ModLibrary.Load(scratch).Find(m.FolderName)!), ModLibrary.Load(scratch).Mods.First(x => x.FolderName == m.FolderName), out string? err);
+                    var after = name == null ? [] : Directory.GetFiles(Path.Combine(scratch, "mods", name)).Select(f => (Path.GetFileName(f), new FileInfo(f).Length)).OrderBy(x => x.Item1).ToList();
+                    if (name != m.FolderName || !before.SequenceEqual(after)) { editBad++; Console.WriteLine($"  edit of {m.FolderName}: {(name == null ? err : name != m.FolderName ? "moved to " + name : "files differ")}"); }
+                }
+                Console.WriteLine($"{sl.Mods.Count - editBad} of {sl.Mods.Count} unchanged edits kept their folder and files.");
+                return bad == 0 && editBad == 0 ? 0 : 1;
+            }
             case "--verify-strings":
             {
                 string? gr = settings.ResolvedGameRoot(data);
@@ -223,6 +332,16 @@ static class Program
     }
 
     public static string DefaultLibrary => Settings.DefaultLibrary;
+
+    /// <summary>CLI: attach to the launching console, UTF-8 without a BOM (as MHO Package Modifier does).</summary>
+    static void AttachCliConsole()
+    {
+        if (!AttachConsole(-1)) return;
+        var utf8 = new UTF8Encoding(false);
+        Console.OutputEncoding = utf8;
+        Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
+        Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true });
+    }
 
     /// <summary>The library is still MHModManager's own data folder (not migrated): this manager only reads it.</summary>
     public static bool IsOldManager(string data) => File.Exists(Path.Combine(Path.GetDirectoryName(data.TrimEnd('\\'))!, "MHModManager.exe"));

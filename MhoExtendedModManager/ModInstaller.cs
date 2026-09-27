@@ -123,11 +123,19 @@ static class ModInstaller
     {
         if (Directory.Exists(to) && Directory.EnumerateFileSystemEntries(to).Any()) throw new IOException($"{to} isn't empty");
         if (Path.GetFullPath(to).StartsWith(Path.GetFullPath(from), StringComparison.OrdinalIgnoreCase)) throw new IOException("can't move the library into itself");
-        CopyDirectory(from, to);
-        foreach (string f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+        try
         {
-            var t = new FileInfo(Path.Combine(to, Path.GetRelativePath(from, f)));
-            if (!t.Exists || t.Length != new FileInfo(f).Length) throw new IOException($"copy of {f} didn't verify; the old library is untouched");
+            CopyDirectory(from, to);
+            foreach (string f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+            {
+                var t = new FileInfo(Path.Combine(to, Path.GetRelativePath(from, f)));
+                if (!t.Exists || t.Length != new FileInfo(f).Length) throw new IOException($"copy of {f} didn't verify; the old library is untouched");
+            }
+        }
+        catch
+        {
+            if (Directory.Exists(to)) Directory.Delete(to, true);   // no half copy left behind
+            throw;
         }
         Directory.Delete(from, true);
     }
