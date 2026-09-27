@@ -51,6 +51,46 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
         catch (Exception ex) when (ex is PackageFormatException or ArgumentOutOfRangeException) { return null; }
     }
 
+    /// <summary>Extract: the stock image (largest mip, from the original package or original cache) as a .dds. Returns why not, or null.</summary>
+    public string? ExportDds(string iconPackage, string texture, string path)
+    {
+        if (Textures(iconPackage) is not { } t || !t.TryGetValue(texture, out int index)) return $"no texture '{texture}' in the original {iconPackage}";
+        Package pkg; lock (packages) pkg = packages[iconPackage].Pkg;
+        string cache = originals.FindTfc("Icons") != null ? originals.TfcFolder : game.Cooked;
+        return TextureExport.WriteDds(pkg, index, path, out string note, cache) == null ? note : null;
+    }
+
+    /// <summary>
+    /// Extract: every original string of a language as one .json in the mod format ({ file: { id: { Variants, FlagsProduced,
+    /// String } } }), with the originals' flags and variants, so it can be edited and imported in the mod editor.
+    /// </summary>
+    public int ExportStrings(string lang, string path)
+    {
+        var root = new System.Text.Json.Nodes.JsonObject();
+        int n = 0;
+        string dir = Path.Combine(game.Loco, lang + ".all");
+        foreach (string live in Directory.GetFiles(dir, "*.string").Order())
+        {
+            string name = Path.GetFileName(live);
+            string? src = originals.FindString(Path.Combine(lang + ".all", name), Legacy);
+            if (src == null) continue;
+            var o = new System.Text.Json.Nodes.JsonObject();
+            foreach (var (id, e) in StringFile.Parse(File.ReadAllBytes(src)).Entries)
+            {
+                o[id.ToString()] = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["Variants"] = new System.Text.Json.Nodes.JsonArray(e.Variants.Select(v => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject { ["FlagsConsumed"] = v.FlagsConsumed, ["FlagsProduced"] = v.FlagsProduced, ["String"] = v.Text }).ToArray()),
+                    ["FlagsProduced"] = e.FlagsProduced,
+                    ["String"] = e.Text,
+                };
+                n++;
+            }
+            root[name] = o;
+        }
+        File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+        return n;
+    }
+
     public List<string> Languages() =>
         Directory.Exists(game.Loco) ? Directory.GetDirectories(game.Loco, "*.all").Select(d => Path.GetFileName(d)[..^4]).Order().ToList() : [];
 

@@ -33,6 +33,8 @@ static class Program
         ("--verify-strings", "--verify-strings", "Self-test: every .string file in the game and in the library's originals reads and writes back byte for byte."),
         ("--build-sound", "--build-sound <pack.mhsfx> <original.pck> <out.pck>", "Test: patch a copy of a sound package with one sound pack (never into the game folder)."),
         ("--add-original", "--add-original <file.tfc>", "Keep a clean copy of a texture cache (e.g. Icons.tfc) as its original: must carry the stock date (2024-03-14) and the game file's size. Apply then keeps the live one original."),
+        ("--extract-texture", "--extract-texture <icons|achievements|store> <texture> <out.dds>", "Save a stock icon / achievement / store image (from the originals) as .dds."),
+        ("--extract-strings", "--extract-strings <lang> <out.json>", "Save every original string of a language (eng, deu, …) as .json in the mod format."),
         ("--compare-textures", "--compare-textures <a.upk> <b.upk> [<cache folder a> <cache folder b>]", "Every Texture2D in two packages: same size, format and best-mip pixels? (Checks a rebuild against another tool's.)"),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
     ];
@@ -64,6 +66,14 @@ static class Program
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             var main = new Gui.MainForm();
             main.Shown += (_, _) => main.BeginInvoke(async () => { await main.EditorSaveTest(args[1]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 2 && args[0].Equals("--extract-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.ExtractSnapshot(args[1]); main.Close(); });
             Application.Run(main);
             return 0;
         }
@@ -220,6 +230,25 @@ static class Program
                 lib.SaveState();
                 Console.WriteLine($"{m.Name}: {(m.Enabled ? "enabled" : "disabled")}. Run --apply to update the game.");
                 return 0;
+            }
+            case "--extract-texture" or "--extract-strings":
+            {
+                string? gr = settings.ResolvedGameRoot(data);
+                if (gr == null || !Settings.IsGameRoot(gr)) { Console.WriteLine("Game folder not found."); return 1; }
+                var cat = new StockCatalog(lib, new GameState(gr, data));
+                if (rest[0].Equals("--extract-strings", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (rest.Count < 3) { Usage(); return 1; }
+                    int n = cat.ExportStrings(rest[1], rest[2]);
+                    Console.WriteLine($"Saved {n:N0} original {rest[1]} strings to {rest[2]}.");
+                    return 0;
+                }
+                if (rest.Count < 4) { Usage(); return 1; }
+                int k = rest[1].ToLowerInvariant() switch { "icons" => 0, "achievements" => 1, "store" => 2, _ => -1 };
+                if (k < 0) { Console.WriteLine("Package kind: icons, achievements or store."); return 1; }
+                string? why = cat.ExportDds(Applier.IconPackages[k].File, rest[2], rest[3]);
+                Console.WriteLine(why == null ? $"Saved the stock {rest[2]} to {rest[3]}." : $"Not saved: {why}");
+                return why == null ? 0 : 1;
             }
             case "--add-original":
             {

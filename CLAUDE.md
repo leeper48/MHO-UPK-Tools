@@ -7,7 +7,7 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
 MhoPackageModifier/  MHO Package Modifier (MHO_UPK_Mod.exe; called UpkMeshScan until 2.50.0, see "Rename" below). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default, manual on F1), AssimpNet. v2.46.0
-MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.8.1: Icons.tfc managed, portable data folder next to the exe, mod editor (New Mod / Edit), first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
+MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.9.0: extract, Icons.tfc managed, portable data folder next to the exe, mod editor (New Mod / Edit), first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `MhoPackageModifier/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
@@ -294,7 +294,11 @@ Committed 2026-09-27: `9cd8d28` (MPM 2.50.1), `bdddd75` (manager 0.6.0). `StockD
 - Proof before Apply (`--compare-textures a b <cacheA> <cacheB>`): built store package + original cache against live: 747/750 identical, and only those 3 differ. The icons package with the original cache: 7988/7988 identical. Kurt applied it 2026-09-27 (2 files: the store package and Icons.tfc); **store images confirmed right in-game**.
 - For other users there are no automatic tfc candidates yet: `--add-original` only.
 
-**Next phases:** Extract (textures to DDS, strings to JSON), and optionally the clean download.
+**0.9.0 (2026-09-27): Extract** (`Gui/ExtractForm.cs`, `StockCatalog.ExportDds` / `ExportStrings`; CLI `--extract-texture <icons|achievements|store> <texture> <out.dds>`, `--extract-strings <lang> <out.json>`). Everything comes from the originals (the original package, the original Icons.tfc), never the live files. The editor's texture tabs have "Save original as .dds…". Checked: the extracted `store_vision_classic` is the stock Vision (not Sentry); PIL reads the .dds; put back into the original package with `--replace-texture` it gives 750/750 identical images (lossless). All 77,089 extracted eng strings match the original files (text, flags, variants). `--extract-snapshot <dir>` renders the window. Kurt confirmed Extract works 2026-09-27.
+
+With that, every MHModManager feature is replicated.
+
+**Next:** optionally the clean download (needs Kurt's OK on the Google Drive links). Later: New features beyond the old manager.
 
 Build: `MhoExtendedModManager\build.bat`. MPM's ZoneData/Help are kept out of this app's output by two targets in the csproj. `ValidateExecutableReferencesMatchSelfContained=false` is needed because MHO_UPK_Mod is an exe.
 

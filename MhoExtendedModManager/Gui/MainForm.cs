@@ -55,13 +55,10 @@ sealed class MainForm : Form
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(4, 0, 4, 0) };
         foreach (var (label, act) in new (string, Action)[] { ("Apply", Apply), ("Enable / Disable", Toggle), ("Move Up", () => MoveSelected(-1)), ("Move Down", () => MoveSelected(1)),
             ("Install Mod…", InstallMod), ("+ New Mod", () => EditMod(null)), ("Edit", () => { if (Selected is Mod m) EditMod(m); }),
-            ("Export…", ExportMod), ("Remove", RemoveMod), ("Capture icon changes", CaptureIcons) })
+            ("Export…", ExportMod), ("Remove", RemoveMod), ("Extract…", OpenExtract), ("Capture icon changes", CaptureIcons) })
         {
             var b = MakeButton(label, act); writeButtons.Add(b); actions.Controls.Add(b);
         }
-        // Extract (stock icons to .dds, strings to .json): a later phase.
-        foreach (string a in new[] { "Extract…" })
-            actions.Controls.Add(new Button { Text = a, AutoSize = true, Enabled = false });
 
         // Drop .zip / .7z / folders on the window to install them.
         AllowDrop = true;
@@ -299,6 +296,31 @@ sealed class MainForm : Form
         string? saved = await ed.SaveForTest();
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), saved ?? "not saved");
         if (!ed.IsDisposed) ed.Close();
+    }
+
+    /// <summary>--extract-snapshot: the Extract window on the store images, with one selected (layout check).</summary>
+    public async Task ExtractSnapshot(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        using var f = new ExtractForm(new StockCatalog(lib!, game!));
+        f.Show(this);
+        await Task.Delay(3000);
+        var kind = f.Controls.OfType<ThemedTabControl>().First().TabPages[0].Controls.OfType<FlowLayoutPanel>().First().Controls.OfType<ComboBox>().First();
+        kind.SelectedIndex = 2; await Task.Delay(4000);
+        var list = f.Controls.OfType<ThemedTabControl>().First().TabPages[0].Controls.OfType<SplitContainer>().First().Panel1.Controls.OfType<ListBox>().First();
+        int i = list.Items.IndexOf("store_vision_classic"); if (i >= 0) { list.SelectedIndex = i; list.TopIndex = Math.Max(0, i - 3); }
+        await Task.Delay(2500);
+        using var b = new Bitmap(f.Width, f.Height);
+        f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+        b.Save(Path.Combine(dir, "extract.png"));
+        f.Close();
+    }
+
+    void OpenExtract()
+    {
+        if (lib == null || game == null) { MessageBox.Show(this, "Set the game folder first (Settings…).", Text); return; }
+        using var f = new ExtractForm(new StockCatalog(lib, game));
+        f.ShowDialog(this);
     }
 
     void ExportMod()

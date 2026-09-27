@@ -187,7 +187,7 @@ sealed class ModEditorForm : Form
             previews.Controls.Add(sp, 0, 0); previews.Controls.Add(np, 1, 0);
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(rows); right.Controls.Add(previews);
-            right.Controls.Add(Buttons(Btn("Choose .dds for the selected texture…", ChooseDds), Btn("Remove replacement", RemoveRow)));
+            right.Controls.Add(Buttons(Btn("Choose .dds for the selected texture…", ChooseDds), Btn("Remove replacement", RemoveRow), Btn("Save original as .dds…", SaveOriginal)));
             Controls.Add(right); Controls.Add(left);
             search.TextChanged += (_, _) => Filter();
             names.SelectedIndexChanged += (_, _) => { if (names.SelectedItem is string t) ShowStock(t); };
@@ -254,6 +254,16 @@ sealed class ModEditorForm : Form
             Rows.Add((texture, d.FileName));
             RefreshRows();
             ShowNew(d.FileName);
+        }
+
+        /// <summary>The selected stock texture as .dds (a starting point for its replacement).</summary>
+        void SaveOriginal()
+        {
+            if (f.catalog == null || names.SelectedItem is not string texture || texture.StartsWith('(') || texture == "Loading…") { MessageBox.Show(this, "Select a stock texture on the left first.", "Textures"); return; }
+            using var d = new SaveFileDialog { Title = $"Save original {texture}", Filter = "DDS texture (*.dds)|*.dds", FileName = texture + ".dds" };
+            if (d.ShowDialog(this) != DialogResult.OK) return;
+            string? why = f.catalog.ExportDds(Package, texture, d.FileName);
+            if (why != null) MessageBox.Show(this, "Not saved: " + why, "Textures");
         }
 
         void RemoveRow()
