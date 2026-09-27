@@ -34,6 +34,16 @@ foreach ($f in 'README.txt', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt') { $p = Jo
 $exeVersion = (Get-Item (Join-Path $stage 'MHO_Ext_ModManager.exe')).VersionInfo.ProductVersion.Split('+')[0]
 if ($exeVersion -ne $Version) { throw "the built exe says $exeVersion, not $Version" }
 
+# The installer (installer.iss), when Inno Setup 6 is installed: same files, per-user install.
+$iscc = @("C:\Tools\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+$setup = $null
+if ($iscc) {
+    & $iscc /Q "/DAppVersion=$Version" "/DSourceDir=$stage" "/O$Out" (Join-Path $PSScriptRoot 'installer.iss')
+    if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
+    $setup = Join-Path $Out "MHO_Ext_ModManager-$Version-Setup.exe"
+    $sh = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText("$setup.sha256", "$sh  $(Split-Path $setup -Leaf)`n")
+} else { Write-Host 'Inno Setup 6 not found: no installer built (the zip is).' }
 $name = "MHO_Ext_ModManager-$Version.zip"
 $zip = Join-Path $Out $name
 if (Test-Path $zip) { [IO.File]::Delete($zip) }
@@ -52,4 +62,5 @@ Write-Host "  1. https://github.com/leeper48/MHO-UPK-Tools/releases/new"
 Write-Host "  2. Tag: extmm-v$Version   Title: MHO Extended Mod Manager $Version"
 Write-Host "  3. Notes: what changed (the app shows them in its update window)"
 Write-Host "  4. Attach both files: $name and $name.sha256, then Publish release"
-Write-Host "  5. Nexus: upload the same zip as a new main file version $Version"
+Write-Host "  5. Nexus: upload the Setup.exe (and / or the zip) as main file version $Version"
+if ($setup) { Write-Host "Installer: $setup" }
