@@ -43,6 +43,3 @@ Open Asset Import Library (assimp), shipped as assimp.dll
   https://github.com/dotnet/runtime
   License: MIT
   Copyright (c) .NET Foundation and Contributors
-
-Stock package checksum list (StockData\upk_checksums.json), when included
-  From MHModManager: CRC-32 values of the game's stock packages, used only to recognise unmodified originals.
