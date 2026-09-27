@@ -177,11 +177,15 @@ also a good place for your own work: keep each job in its own subfolder.</li>
 running the exe without arguments opens this window.</p>
 
 <h2 id="updates">Updates</h2>
-<p>The app checks for a new version when it starts, at most once a day (turn it off on the Start tab, or click
+<p>At first start the app asks whether it may check for updates; nothing goes over the network before you answer. If you
+say yes, it checks for a new version when it starts, at most once a day (turn it off on the Start tab, or click
 <b>Check for updates</b> there). When one is out, a link appears at the top right of the window: <b>Yes</b> downloads it,
 checks its checksum (a damaged or altered download is refused), installs it over the app folder and restarts; <b>No</b>
 opens its release page. Only the app's own files are replaced: your settings, undo history, exports and anything else in
 the folder stay. Keep the app in a folder you can write to (not Program Files).</p>
+<p>The update check only reads the public release list on GitHub (github.com/leeper48/MHO-UPK-Tools); nothing about you
+or your game is sent. The app is not code-signed, so Windows SmartScreen may warn the first time (<b>More info</b> &gt;
+<b>Run anyway</b>); see README.txt for how to check a download's checksum.</p>
 <p class="sub">Command line: <code>--check-update</code>, <code>--update</code>, or <code>--install-zip &lt;zip&gt;</code> for
 a release zip downloaded by hand (with its <code>.sha256</code> next to it).</p>
 

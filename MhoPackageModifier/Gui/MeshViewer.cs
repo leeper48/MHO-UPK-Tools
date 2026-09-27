@@ -160,7 +160,7 @@ sealed class MeshViewer : UserControl
         int scale = fast ? 2 : 1;
         W = canvas.ClientSize.Width / scale; H = canvas.ClientSize.Height / scale;
         if (color.Length != W * H) { color = new int[W * H]; depth = new float[W * H]; }
-        int bg = Theme.Current.Field.ToArgb();
+        int bg = Theme.Current.Back.ToArgb();
         Array.Fill(color, bg);
         Array.Clear(depth);
 

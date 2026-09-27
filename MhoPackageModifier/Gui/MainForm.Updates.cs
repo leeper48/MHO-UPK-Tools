@@ -1,7 +1,8 @@
 namespace MhoPackageModifier.Gui;
 
 /// <summary>
-/// Updates: a check at start (at most once a day, can be turned off on the Start tab) and on request; when a newer release
+/// Updates: a check at start (at most once a day, can be turned off on the Start tab; asked once at first start, so nothing
+/// goes over the network without consent) and on request; when a newer release
 /// is out, a link in the header. Installing downloads, verifies and swaps the files (Updater), then restarts the app.
 /// </summary>
 sealed partial class MainForm
@@ -15,7 +16,20 @@ sealed partial class MainForm
         checkUpdates.Checked = settings.CheckForUpdates;
         checkUpdates.CheckedChanged += (_, _) => settings.CheckForUpdates = checkUpdates.Checked;
         updateLink.LinkClicked += (_, _) => { if (available != null) OfferUpdate(available); };
+        if (!settings.UpdateCheckAsked) { Shown += (_, _) => BeginInvoke(AskUpdateConsent); return; }
         if (settings.CheckForUpdates && DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromDays(1)) _ = CheckForUpdates(quiet: true);
+    }
+
+    void AskUpdateConsent()
+    {
+        var answer = MessageBox.Show(this, "Check GitHub for new versions of MHO Package Modifier when the app starts (at most once a day)?\n\n" +
+            "The check reads the public release list of github.com/leeper48/MHO-UPK-Tools. Nothing about you or your game is sent, " +
+            "and nothing is installed without asking.\n\nYou can change this on the Start tab at any time.",
+            "Check for updates?", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        settings.UpdateCheckAsked = true;
+        checkUpdates.Checked = answer == DialogResult.Yes;                    // sets settings.CheckForUpdates
+        SaveSettings();
+        if (settings.CheckForUpdates) _ = CheckForUpdates(quiet: true);
     }
 
     async Task CheckForUpdates(bool quiet)

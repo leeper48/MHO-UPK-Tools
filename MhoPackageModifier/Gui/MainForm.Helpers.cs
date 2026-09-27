@@ -40,15 +40,18 @@ sealed partial class MainForm
         new() { Text = text, AutoSize = true, MaximumSize = new Size(width, 0), Tag = "hint", Margin = new Padding(3, 2, 3, 6) };
 
     static Label Heading(string text) =>
-        new() { Text = text, AutoSize = true, Font = new Font("Segoe UI", 12f, FontStyle.Bold), Tag = "heading", Margin = new Padding(3, 8, 3, 2) };
+        new() { Text = text, AutoSize = true, Font = new Font("Segoe UI Semibold", 14f), Tag = "heading", Margin = new Padding(3, 8, 3, 2) };
 
     /// <summary>A group box that sizes to its content (a FieldGrid or flow inside).</summary>
-    static GroupBox Section(string title, Control content)
+    static Control Section(string title, Control content)
     {
-        var g = new GroupBox { Text = title, Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(8, 6, 8, 8), Margin = new Padding(3, 6, 3, 6) };
+        // A card as in the Mod Manager: the card colour, a small uppercase caption, the content below.
+        var card = new TableLayoutPanel { ColumnCount = 1, Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(10, 8, 10, 8), Margin = new Padding(4, 6, 4, 6), Tag = "card" };
+        card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        card.Controls.Add(new Label { Text = title.ToUpperInvariant(), AutoSize = true, Font = new Font("Segoe UI Semibold", 8.75f), Tag = "caption", Margin = new Padding(3, 0, 3, 4) }, 0, 0);
         content.Dock = DockStyle.Top;
-        g.Controls.Add(content);
-        return g;
+        card.Controls.Add(content, 0, 1);
+        return card;
     }
 
     /// <summary>A scrollable page that stacks its sections top to bottom (first argument at the top).</summary>

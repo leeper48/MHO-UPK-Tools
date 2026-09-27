@@ -24,9 +24,10 @@ sealed partial class MainForm
         int n = 0;
         foreach (var (title, text, page) in tasks)
         {
-            var card = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, Margin = new Padding(4, 4, 12, 8) };
+            var card = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, Margin = new Padding(4, 4, 12, 8), Padding = new Padding(8), Tag = "card" };
             var b = Btn(title + "  →", () => tabs.SelectedTab = page());
-            b.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
+            b.Font = new Font("Segoe UI Semibold", 11f);
+            b.Tag = "cardtitle";
             b.Dock = DockStyle.Top;
             card.Controls.Add(b, 0, 0);
             card.Controls.Add(Hint(text, 540), 0, 1);

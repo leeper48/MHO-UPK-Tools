@@ -43,7 +43,7 @@ sealed partial class MainForm
         var right = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         right.Controls.Add(g);
 
-        var split = new SplitContainer { Dock = DockStyle.Fill };
+        var split = new GradientSplit { Dock = DockStyle.Fill };
         split.Panel1.Controls.Add(toolList);
         split.Panel2.Controls.Add(right);
         var page = new TabPage("Tools");

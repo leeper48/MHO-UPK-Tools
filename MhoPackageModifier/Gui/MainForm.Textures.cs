@@ -86,10 +86,10 @@ sealed partial class MainForm
         var import = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         import.Controls.Add(Section("Import an image", g));
         UpdateTextureMode();
-        var leftSplit = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
+        var leftSplit = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
         leftSplit.Panel1.Controls.Add(left);
         leftSplit.Panel2.Controls.Add(import);
-        var split = new SplitContainer { Dock = DockStyle.Fill };
+        var split = new GradientSplit { Dock = DockStyle.Fill };
         split.Panel1.Controls.Add(leftSplit);
         split.Panel2.Controls.Add(texViewer);
         var page = new TabPage("Textures");

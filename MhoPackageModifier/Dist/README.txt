@@ -29,7 +29,8 @@ Keeping your game safe
 
 Updates
 -------
-The app checks for a new version once a day (Start tab: turn it off, or "Check for updates"). When one is
+At first start the app asks whether it may check GitHub for new versions; nothing goes over the network
+before you answer. If you say yes, it checks once a day (Start tab: turn it off, or "Check for updates"). When one is
 out, a link appears at the top right: it downloads the new version, checks it, installs it and restarts.
 Your settings, undo history and exports are kept.
 
@@ -38,11 +39,24 @@ Uninstall
 Revert any packages you changed (Backups tab), then delete the app folder, and optionally
 %APPDATA%\MhoPackageModifier (settings) and %LOCALAPPDATA%\MhoPackageModifier (undo history).
 
-Antivirus
----------
-The app is not code-signed, so Windows SmartScreen may warn on first start ("More info" > "Run anyway"),
-and some antivirus tools flag unsigned self-contained apps. If yours removes files, add an exclusion for
-the app folder. The source code is public: https://github.com/leeper48/MHO-UPK-Tools
+Why Windows may warn you
+------------------------
+The app is not code-signed (a signing certificate costs money every year; this is a free fan tool).
+- Windows SmartScreen may warn on first start: click "More info", then "Run anyway".
+- Some antivirus tools flag new unsigned apps. If yours removes files, add an exclusion for the app folder,
+  and please report the false positive: https://www.microsoft.com/wdsi/filesubmission
+- Download it only from its Nexus Mods page or from GitHub releases:
+  https://github.com/leeper48/MHO-UPK-Tools/releases
+- To check a download, compare its checksum with the .sha256 file published next to it on GitHub. In
+  PowerShell:  Get-FileHash -Algorithm SHA256 .\MHO_Package_Modifier_v<version>.zip
+- The source code is public: https://github.com/leeper48/MHO-UPK-Tools
+
+Privacy
+-------
+The app collects nothing and sends nothing about you or your game. Its only network use is the update
+check (only if you allow it at first start): it reads GitHub's public release list, and downloads a
+release only when you choose to install it. Settings and undo history stay on your PC
+(%APPDATA% and %LOCALAPPDATA%\MhoPackageModifier).
 
 License: MIT (LICENSE.txt). Third-party components: THIRD-PARTY-NOTICES.txt.
 

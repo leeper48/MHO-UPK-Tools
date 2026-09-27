@@ -17,6 +17,7 @@ sealed partial class MainForm : Form
     {
         public string GameFolder { get; set; } = "";                          // found on the first run (GameFolder.Detect)
         public bool CheckForUpdates { get; set; } = true;
+        public bool UpdateCheckAsked { get; set; }                            // asked once, at first start, before any network use
         public DateTime LastUpdateCheck { get; set; }
         public string ExportFolder { get; set; } = Path.Combine(AppContext.BaseDirectory, "exports");
         public string LastPackage { get; set; } = "";
@@ -55,7 +56,8 @@ sealed partial class MainForm : Form
     readonly TextBox gameFolder = new() { Dock = DockStyle.Fill };
     readonly ComboBox packageBox = new() { Dock = DockStyle.Fill, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
     readonly Label packageInfo = new() { AutoSize = true, Padding = new Padding(0, 4, 0, 4), MaximumSize = new Size(900, 0) };
-    readonly ThemedTabControl tabs = new() { Dock = DockStyle.Fill };
+    readonly FlatTabControl tabs = new() { Dock = DockStyle.Fill };
+    Control headerBar = null!, logBar = null!;
     Button? themeToggle;
     Palette palette = Palette.Dark;
     readonly TextBox log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Font = new Font(FontFamily.GenericMonospace, 9f) };
@@ -130,13 +132,15 @@ sealed partial class MainForm : Form
         WindowState = FormWindowState.Maximized;                              // opens filling the screen; restore gives 1400 x 1000
         try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? Application.ExecutablePath); } catch (Exception ex) when (ex is ArgumentException or IOException) { }
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(6) };
+        // No padding at the edges: the top and bottom bars run the full width, as in the Mod Manager.
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(0) };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 78));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 22));
-        root.Controls.Add(BuildHeader(), 0, 0);
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 86));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 14));
+        root.Controls.Add(headerBar = BuildHeader(), 0, 0);
         root.Controls.Add(tabs, 0, 1);
-        root.Controls.Add(BuildLog(), 0, 2);
+        root.Controls.Add(logBar = BuildLog(), 0, 2);
+        tabs.Margin = new Padding(6, 2, 6, 0);
         Controls.Add(root);
 
         tabs.TabPages.Add(startPage = BuildStartTab());
@@ -156,6 +160,13 @@ sealed partial class MainForm : Form
         // First run (or the folder moved): look for the game's Steam install.
         if (!Directory.Exists(settings.GameFolder) && MhoPackageModifier.GameFolder.Detect() is string found) settings.GameFolder = found;
         gameFolder.Text = settings.GameFolder;
+        // Folders saved before the 2.50.0 rename (…\UpkMeshScan\…) point at the renamed folder when it exists.
+        foreach (var (get, set) in new (Func<string>, Action<string>)[] { (() => settings.ExportFolder, v => settings.ExportFolder = v), (() => settings.PlacementFbx, v => settings.PlacementFbx = v),
+                     (() => settings.PlacementSidecar, v => settings.PlacementSidecar = v), (() => settings.PlacementEdited, v => settings.PlacementEdited = v), (() => settings.BakeFbx, v => settings.BakeFbx = v) })
+        {
+            string v = get(), renamed = v.Replace(@"\UpkMeshScan\", @"\MhoPackageModifier\", StringComparison.OrdinalIgnoreCase);
+            if (renamed != v && (Directory.Exists(renamed) || File.Exists(renamed) || Directory.Exists(Path.GetDirectoryName(renamed)))) set(renamed);
+        }
         exportFolder.Text = settings.ExportFolder;
         fbxPath.Text = settings.LastFbx;
 
@@ -267,7 +278,7 @@ sealed partial class MainForm : Form
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.Controls.Add(classFilter, 0, 0); left.Controls.Add(exports, 0, 1); left.Controls.Add(buttons, 0, 2);
 
-        var split = new SplitContainer { Dock = DockStyle.Fill };
+        var split = new GradientSplit { Dock = DockStyle.Fill };
         split.Panel1.Controls.Add(left);
         split.Panel2.Controls.Add(details);
         page.Controls.Add(split);
@@ -426,7 +437,7 @@ sealed partial class MainForm : Form
         t.Controls.Add(g, 0, 3);
         meshes.SelectedIndexChanged += (_, _) => { if (meshes.SelectedItem is MeshItem m) PreviewMesh(m); };
         // Left: the list and the export/import controls; right: the 3D view of the selected mesh.
-        var split = new SplitContainer { Dock = DockStyle.Fill };
+        var split = new GradientSplit { Dock = DockStyle.Fill };
         split.Panel1.Controls.Add(t);
         split.Panel2.Controls.Add(meshViewer);
         page.Controls.Add(split);
@@ -994,11 +1005,20 @@ sealed partial class MainForm : Form
     static string ThemeButtonText(bool dark) => dark ? "Light mode" : "Dark mode";
 
     /// <summary>Dark (default) or light; applied to every control, remembered in the settings.</summary>
+    // Dark: the window gradient (Look), which the transparent panels show through; light: the plain theme colour.
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        if (Theme.Current == Look.Palette) Look.PaintGradient(e.Graphics, this, ClientRectangle);
+        else base.OnPaintBackground(e);
+    }
+
     void SetTheme(bool dark)
     {
         settings.DarkMode = dark;
-        palette = dark ? Palette.Dark : Palette.Light;
+        palette = dark ? Look.Palette : Palette.Light;
         Theme.Apply(this, palette);
+        if (dark) Look.Restyle(this, headerBar, logBar);
+        Invalidate(true);
         if (themeToggle != null) themeToggle.Text = ThemeButtonText(dark);
         // Rows already in the grid: read-only text colour and the changed marker follow the theme.
         foreach (DataGridViewRow row in grid.Rows)
