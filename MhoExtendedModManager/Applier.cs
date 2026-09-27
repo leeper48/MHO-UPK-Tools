@@ -1,0 +1,247 @@
+using MhoPackageModifier;
+
+namespace MhoExtendedModManager;
+
+/// <summary>
+/// Apply: make the game match the library's state.
+/// <list type="bullet">
+/// <item>Packages: every package any mod replaces gets the highest-priority enabled mod's copy, or else its verified
+/// stock original.</item>
+/// <item>Icon textures: the three UI icon packages are rebuilt from their verified stock originals with each texture's
+/// winning replacement (MPM's TextureImport.ReplaceMany: mips inline, no cache; the same form MHModManager writes,
+/// checked byte for byte 2026-09-27). With no replacements a package goes back to stock.</item>
+/// <item>Strings: each .string file is rebuilt from its original with each ID's winning replacement (StringFile; the
+/// same rule and bytes as MHModManager). No .bak goes next to these: the originals are kept in the library.</item>
+/// <item>Sounds: each .pck a sound pack patches is rebuilt from its original with the enabled packs' patches (Akpk.Build;
+/// byte-identical to MHModManager's own library on both of the Miles Morales pack's files). Originals kept in the library.</item>
+/// </list>
+/// Every game-folder write goes through MHO Package Modifier's MeshImport.WriteLive (verified temp file, swap, undo
+/// history; CLAUDE.md rule 1). A missing .bak is created from the verified original, not from a possibly modded live
+/// file.
+/// </summary>
+static class Applier
+{
+    /// <summary>The UI icon packages and the manifest list that targets each.</summary>
+    public static readonly (string File, string Label, Func<ModManifest, List<TextureReplacement>> List)[] IconPackages =
+    [
+        ("ICO__MarvelUIIcons_SF.upk", "icon", m => m.Replacements),
+        ("ICO__MarvelUIIcons_Achievements_SF.upk", "achievement icon", m => m.AchievementReplacements),
+        ("ICO__MarvelUIIcons_Store_SF.upk", "store image", m => m.StoreReplacements),
+    ];
+
+    /// <param name="File">A package name in CookedPCConsole, or for strings a path under Loco (&lt;lang&gt;.all\&lt;file&gt;.string).</param>
+    /// <param name="Source">File to copy in (a mod's package or an original); null when <paramref name="Built"/> holds the bytes.</param>
+    public enum Kind { Package, Strings, Sound }
+
+    public sealed record Step(string File, string What, string? Source, byte[]? Built, uint Crc, Func<byte[], List<string>>? Verify = null, Kind Type = Kind.Package)
+    {
+        public bool Strings => Type == Kind.Strings;
+    }
+
+    public sealed record Plan(List<Step> Steps, List<string> Problems, int UpToDate, List<string> NotHandled);
+
+    /// <param name="legacy">Extra folder to find stock originals in (the migrated MHModManager backups).</param>
+    public static Plan MakePlan(ModLibrary lib, GameState game, Originals originals)
+    {
+        var steps = new List<Step>(); var problems = new List<string>(); int upToDate = 0;
+        string legacy = Path.Combine(lib.DataFolder, "legacy");
+        var winners = lib.PackageWinners();
+        var icons = IconPackages.Select(p => p.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var managed = lib.Mods.SelectMany(m => m.Manifest.UpkReplacements).Where(f => !icons.Contains(f)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+        foreach (string file in managed)
+        {
+            string live = Path.Combine(game.Cooked, file);
+            if (!File.Exists(live)) { if (winners.ContainsKey(file)) problems.Add($"{file}: not in the game folder, so it isn't replaced"); continue; }
+            string? original = originals.Find(file);
+            winners.TryGetValue(file, out var mod);
+            string? source = mod != null ? Path.Combine(mod.Folder, file) : original;
+            if (mod != null && !File.Exists(source)) { problems.Add($"{file}: missing from {mod.Name}'s folder"); continue; }
+            if (source == null)
+            {
+                if (game.IsStock(file) != true) problems.Add($"{file}: should be stock again, but no clean original is available");
+                continue;
+            }
+            uint want = game.Crc(source);
+            if (game.Crc(live) == want) { upToDate++; continue; }
+            // Installing needs a clean original too, or the mod could never be taken off again.
+            if (original == null) { problems.Add($"{file} ({mod!.Name}): no clean original available, so it isn't installed"); continue; }
+            steps.Add(new Step(file, mod != null ? $"install from {mod.Name}" : "restore stock original", source, null, want));
+        }
+
+        foreach (var (file, label, list) in IconPackages)
+        {
+            string live = Path.Combine(game.Cooked, file);
+            if (!File.Exists(live)) continue;
+            // Each texture's winner: the highest-priority enabled mod that replaces it.
+            var chosen = new Dictionary<string, (Mod Mod, TextureReplacement R)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var m in lib.Mods.Where(m => m.Enabled).OrderBy(m => m.Priority))
+                foreach (var r in list(m.Manifest))
+                    chosen.TryAdd(r.TextureName, (m, r));
+            string? original = originals.Find(file, legacy);
+            if (original == null)
+            {
+                if (chosen.Count > 0 || game.IsStock(file) != true) problems.Add($"{file}: no clean original available, so its {label}s aren't changed");
+                continue;
+            }
+            if (chosen.Count == 0)
+            {
+                uint stock = game.Crc(original);
+                if (game.Crc(live) == stock) upToDate++;
+                else steps.Add(new Step(file, $"restore stock original (no {label} replacements enabled)", original, null, stock));
+                continue;
+            }
+            // Rebuild from the original; sorted so the same state always gives the same bytes.
+            var items = new List<TextureImport.Replacement>();
+            foreach (var (tex, (m, r)) in chosen.OrderBy(c => c.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                string dds = Path.Combine(m.Folder, r.DdsFileName);
+                if (!File.Exists(dds)) { problems.Add($"{file}: {m.Name} is missing {r.DdsFileName}"); continue; }
+                items.Add(new TextureImport.Replacement(tex, File.ReadAllBytes(dds), $"{m.Name}: {r.DdsFileName}"));
+            }
+            byte[]? built;
+            List<string> buildProblems;
+            Func<byte[], List<string>> verify;
+            try { built = TextureImport.ReplaceMany(Package.Open(original), items, out buildProblems, out verify); }
+            catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or IOException) { built = null; buildProblems = [ex.Message]; verify = _ => []; }
+            if (built == null) { problems.AddRange(buildProblems.Select(p => $"{file}: {p}")); continue; }
+            uint crc = game.CrcOf(built);
+            if (game.Crc(live) == crc) { upToDate++; continue; }
+            int mods = chosen.Values.Select(c => c.Mod).Distinct().Count();
+            steps.Add(new Step(file, $"rebuild from stock with {items.Count} {label}(s) from {mods} mod(s)", null, built, crc, verify));
+        }
+
+        // Strings: every .string file of every language, rebuilt from its original with each ID's winner.
+        if (Directory.Exists(game.Loco))
+            foreach (string langDir in Directory.GetDirectories(game.Loco, "*.all").Order(StringComparer.OrdinalIgnoreCase))
+                foreach (string liveFile in Directory.GetFiles(langDir, "*.string").Order(StringComparer.OrdinalIgnoreCase))
+                {
+                    string name = Path.GetFileName(liveFile), rel = Path.Combine(Path.GetFileName(langDir), name);
+                    var chosen = new Dictionary<ulong, (Mod Mod, StringReplacement R)>();
+                    foreach (var m in lib.Mods.Where(m => m.Enabled).OrderBy(m => m.Priority))
+                        foreach (var r in m.Strings.Where(r => r.File.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                            chosen.TryAdd(r.Id, (m, r));
+                    string? original = originals.FindString(rel, legacy);
+                    if (original == null) { if (chosen.Count > 0) problems.Add($"{rel}: no original to build from, so its strings aren't changed"); continue; }
+                    byte[] originalBytes = File.ReadAllBytes(original);
+                    StringFile expected;
+                    try
+                    {
+                        expected = StringFile.Parse(originalBytes);
+                        foreach (var (id, (_, r)) in chosen)
+                            expected.Entries[id] = new StringFile.Entry(r.FlagsProduced, r.Text,
+                                r.Variants ?? (expected.Entries.TryGetValue(id, out var old) ? old.Variants : []));
+                    }
+                    catch (InvalidDataException ex) { problems.Add($"{rel}: original doesn't read ({ex.Message})"); continue; }
+                    byte[] built = chosen.Count == 0 ? originalBytes : expected.Write();
+                    uint crc = game.CrcOf(built);
+                    if (game.Crc(liveFile) == crc) { upToDate++; continue; }
+                    var exp = expected;
+                    List<string> Verify(byte[] onDisk)
+                    {
+                        try { return StringFile.Differences(exp, StringFile.Parse(onDisk)); }
+                        catch (InvalidDataException ex) { return [ex.Message]; }
+                    }
+                    int mods = chosen.Values.Select(c => c.Mod).Distinct().Count();
+                    steps.Add(new Step(rel, chosen.Count == 0 ? "restore original strings" : $"rebuild from original with {chosen.Count} string(s) from {mods} mod(s)", null, built, crc, Verify, Kind.Strings));
+                }
+
+        // Sounds: every .pck any mod's sound pack patches, rebuilt from its original with the enabled packs (top of the order first).
+        var loaded = new List<(Mod Mod, SoundPack Pack)>();
+        foreach (var m in lib.Mods.OrderBy(m => m.Priority))
+            foreach (string f in m.Manifest.AudioPacks)
+            {
+                string path = Path.Combine(m.Folder, f);
+                if (!File.Exists(path)) { if (m.Enabled) problems.Add($"{m.Name}: {f} missing"); continue; }
+                try { loaded.Add((m, SoundPack.Load(path))); }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException) { problems.Add($"{m.Name}: {f} doesn't read ({ex.Message})"); }
+            }
+        foreach (string pck in loaded.SelectMany(l => l.Pack.Patches.Select(p => p.PckFile)).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            string live = Path.Combine(game.Cooked, pck);
+            var packs = loaded.Where(l => l.Mod.Enabled && l.Pack.Patches.Any(p => p.PckFile.Equals(pck, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (!File.Exists(live)) { if (packs.Count > 0) problems.Add($"{pck}: not in the game folder"); continue; }
+            string? original = originals.FindSound(pck, legacy);
+            if (original == null) { problems.Add($"{pck}: no original (it isn't stock-dated and there's no backup), so its sounds aren't changed"); continue; }
+            if (packs.Count == 0)
+            {
+                uint orig = game.Crc(original);
+                if (game.Crc(live) == orig) upToDate++;
+                else steps.Add(new Step(pck, "restore original sounds", original, null, orig, null, Kind.Sound));
+                continue;
+            }
+            var notes = new List<string>(); var buildProblems = new List<string>();
+            byte[]? built = Akpk.Build(original, pck, packs.Select(x => x.Pack).ToList(), notes, buildProblems);
+            problems.AddRange(buildProblems);
+            problems.AddRange(notes.Select(n => $"{pck}: {n}"));
+            if (built == null) continue;
+            uint crc = game.CrcOf(built);
+            if (game.Crc(live) == crc) { upToDate++; continue; }
+            int events = packs.Sum(x => x.Pack.Patches.Count(p => p.PckFile.Equals(pck, StringComparison.OrdinalIgnoreCase)));
+            steps.Add(new Step(pck, $"rebuild from original with {events} new sound event(s) from {packs.Count} pack(s)", null, built, crc, SoundVerify, Kind.Sound));
+        }
+
+        var notHandled = new List<string>();
+        return new Plan(steps, problems, upToDate, notHandled);
+    }
+
+    /// <summary>A written .pck reads back: header, both tables, every entry inside the file.</summary>
+    static List<string> SoundVerify(byte[] onDisk)
+    {
+        try
+        {
+            using var ms = new MemoryStream(onDisk, false);
+            var pk = Akpk.Read(ms);
+            var bad = pk.Banks.Concat(pk.Streams).Where(e => (long)e.StartBlock * e.BlockSize + e.Size > onDisk.Length).Select(e => $"entry {e.Id:X8} runs past the end").Take(3).ToList();
+            return bad;
+        }
+        catch (InvalidDataException ex) { return [ex.Message]; }
+    }
+
+    public static void Print(Plan p)
+    {
+        foreach (var s in p.Steps) Console.WriteLine($"  {s.File}: {s.What}");
+        foreach (string x in p.Problems) Console.WriteLine($"  SKIPPED {x}");
+        Console.WriteLine($"{p.Steps.Count} file(s) to change, {p.UpToDate} already right, {p.Problems.Count} skipped.");
+        if (p.NotHandled.Count > 0)
+            Console.WriteLine($"Not applied by this version: the sound packs of {p.NotHandled.Count} enabled mod(s); the game keeps whatever is there now.");
+    }
+
+    /// <summary>Writes the plan. Stops at the first failure (the files done so far stay done; each is its own undo step).</summary>
+    public static bool Execute(Plan p, GameState game, Originals originals, string libraryData)
+    {
+        if (ZoneBuilds.GameRunning()) { Console.WriteLine("The game is running; close it first. Nothing written."); return false; }
+        string legacy = Path.Combine(libraryData, "legacy");
+        int done = 0;
+        foreach (var s in p.Steps)
+        {
+            Console.WriteLine($"{s.File}: {s.What}");
+            string live = s.Strings ? Path.Combine(game.Loco, s.File) : Path.Combine(game.Cooked, s.File);
+            if (s.Type != Kind.Package)
+            {
+                // The original goes into the library, not next to the file (strings: a folder the game reads; sounds: 300+ MB).
+                if ((s.Strings ? originals.EnsureString(s.File, legacy) : originals.EnsureSound(s.File, legacy)) == null) { Console.WriteLine("  no original to keep; stopping."); return false; }
+            }
+            else
+            {
+                string? original = originals.Ensure(s.File, out string? why, legacy);
+                if (original == null) { Console.WriteLine($"  no clean original ({why}); stopping."); return false; }
+                if (!MeshImport.CreateBak(live, File.ReadAllBytes(original))) return false;
+            }
+            byte[] bytes = s.Built ?? File.ReadAllBytes(s.Source!);
+            if (game.CrcOf(bytes) != s.Crc) { Console.WriteLine("  source changed since the plan was made; stopping."); return false; }
+            History.Label = $"Ext Mod Manager: {s.What}";
+            bool ok = MeshImport.WriteLive(live, bytes, onDisk =>
+            {
+                var problems = new List<string>();
+                if (game.CrcOf(onDisk) != s.Crc) problems.Add("CRC differs from what was planned");
+                if (s.Type == Kind.Package && (onDisk.Length < 4 || BitConverter.ToUInt32(onDisk, 0) != 0x9E2A83C1)) problems.Add("not a package (bad magic)");
+                if (s.Verify != null) problems.AddRange(s.Verify(onDisk));
+                return problems;
+            }, bakBeside: s.Type == Kind.Package);
+            if (!ok) { Console.WriteLine($"Stopped after {done} of {p.Steps.Count}."); return false; }
+            done++;
+        }
+        Console.WriteLine($"Applied: {done} file(s) written and verified.");
+        return true;
+    }
+}

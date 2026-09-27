@@ -5,3 +5,5 @@ publish/
 .vs/
 # Link from the old folder name (UpkMeshScan, renamed 2026-09-27) so old paths in Blender files keep working
 /UpkMeshScan
+# MHModManager's stock checksum list: shipped in builds, not in git until Kurt decides it may be redistributed
+/MhoExtendedModManager/StockData/upk_checksums.json

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.6.0</Version>
+    <AssemblyName>MHO_Ext_ModManager</AssemblyName>
+    <Product>MHO Extended Mod Manager</Product>
+    <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
+    <RootNamespace>MhoExtendedModManager</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- MHO_UPK_Mod is referenced as a library; publishing with -r would otherwise stop on NETSDK1151. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+    <!-- Same icon as MHO Package Modifier for now. -->
+    <ApplicationIcon>..\MhoPackageModifier\Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Package reader/writer, the one game-folder write path (MeshImport.WriteLive), undo history, theme. -->
+    <ProjectReference Include="..\MhoPackageModifier\MhoPackageModifier.csproj" />
+    <!-- CRC-32 of whole packages (the stock checksum list and mod copies). -->
+    <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
+    <!-- Installing .7z / .rar mod archives (MHModManager accepted .zip and .7z). -->
+    <PackageReference Include="SharpCompress" Version="0.38.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Stock package checksums for new users without MHModManager (see StockData\README.txt). -->
+    <None Include="StockData\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- MPM's zone recipe inputs and manual would otherwise be copied here too (27 MB); this app doesn't use them. -->
+  <Target Name="DropMpmContent" BeforeTargets="_CopyOutOfDateSourceItemsToOutputDirectory;_CopyOutOfDateSourceItemsToOutputDirectoryAlways">
+    <ItemGroup>
+      <_SourceItemsToCopyToOutputDirectory Remove="@(_SourceItemsToCopyToOutputDirectory)" Condition="$([System.String]::Copy('%(TargetPath)').StartsWith('ZoneData')) Or $([System.String]::Copy('%(TargetPath)').StartsWith('Help'))" />
+      <_SourceItemsToCopyToOutputDirectoryAlways Remove="@(_SourceItemsToCopyToOutputDirectoryAlways)" Condition="$([System.String]::Copy('%(TargetPath)').StartsWith('ZoneData')) Or $([System.String]::Copy('%(TargetPath)').StartsWith('Help'))" />
+    </ItemGroup>
+  </Target>
+  <Target Name="DropMpmContentFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(RelativePath)').StartsWith('ZoneData')) Or $([System.String]::Copy('%(RelativePath)').StartsWith('Help'))" />
+    </ItemGroup>
+  </Target>
+</Project>

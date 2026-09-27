@@ -7,11 +7,12 @@ C# / .NET 8 tools for reading and writing Marvel Heroes Omega `.upk` packages (a
 ```
 AnimExportCli/   Skeletal mesh + animation export to FBX; FBX-to-UPK animation import (in progress). CLI + WinForms GUI. v1.3.1
 MhoPackageModifier/  MHO Package Modifier (MHO_UPK_Mod.exe; called UpkMeshScan until 2.50.0, see "Rename" below). StaticMesh scan, export (FBX + textures), import (FBX -> package), property + material-parameter edits, zone placeholders and whole-zone builds, cross-package copies, level actors, texture import/export incl. .tfc, undo/redo, diagnostics. CLI + WinForms GUI (no args = GUI, dark mode default, manual on F1), AssimpNet. v2.46.0
+MhoExtendedModManager/  MHO Extended Mod Manager (MHO_Ext_ModManager.exe). Replicates MHModManager 1.0.1 (a former modder's mod manager) and extends it. References MhoPackageModifier (InternalsVisibleTo). v0.6.0: first-run setup, install/export/remove, migrate, Apply for packages, icon textures, strings and sound packs
 ```
 
 Git: commit straight to `main` (GitHub `leeper48/MHO-UPK-Tools`), one commit per feature, only when Kurt asks. No PRs or feature branches for now; `gh` isn't installed. Build scripts, scans and FBX/texture work files live in `MhoPackageModifier/publish/` (gitignored). Generated files go in `publish/exports/<job>/`, which is also Kurt's working folder since 2026-09-27: he saves his bakes and edits there (older jobs used `publish/imports`). Never clean or overwrite a job folder; re-exports get new names.
 
-Each tool has its own `build.bat`. Neither tool references the other yet. The planned merge folds MhoPackageModifier into AnimExportCli. MhoPackageModifier now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
+Each tool has its own `build.bat`. AnimExportCli and MhoPackageModifier don't reference each other yet; MhoExtendedModManager references MhoPackageModifier. The planned merge folds MhoPackageModifier into AnimExportCli. MhoPackageModifier now has the only **package writer** (`PackageWriter.cs`, proven in-game), and animation Phase 3 should reuse it rather than write a new one.
 
 **Rename (2.50.0, 2026-09-27):** the folder, project (`MhoPackageModifier.csproj`) and namespace went from `UpkMeshScan` to `MhoPackageModifier`, and git keeps the files' history as renames. Settings and undo history moved to `%APPDATA%\MhoPackageModifier` / `%LOCALAPPDATA%\MhoPackageModifier`: `AppFolders` moves an old `UpkMeshScan` folder across on the first run. The old folder path is a junction to the new one (gitignored), so absolute paths saved in Kurt's Blender files keep working. The antivirus needs `C:\Dev\MHO-UPK-Tools` excluded: it quarantined freshly built DLLs twice ("application to execute does not exist", "Bad IL format").
 
@@ -194,6 +195,78 @@ Open items: real collision (kDOP build), editing placements (move, add, or remov
 - **Never cut `materialfunctioninfos`.** Nulling it gave the default checker material (the function state GUIDs are checked). Cutting `physmaterial` (footstep splashes, sounds) is fine.
 - `--rename` / `--replace-ref src=dst` copy a material under a new name with references swapped, for example to imported textures (the ICP photo sky and the Hightown facade). `--copy-export` also copies meshes, StaticMeshComponents (empty lighting only) and collection actors.
 - First use: Industry City's water. `brooklyn_docks_lighting.brooklyn_docks_water_mat` was copied from `SCS__CH0201ShippingYardRegion_SF` into `Brooklyn_Docks_A` (85 exports, `--cut physmaterial`) and used on the ground plane. Its animated water covers the plane.
+
+## MHO Extended Mod Manager (started 2026-09-27)
+
+Goal: replicate MHModManager 1.0.1 (Kurt's copy: `C:\Users\kjord\OneDrive\Music\Documents\Apps\MHModManager (v1.0.1)`, a .NET 8 WPF app) and leave room for new features. Kurt publishes his own mods through it; his zone work ships as the "Freecam Falloff Helper" mod (the zone main levels plus tiles as whole-package replacements).
+
+**What the old manager does** (from its data files and assembly metadata; no decompiled code is copied):
+- Library `data\mods\<folder>\manifest.json` (Name, Author, Version, Type: 0 Texture / 1 String / 2 Upk / 3 Audio / 4 Mixed, `Replacements` / `AchievementReplacements` / `StoreReplacements` (TextureName ← DdsFileName), `UpkReplacements`, `Languages`, `AudioPacks`), plus `<lang>.json` string files (`{ "eng.all_7FFF….string": { "<ulong id>": { "String", "FlagsProduced", "Variants" } } }`). `data\state.json` = EnabledMods, ModOrder (top of the list wins), ActiveLanguage. `data\config.txt` = the game root.
+- Packages: whole `.upk` copies into CookedPCConsole. Backups go to `data\upk_backups`, checked against `upk_checksums.json` (standard CRC-32 of 15,250 stock packages; confirmed on stock files). If the live file isn't stock, it offers a clean download from Google Drive (`gdrive_manifest.tsv`: file → Drive id). Disabling restores the stock copy, which re-dates it: **a newer date doesn't mean modified** (79 such files on 2026-09-27).
+- Textures: DDS injected into `ICO__MarvelUIIcons_SF` / `_Achievements_SF` / `_Store_SF` (backups `*.upk.bak` in data\, legacy `Icons.tfc.bak`). Its own LZO (lzo2_64.dll) and Texture2D builder.
+- Strings: `Data\Game\Loco\<lang>.all\<lang>.all_{3F,7F,BF,FF}FFFFFFFFFFFFFF.string` ("STR" files; backups in `data\string_backups`). Languages deu eng fra por rus sg3 spa.
+- Audio: `.mhsfx` = zip of `mod.json` + `.wem`; each patch adds a *new* Wwise event cloned from an original one into a bank in an AKPK `.pck` (backups in `data\sound_backups`).
+- UI: mod list (enable, priority up/down, conflict flag), Apply, Install (.zip/.7z), New/Edit wizard, Remove, Export (.zip), Extract (textures to DDS, strings to JSON). It refuses to run from Program Files or CookedPCConsole.
+
+**Phase 1 (v0.1.0, done):** reads that library as it is. `--list`, `--conflicts`, `--check`, `--status` (every enabled mod's package: applied = byte-identical to the live file; else stock or other; then modified game packages no enabled mod accounts for, with stock-identical and non-stock-named files counted separately), `--gui-snapshot`. The GUI shows the list and the selected mod's details and live package state, with the old manager's action buttons disabled. Settings: `%APPDATA%\MhoExtendedModManager\settings.json` (Library, GameRoot; the game root falls back to the old `config.txt`). Checked 2026-09-27: 77 mods, 55 enabled, 183 enabled packages all applied, 0 conflicts between enabled mods (26 overlaps across the whole library; cross-checked in Python).
+
+**Phase 2 (v0.2.0, done 2026-09-27): the new manager takes over** (Kurt's decision).
+- `--migrate <old folder> [--to <lib>]` / GUI Migrate: copies (CRC-verified) mods, state.json, upk_checksums.json and the game root into `%LOCALAPPDATA%\MhoExtendedModManager\library`; old package backups go to `library\originals` **only if they match the stock CRC**; icon/string/sound backups go to `library\legacy` for later phases. The old folder is never changed; the app refuses to change a library that is still the old manager's own folder (`MHModManager.exe` next to it). Kurt's run: 77 mods, 852 files, 323 originals, 1 old backup rejected as non-stock (MsMarvel_Skrull).
+- **Originals** (`Originals.cs`): the only copies known to be stock. Taken from the live file, its `.bak` or old backups, whichever matches the stock CRC. **20 of Kurt's MPM `.bak` files were not stock** (backed up from already-modded files), so a `.bak` is not trusted as an original here. It is still never overwritten.
+- `--apply [--dry-run]` / GUI Apply (`Applier.cs`): for every package any mod names, the highest-priority enabled mod's copy goes live, otherwise the verified original. It refuses a package without a verified original, so a mod can always be taken off again. A missing `.bak` is created from the original (`MeshImport.CreateBak`), then the file goes through `MeshImport.WriteLive` (verify: CRC of the source + package magic; undo history labelled "Ext Mod Manager: …"). Refused while the game runs. `--enable` / `--disable` / GUI toggle + Move Up/Down edit state.json (same format).
+- Verified live 2026-09-27: Angel Teamup Low (had a `.bak`) and Starlord Infinity War (no `.bak`: one was created from the original, byte-identical) disabled, applied, re-enabled, applied. Live = original, then live = mod's copy, byte for byte. The final dry run showed 320 packages right and nothing to do.
+- Not yet: the icon, string and sound parts of mods (52 enabled mods have some). Apply leaves those files as MHModManager left them, so disabling such a mod takes its packages off but not its icons/strings.
+- **Clean-download feature (old manager, not built yet):** when no stock copy exists locally, it downloads one from Google Drive (`gdrive_manifest.tsv`: 15,250 file ids, `drive.usercontent.google.com/download?id=…&export=download&confirm=t`). Pending Kurt's OK: it depends on a third party's Drive links and redistributes game files.
+
+**Phase 3 (v0.3.0, done 2026-09-27): icon textures.**
+- Apply rebuilds `ICO__MarvelUIIcons_SF` / `_Achievements_SF` / `_Store_SF` **from their verified stock originals** (migrated from the old `data\ICO__*.upk.bak`, which are stock) with each texture's winning replacement. With nothing enabled for a package, the stock original goes back. The replacements are sorted, so the same state always gives the same bytes: a disable + re-enable came back byte-identical.
+- MPM change: `TextureImport` now has shared `ParseDds` / `Builder` / `CheckTexture` and a new `ReplaceMany` (many `--replace-texture`s in one rebuild). `--replace-texture` and `--import-texture` dry-run output was byte-identical before and after the refactor (checked on 3 cases).
+- Our replaced export matches MHModManager's (proven in-game) byte for byte, except two flags in swapped order and the mip offset (which points at its own data). Survey of all 406 mod DDS files: DXT1/DXT5 only, every size matches its target, every target exists, texture names are unique per package (7,988 / 466 / 750).
+- **Unmanaged icon changes:** 10 live icons came from no mod in the library (another tool, or deleted mods). `--capture-icons` / GUI "Capture icon changes" (also run by `--migrate`) saves such textures as .dds into a new enabled lowest-priority texture mod ("Captured icon changes 2026-09-27"). After that, the first icon rebuild's textures (dry run, `--out`) matched the live packages: 9,204 of 9,204 identical per `--compare-textures`. The live Achievements package was stock re-saved (all 466 textures the same, stale offsets only).
+- Written live 2026-09-27: all 3 icon packages. Starlord Infinity War off/on: off changed exactly its 3 textures back to stock; on gave byte-identical packages. **Not yet seen in-game**, though the form is the old manager's.
+- `Icons.tfc` is dated 2026-05-15 and there's no stock checksum for .tfc files. Earlier versions of the old manager wrote into it ("legacy TFC backup"). Unreplaced store images still stream from it, so if it isn't stock, those could show old modded images.
+
+Kurt confirmed the icons in-game 2026-09-27.
+
+**Phase 4 (v0.4.0, done 2026-09-27): strings.**
+- `.string` format (`StringFile.cs`, worked out from the files):
+  - Header: "STR", version 2, u16 entry count.
+  - Entries, sorted by ID: u64 ID, u16 string count (main + variants), u16 FlagsProduced (0xFFFF in stock), u32 offset.
+  - Per variant: u64 FlagsConsumed, u16 FlagsProduced, u32 offset.
+  - Then UTF-8 null-terminated strings in table order.
+  - Russian has 1,764 variants, English about 35.
+- `--verify-strings`: all 56 files (28 live, 28 old backups) parse and write back byte for byte.
+- **Apply rule, as MHModManager's:** the original, plus each ID's winning mod entry (text, and the JSON's FlagsProduced, which is 0 in every mod). An empty `Variants` keeps the original's. Python and C# both reproduce Kurt's live English files byte for byte. No mod adds IDs or uses variants; all 35 string mods are English.
+- **Originals are unverified:** there are no stock checksums for .string files. They come from `legacy\string_backups` (the 6 untouched languages are byte-identical to live, but all 28 live files are dated 2026-05-17), else the live file as first seen. They're kept in `originals\strings`.
+- **No `.bak` next to string files** (`WriteLive(..., bakBeside: false)`, new MPM option): the game may read every file in `Loco\<lang>.all`. Temp file, verification (re-parse equals expected), swap and undo history are unchanged.
+- Verified live: Jeff (Pet) off → Apply → its 2 IDs back to "Old Lace" with flags 0xFFFF; on → byte-identical file. Final dry run: 351 files right.
+
+Kurt confirmed the strings in-game 2026-09-27.
+
+**Phase 5 (v0.5.0, done 2026-09-27): sound packs.**
+- `.mhsfx` = zip of `mod.json` (patches: `new_event`, `original_event_name`, `event_name`, `event_hash` = FNV-1 of the lower-cased name, `action_id` / `sound_id` / `source_id`, `wem_file`, `bank_name` (bank ID = its FNV), `pck_file`) plus `.wem` files. The mod's costume package has AkEvent objects named after `event_name`. Only Miles Morales uses one (82 patches: 81 in `SFX_InitialDownloadChunk_INT.pck`, 1 in `SFX_Teamups_INT.pck`).
+- **Oracle method:** MHModManager's own `MHSoundLib.dll`, run through reflection by a scratch harness (`MhoExtendedModManager\bin\oracle`, gitignored; it refuses the game folder) on copies. That gave reference output (`bin\oracle\ref`). The format and rules below were re-derived from the files, and **`Akpk.Build` reproduces both reference files byte for byte** (`--build-sound`). The rules are in the `SoundPacks.cs` header.
+  - Whole-file rebuild: header, banks in table order, streams in ID order, each aligned to 16.
+  - Per patch, 3 HIRC objects appended: a Sound cloned from the event's first action target (for a container, its first listed child sound) with the new source ID; an Action with its target set to the new sound; an Event.
+  - Streamed media → new stream table entry (bank's language). Embedded → DATA (padded to 16) + a DIDX entry in ID order, and the media size in the sound.
+- Originals: `originals\sounds`, from `legacy\sound_backups` or a live .pck still stock-dated. No `.pck.bak` in the game folder.
+- Verified live: Miles on → Apply (6 files, 6 s) → both .pck byte-identical to the reference; off → Apply → both back to stock byte for byte. Left disabled, as it was. **Kurt enabled it himself and confirmed the audio works in-game 2026-09-27**: the whole .mhsfx path (streamed and embedded media, container targets) is proven.
+- **Undo history cost:** MPM's history snapshots each previous version: 736 MB after one on/off, up to about 6 GB at 20 steps. Undo matters little for .pck (it can be rebuilt from original + state). Kurt's call: **files over 100 MB keep 3 undo steps** (`History.MaxEntriesLarge`, MPM 2.50.1); everything else keeps 20.
+
+**Phase 6 (v0.6.0, done 2026-09-27): first-run setup, install, export, remove.** (Kurt: the library should be behind the scenes.)
+- **Library is automatic:** `Settings.DefaultLibrary` = `%LOCALAPPDATA%\MhoExtendedModManager\library`. There's no library row in the window; **Settings…** has Change game folder, Move library (copy, verify sizes, delete old), Open library folder, and Migrate. `MHO_EXTMM_HOME` redirects settings and the default library, for tests.
+- **Game folder:** `Settings.FindGame()` uses the Steam registry keys, `steamapps\libraryfolders.vdf`, then `steamapps\common\Marvel Heroes*`. It found Kurt's G: install.
+- **First run** (`FirstRunForm`, shown when `!settings.IsSetUp`):
+  1. Game folder (detected, or Browse).
+  2. "Were you using MHModManager?" `Settings.FindOldManager` searches Desktop / Documents / Downloads / OneDrive / C:\Games / C:\Tools, 5 levels deep, for up to 4 s, newest `state.json` first. It found Kurt's v1.0.1 and ranked it above a May v1.0.0 copy. Migrate, or `ModInstaller.CreateEmptyLibrary`. `--first-run-snapshot <dir>` renders it.
+- **Stock checksum list ships** in `StockData\upk_checksums.json` (a copy of MHModManager's list, provenance in README.txt), so new users without the old manager can verify originals. **Before sharing publicly, decide whether shipping that list is OK.**
+- **Install** (`--install`, the button, or drag and drop): .zip / .7z / .rar (SharpCompress 0.38) or a folder. It takes every `manifest.json` up to 2 folders deep (an archive can hold several mods), checks the listed files exist, refuses an existing name, and adds new mods at the top of the list, disabled. Entries escaping the folder are refused (tested).
+- **Export:** a .zip with manifest.json at the top, read back before it's kept. **Remove:** only when the mod is disabled and the Apply plan is empty; the folder goes to the Recycle Bin.
+- Tested in a scratch home: export of Jeff (Pet) → install into an empty library (5 files identical) → reinstall refused → remove → install from a .7z with the mod one folder down (identical) → zip without a manifest and zip-slip both refused cleanly.
+
+**Next phases:** the new-mod wizard / Edit / Extract (textures to DDS, strings to JSON), and optionally the clean download.
+
+Build: `MhoExtendedModManager\build.bat`. MPM's ZoneData/Help are kept out of this app's output by two targets in the csproj. `ValidateExecutableReferencesMatchSelfContained=false` is needed because MHO_UPK_Mod is an exe.
 
 ## Working style
 
