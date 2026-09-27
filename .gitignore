@@ -7,3 +7,5 @@ publish/
 /UpkMeshScan
 # MHModManager's stock checksum list: shipped in builds, not in git until Kurt decides it may be redistributed
 /MhoExtendedModManager/StockData/upk_checksums.json
+# Release zips (release.bat): uploaded to GitHub / Nexus, not committed
+releases/

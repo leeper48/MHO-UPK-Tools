@@ -15,7 +15,9 @@ sealed partial class MainForm : Form
 
     sealed class Settings
     {
-        public string GameFolder { get; set; } = @"G:\Program Files (x86)\Steam\steamapps\common\Marvel Heroes\UnrealEngine3\MarvelGame\CookedPCConsole";
+        public string GameFolder { get; set; } = "";                          // found on the first run (GameFolder.Detect)
+        public bool CheckForUpdates { get; set; } = true;
+        public DateTime LastUpdateCheck { get; set; }
         public string ExportFolder { get; set; } = Path.Combine(AppContext.BaseDirectory, "exports");
         public string LastPackage { get; set; } = "";
         public string LastFbx { get; set; } = "";
@@ -151,6 +153,8 @@ sealed partial class MainForm : Form
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.F1) { e.Handled = true; ShowHelp(HelpAnchor(tabs.SelectedTab)); } };
 
+        // First run (or the folder moved): look for the game's Steam install.
+        if (!Directory.Exists(settings.GameFolder) && MhoPackageModifier.GameFolder.Detect() is string found) settings.GameFolder = found;
         gameFolder.Text = settings.GameFolder;
         exportFolder.Text = settings.ExportFolder;
         fbxPath.Text = settings.LastFbx;
@@ -159,6 +163,8 @@ sealed partial class MainForm : Form
         HandleCreated += (_, _) => SetTheme(settings.DarkMode);
         Load += (_, _) =>
         {
+            InitUpdates();
+            if (!Directory.Exists(gameFolder.Text)) Log("The game folder wasn't found: set it at the top (the game's ...\\UnrealEngine3\\MarvelGame\\CookedPCConsole folder).");
             FillPackageList();
             if (settings.LastPackage.Length > 0) packageBox.Text = settings.LastPackage;
             RefreshBackups();
@@ -204,6 +210,7 @@ sealed partial class MainForm : Form
         t.Controls.Add(Lbl("Package:"), 0, 1); t.Controls.Add(packageBox, 1, 1); t.Controls.Add(open, 2, 1); t.Controls.Add(openFile, 3, 1);
         t.Controls.Add(packageInfo, 1, 2); t.SetColumnSpan(packageInfo, 3);
         t.Controls.Add(gameStatus, 4, 1);
+        t.Controls.Add(updateLink, 4, 2);
         UpdateGameStatus();
         busyDisabled.AddRange([browseFolder, reload, open, openFile, packageBox, gameFolder]);
         return t;

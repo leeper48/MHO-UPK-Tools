@@ -102,6 +102,7 @@ function mhoNext(dir) {
 <li><a href="#start">What the app does</a></li>
 <li><a href="#safety">How your game files stay safe</a></li>
 <li><a href="#setup">Getting started</a></li>
+<li><a href="#updates">Updates</a></li>
 <li><a href="#concepts">Words used in this manual</a></li>
 <li><a href="#flow-value">Task: change a value</a></li>
 <li><a href="#flow-mesh">Task: replace a mesh</a></li>
@@ -163,7 +164,8 @@ placements file</b>, which replaces the earlier import of that same file.</div>
 
 <h2 id="setup">Getting started</h2>
 <ol class="steps">
-<li><b>Game folder.</b> At the top, set <b>Game folder</b> to the game's <code>CookedPCConsole</code> folder, e.g.
+<li><b>Game folder.</b> On its first start the app looks for the game in your Steam libraries. If it isn't found, set
+<b>Game folder</b> at the top to the game's <code>CookedPCConsole</code> folder, e.g.
 <code>...\Marvel Heroes\UnrealEngine3\MarvelGame\CookedPCConsole</code>. <b>Browse…</b> picks it; <b>Reload list</b> re-reads it.</li>
 <li><b>Export folder.</b> On the Meshes tab, choose where the app should put the files it exports (FBX, textures). This is
 also a good place for your own work: keep each job in its own subfolder.</li>
@@ -173,6 +175,15 @@ also a good place for your own work: keep each job in its own subfolder.</li>
 </ol>
 <p>Everything the app can do is also available from the command line (see <a href="#commands">Command reference</a>);
 running the exe without arguments opens this window.</p>
+
+<h2 id="updates">Updates</h2>
+<p>The app checks for a new version when it starts, at most once a day (turn it off on the Start tab, or click
+<b>Check for updates</b> there). When one is out, a link appears at the top right of the window: <b>Yes</b> downloads it,
+checks its checksum (a damaged or altered download is refused), installs it over the app folder and restarts; <b>No</b>
+opens its release page. Only the app's own files are replaced: your settings, undo history, exports and anything else in
+the folder stay. Keep the app in a folder you can write to (not Program Files).</p>
+<p class="sub">Command line: <code>--check-update</code>, <code>--update</code>, or <code>--install-zip &lt;zip&gt;</code> for
+a release zip downloaded by hand (with its <code>.sha256</code> next to it).</p>
 
 <h2 id="concepts">Words used in this manual</h2>
 <table>

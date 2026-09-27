@@ -11,7 +11,7 @@ static class CommandCatalog
     public sealed record Command(string Group, string Flag, string Syntax, string Summary, bool Writes, string Template);
 
     public static readonly string[] Groups =
-        ["Inspect", "Meshes", "Textures", "Properties and materials", "Objects", "Placements (Blender round trip)", "Zones", "Sky", "Backups and history", "Self-tests"];
+        ["Inspect", "Meshes", "Textures", "Properties and materials", "Objects", "Placements (Blender round trip)", "Zones", "Sky", "Backups and history", "Self-tests", "App"];
 
     public static readonly Command[] All =
     [
@@ -96,6 +96,10 @@ static class CommandCatalog
 
         // ---- Self-tests
         new("Self-tests", "--verify-import-roundtrip", "<package.upk> <staticmesh>", "Export a mesh, re-import it and compare with the original. Writes nothing to the game.", false, "--verify-import-roundtrip {pkg} {export}"),
+        new("App", "--find-game", "", "Look for the game's CookedPCConsole folder in the Steam libraries (what the app does on its first run).", false, "--find-game"),
+        new("App", "--check-update", "", "Check GitHub for a newer release of the app.", false, "--check-update"),
+        new("App", "--update", "", "Download, verify and install the newest release over this app folder (close the app's window first).", false, "--update"),
+        new("App", "--install-zip", "<MHO_Package_Modifier_vX.Y.Z.zip>", "Install a release zip downloaded by hand over this app folder (checked against the .sha256 next to it).", false, "--install-zip <zip>"),
         new("Self-tests", "--test-rebuild", "<package.upk> [export-to-copy]", "Rebuild a package (optionally with one export copied) and verify. Writes nothing.", false, "--test-rebuild {pkg}"),
     ];
 

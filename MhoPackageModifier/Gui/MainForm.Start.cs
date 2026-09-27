@@ -48,6 +48,8 @@ sealed partial class MainForm
         status.Full(startStatus);
         showStart.CheckedChanged += (_, _) => settings.ShowStartOnLaunch = showStart.Checked;
         status.Full(NoWrap(Btn("Open the manual", () => ShowHelp("start")), Btn("Refresh status", RefreshStart), showStart));
+        status.Full(NoWrap(Btn("Check for updates", () => _ = CheckForUpdates(quiet: false)), checkUpdates,
+            new Label { Text = $"   You have v{Updater.Current}.", AutoSize = true, Padding = new Padding(0, 8, 0, 0), Tag = "hint" }));
 
         return Stacked("Start",
             Heading("MHO Package Modifier"),

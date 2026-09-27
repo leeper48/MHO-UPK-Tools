@@ -5,7 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.50.1</Version>
+    <Version>2.51.0</Version>
     <AssemblyName>MHO_UPK_Mod</AssemblyName>
     <Product>MHO Package Modifier</Product>
     <AssemblyTitle>MHO Package Modifier</AssemblyTitle>

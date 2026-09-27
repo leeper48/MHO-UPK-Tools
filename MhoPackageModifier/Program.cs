@@ -21,6 +21,7 @@ static class Program
     static int Main(string[] args)
     {
         string version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "?";
+        Updater.CleanUp();                                                     // the exe an update renamed aside
 
         // --gui-snapshot <folder>: renders every tab of the GUI to <folder>\<n>_<tab>.png and exits (layout check).
         if (args.Length == 2 && args[0].Equals("--gui-snapshot", StringComparison.OrdinalIgnoreCase))
@@ -452,6 +453,16 @@ static class Program
             return 0;
         }
 
+        if (args.Any(a => a.Equals("--check-update", StringComparison.OrdinalIgnoreCase))) return Updater.CheckCli();
+        if (args.Any(a => a.Equals("--find-game", StringComparison.OrdinalIgnoreCase)))
+        {
+            string? g = GameFolder.Detect();
+            Console.WriteLine(g != null ? $"Game folder: {g}" : "The game wasn't found in any Steam library. Set the folder in the app: the game's CookedPCConsole folder (under UnrealEngine3, MarvelGame).");
+            return g != null ? 0 : 1;
+        }
+        if (args.Any(a => a.Equals("--update", StringComparison.OrdinalIgnoreCase))) return Updater.UpdateCli();
+        int installAt = Array.FindIndex(args, a => a.Equals("--install-zip", StringComparison.OrdinalIgnoreCase));
+        if (installAt >= 0 && installAt + 1 < args.Length) return Updater.InstallZipCli(args[installAt + 1]);
         int planesAt = Array.FindIndex(args, a => a.Equals("--mesh-planes", StringComparison.OrdinalIgnoreCase));
         if (planesAt >= 0 && planesAt + 2 < args.Length) return MeshPlanes.Run(args[planesAt + 1], args[planesAt + 2]);
         int meshCmpAt = Array.FindIndex(args, a => a.Equals("--mesh-compare", StringComparison.OrdinalIgnoreCase));
