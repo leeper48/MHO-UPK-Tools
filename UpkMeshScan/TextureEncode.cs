@@ -17,7 +17,7 @@ static class TextureEncode
     public sealed record Result(string FourCC, int Width, int Height, List<(int W, int H, byte[] Data)> Levels);
 
     /// <param name="format">"dxt1", "dxt5" or null (choose).</param>
-    public static Result FromImage(string path, string? format, int split, float scale, bool noMips = false)
+    public static Result FromImage(string path, string? format, int split, float scale, bool noMips = false, int maxSize = 0)
     {
         using var bmp = new Bitmap(path);
         int w = bmp.Width, h = bmp.Height;
@@ -48,6 +48,9 @@ static class TextureEncode
 
         var levels = new List<(int, int, byte[])>();
         byte[] level = rgba; int lw = w, lh = h;
+        // --max-size N: halve (same filter as the mips) until the image fits.
+        while (maxSize > 0 && Math.Max(lw, lh) > maxSize && (lw > 1 || lh > 1)) (level, lw, lh) = Downsample(level, lw, lh, cut);
+        w = lw; h = lh;
         while (true)
         {
             levels.Add((lw, lh, fmt == "dxt1" ? EncodeDxt1(level, lw, lh, !opaque) : EncodeDxt5(level, lw, lh)));

@@ -42,7 +42,7 @@ static class Program
             Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
             Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true });
         }
-        Console.WriteLine($"UpkMeshScan v{version}");
+        Console.WriteLine($"MHO Package Modifier v{version}");
         return Run(args, version);
     }
 
@@ -153,11 +153,13 @@ static class Program
         int buildZoneAt = Array.FindIndex(args, a => a.Equals("--build-zone", StringComparison.OrdinalIgnoreCase));
         if (buildZoneAt >= 0)
         {
-            // --build-zone <zone> <game-folder> [--walls facade|grey] [--dry-run]
+            // --build-zone <zone> <game-folder> [--walls facade|grey] [--lod-size 512|0] [--dry-run]
             if (buildZoneAt + 2 >= args.Length) { Usage(); return 2; }
             int wi = Array.FindIndex(args, a => a.Equals("--walls", StringComparison.OrdinalIgnoreCase));
             var walls = wi >= 0 && wi + 1 < args.Length && args[wi + 1].Equals("grey", StringComparison.OrdinalIgnoreCase) ? ZoneBuilds.Walls.Grey : ZoneBuilds.Walls.Facade;
-            return ZoneBuilds.Build(args[buildZoneAt + 1], args[buildZoneAt + 2], walls, args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
+            int li = Array.FindIndex(args, a => a.Equals("--lod-size", StringComparison.OrdinalIgnoreCase));
+            return ZoneBuilds.Build(args[buildZoneAt + 1], args[buildZoneAt + 2], walls, args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                li >= 0 && li + 1 < args.Length ? int.Parse(args[li + 1]) : 512);
         }
 
         int importAt = Array.FindIndex(args, a => a.Equals("--import-fbx", StringComparison.OrdinalIgnoreCase));
@@ -393,14 +395,14 @@ static class Program
         int texImportAt = Array.FindIndex(args, a => a.Equals("--import-texture", StringComparison.OrdinalIgnoreCase));
         if (texImportAt >= 0)
         {
-            // --import-texture <package.upk> <template-texture-path> <new-name> <file.dds|png|jpg|bmp> [--format dxt1|dxt5] [--split 85] [--scale 1] [--no-mips] [--dry-run]
+            // --import-texture <package.upk> <template-texture-path> <new-name> <file.dds|png|jpg|bmp> [--format dxt1|dxt5] [--split 85] [--scale 1] [--no-mips] [--max-size N] [--dry-run]
             if (texImportAt + 4 >= args.Length) { Usage(); return 2; }
             var inv = System.Globalization.CultureInfo.InvariantCulture;
             string TOpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
             return TextureImport.Run(args[texImportAt + 1], args[texImportAt + 2], args[texImportAt + 3], args[texImportAt + 4],
                 args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
                 TOpt("--format", "") is { Length: > 0 } tf ? tf : null, int.Parse(TOpt("--split", "85")), float.Parse(TOpt("--scale", "1"), inv),
-                args.Any(a => a.Equals("--no-mips", StringComparison.OrdinalIgnoreCase)));
+                args.Any(a => a.Equals("--no-mips", StringComparison.OrdinalIgnoreCase)), int.Parse(TOpt("--max-size", "0")));
         }
 
         int copyAt = Array.FindIndex(args, a => a.Equals("--copy-export", StringComparison.OrdinalIgnoreCase));
@@ -581,7 +583,7 @@ static class Program
         int staticCount = ok.Sum(r => r.Meshes.Count(m => !SkeletalClasses.Contains(m.Class)));
         int skelCount = ok.Sum(r => r.Meshes.Count(m => SkeletalClasses.Contains(m.Class)));
 
-        sb.AppendLine($"UpkMeshScan v{version} — mesh scan report");
+        sb.AppendLine($"MHO Package Modifier v{version} — mesh scan report");
         sb.AppendLine($"Folder   : {folder}");
         sb.AppendLine($"Date     : {DateTime.Now:yyyy-MM-dd HH:mm}");
         sb.AppendLine($"Packages : {results.Count} scanned, {ok.Count} read OK, {results.Count - ok.Count} failed ({elapsed.TotalSeconds:F1}s){(skippedBackups > 0 ? $"; {skippedBackups} bak/copy file(s) skipped" : "")}");
@@ -658,7 +660,7 @@ static class Program
     {
         Console.WriteLine("""
 
-        Usage: UpkMeshScan <folder> [options]
+        Usage: MHO_UPK_Mod <folder> [options]
           Scans every .upk/.umap under <folder> and lists the static meshes each one contains.
 
           --out <file>       Report path (default: <FolderName>_MeshScan.txt next to the exe)
@@ -669,15 +671,15 @@ static class Program
           --decode-static    Also run the StaticMesh parser on every static mesh (writes nothing) and
                              report which ones decode, grouped by failure reason
 
-        Usage: UpkMeshScan --dump-export <package.upk> <export-name-or-path> [--out <folder>]
+        Usage: MHO_UPK_Mod --dump-export <package.upk> <export-name-or-path> [--out <folder>]
           Writes that export's raw bytes (.bin) and an annotated dump (.txt: property tags, then
           hex of the native data) to <folder> (default: dumps\ next to the exe). Read-only.
 
-        Usage: UpkMeshScan --export-fbx <package.upk> <staticmesh-name-or-path> [--out <folder>]
+        Usage: MHO_UPK_Mod --export-fbx <package.upk> <staticmesh-name-or-path> [--out <folder>]
           Writes LOD 0 of that StaticMesh to <folder>\<name>.fbx (default: exports\ next to the exe),
           one part per material section. Read-only on the package.
 
-        Usage: UpkMeshScan --import-fbx <package.upk> <staticmesh> <file.fbx> [--dry-run [--out <folder>]]
+        Usage: MHO_UPK_Mod --import-fbx <package.upk> <staticmesh> <file.fbx> [--dry-run [--out <folder>]]
           Replaces LOD 0 of that StaticMesh with the FBX (sections matched by material name).
           Builds and verifies the new package in memory first. With --dry-run it's written to
           <folder> (default: import_out\ next to the exe) and the game file is untouched.
@@ -685,20 +687,20 @@ static class Program
           is written to a temp file, verified again from disk, then replaces the live file.
           Collision for the imported mesh is removed (empty collision tree) for now.
 
-        Usage: UpkMeshScan --export-textures <package.upk> [name-filter] [--out <folder>]
+        Usage: MHO_UPK_Mod --export-textures <package.upk> [name-filter] [--out <folder>]
           Writes each Texture2D's largest mip stored inside the package as .dds (DXT data kept as is;
           default folder textures\<package>\ next to the exe). Stock textures only carry small mips
           (mostly 64x64) in the package; full size is in .tfc files, which aren't read.
           --export-fbx also writes the mesh's material textures and links them in the FBX.
-        Usage: UpkMeshScan --set-property <package.upk> <export-path> <Name=Value> [...] [--dry-run]
+        Usage: MHO_UPK_Mod --set-property <package.upk> <export-path> <Name=Value> [...] [--dry-run]
           Changes float/int properties that already exist in an export (e.g. fog density), with the
           same .bak / verified temp / swap workflow as --import-fbx. --revert undoes it.
-        Usage: UpkMeshScan --zone-placeholders <folder> <tile-prefix> <library.upk> [--out file.fbx]
+        Usage: MHO_UPK_Mod --zone-placeholders <folder> <tile-prefix> <library.upk> [--out file.fbx]
                            [--min-height 400] [--min-footprint 200] [--inset 0.90] [--skip tree,...] [--only mesh,...]
           Low-poly footprint prisms for every building-sized placed mesh in the tiles (e.g. prefix UES_Static_,
           library SCS__OpDailyBugleRegionBand_SF.upk), at their real world positions, into one FBX
           (+ .txt list). Read-only.
-        Usage: UpkMeshScan --add-sky-placeholders <package.upk> <placeholders.fbx> [--gray 0.03] [--dry-run]
+        Usage: MHO_UPK_Mod --add-sky-placeholders <package.upk> <placeholders.fbx> [--gray 0.03] [--dry-run]
                            [--exclude-box minX,minY,maxX,maxY ...] [--ground-z -40 [--ground-margin 4000]]
                            [--shrink F]  (scale each piece: 0.8/0.9 = 0.889 turns 90% placeholders into 80%)
                            [--add-fbx more.fbx ...]  (merged as is, after exclusion and shrink)
@@ -713,25 +715,25 @@ static class Program
           Adds the FBX's geometry (world space, e.g. from --zone-placeholders) to the zone's sky sphere
           mesh as a second section with a new flat-grey copy of the sky material. The package is rebuilt
           to hold the new material; everything else stays byte-identical. Same .bak / verify / swap.
-        Usage: UpkMeshScan --build-zone <zone> <game-folder> [--walls facade|grey] [--dry-run]
+        Usage: MHO_UPK_Mod --build-zone <zone> <game-folder> [--walls facade|grey] [--lod-size 512] [--dry-run]
           Rebuilds a zone's main level from stock with its whole placeholder recipe (zones: Hightown). Every step
           runs on a scratch copy and verifies itself; the result is written once (.bak / verified temp / swap), so
           --undo takes the whole rebuild back. Walls: the zone's facade texture (default) or flat grey.
-        Usage: UpkMeshScan --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304]
+        Usage: MHO_UPK_Mod --add-cell-placeholders <package.upk> <placeholders.fbx> [--min-draw 3500] [--cell 2304]
                            [--exclude-box ...] [--shrink F] [--add-fbx ...] [--ground-z -40] [--gray 0.03] [--dry-run]
           Placeholders as one placed object per map cell with MinDrawDistance (hidden near the camera),
           built from the package's .bak with the live file's other edits (e.g. fog) carried over.
-        Usage: UpkMeshScan --test-rebuild <package.upk> [export-to-copy]
+        Usage: MHO_UPK_Mod --test-rebuild <package.upk> [export-to-copy]
           Self-test: rebuild the package (optionally with one export copied) and verify. Writes nothing.
-        Usage: UpkMeshScan --list-exports <package.upk> [class-filter]
+        Usage: MHO_UPK_Mod --list-exports <package.upk> [class-filter]
           Lists exports (index, class, size, path), optionally only classes containing the filter.
-        Usage: UpkMeshScan --texture-info <package.upk> [name-filter]
+        Usage: MHO_UPK_Mod --texture-info <package.upk> [name-filter]
           Lists textures: size, format, cache, and where each mip's data is stored.
 
-        Usage: UpkMeshScan --revert <package.upk>
+        Usage: MHO_UPK_Mod --revert <package.upk>
           Restores <package>.upk from <package>.upk.bak (verified; the .bak is kept).
 
-        Usage: UpkMeshScan --verify-import-roundtrip <package.upk> <staticmesh>
+        Usage: MHO_UPK_Mod --verify-import-roundtrip <package.upk> <staticmesh>
           Self-test, writes nothing to the package folder: export -> FBX -> import, compared with
           the original, plus the package writer and verifier run in memory.
         """);

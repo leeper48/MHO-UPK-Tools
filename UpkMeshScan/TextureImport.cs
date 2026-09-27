@@ -32,7 +32,7 @@ static class TextureImport
         return ms.ToArray();
     }
 
-    public static int Run(string upkPath, string templatePath, string newName, string ddsPath, bool dryRun, string? encodeFormat = null, int split = 85, float scale = 1f, bool noMips = false)
+    public static int Run(string upkPath, string templatePath, string newName, string ddsPath, bool dryRun, string? encodeFormat = null, int split = 85, float scale = 1f, bool noMips = false, int maxSize = 0)
     {
         upkPath = Path.GetFullPath(upkPath);
         if (Program.IsBackupName(upkPath)) { Console.WriteLine("Refusing to write a .bak/copy file."); return 2; }
@@ -51,7 +51,7 @@ static class TextureImport
         string ext = Path.GetExtension(ddsPath).ToLowerInvariant();
         if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp")
         {
-            var enc = TextureEncode.FromImage(ddsPath, encodeFormat, split, scale, noMips);
+            var enc = TextureEncode.FromImage(ddsPath, encodeFormat, split, scale, noMips, maxSize);
             Console.WriteLine($"  {Path.GetFileName(ddsPath)}: {enc.Width}x{enc.Height} -> {enc.FourCC}, {enc.Levels.Count} mips{(scale != 1f ? $", colour x{scale}" : "")}{(enc.FourCC == "DXT1" ? $" (alpha cut at {split})" : "")}");
             ddsPath = Path.Combine(Path.GetTempPath(), $"upkmeshscan_{Guid.NewGuid():N}.dds");
             File.WriteAllBytes(ddsPath, WriteDds(enc));
@@ -78,6 +78,17 @@ static class TextureImport
             levels.Add((w, h, dds.AsSpan(at, len).ToArray()));
             at += len;
         }
+        // --max-size N: start at the first stored level no bigger than N (the mip chain already holds it, filtered as the file
+        // was made); --no-mips: that level only.
+        if (maxSize > 0 && Math.Max(width, height) > maxSize)
+        {
+            int first = levels.FindIndex(l => Math.Max(l.W, l.H) <= maxSize);
+            if (first < 0) { Console.WriteLine($"  --max-size {maxSize}: the .dds has no level that small (give it a mip chain)"); return 2; }
+            levels.RemoveRange(0, first);
+            Console.WriteLine($"  --max-size {maxSize}: using the stored {levels[0].W}x{levels[0].H} level");
+            width = levels[0].W; height = levels[0].H;
+        }
+        if (noMips && levels.Count > 1) levels.RemoveRange(1, levels.Count - 1);   // --no-mips: the top level only
         string format = "PF_" + fourCC;
         Console.WriteLine($"  .dds: {width}x{height} {fourCC}, {levels.Count} mip(s) ({levels[^1].W}x{levels[^1].H} smallest), {levels.Sum(l => l.Pixels.Length):N0} bytes");
 

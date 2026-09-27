@@ -17,6 +17,7 @@ static class ZoneBuilds
     public sealed record Zone(string Name, string Package, string Description, Func<Walls, List<string[]>> Steps, bool HasFacade = true);
 
     const string Target = "@target", Data = "@data/";
+    const string LodSize = "@lodsize";                                  // --max-size for LOD textures: --lod-size / the Zones tab (default 512, 0 = original)
     const string Library = "@lib:";                                     // a game package, read from its .bak if one exists
 
     public static readonly Zone[] Zones =
@@ -46,6 +47,9 @@ static class ZoneBuilds
     // ZoneData/IndustryCity/lod_bundle<n>.fbx + lod_bundle<n>_diff.dds (make_mips.py --scale: 1 warehouses 0.45, read too
     // bright next to the real ones at 0.6; 2 sub area, 3 containers, 4 cargo ship 0.6).
     const int LodBundles = 4;
+    // LOD atlases and the baked ground plane: no mips, at the zone build's LOD texture size (--lod-size / Zones tab, default
+    // 512: Kurt 2026-09-27 "as these are LODs, the 512 is decent"). The 2048 .dds sources carry full mip chains, so the
+    // import takes the stored level (the ground's is premultiplied and cut at half coverage). ICP main level 24.3 -> 10.9 MB.
 
     // A cloud layer of our own (2026-09-26, parked 2026-09-27 in favour of the stock sky's clouds): a translucent inner dome.
     const bool IcpCloudLayer = false;
@@ -91,7 +95,7 @@ static class ZoneBuilds
             // docks, over our water). It shows where the real ground isn't drawn: the distance and the pit ring (red test,
             // 2026-09-26). DXT1 1-bit alpha at the 1/3 mask clip, with a full mip chain (make_mips.py --scale 0.7, to match the real ground): with one mip it
             // shimmered from a distance.
-            ["--import-texture", Target, template, "icp_groundplane_diff", Data + "icp_groundplane_diff.dds"],
+            ["--import-texture", Target, template, "icp_groundplane_diff", Data + "icp_groundplane_diff.dds", "--no-mips", "--max-size", LodSize],
             ["--copy-export", lib, "brooklyn_pieredge_a.brooklyn_pieredge_mat", Target, "--cut", "physmaterial", "--rename", "icp_groundplane_mat",
                 "--replace-ref", "brooklyn_pieredge_a.brooklyn_pieredge_diff_a=maptemplates.sky.icp_groundplane_diff"],
             // Building LODs: Kurt's low-poly textured bakes of every --export-placed piece 100+ tall and 100+ long (fences,
@@ -109,7 +113,7 @@ static class ZoneBuilds
             ["--import-texture", Target, template, "icp_lod_flat_nrml", Data + "lod_flat_nrml.dds"],
             .. Enumerable.Range(1, LodBundles).SelectMany(n => new[]
             {
-                new[] { "--import-texture", Target, template, $"icp_lod_bundle{n}_diff", Data + $"lod_bundle{n}_diff.dds" },
+                new[] { "--import-texture", Target, template, $"icp_lod_bundle{n}_diff", Data + $"lod_bundle{n}_diff.dds", "--no-mips", "--max-size", LodSize },
                 ["--copy-export", Library + "SCS__DailyRHighTownInvasionRegionL30_SF.upk", sf + "_mat", Target, "--cut", "physmaterial", "--rename", $"icp_lod_bundle{n}_mat",
                     "--replace-ref", sf + $"_diff=maptemplates.sky.icp_lod_bundle{n}_diff", "--replace-ref", sf + "_spec=maptemplates.sky.icp_lod_emissive_spec",
                     "--replace-ref", sf + "_nrml=maptemplates.sky.icp_lod_flat_nrml",
@@ -246,7 +250,7 @@ static class ZoneBuilds
 
     public static bool GameRunning() => Process.GetProcessesByName("MarvelHeroesOmega").Length > 0;
 
-    public static int Build(string zoneName, string gameFolder, Walls walls, bool dryRun)
+    public static int Build(string zoneName, string gameFolder, Walls walls, bool dryRun, int lodSize = 512)
     {
         var zone = Find(zoneName);
         if (zone == null) { Console.WriteLine($"No zone recipe '{zoneName}'. Known: {string.Join(", ", Zones.Select(z => z.Name))}"); return 2; }
@@ -264,10 +268,11 @@ static class ZoneBuilds
         string outFile = Path.Combine(AppContext.BaseDirectory, "import_out", zone.Package);
         if (walls == Walls.Facade && !zone.HasFacade) { Console.WriteLine($"  {zone.Name} has no facade yet: grey walls."); walls = Walls.Grey; }
         var steps = zone.Steps(walls);
-        Console.WriteLine($"Build zone {zone.Name} ({zone.Package}), walls {walls.ToString().ToLowerInvariant()}, from {(stock == live ? "the live file (no .bak yet: stock)" : "its .bak (stock)")}{(dryRun ? "  [dry run]" : "")}");
+        Console.WriteLine($"Build zone {zone.Name} ({zone.Package}), walls {walls.ToString().ToLowerInvariant()}, LOD textures {(lodSize > 0 ? $"max {lodSize}" : "original size")}, from {(stock == live ? "the live file (no .bak yet: stock)" : "its .bak (stock)")}{(dryRun ? "  [dry run]" : "")}");
 
         string Resolve(string a) =>
             a == Target ? workFile
+            : a == LodSize ? lodSize.ToString()
             : a.StartsWith(Data) ? Path.Combine(dataDir, a[Data.Length..])
             : a.StartsWith(Library) ? (File.Exists(Path.Combine(gameFolder, a[Library.Length..]) + ".bak") ? Path.Combine(gameFolder, a[Library.Length..]) + ".bak" : Path.Combine(gameFolder, a[Library.Length..]))
             : a;

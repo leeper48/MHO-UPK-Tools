@@ -5,8 +5,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.38.2</Version>
-    <AssemblyName>UpkMeshScan</AssemblyName>
+    <Version>2.40.0</Version>
+    <AssemblyName>MHO_UPK_Mod</AssemblyName>
+    <Product>MHO Package Modifier</Product>
+    <AssemblyTitle>MHO Package Modifier</AssemblyTitle>
     <RootNamespace>UpkMeshScan</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>

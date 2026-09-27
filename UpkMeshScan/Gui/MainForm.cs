@@ -84,13 +84,14 @@ sealed class MainForm : Form
     readonly Label zoneInfo = new() { AutoSize = true, MaximumSize = new Size(1100, 0), Margin = new Padding(3, 6, 3, 3) };
     readonly RadioButton wallsFacade = new() { Text = "Zone facade (textured walls)", AutoSize = true, Checked = true };
     readonly RadioButton wallsGrey = new() { Text = "Default grey", AutoSize = true };
+    readonly ComboBox lodSize = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
     readonly ListView backups = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
 
     readonly List<Control> busyDisabled = new();
 
     public MainForm(string version)
     {
-        Text = $"UpkMeshScan v{version}";
+        Text = $"MHO Package Modifier v{version}";
         Width = 1400; Height = 1000;
         StartPosition = FormStartPosition.CenterScreen;
 
@@ -395,7 +396,10 @@ sealed class MainForm : Form
             "One verified write: Undo on the Backups tab takes the whole rebuild back."), 0, 0);
         t.Controls.Add(zones, 0, 1);
         t.Controls.Add(zoneInfo, 0, 2);
-        t.Controls.Add(Flow(Lbl("Walls:"), wallsFacade, wallsGrey), 0, 3);
+        lodSize.Items.AddRange(["Original", "2048", "1024", "512", "256"]);
+        lodSize.SelectedItem = "512";
+        t.Controls.Add(Flow(Lbl("Walls:"), wallsFacade, wallsGrey, Lbl("   LOD textures:"), lodSize), 0, 3);
+        tips.SetToolTip(lodSize, "Largest size for the distant LOD textures (building atlases, baked ground plane). They're only seen far away: 512 keeps the package small. Original = as supplied.");
         tips.SetToolTip(wallsFacade, "Building walls use the zone's own facade texture (Hightown: generated night windows). Roofs stay grey.");
         tips.SetToolTip(wallsGrey, "Building boxes are flat grey all over (the original placeholder look).");
         t.Controls.Add(Flow(
@@ -436,7 +440,8 @@ sealed class MainForm : Form
             if (!Confirm($"Rebuild {z.Package} ({z.Name}, {wallsText}) from its original and write it to the game folder?\n\n" +
                 "The .bak is kept; Undo on the Backups tab restores the current version.")) return;
         }
-        Run($"{(dryRun ? "Dry run" : "Build")} zone {z.Name} ({wallsText})", () => ZoneBuilds.Build(z.Name, gameFolder.Text, walls, dryRun), after: () =>
+        int lod = lodSize.SelectedItem is string ls && int.TryParse(ls, out int n) ? n : 0;
+        Run($"{(dryRun ? "Dry run" : "Build")} zone {z.Name} ({wallsText}, LOD textures {(lod > 0 ? lod.ToString() : "original")})", () => ZoneBuilds.Build(z.Name, gameFolder.Text, walls, dryRun, lod), after: () =>
         {
             RefreshZones();
             RefreshBackups();
