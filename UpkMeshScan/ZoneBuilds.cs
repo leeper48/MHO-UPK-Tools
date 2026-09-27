@@ -38,7 +38,10 @@ static class ZoneBuilds
     /// <summary>
     /// Industry City, ported from icp_build.sh (2026-09-24/25). Cells are laid out at run time and stored at the origin;
     /// the placeholder FBX are already in final positions (IndustryCity_layout.txt). Sky: the Brood skydome material
-    /// copied as icp_sky_mat with Kurt's photo, a black "stars" slot and a plain grey mask (clouds are parked).
+    /// copied as icp_sky_mat with Kurt's photo (black "stars" layer, grey-84 mask = the photo's brightness). Clouds are a
+    /// second dome just inside it (--add-cloud-dome) with its own UV0, so they can tile far less than the photo's UVs
+    /// allow: a second copy, icp_cloud_mat, with a black photo, a flat cloud grey as its scrolling "stars" layer and the
+    /// make_clouds.py mask, whose alpha is the cloud shape.
     /// </summary>
     // ZoneData/IndustryCity/lod_bundle<n>.fbx + lod_bundle<n>_diff.dds (make_mips.py --scale: 1 warehouses 0.45, read too
     // bright next to the real ones at 0.6; 2 sub area, 3 containers, 4 cargo ship 0.6).
@@ -107,15 +110,35 @@ static class ZoneBuilds
             ["--import-texture", Target, template, "icp_sky_photo", Data + "ICP_Sky.dds"],
             ["--import-texture", Target, template, "icp_black", Data + "icp_black.dds"],
             ["--import-texture", Target, template, "icp_mask", Data + "icp_mask.dds"],
+            ["--import-texture", Target, template, "icp_cloudcolor", Data + "icp_cloudcolor.dds"],
+            ["--import-texture", Target, template, "icp_clouds", Data + "icp_clouds.dds"],
             ["--copy-export", Library + "BroodSpaceship_A.upk", $"{brood}.{brood}_mat", Target, "--rename", "icp_sky_mat",
                 "--replace-ref", $"{brood}.{brood}_milkyway_diff=maptemplates.sky.icp_sky_photo",
                 "--replace-ref", $"{brood}.{brood}_stars=maptemplates.sky.icp_black",
                 "--replace-ref", $"{brood}.{brood}_alpha=maptemplates.sky.icp_mask"],
+            // Cloud material: Age of Ultron's Asgard cloud-dome instance (vfx_asgard mat_clouds_swirl parent: translucent,
+            // unlit, its own tex_clouds_tiled; params color, fade, distortion_multiplier). The Brood material is opaque, so a
+            // Brood copy on the inner dome hid the photo and z-fought with it (2026-09-26).
+            // Its tex_clouds_tiled (grey, same in RGB and alpha) replaced by icp_clouds_big (from icp_clouds_big_src.png, made
+            // with make_clouds.py --cells 2x2 --coverage 0.5 --softness 0.35: 2x2 big cells with
+            // clear gaps (DXT5 with mips via make_mips.py --dxt5), RGB = A = the cloud shape at full strength: the material takes
+            // opacity from the colour (a white RGB turned the whole dome opaque white) and fade acts like an offset (at half
+            // strength and fade -1.5 the clouds vanished), so transparency is tuned with fade only.
+            ["--import-texture", Target, template, "icp_clouds_big", Data + "icp_clouds_big.dds"],
+            ["--copy-export", Library + "AgeOfUltron.upk", "vfx_asgard.materials.mat_clouds_swir_dome_inst", Target, "--rename", "icp_cloud_dome_mat",
+                "--replace-ref", "vfx_asgard.textures.tex_clouds_tiled=maptemplates.sky.icp_clouds_big"],
+            // Stock fade -5 left it invisible and 1 made a solid overcast (fade seems to raise opacity); light grey for a day sky.
+            ["--set-property", Target, "vfx_asgard.materials.icp_cloud_dome_mat", "param:fade=-1.5", "param:color=0.75,0.75,0.77,1"],
             ["--set-object", Target, skyComp, "materials[0]", $"{brood}.icp_sky_mat"],
             // The Brood shader samples the photo at 2 x v (the city showed twice: at the horizon and ~45-50 degrees up), so
             // the dome's own UV0 v is halved (0.499, so the horizon row doesn't wrap to the top): the photo spans pole to
             // horizon once (2026-09-26).
             ["--scale-uv", Target, "maptemplates.sky.sm_skysphere", "0", "1,0.499", "--section", "0"],
+            // Cloud dome: 80% of the sky (at 98% it z-fought with the photo dome: too little depth at ~2M units). Planar UV0 (a
+            // flat cloud ceiling seen through the dome: clouds shrink and flatten toward the horizon, Kurt's reference photo,
+            // 2026-09-26), scale 0.2 (1.5 packed dozens of tiles into the low sky the game camera sees), held above 6 degrees; the
+            // angle turns the drift direction.
+            ["--add-cloud-dome", Target, skyComp, "vfx_asgard.materials.icp_cloud_dome_mat", "--uv", "1,1", "--planar", "0.2,0", "--horizon", "6", "--horizon-fade", "2,20", "--shrink", "0.8"],
             // Night harbour mist (2026-09-26; stock: opacity 0.5, start 100, density 0.1, height 764, opposite light blue
             // 138,182,244, inscattering warm 222,218,146): more distance fog (hides the LOD swap and the zone edge), clear
             // around the player (MHO's camera sits high), hugging the water, cooler colours for the night sky.

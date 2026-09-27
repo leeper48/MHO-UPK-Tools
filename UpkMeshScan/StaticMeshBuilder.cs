@@ -16,6 +16,8 @@ public sealed class BuiltMesh
     public required Vector3 BoundsOrigin { get; init; }
     public required Vector3 BoundsExtent { get; init; }
     public required float BoundsRadius { get; init; }
+    /// <summary>Optional vertex colours (B, G, R, A per vertex, as stored); null writes an empty colour buffer.</summary>
+    public byte[]? ColorsBgra { get; init; }
 }
 
 /// <summary>
@@ -298,7 +300,11 @@ static class StaticMeshBuilder
             }
         }
 
-        w.Write(original.ColorStride); w.Write(0);                          // no vertex colors
+        if (m.ColorsBgra is { } cols && cols.Length == nv * 4)
+        {
+            w.Write(4); w.Write(nv); w.Write(4); w.Write(nv); w.Write(cols);    // FColorVertexBuffer: stride, count, bulk data
+        }
+        else { w.Write(original.ColorStride); w.Write(0); }                  // no vertex colors
         w.Write(nv);
         w.Write(2); w.Write(m.Indices.Length); foreach (ushort i in m.Indices) w.Write(i);
         w.Write(2); w.Write(0);                                             // wireframe (empty on every stock mesh)

@@ -98,6 +98,21 @@ static class Program
                 float.Parse(IOpt("--min-draw", "3500"), inv), float.Parse(IOpt("--z-offset", "0"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)));
         }
 
+        int cloudAt = Array.FindIndex(args, a => a.Equals("--add-cloud-dome", StringComparison.OrdinalIgnoreCase));
+        if (cloudAt >= 0)
+        {
+            // --add-cloud-dome <package.upk> <sky-component> <material> [--uv fu,fv] [--planar S[,angle] [--horizon 3]] [--horizon-fade lo,hi] [--shrink 0.98] [--dry-run]
+            if (cloudAt + 3 >= args.Length) { Usage(); return 2; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string COpt(string name, string fallback) { int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase)); return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback; }
+            var f = COpt("--uv", "1,1").Split(',').Select(x => float.Parse(x, inv)).ToArray();
+            var pl = COpt("--planar", "0").Split(',').Select(x => float.Parse(x, inv)).ToArray();
+            return CloudDome.Run(args[cloudAt + 1], args[cloudAt + 2], args[cloudAt + 3], new System.Numerics.Vector2(f[0], f.Length > 1 ? f[1] : f[0]),
+                float.Parse(COpt("--shrink", "0.98"), inv), args.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase)),
+                pl[0], pl.Length > 1 ? pl[1] : 0f, float.Parse(COpt("--horizon", "3"), inv),
+                COpt("--horizon-fade", "") is { Length: > 0 } hfo && hfo.Split(',').Select(x => float.Parse(x, inv)).ToArray() is { Length: 2 } hfa ? new System.Numerics.Vector2(hfa[0], hfa[1]) : null);
+        }
+
         int copiesAt = Array.FindIndex(args, a => a.Equals("--add-component-copies", StringComparison.OrdinalIgnoreCase));
         if (copiesAt >= 0)
         {
