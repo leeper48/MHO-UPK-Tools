@@ -25,7 +25,7 @@ static class Program
         ("--migrate", "--migrate <old folder> [--to <lib>]", "Copy MHModManager's mods, order, verified stock backups and settings into a new library (default %LOCALAPPDATA%\\MhoExtendedModManager\\library). The old folder is left as it is."),
         ("--install", "--install <archive.zip|.7z|folder> [--replace]", "Add the mod(s) in an archive or folder to the library (top of the list, disabled). --replace updates a mod of the same name in place (keeps its place, on/off, lock, tags and note)."),
         ("--export", "--export <mod> <out.zip> [--legacy]", "Save a mod from the library as a .zip (installable here and in MHModManager; --legacy also leaves out the other-icon-package extension)."),
-        ("--remove", "--remove <mod>", "Remove a disabled mod from the library (to the Recycle Bin). Apply first so none of it is left in the game."),
+        ("--remove", "--remove <mod> [--dry-run]", "Remove a disabled mod from the library (to the Recycle Bin). Refused while its own files are still modded in the game (Apply first). --dry-run only says whether it could be removed."),
         ("--enable", "--enable <mod>", "Enable a mod (library state only; run --apply to change the game)."),
         ("--disable", "--disable <mod>", "Disable a mod (library state only; run --apply to change the game)."),
         ("--apply", "--apply [--dry-run [--out <dir>]]", "Make the game match the library: winners' packages in, icon packages rebuilt from stock with the winning textures, verified stock originals back for the rest. Writes through MPM's verified path with undo. --out saves what a dry run would write."),
@@ -470,8 +470,9 @@ static class Program
                 var m = rest.Count > 1 ? lib.Find(rest[1]) : null;
                 if (m == null) { Console.WriteLine("No such mod."); return 1; }
                 string? gr = settings.ResolvedGameRoot(data);
-                string? why = ModInstaller.Remove(m, lib, gr != null && Settings.IsGameRoot(gr) ? new GameState(gr, data) : null);
-                Console.WriteLine(why ?? $"Removed {m.Name} (its folder is in the Recycle Bin).");
+                bool dry = rest.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase));
+                string? why = ModInstaller.Remove(m, lib, gr != null && Settings.IsGameRoot(gr) ? new GameState(gr, data) : null, dry);
+                Console.WriteLine(why ?? (dry ? $"{m.Name} can be removed (dry run: nothing changed)." : $"Removed {m.Name} (its folder is in the Recycle Bin)."));
                 return why == null ? 0 : 1;
             }
             case "--enable" or "--disable":

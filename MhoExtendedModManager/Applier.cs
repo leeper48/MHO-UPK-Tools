@@ -237,8 +237,16 @@ static class Applier
     public static void Print(Plan p)
     {
         foreach (var s in p.Steps) Console.WriteLine($"  {s.File}: {s.What}");
-        foreach (string x in p.Problems) Console.WriteLine($"  SKIPPED {x}");
-        Console.WriteLine($"{p.Steps.Count} file(s) to change, {p.UpToDate} already right, {p.Problems.Count} skipped.");
+        if (p.Problems.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Left as they are (nothing is written to these; the game keeps its current copy):");
+            foreach (string x in p.Problems) Console.WriteLine($"  {x}");
+            Console.WriteLine("  Usually the game's copy was already changed before (by a mod or another tool) and there's no clean");
+            Console.WriteLine("  original to rebuild it from. They stay exactly as they are now; everything else still applies normally.");
+            Console.WriteLine();
+        }
+        Console.WriteLine($"{p.Steps.Count} file(s) to change, {p.UpToDate} already right, {p.Problems.Count} left as they are.");
         if (p.NotHandled.Count > 0)
             Console.WriteLine($"Not applied by this version: the sound packs of {p.NotHandled.Count} enabled mod(s); the game keeps whatever is there now.");
     }

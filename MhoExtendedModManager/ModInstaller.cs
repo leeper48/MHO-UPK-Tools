@@ -178,14 +178,48 @@ static class ModInstaller
     /// Removes a mod from the library (its folder goes to the Recycle Bin). Only when it's disabled and Apply has taken
     /// it out of the game, so nothing of it is left live that the library no longer knows about.
     /// </summary>
-    public static string? Remove(Mod mod, ModLibrary lib, GameState? game)
+    /// <summary>
+    /// The game files only this mod names, so Apply stops looking after them once it's gone: its packages, its other icon
+    /// packages and the sound packages its packs patch, less those another mod names too. (The three classic icon
+    /// packages, strings and Icons.tfc are always rebuilt from their originals, with or without the mod.)
+    /// </summary>
+    public static HashSet<string> OnlyItsFiles(Mod mod, ModLibrary lib)
     {
-        if (mod.Enabled) return "Disable it and Apply first.";
+        static IEnumerable<string> Files(Mod m)
+        {
+            foreach (string f in m.Manifest.UpkReplacements) yield return f;
+            foreach (var r in m.Manifest.Extra) yield return r.Package;
+            foreach (string a in m.Manifest.AudioPacks)
+            {
+                List<string> pcks = [];
+                try { string p = Path.Combine(m.Folder, a); if (File.Exists(p)) pcks = SoundPack.Load(p).Patches.Select(x => x.PckFile).ToList(); }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or JsonException or FormatException) { }
+                foreach (string pck in pcks) yield return pck;
+            }
+        }
+        var mine = Files(mod).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var other in lib.Mods.Where(o => o != mod)) mine.ExceptWith(Files(other));
+        return mine;
+    }
+
+    public static string? Remove(Mod mod, ModLibrary lib, GameState? game, bool dryRun = false)
+    {
+        if (mod.Enabled) return "Turn it off and Apply Changes first.";
         if (game != null)
         {
+            // Only this mod's own files matter: once it's removed, Apply no longer puts their originals back. Pending
+            // changes to anything else (other mods, icons, strings) don't stop a removal; the next Apply does them.
+            var mine = OnlyItsFiles(mod, lib);
             var plan = Applier.MakePlan(lib, game, new Originals(lib.DataFolder, game));
-            if (plan.Steps.Count > 0) return "Apply first: the game doesn't match the list yet, and this mod may still be in it.";
+            var live = plan.Steps.Where(s => mine.Contains(s.File)).Select(s => s.File).ToList();
+            if (live.Count > 0)
+                return $"Apply Changes first: {live.Count} of its file(s) are still modded in the game, and after removing the mod nothing would put the originals back:\n" +
+                       string.Join("\n", live.Take(8).Select(f => "  " + f)) + (live.Count > 8 ? $"\n  … and {live.Count - 8} more" : "");
+            var stuck = plan.Problems.Where(p => mine.Any(f => p.StartsWith(f + ":", StringComparison.OrdinalIgnoreCase))).ToList();
+            if (stuck.Count > 0)
+                return "Some of its files can't be checked, so it may still be in the game:\n" + string.Join("\n", stuck.Take(8).Select(p => "  " + p));
         }
+        if (dryRun) return null;
         Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(mod.Folder, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
         lib.State.ModOrder.RemoveAll(n => n.Equals(mod.FolderName, StringComparison.OrdinalIgnoreCase));
         lib.State.EnabledMods.RemoveAll(n => n.Equals(mod.FolderName, StringComparison.OrdinalIgnoreCase));

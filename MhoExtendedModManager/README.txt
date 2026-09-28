@@ -41,5 +41,5 @@ Privacy
   mods (no account needed); update checks and downloads use your own Nexus API key, which you enter yourself. The key is
   stored encrypted for your Windows user on this PC and is only ever sent to Nexus.
 
-Source code and licence (MIT): https://github.com/leeper48/MHO-UPK-Tools
+Source code and license (MIT): https://github.com/leeper48/MHO-UPK-Tools
 Thanks to the author of MHModManager, whose tool and mod format this builds on.

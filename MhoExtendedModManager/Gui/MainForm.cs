@@ -42,6 +42,7 @@ sealed class MainForm : Form
     Mod? noteMod;
     readonly FlatTabs tabs = new() { Dock = DockStyle.Fill };
     readonly Label status = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(9f), Padding = new Padding(12, 0, 0, 0) };
+    bool reviewable;   // the status line lists changes or skipped files: a click opens the plan
     readonly Button applyButton;
     // Dark hover tips on the buttons and boxes (the mod list shows its own, per part of a card).
     readonly ToolTip tips = Ui.Tips;
@@ -261,6 +262,7 @@ sealed class MainForm : Form
         tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
         bottom.Controls.Add(leftButtons, 0, 0);
         bottom.Controls.Add(status, 1, 0);
+        status.Click += (_, _) => { if (reviewable && !readOnly) Apply(); };
         applyButton.Anchor = AnchorStyles.Right;
         bottom.Controls.Add(applyButton, 2, 0);
 
@@ -813,11 +815,19 @@ sealed class MainForm : Form
         pending = Task.Run(() => Applier.MakePlan(l, g, new Originals(l.DataFolder, g))).ContinueWith(t =>
         {
             if (t.IsFaulted || lib != l) return;
-            int n = t.Result.Steps.Count;
+            int n = t.Result.Steps.Count, skipped = t.Result.Problems.Count;
             applyButton.Text = n == 0 ? "Apply Changes" : $"Apply Changes ({n})";
             status.Text = baseText + Ui.TitleCase((n == 0 ? "  ·  the game matches your list" : $"  ·  {n} file(s) to change") +
-                          (t.Result.Problems.Count > 0 ? $"  ·  {t.Result.Problems.Count} can't be (see Apply)" : ""));
+                          (skipped > 0 ? $"  ·  {skipped} left as they are" : "") + (n + skipped > 0 ? "  ·  click for details" : ""));
             status.ForeColor = n == 0 ? Ui.Subtle : Ui.Text;
+            // A user saw "7 Can't Be (See Apply)" and didn't know what it meant or whether Apply was safe: the line now
+            // says it plainly and opens the plan (the Apply window asks before it writes anything).
+            reviewable = n + skipped > 0;
+            status.Cursor = reviewable ? Cursors.Hand : Cursors.Default;
+            tips.SetToolTip(status, !reviewable ? "" :
+                (n > 0 ? $"{n} game file(s) don't match your mod list yet. " : "") +
+                (skipped > 0 ? $"{skipped} file(s) can't be changed and are left exactly as they are (usually: the game's copy was already changed before, and there's no clean original to rebuild it from). " : "") +
+                "Click to see the list: the Apply window shows every file first, and nothing is written until you press Apply there.");
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
@@ -942,7 +952,7 @@ sealed class MainForm : Form
         InfoRow("Version", m.Manifest.Version ?? "");
         InfoRow("Priority", $"{m.Priority + 1} of {lib.Mods.Count} (Higher Wins)" + (m.Lock != ModLock.None ? $", Locked at the {(m.Lock == ModLock.Top ? "Top" : "Bottom")}" : ""));
         InfoRow("State", m.Enabled ? "Enabled" : "Disabled", m.Enabled ? Ui.Enabled : null);
-        InfoRow("Automatic Tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "None (Nothing Recognised in the Content)");
+        InfoRow("Automatic Tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "None (Nothing Recognized in the Content)");
         InfoRow("The Mod's Tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "None (Set Them in Edit Mod → Tags)");
         InfoRow("Your Tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "None (Right-Click the Mod, or + Tag Above)");
         if (m.HiddenTags.Count > 0) InfoRow("Hidden Here", string.Join(", ", m.HiddenTags));
@@ -1082,7 +1092,7 @@ sealed class MainForm : Form
         filter.Text = "";
         Reload();
         if (installed.Count > 0) SelectMod(installed[0]);
-        // Like Apply's result: a coloured heading, then what happened.
+        // Like Apply's result: a colored heading, then what happened.
         if (showLog)
             ShowLog(installed.Count > 0 ? "Installed" : "Nothing Installed",
                 string.Join("\n", log) + (installed.Count > 0 ? "\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes." : ""),
@@ -1695,7 +1705,18 @@ sealed class MainForm : Form
         UseWaitCursor = true;
         string? why = await Task.Run(() => ModInstaller.Remove(m, l, g));
         UseWaitCursor = false;
-        if (why != null) { Dialog.Show(this, why, "Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (why != null)
+        {
+            // Its own files are still modded: offer Apply Changes (then Remove works).
+            if (why.StartsWith("Apply Changes first", StringComparison.Ordinal))
+            {
+                if (Dialog.Show(this, why + "\n\nApply Changes now? Then remove it again.", "Not Removed", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+                    Apply();
+                return;
+            }
+            Dialog.Show(this, why, "Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
         Reload();
     }
 

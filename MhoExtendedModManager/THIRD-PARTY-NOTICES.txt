@@ -1,6 +1,6 @@
 MHO Extended Mod Manager uses the following third-party software and data.
 
-MHModManager (mod format and behaviour replicated; no code copied)
+MHModManager (mod format and behavior replicated; no code copied)
   By its original author. The mod format (manifest.json, string .json files, .mhsfx sound packs) and the library layout
   follow MHModManager 1.0.1 so mods stay interchangeable.
 
