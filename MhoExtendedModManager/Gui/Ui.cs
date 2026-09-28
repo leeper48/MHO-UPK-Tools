@@ -1035,7 +1035,8 @@ sealed class StorePreview : Control
     double playTime, lastTick;
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
     static string? AnimPart(string? key) { int at = key?.IndexOf('@') ?? -1; return at < 0 ? null : key![(at + 1)..]; }
-    string CurrentMeshKey() => meshes[meshIndex].Key + (playing != null && animBox?.SelectedIndex > 0 ? "@" + anims[animBox.SelectedIndex - 1].Name : "");
+    bool MeshOk => meshIndex >= 0 && meshIndex < meshes.Count;
+    string CurrentMeshKey() => !MeshOk ? "" : meshes[meshIndex].Key + (playing != null && animBox?.SelectedIndex > 0 && animBox.SelectedIndex - 1 < anims.Count ? "@" + anims[animBox.SelectedIndex - 1].Name : "");
     int Offset => meshes.Count > 0 ? 1 : 0;   // strip tile 0 is "3D" when the mod has meshes
     int Tiles => items.Count + Offset;
     /// <summary>The game's CookedPCConsole (textures streamed from the .tfc caches).</summary>
@@ -1071,7 +1072,7 @@ sealed class StorePreview : Control
             if (value != null && mod != null && value.FolderName == mod.FolderName && value.LocalPreview == mod.LocalPreview && value.Manifest.PreviewImage == mod.Manifest.PreviewImage && items.Count > 0)
             { mod = value; return; }   // the same mod after a reload: keep the pictures
             mod = value;
-            items = []; meshes = []; index = -1; scroll = 0; show3D = false;
+            items = []; meshes = []; index = -1; meshIndex = 0; scroll = 0; show3D = false;
             if (viewer != null) viewer.Visible = false;
             StopAnimation(); anims = []; animator = null; wantedAnim = null;
             HideAnimControls();
@@ -1461,7 +1462,7 @@ sealed class StorePreview : Control
         if (i < 0 || i >= anims.Count)
         {
             animator.Pose(null, 0); viewer.UpdateGeometry(animator.Positions);
-            if (!fillingAnims) Picked?.Invoke(mod, meshes[meshIndex].Key);
+            if (!fillingAnims && MeshOk) Picked?.Invoke(mod, meshes[meshIndex].Key);
             return;
         }
         var a = anims[i];
@@ -1471,11 +1472,11 @@ sealed class StorePreview : Control
             if (IsDisposed || req != request || animBox == null || animBox.SelectedIndex - 1 != i || t.Result == null) return;
             playing = t.Result;
             (playFrames, playSeconds) = MeshAnimator.Span(playing);
-            if (mod != null && StartView(meshes[meshIndex]) == null) viewer.ZoomOut(1.25f);   // room for reaching and lunging
+            if (mod != null && MeshOk && StartView(meshes[meshIndex]) == null) viewer.ZoomOut(1.25f);   // room for reaching and lunging
             paused = true; playTime = 0;
             animator.Pose(playing, 0); viewer.UpdateGeometry(animator.Positions);
             UpdateButtons();
-            if (mod != null) Picked?.Invoke(mod, CurrentMeshKey());
+            if (mod != null && MeshOk) Picked?.Invoke(mod, CurrentMeshKey());
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
@@ -1506,6 +1507,15 @@ sealed class StorePreview : Control
         async Task Wait(Func<bool> until, int ms = 10000) { for (int t = 0; t < ms && !until(); t += 50) { await Task.Delay(50); Application.DoEvents(); } }
         async Task Idle(int ms) { for (int t = 0; t < ms; t += 20) { await Task.Delay(20); Application.DoEvents(); } }
         if (mod == null || meshes.Count == 0) { Check("the mod has a mesh", false); return log; }
+        // 0.33.0 crash: an index left from a mod with more meshes, then a click on the 3D tile.
+        if (!show3D && thumbRects.Any(t => t.Index == 0))
+        {
+            meshIndex = meshes.Count + 2;
+            var tile = thumbRects.First(t => t.Index == 0).Rect;
+            string? crash = null;
+            try { OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, tile.X + 4, tile.Y + 4, 0)); } catch (Exception ex) { crash = ex.GetType().Name; }
+            Check("3D tile with an out-of-range mesh index doesn't crash" + (crash != null ? $" ({crash})" : ""), crash == null && MeshOk);
+        }
         if (!show3D) { OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, thumbRects.First(t => t.Index == 0).Rect.X + 4, thumbRects.First(t => t.Index == 0).Rect.Y + 4, 0)); }
         await Wait(() => show3D && animator != null && anims.Count > 0 && animBox != null);
         Check($"3D view with {anims.Count} animation(s)", show3D && animator != null && anims.Count > 0);
@@ -1579,6 +1589,7 @@ sealed class StorePreview : Control
         {
             if (ti < Offset)
             {
+                if (meshIndex < 0 || meshIndex >= meshes.Count) meshIndex = 0;   // 0.33.0 crash: an index left from a mod with more meshes
                 if (show3D && mod.LocalPreview != null && MeshPart(mod.LocalPreview) == meshes[meshIndex].Key) return;
                 show3D = true; index = -1;
                 var old = image; image = null; old?.Dispose();
