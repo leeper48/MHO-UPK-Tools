@@ -3,6 +3,9 @@
 #   git tag -a mpm-v2.53.0 -m "What changed ..."   then   git push origin mpm-v2.53.0
 # Result: a DRAFT GitHub release with MHO_Package_Modifier_v<version>.zip and its .zip.sha256 (the names the app's
 # updater looks for), and the tag message as notes. Check it, then press Publish (the updater ignores drafts until then).
+# --latest=false: never marked as the repo's "Latest release", because Kurt shares
+# github.com/leeper48/MHO-UPK-Tools/releases/latest as the Mod Manager's download link. When publishing by hand, untick
+# "Set as the latest release".
 # The builds are not code-signed (Kurt's decision, 2026-09-27); README.txt tells users how to check a download.
 name: MHO Package Modifier release
 
@@ -45,4 +48,4 @@ jobs:
           $v = '${{ steps.v.outputs.version }}'
           $files = Get-ChildItem MhoPackageModifier/releases -File | Where-Object { $_.Name -like "MHO_Package_Modifier_v$v.zip*" } | ForEach-Object { $_.FullName }
           if ($files.Count -ne 2) { throw "expected the zip and its .sha256, found: $files" }
-          gh release create '${{ github.ref_name }}' @files --draft --title "MHO Package Modifier $v" --notes-from-tag
+          gh release create '${{ github.ref_name }}' @files --draft --latest=false --title "MHO Package Modifier $v" --notes-from-tag
