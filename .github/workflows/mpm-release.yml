@@ -1,0 +1,48 @@
+# Release of MHO Package Modifier, built from source on GitHub.
+# Push a tag mpm-v<version> (the version in MhoPackageModifier.csproj) to run it:
+#   git tag -a mpm-v2.53.0 -m "What changed ..."   then   git push origin mpm-v2.53.0
+# Result: a DRAFT GitHub release with MHO_Package_Modifier_v<version>.zip and its .zip.sha256 (the names the app's
+# updater looks for), and the tag message as notes. Check it, then press Publish (the updater ignores drafts until then).
+# The builds are not code-signed (Kurt's decision, 2026-09-27); README.txt tells users how to check a download.
+name: MHO Package Modifier release
+
+on:
+  push:
+    tags: ['mpm-v*']
+
+permissions:
+  contents: write   # create the draft release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Version from the tag
+        id: v
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $ver = $tag -replace '^mpm-v', ''
+          $csproj = ([xml](Get-Content MhoPackageModifier/MhoPackageModifier.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ($ver -ne $csproj) { throw "tag $tag doesn't match the csproj version $csproj" }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Build the zip
+        shell: pwsh
+        run: ./MhoPackageModifier/release.ps1
+
+      - name: Draft the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.v.outputs.version }}'
+          $files = Get-ChildItem MhoPackageModifier/releases -File | Where-Object { $_.Name -like "MHO_Package_Modifier_v$v.zip*" } | ForEach-Object { $_.FullName }
+          if ($files.Count -ne 2) { throw "expected the zip and its .sha256, found: $files" }
+          gh release create '${{ github.ref_name }}' @files --draft --title "MHO Package Modifier $v" --notes-from-tag

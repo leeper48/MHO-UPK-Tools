@@ -49,6 +49,7 @@ Write-Host "Release ready: $zip ($size)"
 Write-Host "Checksum:      $zip.sha256"
 Write-Host ''
 Write-Host 'Next:'
-Write-Host "  1. GitHub: Releases > Draft a new release, tag mpm-v$version, title 'MHO Package Modifier $version',"
-Write-Host '     what changed in the description, attach BOTH files, Publish. The app finds it within a day.'
+Write-Host "  1. GitHub: push a tag (git tag -a mpm-v$version -m 'what changed', git push origin mpm-v$version): the workflow"
+Write-Host '     .github/workflows/mpm-release.yml builds this zip on GitHub and drafts the release; check it, press Publish.'
+Write-Host '     (Or by hand: Releases > Draft a new release with that tag, attach BOTH files, Publish.) The app finds it within a day.'
 Write-Host '  2. Nexus Mods: upload the same zip as a new file version.'
