@@ -1802,7 +1802,7 @@ sealed class MainForm : Form
             legacy = answer == DialogResult.No;
         }
         // The user's own tags and note live on this PC; offered for the exported copy (the mod's own always go along).
-        List<string>? addTags = null; string? note = null, pick = null; Dictionary<string, float[]>? views = null;
+        List<string>? addTags = null; string? note = null, pick = null; Dictionary<string, float[]>? views = null; float? light = null;
         var mineTags = m.UserTags.Where(t => !m.ModTags.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
         var mineViews = PreviewViews.ForMod(m);
         var parts = new List<string>();
@@ -1810,18 +1810,20 @@ sealed class MainForm : Form
         if (m.LocalNote != null) parts.Add("your note");
         if (m.LocalPreview != null) parts.Add("your preview choice" + (m.LocalPreview.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase) ? " (the 3D view" + (m.LocalPreview.Contains('@') ? " and its animation" : "") + ")" : ""));
         if (mineViews.Count > 0) parts.Add($"your 3D camera view{(mineViews.Count > 1 ? "s" : "")}");
+        var mineLight = PreviewViews.LocalLight(m);
+        if (mineLight != null) parts.Add($"your 3D light level ({mineLight * 100:0} %)");
         if (!legacy && parts.Count > 0)
         {
             string what = parts.Count == 1 ? parts[0] : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
             var a = Dialog.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far. The mod's own tags, note and preview go along anyway; automatic tags are worked out again by whoever installs it. " +
-                "Whoever installs it starts from your preview and view, and can still pick and turn their own.",
+                "Whoever installs it starts from your preview, view and light, and can still pick, turn and light their own.",
                 "Export", MessageBoxButtons.YesNoCancel);
             if (a == DialogResult.Cancel) return;
-            if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; pick = m.LocalPreview; views = mineViews; }
+            if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; pick = m.LocalPreview; views = mineViews; light = mineLight; }
         }
         using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with your tags / note / preview)" : ""); }
+        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views, light); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with your tags / note / preview)" : ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
@@ -1905,6 +1907,25 @@ sealed class MainForm : Form
         SelectMod(pick.FolderName);
         await Task.Delay(1500);
         var log = await storePreview.SelfTest();
+        // Kurt: the view is kept when leaving the mod and coming back (camera, animation and its frame).
+        if (await storePreview.PoseForTest() is { } posed && lib?.Mods.FirstOrDefault(x => x.FolderName != pick.FolderName) is Mod other)
+        {
+            float lightWas = PreviewViews.Light(pick), otherWas = PreviewViews.Light(other);
+            PreviewViews.SetLight(pick, 1.4f); PreviewViews.SetLight(other, 1f);
+            SelectMod(other.FolderName);
+            await Task.Delay(1500);
+            float? otherShown = storePreview.ShownLight;
+            SelectMod(pick.FolderName);
+            (string? Anim, double Time, float[] View)? back = null;
+            for (int t = 0; t < 15000; t += 100) { await Task.Delay(100); back = storePreview.Shown3D(); if (back?.Anim == posed.Anim) break; }
+            bool ok = back is { } b && b.Anim == posed.Anim && Math.Abs(b.Time - posed.Time) < 1e-3 && b.View.Zip(posed.View).All(p => Math.Abs(p.First - p.Second) < 1e-4);
+            log.Add($"{(ok ? "ok  " : "FAIL")} another mod and back: same animation ({posed.Anim}), frame ({posed.Time:0.00} s) and camera" +
+                (ok ? "" : $" (got {back?.Anim ?? "none"}, {back?.Time:0.00} s)"));
+            bool lightOk = (otherShown == null || Math.Abs(otherShown.Value - 1f) < 1e-4) && storePreview.ShownLight is float mine && Math.Abs(mine - 1.4f) < 1e-4;
+            log.Add($"{(lightOk ? "ok  " : "FAIL")} the light is per mod (the other mod at 100 %, this one back at 140 %)");
+            PreviewViews.SetLight(pick, lightWas); PreviewViews.SetLight(other, otherWas);
+        }
+        else log.Add("FAIL couldn't pose the 3D view, or no other mod to switch to");
         log.Add(log.Any(l => l.StartsWith("FAIL")) ? $"{log.Count(l => l.StartsWith("FAIL"))} FAILED" : "All preview checks passed.");
         File.WriteAllLines(Path.Combine(dir, "preview_selftest.txt"), log);
     }

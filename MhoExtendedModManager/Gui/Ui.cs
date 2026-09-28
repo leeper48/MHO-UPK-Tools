@@ -1047,16 +1047,18 @@ sealed class StorePreview : Control
     Mod? mod;
     List<PreviewCandidate> items = [];
     int index = -1;
-    // The 3D view (Kurt): the mod's skeletal meshes (ModMeshes), shown in MPM's MeshViewer where the picture goes.
+    // The 3D view (Kurt): the mod's skeletal meshes (ModMeshes), shown in ModelView where the picture goes.
     List<MeshRef> meshes = [];
     bool show3D;
     int meshIndex;
-    MhoPackageModifier.Gui.MeshViewer? viewer;
+    ModelView? viewer;
     readonly Dictionary<string, ModMeshes.Loaded?> meshCache = [];
     Rectangle meshPrev, meshNext;
     // Animation (Kurt: pick one for the 3D view): the mesh's animations, the one playing, and the drop-down.
     List<AnimRef> anims = [];
     string? wantedAnim;                           // from the pick's "@animation" part
+    double? restoreTime;                          // the saved frame (seconds) to show when the animation being restored has loaded
+    string? shownMesh;                            // the mesh the 3D view holds (kept while a picture shows, so going back keeps pose and camera)
     AnimExportCli.Animation.BoneAnimation? playing;
     MeshAnimator? animator;
     float playFrames, playSeconds;
@@ -1066,6 +1068,7 @@ sealed class StorePreview : Control
     bool fillingAnims;
     // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
     Button? playBtn, loopBtn, restBtn;
+    LightSlider? lightSlider;
     bool paused = true;
     double playTime, lastTick;
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
@@ -1104,10 +1107,18 @@ sealed class StorePreview : Control
         get => mod;
         set
         {
-            if (value != null && mod != null && value.FolderName == mod.FolderName && value.LocalPreview == mod.LocalPreview && value.Manifest.PreviewImage == mod.Manifest.PreviewImage && items.Count > 0)
-            { mod = value; return; }   // the same mod after a reload: keep the pictures
+            if (value != null && mod != null && value.FolderName == mod.FolderName && value.FilesMade == mod.FilesMade && (items.Count > 0 || meshes.Count > 0))
+            {
+                // The same mod after a reload (a pick, a tag, undo …): keep the pictures and the 3D view (Kurt: its pose,
+                // zoom and animation were lost when a picture was picked and then 3D again); only show the new choice.
+                bool again = value.LocalPreview != mod.LocalPreview || value.Manifest.PreviewImage != mod.Manifest.PreviewImage;
+                mod = value;
+                if (again) Resolve();
+                return;
+            }
+            SaveAnim();   // leaving this mod: its animation and frame are kept for next time
             mod = value;
-            items = []; meshes = []; index = -1; meshIndex = 0; scroll = 0; show3D = false;
+            items = []; meshes = []; index = -1; meshIndex = 0; scroll = 0; show3D = false; shownMesh = null;
             if (viewer != null) viewer.Visible = false;
             StopAnimation(); anims = []; animator = null; wantedAnim = null;
             HideAnimControls();
@@ -1195,7 +1206,7 @@ sealed class StorePreview : Control
         // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
         bool showStrip = Tiles > 1;
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
-        int captionH = (int)((show3D ? 70 : 40) * S);
+        int captionH = (int)((show3D ? 96 : 40) * S);
         int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
         int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
         if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
@@ -1255,6 +1266,12 @@ sealed class StorePreview : Control
                 var lb = new Rectangle(pb.Right + gap, y, wLoop, bh); if (loopBtn.Bounds != lb) loopBtn.Bounds = lb;
                 var rb = new Rectangle(lb.Right + gap, y, wRest, bh); if (restBtn.Bounds != rb) restBtn.Bounds = rb;
                 foreach (Control c in new Control[] { animBox, playBtn, loopBtn, restBtn }) if (!c.Visible) c.Visible = true;
+                if (lightSlider != null)
+                {
+                    var sb = new Rectangle(card.X, y + bh + (int)(4 * S), card.Width, (int)(22 * S));
+                    if (lightSlider.Bounds != sb) lightSlider.Bounds = sb;
+                    if (!lightSlider.Visible) lightSlider.Visible = true;
+                }
             }
         }
         // Caption: the texture, where it's from, and whose choice it is.
@@ -1350,16 +1367,14 @@ sealed class StorePreview : Control
             int mi = meshes.FindIndex(x => x.Key.Equals(MeshPart(key), StringComparison.OrdinalIgnoreCase));
             bool changed = !show3D || mi != meshIndex;
             show3D = true; meshIndex = Math.Max(0, mi); index = -1;
-            wantedAnim = AnimPart(key);
-            if (changed) LoadMesh();
+            if (changed && !Reveal3D()) { wantedAnim = AnimPart(key); LoadMesh(); }
         }
         else
         {
             int i = items.FindIndex(x => x.Key == key);
             bool changed = show3D || i != index;
             show3D = false; index = i;
-            if (viewer != null) viewer.Visible = false;
-            StopAnimation(); HideAnimControls();
+            Hide3D();
             if (changed) LoadBig();
         }
         ScrollIntoView();
@@ -1372,13 +1387,16 @@ sealed class StorePreview : Control
         if (mod == null || meshIndex < 0 || meshIndex >= meshes.Count) return;
         if (viewer == null)
         {
-            viewer = new MhoPackageModifier.Gui.MeshViewer { Compact = true, Background = Ui.Card, BackColor = Ui.Card, Visible = false };
+            viewer = new ModelView { Background = Ui.Card, BackColor = Ui.Card, Visible = false };
             viewer.ViewChanged += () => { if (mod != null && meshIndex >= 0 && meshIndex < meshes.Count) PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState); };
             Controls.Add(viewer);
         }
         var r = meshes[meshIndex];
         viewer.Visible = true;
+        SaveAnim();
+        shownMesh = null;
         StopAnimation(); anims = []; animator = null; FillAnims();
+        if (mod != null) { float lv = PreviewViews.Light(mod); viewer.Brightness = lv; if (lightSlider != null) lightSlider.Value = lv; }   // this mod's light
         Invalidate();
         if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + File.GetLastWriteTimeUtc(r.File).Ticks, out var hit) && hit != null) { Show(hit); return; }
         viewer.ShowMessage("Loading the 3D view…");
@@ -1389,7 +1407,7 @@ sealed class StorePreview : Control
         {
             if (IsDisposed || req != request || viewer == null) return;
             var (loaded, why) = t.Result;
-            if (meshCache.Count > 6) meshCache.Clear();
+            if (meshCache.Count > 3) meshCache.Clear();   // with their mipmapped maps, a few are enough
             meshCache[key] = loaded;
             if (loaded == null) viewer.ShowMessage($"{r.Name} can't be shown in 3D ({why}).");
             else Show(loaded);
@@ -1397,19 +1415,23 @@ sealed class StorePreview : Control
 
         void Show(ModMeshes.Loaded l)
         {
-            viewer!.ShowMesh(l.Name, l.Positions, l.Normals, l.Uv, l.Indices, l.TriangleSection, l.Textures, l.Info);
+            viewer!.ShowMesh(l);
             if (mod != null && StartView(r) is { } saved) viewer.ViewState = saved;
-            animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences);
+            shownMesh = r.Key;
+            animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents);
             var m = mod; string? cooked2 = CookedFolder;
             var pkgs = m == null ? [] : m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))).ToList();
             int req2 = request;
             Task.Run(() => { try { return ModAnimations.For(r, l.Bones, pkgs, cooked2); } catch { return []; } }).ContinueWith(t =>
             {
-                if (IsDisposed || req2 != request || mod != m) return;
+                if (IsDisposed || req2 != request || mod?.FolderName != m?.FolderName) return;   // (a reload of the same mod is a new object)
                 anims = t.Result;
                 FillAnims();
-                int want = wantedAnim == null ? -1 : anims.FindIndex(a => a.Name.Equals(wantedAnim, StringComparison.OrdinalIgnoreCase));
-                if (want >= 0 && animBox != null) animBox.SelectedIndex = want + 1;
+                // This PC's last animation and frame for the mesh, else the pick's "@animation".
+                var saved = mod == null ? null : PreviewViews.GetAnim(PreviewViews.Key(mod, r));
+                string? name = saved?.Name ?? wantedAnim;
+                int want = name == null ? -1 : anims.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (want >= 0 && animBox != null) { restoreTime = saved != null && want >= 0 && anims[want].Name.Equals(saved.Name, StringComparison.OrdinalIgnoreCase) ? saved.Time : null; animBox.SelectedIndex = want + 1; }
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
     }
@@ -1436,6 +1458,11 @@ sealed class StorePreview : Control
             loopBtn = Ui.FlatButton("⟳ Loop", () => { PreviewViews.Loop = !PreviewViews.Loop; UpdateButtons(); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
             restBtn = Ui.FlatButton("Reset View", ResetView, "Back to the mod's own view of the model, or the default one (your turned, zoomed or panned view is saved per mesh; this forgets it).");
             foreach (var b in new[] { playBtn, loopBtn, restBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+            lightSlider = new LightSlider { Visible = false, Home = () => mod == null ? 1f : PreviewViews.AuthorLight(mod) };
+            lightSlider.ValueChanged += () => { if (viewer != null) viewer.Brightness = lightSlider.Value; };
+            lightSlider.Committed += () => { if (mod != null) PreviewViews.SetLight(mod, lightSlider.Value); };
+            Ui.Tip(lightSlider, "Light brightness in the 3D view for this mod (drag, or the mouse wheel; double-click: back to the mod's own level, else 100%). Remembered per mod on this PC; Export can put it into the mod.");
+            Controls.Add(lightSlider);
         }
         fillingAnims = true;
         animBox.BeginUpdate();
@@ -1496,8 +1523,8 @@ sealed class StorePreview : Control
         StopAnimation();
         if (i < 0 || i >= anims.Count)
         {
-            animator.Pose(null, 0); viewer.UpdateGeometry(animator.Positions);
-            if (!fillingAnims && MeshOk) Picked?.Invoke(mod, meshes[meshIndex].Key);
+            animator.Pose(null, 0); viewer.UpdateGeometry(animator);
+            if (!fillingAnims && MeshOk) { Picked?.Invoke(mod, meshes[meshIndex].Key); SaveAnim(); }
             return;
         }
         var a = anims[i];
@@ -1508,16 +1535,21 @@ sealed class StorePreview : Control
             playing = t.Result;
             (playFrames, playSeconds) = MeshAnimator.Span(playing);
             if (mod != null && MeshOk && StartView(meshes[meshIndex]) == null) viewer.ZoomOut(1.25f);   // room for reaching and lunging
-            paused = true; playTime = 0;
-            animator.Pose(playing, 0); viewer.UpdateGeometry(animator.Positions);
+            paused = true;
+            bool restoring = restoreTime != null;
+            playTime = Math.Clamp(restoreTime ?? 0, 0, playSeconds); restoreTime = null;
+            animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); viewer.UpdateGeometry(animator);
             UpdateButtons();
-            if (mod != null && MeshOk) Picked?.Invoke(mod, CurrentMeshKey());
+            // A restored animation is shown as it was left, not a new pick (no undo step, the preview choice unchanged).
+            if (mod != null && MeshOk && !restoring) Picked?.Invoke(mod, CurrentMeshKey());
+            SaveAnim();
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     void PlayTick(object? sender, EventArgs e)
     {
-        if (playing == null || animator == null || viewer == null || !show3D || !Visible) { StopAnimation(); return; }
+        if (playing == null || animator == null || viewer == null) { StopAnimation(); return; }
+        if (!show3D || !Visible) { Pause(); return; }   // hidden: hold the frame
         if (paused) return;
         double now = playClock.Elapsed.TotalSeconds;
         playTime += now - lastTick; lastTick = now;
@@ -1527,7 +1559,7 @@ sealed class StorePreview : Control
         else if (playTime >= playSeconds) { playTime = playSeconds; frame = playFrames; paused = true; playTimer.Stop(); UpdateButtons(); }
         else frame = (float)(playTime / playSeconds * playFrames);
         animator.Pose(playing, frame);
-        viewer.UpdateGeometry(animator.Positions);
+        viewer.UpdateGeometry(animator);
     }
 
     /// <summary>
@@ -1590,13 +1622,116 @@ sealed class StorePreview : Control
         restBtn.PerformClick();
         Check("with the mod's own view, Reset View goes to it", Math.Abs(viewer.ViewState[2] - 2.0f) < 0.01f && Math.Abs(viewer.ViewState[0] - 0.5f) < 0.01f);
         mod.Manifest.PreviewViews = authorViews;
+
+        if (lightSlider != null)
+        {
+            float was = lightSlider.Value;
+            lightSlider.Value = 1.5f;
+            Check("the light slider sets the 3D view's brightness", Math.Abs(viewer.Brightness - 1.5f) < 1e-4 && lightSlider.Visible);
+            float saved = PreviewViews.Light(mod);
+            PreviewViews.SetLight(mod, 1.5f);
+            Check("and is kept for this mod", Math.Abs(PreviewViews.Light(mod) - 1.5f) < 1e-4);
+            PreviewViews.SetLight(mod, saved);
+            lightSlider.Value = was;
+        }
+
+        // Kurt: posed, zoomed, then a picture, then 3D again forgot it all. Clicks go through the window (a pick saves
+        // and reloads the list), as a user's do.
+        if (thumbRects.Any(t => t.Index == Offset))
+        {
+            PreviewViews.Loop = true; UpdateButtons();
+            animBox.SelectedIndex = Math.Min(2, anims.Count);
+            await Wait(() => playing != null && animBox.SelectedIndex - 1 < anims.Count);
+            string animWas = animBox.SelectedItem?.ToString() ?? "";
+            playTime = playSeconds * 0.4; animator.Pose(playing, (float)(playTime / playSeconds * playFrames)); viewer.UpdateGeometry(animator);
+            double frameWas = playTime;
+            viewer.ViewState = [0.7f, 0.3f, 1.4f, 0.05f, 0f, 0f];
+            PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState);   // as a drag saves it
+            var viewWas = viewer.ViewState;
+            var pic = thumbRects.First(t => t.Index == Offset).Rect;
+            OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, pic.X + 4, pic.Y + 4, 0));
+            await Idle(800);
+            Check("a picture shows (the 3D view hidden)", !show3D && viewer.Visible == false);
+            var tile = thumbRects.First(t => t.Index == 0).Rect;
+            OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, tile.X + 4, tile.Y + 4, 0));
+            await Idle(800);
+            Check($"back to 3D: same animation ({animWas}), same frame, same camera",
+                show3D && viewer.Visible && animBox.SelectedItem?.ToString() == animWas && playing != null && Math.Abs(playTime - frameWas) < 1e-6
+                && viewer.ViewState.Zip(viewWas).All(p => Math.Abs(p.First - p.Second) < 1e-4));
+            playBtn.PerformClick();
+            await Idle(300);
+            OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, pic.X + 4, pic.Y + 4, 0));
+            await Idle(500);
+            double heldAt = playTime;
+            await Idle(300);
+            Check("playing, then a picture: it holds its frame", paused && playTime == heldAt);
+            OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, tile.X + 4, tile.Y + 4, 0));
+            await Idle(400);
+            Check("and plays on when 3D shows again", !paused && playTime > heldAt);
+            playBtn.PerformClick();
+        }
         PreviewViews.Loop = loopWas; UpdateButtons();
         return log;
     }
 
-    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn }) if (c != null) c.Visible = false; }
+    /// <summary>--preview-selftest: poses the 3D view (an animation, a frame, a camera) as a user would; returns it.</summary>
+    internal async Task<(string Anim, double Time, float[] View)?> PoseForTest()
+    {
+        if (animBox == null || viewer == null || animator == null || anims.Count < 3 || !MeshOk) return null;
+        animBox.SelectedIndex = 3;
+        for (int t = 0; t < 10000 && playing == null; t += 50) { await Task.Delay(50); Application.DoEvents(); }
+        if (playing == null) return null;
+        playTime = playSeconds * 0.55; animator.Pose(playing, (float)(playTime / playSeconds * playFrames)); viewer.UpdateGeometry(animator);
+        Pause();   // as the pause button: saved
+        viewer.ViewState = [0.9f, -0.2f, 1.3f, 0f, 0.04f, 0f];
+        PreviewViews.Set(PreviewViews.Key(mod!, meshes[meshIndex]), viewer.ViewState);   // as a drag saves it
+        return (anims[2].Name, playTime, viewer.ViewState);
+    }
 
-    void StopAnimation() { playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); }
+    /// <summary>--preview-selftest: the 3D view's light now, or null.</summary>
+    internal float? ShownLight => show3D && viewer != null ? viewer.Brightness : null;
+
+    /// <summary>--preview-selftest: what the 3D view shows now (animation, time, camera), or null when it isn't showing.</summary>
+    internal (string? Anim, double Time, float[] View)? Shown3D() =>
+        !show3D || viewer == null || animBox == null ? null : (animBox.SelectedIndex > 0 && playing != null ? anims[animBox.SelectedIndex - 1].Name : null, playTime, viewer.ViewState);
+
+    /// <summary>A picture shows: the 3D view is hidden but kept (mesh, animation paused where it was, camera).</summary>
+    void Hide3D()
+    {
+        if (viewer != null) viewer.Visible = false;
+        if (playing != null && !paused) resumeOnReveal = true;
+        Pause();
+        HideAnimControls();
+    }
+    bool resumeOnReveal;
+
+    /// <summary>Back to 3D on the mesh the view still holds: shown as it was left. False when it has to be loaded.</summary>
+    bool Reveal3D()
+    {
+        if (viewer == null || !MeshOk || shownMesh != meshes[meshIndex].Key) return false;
+        viewer.Visible = true;
+        UpdateButtons();
+        if (resumeOnReveal && playing != null && paused) TogglePlay();   // it was playing: carry on
+        resumeOnReveal = false;
+        Invalidate();
+        return true;
+    }
+
+    void Pause() { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); SaveAnim(); }
+
+    /// <summary>Stores the shown mesh's animation and the frame it's on (preview_views.json), so it comes back as it was.</summary>
+    void SaveAnim()
+    {
+        if (mod == null || shownMesh == null || animBox == null || fillingAnims) return;
+        int i = animBox.SelectedIndex - 1;
+        if (i >= 0 && playing == null) return;   // still loading
+        double t = playSeconds <= 0 ? 0 : PreviewViews.Loop ? playTime % playSeconds : Math.Min(playTime, playSeconds);   // a loop's clock runs on
+        PreviewViews.SetAnim(PreviewViews.Key(mod, shownMesh), i >= 0 && i < anims.Count ? anims[i].Name : null, t);
+    }
+
+    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, lightSlider }) if (c != null) c.Visible = false; }
+
+    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); }
 
     int ThumbAt(Point p)
     {
@@ -1628,14 +1763,14 @@ sealed class StorePreview : Control
                 if (show3D && mod.LocalPreview != null && MeshPart(mod.LocalPreview) == meshes[meshIndex].Key) return;
                 show3D = true; index = -1;
                 var old = image; image = null; old?.Dispose();
-                LoadMesh();
-                Picked?.Invoke(mod, meshes[meshIndex].Key);
+                if (!Reveal3D()) LoadMesh();
+                Picked?.Invoke(mod, CurrentMeshKey());
                 return;
             }
             int i = ti - Offset;
             if (!show3D && i == index && mod.LocalPreview == items[i].Key) return;
             show3D = false; index = i;
-            if (viewer != null) viewer.Visible = false;
+            Hide3D();
             LoadBig();
             Picked?.Invoke(mod, items[i].Key);
         }
@@ -1678,7 +1813,7 @@ sealed class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); }
+        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); }
         base.Dispose(disposing);
     }
 }
@@ -1884,4 +2019,68 @@ sealed class DetailsHeader : Control
         else if (conflictRect.Contains(e.Location)) ConflictClicked?.Invoke();
         else if (tagArea.Contains(e.Location)) TagsClicked?.Invoke(PointToScreen(new Point(e.X, tagArea.Bottom)));
     }
+}
+
+/// <summary>
+/// The 3D view's light brightness (Kurt): a flat slider in the app's colours, 50–200 %, labelled "Light", with the value.
+/// Drag or use the mouse wheel; double-click goes back to Home (the mod's own level, else 100 %). ValueChanged fires while it moves, Committed once it's set.
+/// </summary>
+sealed class LightSlider : Control
+{
+    float value = 1;
+    bool dragging;
+    public event Action? ValueChanged, Committed;
+    /// <summary>What a double-click goes back to (default 1).</summary>
+    public Func<float>? Home { get; set; }
+    const float Min = 0.5f, Max = 2f;
+
+    public LightSlider()
+    {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
+        Cursor = Cursors.Hand;
+    }
+
+    public float Value
+    {
+        get => value;
+        set { float v = Math.Clamp(MathF.Round(value * 20) / 20, Min, Max); if (Math.Abs(v - this.value) < 1e-4) return; this.value = v; Invalidate(); ValueChanged?.Invoke(); }
+    }
+
+    float S => DeviceDpi / 96f;
+    Rectangle Track
+    {
+        get
+        {
+            int left = (int)(44 * S), right = (int)(46 * S);
+            return new Rectangle(left, Height / 2 - (int)(2 * S), Math.Max(10, Width - left - right), Math.Max(3, (int)(4 * S)));
+        }
+    }
+
+    float ValueAt(int x) { var t = Track; return Min + (Max - Min) * Math.Clamp((x - t.X) / (float)t.Width, 0, 1); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        var t = Track;
+        float k = (value - Min) / (Max - Min);
+        int tx = t.X + (int)(k * t.Width);
+        using var font = Ui.Regular(8.5f);
+        TextRenderer.DrawText(g, "Light", font, new Rectangle(0, 0, t.X - (int)(8 * S), Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        using (var back = new SolidBrush(Color.FromArgb(70, 255, 255, 255))) using (var p = Ui.Round(t, t.Height / 2f)) g.FillPath(back, p);
+        var done = new Rectangle(t.X, t.Y, Math.Max(1, tx - t.X), t.Height);
+        using (var acc = new SolidBrush(Ui.Accent)) using (var p = Ui.Round(done, t.Height / 2f)) g.FillPath(acc, p);
+        int one = t.X + (int)((1 - Min) / (Max - Min) * t.Width);   // the 100 % mark
+        using (var pen = new Pen(Color.FromArgb(140, 255, 255, 255), Math.Max(1f, S))) g.DrawLine(pen, one, t.Y - (int)(3 * S), one, t.Bottom + (int)(3 * S));
+        float r = 6 * S;
+        using (var thumb = new SolidBrush(Ui.Text)) g.FillEllipse(thumb, tx - r, Height / 2f - r, 2 * r, 2 * r);
+        TextRenderer.DrawText(g, $"{value * 100:0} %", font, new Rectangle(t.Right + (int)(6 * S), 0, Width - t.Right - (int)(6 * S), Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (e.Button != MouseButtons.Left) return; dragging = true; Capture = true; Value = ValueAt(e.X); }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (dragging) Value = ValueAt(e.X); }
+    protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if (!dragging) return; dragging = false; Capture = false; Committed?.Invoke(); }
+    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Value += e.Delta > 0 ? 0.05f : -0.05f; Committed?.Invoke(); }
+    protected override void OnDoubleClick(EventArgs e) { base.OnDoubleClick(e); Value = Home?.Invoke() ?? 1; Committed?.Invoke(); }
 }

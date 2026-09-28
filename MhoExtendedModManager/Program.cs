@@ -41,6 +41,7 @@ static class Program
         ("--check-update", "--check-update", "Look for a newer version (GitHub releases of leeper48/MHO-UPK-Tools, tag extmm-v<version>)."),
         ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
+        ("--material-probe", "--material-probe <mod | package.upk> [png folder]", "Each section's material for a mod's meshes (parent, switches, parameters, maps); with a folder, the maps as PNG and the spec map's channels one by one. Changes nothing."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
@@ -138,21 +139,22 @@ static class Program
             var ar = ModAnimations.For(mr, ld.Bones, rm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(rm.Folder, f))), rc).FirstOrDefault(a => a.Name.Contains(args[2], StringComparison.OrdinalIgnoreCase));
             var ba = ar == null ? null : ModAnimations.Load(ar);
             Console.WriteLine(ar == null ? "no such animation: rest pose" : $"{ar.Name} ({ar.Package})");
-            var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences);
+            var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences, ld.Tangents);
             float frames = ba == null ? 0 : MeshAnimator.Span(ba).Frames;
             using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = new Size(420, 560), ShowInTaskbar = false };
-            var v = new MhoPackageModifier.Gui.MeshViewer { Dock = DockStyle.Fill, Compact = true, Background = Gui.Ui.Card };
+            var v = new Gui.ModelView { Dock = DockStyle.Fill, Background = Gui.Ui.Card };
             f.Controls.Add(v);
             var shots = new List<Bitmap>();
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
-                v.ShowMesh(ld.Name, ld.Positions, ld.Normals, ld.Uv, ld.Indices, ld.TriangleSection, ld.Textures, ld.Info);
+                v.ShowMesh(ld);
                 foreach (float at in new[] { 0f, 0.33f, 0.66f, 1f })
                 {
                     anim8.Pose(ba, frames * at);
-                    v.UpdateGeometry(anim8.Positions);
+                    v.UpdateGeometry(anim8);
                     await Task.Delay(200);
                     var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); shots.Add(b);
+                    Console.WriteLine($"  frame at {at:0.00}: {v.LastFrameMs:0} ms");
                 }
                 using var sheet = new Bitmap(shots.Sum(s => s.Width), shots.Max(s => s.Height));
                 using (var g = Graphics.FromImage(sheet)) { int x = 0; foreach (var s in shots) { g.DrawImage(s, x, 0); x += s.Width; s.Dispose(); } }
@@ -467,6 +469,55 @@ static class Program
                     if (u.Count > 5) Console.WriteLine($"    … {u.Count - 5} more");
                 }
                 return 0;
+            }
+            case "--material-probe":
+            {
+                // Read-only: each section's material (parent, switches on, parameters, maps) for a mod's meshes; with an
+                // output folder, every map as PNG plus the packed spec map's channels one by one (to see what each holds).
+                var pm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                bool upk = rest.Count > 1 && rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) && File.Exists(rest[1]);
+                if (pm == null && !upk) { Console.WriteLine("--material-probe <mod | package.upk> [png folder]"); return 1; }
+                string? pgr = settings.ResolvedGameRoot(data);
+                string? pc = pgr != null && Settings.IsGameRoot(pgr) ? Settings.Cooked(pgr) : null;
+                string? outDir = rest.Count > 2 ? rest[2] : null;
+                if (outDir != null) Directory.CreateDirectory(outDir);
+                foreach (var mr in upk ? ModMeshes.List([(Path.GetFileName(rest[1]), rest[1])]) : ModMeshes.List(pm!))
+                {
+                    Console.WriteLine($"{mr.Package} | {mr.Name}");
+                    var mpk = MhoPackageModifier.Package.Open(mr.File);
+                    foreach (var (sec, mat) in ModMeshes.SectionMaterials(mr))
+                    {
+                        var mi = ModMaterials.Read(mpk, mat);
+                        if (mi == null) { Console.WriteLine($"  section {sec}: material {(mat < 0 ? mpk.RefName(mat) + " (imported)" : "none")}"); continue; }
+                        Console.WriteLine($"  section {sec}: {mi.Name}  (parent {mi.Parent})");
+                        Console.WriteLine("    switches on: " + string.Join(", ", mi.Switches.Where(x => x.Value).Select(x => x.Key)));
+                        foreach (var (k, v) in mi.Scalars) Console.WriteLine($"    scalar {k} = {v:0.###}");
+                        foreach (var (k, v) in mi.Vectors) Console.WriteLine($"    vector {k} = ({v.X:0.###}, {v.Y:0.###}, {v.Z:0.###}, {v.W:0.###})");
+                        foreach (var (k, ti) in mi.Textures)
+                        {
+                            var mip = MhoPackageModifier.TextureExport.ReadBestMip(mpk, ti, out string note, pc);
+                            Console.WriteLine($"    texture {k} = {mpk.Exports[ti].ObjectName}  {(mip == null ? note : $"{mip.Format} {mip.Width}x{mip.Height}")}");
+                            if (outDir == null || mip == null || MhoPackageModifier.TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _) is not byte[] px) continue;
+                            string stem = Path.Combine(outDir, $"s{sec}_{k}");
+                            SavePng(px, mip.Width, mip.Height, stem + ".png", -1);
+                            if (k.Contains("spec", StringComparison.OrdinalIgnoreCase) || k.Contains("mask", StringComparison.OrdinalIgnoreCase))
+                                foreach (var (ch, off) in new[] { ("R", 2), ("G", 1), ("B", 0), ("A", 3) }) SavePng(px, mip.Width, mip.Height, $"{stem}_{ch}.png", off);
+                        }
+                    }
+                }
+                return 0;
+                static void SavePng(byte[] bgra, int w, int h, string path, int channel)
+                {
+                    using var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    var bd = bmp.LockBits(new Rectangle(0, 0, w, h), System.Drawing.Imaging.ImageLockMode.WriteOnly, bmp.PixelFormat);
+                    var buf = new byte[w * h * 4];
+                    for (int i = 0; i < w * h; i++)
+                        if (channel < 0) { buf[i * 4] = bgra[i * 4]; buf[i * 4 + 1] = bgra[i * 4 + 1]; buf[i * 4 + 2] = bgra[i * 4 + 2]; buf[i * 4 + 3] = 255; }
+                        else { byte v = bgra[i * 4 + channel]; buf[i * 4] = buf[i * 4 + 1] = buf[i * 4 + 2] = v; buf[i * 4 + 3] = 255; }
+                    System.Runtime.InteropServices.Marshal.Copy(buf, 0, bd.Scan0, buf.Length);
+                    bmp.UnlockBits(bd);
+                    bmp.Save(path);
+                }
             }
             case "--anim-mesh-probe":
             {

@@ -19,7 +19,8 @@ sealed record MeshRef(string Package, string File, string Name, int Export)
 /// team-ups, NPCs, agents, pets), read with AnimExportCli's reader in their bind pose, with each section's colour
 /// texture found through its material the way MHO Package Modifier's Meshes tab does (the material instance's texture
 /// parameters, followed to its parents, else a base material's compiled textures; the texture's largest mip from the
-/// package or the game's .tfc caches). The 3D view itself is MPM's MeshViewer (software renderer).
+/// package or the game's .tfc caches), and each section's material read for the preview's shading (ModMaterials to
+/// ModelView.Look). The 3D view is the Mod Manager's own ModelView.
 /// </summary>
 static class ModMeshes
 {
@@ -55,8 +56,8 @@ static class ModMeshes
 
     public static List<MeshRef> List(Mod m) => List(m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))));
 
-    public sealed record Loaded(string Name, Vector3[] Positions, Vector3[] Normals, Vector2[] Uv, int[] Indices, int[] TriangleSection, MeshViewer.Tex?[] Textures, string Info,
-        IReadOnlyList<MeshBone> Bones, IReadOnlyList<VertexInfluence> Influences);
+    public sealed record Loaded(string Name, Vector3[] Positions, Vector3[] Normals, Vector4[] Tangents, Vector2[] Uv, int[] Indices, int[] TriangleSection,
+        Gui.ModelView.Look?[] Looks, string Info, IReadOnlyList<MeshBone> Bones, IReadOnlyList<VertexInfluence> Influences);
 
     /// <summary>Reads a mesh (highest detail, bind pose) and its section textures; null with a reason when it can't be read.</summary>
     public static Loaded? Load(MeshRef r, string? cacheFolder, out string why)
@@ -68,28 +69,18 @@ static class ModMeshes
         if (mesh?.HighestDetail is not { HasGeometry: true } lod) { why = failure.Length > 0 ? failure : "no geometry"; return null; }
         // The mesh's materials (section MaterialIndex → object reference): not a property but the native data's first
         // array, right after the bounds (AnimExportCli's reader skips it there: "SkipObjectArray ... materials").
-        var materials = new List<int>();
-        if (pkg.TryReadProperties(r.Export) is { } props)
-        {
-            var d = pkg.GetExportData(r.Export);
-            int at = props.PayloadOffset + MeshBounds.ByteSize;
-            if (at + 4 <= d.Length)
-            {
-                int n = BitConverter.ToInt32(d.Slice(at, 4));
-                for (int i = 0; i < n && i < 256 && at + 8 + 4 * i <= d.Length; i++) materials.Add(BitConverter.ToInt32(d.Slice(at + 4 + 4 * i, 4)));
-            }
-        }
-        var tex = new MeshViewer.Tex?[lod.Sections.Count];
+        var materials = MaterialRefs(pkg, r.Export);
+        var looks = new Gui.ModelView.Look?[lod.Sections.Count];
         var notes = new List<string>();
         Package? mpm = null;
         try { mpm = Package.Open(r.File); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { notes.Add("textures: " + ex.Message); }
-        var cache = new Dictionary<int, MeshViewer.Tex?>();
+        var cache = new Dictionary<int, Gui.ModelView.Map?>();
         for (int s = 0; s < lod.Sections.Count && mpm != null; s++)
         {
             int mi = lod.Sections[s].MaterialIndex;
             int mat = mi >= 0 && mi < materials.Count ? materials[mi] : 0;
             if (mat == 0) { notes.Add($"section {s}: no material"); continue; }
-            tex[s] = SectionTexture(mpm, mat, cacheFolder, cache, notes, s);
+            looks[s] = LookFor(mpm, mat, cacheFolder, cache, notes, s);
         }
         var tri = new int[lod.Indices.Count / 3];
         for (int s = 0; s < lod.Sections.Count; s++)
@@ -97,14 +88,162 @@ static class ModMeshes
             var sec = lod.Sections[s];
             for (int k = 0; k < sec.TriangleCount; k++) if (sec.BaseIndex / 3 + k < tri.Length) tri[sec.BaseIndex / 3 + k] = s;
         }
-        int shown = tex.Count(t => t != null);
-        return new Loaded(r.Name, [.. lod.Positions], [.. lod.Normals], [.. lod.TexCoords], [.. lod.Indices], tri, tex,
-            $"{lod.Positions.Count:N0} vertices, {lod.TriangleCount:N0} triangles, textures {shown} of {tex.Length}" + (notes.Count > 0 ? "; " + string.Join("; ", notes.Distinct().Take(3)) : ""),
+        int shown = looks.Count(t => t?.Diffuse != null);
+        Vector3[] positions = [.. lod.Positions], normals = [.. lod.Normals];
+        Vector2[] uvs = [.. lod.TexCoords];
+        int[] indices = [.. lod.Indices];
+        return new Loaded(r.Name, positions, normals, Tangents(positions, normals, uvs, indices), uvs, indices, tri, looks,
+            $"{lod.Positions.Count:N0} vertices, {lod.TriangleCount:N0} triangles, textures {shown} of {looks.Length}" + (notes.Count > 0 ? "; " + string.Join("; ", notes.Distinct().Take(3)) : ""),
             mesh.Bones, lod.Influences);
     }
 
+    /// <summary>
+    /// Per-vertex tangents from the UVs (the standard UV-gradient tangent, Lengyel's method): xyz along +U, w the sign that
+    /// turns cross(normal, tangent) into the direction of +V, the bitangent of a DirectX-style (UE3) normal map.
+    /// </summary>
+    public static Vector4[] Tangents(Vector3[] p, Vector3[] n, Vector2[] uv, int[] idx)
+    {
+        var t1 = new Vector3[p.Length]; var t2 = new Vector3[p.Length];
+        for (int k = 0; k + 2 < idx.Length; k += 3)
+        {
+            int a = idx[k], b = idx[k + 1], c = idx[k + 2];
+            if (a >= uv.Length || b >= uv.Length || c >= uv.Length) continue;
+            Vector3 e1 = p[b] - p[a], e2 = p[c] - p[a];
+            Vector2 d1 = uv[b] - uv[a], d2 = uv[c] - uv[a];
+            float det = d1.X * d2.Y - d2.X * d1.Y;
+            if (MathF.Abs(det) < 1e-12f) continue;
+            float r = 1f / det;
+            var sdir = (e1 * d2.Y - e2 * d1.Y) * r;
+            var tdir = (e2 * d1.X - e1 * d2.X) * r;
+            t1[a] += sdir; t1[b] += sdir; t1[c] += sdir;
+            t2[a] += tdir; t2[b] += tdir; t2[c] += tdir;
+        }
+        var result = new Vector4[p.Length];
+        for (int i = 0; i < p.Length; i++)
+        {
+            var nn = i < n.Length ? n[i] : Vector3.UnitZ;
+            var t = t1[i] - nn * Vector3.Dot(nn, t1[i]);
+            if (t.LengthSquared() < 1e-12f) t = MathF.Abs(nn.X) < 0.9f ? Vector3.Cross(nn, Vector3.UnitX) : Vector3.Cross(nn, Vector3.UnitY);
+            t = Vector3.Normalize(t);
+            float w = Vector3.Dot(Vector3.Cross(nn, t), t2[i]) < 0 ? -1f : 1f;
+            result[i] = new Vector4(t, w);
+        }
+        return result;
+    }
+
+    // Which channel of a packed map holds what: the words of its parameter name in order, R G B A
+    // ("specmult_specpow_reflectivity_emissive", "specmultrimmaskreflection", "specmult_specpow_skinmask_reflectivity").
+    static readonly string[] PackedWords = ["specmult", "specpow", "rimmask", "reflect", "emissive", "skinmask", "diffuse"];
+    static int[] PackedChannels(string param)
+    {
+        var at = PackedWords.Select(w => (w, i: param.IndexOf(w, StringComparison.OrdinalIgnoreCase))).Where(x => x.i >= 0).OrderBy(x => x.i).Select(x => x.w).ToList();
+        return [.. PackedWords.Select(w => at.IndexOf(w) is int k && k < 4 ? k : -1)];
+    }
+    static bool IsPacked(string param) => PackedWords.Count(w => param.Contains(w, StringComparison.OrdinalIgnoreCase)) >= 2;
+
+    /// <summary>How a section is shaded, from its material (ModMaterials); a plain colour texture when it can't be read.</summary>
+    static Gui.ModelView.Look? LookFor(Package pkg, int mat, string? cacheFolder, Dictionary<int, Gui.ModelView.Map?> cache, List<string> notes, int s)
+    {
+        MaterialInfo? mi = null;
+        try { mi = ModMaterials.Read(pkg, mat); } catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
+        Gui.ModelView.Map? Map(int export) => export < 0 ? null : LoadMap(pkg, export, cacheFolder, cache, notes, s);
+        int diffuseAt = -1;
+        if (mi != null)
+            foreach (var (k, v) in mi.Textures)
+                if (k.Contains("diffuse", StringComparison.OrdinalIgnoreCase) && !IsPacked(k)) { diffuseAt = v; break; }
+        if (mi == null || diffuseAt < 0)
+        {
+            // Not a character material we can read: the colour texture as MPM's Meshes tab picks it, lit plainly.
+            int pick = SectionTexture(pkg, mat, notes, s);
+            return pick < 0 ? null : Gui.ModelView.Look.Plain(Map(pick));
+        }
+        var look = new Gui.ModelView.Look
+        {
+            Diffuse = Map(diffuseAt),
+            UseNormal = mi.Switch("usenormalmap", true),
+            UseSpec = mi.Switch("usespec") || mi.Switch("usespecular"),
+            UseRim = mi.Switch("userimlight", true),
+            RimMask = mi.Switch("userimmask"),
+            DiffuseInRim = mi.Switch("usediffuseinrim"),
+            HalfLambert = mi.Switch("usehalflambert"),
+            Fill = mi.Switch("use_filllight"),
+            UseEmissive = mi.Switch("useemissive") || mi.Switch("use_emissivergb"),
+            Cutout = mi.Masked || mi.Parent.Contains("hair", StringComparison.OrdinalIgnoreCase) || mi.Parent.Contains("doublesided", StringComparison.OrdinalIgnoreCase)
+                     || mi.Switches.Keys.Any(k => k.StartsWith("opacitymask", StringComparison.OrdinalIgnoreCase)),
+            TwoSided = mi.Parent.Contains("doublesided", StringComparison.OrdinalIgnoreCase) || mi.Parent.Contains("hair", StringComparison.OrdinalIgnoreCase),
+            NormalStrength = mi.Scalar("normalstrength", 1),
+            SpecStrength = Math.Clamp(mi.Scalar("specmult1", 1) * mi.Scalar("totalspecmult", 1), 0, 4),
+            SpecPower = mi.Scalar("specularpower1min", 0) is float sp && sp > 0 ? sp : 16,
+            EmissiveMult = mi.Scalar("emissivemultiplier", 1),
+            Ambient = Math.Clamp(mi.Scalar("ambientmult", 1), 0, 3),
+        };
+        int normalAt = mi.Texture("normaltex", "hairnorm", "norm");
+        if (normalAt >= 0) look.Normal = Map(normalAt);
+        else look.UseNormal = false;
+        // Every packed map, by the words of its name (the first map naming a value wins): chbasematerial (v1) has
+        // specmultrimmaskreflection and emissivespecpow (Angel: R 0, G detail, B 0, so R glow mask, G spec power; stock
+        // Gambit Death: glow only on the emblem); v2 has specmult_specpow_reflectivity_emissive or …_skinmask_….
+        foreach (var (k, v) in mi.Textures)
+            if (IsPacked(k) && Map(v) is { } pm)
+            {
+                var ch = PackedChannels(k);
+                if (look.Spec.Map == null && ch[0] >= 0) look.Spec = new(pm, ch[0]);
+                if (look.SpecPow.Map == null && ch[1] >= 0) look.SpecPow = new(pm, ch[1]);
+                if (look.RimMaskAt.Map == null && ch[2] >= 0) look.RimMaskAt = new(pm, ch[2]);
+                if (look.Emissive.Map == null && ch[4] >= 0) look.Emissive = new(pm, ch[4]);
+            }
+        int sc = mi.Texture("speccolortex");
+        if (sc >= 0) look.SpecColor = Map(sc);
+        if (mi.Switch("useemissivespecpow")) look.UseEmissive = true;
+        if (mi.Vectors.TryGetValue("rimcolor", out var rc)) look.Rim = new Vector3(rc.X, rc.Y, rc.Z) * mi.Scalar("rimcolormult", 1);
+        if (mi.Vectors.TryGetValue("filllightcolor", out var fc)) look.FillColor = new Vector3(fc.X, fc.Y, fc.Z) * Math.Clamp(mi.Scalar("filllightamount", 5) / 5f, 0, 2);
+        return look;
+    }
+
+    static Gui.ModelView.Map? LoadMap(Package pkg, int export, string? cacheFolder, Dictionary<int, Gui.ModelView.Map?> cache, List<string> notes, int s)
+    {
+        if (cache.TryGetValue(export, out var m)) return m;
+        m = null;
+        try
+        {
+            if (TextureExport.ReadBestMip(pkg, export, out string note, cacheFolder) is { } mip && TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _) is byte[] px)
+                m = new Gui.ModelView.Map(px, mip.Width, mip.Height);
+            else notes.Add($"section {s}: {pkg.Exports[export].ObjectName} can't be shown ({note})");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException) { notes.Add($"section {s}: {pkg.Exports[export].ObjectName}: {ex.Message}"); }
+        cache[export] = m;
+        return m;
+    }
+
+    /// <summary>For --material-probe: each section of a mesh (highest detail) with its material reference.</summary>
+    public static List<(int Section, int Material)> SectionMaterials(MeshRef r)
+    {
+        var pkg = AnimPackage.Open(r.File);
+        var mesh = SkeletalMeshReader.TryRead(pkg, r.Export, _ => { });
+        if (mesh?.HighestDetail is not { } lod) return [];
+        var materials = MaterialRefs(pkg, r.Export);
+        return [.. lod.Sections.Select((s, i) => (i, s.MaterialIndex >= 0 && s.MaterialIndex < materials.Count ? materials[s.MaterialIndex] : 0))];
+    }
+
+    /// <summary>The mesh's materials: not a property but the native data's first array, right after the bounds.</summary>
+    static List<int> MaterialRefs(AnimPackage pkg, int export)
+    {
+        var materials = new List<int>();
+        if (pkg.TryReadProperties(export) is { } props)
+        {
+            var d = pkg.GetExportData(export);
+            int at = props.PayloadOffset + MeshBounds.ByteSize;
+            if (at + 4 <= d.Length)
+            {
+                int n = BitConverter.ToInt32(d.Slice(at, 4));
+                for (int i = 0; i < n && i < 256 && at + 8 + 4 * i <= d.Length; i++) materials.Add(BitConverter.ToInt32(d.Slice(at + 4 + 4 * i, 4)));
+            }
+        }
+        return materials;
+    }
+
     /// <summary>A section's colour texture (as MPM's Meshes tab chooses it).</summary>
-    static MeshViewer.Tex? SectionTexture(Package pkg, int mat, string? cacheFolder, Dictionary<int, MeshViewer.Tex?> cache, List<string> notes, int s)
+    static int SectionTexture(Package pkg, int mat, List<string> notes, int s)
     {
         var list = TextureExport.MaterialTextures(pkg, mat, []);
         if (list.Count == 0 && mat > 0)
@@ -121,17 +260,7 @@ static class ModMeshes
         var pick = list.FirstOrDefault(t => t.Parameter.Contains("diffuse", StringComparison.OrdinalIgnoreCase) || t.Parameter.Contains("basecolor", StringComparison.OrdinalIgnoreCase))
                 ?? list.FirstOrDefault(t => t.Texture.Contains("diff", StringComparison.OrdinalIgnoreCase))
                 ?? list.FirstOrDefault(t => !NotColour(t.Texture) && !NotColour(t.Parameter));
-        if (pick == null) { notes.Add($"section {s}: no colour texture{(mat < 0 ? " (material from another package)" : "")}"); return null; }
-        if (cache.TryGetValue(pick.ExportIndex, out var t)) return t;
-        t = null;
-        try
-        {
-            if (TextureExport.ReadBestMip(pkg, pick.ExportIndex, out string note, cacheFolder) is { } mip && TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _) is byte[] px)
-                t = new MeshViewer.Tex(px, mip.Width, mip.Height);
-            else notes.Add($"section {s}: {pick.Texture} can't be shown ({note})");
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException) { notes.Add($"section {s}: {pick.Texture}: {ex.Message}"); }
-        cache[pick.ExportIndex] = t;
-        return t;
+        if (pick == null) { notes.Add($"section {s}: no colour texture{(mat < 0 ? " (material from another package)" : "")}"); return -1; }
+        return pick.ExportIndex;
     }
 }

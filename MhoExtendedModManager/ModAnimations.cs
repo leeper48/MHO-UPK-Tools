@@ -87,15 +87,20 @@ sealed class MeshAnimator
 {
     readonly IReadOnlyList<MeshBone> bones;
     readonly Vector3[] restPos, restNrm;
+    readonly Vector4[] restTan;
     readonly IReadOnlyList<VertexInfluence> influences;
     readonly Matrix4x4[] restModelToBone;
     readonly Matrix4x4[] posed, skin;
     public Vector3[] Positions { get; }
     public Vector3[] Normals { get; }
+    /// <summary>Tangents (xyz) turned with the mesh; w, the bitangent's sign, is kept.</summary>
+    public Vector4[] Tangents { get; }
 
-    public MeshAnimator(IReadOnlyList<MeshBone> bones, Vector3[] positions, Vector3[] normals, IReadOnlyList<VertexInfluence> influences)
+    public MeshAnimator(IReadOnlyList<MeshBone> bones, Vector3[] positions, Vector3[] normals, IReadOnlyList<VertexInfluence> influences, Vector4[]? tangents = null)
     {
         this.bones = bones; restPos = positions; restNrm = normals; this.influences = influences;
+        restTan = tangents ?? [];
+        Tangents = new Vector4[restTan.Length];
         var rest = AnimExportCli.Fbx.SkeletonPose.Rest(bones);
         restModelToBone = [.. rest.ModelToBone];
         posed = new Matrix4x4[bones.Count]; skin = new Matrix4x4[bones.Count];
@@ -138,18 +143,21 @@ sealed class MeshAnimator
         for (int v = 0; v < restPos.Length; v++)
         {
             var inf = v < influences.Count ? influences[v] : default;
-            if (inf.Bones == null || inf.Bones.Count == 0) { Positions[v] = restPos[v]; if (v < Normals.Length) Normals[v] = restNrm[v]; continue; }
-            Vector3 sp = Vector3.Zero, sn = Vector3.Zero; float total = 0;
+            if (inf.Bones == null || inf.Bones.Count == 0) { Positions[v] = restPos[v]; if (v < Normals.Length) Normals[v] = restNrm[v]; if (v < Tangents.Length) Tangents[v] = restTan[v]; continue; }
+            Vector3 sp = Vector3.Zero, sn = Vector3.Zero, st = Vector3.Zero; float total = 0;
+            var rt = v < restTan.Length ? new Vector3(restTan[v].X, restTan[v].Y, restTan[v].Z) : Vector3.Zero;
             for (int k = 0; k < inf.Bones.Count; k++)
             {
                 int bi = inf.Bones[k]; float w = inf.Weights[k];
                 if (w <= 0 || bi < 0 || bi >= skin.Length) continue;
                 sp += Vector3.Transform(restPos[v], skin[bi]) * w;
                 if (v < restNrm.Length) sn += Vector3.TransformNormal(restNrm[v], skin[bi]) * w;
+                if (v < restTan.Length) st += Vector3.TransformNormal(rt, skin[bi]) * w;
                 total += w;
             }
             Positions[v] = total > 0 ? sp / total : restPos[v];
             if (v < Normals.Length) Normals[v] = total > 0 && sn != Vector3.Zero ? Vector3.Normalize(sn) : restNrm[v];
+            if (v < Tangents.Length) Tangents[v] = total > 0 && st != Vector3.Zero ? new Vector4(Vector3.Normalize(st), restTan[v].W) : restTan[v];
         }
     }
 

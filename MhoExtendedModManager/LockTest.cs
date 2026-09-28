@@ -95,11 +95,14 @@ static class LockTest
                 j.LocalNote = "my note"; lib.SaveState();
                 var d2 = ModDraft.From(j); d2.Tags = ["Author Tag"]; d2.Notes = "The author's note."; d2.PreviewImage = "game:store_test";
                 d2.PreviewViews = new() { ["mesh:a.upk|author"] = [1, 2, 3, 4, 5, 6] };
+                d2.PreviewLight = 1.3f;
                 ModWriter.Save(lib, d2, j, out _);
                 lib = ModLibrary.Load(data);
                 j = M("J2");
                 string zip = Path.Combine(data, "export.zip"), zipL = Path.Combine(data, "export_legacy.zip");
-                ModInstaller.Export(j, zip, false, j.UserTags, j.LocalNote, "mesh:a.upk|mine@run", new() { ["mesh:a.upk|mine"] = [7, 0.2f, 1.5f, 0, 0, 0] });
+                string zipA = Path.Combine(data, "export_author.zip");
+                ModInstaller.Export(j, zipA);   // nothing of the user's: the author's light goes as it is
+                ModInstaller.Export(j, zip, false, j.UserTags, j.LocalNote, "mesh:a.upk|mine@run", new() { ["mesh:a.upk|mine"] = [7, 0.2f, 1.5f, 0, 0, 0] }, 1.6f);
                 ModInstaller.Export(j, zipL, legacy: true);
                 ModManifest Read(string z) { using var a = System.IO.Compression.ZipFile.OpenRead(z); using var r = new StreamReader(a.GetEntry("manifest.json")!.Open()); return System.Text.Json.JsonSerializer.Deserialize<ModManifest>(r.ReadToEnd(), ModManifest.Json)!; }
                 var full = Read(zip); var leg = Read(zipL);
@@ -109,9 +112,10 @@ static class LockTest
                             && full.PreviewImage == "mesh:a.upk|mine@run" && leg.PreviewImage == null
                             && j.Manifest.PreviewViews is { } kept && kept.ContainsKey("mesh:a.upk|author")
                             && full.PreviewViews is { } fv && fv.ContainsKey("mesh:a.upk|author") && fv["mesh:a.upk|mine"][0] == 7 && leg.PreviewViews == null
+                            && j.Manifest.PreviewLight == 1.3f && Read(zipA).PreviewLight == 1.3f && full.PreviewLight == 1.6f && leg.PreviewLight == null
                             && !File.ReadAllText(Path.Combine(j.Folder, "manifest.json")).Contains("my note");
                 if (!travels) fails++;
-                Console.WriteLine($"  {(travels ? "ok  " : "FAIL")} export: mod tags / note / preview / 3D views travel, yours on request, legacy has none");
+                Console.WriteLine($"  {(travels ? "ok  " : "FAIL")} export: mod tags / note / preview / 3D views / light travel, yours on request, legacy has none");
                 bool lockKept = j.Lock == ModLock.Top && j.UserTags.SequenceEqual(["costume"]);
                 if (!lockKept) fails++;
                 Console.WriteLine($"  {(lockKept ? "ok  " : "FAIL")} edit keeps lock and your tags");

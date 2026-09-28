@@ -128,7 +128,7 @@ static class ModInstaller
     }
 
     public static void Export(Mod mod, string zipPath, bool legacy = false, IEnumerable<string>? addTags = null, string? note = null,
-        string? previewPick = null, Dictionary<string, float[]>? views = null)
+        string? previewPick = null, Dictionary<string, float[]>? views = null, float? light = null)
     {
         string temp = zipPath + ".tmp";
         if (File.Exists(temp)) File.Delete(temp);
@@ -136,20 +136,21 @@ static class ModInstaller
             .Where(f => !Path.GetRelativePath(mod.Folder, f).StartsWith(ModPost.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();   // the post goes beside the zip
         byte[]? manifest = null;
         var extraTags = (addTags ?? []).Where(t => !mod.ModTags.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
-        if (!legacy && (extraTags.Count > 0 || note != null || previewPick != null || views is { Count: > 0 }))
+        if (!legacy && (extraTags.Count > 0 || note != null || previewPick != null || views is { Count: > 0 } || light != null))
         {
-            // The user's tags / note / preview choice / 3D views go into the exported copy (the library's manifest isn't changed).
+            // The user's tags / note / preview choice / 3D views / light go into the exported copy (the library's manifest isn't changed).
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
             if (extraTags.Count > 0) m.Tags = [.. m.Tags ?? [], .. extraTags];
             if (note != null) m.Notes = note.Length > 0 ? note : null;
             if (previewPick != null) m.PreviewImage = previewPick;
             if (views is { Count: > 0 }) { m.PreviewViews ??= []; foreach (var (k, v) in views) m.PreviewViews[k] = v; }
+            if (light is float lv) m.PreviewLight = Math.Abs(lv - 1f) < 1e-4 ? null : MathF.Round(lv, 2);
             manifest = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, ModManifest.Json));
         }
-        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null))
+        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null || mod.Manifest.PreviewLight != null))
         {
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
-            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null;   // extensions: a legacy copy is MHModManager's format only
+            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null; m.PreviewLight = null;   // extensions: a legacy copy is MHModManager's format only
             var keep = m.Replacements.Concat(m.AchievementReplacements).Concat(m.StoreReplacements).Select(r => r.DdsFileName).Concat(m.UpkReplacements).Concat(m.AudioPacks).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var dropOnly = m.Extra.Select(r => r.DdsFileName).Where(f => !keep.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             files.RemoveAll(f => dropOnly.Contains(Path.GetRelativePath(mod.Folder, f)));
