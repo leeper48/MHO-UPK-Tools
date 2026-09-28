@@ -98,6 +98,21 @@ static class NexusTest
             byName.Ignore = 83;
             Check("an ignored file isn't", Nexus.UpdateFor(byName, newer, "0.1") == null);
 
+            // A page with a default and a variant side by side (Rogue #300, real file names): each copy follows its own file.
+            const string Def = "Rogue Classic 90's Costume Visual Update", Var = "Rogue Classic 90's Costume Visual Update (Variant)";
+            var rogue = new Nexus.ModInfo(300, "Rogue 90's X-Men Costume Visual Update", "5", 0, true, [
+                new Nexus.NexusFile(727, Var, "4", "OLD_VERSION", 1789533863, "v4.zip"), new Nexus.NexusFile(726, Def, "4", "OLD_VERSION", 1789533826, "d4.zip"),
+                new Nexus.NexusFile(781, Var, "5", "MAIN", 1790611272, "v5.zip"), new Nexus.NexusFile(782, Def, "5", "MAIN", 1790611297, "d5.zip")], []);
+            Check("two files on the page", Nexus.Lines(rogue).Count == 2);
+            Check("the variant copy (installed file known) updates to the variant", Nexus.Latest(rogue, Nexus.LineFor(new NexusLink { ModId = 300, FileId = 727, FromNexus = true }, rogue))?.FileId == 781);
+            Check("the default copy updates to the default", Nexus.Latest(rogue, Nexus.LineFor(new NexusLink { ModId = 300, FileId = 726, FromNexus = true }, rogue))?.FileId == 782);
+            Check("linked by name: \"Variant\" in the mod's name picks the variant", Nexus.LineFor(new NexusLink { ModId = 300 }, rogue, "Rogue 90s VU Variant") == Var);
+            Check("linked by name without a telling word: unknown, so the user is asked", Nexus.LineFor(new NexusLink { ModId = 300 }, rogue, "Rogue 90s") == null && Nexus.NeedsChoice(rogue, null));
+            var wrong = new NexusLink { ModId = 300, FileId = 782, FromNexus = true, File = Var };   // updated to the default by mistake, then the variant chosen
+            Check("a copy switched to the variant is offered the variant", Nexus.UpdateFor(wrong, rogue, "5", null, Nexus.LineFor(wrong, rogue)) == "5" && Nexus.Latest(rogue, Nexus.LineFor(wrong, rogue))?.FileId == 781);
+            var right = new NexusLink { ModId = 300, FileId = 781, FromNexus = true, File = Var };
+            Check("the variant's own newest file is up to date", Nexus.UpdateFor(right, rogue, "5", null, Nexus.LineFor(right, rogue)) == null);
+
             // Sign in with Nexus (OAuth 2.0 + PKCE) against a local stand-in for users.nexusmods.com and the v1 API.
             Check("PKCE: the RFC 7636 example challenge", NexusAuth.Challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
             fails += SignInTest(root, m, cache, v2, Check);

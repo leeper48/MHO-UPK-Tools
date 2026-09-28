@@ -568,7 +568,10 @@ sealed class ModListBox : ListBox
         DrawMode = DrawMode.OwnerDrawVariable;
         BorderStyle = BorderStyle.None;
         IntegralHeight = false;
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        // The whole list is painted here, into one off-screen buffer (OnPaint): a native owner-drawn ListBox erases the
+        // area first and then draws each card straight onto the screen, which flickered on every hover, tooltip and
+        // scroll (a user, 2026-09-28).
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
         tips = Ui.NewTips(() => tipText);
         // While dragging near the top or bottom edge, scroll.
         scrollTimer.Tick += (_, _) =>
@@ -604,17 +607,49 @@ sealed class ModListBox : ListBox
     // newly exposed strip, or the old badges stay behind (Kurt, 2026-09-27: "it repeats the status icons").
     protected override void OnResize(EventArgs e) { base.OnResize(e); Invalidate(); }
 
-    // The area below the last card: the window gradient instead of a flat colour.
+    // No separate erase: OnPaint covers every pixel (erasing first is what made the list flash).
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == 0x0014)   // WM_ERASEBKGND
+        if (m.Msg == 0x0014) { m.Result = 1; return; }   // WM_ERASEBKGND
+        if (m.Msg is 0x0317 or 0x0318)   // WM_PRINT / WM_PRINTCLIENT (DrawToBitmap, snapshots): the same painting
         {
-            using var g = Graphics.FromHdc(m.WParam);
-            Ui.PaintGradient(g, this, ClientRectangle);
-            m.Result = 1;
+            // Painted into a bitmap and copied with GDI: the printing DC is offset to this window's place (window
+            // origin), which GDI honours and GDI+ doesn't (the cards landed elsewhere in the picture).
+            if (m.Msg == 0x0317) base.WndProc(ref m);   // the scroll bar
+            using var bmp = new Bitmap(Math.Max(1, ClientSize.Width), Math.Max(1, ClientSize.Height));
+            using (var bg = Graphics.FromImage(bmp)) OnPaint(new PaintEventArgs(bg, ClientRectangle));
+            IntPtr hbm = bmp.GetHbitmap(), mem = CreateCompatibleDC(m.WParam), old = SelectObject(mem, hbm);
+            BitBlt(m.WParam, 0, 0, bmp.Width, bmp.Height, mem, 0, 0, 0x00CC0020);   // SRCCOPY
+            SelectObject(mem, old); DeleteDC(mem); DeleteObject(hbm);
+            m.Result = 0;
             return;
         }
         base.WndProc(ref m);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e) { }
+
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr dst, int x, int y, int w, int h, IntPtr src, int sx, int sy, int rop);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr hdc);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+
+    /// <summary>The visible cards and, below the last one, the window gradient, all into the double buffer.</summary>
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        int bottom = 0;
+        for (int i = Math.Max(0, TopIndex); i < Items.Count; i++)
+        {
+            var r = GetItemRectangle(i);
+            if (r.Height <= 0 || r.Top >= ClientSize.Height) break;   // past the view (the list gives an empty rectangle there)
+            bottom = r.Bottom;
+            if (!r.IntersectsWith(e.ClipRectangle)) continue;
+            var state = SelectedIndex == i ? DrawItemState.Selected : DrawItemState.None;
+            OnDrawItem(new DrawItemEventArgs(g, Font, r, i, state));
+        }
+        if (bottom < ClientSize.Height) Ui.PaintGradient(g, this, new Rectangle(0, bottom, ClientSize.Width, ClientSize.Height - bottom));
     }
 
     Rectangle CheckRect(Rectangle b) { int s = (int)(16 * S); return new Rectangle(b.Right - s - (int)(10 * S), b.Top + (int)(9 * S), s, s); }

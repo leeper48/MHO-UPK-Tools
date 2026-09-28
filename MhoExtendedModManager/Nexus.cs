@@ -27,7 +27,7 @@ static class Nexus
 
     public class NexusException(string message) : Exception(message);
 
-    public sealed record NexusFile(long FileId, string Name, string Version, string Category, long Uploaded, string FileName);
+    public sealed record NexusFile(long FileId, string Name, string Version, string Category, long Uploaded, string FileName, string Description = "");
     public sealed record ModInfo(int ModId, string Name, string Version, long Updated, bool Available, List<NexusFile> Files, List<long[]> Updates);
 
     // ---- requests
@@ -73,7 +73,7 @@ static class Nexus
             var sb = new System.Text.StringBuilder("{ legacyModsByDomain(ids:[");
             sb.Append(string.Join(",", batch.Select(i => $"{{gameDomain:\"{Game}\", modId:{i}}}")));
             sb.Append("]){ nodes { modId name version status updatedAt } } ");
-            foreach (int i in batch) sb.Append($"f{i}: modFiles(modId:{i}, gameId:{GameId}){{ fileId name version category date uri }} ");
+            foreach (int i in batch) sb.Append($"f{i}: modFiles(modId:{i}, gameId:{GameId}){{ fileId name version category date uri description }} ");
             sb.Append('}');
             var data = await GraphQl(sb.ToString());
             var nodes = data.TryGetProperty("legacyModsByDomain", out var l) && l.TryGetProperty("nodes", out var n) ? n : default;
@@ -143,7 +143,7 @@ static class Nexus
             {
                 string uri = Str(x, "uri");
                 fs.Add(new NexusFile(x.GetProperty("fileId").GetInt64(), Str(x, "name"), Str(x, "version"), Str(x, "category"),
-                    x.TryGetProperty("date", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetInt64() : 0, uri.Contains('.') ? Path.GetFileName(uri) : ""));
+                    x.TryGetProperty("date", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetInt64() : 0, uri.Contains('.') ? Path.GetFileName(uri) : "", Str(x, "description")));
             }
         bool found = node.ValueKind == JsonValueKind.Object;
         long updated = found && DateTimeOffset.TryParse(Str(node, "updatedAt"), out var u) ? u.ToUnixTimeSeconds() : 0;
@@ -176,23 +176,67 @@ static class Nexus
         return int.TryParse(text.Trim(), out int id) && id > 0 ? id : null;
     }
 
-    /// <summary>The file an update would install: the newest main file (else the newest file that isn't old or archived).</summary>
-    public static NexusFile? Latest(ModInfo info)
+    /// <summary>The files an update could install: not old, archived or deleted.</summary>
+    public static List<NexusFile> Usable(ModInfo info) =>
+        info.Files.Where(f => !f.Category.Equals("OLD_VERSION", StringComparison.OrdinalIgnoreCase) && !f.Category.Equals("ARCHIVED", StringComparison.OrdinalIgnoreCase)
+                           && !f.Category.Equals("DELETED", StringComparison.OrdinalIgnoreCase)).ToList();
+
+    /// <summary>
+    /// The file an update would install: the newest main file (else the newest usable file). With <paramref name="line"/>
+    /// (a file name on the page, NexusLink.File), only files of that name count: a page can carry several mods side by side,
+    /// each updated under its own name (Rogue #300: "… Visual Update" and "… Visual Update (Variant)", both v5 main files;
+    /// 2026-09-28 a user's Variant copy was updated to the default one). Null when none of that name is left.
+    /// </summary>
+    public static NexusFile? Latest(ModInfo info, string? line = null)
     {
-        var usable = info.Files.Where(f => !f.Category.Equals("OLD_VERSION", StringComparison.OrdinalIgnoreCase) && !f.Category.Equals("ARCHIVED", StringComparison.OrdinalIgnoreCase)
-                                        && !f.Category.Equals("DELETED", StringComparison.OrdinalIgnoreCase)).ToList();
+        var usable = Usable(info);
+        if (line != null) return usable.Where(f => SameLine(f.Name, line)).OrderByDescending(f => f.Uploaded).FirstOrDefault();
         return usable.Where(f => f.Category.Equals("MAIN", StringComparison.OrdinalIgnoreCase)).OrderByDescending(f => f.Uploaded).FirstOrDefault()
             ?? usable.OrderByDescending(f => f.Uploaded).FirstOrDefault();
     }
+
+    /// <summary>The newest usable file of each file name on the page (main files first), for choosing which one a mod is.</summary>
+    public static List<NexusFile> Lines(ModInfo info)
+    {
+        var usable = Usable(info);
+        var main = usable.Where(f => f.Category.Equals("MAIN", StringComparison.OrdinalIgnoreCase)).ToList();
+        return (main.Count > 0 ? main : usable).GroupBy(f => LineKey(f.Name)).Select(g => g.OrderByDescending(f => f.Uploaded).First())
+            .OrderByDescending(f => f.Uploaded).ToList();
+    }
+
+    static string LineKey(string name) => new(name.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+    public static bool SameLine(string a, string b) => LineKey(a) == LineKey(b);
+
+    /// <summary>
+    /// Which file on the page a mod follows: the one chosen (NexusLink.File), else the installed file's name, else a
+    /// guess from the mod's names when the page has several (a file whose own words, the ones the others don't have,
+    /// such as "Variant", all appear in the mod's name). Null: the page has one file name, or it can't be told.
+    /// </summary>
+    public static string? LineFor(NexusLink link, ModInfo info, params string?[] modNames)
+    {
+        if (link.File is { Length: > 0 } chosen) return chosen;
+        if (link.FileId is long fid && info.Files.FirstOrDefault(f => f.FileId == fid) is { } installed) return installed.Name;
+        var lines = Lines(info);
+        if (lines.Count < 2) return null;
+        static HashSet<string> Words(string s) => [.. Regex.Split(s.ToLowerInvariant(), @"[^a-z0-9]+").Where(w => w.Length > 0)];
+        var sets = lines.Select(l => Words(l.Name)).ToList();
+        var common = sets.Skip(1).Aggregate(new HashSet<string>(sets[0]), (a, b) => { a.IntersectWith(b); return a; });
+        var mine = new HashSet<string>(modNames.Where(n => n != null).SelectMany(n => Words(n!)));
+        var hits = lines.Where((l, i) => sets[i].Except(common).ToList() is { Count: > 0 } own && own.All(mine.Contains)).ToList();
+        return hits.Count == 1 ? hits[0].Name : null;
+    }
+
+    /// <summary>True when the page has several file names and it isn't known which one the mod is (ask before updating).</summary>
+    public static bool NeedsChoice(ModInfo info, string? line) => line == null && Lines(info).Count > 1;
 
     /// <summary>
     /// The newer version on Nexus for a linked mod, or null when it's up to date. By file when the installed file is
     /// known (a newer main file, or one the file-update chain leads to), else by version number, else by upload time
     /// after the install.
     /// </summary>
-    public static string? UpdateFor(NexusLink link, ModInfo info, string? localVersion, DateTime? filesMade = null)
+    public static string? UpdateFor(NexusLink link, ModInfo info, string? localVersion, DateTime? filesMade = null, string? line = null)
     {
-        var latest = Latest(info);
+        var latest = Latest(info, line);
         if (latest == null || !info.Available) return null;
         string latestVersion = latest.Version.Length > 0 ? latest.Version : info.Version;
         if (link.Ignore == latest.FileId) return null;
@@ -210,6 +254,7 @@ static class Nexus
         {
             if (latest.FileId == fid) return null;
             var installed = info.Files.FirstOrDefault(f => f.FileId == fid);
+            if (installed != null && line != null && !SameLine(installed.Name, line)) return latestVersion;   // another file on the page was chosen
             bool chained = info.Updates.Any(u => u[0] == fid);
             return chained || installed == null || latest.Uploaded > installed.Uploaded ? latestVersion : null;
         }
@@ -244,6 +289,11 @@ sealed class NexusLink
     /// count as updates (Miles Morales, 2026-09-27: the mod's own v0.1 against Nexus's older, unrelated v2 read as an update).
     /// </summary>
     public bool FromNexus { get; set; }
+    /// <summary>
+    /// The Nexus file (its name on the page) this mod is, when the page has several side by side (a variant): updates come
+    /// only from files of that name. Set from the installed file, or chosen by the user (Nexus → Choose the Nexus File…).
+    /// </summary>
+    public string? File { get; set; }
     /// <summary>A Nexus file the user chose to ignore (not an update for them, or not installable here).</summary>
     public long? Ignore { get; set; }
 }

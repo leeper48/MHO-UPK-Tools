@@ -1011,11 +1011,14 @@ sealed class MainForm : Form
         if (m.HiddenTags.Count > 0) InfoRow("Hidden Here", string.Join(", ", m.HiddenTags));
         if (m.NexusModId is int nid)
         {
-            string latest = nexus.Mods.TryGetValue(nid, out var ni) && Nexus.Latest(ni) is { } lf
+            string latest = NexusUpdates.LatestFor(m, nexus) is { } lf
                 ? $"  ·  Nexus Has v{lf.Version.TrimStart('v', 'V')} (Uploaded {DateTimeOffset.FromUnixTimeSeconds(lf.Uploaded).LocalDateTime:yyyy-MM-dd}){(m.NexusLink?.Ignore == lf.FileId ? ", Ignored" : "")}" : "";
             string how = m.NexusLink is { FromNexus: false, FileId: null } ? "  ·  Linked by Name (Update = a Higher Version Uploaded After Your Copy Was Made)" : "";
             string upd = NexusUpdates.UpdateFor(m, nexus) is string nv ? "  ·  Update Available" : latest.Length > 0 ? "  ·  Up to Date" : "";
             InfoRow("Nexus", $"{Nexus.SiteMods}{nid}  ·  Installed v{(m.NexusLink?.Version ?? m.Manifest.Version ?? "?").TrimStart('v', 'V')}{latest}{upd}{how}", upd.Contains("Update") ? Ui.Enabled : null);
+            if (nexus.Mods.TryGetValue(nid, out var pageInfo) && Nexus.Lines(pageInfo).Count > 1)
+                InfoRow("Nexus File", NexusUpdates.LineFor(m, nexus) is string line ? $"\"{line}\" (Updates Come Only From This File)" : "Not Known Yet: the Page Has Several Files (Right-Click → Nexus → Choose the Nexus File…)",
+                    NexusUpdates.LineFor(m, nexus) == null ? Ui.Warn : null);
         }
         InfoRow("Folder", m.Folder);
         if (m.LoadError != null) InfoRow("Error", m.LoadError, Ui.Warn);
@@ -1272,8 +1275,10 @@ sealed class MainForm : Form
                 sub.DropDownItems.Add($"Update to v{v.TrimStart('v', 'V')}…", null, (_, _) => UpdateFromNexus(m));
                 if (NexusAuth.Available && NexusAuth.Load(Settings.Home)?.Premium == true)
                     sub.DropDownItems.Add("Download From the Files Page Instead…", null, (_, _) => UpdateFromNexus(m, manual: true));
-                if (nexus.Mods.TryGetValue(id, out var ni) && Nexus.Latest(ni) is { } lf) sub.DropDownItems.Add("Ignore This Update", null, (_, _) => IgnoreUpdate(m, lf.FileId));
+                if (NexusUpdates.LatestFor(m, nexus) is { } lf) sub.DropDownItems.Add("Ignore This Update", null, (_, _) => IgnoreUpdate(m, lf.FileId));
             }
+            if (nexus.Mods.TryGetValue(id, out var pi) && Nexus.Lines(pi).Count > 1)
+                sub.DropDownItems.Add("Choose the Nexus File…", null, (_, _) => ChooseNexusFile(m));
             sub.DropDownItems.Add("Check for an Update Now", null, (_, _) => CheckNexus(manual: true));
             sub.DropDownItems.Add("Change the Nexus Link…", null, (_, _) => LinkToNexus(m));
             if (m.NexusLink != null) sub.DropDownItems.Add("Unlink", null, (_, _) => { if (lib != null) { m.NexusLink = null; lib.SaveState(); Reload(); } });
@@ -1341,6 +1346,9 @@ sealed class MainForm : Form
     async void UpdateFromNexus(Mod m, bool manual = false)
     {
         if (readOnly || lib == null || m.NexusModId is not int id) return;
+        // A page with several files (a variant): which one this mod is must be known first, or the wrong one goes in.
+        if (NexusUpdates.NeedsChoice(m, nexus) && !ChooseNexusFile(m, "Before updating: this page has several files.")) return;
+        if (lib.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod fresh) m = fresh;
         if (!manual && NexusAuth.Available && NexusAuth.Load(Settings.Home)?.Premium == true)
         {
             try
@@ -1364,7 +1372,31 @@ sealed class MainForm : Form
         }
         WatchDownloads(m, id);
         Process.Start(new ProcessStartInfo(Nexus.SiteMods + id + "?tab=files") { UseShellExecute = true });
-        status.Text = Ui.TitleCase($"Download the update of \"{m.Name}\" on Nexus (Manual Download): the app installs it when it arrives in your Downloads folder");
+        string? which = NexusUpdates.LineFor(m, nexus);
+        status.Text = Ui.TitleCase($"Download the update of \"{m.Name}\" on Nexus" + (which != null ? $" (the file \"{which}\"" + ", Manual Download)" : " (Manual Download)") +
+            ": the app installs it when it arrives in your Downloads folder");
+    }
+
+    /// <summary>
+    /// Which file on the mod's Nexus page it is (a page can have a default and a variant side by side). Saved as
+    /// NexusLink.File, one undo step; the update check then follows only that file. False when cancelled.
+    /// </summary>
+    bool ChooseNexusFile(Mod m, string? why = null)
+    {
+        if (readOnly || lib == null || m.NexusModId is not int id || !nexus.Mods.TryGetValue(id, out var info)) return false;
+        using var f = new NexusFileForm(m, info, NexusUpdates.LineFor(m, nexus), why);
+        if (f.ShowDialog(this) != DialogResult.OK || f.Chosen is not { } file) return false;
+        var l = lib;
+        Change($"follow the Nexus file \"{file.Name}\" for \"{m.Name}\"", () =>
+        {
+            if (l.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is not Mod mm) return false;
+            var link = mm.NexusLink ?? new NexusLink { ModId = id, Version = mm.Manifest.Version, Installed = DateTime.Now };
+            link.File = file.Name;
+            link.Ignore = null;
+            mm.NexusLink = link;
+            return true;
+        });
+        return true;
     }
 
     /// <summary>Sign in with Nexus (OAuth in the browser) for one-click updates.</summary>
@@ -1407,14 +1439,15 @@ sealed class MainForm : Form
             string why = noManifest
                 ? "It isn't a mod for this manager or MHModManager: it has no manifest.json. It's probably for another tool; the mod's Nexus page says how to install it."
                 : string.Join("\n", lastInstallLog.Skip(1).Take(8)).Trim();
-            long? ignore = fileId ?? (nexus.Mods.TryGetValue(id, out var info) ? Nexus.Latest(info)?.FileId : null);
+            long? ignore = fileId ?? NexusUpdates.LatestFor(m, nexus)?.FileId;
             if (Dialog.Show(this, $"{Path.GetFileName(archive)} couldn't be installed as the update of \"{m.Name}\".\n\n{why}" +
                     (ignore != null ? "\n\nIgnore this Nexus file from now on? The Update mark goes away until a newer file is uploaded." : ""),
                     "Not Updated", ignore != null ? MessageBoxButtons.YesNo : MessageBoxButtons.OK, MessageBoxIcon.Error) == DialogResult.Yes && ignore != null)
                 IgnoreUpdate(m, ignore.Value);
             return;
         }
-        NexusUpdates.Record(lib, folder, id, fileId, version ?? Nexus.FromFileName(archive)?.Version);
+        string? fileName = fileId is long fi && nexus.Mods.TryGetValue(id, out var ri) ? ri.Files.FirstOrDefault(x => x.FileId == fi)?.Name : null;
+        NexusUpdates.Record(lib, folder, id, fileId, version ?? Nexus.FromFileName(archive)?.Version, fileName);
         Reload();
         SelectMod(folder);
         Dialog.ShowLog(this, "Updated", $"\"{m.Name}\" is now v{(version ?? "?").TrimStart('v', 'V')}, from Nexus.\n\nIt kept its place, on/off, lock, tags and note." +
