@@ -15,7 +15,6 @@ static class NexusMatch
     public sealed record NexusMod(int ModId, string Name, string Author, string Uploader, string Version, DateTime Updated, string Summary);
     public sealed record Candidate(NexusMod Mod, double Score);
 
-    const string GraphQl = "https://api.nexusmods.com/v2/graphql";
 
     /// <summary>Every Marvel Heroes Omega mod on Nexus (MHO_EXTMM_NEXUS_API: graphql_mods.json in that folder, for tests).</summary>
     public static async Task<List<NexusMod>> AllMods(IProgress<string>? progress = null)
@@ -26,19 +25,13 @@ static class NexusMatch
             foreach (var n in JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(fake, "graphql_mods.json"))).RootElement.EnumerateArray()) list.Add(Read(n));
             return list;
         }
-        using var h = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        h.DefaultRequestHeaders.UserAgent.ParseAdd("MHO-Ext-ModManager/" + Program.Version);
-        h.DefaultRequestHeaders.Add("Application-Name", "MHO Extended Mod Manager");
-        h.DefaultRequestHeaders.Add("Application-Version", Program.Version);
         const string query = "query($f: ModsFilter, $o: Int){ mods(filter:$f, count:100, offset:$o){ totalCount nodes { modId name version author uploader { name } summary updatedAt } } }";
         // Pages can hold fewer than asked for: step by what arrived (stepping by 100 missed 60 of 343 mods).
         for (int offset = 0, total = int.MaxValue; offset < total; )
         {
             progress?.Report($"Reading the Nexus Mod List ({offset}…)");
-            var body = JsonSerializer.Serialize(new { query, variables = new { f = new { gameDomainName = new[] { new { value = Nexus.Game, op = "EQUALS" } } }, o = offset } });
-            using var resp = await h.PostAsync(GraphQl, new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
-            resp.EnsureSuccessStatusCode();
-            var mods = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.GetProperty("data").GetProperty("mods");
+            var data = await Nexus.GraphQl(query, new { f = new { gameDomainName = new[] { new { value = Nexus.Game, op = "EQUALS" } } }, o = offset });
+            var mods = data.GetProperty("mods");
             total = mods.GetProperty("totalCount").GetInt32();
             int got = 0;
             foreach (var n in mods.GetProperty("nodes").EnumerateArray()) { list.Add(Read(n)); got++; }

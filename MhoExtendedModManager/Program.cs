@@ -40,6 +40,8 @@ static class Program
         ("--check-update", "--check-update", "Look for a newer version (GitHub releases of leeper48/MHO-UPK-Tools, tag extmm-v<version>)."),
         ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
+        ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
+        ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
         ("--post", "--post <mod> [nexus|discord]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown)."),
         ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
         ("--card-pictures", "--card-pictures", "Each mod's card picture: its own image (hero portrait, costume icon, store image, inventory icon), else the stock one it falls back to."),
@@ -411,6 +413,18 @@ static class Program
                     foreach (var x in u.Take(5)) Console.WriteLine("    " + StringUsage.Describe(x));
                     if (u.Count > 5) Console.WriteLine($"    … {u.Count - 5} more");
                 }
+                return 0;
+            }
+            case "--nexus-check":
+            {
+                // Read-only: checks the linked mods against Nexus's public data (no key) and prints what has an update;
+                // the library's nexus_cache.json isn't written.
+                var cache = new NexusCache();
+                var (n, problems) = NexusUpdates.Check(lib, cache).GetAwaiter().GetResult();
+                Console.WriteLine($"Checked {n} linked mod(s) on Nexus (public data, no key).");
+                foreach (var p in problems) Console.WriteLine("  problem: " + p);
+                foreach (var m in lib.Mods.Where(m => m.NexusModId != null).OrderBy(m => m.Priority))
+                    if (NexusUpdates.UpdateFor(m, cache) is string v) Console.WriteLine($"  update: {m.Name} → v{v.TrimStart('v', 'V')} (#{m.NexusModId})");
                 return 0;
             }
             case "--nexus-scan":

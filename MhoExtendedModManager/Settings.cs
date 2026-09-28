@@ -28,12 +28,9 @@ sealed class Settings
     public bool CheckUpdates { get; set; } = true;
     /// <summary>The user was asked once whether the app may look for updates at start (nothing is sent without that).</summary>
     public bool UpdateCheckAsked { get; set; }
-    /// <summary>Nexus Mods: the user's personal API key, encrypted for this Windows user (DPAPI); whether to check the
-    /// linked mods at start; the account's name and Premium state as last validated.</summary>
-    public string? NexusApiKey { get; set; }
-    public bool NexusCheckAtStart { get; set; } = true;
-    public string? NexusAccount { get; set; }
-    public bool NexusPremium { get; set; }
+    /// <summary>Nexus Mods: check the linked mods (public data, no account) at start. Off unless the user turns it on.
+    /// (Settings from 0.23–0.26 may hold a NexusApiKey: it's no longer read, and the next save drops it.)</summary>
+    public bool NexusCheckAtStart { get; set; }
     public DateTime? LastUpdateCheck { get; set; }
     public string? SkipVersion { get; set; }
 
@@ -103,7 +100,16 @@ sealed class Settings
 
     public static Settings Load()
     {
-        try { return File.Exists(SettingsFile) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(SettingsFile)) ?? new() : new(); }
+        try
+        {
+            if (!File.Exists(SettingsFile)) return new();
+            string text = File.ReadAllText(SettingsFile);
+            var s = JsonSerializer.Deserialize<Settings>(text) ?? new();
+            // 0.23–0.26 kept a personal Nexus API key here (encrypted). Nexus doesn't allow apps to use personal keys, so
+            // the app no longer reads one: rewrite the file at once so the old key isn't left on disk.
+            if (text.Contains("\"NexusApiKey\"", StringComparison.Ordinal)) try { s.Save(); } catch (IOException) { }
+            return s;
+        }
         catch (Exception ex) when (ex is JsonException or IOException) { return new(); }
     }
 

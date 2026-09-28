@@ -29,9 +29,8 @@ A mod manager for Marvel Heroes Omega. It does everything **MHModManager 1.0.1**
 - **Game running:** it refuses to write while the game is running.
 
 ### Nexus Mods integration
-- **Update checks:** add your personal Nexus API key, and mods with a newer version get a green **UPDATE** mark.
-- **One-click updates for Premium members:** the update downloads and installs in place.
-- **Free accounts:** the mod's Files page opens, and the app picks the file up from your Downloads folder.
+- **Update checks:** mods with a newer version on Nexus get a green **UPDATE** mark. No Nexus account or key is needed; the app only reads public mod information.
+- **Updating:** the mod's Files page opens; download the file there, and the app picks it up from your Downloads folder and updates the mod in place.
 - **Find My Mods:** matches your installed mods against the Marvel Heroes Omega mods on Nexus. Nothing is linked until you confirm.
 
 ![Find My Mods on Nexus](docs/images/extmm-find-my-mods.jpg)
@@ -73,7 +72,7 @@ This is a hobby project, and its builds aren't signed with a paid certificate.
 ### Privacy
 Nothing is sent anywhere unless you ask.
 - **GitHub:** the update check contacts GitHub only after you agree to it.
-- **Nexus:** it's contacted only when you use its features. Your API key is stored encrypted for your Windows user.
+- **Nexus:** it's contacted only when you use its features, and only public mod information is read (no account or key).
 
 Source: [`MhoExtendedModManager/`](MhoExtendedModManager). The user guide ships as [`README.txt`](MhoExtendedModManager/README.txt).
 

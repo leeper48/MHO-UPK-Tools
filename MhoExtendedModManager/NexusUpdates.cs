@@ -1,21 +1,24 @@
 namespace MhoExtendedModManager;
 
-/// <summary>Nexus checks and updates for the library, without UI (the window and the tests call these).</summary>
+/// <summary>Nexus checks for the library, without UI (the window and the tests call these). Public data only: no key.</summary>
 static class NexusUpdates
 {
     /// <summary>Fetches every linked mod's Nexus info into the cache. Returns how many were checked and the problems.</summary>
-    public static async Task<(int Checked, List<string> Problems)> Check(ModLibrary lib, string apiKey, NexusCache cache)
+    public static async Task<(int Checked, List<string> Problems)> Check(ModLibrary lib, NexusCache cache)
     {
         var problems = new List<string>();
-        int n = 0;
-        foreach (int id in lib.Mods.Select(m => m.NexusModId).OfType<int>().Distinct())
+        var ids = lib.Mods.Select(m => m.NexusModId).OfType<int>().Distinct().ToList();
+        try
         {
-            try { cache.Mods[id] = await Nexus.Mod(apiKey, id); n++; }
-            catch (Nexus.NexusException ex) { problems.Add($"mod {id}: {ex.Message}"); if (ex.Message.Contains("API key") || ex.Message.Contains("limit")) break; }
-            catch (HttpRequestException ex) { problems.Add(ex.Message); break; }
+            foreach (var (id, info) in await Nexus.Mods(ids))
+            {
+                cache.Mods[id] = info;
+                if (!info.Available) problems.Add($"mod {id}: not found on Nexus (hidden or removed)");
+            }
         }
+        catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { problems.Add(ex.Message); return (0, problems); }
         cache.Checked = DateTime.Now;
-        return (n, problems);
+        return (ids.Count - problems.Count, problems);
     }
 
     /// <summary>The newer Nexus version for a mod from the cache, or null.</summary>
@@ -25,36 +28,22 @@ static class NexusUpdates
         return Nexus.UpdateFor(m.NexusLink ?? new NexusLink { ModId = id }, info, m.Manifest.Version, m.FilesMade);
     }
 
-    /// <summary>Links newly installed mods to Nexus: from the archive's file name, else (with a key) its MD5.</summary>
-    public static async Task Link(ModLibrary lib, string archive, IEnumerable<string> installed, string? apiKey)
+    /// <summary>
+    /// Links newly installed mods to Nexus from the archive's Nexus file name. The upload time in the name identifies the
+    /// exact file; its ID is looked up in the cache, or (when <paramref name="online"/>) fetched from the public API.
+    /// </summary>
+    public static async Task Link(ModLibrary lib, string archive, IEnumerable<string> installed, NexusCache? cache = null, bool online = false)
     {
-        var fromName = Nexus.FromFileName(archive);
-        (int ModId, long FileId, string Version)? byMd5 = null;
-        if (apiKey != null && File.Exists(archive))
-            try { byMd5 = await Nexus.Md5(apiKey, archive); } catch (Exception ex) when (ex is IOException or HttpRequestException or Nexus.NexusException) { }
-        if (fromName == null && byMd5 == null) return;
+        if (Nexus.FromFileName(archive) is not { } name) return;
+        long? fileId = null;
+        if (cache != null && !cache.Mods.ContainsKey(name.ModId) && online)
+            try { foreach (var (id, info) in await Nexus.Mods([name.ModId])) cache.Mods[id] = info; }
+            catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { }
+        if (cache != null && cache.Mods.TryGetValue(name.ModId, out var mi)) fileId = Nexus.FileUploadedAt(mi, name.Uploaded)?.FileId;
         foreach (string folder in installed)
             if (lib.Mods.FirstOrDefault(x => x.FolderName.Equals(folder, StringComparison.OrdinalIgnoreCase)) is Mod m)
-                m.NexusLink = new NexusLink
-                {
-                    ModId = byMd5?.ModId ?? fromName!.Value.ModId,
-                    FileId = byMd5?.FileId,
-                    Version = byMd5?.Version is { Length: > 0 } v ? v : fromName?.Version,
-                    Installed = DateTime.Now,
-                    FromNexus = true,
-                };
+                m.NexusLink = new NexusLink { ModId = name.ModId, FileId = fileId, Version = name.Version, Installed = DateTime.Now, FromNexus = true };
         lib.SaveState();
-    }
-
-    /// <summary>Premium: downloads the newest file of a linked mod into data\downloads; returns its path and the file.</summary>
-    public static async Task<(string Path, Nexus.NexusFile File)> DownloadLatest(Mod m, string apiKey, NexusCache cache, string home, IProgress<string>? progress)
-    {
-        if (m.NexusModId is not int id) throw new Nexus.NexusException("The mod isn't linked to a Nexus page.");
-        var info = cache.Mods.TryGetValue(id, out var c) ? c : cache.Mods[id] = await Nexus.Mod(apiKey, id);
-        var latest = Nexus.Latest(info) ?? throw new Nexus.NexusException("The Nexus page has no main file.");
-        string uri = await Nexus.DownloadLink(apiKey, id, latest.FileId);
-        string path = await Nexus.Download(uri, latest.FileName.Length > 0 ? latest.FileName : $"{info.Name}-{id}.zip", Path.Combine(home, "downloads"), progress);
-        return (path, latest);
     }
 
     /// <summary>After an update is installed: the link now points at that file / version.</summary>
