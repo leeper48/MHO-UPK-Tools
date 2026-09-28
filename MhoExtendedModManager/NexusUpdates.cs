@@ -46,6 +46,19 @@ static class NexusUpdates
         lib.SaveState();
     }
 
+    /// <summary>Signed in with Premium: downloads the newest file of a linked mod into data\downloads; returns its path and the file.</summary>
+    public static async Task<(string Path, Nexus.NexusFile File)> DownloadLatest(Mod m, string accessToken, NexusCache cache, string home, IProgress<string>? progress)
+    {
+        if (m.NexusModId is not int id) throw new Nexus.NexusException("The mod isn't linked to a Nexus page.");
+        if (!cache.Mods.ContainsKey(id)) foreach (var (i, info) in await Nexus.Mods([id])) cache.Mods[i] = info;
+        var mi = cache.Mods[id];
+        var latest = Nexus.Latest(mi) ?? throw new Nexus.NexusException("The Nexus page has no main file.");
+        string uri = await Nexus.DownloadLink(accessToken, id, latest.FileId);
+        string name = latest.FileName.Length > 0 ? latest.FileName : $"{(mi.Name.Length > 0 ? mi.Name : "mod")}-{id}-{latest.Version.Replace('.', '-')}-{latest.Uploaded}.zip";
+        string path = await Nexus.Download(uri, name, Path.Combine(home, "downloads"), progress);
+        return (path, latest);
+    }
+
     /// <summary>After an update is installed: the link now points at that file / version.</summary>
     public static void Record(ModLibrary lib, string folder, int modId, long? fileId, string? version)
     {

@@ -98,6 +98,17 @@ static class NexusTest
             byName.Ignore = 83;
             Check("an ignored file isn't", Nexus.UpdateFor(byName, newer, "0.1") == null);
 
+            // Sign in with Nexus (OAuth 2.0 + PKCE) against a local stand-in for users.nexusmods.com and the v1 API.
+            Check("PKCE: the RFC 7636 example challenge", NexusAuth.Challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+            fails += SignInTest(root, m, cache, v2, Check);
+            {
+                // Nexus's real public key (built in) reads, and refuses a token it didn't sign.
+                string? why = null;
+                try { NexusAuth.ReadToken("eyJhbGciOiJSUzI1NiJ9.eyJ1c2VyIjp7InVzZXJuYW1lIjoieCJ9fQ.AAAA"); }
+                catch (Exception ex) { why = ex.GetType().Name + ": " + ex.Message; }
+                Check("Nexus's built-in public key reads and refuses a forged token", why != null && why.Contains("isn't signed by Nexus"));
+            }
+
             // Nexus doesn't allow apps to ask for personal API keys (2026-09-28): none is asked for, stored or sent.
             Check("no API key in the settings", typeof(Settings).GetProperties().All(pr => !pr.Name.Contains("ApiKey") && !pr.Name.Contains("Premium")));
             var old = System.Text.Json.JsonSerializer.Deserialize<Settings>("{ \"NexusApiKey\": \"secret\", \"NexusAccount\": \"x\" }")!;
@@ -110,6 +121,109 @@ static class NexusTest
         }
         Console.WriteLine(fails == 0 ? "All Nexus checks passed." : $"{fails} Nexus check(s) FAILED.");
         return fails == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The sign-in, refresh, Premium download and sign-out against a stand-in server (localhost): it answers authorize
+    /// with a redirect to the app's callback, only gives tokens for a matching PKCE verifier, signs them with a test key,
+    /// and gives a download link only for the current access token. Returns extra failures (0: all well).
+    /// </summary>
+    static int SignInTest(string root, Mod m, NexusCache cache, string v2Zip, Action<string, bool> Check)
+    {
+        int port = 45000 + Random.Shared.Next(2000);
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        string B64(byte[] b) => Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        string Jwt(string user, bool premium, System.Security.Cryptography.RSA key)
+        {
+            string h = B64(System.Text.Encoding.UTF8.GetBytes("{\"alg\":\"RS256\",\"typ\":\"JWT\"}"));
+            string p = B64(System.Text.Encoding.UTF8.GetBytes($"{{\"user\":{{\"username\":\"{user}\",\"membership_roles\":[\"member\"{(premium ? ",\"premium\"" : "")}]}},\"exp\":{DateTimeOffset.UtcNow.AddHours(6).ToUnixTimeSeconds()}}}"));
+            return h + "." + p + "." + B64(key.SignData(System.Text.Encoding.ASCII.GetBytes(h + "." + p), System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1));
+        }
+        string? challenge = null, current = null; bool refuseRefresh = false, revoked = false; int tokensIssued = 0;
+        using var server = new System.Net.HttpListener();
+        server.Prefixes.Add($"http://localhost:{port}/");
+        server.Start();
+        var loop = Task.Run(async () =>
+        {
+            while (server.IsListening)
+            {
+                System.Net.HttpListenerContext ctx;
+                try { ctx = await server.GetContextAsync(); } catch (Exception) { return; }
+                var q = ctx.Request.QueryString; string path = ctx.Request.Url!.AbsolutePath; int status = 200; string body = "";
+                var form = ctx.Request.HttpMethod == "POST" ? System.Web.HttpUtility.ParseQueryString(new StreamReader(ctx.Request.InputStream).ReadToEnd()) : null;
+                if (path == "/oauth/authorize")
+                {
+                    challenge = q["code_challenge"];
+                    bool okReq = q["client_id"] == "test-client" && q["code_challenge_method"] == "S256" && q["redirect_uri"] == NexusAuth.RedirectUri;
+                    ctx.Response.Redirect($"{q["redirect_uri"]}?{(okReq ? "code=abc" : "error=bad_request")}&state={Uri.EscapeDataString(q["state"] ?? "")}");
+                    status = 302;
+                }
+                else if (path == "/oauth/token" && form != null)
+                {
+                    if (form["grant_type"] == "authorization_code" && form["code"] == "abc" && challenge != null && NexusAuth.Challenge(form["code_verifier"] ?? "") == challenge)
+                    { current = Jwt("Tester", true, rsa); tokensIssued++; body = $"{{\"access_token\":\"{current}\",\"refresh_token\":\"r1\",\"expires_in\":1}}"; }
+                    else if (form["grant_type"] == "refresh_token" && form["refresh_token"] == "r1" && !refuseRefresh)
+                    { current = Jwt("Tester", true, rsa); tokensIssued++; body = $"{{\"access_token\":\"{current}\",\"refresh_token\":\"r1\",\"expires_in\":1}}"; }
+                    else { status = 400; body = "{\"error\":\"invalid_grant\"}"; }
+                }
+                else if (path == "/oauth/revoke") revoked = true;
+                else if (path == $"/v1/games/{Nexus.Game}/mods/176/files/1002/download_link.json")
+                {
+                    if (ctx.Request.Headers["Authorization"] == "Bearer " + current) body = $"[{{\"name\":\"Test CDN\",\"URI\":{System.Text.Json.JsonSerializer.Serialize(v2Zip)}}}]";
+                    else status = 401;
+                }
+                else status = 404;
+                ctx.Response.StatusCode = status;
+                if (status != 302) { var bytes = System.Text.Encoding.UTF8.GetBytes(body); ctx.Response.ContentType = "application/json"; ctx.Response.OutputStream.Write(bytes); }
+                ctx.Response.Close();
+            }
+        });
+        var env = new Dictionary<string, string?>
+        {
+            ["MHO_EXTMM_NEXUS_AUTH"] = $"http://localhost:{port}", ["MHO_EXTMM_NEXUS_V1"] = $"http://localhost:{port}/v1/",
+            ["MHO_EXTMM_NEXUS_CLIENT"] = "test-client", ["MHO_EXTMM_NEXUS_JWTKEY"] = rsa.ExportSubjectPublicKeyInfoPem(),
+        };
+        var old = env.Keys.ToDictionary(k => k, Environment.GetEnvironmentVariable);
+        foreach (var (k, v) in env) Environment.SetEnvironmentVariable(k, v);
+        string home = Path.Combine(root, "home");
+        int fails = 0;
+        void C(string what, bool ok) { if (!ok) fails++; Check(what, ok); }
+        try
+        {
+            // The "browser": follows the authorize redirect to the app's callback, without waiting for it.
+            using var browser = new HttpClient();
+            var login = NexusAuth.SignIn(home, url => { _ = browser.GetAsync(url); return Task.CompletedTask; }).GetAwaiter().GetResult();
+            C("sign in: PKCE code exchanged, token checked: Tester (Premium)", login.UserName == "Tester" && login.Premium && tokensIssued == 1);
+            C("sign-in kept on this PC, encrypted (no token readable in the file)", NexusAuth.Load(home)?.UserName == "Tester" &&
+                !File.ReadAllText(Path.Combine(home, "nexus_login.dat")).Contains(login.RefreshToken));
+            using (var other = System.Security.Cryptography.RSA.Create(2048))
+            {
+                bool rejected = false;
+                try { NexusAuth.ReadToken(Jwt("Mallory", true, other)); } catch (Nexus.NexusException) { rejected = true; }
+                C("a token not signed with Nexus's key is refused", rejected);
+            }
+            Thread.Sleep(1500);   // the access token (1 s) has expired
+            string? token = NexusAuth.AccessToken(home).GetAwaiter().GetResult();
+            C("expired token refreshed", token != null && tokensIssued == 2 && token == current);
+            var (path, file) = NexusUpdates.DownloadLatest(m, token!, cache, root, null).GetAwaiter().GetResult();
+            C("Premium one-click: download link for the signed-in user, file 1002 downloaded", file.FileId == 1002 && File.Exists(path) && File.ReadAllBytes(path).SequenceEqual(File.ReadAllBytes(v2Zip)));
+            bool refusedWithout = false;
+            try { Nexus.DownloadLink("not-a-token", 176, 1002).GetAwaiter().GetResult(); } catch (NexusAuth.SignedOutException) { refusedWithout = true; }
+            C("no download link without a valid sign-in", refusedWithout);
+            Thread.Sleep(1500); refuseRefresh = true;
+            C("a refused refresh signs out", NexusAuth.AccessToken(home).GetAwaiter().GetResult() == null && NexusAuth.Load(home) == null);
+            refuseRefresh = false;
+            NexusAuth.SignIn(home, url => { _ = browser.GetAsync(url); return Task.CompletedTask; }).GetAwaiter().GetResult();
+            NexusAuth.SignOut(home).GetAwaiter().GetResult();
+            C("sign out: login removed here and revoked at Nexus", NexusAuth.Load(home) == null && revoked);
+        }
+        catch (Exception ex) { C("sign-in test ran: " + ex.GetType().Name + ": " + ex.Message, false); }
+        finally
+        {
+            foreach (var (k, v) in old) Environment.SetEnvironmentVariable(k, v);
+            server.Stop();
+        }
+        return fails;
     }
 
     static Nexus.ModInfo Info(string version) =>

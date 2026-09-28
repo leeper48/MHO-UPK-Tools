@@ -1168,7 +1168,7 @@ sealed class MainForm : Form
         if (lib == null) { nexusStatus.Set(NexusStatus.State.NotConnected, "Nexus", "No mod library yet"); return; }
         int linked = lib.Mods.Count(m => m.NexusModId != null);
         int updates = lib.Mods.Count(m => NexusUpdates.UpdateFor(m, nexus) != null);
-        string linkedText = $"{linked} of {lib.Mods.Count} Linked";
+        string linkedText = $"{linked} of {lib.Mods.Count} Linked" + (NexusAuth.Available && NexusAuth.Load(Settings.Home) is { } signed ? $"  ·  {signed.UserName}{(signed.Premium ? " (Premium)" : "")}" : "");
         NexusStatus.State s; string one, two, tip;
         if (nexusBusy != null) { s = NexusStatus.State.Busy; one = nexusBusy; two = linkedText; tip = "Working with Nexus…"; }
         else if (linked == 0)
@@ -1217,6 +1217,16 @@ sealed class MainForm : Form
     ContextMenuStrip NexusBarMenu()
     {
         var menu = NewMenu();
+        if (NexusAuth.Available)
+        {
+            if (NexusAuth.Load(Settings.Home) is { } who)
+            {
+                menu.Items.Add(new ToolStripMenuItem($"Signed In as {who.UserName} ({(who.Premium ? "Premium" : "Free Account")})") { Enabled = false });
+                menu.Items.Add("Sign Out of Nexus", null, (_, _) => SignOutNexus());
+            }
+            else menu.Items.Add("Sign In with Nexus (One-Click Updates for Premium)…", null, (_, _) => SignInNexus());
+            menu.Items.Add(new ToolStripSeparator());
+        }
         var atStart = new ToolStripMenuItem("Check for Updates at Start") { Checked = settings.NexusCheckAtStart };
         atStart.Click += (_, _) => { settings.NexusCheckAtStart = !settings.NexusCheckAtStart; settings.Save(); };
         menu.Items.Add(atStart);
@@ -1248,6 +1258,8 @@ sealed class MainForm : Form
             if (NexusUpdates.UpdateFor(m, nexus) is string v)
             {
                 sub.DropDownItems.Add($"Update to v{v.TrimStart('v', 'V')}…", null, (_, _) => UpdateFromNexus(m));
+                if (NexusAuth.Available && NexusAuth.Load(Settings.Home)?.Premium == true)
+                    sub.DropDownItems.Add("Download From the Files Page Instead…", null, (_, _) => UpdateFromNexus(m, manual: true));
                 if (nexus.Mods.TryGetValue(id, out var ni) && Nexus.Latest(ni) is { } lf) sub.DropDownItems.Add("Ignore This Update", null, (_, _) => IgnoreUpdate(m, lf.FileId));
             }
             sub.DropDownItems.Add("Check for an Update Now", null, (_, _) => CheckNexus(manual: true));
@@ -1309,15 +1321,66 @@ sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Updates a mod from Nexus: opens its Files page, and when the downloaded file arrives in Downloads, installs it in
-    /// place (place, on/off, lock, tags and note kept). (No API key: Nexus doesn't allow apps to ask for personal keys.)
+    /// Updates a mod from Nexus. Signed in with Premium: downloads the newest main file and installs it in place (place,
+    /// on/off, lock, tags and note kept). Otherwise (or <paramref name="manual"/>): opens its Files page, and when the
+    /// downloaded file arrives in Downloads, installs it the same way. (Nexus gives apps download links only for signed-in
+    /// Premium members; no personal API keys.)
     /// </summary>
-    void UpdateFromNexus(Mod m)
+    async void UpdateFromNexus(Mod m, bool manual = false)
     {
         if (readOnly || lib == null || m.NexusModId is not int id) return;
+        if (!manual && NexusAuth.Available && NexusAuth.Load(Settings.Home)?.Premium == true)
+        {
+            try
+            {
+                UseWaitCursor = true;
+                string? token = await NexusAuth.AccessToken(Settings.Home);
+                if (token == null) { UseWaitCursor = false; Dialog.Show(this, "Your Nexus sign-in has ended (it may have been revoked). Sign in again from the ▾ menu in the Nexus bar, or download the update from the Files page.", "Not Updated", MessageBoxButtons.OK, MessageBoxIcon.Warning); UpdateNexusStatus(); return; }
+                var progress = new Progress<string>(s => status.Text = s);
+                var (path, file) = await NexusUpdates.DownloadLatest(m, token, nexus, Settings.Home, progress);
+                UseWaitCursor = false;
+                await FinishNexusUpdate(m, id, path, file.FileId, file.Version);
+            }
+            catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or IOException or TaskCanceledException or System.Text.Json.JsonException)
+            {
+                UseWaitCursor = false;
+                if (ex is NexusAuth.SignedOutException) UpdateNexusStatus();
+                if (Dialog.Show(this, ex.Message + "\n\nDownload it from the mod's Files page instead?", "Not Updated", MessageBoxButtons.YesNo, MessageBoxIcon.Error) == DialogResult.Yes)
+                    UpdateFromNexus(m, manual: true);
+            }
+            return;
+        }
         WatchDownloads(m, id);
         Process.Start(new ProcessStartInfo(Nexus.SiteMods + id + "?tab=files") { UseShellExecute = true });
         status.Text = Ui.TitleCase($"Download the update of \"{m.Name}\" on Nexus (Manual Download): the app installs it when it arrives in your Downloads folder");
+    }
+
+    /// <summary>Sign in with Nexus (OAuth in the browser) for one-click updates.</summary>
+    async void SignInNexus()
+    {
+        if (Dialog.Show(this, "Your browser opens Nexus Mods' sign-in page. Sign in there and allow MHO Extended Mod Manager; then come back here.\n\n" +
+                "The app only uses the sign-in to download the updates you choose (Nexus gives apps download links for Premium members only). " +
+                "Your password is never seen by the app, and the sign-in stays on this PC, encrypted for your Windows user. Sign out any time from this menu.",
+                "Sign In with Nexus", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+        nexusBusy = "Waiting for the Nexus Sign-In in Your Browser…"; UpdateNexusStatus();
+        try
+        {
+            var login = await NexusAuth.SignIn(Settings.Home, url => { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return Task.CompletedTask; });
+            nexusBusy = null; UpdateNexusStatus();
+            Activate();
+            Dialog.Show(this, login.Premium ? $"Signed in as {login.UserName} (Premium): Update now downloads and installs with one click." :
+                $"Signed in as {login.UserName}. Nexus gives apps download links only for Premium members, so updates still open the mod's Files page, and the app installs the file from your Downloads folder.",
+                "Signed In", MessageBoxButtons.OK, MessageBoxIcon.None);
+        }
+        catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or IOException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)
+        { nexusBusy = null; UpdateNexusStatus(); Activate(); Dialog.Show(this, ex.Message, "Not Signed In", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    async void SignOutNexus()
+    {
+        await NexusAuth.SignOut(Settings.Home);
+        UpdateNexusStatus();
+        status.Text = Ui.TitleCase("Signed out of Nexus (the app's access was also revoked at Nexus)");
     }
 
     async Task FinishNexusUpdate(Mod m, int id, string archive, long? fileId, string? version)

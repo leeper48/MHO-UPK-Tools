@@ -25,7 +25,7 @@ static class Nexus
     const string GraphQlUrl = "https://api.nexusmods.com/v2/graphql";
     static string? Fake => Environment.GetEnvironmentVariable("MHO_EXTMM_NEXUS_API");
 
-    public sealed class NexusException(string message) : Exception(message);
+    public class NexusException(string message) : Exception(message);
 
     public sealed record NexusFile(long FileId, string Name, string Version, string Category, long Uploaded, string FileName);
     public sealed record ModInfo(int ModId, string Name, string Version, long Updated, bool Available, List<NexusFile> Files, List<long[]> Updates);
@@ -84,6 +84,55 @@ static class Nexus
             }
         }
         return result;
+    }
+
+    // ---- downloads (signed in with Nexus, Premium only)
+
+    static string V1 => Environment.GetEnvironmentVariable("MHO_EXTMM_NEXUS_V1") ?? "https://api.nexusmods.com/v1/";
+
+    /// <summary>A download URL for a file, for a signed-in Premium member (the access token from NexusAuth).</summary>
+    public static async Task<string> DownloadLink(string accessToken, int modId, long fileId)
+    {
+        using var h = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        h.DefaultRequestHeaders.UserAgent.ParseAdd("MHO-Ext-ModManager/" + Program.Version);
+        h.DefaultRequestHeaders.Add("Application-Name", "MHO Extended Mod Manager");
+        h.DefaultRequestHeaders.Add("Application-Version", Program.Version);
+        h.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        using var resp = await h.GetAsync($"{V1}games/{Game}/mods/{modId}/files/{fileId}/download_link.json");
+        if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized) throw new NexusAuth.SignedOutException("Nexus didn't accept the sign-in; sign in again.");
+        if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden) throw new NexusException("Nexus only gives apps download links for Premium members.");
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) throw new NexusException("That file isn't on Nexus anymore.");
+        if ((int)resp.StatusCode == 429) throw new NexusException("Nexus's request limit is used up for now; try again later.");
+        resp.EnsureSuccessStatusCode();
+        foreach (var x in JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.EnumerateArray())
+            if (Str(x, "URI") is { Length: > 0 } u) return u;
+        throw new NexusException("Nexus gave no download link.");
+    }
+
+    /// <summary>Downloads a file into <paramref name="folder"/> (as <paramref name="fileName"/>); returns the path.</summary>
+    public static async Task<string> Download(string uri, string fileName, string folder, IProgress<string>? progress = null)
+    {
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(fileName)) + Path.GetExtension(fileName));
+        if (!uri.StartsWith("http", StringComparison.OrdinalIgnoreCase)) { File.Copy(uri, path, true); return path; }   // tests
+        using var h = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        h.DefaultRequestHeaders.UserAgent.ParseAdd("MHO-Ext-ModManager/" + Program.Version);
+        using var resp = await h.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+        resp.EnsureSuccessStatusCode();
+        long total = resp.Content.Headers.ContentLength ?? 0, done = 0;
+        await using (var src = await resp.Content.ReadAsStreamAsync())
+        await using (var dst = File.Create(path + ".part"))
+        {
+            var buf = new byte[1 << 20];
+            int n;
+            while ((n = await src.ReadAsync(buf)) > 0)
+            {
+                await dst.WriteAsync(buf.AsMemory(0, n)); done += n;
+                progress?.Report(total > 0 ? $"Downloading {fileName}: {done * 100 / total}%" : $"Downloading {fileName}: {done / 1048576} MB");
+            }
+        }
+        File.Move(path + ".part", path, true);
+        return path;
     }
 
     static ModInfo Info(int id, JsonElement node, JsonElement files)
