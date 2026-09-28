@@ -11,7 +11,7 @@ static class CommandCatalog
     public sealed record Command(string Group, string Flag, string Syntax, string Summary, bool Writes, string Template);
 
     public static readonly string[] Groups =
-        ["Inspect", "Meshes", "Textures", "Properties and materials", "Objects", "Placements (Blender round trip)", "Zones", "Sky", "Backups and history", "Self-tests", "App"];
+        ["Inspect", "Meshes", "Textures", "Properties and Materials", "Objects", "Placements (Blender Round Trip)", "Zones", "Sky", "Backups and History", "Self-Tests", "App"];
 
     public static readonly Command[] All =
     [
@@ -50,11 +50,11 @@ static class CommandCatalog
             "--replace-texture {pkg} {export} \"{out}\\image.png\" --dry-run"),
 
         // ---- Properties and materials
-        new("Properties and materials", "--set-property", "<package.upk> <export> <Name=Value> [...] [--dry-run]",
+        new("Properties and Materials", "--set-property", "<package.upk> <export> <Name=Value> [...] [--dry-run]",
             "Change existing float/int/colour properties, or material-instance parameters as param:<name>=value (colours as R,G,B[,A]).", true, "--set-property {pkg} {export} FogDensity=0.2 --dry-run"),
-        new("Properties and materials", "--material-params", "<package.upk> <material-instance>", "List a material instance's scalar, vector and texture parameters.", false, "--material-params {pkg} {export}"),
-        new("Properties and materials", "--find-mic", "<folder> <parent-name-part> [switch=true|false ...] [--limit 20]", "Find material instances by parent material and static switches (e.g. translucent + useemissive=true), to copy one with the features you need.", false, "--find-mic {folder} storefront useemissive=true"),
-        new("Properties and materials", "--set-object", "<package.upk> <export> <property | property[i]> <target-export> [--dry-run]", "Point an object property (e.g. a component's Materials[0]) at another export.", true, "--set-object {pkg} {export} Materials[0] <material-path> --dry-run"),
+        new("Properties and Materials", "--material-params", "<package.upk> <material-instance>", "List a material instance's scalar, vector and texture parameters.", false, "--material-params {pkg} {export}"),
+        new("Properties and Materials", "--find-mic", "<folder> <parent-name-part> [switch=true|false ...] [--limit 20]", "Find material instances by parent material and static switches (e.g. translucent + useemissive=true), to copy one with the features you need.", false, "--find-mic {folder} storefront useemissive=true"),
+        new("Properties and Materials", "--set-object", "<package.upk> <export> <property | property[i]> <target-export> [--dry-run]", "Point an object property (e.g. a component's Materials[0]) at another export.", true, "--set-object {pkg} {export} Materials[0] <material-path> --dry-run"),
 
         // ---- Objects
         new("Objects", "--copy-export", "<source.upk> <export> <target.upk> [--rename name] [--replace-ref src=dst|none ...] [--cut prop,...] [--dry-run]",
@@ -66,15 +66,15 @@ static class CommandCatalog
         new("Objects", "--add-mesh-instances", "<level.upk> <tile.upk> <mesh[,mesh...]> --template <component> [--min-draw 3500] [--z-offset dz] [--dry-run]", "Recreate a tile's placements of chosen meshes, with their materials, in a main level (distant stand-ins).", true, "--add-mesh-instances {pkg} <tile.upk> <mesh> --template <component> --dry-run"),
 
         // ---- Placements
-        new("Placements (Blender round trip)", "--export-placements", "<folder> <layout.txt> <library.upk> --out file.fbx [--offset X,Y] [--min-footprint 100] [--min-height 100] [--skip a,b] [--skip-material a,b]",
+        new("Placements (Blender Round Trip)", "--export-placements", "<folder> <layout.txt> <library.upk> --out file.fbx [--offset X,Y] [--min-footprint 100] [--min-height 100] [--skip a,b] [--skip-material a,b]",
             "Export a tiled zone's placed meshes, one Blender object per placement, plus a _placements.txt sidecar that the import needs.", false,
             "--export-placements {folder} layout.txt SCS__library.upk --out \"{out}\\zone_placements.fbx\" --min-height 0 --min-footprint 64"),
-        new("Placements (Blender round trip)", "--import-placements", "<folder> <sidecar.txt> <edited.fbx> [--keep-lighting] [--apply-deletes] [--library lib.upk] [--dry-run]",
+        new("Placements (Blender Round Trip)", "--import-placements", "<folder> <sidecar.txt> <edited.fbx> [--keep-lighting] [--apply-deletes] [--library lib.upk] [--dry-run]",
             "Apply the edited FBX: duplicates become new placements, moved originals move, Edit Mode changes become new meshes, deleted originals are removed (--apply-deletes). Re-importing an updated file replaces the earlier import.", true,
             "--import-placements {folder} \"{out}\\zone_placements_placements.txt\" \"{out}\\edited.fbx\" --keep-lighting --dry-run"),
-        new("Placements (Blender round trip)", "--test-placements", "<folder> <sidecar.txt> <exported.fbx> [--library lib.upk]", "Self-test of the round trip: a known duplicate, move and mesh edit, imported as a dry run.", false,
+        new("Placements (Blender Round Trip)", "--test-placements", "<folder> <sidecar.txt> <exported.fbx> [--library lib.upk]", "Self-test of the round trip: a known duplicate, move and mesh edit, imported as a dry run.", false,
             "--test-placements {folder} \"{out}\\zone_placements_placements.txt\" \"{out}\\zone_placements.fbx\""),
-        new("Placements (Blender round trip)", "--export-placed", "<folder> <layout.txt> <library.upk> --out file.fbx [--offset X,Y] [--min-z -400] [--max-z 150] [--min-footprint 64] [--min-height 0] [--max-height N] [--skip a,b] [--skip-material a,b]",
+        new("Placements (Blender Round Trip)", "--export-placed", "<folder> <layout.txt> <library.upk> --out file.fbx [--offset X,Y] [--min-z -400] [--max-z 150] [--min-footprint 64] [--min-height 0] [--max-height N] [--skip a,b] [--skip-material a,b]",
             "Export placed tile meshes in world position with materials and textures as one scene, e.g. to bake a ground plane or building LODs in Blender.", false,
             "--export-placed {folder} layout.txt SCS__library.upk --out \"{out}\\lod_bundle.fbx\" --min-height 100 --min-footprint 100"),
 
@@ -89,18 +89,18 @@ static class CommandCatalog
         new("Sky", "--sky-coverage", "<level.upk> <component[,...|prefix*]> [--from x,y,z]", "Map which view directions the placed backdrop meshes cover.", false, "--sky-coverage {pkg} {export}"),
 
         // ---- Backups and history
-        new("Backups and history", "--history", "<package.upk>", "List a package's undo / redo steps.", false, "--history {pkg}"),
-        new("Backups and history", "--undo", "<package.upk> [--force]", "Undo the last change this tool made to the package (verified restore).", true, "--undo {pkg}"),
-        new("Backups and history", "--redo", "<package.upk> [--force]", "Redo an undone change.", true, "--redo {pkg}"),
-        new("Backups and history", "--revert", "<package.upk>", "Restore the original from <package>.upk.bak (verified; the .bak is kept).", true, "--revert {pkg}"),
+        new("Backups and History", "--history", "<package.upk>", "List a package's undo / redo steps.", false, "--history {pkg}"),
+        new("Backups and History", "--undo", "<package.upk> [--force]", "Undo the last change this tool made to the package (verified restore).", true, "--undo {pkg}"),
+        new("Backups and History", "--redo", "<package.upk> [--force]", "Redo an undone change.", true, "--redo {pkg}"),
+        new("Backups and History", "--revert", "<package.upk>", "Restore the original from <package>.upk.bak (verified; the .bak is kept).", true, "--revert {pkg}"),
 
         // ---- Self-tests
-        new("Self-tests", "--verify-import-roundtrip", "<package.upk> <staticmesh>", "Export a mesh, re-import it and compare with the original. Writes nothing to the game.", false, "--verify-import-roundtrip {pkg} {export}"),
+        new("Self-Tests", "--verify-import-roundtrip", "<package.upk> <staticmesh>", "Export a mesh, re-import it and compare with the original. Writes nothing to the game.", false, "--verify-import-roundtrip {pkg} {export}"),
         new("App", "--find-game", "", "Look for the game's CookedPCConsole folder in the Steam libraries (what the app does on its first run).", false, "--find-game"),
         new("App", "--check-update", "", "Check GitHub for a newer release of the app.", false, "--check-update"),
         new("App", "--update", "", "Download, verify and install the newest release over this app folder (close the app's window first).", false, "--update"),
         new("App", "--install-zip", "<MHO_Package_Modifier_vX.Y.Z.zip>", "Install a release zip downloaded by hand over this app folder (checked against the .sha256 next to it).", false, "--install-zip <zip>"),
-        new("Self-tests", "--test-rebuild", "<package.upk> [export-to-copy]", "Rebuild a package (optionally with one export copied) and verify. Writes nothing.", false, "--test-rebuild {pkg}"),
+        new("Self-Tests", "--test-rebuild", "<package.upk> [export-to-copy]", "Rebuild a package (optionally with one export copied) and verify. Writes nothing.", false, "--test-rebuild {pkg}"),
     ];
 
     /// <summary>The CLI usage text: every command by group.</summary>

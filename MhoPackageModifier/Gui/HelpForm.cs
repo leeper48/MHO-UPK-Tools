@@ -49,7 +49,7 @@ sealed class HelpForm : Form
     HelpForm(string file, bool dark, int dpi, int textSize, Action<int> saveTextSize)
     {
         page = file; this.dark = dark; this.dpi = dpi; this.textSize = textSize; this.saveTextSize = saveTextSize;
-        Text = "MHO Package Modifier: manual";
+        Text = "MHO Package Modifier: Manual";
         Width = 1100; Height = 900;
         StartPosition = FormStartPosition.CenterScreen;
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };
@@ -89,11 +89,11 @@ sealed class HelpForm : Form
                 searched = term;
                 object? n = browser.Document.InvokeScript("mhoSearch", [term]);
                 if (term.Length == 0) { found.Text = ""; return; }
-                if (Convert.ToInt32(n) == 0) { found.Text = "no matches"; return; }
+                if (Convert.ToInt32(n) == 0) { found.Text = "No Matches"; return; }
             }
-            found.Text = browser.Document.InvokeScript("mhoNext", [dir])?.ToString() ?? "";
+            found.Text = Look.TitleCase(browser.Document.InvokeScript("mhoNext", [dir])?.ToString() ?? "");
         }
-        catch (Exception ex) when (ex is InvalidCastException or FormatException or System.Runtime.InteropServices.COMException) { found.Text = "search isn't available"; }
+        catch (Exception ex) when (ex is InvalidCastException or FormatException or System.Runtime.InteropServices.COMException) { found.Text = "Search Isn't Available"; }
     }
 
     /// <summary>Text size in 10% steps (50-250%), remembered; the page reopens at the section being read.</summary>

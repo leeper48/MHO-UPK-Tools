@@ -8,7 +8,7 @@ namespace MhoPackageModifier.Gui;
 sealed partial class MainForm
 {
     readonly LinkLabel updateLink = new() { AutoSize = true, Visible = false, Padding = new Padding(0, 4, 8, 0), Font = new Font("Segoe UI", 9f, FontStyle.Bold) };
-    readonly CheckBox checkUpdates = new() { Text = "Check for updates when the app starts", AutoSize = true };
+    readonly CheckBox checkUpdates = new() { Text = "Check for Updates When the App Starts", AutoSize = true };
     Updater.Release? available;
 
     void InitUpdates()
@@ -40,7 +40,7 @@ sealed partial class MainForm
         if (r == null) { if (!quiet) Log($"Update check: {note}."); return; }
         if (r.Version <= Updater.Current) { if (!quiet) Log($"Up to date: v{Updater.Current}."); return; }
         available = r;
-        updateLink.Text = $"⬆ Update available: v{r.Version}";
+        updateLink.Text = $"⬆ Update Available: v{r.Version}";
         updateLink.Visible = true;
         Log($"Update available: v{r.Version} (you have v{Updater.Current}). Click the link at the top right to install it.");
         if (!quiet) OfferUpdate(r);

@@ -24,7 +24,7 @@ sealed class MeshViewer : UserControl
     Tex?[] sectionTex = [];
     float windingSign = 1f;                                                // +1: outward normal = cross(b-a, c-a) (set from the stored normals)
     Vector3 center; float radius = 1, minZ;
-    string name = "", info = "", message = "Select a mesh in the list to see it here.";
+    string name = "", info = "", message = "Select a Mesh in the List to See It Here.";
 
     float yaw = -0.8f, pitch = 0.35f, distance = 10;
     Vector3 target;
@@ -102,7 +102,7 @@ sealed class MeshViewer : UserControl
         windingSign = agree >= disagree ? 1f : -1f;
         Vector3 lo = pos.Length > 0 ? pos.Aggregate(Vector3.Min) : Vector3.Zero, hi = pos.Length > 0 ? pos.Aggregate(Vector3.Max) : Vector3.Zero;
         center = (lo + hi) / 2; radius = Math.Max(1f, (hi - lo).Length() / 2); minZ = lo.Z;
-        status.Text = $"{name}   {positions.Length:N0} vertices, {indices.Length / 3:N0} triangles, {textures.Length} section(s), size {hi.X - lo.X:0} x {hi.Y - lo.Y:0} x {hi.Z - lo.Z:0}   {info}";
+        status.Text = $"{name}   " + Look.TitleCase($"{positions.Length:N0} vertices, {indices.Length / 3:N0} triangles, {textures.Length} section(s), size {hi.X - lo.X:0} x {hi.Y - lo.Y:0} x {hi.Z - lo.Z:0}   {info}");
         FrameMesh();
         Redraw();
     }
@@ -142,7 +142,7 @@ sealed class MeshViewer : UserControl
 
     public void ShowMessage(string text)
     {
-        message = text; idx = []; pos = []; status.Text = "";
+        message = Look.TitleCase(text); idx = []; pos = []; status.Text = "";
         frame?.Dispose(); frame = null;
         canvas.Invalidate();
     }

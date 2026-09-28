@@ -23,14 +23,15 @@ Install
 Keeping your game safe
 ----------------------
 - Close the game before writing: the app refuses to write while it runs.
-- Every change has a "Check (dry run)" first; nothing touches the game until you confirm.
+- Every change has a "Check (Dry Run)" first; nothing touches the game until you confirm.
 - The first time a package is changed, its original is kept next to it as <package>.upk.bak (never
-  touched again). Backups tab: Undo steps back one change, "Revert to original" restores the .bak.
+  touched again). Backups tab: Undo steps back one change, "Revert Selected to Original" restores
+  the .bak.
 
 Updates
 -------
 At first start the app asks whether it may check GitHub for new versions; nothing goes over the network
-before you answer. If you say yes, it checks once a day (Start tab: turn it off, or "Check for updates"). When one is
+before you answer. If you say yes, it checks once a day (Start tab: turn it off, or "Check for Updates"). When one is
 out, a link appears at the top right: it downloads the new version, checks it, installs it and restarts.
 Your settings, undo history and exports are kept.
 

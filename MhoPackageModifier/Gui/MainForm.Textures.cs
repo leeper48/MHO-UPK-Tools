@@ -7,7 +7,7 @@ namespace MhoPackageModifier.Gui;
 sealed partial class MainForm
 {
     readonly ListView texList = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
-    readonly Label texTemplate = new() { AutoSize = true, Padding = new Padding(0, 6, 0, 0), Text = "(select a texture in the list)" };
+    readonly Label texTemplate = new() { AutoSize = true, Padding = new Padding(0, 6, 0, 0), Text = "(Select a Texture in the List)" };
     readonly TextBox texName = new() { PlaceholderText = "name for the new texture, e.g. my_wall_diff" };
     readonly TextBox texImage = new() { PlaceholderText = "PNG, JPG, BMP or DDS file" };
     readonly ComboBox texFormat = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 330 };
@@ -15,8 +15,8 @@ sealed partial class MainForm
     readonly NumericUpDown texScale = Num(1, 0.05m, 4, 2, 0.05m);
     readonly ComboBox texMax = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
     readonly TextureViewer texViewer = new() { Dock = DockStyle.Fill };
-    readonly RadioButton texModeReplace = new() { Text = "Replace the selected texture", AutoSize = true, Checked = true };
-    readonly RadioButton texModeNew = new() { Text = "Add as a new texture", AutoSize = true };
+    readonly RadioButton texModeReplace = new() { Text = "Replace the Selected Texture", AutoSize = true, Checked = true };
+    readonly RadioButton texModeNew = new() { Text = "Add as a New Texture", AutoSize = true };
     readonly Label texModeHint = Hint("", 480);
     Control? texNameLabel;
 
@@ -30,30 +30,30 @@ sealed partial class MainForm
             ? "Adds a new texture to the open package. It copies its settings (compression type, texture group) from the selected texture, the template: pick " +
               "one of the same kind, e.g. a diffuse for a diffuse. To use it, copy a material on the Objects tab and swap the material's texture for yours (\"Replace references\")."
             : "The selected texture gets your image: same name and path, so every material that uses it shows the new image. Its other settings are kept. " +
-              "Other packages may hold their own copy of the same texture: \"Find name in folder\" on the Browse tab lists them.";
+              "Other packages may hold their own copy of the same texture: \"Find Name in Folder\" on the Browse tab lists them.";
     }
     int texRequest;                                                        // the newest preview asked for; older ones are dropped
-    readonly CheckBox texNoMips = new() { Text = "No mipmaps (only for something always seen at one distance, e.g. a sky)", AutoSize = true };
+    readonly CheckBox texNoMips = new() { Text = "No Mipmaps", AutoSize = true };
 
     TabPage BuildTexturesTab()
     {
         texList.Columns.Add("Texture", 380); texList.Columns.Add("Size", 90, HorizontalAlignment.Right); texList.Columns.Add("Path", 500);
         texList.SelectedIndexChanged += (_, _) =>
         {
-            texTemplate.Text = SelectedTexture() is string t ? t : "(select a texture in the list)";
+            texTemplate.Text = SelectedTexture() is string t ? t : "(Select a Texture in the List)";
             if (SelectedTexture() is string sel) PreviewTexture(sel);
         };
         texList.Resize += (_, _) => FillLastColumn(texList);
         texViewer.PopOut = (n, px, w, h, info) => TexturePreviewForm.Open(this, palette, n, px, w, h, info);
 
         var listButtons = Flow(
-            Btn("Export selected as .dds", () => { if (SelectedTexture() is string t) ExportTextures(t[(t.LastIndexOf('.') + 1)..]); }),
-            Btn("Export all textures", () => ExportTextures(null)),
-            Btn("Texture details", () => { if (package != null) RunCommand("Texture details", ["--texture-info", packagePath, .. SelectedTexture() is string t ? new[] { t[(t.LastIndexOf('.') + 1)..] } : []], false); }),
-            Btn("Open textures folder", () => OpenFolder(Path.Combine(exportFolder.Text, "textures", Path.GetFileNameWithoutExtension(packagePath)))));
+            Btn("Export Selected as .dds", () => { if (SelectedTexture() is string t) ExportTextures(t[(t.LastIndexOf('.') + 1)..]); }),
+            Btn("Export All Textures", () => ExportTextures(null)),
+            Btn("Texture Details", () => { if (package != null) RunCommand("Texture Details", ["--texture-info", packagePath, .. SelectedTexture() is string t ? new[] { t[(t.LastIndexOf('.') + 1)..] } : []], false); }),
+            Btn("Open Textures Folder", () => OpenFolder(Path.Combine(exportFolder.Text, "textures", Path.GetFileNameWithoutExtension(packagePath)))));
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        left.Controls.Add(Lbl("Textures in the open package:"), 0, 0); left.Controls.Add(texList, 0, 1); left.Controls.Add(listButtons, 0, 2);
+        left.Controls.Add(Lbl("Textures in the Open Package:"), 0, 0); left.Controls.Add(texList, 0, 1); left.Controls.Add(listButtons, 0, 2);
 
         texFormat.Items.AddRange(["Automatic (from the image's alpha)", "DXT1: opaque, or cut-out alpha", "DXT5: soft alpha (transparency)"]);
         texFormat.SelectedIndex = 0;
@@ -66,25 +66,25 @@ sealed partial class MainForm
         g.Full(texModeNew);
         g.Full(texModeHint);
         g.Row("Texture:", texTemplate);
-        g.Row("New name:", texName);
+        g.Row("New Name:", texName);
         texNameLabel = g.GetControlFromPosition(0, g.GetRow(texName));
         g.Row("Image:", texImage, NoWrap(FileButton(texImage, "Images (*.png;*.jpg;*.jpeg;*.bmp;*.dds)|*.png;*.jpg;*.jpeg;*.bmp;*.dds|All files|*.*"),
             Btn("Preview", () => PreviewImageFile(texImage.Text.Trim()))));
         g.Row("Compression:", texFormat);
-        g.Row("Alpha cut-off:", texSplit);
+        g.Row("Alpha Cut-Off:", texSplit);
         g.Full(Hint("DXT1 with alpha keeps pixels whose alpha is above the cut-off and drops the rest (85 = the game's masked-material threshold). Ignored for DXT5 and opaque images.", 480));
         g.Row("Brightness:", texScale);
         g.Full(Hint("Multiplies the colour (0.6 = 40% darker), e.g. to match a baked texture to the real one.", 480));
-        g.Row("Largest size:", texMax);
+        g.Row("Largest Size:", texMax);
         g.Full(Hint("Halves the image until it fits. For distant LODs 512 is plenty; for anything seen up close keep Original.", 480));
-        g.Full(texNoMips);
+        g.Full(NoWrap(texNoMips, Hint("only for something always seen at one distance, e.g. a sky", 600)));
         g.Full(NoWrap(
-            Btn("Check (dry run)", () => ImportTexture(dryRun: true)),
-            Btn("Import into game file…", () => ImportTexture(dryRun: false))));
+            Btn("Check (Dry Run)", () => ImportTexture(dryRun: true)),
+            Btn("Import into Game File…", () => ImportTexture(dryRun: false))));
 
         // Left: the list above the importer; right: the viewer, showing whatever was clicked.
         var import = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-        import.Controls.Add(Section("Import an image", g));
+        import.Controls.Add(Section("Import an Image", g));
         UpdateTextureMode();
         var leftSplit = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
         leftSplit.Panel1.Controls.Add(left);
@@ -115,7 +115,7 @@ sealed partial class MainForm
             }
         texList.EndUpdate();
         FitColumns(texList);
-        texTemplate.Text = "(select a texture in the list)";
+        texTemplate.Text = "(Select a Texture in the List)";
         texRequest++;
         texViewer.ShowMessage(texList.Items.Count == 0 ? "This package has no textures." : "Click a texture in the list to see it here.");
     }

@@ -24,45 +24,45 @@ sealed partial class MainForm
                        "reference of the copy. An object is known by its path: a copy with the same path as an object in another package replaces that object for " +
                        "everything loaded after it, so give a copy you'll change a new name. \"Replace references\" points the copy at objects the target already " +
                        "has (e.g. your imported texture) instead of copying them, or at nothing (=none)."));
-        copy.Row("From package:", cpSource, NoWrap(FileButton(cpSource, UpkFilter), Btn("Use open package", () => cpSource.Text = packagePath)));
-        copy.Row("Object:", cpExport, Btn("Use Browse selection", () => { if (package != null && SelectedExport() is int i) { cpSource.Text = packagePath; cpExport.Text = package.PathOf(package.Exports[i]); } }));
-        copy.Row("Into package:", cpTarget, NoWrap(FileButton(cpTarget, UpkFilter), Btn("Use open package", () => cpTarget.Text = packagePath)));
-        copy.Row("New name:", cpRename);
-        copy.Row("Replace references:", cpRefs);
-        copy.Row("Leave out properties:", cpCut);
+        copy.Row("From Package:", cpSource, NoWrap(FileButton(cpSource, UpkFilter), Btn("Use Open Package", () => cpSource.Text = packagePath)));
+        copy.Row("Object:", cpExport, Btn("Use Browse Selection", () => { if (package != null && SelectedExport() is int i) { cpSource.Text = packagePath; cpExport.Text = package.PathOf(package.Exports[i]); } }));
+        copy.Row("Into Package:", cpTarget, NoWrap(FileButton(cpTarget, UpkFilter), Btn("Use Open Package", () => cpTarget.Text = packagePath)));
+        copy.Row("New Name:", cpRename);
+        copy.Row("Replace References:", cpRefs);
+        copy.Row("Leave Out Properties:", cpCut);
         copy.Full(Hint("Leaving out physmaterial (footstep sounds and splashes) is fine. Never leave out materialfunctioninfos: the material then renders as the default checker. " +
                        "A copied actor must also be added to its level's actor list (Tools: --add-level-actor)."));
         copy.Full(NoWrap(
-            Btn("What would be copied?", () => { if (CopyReady(false)) RunCommand("Dependencies", ["--export-deps", cpSource.Text, cpExport.Text.Trim(), .. CutArgs()], false); }),
-            Btn("Check (dry run)", () => CopyObject(dryRun: true)),
-            Btn("Copy into game file…", () => CopyObject(dryRun: false))));
+            Btn("What Would Be Copied?", () => { if (CopyReady(false)) RunCommand("Dependencies", ["--export-deps", cpSource.Text, cpExport.Text.Trim(), .. CutArgs()], false); }),
+            Btn("Check (Dry Run)", () => CopyObject(dryRun: true)),
+            Btn("Copy into Game File…", () => CopyObject(dryRun: false))));
 
         var remove = new FieldGrid();
         remove.Full(Hint("Takes placed meshes off their tile's list so the game stops drawing them (their data stays in the package). Both filters must match; " +
                          "give at least one. Example: the stock water planes are mesh terrain_flat_filler with a water material (add the mesh filter: sidewalk fillers and fountains use water too)."));
-        remove.Row("Package:", rmPackage, NoWrap(FileButton(rmPackage, UpkFilter), Btn("Use open package", () => rmPackage.Text = packagePath)));
-        remove.Row("Mesh contains:", rmMesh);
-        remove.Row("Material contains:", rmMaterial);
+        remove.Row("Package:", rmPackage, NoWrap(FileButton(rmPackage, UpkFilter), Btn("Use Open Package", () => rmPackage.Text = packagePath)));
+        remove.Row("Mesh Contains:", rmMesh);
+        remove.Row("Material Contains:", rmMaterial);
         remove.Row("Library:", rmLibrary, FileButton(rmLibrary, UpkFilter));
-        remove.Full(NoWrap(Btn("Check (dry run)", () => RemoveComponents(dryRun: true)), Btn("Remove from game file…", () => RemoveComponents(dryRun: false))));
+        remove.Full(NoWrap(Btn("Check (Dry Run)", () => RemoveComponents(dryRun: true)), Btn("Remove from Game File…", () => RemoveComponents(dryRun: false))));
 
         var find = new FieldGrid();
         find.Full(Hint("Shaders are compiled into the game, so a material can only use a combination of switches (translucent, emissive, masked…) that some existing " +
                        "material already has. Find one here, copy it above under a new name, and change only its textures and parameters. Read-only; scans the game folder."));
-        find.Row("Parent contains:", fmParent);
+        find.Row("Parent Contains:", fmParent);
         find.Row("Switches:", fmSwitches);
-        find.Row("Show at most:", fmLimit);
-        find.Full(NoWrap(Btn("Find material instances", () =>
+        find.Row("Show at Most:", fmLimit);
+        find.Full(NoWrap(Btn("Find Material Instances", () =>
         {
             if (fmParent.Text.Trim().Length == 0) { Log("Give part of the parent material's name."); return; }
-            RunCommand("Find material instances", ["--find-mic", gameFolder.Text, fmParent.Text.Trim(), .. SplitArgs(fmSwitches.Text), "--limit", F(fmLimit.Value)], false);
+            RunCommand("Find Material Instances", ["--find-mic", gameFolder.Text, fmParent.Text.Trim(), .. SplitArgs(fmSwitches.Text), "--limit", F(fmLimit.Value)], false);
         })));
 
         return Stacked("Objects",
-            Heading("Copy, remove and find objects"),
-            Section("Copy an object into another package", copy),
-            Section("Remove placed meshes from a tile", remove),
-            Section("Find a material with the features you need", find));
+            Heading("Copy, Remove and Find Objects"),
+            Section("Copy an Object into Another Package", copy),
+            Section("Remove Placed Meshes from a Tile", remove),
+            Section("Find a Material with the Features You Need", find));
     }
 
     string[] CutArgs() => cpCut.Text.Trim().Length > 0 ? ["--cut", cpCut.Text.Trim().Replace(" ", "")] : [];
@@ -70,7 +70,7 @@ sealed partial class MainForm
     bool CopyReady(bool needTarget)
     {
         if (!File.Exists(cpSource.Text)) { Log($"Source package not found: {cpSource.Text}"); return false; }
-        if (cpExport.Text.Trim().Length == 0) { Log("Give the object's full path (Browse tab: select it, then \"Use Browse selection\")."); return false; }
+        if (cpExport.Text.Trim().Length == 0) { Log("Give the object's full path (Browse tab: select it, then \"Use Browse Selection\")."); return false; }
         if (needTarget && !File.Exists(cpTarget.Text)) { Log($"Target package not found: {cpTarget.Text}"); return false; }
         return true;
     }

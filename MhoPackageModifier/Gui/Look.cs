@@ -33,11 +33,69 @@ static class Look
         Changed: Color.FromArgb(92, 74, 24), IsDark: true);
 
     /// <summary>Captions of the main "do it" buttons, drawn in the accent colour.</summary>
-    static readonly HashSet<string> AccentButtons = new(StringComparer.Ordinal)
+    static readonly HashSet<string> AccentButtons = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Apply to game file(s)…", "Import into game file…", "Write to game…", "Build and write to game…", "Copy into game file…",
-        "Remove from game file…", "Export for Blender", "Export for baking", "Run",
+        "Apply to Game File(s)…", "Import into Game File…", "Write to Game…", "Build and Write to Game…", "Copy into Game File…",
+        "Remove from Game File…", "Export for Blender", "Export for Baking", "Run",
     };
+
+    // Microsoft-style Title Case, as the Mod Manager's Ui.TitleCase: articles, conjunctions and prepositions of four letters
+    // or fewer stay lower case, except as the first word of the text or after ":" / "·" / "(" / "—".
+    static readonly HashSet<string> MinorWords = new(StringComparer.OrdinalIgnoreCase)
+    { "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at", "by", "in", "of", "on", "per", "to", "via", "from", "into", "onto", "with", "over", "than", "like" };
+
+    /// <summary>
+    /// Title Case for labels and status lines (Kurt: every UI text in Title Case, as in the Mod Manager). Text in double
+    /// quotes is left as it is, and so is the rest of each word (FBX, StaticMesh, .bak stay). Unlike the Mod Manager's
+    /// version, a token with a path or file name in it (\ / _ or a dot between letters, or a leading -) is left whole, so
+    /// folders, packages and object paths in status lines show as they are.
+    /// </summary>
+    public static string TitleCase(string text)
+    {
+        var sb = new System.Text.StringBuilder(text.Length);
+        bool quoted = false, start = true;
+        int i = 0;
+        while (i < text.Length)
+        {
+            char c = text[i];
+            if (c == '"') { quoted = !quoted; sb.Append(c); i++; continue; }
+            if (!quoted && (i == 0 || char.IsWhiteSpace(text[i - 1])) && !char.IsWhiteSpace(c))
+            {
+                int end = i;
+                while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] != '"') end++;
+                string token = text[i..end];
+                if (IsPathLike(token)) { sb.Append(token); start = token.EndsWith(':'); i = end; continue; }
+            }
+            if (!quoted && char.IsLetter(c))
+            {
+                int j = i;
+                while (j < text.Length && (char.IsLetterOrDigit(text[j]) || text[j] == '\'' || text[j] == '’')) j++;
+                string word = text[i..j];
+                bool afterDot = i > 0 && text[i - 1] == '.';   // .dds, .png, file extensions
+                bool plural = word == "s" && i > 0 && text[i - 1] == '(';   // file(s), package(s)
+                bool times = word == "x" && i > 1 && char.IsDigit(text[i - 2]);   // 766 x 455
+                bool minor = MinorWords.Contains(word) && !start;
+                sb.Append(afterDot || minor || plural || times ? word : char.ToUpperInvariant(word[0]) + word[1..]);
+                start = false;
+                i = j;
+                continue;
+            }
+            if (!quoted && (c == ':' || c == '·' || c == '(' || c == '—')) start = true;
+            else if (!quoted && !char.IsWhiteSpace(c) && c != '-' && c != '●' && c != '⬆') start = start && (c == ' ');
+            sb.Append(c);
+            i++;
+        }
+        return sb.ToString();
+    }
+
+    static bool IsPathLike(string token)
+    {
+        if (token.StartsWith('-') && token.Length > 1 && token[1] != ' ') return true;                  // --flags
+        if (token.IndexOfAny(['\\', '/', '_']) >= 0) return true;
+        for (int k = 1; k + 1 < token.Length; k++)
+            if (token[k] == '.' && char.IsLetterOrDigit(token[k - 1]) && char.IsLetter(token[k + 1])) return true;   // name.upk, pkg.object
+        return false;
+    }
 
     public static Font Regular(float pt = 9.75f) => new("Segoe UI", pt);
     public static Font Bold(float pt = 10f) => new("Segoe UI Semibold", pt);

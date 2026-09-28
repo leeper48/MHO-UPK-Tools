@@ -12,7 +12,7 @@ sealed partial class MainForm
     readonly Label toolSyntax = new() { AutoSize = true, MaximumSize = new Size(760, 0), Font = new Font(FontFamily.GenericMonospace, 9f), Margin = new Padding(3, 4, 3, 4) };
     readonly Label toolSummary = new() { AutoSize = true, MaximumSize = new Size(760, 0), Margin = new Padding(3, 4, 3, 8) };
     readonly TextBox toolArgs = new() { Multiline = true, Height = 64, ScrollBars = ScrollBars.Vertical, Font = new Font(FontFamily.GenericMonospace, 9f) };
-    readonly CheckBox toolDry = new() { Text = "Dry run (check only; the game file is untouched)", AutoSize = true, Checked = true };
+    readonly CheckBox toolDry = new() { Text = "Dry Run (Check Only)", AutoSize = true, Checked = true };
 
     TabPage BuildToolsTab()
     {
@@ -21,7 +21,7 @@ sealed partial class MainForm
             // The tree's font is the bold one and commands use the regular one: a node font larger than the tree's gets clipped.
             var node = new TreeNode(grp);
             foreach (var c in CommandCatalog.All.Where(c => c.Group == grp))
-                node.Nodes.Add(new TreeNode((c.Flag == "(scan)" ? "(folder scan)" : c.Flag) + (c.Writes ? "   (writes)" : "")) { Tag = c, ToolTipText = c.Summary, NodeFont = regularTreeFont });
+                node.Nodes.Add(new TreeNode((c.Flag == "(scan)" ? "(Folder Scan)" : c.Flag) + (c.Writes ? "   (Writes)" : "")) { Tag = c, ToolTipText = c.Summary, NodeFont = regularTreeFont });
             toolList.Nodes.Add(node);
         }
         toolList.ExpandAll();
@@ -33,13 +33,13 @@ sealed partial class MainForm
         g.Full(Hint("Every command of the tool. Pick one: its syntax and an example appear, filled in with the open package, the export selected on the Browse " +
                     "tab and the export folder. Edit the arguments and run; output goes to the log below. Words in <angle brackets> are yours to fill in.", 760));
         g.Row("Syntax:", toolSyntax);
-        g.Row("What it does:", toolSummary);
+        g.Row("What It Does:", toolSummary);
         g.Row("Arguments:", toolArgs);
-        g.Full(toolDry);
+        g.Full(NoWrap(toolDry, Hint("the game file is untouched", 600)));
         g.Full(NoWrap(
             Btn("Run", RunTool),
-            Btn("Refill example", ShowTool),
-            Btn("Copy as command line", () => { if (toolArgs.Text.Trim().Length > 0) { Clipboard.SetText($"\"{Path.Combine(AppContext.BaseDirectory, "MHO_UPK_Mod.exe")}\" {ToolLine()}"); Log("Copied to the clipboard."); } })));
+            Btn("Refill Example", ShowTool),
+            Btn("Copy as Command Line", () => { if (toolArgs.Text.Trim().Length > 0) { Clipboard.SetText($"\"{Path.Combine(AppContext.BaseDirectory, "MHO_UPK_Mod.exe")}\" {ToolLine()}"); Log("Copied to the clipboard."); } })));
         var right = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         right.Controls.Add(g);
 
@@ -66,7 +66,7 @@ sealed partial class MainForm
             .Replace("{export}", Quote(export))
             .Replace("{out}", exportFolder.Text)
             .Replace(" --dry-run", "");
-        toolDry.Visible = c.Writes;
+        toolDry.Parent!.Visible = c.Writes;
     }
 
     string ToolLine() => toolArgs.Text.Replace("\r", " ").Replace("\n", " ").Trim() + (SelectedTool() is { Writes: true } && toolDry.Checked && !toolArgs.Text.Contains("--dry-run") ? " --dry-run" : "");

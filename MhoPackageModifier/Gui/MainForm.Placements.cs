@@ -15,8 +15,8 @@ sealed partial class MainForm
     readonly NumericUpDown plMinFoot = Num(64, 0, 100000), plMinHeight = Num(0, 0, 100000);
     readonly TextBox plSidecar = new() { PlaceholderText = "<export>_placements.txt, written next to the exported FBX" };
     readonly TextBox plEdited = new() { PlaceholderText = "the FBX you exported from Blender" };
-    readonly CheckBox plKeepLighting = new() { Text = "Keep baked lighting (recommended: new pieces glow like their originals; without it they look dark)", AutoSize = true, Checked = true };
-    readonly CheckBox plApplyDeletes = new() { Text = "Remove originals I deleted in Blender", AutoSize = true };
+    readonly CheckBox plKeepLighting = new() { Text = "Keep Baked Lighting (Recommended)", AutoSize = true, Checked = true };
+    readonly CheckBox plApplyDeletes = new() { Text = "Remove Originals I Deleted in Blender", AutoSize = true };
     readonly List<Control> plExportControls = new(), plImportControls = new();
 
     TabPage BuildPlacementsTab()
@@ -28,20 +28,20 @@ sealed partial class MainForm
         var zone = new FieldGrid();
         zone.Row("Zone:", plZone);
         zone.Full(plNotes);
-        zone.Row("Tile layout:", plLayout, FileButton(plLayout, "Layout (*.txt)|*.txt|All files|*.*"));
-        zone.Row("Region library:", plLibrary, FileButton(plLibrary, UpkFilter));
+        zone.Row("Tile Layout:", plLayout, FileButton(plLayout, "Layout (*.txt)|*.txt|All files|*.*"));
+        zone.Row("Region Library:", plLibrary, FileButton(plLibrary, UpkFilter));
         zone.Row("Offset:", plOffset);
 
         var export = new FieldGrid();
         export.Full(Hint("Writes every placed mesh of the zone's tiles as its own object (named T<tile>_E<export>_<mesh>, one child per material section) into an FBX, " +
                          "with textures, plus a <name>_placements.txt that the import needs. Nothing in the game changes. An existing file is never overwritten: a new name is used."));
-        export.Row("FBX to write:", plOut, FileButton(plOut, FbxFilter, save: true));
-        export.Row("Smallest footprint:", plMinFoot);
-        export.Row("Smallest height:", plMinHeight);
+        export.Row("FBX to Write:", plOut, FileButton(plOut, FbxFilter, save: true));
+        export.Row("Smallest Footprint:", plMinFoot);
+        export.Row("Smallest Height:", plMinHeight);
         export.Full(Hint("Leave out pieces smaller than this (world units; 0 = everything). 64 / 0 keeps thin pieces like awnings and roof edges."));
-        export.Row("Skip meshes:", plSkip);
-        export.Row("Skip materials:", plSkipMat);
-        var exportButtons = NoWrap(Btn("Export for Blender", ExportPlacements), Btn("Open job folder", () => OpenFolder(Path.GetDirectoryName(plOut.Text) ?? "")));
+        export.Row("Skip Meshes:", plSkip);
+        export.Row("Skip Materials:", plSkipMat);
+        var exportButtons = NoWrap(Btn("Export for Blender", ExportPlacements), Btn("Open Job Folder", () => OpenFolder(Path.GetDirectoryName(plOut.Text) ?? "")));
         export.Full(exportButtons);
         plExportControls.AddRange([export]);
 
@@ -57,28 +57,28 @@ sealed partial class MainForm
             "• Export the whole scene as FBX (default settings), under a new name in the same folder, e.g. with Blender's +/- file number."));
 
         var import = new FieldGrid();
-        import.Row("Placements file:", plSidecar, FileButton(plSidecar, "Placements (*_placements.txt)|*_placements.txt|All files|*.*"));
-        import.Row("Edited FBX:", plEdited, NoWrap(FileButton(plEdited, FbxFilter), Btn("Newest in folder", PickNewestEdited)));
-        import.Full(plKeepLighting);
+        import.Row("Placements File:", plSidecar, FileButton(plSidecar, "Placements (*_placements.txt)|*_placements.txt|All files|*.*"));
+        import.Row("Edited FBX:", plEdited, NoWrap(FileButton(plEdited, FbxFilter), Btn("Newest in Folder", PickNewestEdited)));
+        import.Full(NoWrap(plKeepLighting, Hint("new pieces glow like their originals; without it they look dark", 600)));
         import.Full(plApplyDeletes);
         import.Full(Hint("Import the whole file again after each change in Blender: the app replaces the earlier import of the same export, so nothing is added twice. " +
                          "Each tile is written once, verified; Undo on the Backups tab steps back. Pieces edited in Edit Mode become new meshes in their tile, without collision."));
         import.Full(NoWrap(
-            Btn("Check (dry run)", () => ImportPlacements(dryRun: true)),
-            Btn("Write to game…", () => ImportPlacements(dryRun: false)),
-            Btn("Self-test", TestPlacements)));
+            Btn("Check (Dry Run)", () => ImportPlacements(dryRun: true)),
+            Btn("Write to Game…", () => ImportPlacements(dryRun: false)),
+            Btn("Self-Test", TestPlacements)));
         plImportControls.AddRange([import]);
 
         plSidecar.Text = settings.PlacementSidecar;
         plEdited.Text = settings.PlacementEdited;
 
         return Stacked("Placements",
-            Heading("Edit a zone's buildings in Blender"),
+            Heading("Edit a Zone's Buildings in Blender"),
             Hint("Add missing walls, move, rotate, scale, reshape or delete the placed meshes of a tiled zone. Three steps: export, edit in Blender, bring the changes back."),
             Section("Zone", zone),
-            Section("1. Export the zone for Blender", export),
+            Section("1. Export the Zone for Blender", export),
             Section("2. Edit in Blender", blender),
-            Section("3. Bring your edits into the game", import));
+            Section("3. Bring Your Edits into the Game", import));
     }
 
     ZonePresets.Preset? SelectedPreset() => plZone.SelectedItem as ZonePresets.Preset;
@@ -107,7 +107,7 @@ sealed partial class MainForm
             settings.PlacementZone = p.Name;
         }
         else plNotes.Text = "Give the tile layout (a text file: one tile name per line, then x and y = 0), the region library the tiles take their meshes from " +
-                            "(find it with \"Where does this mesh come from?\" on the Browse tab), and the offset from tile coordinates to in-game positions.";
+                            "(find it with \"Where Does This Mesh Come from?\" on the Browse tab), and the offset from tile coordinates to in-game positions.";
         bool ok = custom || p!.Tiled;
         foreach (var c in plExportControls.Concat(plImportControls)) c.Enabled = ok;
     }
@@ -219,17 +219,17 @@ sealed partial class MainForm
         g.Full(Hint("Writes the zone's real placed meshes, in their in-game positions, with materials and textures, as one Blender scene. Bake them there into a " +
                     "low-poly LOD with a texture atlas, or bake the ground top-down into one texture. The zone recipe then uses the baked files (see the manual). Nothing in the game changes."));
         g.Row("Zone:", bkZone);
-        g.Row("FBX to write:", bkOut, FileButton(bkOut, FbxFilter, save: true));
-        g.Full(NoWrap(Lbl("Presets:"), Btn("Buildings (for LODs)", BakeBuildings), Btn("Flat ground (for a ground bake)", BakeGround)));
-        g.Row("Smallest height:", bkMinHeight);
-        g.Row("Smallest footprint:", bkMinFoot);
-        g.Row("Tallest (0 = any):", bkMaxHeight);
-        g.Row("Lowest z:", bkMinZ);
-        g.Row("Highest z:", bkMaxZ);
-        g.Row("Skip meshes:", bkSkip);
-        g.Row("Skip materials:", bkSkipMat);
-        g.Full(NoWrap(Btn("Export for baking", ExportForBaking), Btn("Open folder", () => OpenFolder(Path.GetDirectoryName(bkOut.Text) ?? ""))));
-        return Section("Export placed meshes for baking in Blender", g);
+        g.Row("FBX to Write:", bkOut, FileButton(bkOut, FbxFilter, save: true));
+        g.Full(NoWrap(Lbl("Presets:"), Btn("Buildings (For LODs)", BakeBuildings), Btn("Flat Ground (For a Ground Bake)", BakeGround)));
+        g.Row("Smallest Height:", bkMinHeight);
+        g.Row("Smallest Footprint:", bkMinFoot);
+        g.Row("Tallest (0 = Any):", bkMaxHeight);
+        g.Row("Lowest Z:", bkMinZ);
+        g.Row("Highest Z:", bkMaxZ);
+        g.Row("Skip Meshes:", bkSkip);
+        g.Row("Skip Materials:", bkSkipMat);
+        g.Full(NoWrap(Btn("Export for Baking", ExportForBaking), Btn("Open Folder", () => OpenFolder(Path.GetDirectoryName(bkOut.Text) ?? ""))));
+        return Section("Export Placed Meshes for Baking in Blender", g);
     }
 
     void BakeBuildings()
@@ -255,6 +255,6 @@ sealed partial class MainForm
             "--min-height", F(bkMinHeight.Value), "--min-footprint", F(bkMinFoot.Value), "--min-z", F(bkMinZ.Value), "--max-z", F(bkMaxZ.Value), "--skip", bkSkip.Text.Trim() };
         if (bkMaxHeight.Value > 0) args.AddRange(["--max-height", F(bkMaxHeight.Value)]);
         if (bkSkipMat.Text.Trim().Length > 0) args.AddRange(["--skip-material", bkSkipMat.Text.Trim()]);
-        RunCommand("Export for baking", [.. args], writes: false, after: () => { bkOut.Text = outFbx; RevealFile(outFbx); });
+        RunCommand("Export for Baking", [.. args], writes: false, after: () => { bkOut.Text = outFbx; RevealFile(outFbx); });
     }
 }

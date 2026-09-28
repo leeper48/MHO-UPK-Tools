@@ -145,7 +145,7 @@ shows everything the app does, including what each check found.</p>
 <ol>
 <li><b>Close the game before writing.</b> The game keeps its packages open, and it only reads a changed package when it
 starts. The top right of the window shows whether the game is running. While it is, the app blocks every write and tells you.</li>
-<li><b>Check first.</b> Every change has a <b>Check (dry run)</b> button. It builds the new package and verifies it
+<li><b>Check first.</b> Every change has a <b>Check (Dry Run)</b> button. It builds the new package and verifies it
 exactly like the real write, but saves the result in <code>import_out</code> next to the app instead of the game folder.
 Read the log: it says what would change.</li>
 <li><b>The original is kept.</b> The first time the app changes a package, it copies the package to
@@ -154,7 +154,7 @@ Read the log: it says what would change.</li>
 does it replace the game file.</li>
 <li><b>Everything can be undone.</b> Each write is one step in the package's history (the last 20 steps are kept).
 <b>Undo</b> on the Backups tab (<kbd>Ctrl+Z</kbd>) steps back one write, <b>Redo</b> steps forward, and
-<b>Revert to original</b> copies the <code>.bak</code> back.</li>
+<b>Revert Selected to Original</b> copies the <code>.bak</code> back.</li>
 <li><b>Your work files are never overwritten.</b> Files the app exports go into the export folder. If a file with that
 name already exists, the app uses a new name (<code>_2</code>, <code>_3</code>, ...) instead.</li>
 </ol>
@@ -164,14 +164,14 @@ placements file</b>, which replaces the earlier import of that same file.</div>
 
 <h2 id="setup">Getting started</h2>
 <ol class="steps">
-<li><b>Game folder.</b> On its first start the app looks for the game in your Steam libraries. If it isn't found, set
-<b>Game folder</b> at the top to the game's <code>CookedPCConsole</code> folder, e.g.
-<code>...\Marvel Heroes\UnrealEngine3\MarvelGame\CookedPCConsole</code>. <b>Browse…</b> picks it; <b>Reload list</b> re-reads it.</li>
-<li><b>Export folder.</b> On the Meshes tab, choose where the app should put the files it exports (FBX, textures). This is
+<li><b>Game Folder.</b> On its first start the app looks for the game in your Steam libraries. If it isn't found, set
+<b>Game Folder</b> at the top to the game's <code>CookedPCConsole</code> folder, e.g.
+<code>...\Marvel Heroes\UnrealEngine3\MarvelGame\CookedPCConsole</code>. <b>Browse…</b> picks it; <b>Reload List</b> re-reads it.</li>
+<li><b>Export Folder.</b> On the Meshes tab, choose where the app should put the files it exports (FBX, textures). This is
 also a good place for your own work: keep each job in its own subfolder.</li>
 <li><b>Open a package.</b> Type part of a package name in <b>Package</b> (it suggests matches), then <b>Open</b> or
-<kbd>Enter</kbd>. <b>Open file…</b> opens a package from anywhere on disk.</li>
-<li><b>Look and theme.</b> <b>Light mode / Dark mode</b> switches the colours; the app remembers your folders and choices.</li>
+<kbd>Enter</kbd>. <b>Open File…</b> opens a package from anywhere on disk.</li>
+<li><b>Look and theme.</b> <b>Light Mode / Dark Mode</b> switches the colours; the app remembers your folders and choices.</li>
 </ol>
 <p>Everything the app can do is also available from the command line (see <a href="#commands">Command reference</a>);
 running the exe without arguments opens this window.</p>
@@ -179,7 +179,7 @@ running the exe without arguments opens this window.</p>
 <h2 id="updates">Updates</h2>
 <p>At first start the app asks whether it may check for updates; nothing goes over the network before you answer. If you
 say yes, it checks for a new version when it starts, at most once a day (turn it off on the Start tab, or click
-<b>Check for updates</b> there). When one is out, a link appears at the top right of the window: <b>Yes</b> downloads it,
+<b>Check for Updates</b> there). When one is out, a link appears at the top right of the window: <b>Yes</b> downloads it,
 checks its checksum (a damaged or altered download is refused), installs it over the app folder and restarts; <b>No</b>
 opens its release page. Only the app's own files are replaced: your settings, undo history, exports and anything else in
 the folder stay. Keep the app in a folder you can write to (not Program Files).</p>
@@ -212,9 +212,9 @@ a release zip downloaded by hand (with its <code>.sha256</code> next to it).</p>
 <li>Edit values in the <b>Value</b> column. Numbers are typed; colours can be picked by double-clicking the row.
 For a material instance, its parameters are the <code>param:&lt;name&gt;</code> rows. Changed rows are highlighted;
 <b>↺</b> puts the original (<code>.bak</code>) value back into the box.</li>
-<li>Optional: <b>Find matching packages</b> lists every other package with this same object and its current values.
+<li>Optional: <b>Find Matching Packages</b> lists every other package with this same object and its current values.
 Tick the ones that should get the same change (packages with the same name prefix are ticked for you).</li>
-<li><b>Dry run</b>, read the log, then <b>Apply to game file(s)…</b>.</li>
+<li><b>Dry run</b>, read the log, then <b>Apply to Game File(s)…</b>.</li>
 </ol>
 <p class="sub">Only values the package already stores can be changed; a value left at its default isn't stored and doesn't appear.
 Colours are entered as <code>R,G,B[,A]</code>.</p>
@@ -222,12 +222,12 @@ Colours are entered as <code>R,G,B[,A]</code>.</p>
 <h2 id="flow-mesh">Task: replace a mesh with your own model</h2>
 <ol class="steps">
 <li>Open the package that contains the mesh. If the mesh isn't in the list, the package only refers to it: on Browse,
-<b>Where does this mesh come from?</b> shows which package holds it.</li>
-<li>On <b>Meshes</b>, select it and <b>Export selected mesh to FBX</b>. The FBX and its textures go to the export folder.</li>
+<b>Where Does This Mesh Come from?</b> shows which package holds it.</li>
+<li>On <b>Meshes</b>, select it and <b>Export to FBX (+ Textures)</b>. The FBX and its textures go to the export folder.</li>
 <li>Edit it in Blender. Keep the object names (<code>&lt;mesh&gt;_section&lt;N&gt;</code>) and the material names:
 each material becomes a section of the mesh again (Blender's <code>.001</code> suffixes are ignored). The file has no
 custom normals; Blender's own are fine.</li>
-<li>Export it as FBX, choose it in <b>FBX to import</b>, <b>Dry run import</b>, then <b>Import into game file…</b>.</li>
+<li>Export it as FBX, choose it in <b>FBX to Import</b>, <b>Dry Run Import</b>, then <b>Import into Game File…</b>.</li>
 </ol>
 <div class="warn">A mesh can have at most 65,535 vertices. The imported mesh has no collision. Imported meshes are used
 everywhere the original is: to change just one placed building, use <a href="#placements">Placements</a> instead.</div>
@@ -239,8 +239,8 @@ your own layout). The work goes in three steps.</p>
 <ol class="steps">
 <li>Pick the <b>Zone</b>. The tile layout, region library and offset are filled in (choose <b>Custom</b> to give your own).</li>
 <li>Check <b>FBX to write</b>. By default it goes to <code>&lt;export folder&gt;\&lt;Zone&gt;_placements\</code>.</li>
-<li>Filters: <b>Smallest footprint</b> / <b>Smallest height</b> leave out small pieces (64 / 0 keeps thin pieces such as awnings);
-<b>Skip meshes</b> / <b>Skip materials</b> leave out anything whose name contains one of the words.</li>
+<li>Filters: <b>Smallest Footprint</b> / <b>Smallest Height</b> leave out small pieces (64 / 0 keeps thin pieces such as awnings);
+<b>Skip Meshes</b> / <b>Skip Materials</b> leave out anything whose name contains one of the words.</li>
 <li><b>Export for Blender</b>. You get the FBX (one object per placed piece, named
 <code>T&lt;tile&gt;_E&lt;number&gt;_&lt;mesh&gt;</code>, with one child object per material section), its textures, and a
 <code>&lt;name&gt;_placements.txt</code> file. Keep that file: the import needs it. Explorer opens at the FBX.</li>
@@ -251,23 +251,23 @@ your own layout). The work goes in three steps.</p>
 <tr><td>Add a piece</td><td>Select the piece with its children (right-click, <b>Select Hierarchy</b>), <kbd>Shift+D</kbd>, move it. The copy is named like the original plus <code>.001</code>.</td></tr>
 <tr><td>Move, rotate or scale a piece</td><td>In Object Mode, on the piece itself (the parent object).</td></tr>
 <tr><td>Reshape a piece</td><td>Edit Mode on its section objects (<code>..._s0</code>, <code>..._s1</code>): extend a wall, copy windows, delete faces. You can also duplicate, move or mirror section objects, as long as they stay under the piece.</td></tr>
-<tr><td>Delete a piece</td><td>Delete it with its children, and tick <b>Remove originals I deleted in Blender</b> when importing.</td></tr>
+<tr><td>Delete a piece</td><td>Delete it with its children, and tick <b>Remove Originals I Deleted in Blender</b> when importing.</td></tr>
 </table>
 <div class="warn">Don't rename objects, don't join pieces together, and don't apply transforms (<kbd>Ctrl+A</kbd>) to the pieces.
 Leave the untouched pieces in the file: the app uses them to work out how Blender placed everything. Export the whole scene
 as FBX with Blender's default settings, under a new name in the same folder (Blender's <b>+</b> file number is handy).</div>
 <h3>3. Bring your edits into the game</h3>
 <ol class="steps">
-<li><b>Placements file</b> is filled in after an export; otherwise choose the <code>_placements.txt</code>.</li>
-<li><b>Edited FBX</b>: your file. <b>Newest in folder</b> picks the most recent FBX there that isn't an export of the app.</li>
-<li>Keep <b>Keep baked lighting</b> ticked: new pieces then glow like their originals. Without it they come out dark.</li>
-<li><b>Check (dry run)</b>. The log lists every change, for example:
+<li><b>Placements File</b> is filled in after an export; otherwise choose the <code>_placements.txt</code>.</li>
+<li><b>Edited FBX</b>: your file. <b>Newest in Folder</b> picks the most recent FBX there that isn't an export of the app.</li>
+<li>Keep <b>Keep Baked Lighting</b> ticked: new pieces then glow like their originals. Without it they come out dark.</li>
+<li><b>Check (Dry Run)</b>. The log lists every change, for example:
 <br><code>add&nbsp; T51_E167_..._wall_a.001: in-game (18455, -1432, 6) ... edited mesh -&gt; HighTown_X6_Y6_B_NESW_B.upk</code>
 <br><code>move T51_E167_..._wall_a: ...</code>
 <br><code>mesh T51_E207_..._shops_e_corner: edited geometry, placement unchanged</code>
 <br><code>&nbsp;&nbsp;&nbsp;parts moved or copied in Blender: ..._s0.002, ..._s0.003 (mirrored: faces turned outward)</code>
 <br>and ends with <code>verify: PASS</code> for each tile.</li>
-<li><b>Write to game…</b> (with the game closed). Each changed tile is written once and verified.</li>
+<li><b>Write to Game…</b> (with the game closed). Each changed tile is written once and verified.</li>
 </ol>
 <h3>Changing it again</h3>
 <p>Keep working in the same Blender file and import the whole file again. The app sees that this placements file was
@@ -280,20 +280,20 @@ out again disappears. You don't need to undo first.</p>
 <li><b>Reshaped pieces</b> get their own copy of the mesh in their tile (named <code>&lt;mesh&gt;_&lt;tile&gt;_e&lt;N&gt;</code>), rebuilt from
 your geometry. Each face takes its lighting coordinates and normals from the original face it was copied from, so copied
 windows light like the originals. Mirrored parts are turned the right way out.</li>
-<li><b>Deleted originals</b> are removed from their tile's list (only with <b>Remove originals I deleted</b>). The app refuses if more than half the pieces are missing: that looks like a partial export.</li>
+<li><b>Deleted originals</b> are removed from their tile's list (only with <b>Remove Originals I Deleted</b>). The app refuses if more than half the pieces are missing: that looks like a partial export.</li>
 </ul>
 <div class="note">Limits: reshaped pieces have no collision (walking is decided by the server anyway). A few pieces are placed by
 their own actor instead of the tile's list; moving, reshaping or deleting those is skipped and reported. The round trip
-works for tiled zones only. <b>Self-test</b> checks the maths on your export without changing anything.</div>
+works for tiled zones only. <b>Self-Test</b> checks the maths on your export without changing anything.</div>
 
 <h2 id="textures">Task: replace a texture, or add a new one</h2>
-<p>On <b>Textures</b>, <b>Import an image</b> works two ways:</p>
+<p>On <b>Textures</b>, <b>Import an Image</b> works two ways:</p>
 <ul>
-<li><b>Replace the selected texture</b>: the texture you select in the list gets your image. It keeps its name and path, so
+<li><b>Replace the Selected Texture</b>: the texture you select in the list gets your image. It keeps its name and path, so
 every material that uses it shows the new image, with nothing else to change. All its other settings (texture group,
 sRGB, normal-map compression, clamping) stay as they were.</li>
-<li><b>Add as a new texture</b>: a new texture next to the selected one, which serves as the template (a diffuse for a
-diffuse, a normal map for a normal map); the new one copies its settings. Give it a <b>New name</b> (no spaces or dots).
+<li><b>Add as a New Texture</b>: a new texture next to the selected one, which serves as the template (a diffuse for a
+diffuse, a normal map for a normal map); the new one copies its settings. Give it a <b>New Name</b> (no spaces or dots).
 It isn't used by anything until you <a href="#flow-material">make a material</a> that uses it.</li>
 </ul>
 <ol class="steps">
@@ -302,25 +302,25 @@ It isn't used by anything until you <a href="#flow-material">make a material</a>
 <li>Choose the <b>Image</b> (PNG, JPG, BMP or DDS). <b>Preview</b> shows it in the viewer.</li>
 <li><b>Compression</b>: <i>Automatic</i> picks DXT1 for opaque images and cut-outs, DXT5 when the image has soft transparency.
 <b>Alpha cut-off</b> (DXT1 only) keeps pixels whose alpha is above it (85 matches the game's masked materials).
-<b>Brightness</b> scales the colour. <b>Largest size</b> shrinks big images (512 is plenty for distant LODs).
-<b>No mipmaps</b> only for things always seen at one distance, such as a sky: without mipmaps, distant surfaces shimmer.</li>
-<li><b>Check (dry run)</b>, then <b>Import into game file…</b>. After a replace, the viewer shows the texture with its new image.</li>
+<b>Brightness</b> scales the colour. <b>Largest Size</b> shrinks big images (512 is plenty for distant LODs).
+<b>No Mipmaps</b> only for things always seen at one distance, such as a sky: without mipmaps, distant surfaces shimmer.</li>
+<li><b>Check (Dry Run)</b>, then <b>Import into Game File…</b>. After a replace, the viewer shows the texture with its new image.</li>
 </ol>
 <div class="warn">Stock textures keep their large sizes in the game's <code>.tfc</code> texture caches. A replaced texture
 stores all its sizes inside the package instead (the way other mod tools do it), so the package grows. The same texture
 can also exist in several packages (same path); the game uses the copy it loads first. If your replacement doesn't show,
-<b>Find name in folder</b> (Browse tab) lists the other packages that have it: replace it there too.</div>
+<b>Find Name in Folder</b> (Browse tab) lists the other packages that have it: replace it there too.</div>
 
 <h2 id="flow-material">Task: make your own material</h2>
 <p>The game can't compile new shaders: every material must match one it already has. So you copy an existing material
 instance that has the features you need and swap its textures and values.</p>
 <ol class="steps">
-<li><b>Find one.</b> On <b>Objects</b>, <b>Find a material with the features you need</b>: give part of the parent material's
+<li><b>Find one.</b> On <b>Objects</b>, <b>Find a Material with the Features You Need</b>: give part of the parent material's
 name and the switches, e.g. <code>useemissive=true</code>. Translucent, masked and emissive looks come from the parent.</li>
-<li><b>Copy it.</b> In <b>Copy an object into another package</b>: the source package and the material's path, the target
-package, and a <b>New name</b> (always rename a copy you'll change, see the warning below). In <b>Replace references</b>,
+<li><b>Copy it.</b> In <b>Copy an Object into Another Package</b>: the source package and the material's path, the target
+package, and a <b>New Name</b> (always rename a copy you'll change, see the warning below). In <b>Replace References</b>,
 point its textures at yours, one per line: <code>original.texture.path=your.texture.path</code>.
-<b>What would be copied?</b> lists everything the copy brings along. Leave out <code>physmaterial</code> if it can't be copied
+<b>What Would Be Copied?</b> lists everything the copy brings along. Leave out <code>physmaterial</code> if it can't be copied
 (it only carries footstep sounds).</li>
 <li><b>Use it.</b> Point a placed mesh's material at the copy: Tools, <code>--set-object</code> (e.g. <code>Materials[0]</code>).</li>
 <li><b>Tune it.</b> Its colour and number parameters are <code>param:</code> rows on the Properties tab.</li>
@@ -338,18 +338,18 @@ show up close), ground and water planes, fog. The recipes for Hightown, Industry
 <li>Select the zone; its description says what the recipe does.</li>
 <li><b>Walls</b>: the zone's facade texture or plain grey (where the zone has a facade). <b>LOD textures</b>: the largest
 size for distant textures (512 keeps the package small; <i>Original</i> keeps them as supplied).</li>
-<li><b>Dry run</b>, then <b>Build and write to game…</b>. The whole rebuild is one undo step.</li>
+<li><b>Dry run</b>, then <b>Build and Write to Game…</b>. The whole rebuild is one undo step.</li>
 </ol>
 <div class="note">A rebuild always starts from the original main level, so it replaces an earlier build. Changes to other
 packages (tiles, libraries) aren't touched by it.</div>
 
 <h2 id="flow-bake">Task: bake LODs or a ground plane (Zones tab)</h2>
-<p><b>Export placed meshes for baking in Blender</b> writes a zone's real placed meshes, in their in-game positions, with
+<p><b>Export Placed Meshes for Baking in Blender</b> writes a zone's real placed meshes, in their in-game positions, with
 materials and textures, as one scene:</p>
 <ul>
-<li><b>Buildings (for LODs)</b> keeps structures and containers (100+ high, 100+ across) and skips fences, trees, poles and cables.
+<li><b>Buildings (For LODs)</b> keeps structures and containers (100+ high, 100+ across) and skips fences, trees, poles and cables.
 Bake them in Blender into a low-poly mesh with a texture atlas.</li>
-<li><b>Flat ground (for a ground bake)</b> keeps the ground (at most 16 high) without water. Bake it top-down onto one textured plane.</li>
+<li><b>Flat Ground (For a Ground Bake)</b> keeps the ground (at most 16 high) without water. Bake it top-down onto one textured plane.</li>
 </ul>
 <p>The zone recipes take such baked files from <code>ZoneData\&lt;Zone&gt;</code> (e.g. <code>lod_bundle1.fbx</code> + <code>lod_bundle1_diff.dds</code>).
 Replacing a recipe's input means replacing the file there and rebuilding the app, so ask the tool's maintainer.</p>
@@ -370,19 +370,19 @@ path. Selecting an object shows its details on the right (properties, references
 </table>
 
 <h2 id="properties">Tab: Properties</h2>
-<p>The values the selected object stores. Columns: <b>Value</b> (editable), <b>Current in file</b>, <b>Original (.bak)</b>
+<p>The values the selected object stores. Columns: <b>Value</b> (editable), <b>Current in File</b>, <b>Original (.bak)</b>
 and <b>↺</b> (put the original value back). Numbers, colours and material parameters can be changed; greyed rows are
 shown for information. See <a href="#flow-value">Task: change a value</a>.</p>
-<p><b>Also apply to</b>: <b>Find matching packages</b> scans the game folder for the same object in other packages and
+<p><b>Also Apply to</b>: <b>Find Matching Packages</b> scans the game folder for the same object in other packages and
 lists their values; tick the ones that should get the change. <b>Dry run</b> checks every ticked package;
-<b>Apply to game file(s)…</b> writes them all. <b>Reset edits</b> discards changes you haven't applied yet.</p>
+<b>Apply to Game File(s)…</b> writes them all. <b>Reset Edits</b> discards changes you haven't applied yet.</p>
 
 <h2 id="meshes">Tab: Meshes</h2>
 <p>The open package's StaticMeshes on the left, the selected one in <a href="#meshview">3D</a> on the right.
-<b>Export to FBX (+ textures)</b>, <b>UV info</b> (texture
-coordinate ranges per section), <b>Round-trip self-test</b> (exports and re-imports the mesh in memory and compares: a quick
-check that a mesh can be edited). <b>FBX to import</b> + <b>Dry run import</b> / <b>Import into game file…</b> replace the
-mesh. <b>Export folder</b> sets where every export of the app goes. See <a href="#flow-mesh">Task: replace a mesh</a>.</p>
+<b>Export to FBX (+ Textures)</b>, <b>UV Info</b> (texture
+coordinate ranges per section), <b>Round-Trip Self-Test</b> (exports and re-imports the mesh in memory and compares: a quick
+check that a mesh can be edited). <b>FBX to Import</b> + <b>Dry Run Import</b> / <b>Import into Game File…</b> replace the
+mesh. <b>Export Folder</b> sets where every export of the app goes. See <a href="#flow-mesh">Task: replace a mesh</a>.</p>
 
 <h3 id="meshview">3D view</h3>
 <p>Click a mesh in the list and it shows on the right in 3D, with its textures when the package has them (each
@@ -406,9 +406,9 @@ wrong way (for example a mirrored copy, or a wall seen from inside) stands out.<
 <p class="sub">The status line gives the vertex and triangle counts, the sections and the size in game units.</p>
 
 <h2 id="tab-textures">Tab: Textures</h2>
-<p>Top left: the open package's textures, with <b>Export selected as .dds</b>, <b>Export all textures</b> and <b>Texture
+<p>Top left: the open package's textures, with <b>Export Selected as .dds</b>, <b>Export All Textures</b> and <b>Texture
 details</b> (size, format, and where each mip is stored: in the package or in the game's <code>.tfc</code> texture caches).
-Bottom left: <b>Import an image</b> (replace the selected texture, or add a new one), see <a href="#textures">Task: replace a texture, or add a new one</a>; its
+Bottom left: <b>Import an Image</b> (replace the selected texture, or add a new one), see <a href="#textures">Task: replace a texture, or add a new one</a>; its
 <b>Preview</b> button shows the chosen image file in the viewer before you import it. Right: the texture viewer. Drag the
 dividers to give the viewer more room.</p>
 <h3 id="preview">Texture viewer</h3>
@@ -423,7 +423,7 @@ textures such as a spec map whose green channel is the glow.</li>
 <li><b>Zoom</b>: <i>Fit</i> to the window, or 25&ndash;800% (<kbd>Ctrl</kbd>+mouse wheel). Zoomed in, pixels stay sharp.</li>
 <li>The pixel under the mouse is shown with its R, G, B and A values.</li>
 <li><b>Save as PNG…</b> writes the texture, with its alpha, at full resolution.</li>
-<li><b>Pop out</b> opens the same image in its own window (e.g. on a second screen); you can open several.</li>
+<li><b>Pop Out</b> opens the same image in its own window (e.g. on a second screen); you can open several.</li>
 </ul>
 <p class="sub">Formats shown: DXT1, DXT3, DXT5, BC5 and V8U8 normal maps (their third axis is rebuilt so they look like
 normal maps), 32-bit colour and greyscale.</p>
@@ -434,13 +434,13 @@ normal maps), 32-bit colour and greyscale.</p>
 
 <h2 id="tab-zones">Tab: Zones</h2>
 <p>Top: the zone recipes, their state (original or modified, undo steps), <b>Walls</b>, <b>LOD textures</b>, <b>Dry run</b>
-and <b>Build and write to game…</b>, see <a href="#zones">Task: rebuild a zone's distant view</a>. Bottom:
-<b>Export placed meshes for baking in Blender</b>, see <a href="#flow-bake">Task: bake LODs or a ground plane</a>.</p>
+and <b>Build and Write to Game…</b>, see <a href="#zones">Task: rebuild a zone's distant view</a>. Bottom:
+<b>Export Placed Meshes for Baking in Blender</b>, see <a href="#flow-bake">Task: bake LODs or a ground plane</a>.</p>
 
 <h2 id="objects">Tab: Objects</h2>
 <table>
 <tr><th>Section</th><th>What it's for</th></tr>
-<tr><td>Copy an object into another package</td><td>Copy a material, mesh, texture, placed component or actor with everything it needs. <b>New name</b> gives the copy its own path; <b>Replace references</b> points it at objects the target already has (or <code>=none</code>); <b>Leave out properties</b> drops properties that can't or needn't be copied. See <a href="#flow-material">Task: make your own material</a>. A copied actor must also be added to its level's actor list (Tools: <code>--add-level-actor</code>) or the game ignores it.</td></tr>
+<tr><td>Copy an object into another package</td><td>Copy a material, mesh, texture, placed component or actor with everything it needs. <b>New Name</b> gives the copy its own path; <b>Replace References</b> points it at objects the target already has (or <code>=none</code>); <b>Leave out properties</b> drops properties that can't or needn't be copied. See <a href="#flow-material">Task: make your own material</a>. A copied actor must also be added to its level's actor list (Tools: <code>--add-level-actor</code>) or the game ignores it.</td></tr>
 <tr><td>Remove placed meshes from a tile</td><td>Takes placed meshes whose mesh and material names contain the given words off their tile's list, so the game stops drawing them (e.g. stock water planes under your own). The data stays in the package; Undo brings them back.</td></tr>
 <tr><td>Find a material with the features you need</td><td>Lists material instances by parent material and switches, so you can copy one that already has the look (translucent, masked, emissive…).</td></tr>
 </table>
@@ -463,7 +463,7 @@ History snapshots are kept in <code>%LOCALAPPDATA%\MhoPackageModifier\history</c
 <p>Every command of the app, grouped, including those without a tab of their own (sky domes, component copies, level
 actors, diagnostics). Pick one: its syntax, what it does and an example appear. The example is filled in with the open
 package, the object selected on Browse and your export folder. Edit the <b>Arguments</b>, then <b>Run</b>. Commands that
-write keep <b>Dry run</b> ticked until you untick it, and ask before writing. <b>Copy as command line</b> copies the full
+write keep <b>Dry run</b> ticked until you untick it, and ask before writing. <b>Copy as Command Line</b> copies the full
 command, for scripts. Words in <code>&lt;angle brackets&gt;</code> are yours to fill in.</p>
 
 <h2 id="commands">Command reference</h2>
@@ -477,14 +477,14 @@ safety steps as the tabs. Put paths with spaces in quotes.</p>
 <tr><th>What you see</th><th>Why, and what to do</th></tr>
 <tr><td>"The game is running" and nothing is written</td><td>Close the game (the header turns green), then write again.</td></tr>
 <tr><td>A change doesn't show in the game</td><td>The game reads packages when it starts: restart it. Check the Backups tab: is the package "MODIFIED"?</td></tr>
-<tr><td>New pieces look dark</td><td>They were imported without their lighting: import again with <b>Keep baked lighting</b> ticked.</td></tr>
+<tr><td>New pieces look dark</td><td>They were imported without their lighting: import again with <b>Keep Baked Lighting</b> ticked.</td></tr>
 <tr><td>A new or reshaped piece is invisible from one side</td><td>Game faces are one-sided. A face pointing into the building can only be seen from inside. Turn the piece (or flip the faces) in Blender and import again.</td></tr>
 <tr><td>A piece I copied in Blender didn't appear</td><td>Check the import log. A copy must keep the original's name plus <code>.001</code>. A copied section object must stay under its piece, or it's listed as matching nothing. Objects that were renamed or joined are ignored.</td></tr>
 <tr><td>"the originals don't agree on one conversion"</td><td>Too many untouched pieces were moved, or the file was exported with transforms applied. Export the whole scene with default settings.</td></tr>
 <tr><td>A material shows a checker pattern</td><td>The material couldn't find something it needs: often a reference to a package the game hasn't loaded at that point, or a copied material with <code>materialfunctioninfos</code> left out.</td></tr>
 <tr><td>Streaky or swirly lighting on reshaped faces</td><td>Fixed in 2.44.1: faces now take their lighting from the face they were copied from. Faces with new texture coordinates use the nearest original vertex and can look slightly off.</td></tr>
 <tr><td>The game crashes in <code>tbbmalloc.dll</code></td><td>An occasional crash in some zones, which also happens without mods. Start the game again. If it keeps crashing at the same place right after a change, <b>Undo</b> that package and report it.</td></tr>
-<tr><td>"Undo refused: the live file isn't the version after the last recorded change"</td><td>Something else changed the package since the app's last write (another tool, or a copy). Use <b>Revert to original</b>, or run <code>--undo ... --force</code> from Tools if you're sure.</td></tr>
+<tr><td>"Undo refused: the live file isn't the version after the last recorded change"</td><td>Something else changed the package since the app's last write (another tool, or a copy). Use <b>Revert Selected to Original</b>, or run <code>--undo ... --force</code> from Tools if you're sure.</td></tr>
 </table>
 
 <h2 id="files">Where files go</h2>

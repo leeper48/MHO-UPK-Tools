@@ -22,8 +22,8 @@ sealed class TextureViewer : UserControl
     readonly ComboBox zoomBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
     readonly Label pixel = new() { AutoSize = true, Padding = new Padding(8, 7, 0, 0) };
     readonly Label status = new() { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6), Tag = "hint" };
-    readonly Button save = new() { Text = "Save as PNG…", AutoSize = true }, popOut = new() { Text = "Pop out", AutoSize = true };
-    string message = "Click a texture in the list to see it here.";
+    readonly Button save = new() { Text = "Save as PNG…", AutoSize = true }, popOut = new() { Text = "Pop Out", AutoSize = true };
+    string message = "Click a Texture in the List to See It Here.";
 
     public bool HasImage => bgra != null;
 
@@ -70,14 +70,14 @@ sealed class TextureViewer : UserControl
     public void ShowImage(string name, byte[] bgra, int w, int h, string info)
     {
         this.name = name; this.bgra = bgra; this.w = w; this.h = h; this.info = info;
-        status.Text = $"{name}   {w} x {h}   {info}";
+        status.Text = $"{name}   {w} x {h}   " + Look.TitleCase(info);
         Rebuild();
     }
 
     /// <summary>No image: a line of text in the middle instead (e.g. why a texture can't be shown).</summary>
     public void ShowMessage(string text)
     {
-        bgra = null; message = text; status.Text = "";
+        bgra = null; message = Look.TitleCase(text); status.Text = "";
         view?.Dispose(); view = null;
         UpdateButtons();
         LayoutCanvas();
@@ -157,7 +157,7 @@ sealed class TextureViewer : UserControl
         if (!r.Contains(p)) { pixel.Text = ""; return; }
         int x = Math.Clamp((int)((p.X - r.Left) / (float)r.Width * w), 0, w - 1), y = Math.Clamp((int)((p.Y - r.Top) / (float)r.Height * h), 0, h - 1);
         int i = (y * w + x) * 4;
-        pixel.Text = $"pixel {x}, {y}:  R {bgra[i + 2]}  G {bgra[i + 1]}  B {bgra[i]}  A {bgra[i + 3]}";
+        pixel.Text = $"Pixel {x}, {y}:  R {bgra[i + 2]}  G {bgra[i + 1]}  B {bgra[i]}  A {bgra[i + 3]}";
     }
 
     void SavePng()
