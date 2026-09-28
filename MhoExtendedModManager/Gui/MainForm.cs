@@ -200,6 +200,18 @@ sealed class MainForm : Form
         list.MenuRequested += (m, pt) => CardMenu(m).Show(pt);
         list.UpdateFor = m => NexusUpdates.UpdateFor(m, nexus);
         list.ConflictText = ConflictSummary;
+        // The picture shown big: the user's pick is kept per mod (state.json Previews), one undo step, no reload.
+        storePreview.Picked += (m, key) =>
+        {
+            if (readOnly || lib?.Find(m.FolderName) is not Mod mm || mm.LocalPreview == key) return;
+            string before = ReadState();
+            mm.LocalPreview = key;
+            lib.SaveState();
+            undo.Add((before, key == null ? $"use the mod's picture for \"{mm.Name}\"" : $"pick the picture shown for \"{mm.Name}\""));
+            redo.Clear();
+            UpdateUndo();
+            storePreview.ChoiceChanged();
+        };
         list.CanReorder = () => ReorderView && !readOnly;
         list.Dropped += (m, target, below) =>
         {
@@ -439,7 +451,7 @@ sealed class MainForm : Form
         if (gameRoot != null && Directory.Exists(Settings.Cooked(gameRoot))) game = new GameState(gameRoot, data);
         // Stock pictures for mods without one: one catalog per library + game folder (its icon package loads once).
         string catKey = data + "|" + gameRoot;
-        if (catKey != listCatalogKey) { listCatalogKey = catKey; list.Catalog = storePreview.Catalog = game != null ? new StockCatalog(lib, game) : null; }
+        if (catKey != listCatalogKey) { listCatalogKey = catKey; list.Catalog = storePreview.Catalog = game != null ? new StockCatalog(lib, game) : null; storePreview.CookedFolder = game?.Cooked; }
         winners = lib.PackageWinners();
         var conflicts = lib.Conflicts();
         conflicted = conflicts.SelectMany(c => c.Mods).ToHashSet();
@@ -1757,19 +1769,26 @@ sealed class MainForm : Form
             legacy = answer == DialogResult.No;
         }
         // The user's own tags and note live on this PC; offered for the exported copy (the mod's own always go along).
-        List<string>? addTags = null; string? note = null;
+        List<string>? addTags = null; string? note = null, pick = null; Dictionary<string, float[]>? views = null;
         var mineTags = m.UserTags.Where(t => !m.ModTags.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
-        if (!legacy && (mineTags.Count > 0 || m.LocalNote != null))
+        var mineViews = PreviewViews.ForMod(m);
+        var parts = new List<string>();
+        if (mineTags.Count > 0) parts.Add($"your tags ({string.Join(", ", mineTags)})");
+        if (m.LocalNote != null) parts.Add("your note");
+        if (m.LocalPreview != null) parts.Add("your preview choice" + (m.LocalPreview.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase) ? " (the 3D view" + (m.LocalPreview.Contains('@') ? " and its animation" : "") + ")" : ""));
+        if (mineViews.Count > 0) parts.Add($"your 3D camera view{(mineViews.Count > 1 ? "s" : "")}");
+        if (!legacy && parts.Count > 0)
         {
-            string what = (mineTags.Count > 0 ? $"your tags ({string.Join(", ", mineTags)})" : "") + (mineTags.Count > 0 && m.LocalNote != null ? " and " : "") + (m.LocalNote != null ? "your note" : "");
-            var a = Dialog.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far. The mod's own tags and note go along anyway; automatic tags are worked out again by whoever installs it.",
+            string what = parts.Count == 1 ? parts[0] : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
+            var a = Dialog.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far. The mod's own tags, note and preview go along anyway; automatic tags are worked out again by whoever installs it. " +
+                "Whoever installs it starts from your preview and view, and can still pick and turn their own.",
                 "Export", MessageBoxButtons.YesNoCancel);
             if (a == DialogResult.Cancel) return;
-            if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; }
+            if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; pick = m.LocalPreview; views = mineViews; }
         }
         using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags and note left out)" : addTags != null ? " (with your tags / note)" : ""); }
+        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with your tags / note / preview)" : ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
@@ -1845,6 +1864,18 @@ sealed class MainForm : Form
     void ShowLog(string title, string text, Dialog.Tone tone = Dialog.Tone.Normal) => Dialog.ShowLog(this, title, text, tone);
 
     /// <summary>--gui-snapshot: waits for the package check and thumbnails, then saves the window as PNG (and each details tab).</summary>
+    /// <summary>--preview-selftest: the 3D view's controls on one mod (use a scratch library: picks are saved).</summary>
+    public async Task PreviewSelfTest(string dir, string modName)
+    {
+        Directory.CreateDirectory(dir);
+        if (lib?.Find(modName) is not Mod pick) { File.WriteAllText(Path.Combine(dir, "preview_selftest.txt"), "FAIL no such mod"); return; }
+        SelectMod(pick.FolderName);
+        await Task.Delay(1500);
+        var log = await storePreview.SelfTest();
+        log.Add(log.Any(l => l.StartsWith("FAIL")) ? $"{log.Count(l => l.StartsWith("FAIL"))} FAILED" : "All preview checks passed.");
+        File.WriteAllLines(Path.Combine(dir, "preview_selftest.txt"), log);
+    }
+
     public async Task Snapshot(string dir, string? modName = null)
     {
         Directory.CreateDirectory(dir);

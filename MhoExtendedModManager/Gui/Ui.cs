@@ -276,6 +276,8 @@ static class Ui
     /// <summary>The app's one tooltip (dark). Every button gets a tip where it's made (Kurt: tooltips on all buttons);
     /// --tooltip-audit lists any that don't.</summary>
     public static readonly ToolTip Tips = NewTips();
+    /// <summary>Stock images (the original icon packages) are decoded one at a time (the list's and the preview's pictures).</summary>
+    public static readonly object StockLock = new();
     public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) Tips.SetToolTip(c, text); return c; }
 
     /// <summary>Buttons under a control that have no tooltip (on the shared tooltip or <paramref name="other"/>).</summary>
@@ -312,14 +314,7 @@ static class Ui
 
     static Button Style(Button b, Action onClick, bool accent)
     {
-        b.Paint += (_, e) =>
-        {
-            if (b.Enabled) return;
-            var r = b.ClientRectangle;
-            using (var bg = new SolidBrush(b.BackColor)) e.Graphics.FillRectangle(bg, Rectangle.Inflate(r, -1, -1));
-            TextRenderer.DrawText(e.Graphics, b.Text, b.Font, r, DisabledText,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
-        };
+        Rounded(b);
         b.Click += (_, _) => onClick();
         b.Tag = accent ? "accent" : "flat";
         b.FlatStyle = FlatStyle.Flat;
@@ -430,11 +425,71 @@ static class Ui
         return p;
     }
 
-    /// <summary>Re-applies accent / flat colours after MPM's theme (which colours every button the same).</summary>
+    // Buttons drawn with rounded corners (Kurt: every button), and their hover / pressed state.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Button, int[]> rounded = [];
+
+    /// <summary>
+    /// Draws a button with rounded corners (antialiased): the parent's background behind the corners, the fill for its
+    /// state (normal, hover, pressed; the FlatAppearance colours), a 1 px border, and the text (grey when disabled).
+    /// Paint handlers added later (e.g. AddEndBar's bar) draw on top.
+    /// </summary>
+    public static void Rounded(Button b)
+    {
+        if (rounded.TryGetValue(b, out _)) return;
+        var st = new int[2];   // [0] hover, [1] pressed
+        rounded.Add(b, st);
+        b.MouseEnter += (_, _) => { st[0] = 1; b.Invalidate(); };
+        b.MouseLeave += (_, _) => { st[0] = 0; st[1] = 0; b.Invalidate(); };
+        b.MouseDown += (_, e) => { if (e.Button == MouseButtons.Left) { st[1] = 1; b.Invalidate(); } };
+        b.MouseUp += (_, _) => { st[1] = 0; b.Invalidate(); };
+        b.Paint += (_, e) =>
+        {
+            var g = e.Graphics;
+            var r = b.ClientRectangle;
+            // Behind the corners: what the parent shows there.
+            var parentColor = b.Parent?.BackColor ?? Back;
+            if (parentColor.A < 255) PaintGradient(g, b, r);
+            if (parentColor.A > 0) { using var pb = new SolidBrush(parentColor); g.FillRectangle(pb, r); }
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = b.DeviceDpi / 96f;
+            var box = new RectangleF(0.5f, 0.5f, r.Width - 1.5f, r.Height - 1.5f);
+            var fillColor = !b.Enabled ? b.BackColor : st[1] == 1 ? b.FlatAppearance.MouseDownBackColor : st[0] == 1 ? b.FlatAppearance.MouseOverBackColor : b.BackColor;
+            if (fillColor.IsEmpty || fillColor.A == 0) fillColor = b.BackColor;
+            using (var path = RoundF(box, 5 * s))
+            {
+                using (var f = new SolidBrush(fillColor)) g.FillPath(f, path);
+                var border = b.FlatAppearance.BorderColor.IsEmpty ? Line : b.FlatAppearance.BorderColor;
+                if (b.FlatAppearance.BorderSize > 0) { using var pen = new Pen(border, 1f); g.DrawPath(pen, path); }
+            }
+            g.SmoothingMode = SmoothingMode.None;
+            TextRenderer.DrawText(g, b.Text, b.Font, r, b.Enabled ? b.ForeColor : DisabledText,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        };
+    }
+
+    static GraphicsPath RoundF(RectangleF r, float radius)
+    {
+        float d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
+        var p = new GraphicsPath();
+        p.AddArc(r.X, r.Y, d, d, 180, 90);
+        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
+
+    /// <summary>Re-applies accent / flat colours after MPM's theme (which colours every button the same), and rounds
+    /// every button's corners (plain ones from other windows become flat buttons in the app's style).</summary>
     public static void RestyleButtons(Control root)
     {
         foreach (Control c in root.Controls)
         {
+            if (c is Button pb && pb.Tag is not ("accent" or "flat") && pb.Tag == null)
+            {
+                pb.Tag = "flat"; pb.FlatStyle = FlatStyle.Flat;
+                Rounded(pb);
+            }
             if (c is Button b && b.Tag is "accent" or "flat")
             {
                 bool accent = (string)b.Tag == "accent";
@@ -490,7 +545,6 @@ sealed class ModListBox : ListBox
     public Func<Mod, string?>? UpdateFor { get; set; }
     /// <summary>Stock pictures for mods without one of their own (StockCatalog.DefaultIconFor); null: none.</summary>
     public StockCatalog? Catalog { get; set; }
-    static readonly object stockLock = new();
     public event Action<Mod>? UpdateClicked;
     /// <summary>What a padlock click would lock the mod to (ModLibrary.CanLock); None hides the padlock of an unlocked mod.</summary>
     public Func<Mod, ModLock>? CanLock { get; set; }
@@ -801,7 +855,7 @@ sealed class ModListBox : ListBox
         {
             try
             {
-                lock (stockLock)
+                lock (Ui.StockLock)
                     return cat.DefaultIconFor(m) is string tex && cat.Preview(Applier.IconPackages[0].File, tex) is { } p ? Ui.Thumb(p.Bgra, p.W, p.H, size) : null;
             }
             catch { return null; }
@@ -946,54 +1000,121 @@ sealed class ModListBox : ListBox
     protected override void Dispose(bool disposing) { if (disposing) { tipTimer.Dispose(); tips.Dispose(); scrollTimer.Dispose(); } base.Dispose(disposing); }
 }
 
-/// <summary>The middle column of the Mods page: the selected mod's store image(s) (StoreReplacements, 300×420 in the
-/// mods), fitted into a card. Click to step through a mod with several. A mod without one shows the stock store image of
-/// what it changes (StockCatalog.DefaultStoreFor), captioned as the game's. Decoded in the background.</summary>
+/// <summary>
+/// The middle column of the Mods page: the selected mod's picture, big, with a strip of the pictures it can show below
+/// (Kurt: authors choose one, users pick their own, and it's remembered). The candidates are the mod's own store images,
+/// hero portraits, costume and inventory icons and the game's originals (PreviewImages). Which one shows: the user's pick,
+/// else the mod's choice, else automatic. A click on a thumbnail picks it (Picked, saved per mod on this PC); a right-click
+/// offers going back to the mod's choice. Decoded in the background (stock images one at a time, Ui.StockLock).
+/// </summary>
 sealed class StorePreview : Control
 {
     Mod? mod;
-    List<(string Texture, string Path)> items = [];
-    string? stock;   // the stock store image shown for a mod without one of its own
-    /// <summary>Stock store images for mods without one; null: none.</summary>
-    public StockCatalog? Catalog { get; set; }
-    int index;
+    List<PreviewCandidate> items = [];
+    int index = -1;
+    // The 3D view (Kurt): the mod's skeletal meshes (ModMeshes), shown in MPM's MeshViewer where the picture goes.
+    List<MeshRef> meshes = [];
+    bool show3D;
+    int meshIndex;
+    MhoPackageModifier.Gui.MeshViewer? viewer;
+    readonly Dictionary<string, ModMeshes.Loaded?> meshCache = [];
+    Rectangle meshPrev, meshNext;
+    // Animation (Kurt: pick one for the 3D view): the mesh's animations, the one playing, and the drop-down.
+    List<AnimRef> anims = [];
+    string? wantedAnim;                           // from the pick's "@animation" part
+    AnimExportCli.Animation.BoneAnimation? playing;
+    MeshAnimator? animator;
+    float playFrames, playSeconds;
+    readonly System.Diagnostics.Stopwatch playClock = new();
+    readonly System.Windows.Forms.Timer playTimer = new() { Interval = 33 };
+    ComboBox? animBox;
+    bool fillingAnims;
+    // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
+    Button? playBtn, loopBtn, restBtn;
+    bool paused = true;
+    double playTime, lastTick;
+    static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
+    static string? AnimPart(string? key) { int at = key?.IndexOf('@') ?? -1; return at < 0 ? null : key![(at + 1)..]; }
+    string CurrentMeshKey() => meshes[meshIndex].Key + (playing != null && animBox?.SelectedIndex > 0 ? "@" + anims[animBox.SelectedIndex - 1].Name : "");
+    int Offset => meshes.Count > 0 ? 1 : 0;   // strip tile 0 is "3D" when the mod has meshes
+    int Tiles => items.Count + Offset;
+    /// <summary>The game's CookedPCConsole (textures streamed from the .tfc caches).</summary>
+    public string? CookedFolder { get; set; }
     Image? image;
     int request;
+    int scroll;   // the strip's scroll offset (pixels)
+    readonly Dictionary<string, Image?> thumbs = new(StringComparer.OrdinalIgnoreCase);   // folder|key → thumbnail (null: loading / none)
+    readonly List<(Rectangle Rect, int Index)> thumbRects = [];
+    Rectangle leftArrow, rightArrow, strip;
+    int hoverThumb = -1;
+    readonly ToolTip tips;
     readonly Font titleFont = Ui.Bold(8.5f), smallFont = Ui.Regular(8.25f);
+    /// <summary>Stock pictures (the game's originals); null: none.</summary>
+    public StockCatalog? Catalog { get; set; }
+    /// <summary>The user picked a picture for a mod (a key), or went back to the mod's choice (null).</summary>
+    public event Action<Mod, string?>? Picked;
 
     public StorePreview()
     {
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
-        Cursor = Cursors.Default;
+        tips = Ui.NewTips(() => null);
     }
 
     float S => DeviceDpi / 96f;
+    int ThumbSize => (int)(56 * S);
 
     public Mod? Mod
     {
         get => mod;
         set
         {
-            if (value == mod && value != null) return;
+            if (value != null && mod != null && value.FolderName == mod.FolderName && value.LocalPreview == mod.LocalPreview && value.Manifest.PreviewImage == mod.Manifest.PreviewImage && items.Count > 0)
+            { mod = value; return; }   // the same mod after a reload: keep the pictures
             mod = value;
-            items = value == null ? [] : value.Manifest.StoreReplacements
-                .Where(r => r.DdsFileName != null).Select(r => (r.TextureName ?? "", Path.Combine(value.Folder, r.DdsFileName!)))
-                .Where(x => File.Exists(x.Item2)).ToList();
-            index = 0;
-            Load();
+            items = []; meshes = []; index = -1; scroll = 0; show3D = false;
+            if (viewer != null) viewer.Visible = false;
+            StopAnimation(); anims = []; animator = null; wantedAnim = null;
+            HideAnimControls();
+            var old = image; image = null; old?.Dispose();
+            Invalidate();
+            if (value == null) return;
+            int req = ++request;
+            var cat = Catalog; var m = value;
+            Task.Run(() =>
+            {
+                List<PreviewCandidate> pics; List<MeshRef> ms;
+                try { lock (Ui.StockLock) pics = PreviewImages.For(m, cat); } catch { pics = []; }
+                try { ms = ModMeshes.List(m); } catch { ms = []; }
+                return (pics, ms);
+            }).ContinueWith(t =>
+            {
+                if (IsDisposed || req != request) return;
+                (items, meshes) = t.Result;
+                Resolve();
+                LoadThumbs();
+                Invalidate();
+            }, TaskScheduler.FromCurrentSynchronizationContext());
         }
     }
 
-    void Load()
+    Image? Decode(PreviewCandidate c, int size)
+    {
+        try
+        {
+            if (c.FromMod) return c.File != null ? Ui.DdsThumb(c.File, size) : null;
+            lock (Ui.StockLock) return Catalog?.Preview(c.Package, c.Texture) is { } p ? Ui.Thumb(p.Bgra, p.W, p.H, size) : null;
+        }
+        catch { return null; }
+    }
+
+    void LoadBig()
     {
         var old = image; image = null; old?.Dispose();
-        stock = null;
-        Cursor = items.Count > 1 ? Cursors.Hand : Cursors.Default;
         Invalidate();
-        if (items.Count == 0) { LoadStock(); return; }
+        if (index < 0 || index >= items.Count) return;
         int req = ++request;
-        string path = items[index].Path;
-        Task.Run(() => { try { return Ui.DdsThumb(path, 1024); } catch { return null; } }).ContinueWith(t =>
+        var c = items[index];
+        Task.Run(() => Decode(c, 1024)).ContinueWith(t =>
         {
             if (IsDisposed || req != request) { t.Result?.Dispose(); return; }
             image = t.Result;
@@ -1001,33 +1122,30 @@ sealed class StorePreview : Control
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    /// <summary>No store image in the mod: the game's own one for what it changes.</summary>
-    void LoadStock()
+    void LoadThumbs()
     {
-        if (Catalog is not { } cat || mod is not { } m) return;
-        int req = ++request;
-        string storePkg = Applier.IconPackages[2].File;
-        Task.Run(() =>
+        if (mod is not { } m || items.Count < 2) return;
+        var todo = items.Where(c => !thumbs.ContainsKey(m.FolderName + "|" + c.Key)).ToList();
+        foreach (var c in todo) thumbs[m.FolderName + "|" + c.Key] = null;
+        int size = ThumbSize * 2;
+        Task.Run(() => todo.Select(c => (Key: m.FolderName + "|" + c.Key, Img: Decode(c, size))).ToList()).ContinueWith(t =>
         {
-            try
-            {
-                if (cat.DefaultStoreFor(m) is not string tex || cat.Preview(storePkg, tex) is not { } p) return (null, null);
-                return ((string?)tex, (Image?)Ui.Thumb(p.Bgra, p.W, p.H, 1024));
-            }
-            catch { return (null, null); }
-        }).ContinueWith(t =>
-        {
-            if (IsDisposed || req != request) { t.Result.Item2?.Dispose(); return; }
-            (stock, image) = t.Result;
+            if (IsDisposed) { foreach (var x in t.Result) x.Img?.Dispose(); return; }
+            foreach (var (k, img) in t.Result) thumbs[k] = img;
             Invalidate();
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    protected override void OnClick(EventArgs e)
+    void ScrollIntoView()
     {
-        base.OnClick(e);
-        if (items.Count > 1) { index = (index + 1) % items.Count; Load(); }
+        int tile = show3D ? 0 : index + Offset;
+        if (tile < 0 || strip.Width <= 0) return;
+        int step = ThumbSize + (int)(6 * S), x = tile * step;
+        if (x < scroll) scroll = x;
+        else if (x + ThumbSize > scroll + strip.Width) scroll = x + ThumbSize - strip.Width;
     }
+
+    int MaxScroll => Math.Max(0, Tiles * (ThumbSize + (int)(6 * S)) - (int)(6 * S) - strip.Width);
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -1036,52 +1154,487 @@ sealed class StorePreview : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         int pad = (int)(6 * S);
         var title = new Rectangle(pad, (int)(4 * S), Width - 2 * pad, (int)(20 * S));
-        TextRenderer.DrawText(g, "STORE IMAGE", titleFont, title, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        TextRenderer.DrawText(g, "PREVIEW", titleFont, title, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
 
-        // Card at the store images' 300:420 aspect, as wide as the column allows.
+        // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
+        bool showStrip = Tiles > 1;
+        int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
+        int captionH = (int)((show3D ? 70 : 40) * S);
         int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
-        int captionH = (int)(40 * S);
-        int maxH = Height - title.Bottom - (int)(8 * S) - captionH;
+        int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
         if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
         if (w <= 0 || h <= 0) return;
         var card = new Rectangle((Width - w) / 2, title.Bottom + (int)(4 * S), w, h);
-        using (var path = Ui.Round(card, 5 * S))
+        if (show3D && viewer != null)
+        {
+            // The 3D view fills the card; the caption steps through the meshes.
+            var inner = Rectangle.Inflate(card, -(int)(2 * S), -(int)(2 * S));
+            if (viewer.Bounds != inner) viewer.Bounds = inner;
+            if (!viewer.Visible) viewer.Visible = true;
+            using (var path = Ui.Round(card, 5 * S)) using (var fill = new SolidBrush(Ui.Card)) g.FillPath(fill, path);
+        }
+        else using (var path = Ui.Round(card, 5 * S))
         {
             using (var fill = new SolidBrush(Ui.Card)) g.FillPath(fill, path);
             if (image != null)
             {
                 var clip = g.Clip; g.SetClip(path, CombineMode.Intersect);
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                float k = Math.Min((float)card.Width / image.Width, (float)card.Height / image.Height);
+                float k = Math.Min((float)card.Width / image.Width, (float)card.Height / image.Height);   // (pictures only; the 3D view is its own control)
                 float iw = image.Width * k, ih = image.Height * k;
                 g.DrawImage(image, card.X + (card.Width - iw) / 2, card.Y + (card.Height - ih) / 2, iw, ih);
                 g.Clip = clip;
             }
             else
             {
-                string text = mod == null ? "" : items.Count == 0 ? "No Store Image\nin This Mod" : "Loading…";
+                string text = mod == null ? "" : items.Count == 0 && index < 0 && request > 0 ? "No Picture\nfor This Mod" : "Loading…";
                 TextRenderer.DrawText(g, text, smallFont, card, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.WordBreak);
             }
         }
-        if (items.Count == 0)
+        // Caption (3D): "◀ mesh ▶", then the package and whose choice it is.
+        meshPrev = meshNext = Rectangle.Empty;
+        if (mod != null && show3D && meshIndex >= 0 && meshIndex < meshes.Count)
         {
-            if (stock == null) return;
-            var sc = new Rectangle(card.X, card.Bottom + (int)(4 * S), card.Width, (int)(18 * S));
-            TextRenderer.DrawText(g, stock, smallFont, sc, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            sc.Offset(0, (int)(18 * S));
-            TextRenderer.DrawText(g, "The Game's Image (Not in This Mod)", smallFont, sc, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
-            return;
-        }
-        var cap = new Rectangle(card.X, card.Bottom + (int)(4 * S), card.Width, (int)(18 * S));
-        TextRenderer.DrawText(g, items[index].Texture, smallFont, cap, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        if (items.Count > 1)
-        {
+            var r = meshes[meshIndex];
+            var cap = new Rectangle(pad, card.Bottom + (int)(4 * S), Width - 2 * pad, (int)(18 * S));
+            if (meshes.Count > 1)
+            {
+                meshPrev = new Rectangle(cap.X, cap.Y, (int)(24 * S), cap.Height);
+                meshNext = new Rectangle(cap.Right - (int)(24 * S), cap.Y, (int)(24 * S), cap.Height);
+                TextRenderer.DrawText(g, "◀", smallFont, meshPrev, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                TextRenderer.DrawText(g, "▶", smallFont, meshNext, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+            var mid = Rectangle.FromLTRB(cap.X + (int)(26 * S), cap.Y, cap.Right - (int)(26 * S), cap.Bottom);
+            TextRenderer.DrawText(g, meshes.Count > 1 ? $"{r.Name}  ({meshIndex + 1} of {meshes.Count})" : r.Name, smallFont, mid, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            string whose = mod.LocalPreview != null && MeshPart(mod.LocalPreview) == r.Key ? "Your Pick" : mod.Manifest.PreviewImage != null && MeshPart(mod.Manifest.PreviewImage) == r.Key ? "The Mod's Choice" : "3D View";
             cap.Offset(0, (int)(18 * S));
-            TextRenderer.DrawText(g, $"{index + 1} of {items.Count}  ·  click for next", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(g, $"3D  ·  {r.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}  ·  {whose}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            if (animBox != null && playBtn != null && loopBtn != null && restBtn != null)
+            {
+                int bh = animBox.Height, gap = (int)(4 * S), wPlay = (int)(30 * S), wLoop = (int)(56 * S), wRest = (int)(72 * S);
+                int y = cap.Bottom + (int)(4 * S);
+                var ab = new Rectangle(card.X, y, card.Width - wPlay - wLoop - wRest - 3 * gap, bh);
+                if (animBox.Bounds != ab) animBox.Bounds = ab;
+                var pb = new Rectangle(ab.Right + gap, y, wPlay, bh); if (playBtn.Bounds != pb) playBtn.Bounds = pb;
+                var lb = new Rectangle(pb.Right + gap, y, wLoop, bh); if (loopBtn.Bounds != lb) loopBtn.Bounds = lb;
+                var rb = new Rectangle(lb.Right + gap, y, wRest, bh); if (restBtn.Bounds != rb) restBtn.Bounds = rb;
+                foreach (Control c in new Control[] { animBox, playBtn, loopBtn, restBtn }) if (!c.Visible) c.Visible = true;
+            }
+        }
+        // Caption: the texture, where it's from, and whose choice it is.
+        else if (mod != null && index >= 0 && index < items.Count)
+        {
+            var c = items[index];
+            var cap = new Rectangle(pad, card.Bottom + (int)(4 * S), Width - 2 * pad, (int)(18 * S));
+            TextRenderer.DrawText(g, c.Texture, smallFont, cap, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            string whose = mod.LocalPreview == c.Key ? "Your Pick" : mod.Manifest.PreviewImage == c.Key ? "The Mod's Choice" : "Chosen Automatically";
+            cap.Offset(0, (int)(18 * S));
+            TextRenderer.DrawText(g, $"{c.Source}  ·  {whose}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+        // The strip: thumbnails, with arrows when they don't all fit.
+        thumbRects.Clear();
+        leftArrow = rightArrow = strip = Rectangle.Empty;
+        if (!showStrip || mod == null) return;
+        int top = Height - stripH + (int)(4 * S), arrowW = (int)(16 * S);
+        strip = new Rectangle(pad, top, Width - 2 * pad, ThumbSize);
+        int total = Tiles * (ThumbSize + (int)(6 * S)) - (int)(6 * S);
+        if (total > strip.Width)
+        {
+            leftArrow = new Rectangle(pad, top, arrowW, ThumbSize);
+            rightArrow = new Rectangle(Width - pad - arrowW, top, arrowW, ThumbSize);
+            strip = new Rectangle(leftArrow.Right + (int)(4 * S), top, rightArrow.Left - leftArrow.Right - (int)(8 * S), ThumbSize);
+            scroll = Math.Clamp(scroll, 0, MaxScroll);
+            void Arrow(Rectangle r, bool left, bool on)
+            {
+                using var b = new SolidBrush(on ? Ui.Text : Color.FromArgb(70, 255, 255, 255));
+                float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f, a = 5 * S;
+                g.FillPolygon(b, left ? [new PointF(cx + a / 2, cy - a), new PointF(cx - a / 2, cy), new PointF(cx + a / 2, cy + a)]
+                                      : [new PointF(cx - a / 2, cy - a), new PointF(cx + a / 2, cy), new PointF(cx - a / 2, cy + a)]);
+            }
+            Arrow(leftArrow, true, scroll > 0); Arrow(rightArrow, false, scroll < MaxScroll);
+        }
+        else { scroll = 0; strip = new Rectangle((Width - total) / 2, top, total, ThumbSize); }
+        var oldClip = g.Clip;
+        g.SetClip(strip);
+        for (int ti = 0; ti < Tiles; ti++)
+        {
+            var r = new Rectangle(strip.X + ti * (ThumbSize + (int)(6 * S)) - scroll, top, ThumbSize, ThumbSize);
+            if (r.Right < strip.Left || r.Left > strip.Right) continue;
+            thumbRects.Add((r, ti));
+            if (ti < Offset)
+            {
+                // The 3D tile.
+                using var p3 = Ui.Round(r, 4 * S);
+                using (var fill = new SolidBrush(ti == hoverThumb ? Ui.CardHover : Ui.Card)) g.FillPath(fill, p3);
+                TextRenderer.DrawText(g, "3D", Ui.Heavy(11f), r, show3D ? Ui.Text : Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                using var pen3 = new Pen(show3D ? Ui.Accent : Ui.Line, show3D ? Math.Max(2f, 2f * S) : 1f);
+                g.DrawPath(pen3, p3);
+                continue;
+            }
+            int i = ti - Offset;
+            using (var path = Ui.Round(r, 4 * S))
+            {
+                using (var fill = new SolidBrush(ti == hoverThumb ? Ui.CardHover : Ui.Card)) g.FillPath(fill, path);
+                if (thumbs.GetValueOrDefault(mod.FolderName + "|" + items[i].Key) is Image t)
+                {
+                    var clip = g.Clip; g.SetClip(path, CombineMode.Intersect);
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    float k = Math.Min((float)r.Width / t.Width, (float)r.Height / t.Height);
+                    g.DrawImage(t, r.X + (r.Width - t.Width * k) / 2, r.Y + (r.Height - t.Height * k) / 2, t.Width * k, t.Height * k);
+                    g.Clip = clip;
+                }
+                // The game's originals get a small "G" corner mark; the one showing gets an accent border.
+                if (!items[i].FromMod)
+                {
+                    var mark = new Rectangle(r.Right - (int)(14 * S), r.Bottom - (int)(14 * S), (int)(12 * S), (int)(12 * S));
+                    using var mb = new SolidBrush(Color.FromArgb(200, 20, 24, 32)); g.FillEllipse(mb, mark);
+                    TextRenderer.DrawText(g, "G", Ui.Heavy(6.5f), mark, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                }
+                bool on = !show3D && i == index;
+                using var pen = new Pen(on ? Ui.Accent : Ui.Line, on ? Math.Max(2f, 2f * S) : 1f);
+                g.DrawPath(pen, path);
+            }
+        }
+        g.Clip = oldClip;
+    }
+
+    /// <summary>The user's pick changed (saved by the window): show what's chosen now.</summary>
+    public void ChoiceChanged() { if (mod != null) Resolve(); }
+
+    /// <summary>What shows: the user's pick, else the mod's choice (a picture or a mesh), else a picture chosen automatically.</summary>
+    void Resolve()
+    {
+        if (mod == null) return;
+        string? Offered(string? k) => k == null ? null : k.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase)
+            ? (meshes.Any(x => x.Key.Equals(MeshPart(k), StringComparison.OrdinalIgnoreCase)) ? k : null)
+            : (items.Any(x => x.Key.Equals(k, StringComparison.OrdinalIgnoreCase)) ? k : null);
+        string? key = Offered(mod.LocalPreview) ?? Offered(mod.Manifest.PreviewImage) ?? PreviewImages.Automatic(items) ?? meshes.FirstOrDefault()?.Key;
+        if (key != null && key.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase))
+        {
+            int mi = meshes.FindIndex(x => x.Key.Equals(MeshPart(key), StringComparison.OrdinalIgnoreCase));
+            bool changed = !show3D || mi != meshIndex;
+            show3D = true; meshIndex = Math.Max(0, mi); index = -1;
+            wantedAnim = AnimPart(key);
+            if (changed) LoadMesh();
+        }
+        else
+        {
+            int i = items.FindIndex(x => x.Key == key);
+            bool changed = show3D || i != index;
+            show3D = false; index = i;
+            if (viewer != null) viewer.Visible = false;
+            StopAnimation(); HideAnimControls();
+            if (changed) LoadBig();
+        }
+        ScrollIntoView();
+        Invalidate();
+    }
+
+    /// <summary>Shows meshes[meshIndex] in the 3D view (read in the background; the last few are kept).</summary>
+    void LoadMesh()
+    {
+        if (mod == null || meshIndex < 0 || meshIndex >= meshes.Count) return;
+        if (viewer == null)
+        {
+            viewer = new MhoPackageModifier.Gui.MeshViewer { Compact = true, Background = Ui.Card, BackColor = Ui.Card, Visible = false };
+            viewer.ViewChanged += () => { if (mod != null && meshIndex >= 0 && meshIndex < meshes.Count) PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState); };
+            Controls.Add(viewer);
+        }
+        var r = meshes[meshIndex];
+        viewer.Visible = true;
+        StopAnimation(); anims = []; animator = null; FillAnims();
+        Invalidate();
+        if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + File.GetLastWriteTimeUtc(r.File).Ticks, out var hit) && hit != null) { Show(hit); return; }
+        viewer.ShowMessage("Loading the 3D view…");
+        int req = ++request;
+        string? cooked = CookedFolder;
+        string key = r.File + "|" + r.Export + "|" + File.GetLastWriteTimeUtc(r.File).Ticks;
+        Task.Run(() => { try { var l = ModMeshes.Load(r, cooked, out string why); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
+        {
+            if (IsDisposed || req != request || viewer == null) return;
+            var (loaded, why) = t.Result;
+            if (meshCache.Count > 6) meshCache.Clear();
+            meshCache[key] = loaded;
+            if (loaded == null) viewer.ShowMessage($"{r.Name} can't be shown in 3D ({why}).");
+            else Show(loaded);
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+
+        void Show(ModMeshes.Loaded l)
+        {
+            viewer!.ShowMesh(l.Name, l.Positions, l.Normals, l.Uv, l.Indices, l.TriangleSection, l.Textures, l.Info);
+            if (mod != null && StartView(r) is { } saved) viewer.ViewState = saved;
+            animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences);
+            var m = mod; string? cooked2 = CookedFolder;
+            var pkgs = m == null ? [] : m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))).ToList();
+            int req2 = request;
+            Task.Run(() => { try { return ModAnimations.For(r, l.Bones, pkgs, cooked2); } catch { return []; } }).ContinueWith(t =>
+            {
+                if (IsDisposed || req2 != request || mod != m) return;
+                anims = t.Result;
+                FillAnims();
+                int want = wantedAnim == null ? -1 : anims.FindIndex(a => a.Name.Equals(wantedAnim, StringComparison.OrdinalIgnoreCase));
+                if (want >= 0 && animBox != null) animBox.SelectedIndex = want + 1;
+            }, TaskScheduler.FromCurrentSynchronizationContext());
         }
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) image?.Dispose(); base.Dispose(disposing); }
+    /// <summary>The animation drop-down: "Rest Pose", then the mesh's animations (shown under the 3D caption).</summary>
+    void FillAnims()
+    {
+        if (animBox == null)
+        {
+            animBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Ui.Card, ForeColor = Ui.Text, Font = Ui.Regular(9f), Visible = false, MaxDropDownItems = 24, DrawMode = DrawMode.OwnerDrawFixed };
+            // Drawn here: Windows paints a drop-down list's face and items in system colours otherwise (white on the dark card).
+            animBox.DrawItem += (_, e) =>
+            {
+                if (e.Index < 0) return;
+                bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
+                using (var bg = new SolidBrush(sel ? Ui.CardSelected : Ui.Card)) e.Graphics.FillRectangle(bg, e.Bounds);
+                TextRenderer.DrawText(e.Graphics, animBox.Items[e.Index]?.ToString(), animBox.Font, Rectangle.Inflate(e.Bounds, -4, 0),
+                    animBox.Enabled ? Ui.Text : Ui.DisabledText, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            };
+            Ui.Tip(animBox, "Play one of this mesh's animations in the 3D view (it loops). Remembered with the mesh for this mod.");
+            animBox.SelectedIndexChanged += (_, _) => { if (!fillingAnims) PlaySelected(); };
+            Controls.Add(animBox);
+            playBtn = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (it loads paused on its first frame).");
+            loopBtn = Ui.FlatButton("⟳ Loop", () => { PreviewViews.Loop = !PreviewViews.Loop; UpdateButtons(); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
+            restBtn = Ui.FlatButton("Reset View", ResetView, "Back to the mod's own view of the model, or the default one (your turned, zoomed or panned view is saved per mesh; this forgets it).");
+            foreach (var b in new[] { playBtn, loopBtn, restBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+        }
+        fillingAnims = true;
+        animBox.BeginUpdate();
+        animBox.Items.Clear();
+        animBox.Items.Add(anims.Count > 0 ? $"Rest Pose  ·  {anims.Count} animations" : show3D ? "Rest Pose  ·  (looking for animations…)" : "Rest Pose");
+        foreach (var a in anims) animBox.Items.Add(a.Name);
+        animBox.SelectedIndex = 0;
+        animBox.EndUpdate();
+        fillingAnims = false;
+        animBox.Enabled = anims.Count > 0;
+        UpdateButtons();
+        Invalidate();
+    }
+
+    /// <summary>The buttons' state: play shows ▶ or ❚❚; loop is filled (accent) when on; both need an animation.</summary>
+    void UpdateButtons()
+    {
+        if (playBtn == null || loopBtn == null) return;
+        bool has = playing != null;
+        playBtn.Text = has && !paused ? "❚❚" : "▶";
+        playBtn.Enabled = has; loopBtn.Enabled = has;
+        bool on = PreviewViews.Loop;
+        loopBtn.Tag = on ? "accent" : "flat";
+        loopBtn.BackColor = on ? Ui.Accent : Ui.Bar; loopBtn.ForeColor = on ? Color.White : Ui.Text;
+        loopBtn.FlatAppearance.BorderColor = on ? Ui.Accent : Ui.Line;
+        loopBtn.FlatAppearance.MouseOverBackColor = on ? Ui.AccentHover : Ui.CardHover;
+        loopBtn.Invalidate(); playBtn.Invalidate();
+    }
+
+    void TogglePlay()
+    {
+        if (playing == null) return;
+        if (paused && !PreviewViews.Loop && playTime >= playSeconds) playTime = 0;   // played once to the end: start over
+        paused = !paused;
+        if (!paused) { lastTick = playClock.Elapsed.TotalSeconds; playClock.Start(); if (!playTimer.Enabled) { playTimer.Tick -= PlayTick; playTimer.Tick += PlayTick; playTimer.Start(); } }
+        else playTimer.Stop();
+        UpdateButtons();
+    }
+
+    /// <summary>The view a mesh starts from: the one turned to on this PC, else the mod author's (manifest PreviewViews).</summary>
+    float[]? StartView(MeshRef r) =>
+        mod == null ? null : PreviewViews.Get(PreviewViews.Key(mod, r)) ?? (mod.Manifest.PreviewViews is { } pv && pv.TryGetValue(r.Key, out var v) ? v : null);
+
+    /// <summary>Back to the mod author's view when it has one, else the default framing; this PC's view is forgotten.</summary>
+    void ResetView()
+    {
+        if (viewer == null || mod == null || meshIndex < 0 || meshIndex >= meshes.Count) return;
+        var r = meshes[meshIndex];
+        PreviewViews.Set(PreviewViews.Key(mod, r), null);
+        if (mod.Manifest.PreviewViews is { } pv && pv.TryGetValue(r.Key, out var author)) viewer.ViewState = author;
+        else viewer.ResetView();
+    }
+
+    void PlaySelected()
+    {
+        if (animBox == null || mod == null || animator == null || viewer == null) return;
+        int i = animBox.SelectedIndex - 1;
+        StopAnimation();
+        if (i < 0 || i >= anims.Count)
+        {
+            animator.Pose(null, 0); viewer.UpdateGeometry(animator.Positions);
+            if (!fillingAnims) Picked?.Invoke(mod, meshes[meshIndex].Key);
+            return;
+        }
+        var a = anims[i];
+        int req = request;
+        Task.Run(() => ModAnimations.Load(a)).ContinueWith(t =>
+        {
+            if (IsDisposed || req != request || animBox == null || animBox.SelectedIndex - 1 != i || t.Result == null) return;
+            playing = t.Result;
+            (playFrames, playSeconds) = MeshAnimator.Span(playing);
+            if (mod != null && StartView(meshes[meshIndex]) == null) viewer.ZoomOut(1.25f);   // room for reaching and lunging
+            paused = true; playTime = 0;
+            animator.Pose(playing, 0); viewer.UpdateGeometry(animator.Positions);
+            UpdateButtons();
+            if (mod != null) Picked?.Invoke(mod, CurrentMeshKey());
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    void PlayTick(object? sender, EventArgs e)
+    {
+        if (playing == null || animator == null || viewer == null || !show3D || !Visible) { StopAnimation(); return; }
+        if (paused) return;
+        double now = playClock.Elapsed.TotalSeconds;
+        playTime += now - lastTick; lastTick = now;
+        float frame;
+        if (playSeconds <= 0 || playFrames <= 0) frame = 0;
+        else if (PreviewViews.Loop) frame = (float)(playTime % playSeconds / playSeconds * playFrames);
+        else if (playTime >= playSeconds) { playTime = playSeconds; frame = playFrames; paused = true; playTimer.Stop(); UpdateButtons(); }
+        else frame = (float)(playTime / playSeconds * playFrames);
+        animator.Pose(playing, frame);
+        viewer.UpdateGeometry(animator.Positions);
+    }
+
+    /// <summary>
+    /// --preview-selftest: drives the 3D view's controls as a user would (use a scratch library: picks are saved). An
+    /// animation loads paused on frame 0; Play advances it and moves the mesh; Pause holds it; without Loop it stops on
+    /// its last frame; Reset View forgets the saved camera.
+    /// </summary>
+    internal async Task<List<string>> SelfTest()
+    {
+        var log = new List<string>();
+        void Check(string what, bool ok) => log.Add($"{(ok ? "ok  " : "FAIL")} {what}");
+        async Task Wait(Func<bool> until, int ms = 10000) { for (int t = 0; t < ms && !until(); t += 50) { await Task.Delay(50); Application.DoEvents(); } }
+        async Task Idle(int ms) { for (int t = 0; t < ms; t += 20) { await Task.Delay(20); Application.DoEvents(); } }
+        if (mod == null || meshes.Count == 0) { Check("the mod has a mesh", false); return log; }
+        if (!show3D) { OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, thumbRects.First(t => t.Index == 0).Rect.X + 4, thumbRects.First(t => t.Index == 0).Rect.Y + 4, 0)); }
+        await Wait(() => show3D && animator != null && anims.Count > 0 && animBox != null);
+        Check($"3D view with {anims.Count} animation(s)", show3D && animator != null && anims.Count > 0);
+        if (animBox == null || playBtn == null || loopBtn == null || restBtn == null || animator == null || viewer == null) return log;
+        bool loopWas = PreviewViews.Loop;
+        PreviewViews.Loop = true; UpdateButtons();
+        animBox.SelectedIndex = 1;
+        await Wait(() => playing != null);
+        Check("an animation loads paused on frame 0 (▶ shown)", playing != null && paused && playTime == 0 && playBtn.Text == "▶");
+        var p0 = (System.Numerics.Vector3[])animator.Positions.Clone();
+        playBtn.PerformClick();
+        await Idle(Math.Min(700, (int)(playSeconds * 1000 * 0.6)));
+        Check($"Play runs it (time {playTime:0.00} s, ❚❚ shown) and the mesh moves", !paused && playTime > 0.1 && playBtn.Text == "❚❚" && animator.Positions.Where((p, i) => System.Numerics.Vector3.Distance(p, p0[i]) > 0.01f).Any());
+        playBtn.PerformClick();
+        double held = playTime;
+        await Idle(300);
+        Check("Pause holds the frame", paused && playTime == held);
+        PreviewViews.Loop = false; UpdateButtons();
+        playTime = Math.Max(0, playSeconds - 0.15);
+        playBtn.PerformClick();
+        await Idle(600);
+        Check($"Loop off: it stops on its last frame (time {playTime:0.00} of {playSeconds:0.00} s, ▶ shown)", paused && Math.Abs(playTime - playSeconds) < 1e-6 && playBtn.Text == "▶");
+        playBtn.PerformClick();
+        await Idle(150);
+        Check("Play after the end starts over", !paused && playTime < playSeconds * 0.5);
+        playBtn.PerformClick();
+        string key = PreviewViews.Key(mod, meshes[meshIndex]);
+        viewer.ViewState = [1f, 0.2f, 1.5f, 0f, 0f, 0f];
+        PreviewViews.Set(key, viewer.ViewState);
+        Check("a turned view is saved for the mesh", PreviewViews.Get(key) is { Length: 6 });
+        restBtn.PerformClick();
+        Check("Reset View resets the camera and forgets the saved view", PreviewViews.Get(key) == null && Math.Abs(viewer.ViewState[2] - 2.6f) < 0.01f);
+        // A mod carrying its author's view (an exported one): Reset View goes back to that view, not the default framing.
+        var authorViews = mod.Manifest.PreviewViews;
+        mod.Manifest.PreviewViews = new() { [meshes[meshIndex].Key] = [0.5f, 0.1f, 2.0f, 0f, 0f, 0f] };
+        viewer.ViewState = [1f, 0.2f, 1.2f, 0f, 0f, 0f];
+        restBtn.PerformClick();
+        Check("with the mod's own view, Reset View goes to it", Math.Abs(viewer.ViewState[2] - 2.0f) < 0.01f && Math.Abs(viewer.ViewState[0] - 0.5f) < 0.01f);
+        mod.Manifest.PreviewViews = authorViews;
+        PreviewViews.Loop = loopWas; UpdateButtons();
+        return log;
+    }
+
+    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn }) if (c != null) c.Visible = false; }
+
+    void StopAnimation() { playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); }
+
+    int ThumbAt(Point p)
+    {
+        foreach (var (r, i) in thumbRects) if (r.Contains(p) && strip.Contains(p)) return i;
+        return -1;
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        if (mod == null) return;
+        if (leftArrow.Contains(e.Location)) { scroll = Math.Max(0, scroll - (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
+        if (rightArrow.Contains(e.Location)) { scroll = Math.Min(MaxScroll, scroll + (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
+        if (e.Button == MouseButtons.Left && (meshPrev.Contains(e.Location) || meshNext.Contains(e.Location)) && meshes.Count > 1)
+        {
+            meshIndex = (meshIndex + (meshNext.Contains(e.Location) ? 1 : meshes.Count - 1)) % meshes.Count;
+            wantedAnim = null;
+            LoadMesh();
+            Picked?.Invoke(mod, meshes[meshIndex].Key);
+            return;
+        }
+        int ti = ThumbAt(e.Location);
+        if (ti < 0) return;
+        if (e.Button == MouseButtons.Left)
+        {
+            if (ti < Offset)
+            {
+                if (show3D && mod.LocalPreview != null && MeshPart(mod.LocalPreview) == meshes[meshIndex].Key) return;
+                show3D = true; index = -1;
+                var old = image; image = null; old?.Dispose();
+                LoadMesh();
+                Picked?.Invoke(mod, meshes[meshIndex].Key);
+                return;
+            }
+            int i = ti - Offset;
+            if (!show3D && i == index && mod.LocalPreview == items[i].Key) return;
+            show3D = false; index = i;
+            if (viewer != null) viewer.Visible = false;
+            LoadBig();
+            Picked?.Invoke(mod, items[i].Key);
+        }
+        else if (e.Button == MouseButtons.Right && mod.LocalPreview != null)
+        {
+            var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f), RenderMode = ToolStripRenderMode.System };
+            menu.Items.Add(mod.Manifest.PreviewImage != null ? "Use the Mod's Choice" : "Choose Automatically Again", null, (_, _) => Picked?.Invoke(mod, null));
+            menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+            menu.Show(this, e.Location);
+        }
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        if (strip.IsEmpty || MaxScroll == 0) return;
+        scroll = Math.Clamp(scroll - Math.Sign(e.Delta) * (ThumbSize + (int)(6 * S)), 0, MaxScroll);
+        Invalidate();
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        int i = ThumbAt(e.Location);
+        Cursor = i >= 0 || leftArrow.Contains(e.Location) || rightArrow.Contains(e.Location) || meshPrev.Contains(e.Location) || meshNext.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+        if (i == hoverThumb) return;
+        hoverThumb = i; Invalidate();
+        if (i >= 0 && i < Offset && mod != null)
+            tips.Show($"3D view of the mod's meshes ({meshes.Count}).\nDrag to turn, wheel to zoom, double-click to frame; ◀ ▶ under it step through the meshes.\nClick to show it here (remembered for this mod).", this, e.X + (int)(14 * S), e.Y + (int)(20 * S), 8000);
+        else if (i >= 0 && mod != null)
+        {
+            var c = items[i - Offset];
+            string whose = mod.Manifest.PreviewImage == c.Key ? "\nThe mod's choice." : "";
+            tips.Show($"{c.Texture}\n{c.Source}{whose}\nClick to show it here (remembered for this mod)." + (mod.LocalPreview != null ? "\nRight-click: back to the mod's choice." : ""), this, e.X + (int)(14 * S), e.Y + (int)(20 * S), 8000);
+        }
+        else tips.Hide(this);
+    }
+
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoverThumb = -1; tips.Hide(this); Invalidate(); }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); }
+        base.Dispose(disposing);
+    }
 }
 
 /// <summary>A split container that shows the window gradient behind its panels, with a faint divider line.</summary>

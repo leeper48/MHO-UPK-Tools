@@ -50,6 +50,12 @@ sealed class ModManifest
     public List<ChangelogEntry>? Changelog { get; set; }
     /// <summary>Extension: the mod's Nexus Mods page (mod ID on nexusmods.com/marvelheroesomega), set by its author.</summary>
     public int? NexusModId { get; set; }
+    /// <summary>Extension: the picture the manager shows big for this mod, chosen by its author ("mod:&lt;texture&gt;" for one
+    /// of its own images, "game:&lt;texture&gt;" for the game's original). Null: chosen automatically.</summary>
+    public string? PreviewImage { get; set; }
+    /// <summary>Extension: the author's 3D camera per mesh ("mesh:&lt;package&gt;|&lt;mesh&gt;" → MeshViewer.ViewState), the view a
+    /// user starts from (their own turning is kept on their PC and wins there). Null when none.</summary>
+    public Dictionary<string, float[]>? PreviewViews { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }
@@ -83,13 +89,15 @@ sealed class ModState
     public Dictionary<string, string>? Notes { get; set; }
     /// <summary>Extension: each mod's link to its Nexus page and the installed file / version (this PC).</summary>
     public Dictionary<string, NexusLink>? NexusLinks { get; set; }
+    /// <summary>Extension: the picture the user picked to show big for a mod (this PC; see ModManifest.PreviewImage).</summary>
+    public Dictionary<string, string>? Previews { get; set; }
 
     /// <summary>A mod folder was renamed (editor): its lock and tags follow it.</summary>
     public void RenameMod(string from, string to)
     {
         foreach (var l in new[] { LockedTop, LockedBottom })
             if (l != null) for (int i = 0; i < l.Count; i++) if (l[i].Equals(from, StringComparison.OrdinalIgnoreCase)) l[i] = to;
-        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to);
+        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to); Move(Previews, from, to);
     }
 
     static void Move<T>(Dictionary<string, T>? d, string from, string to)
@@ -107,7 +115,7 @@ sealed class ModState
     {
         LockedTop?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
         LockedBottom?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
-        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name); Drop(NexusLinks, name);
+        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name); Drop(NexusLinks, name); Drop(Previews, name);
     }
 
     /// <summary>
@@ -171,6 +179,9 @@ sealed class Mod
     /// <summary>Where a tag comes from: the user (theirs), the mod (its author), or worked out automatically.</summary>
     public TagKind KindOf(string tag) =>
         UserTags.Contains(tag, StringComparer.OrdinalIgnoreCase) ? TagKind.User : ModTags.Contains(tag, StringComparer.OrdinalIgnoreCase) ? TagKind.Mod : TagKind.Auto;
+
+    /// <summary>The picture the user picked to show big (state.json); null = the mod's choice, else automatic.</summary>
+    public string? LocalPreview { get; set; }
 
     /// <summary>The user's own note (state.json); null = the mod's note is shown.</summary>
     public string? LocalNote { get; set; }

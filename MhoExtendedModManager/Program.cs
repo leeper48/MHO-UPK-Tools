@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -40,6 +41,7 @@ static class Program
         ("--check-update", "--check-update", "Look for a newer version (GitHub releases of leeper48/MHO-UPK-Tools, tag extmm-v<version>)."),
         ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
+        ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
         ("--post", "--post <mod> [nexus|discord]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown)."),
@@ -117,6 +119,47 @@ static class Program
                 f.Close();
             });
             f.ShowDialog();
+            return 0;
+        }
+        if (args.Length >= 4 && args[0].Equals("--anim-render", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: a mod's first mesh posed at a few points of an animation, rendered by the 3D view to one PNG
+            // (the window opens off-screen). --anim-render <mod> <animation name part> <out.png>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var st = Settings.Load();
+            var rlib = ModLibrary.Load(Settings.LibraryData(st.LibraryPath)!);
+            var rm = rlib.Find(args[1]);
+            string? rgr = st.ResolvedGameRoot(rlib.DataFolder);
+            string? rc = rgr != null && Settings.IsGameRoot(rgr) ? Settings.Cooked(rgr) : null;
+            var mr = rm == null ? null : ModMeshes.List(rm).FirstOrDefault();
+            var ld = mr == null ? null : ModMeshes.Load(mr, rc, out _);
+            if (rm == null || mr == null || ld == null) { Console.WriteLine("no mesh"); return 1; }
+            var ar = ModAnimations.For(mr, ld.Bones, rm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(rm.Folder, f))), rc).FirstOrDefault(a => a.Name.Contains(args[2], StringComparison.OrdinalIgnoreCase));
+            var ba = ar == null ? null : ModAnimations.Load(ar);
+            Console.WriteLine(ar == null ? "no such animation: rest pose" : $"{ar.Name} ({ar.Package})");
+            var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences);
+            float frames = ba == null ? 0 : MeshAnimator.Span(ba).Frames;
+            using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = new Size(420, 560), ShowInTaskbar = false };
+            var v = new MhoPackageModifier.Gui.MeshViewer { Dock = DockStyle.Fill, Compact = true, Background = Gui.Ui.Card };
+            f.Controls.Add(v);
+            var shots = new List<Bitmap>();
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                v.ShowMesh(ld.Name, ld.Positions, ld.Normals, ld.Uv, ld.Indices, ld.TriangleSection, ld.Textures, ld.Info);
+                foreach (float at in new[] { 0f, 0.33f, 0.66f, 1f })
+                {
+                    anim8.Pose(ba, frames * at);
+                    v.UpdateGeometry(anim8.Positions);
+                    await Task.Delay(200);
+                    var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); shots.Add(b);
+                }
+                using var sheet = new Bitmap(shots.Sum(s => s.Width), shots.Max(s => s.Height));
+                using (var g = Graphics.FromImage(sheet)) { int x = 0; foreach (var s in shots) { g.DrawImage(s, x, 0); x += s.Width; s.Dispose(); } }
+                sheet.Save(args[3]);
+                f.Close();
+            });
+            Application.Run(f);
             return 0;
         }
         if (args.Length == 2 && args[0].Equals("--update-snapshot", StringComparison.OrdinalIgnoreCase))
@@ -217,6 +260,16 @@ static class Program
             }
             var form = new Gui.MainForm();
             if (args.Length >= 2) form.Shown += (_, _) => form.BeginInvoke(async () => { await form.Snapshot(args[1], args.Length == 3 ? args[2] : null); form.Close(); });
+            Application.Run(form);
+            return 0;
+        }
+        if (args.Length == 3 && args[0].Equals("--preview-selftest", StringComparison.OrdinalIgnoreCase))
+        {
+            // The 3D view's controls, driven as a user would (a scratch library: MHO_EXTMM_HOME). --preview-selftest <dir> <mod>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var form = new Gui.MainForm();
+            form.Shown += (_, _) => form.BeginInvoke(async () => { await form.PreviewSelfTest(args[1], args[2]); form.Close(); });
             Application.Run(form);
             return 0;
         }
@@ -412,6 +465,72 @@ static class Program
                     if (u.Count == 0) Console.WriteLine("    (nothing in the game's data uses it)");
                     foreach (var x in u.Take(5)) Console.WriteLine("    " + StringUsage.Describe(x));
                     if (u.Count > 5) Console.WriteLine($"    … {u.Count - 5} more");
+                }
+                return 0;
+            }
+            case "--anim-mesh-probe":
+            {
+                // Read-only: animations for a mod's first mesh, and a few posed at mid-length (how far vertices move).
+                var am = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                if (am == null) { Console.WriteLine("--anim-mesh-probe <mod> [animation name part...]"); return 1; }
+                string? agr = settings.ResolvedGameRoot(data);
+                string? ac = agr != null && Settings.IsGameRoot(agr) ? Settings.Cooked(agr) : null;
+                var mr = ModMeshes.List(am).FirstOrDefault();
+                if (mr == null) { Console.WriteLine("no meshes"); return 1; }
+                var ld = ModMeshes.Load(mr, ac, out string awhy);
+                if (ld == null) { Console.WriteLine("mesh: " + awhy); return 1; }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var anims = ModAnimations.For(mr, ld.Bones, am.Manifest.UpkReplacements.Select(f => (f, Path.Combine(am.Folder, f))), ac);
+                Console.WriteLine($"{mr.Name}: {ld.Bones.Count} bones, {anims.Count} animation(s) ({sw.ElapsedMilliseconds} ms) from {string.Join(", ", anims.Select(a => a.Package).Distinct())}");
+                Console.WriteLine("  first: " + string.Join(", ", anims.Take(12).Select(a => a.Name)));
+                var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences);
+                anim8.Pose(null, 0);
+                float restErr = ld.Positions.Select((p, i) => Vector3.Distance(p, anim8.Positions[i])).Max();
+                Console.WriteLine($"  rest pose through the skinning: max vertex error {restErr:0.000} units");
+                var wanted = rest.Skip(2).ToList();
+                foreach (var a in anims.Where(a => wanted.Count == 0 ? true : wanted.Any(w => a.Name.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(4))
+                {
+                    var ba = ModAnimations.Load(a);
+                    if (ba == null) { Console.WriteLine($"  {a.Name}: can't be read"); continue; }
+                    var (frames, secs) = MeshAnimator.Span(ba);
+                    int covered = ld.Bones.Count(b => ba.Tracks.ContainsKey(b.Name));
+                    anim8.Pose(ba, frames / 2);
+                    var d = ld.Positions.Select((p, i) => Vector3.Distance(p, anim8.Positions[i])).ToList();
+                    Vector3 lo = anim8.Positions.Aggregate(Vector3.Min), hi = anim8.Positions.Aggregate(Vector3.Max);
+                    Console.WriteLine($"  {a.Name}: {frames:0} frames, {secs:0.00} s, tracks for {covered} of {ld.Bones.Count} bones; mid-frame moves vertices avg {d.Average():0.0} / max {d.Max():0.0}; size {hi.X - lo.X:0} x {hi.Y - lo.Y:0} x {hi.Z - lo.Z:0}");
+                }
+                return 0;
+            }
+            case "--anim-probe":
+            {
+                // Read-only: the AnimSets in packages (paths), with their sequence and bone counts.
+                foreach (string path in rest.Skip(1))
+                {
+                    try
+                    {
+                        var ap = AnimExportCli.Packages.Package.Open(path);
+                        var sets = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).ToList();
+                        Console.WriteLine($"{Path.GetFileName(path)}: {sets.Count} AnimSet(s), {ap.FindExportsOfClass("skeletalmesh").Count()} skeletal mesh(es)");
+                        foreach (var s in sets.Take(8)) Console.WriteLine($"  {ap.GetExportName(s.ExportIndex)}: {s.Sequences.Count} sequences, {s.TrackBoneNames.Count} bones");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(path)}: {ex.GetType().Name}: {ex.Message}"); }
+                }
+                return 0;
+            }
+            case "--mesh-probe":
+            {
+                // Read-only: the mod's skeletal meshes and whether each loads with textures (the preview's 3D view).
+                var pm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                if (pm == null) { Console.WriteLine("--mesh-probe <mod>"); return 1; }
+                string? pgr = settings.ResolvedGameRoot(data);
+                string? cooked = pgr != null && Settings.IsGameRoot(pgr) ? Settings.Cooked(pgr) : null;
+                var meshes = ModMeshes.List(pm);
+                Console.WriteLine($"{pm.Name}: {meshes.Count} skeletal mesh(es)");
+                foreach (var r in meshes)
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var loaded = ModMeshes.Load(r, cooked, out string why);
+                    Console.WriteLine($"  {r.Package} | {r.Name}: {(loaded == null ? "can't be read: " + why : loaded.Info)}  ({sw.ElapsedMilliseconds} ms)");
                 }
                 return 0;
             }

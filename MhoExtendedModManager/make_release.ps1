@@ -34,7 +34,8 @@ if ($FromStage) {
     Get-ChildItem $stage -Recurse -Filter *.pdb | ForEach-Object { [IO.File]::Delete($_.FullName) }
     if (Test-Path (Join-Path $stage 'data')) { [IO.Directory]::Delete((Join-Path $stage 'data'), $true) }
     # MPM's launcher: its code is inside the single-file exe, the stub alone can't run (the manager never starts it).
-    foreach ($f in 'MHO_UPK_Mod.exe', 'MHO_UPK_Mod.runtimeconfig.json') { $p = Join-Path $stage $f; if (Test-Path $p) { [IO.File]::Delete($p) } }
+    # (AnimExportCli, the skeletal mesh reader for the 3D preview, is referenced the same way.)
+    foreach ($f in 'MHO_UPK_Mod.exe', 'MHO_UPK_Mod.runtimeconfig.json', 'AnimExportCli.exe', 'AnimExportCli.runtimeconfig.json', 'AppIcon.ico') { $p = Join-Path $stage $f; if (Test-Path $p) { [IO.File]::Delete($p) } }
     if ($NoChecksums) { $c = Join-Path $stage 'StockData\upk_checksums.json'; if (Test-Path $c) { [IO.File]::Delete($c) } }
     # The repo's MIT licence (root LICENSE) ships as LICENSE.txt; README and third-party notices from this folder.
     $lic = Join-Path $PSScriptRoot '..\LICENSE'; if (Test-Path $lic) { Copy-Item $lic (Join-Path $stage 'LICENSE.txt') }

@@ -31,6 +31,9 @@ sealed class ModEditorView : UserControl
     readonly TextBox changesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f), Multiline = true, ScrollBars = ScrollBars.Vertical, AcceptsReturn = true };
     readonly Label changesCaption = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 10, 0, 4) };
     readonly TextBox nexusBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f) };
+    // The picture the manager shows big for the mod (manifest PreviewImage; users can still pick their own).
+    readonly ComboBox previewBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 460, Font = Ui.Regular(9.5f), FlatStyle = FlatStyle.Flat };
+    List<string> previewKeys = [];   // parallel to previewBox's items after "Automatic"
     readonly TextBox notesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f), Multiline = true, ScrollBars = ScrollBars.Vertical };
     readonly Label autoLabel = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Font = Ui.Regular(8.5f), Margin = new Padding(3, 2, 3, 6) };
     readonly TextBox nameBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, authorBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, versionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) };
@@ -254,6 +257,27 @@ sealed class ModEditorView : UserControl
         Saved?.Invoke(saved);
     }
 
+    /// <summary>The Preview Image choices from the draft's images now (they may have changed on the texture tabs).</summary>
+    void FillPreviewChoices()
+    {
+        string? keep = previewBox.SelectedIndex > 0 && previewBox.SelectedIndex <= previewKeys.Count ? previewKeys[previewBox.SelectedIndex - 1] : draft.PreviewImage;
+        var images = draft.Textures[2].Select(t => (t.Texture, t.Source, Applier.IconPackages[2].File))
+            .Concat(draft.Textures[0].Select(t => (t.Texture, t.Source, Applier.IconPackages[0].File)))
+            .Concat(draft.Extra.Select(t => (t.Texture, t.Source, t.Package)));
+        List<PreviewCandidate> pics; List<MeshRef> meshes;
+        try { lock (Ui.StockLock) pics = PreviewImages.For(images, [], catalog); } catch (Exception ex) when (ex is IOException or InvalidDataException) { pics = []; }
+        try { meshes = ModMeshes.List(draft.Packages.Select(p => (p.File, p.Source))); } catch (Exception ex) when (ex is IOException or InvalidDataException) { meshes = []; }
+        previewKeys = [.. pics.Select(c => c.Key), .. meshes.Select(m => m.Key)];
+        previewBox.BeginUpdate();
+        previewBox.Items.Clear();
+        previewBox.Items.Add("Automatic (the first store image)");
+        foreach (var c in pics) previewBox.Items.Add($"{c.Texture}  ·  {c.Source}");
+        foreach (var m in meshes) previewBox.Items.Add($"3D: {m.Name}  ·  {m.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}");
+        int i = keep == null ? -1 : previewKeys.FindIndex(k => k.Equals(keep, StringComparison.OrdinalIgnoreCase));
+        previewBox.SelectedIndex = i + 1;
+        previewBox.EndUpdate();
+    }
+
     /// <summary>The info bar's and the Description tab's fields into the draft.</summary>
     void Collect()
     {
@@ -261,6 +285,7 @@ sealed class ModEditorView : UserControl
         draft.Description = descriptionBox.Text;
         draft.Changes = changesBox.Text;
         draft.NexusModId = Nexus.ParseModId(nexusBox.Text);
+        if (previewBox.Items.Count > 0) draft.PreviewImage = previewBox.SelectedIndex > 0 && previewBox.SelectedIndex <= previewKeys.Count ? previewKeys[previewBox.SelectedIndex - 1] : null;
         draft.Tags = tagsBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => lib.CleanTag(t) ?? t).ToList();
         draft.Notes = notesBox.Text;
     }
@@ -293,6 +318,15 @@ sealed class ModEditorView : UserControl
         nexusBox.Text = draft.NexusModId is int nid ? Nexus.SiteMods + nid : "";
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         p.Controls.Add(nexusRow, 0, 5);
+        var previewRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 10, 0, 0) };
+        previewRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); previewRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        previewRow.Controls.Add(new Label { Text = "PREVIEW IMAGE  ·  shown big in the manager (users can pick their own)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0) }, 0, 0);
+        previewRow.Controls.Add(previewBox, 1, 0);
+        Ui.Tip(previewBox, "What the manager shows big for this mod: one of its own images, the game's original, or a 3D view of one of its meshes. Automatic: the mod's first store image, else the game's store image.");
+        FillPreviewChoices();
+        previewBox.DropDown += (_, _) => FillPreviewChoices();
+        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        p.Controls.Add(previewRow, 0, 6);
         p.Controls.Add(new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 0) }, 0, 4);
         descriptionBox.Text = draft.Description.Replace("\r\n", "\n").Replace("\n", "\r\n");
         changesBox.Text = draft.Changes.Replace("\r\n", "\n").Replace("\n", "\r\n");

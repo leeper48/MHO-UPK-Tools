@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.28.0</Version>
+    <Version>0.33.0</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -20,6 +20,8 @@
   <ItemGroup>
     <!-- Package reader/writer, the one game-folder write path (MeshImport.WriteLive), undo history, theme. -->
     <ProjectReference Include="..\MhoPackageModifier\MhoPackageModifier.csproj" />
+    <!-- Skeletal meshes (costumes) for the preview's 3D view: AnimExportCli's reader. -->
+    <ProjectReference Include="..\AnimExportCli\AnimExportCli.csproj" />
     <!-- CRC-32 of whole packages (the stock checksum list and mod copies). -->
     <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
     <!-- Installing .7z / .rar mod archives (MHModManager accepted .zip and .7z). -->

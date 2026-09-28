@@ -38,6 +38,17 @@ sealed class MeshViewer : UserControl
     readonly CheckBox grid = new() { Text = "Grid", AutoSize = true, Checked = true, Padding = new Padding(4, 4, 0, 0) };
     readonly Label status = new() { Dock = DockStyle.Bottom, AutoSize = false, Height = 70, Padding = new Padding(6, 4, 6, 4), Tag = "hint" };
     Bitmap? frame;
+    readonly FlowLayoutPanel bar = new() { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(2), WrapContents = true };
+
+    /// <summary>Just the 3D view: no option bar or status line, no grid (MHO Extended Mod Manager's preview pane).</summary>
+    public bool Compact
+    {
+        get => !bar.Visible;
+        set { bar.Visible = !value; status.Visible = !value; grid.Checked = !value; Redraw(); }
+    }
+
+    /// <summary>The colour behind the mesh (null: the theme's background).</summary>
+    public Color? Background { get; set; }
 
     sealed class DoubleBufferedPanel : Panel { public DoubleBufferedPanel() { DoubleBuffered = true; ResizeRedraw = true; } }
 
@@ -46,16 +57,15 @@ sealed class MeshViewer : UserControl
         var frameBtn = new Button { Text = "Frame", AutoSize = true };
         frameBtn.Click += (_, _) => { FrameMesh(); Redraw(); };
         foreach (var c in new[] { textured, wire, back, grid }) c.CheckedChanged += (_, _) => Redraw();
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(2), WrapContents = true };
         bar.Controls.AddRange([textured, wire, back, grid, frameBtn,
             new Label { Text = "left-drag: rotate   right-drag: pan   wheel: zoom   double-click: frame", AutoSize = true, Padding = new Padding(10, 8, 0, 0), Tag = "hint" }]);
         canvas.Paint += (_, e) => Paint2(e.Graphics);
         canvas.Resize += (_, _) => Redraw();
         canvas.MouseDown += (_, e) => { dragFrom = e.Location; dragButton = e.Button; fast = true; canvas.Focus(); };
-        canvas.MouseUp += (_, _) => { dragFrom = null; fast = false; Redraw(); };
+        canvas.MouseUp += (_, _) => { bool moved = dragFrom != null; dragFrom = null; fast = false; Redraw(); if (moved) ViewChanged?.Invoke(); };
         canvas.MouseMove += (_, e) => Drag(e);
-        canvas.MouseWheel += (_, e) => { distance *= MathF.Pow(0.85f, e.Delta / 120f); distance = Math.Clamp(distance, radius * 0.05f, radius * 50); Redraw(); };
-        canvas.DoubleClick += (_, _) => { FrameMesh(); Redraw(); };
+        canvas.MouseWheel += (_, e) => { distance *= MathF.Pow(0.85f, e.Delta / 120f); distance = Math.Clamp(distance, radius * 0.05f, radius * 50); Redraw(); ViewChanged?.Invoke(); };
+        canvas.DoubleClick += (_, _) => { FrameMesh(); Redraw(); ViewChanged?.Invoke(); };
         Controls.Add(canvas);
         Controls.Add(status);
         Controls.Add(bar);
@@ -94,6 +104,39 @@ sealed class MeshViewer : UserControl
         center = (lo + hi) / 2; radius = Math.Max(1f, (hi - lo).Length() / 2); minZ = lo.Z;
         status.Text = $"{name}   {positions.Length:N0} vertices, {indices.Length / 3:N0} triangles, {textures.Length} section(s), size {hi.X - lo.X:0} x {hi.Y - lo.Y:0} x {hi.Z - lo.Z:0}   {info}";
         FrameMesh();
+        Redraw();
+    }
+
+    /// <summary>The user turned, panned or zoomed the view (after a drag, a wheel step or a double-click).</summary>
+    public event Action? ViewChanged;
+
+    /// <summary>
+    /// The camera, relative to the mesh (so it fits the mesh again after reloading): yaw, pitch, distance / radius, and the
+    /// target's offset from the mesh's centre / radius (x, y, z). Setting it redraws.
+    /// </summary>
+    public float[] ViewState
+    {
+        get => [yaw, pitch, distance / radius, (target.X - center.X) / radius, (target.Y - center.Y) / radius, (target.Z - center.Z) / radius];
+        set
+        {
+            if (value is not { Length: 6 }) return;
+            yaw = value[0]; pitch = Math.Clamp(value[1], -1.5f, 1.5f); distance = Math.Clamp(value[2], 0.05f, 50f) * radius;
+            target = center + new Vector3(value[3], value[4], value[5]) * radius;
+            Redraw();
+        }
+    }
+
+    /// <summary>Back to the default framing (as a double-click does).</summary>
+    public void ResetView() { FrameMesh(); Redraw(); }
+
+    /// <summary>Moves the camera back by a factor (e.g. to leave room for an animation), from the framed distance.</summary>
+    public void ZoomOut(float factor) { FrameMesh(); distance *= factor; Redraw(); }
+
+    /// <summary>New vertex positions for the mesh shown (an animation frame): same triangles, textures and camera.</summary>
+    public void UpdateGeometry(Vector3[] positions)
+    {
+        if (positions.Length != pos.Length) return;
+        for (int i = 0; i < positions.Length; i++) pos[i] = new Vector3(positions[i].X, -positions[i].Y, positions[i].Z);
         Redraw();
     }
 
@@ -160,7 +203,7 @@ sealed class MeshViewer : UserControl
         int scale = fast ? 2 : 1;
         W = canvas.ClientSize.Width / scale; H = canvas.ClientSize.Height / scale;
         if (color.Length != W * H) { color = new int[W * H]; depth = new float[W * H]; }
-        int bg = Theme.Current.Back.ToArgb();
+        int bg = (Background ?? Theme.Current.Back).ToArgb();
         Array.Fill(color, bg);
         Array.Clear(depth);
 

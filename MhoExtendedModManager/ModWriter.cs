@@ -30,6 +30,10 @@ sealed class ModDraft
     public string? PostNexus, PostDiscord;
     /// <summary>Extension: the mod's Nexus page (mod ID), set by its author.</summary>
     public int? NexusModId;
+    /// <summary>Extension: the picture shown big for the mod ("mod:&lt;texture&gt;" / "game:&lt;texture&gt;"; null: automatic).</summary>
+    public string? PreviewImage;
+    /// <summary>Extension: the author's 3D camera per mesh (kept as it is by the editor).</summary>
+    public Dictionary<string, float[]>? PreviewViews;
     public List<string> PostImages = [];
 
     /// <summary>The changelog as it will be saved: this version's changes (if any) on top of the earlier entries.</summary>
@@ -71,6 +75,8 @@ sealed class ModDraft
         d.Description = m.Manifest.Description ?? "";
         (d.PostNexus, d.PostDiscord, d.PostImages) = ModPost.Read(m.Folder);
         d.NexusModId = m.Manifest.NexusModId;
+        d.PreviewImage = m.Manifest.PreviewImage;
+        d.PreviewViews = m.Manifest.PreviewViews;
         var log = m.Manifest.Changelog ?? [];
         d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
         d.Changelog = log.Select(e => new ChangelogEntry { Version = e.Version, Changes = e.Changes }).ToList();
@@ -139,6 +145,8 @@ static class ModWriter
             var changelog = d.FullChangelog();
             manifest.Changelog = changelog.Count > 0 ? changelog : null;
             manifest.NexusModId = d.NexusModId;
+            manifest.PreviewImage = d.PreviewImage;
+            manifest.PreviewViews = d.PreviewViews is { Count: > 0 } pv ? pv : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };
             for (int k = 0; k < lists.Length; k++)
