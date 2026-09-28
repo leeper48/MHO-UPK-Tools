@@ -1,0 +1,3 @@
+[submodule "MhoPackageModifier"]
+	path = MhoPackageModifier
+	url = https://github.com/leeper48/MHO-Package-Modifier.git

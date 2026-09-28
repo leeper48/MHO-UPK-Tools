@@ -18,6 +18,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true   # MhoPackageModifier (leeper48/MHO-Package-Modifier), which the Mod Manager references
 
       - uses: actions/setup-dotnet@v4
         with:

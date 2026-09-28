@@ -5,7 +5,7 @@ Free, open-source Windows tools for modding **Marvel Heroes Omega**. The game is
 | Tool | What it's for | Status |
 |---|---|---|
 | [**MHO Extended Mod Manager**](#mho-extended-mod-manager) | Install, order and apply mods; make your own | Beta, [download](https://github.com/leeper48/MHO-UPK-Tools/releases/tag/extmm-v0.25.9) |
-| [**MHO Package Modifier**](#mho-package-modifier) | Look inside packages; edit meshes, textures, zones and materials | In use; releases coming |
+| [**MHO Package Modifier**](https://github.com/leeper48/MHO-Package-Modifier) | Look inside packages; edit meshes, textures, zones and materials | Own repo: [leeper48/MHO-Package-Modifier](https://github.com/leeper48/MHO-Package-Modifier) |
 | [**AnimExportCli**](#animexportcli) | Export characters and animations to FBX | In development |
 
 ---
@@ -88,7 +88,7 @@ Source: [`MhoExtendedModManager/`](MhoExtendedModManager). The user guide ships 
 
 Every write makes a `.bak` of the original, is checked by a dry run first, and can be undone. The manual opens with F1.
 
-Source: [`MhoPackageModifier/`](MhoPackageModifier). The user guide is [`Dist/README.txt`](MhoPackageModifier/Dist/README.txt).
+It has its own repository, [leeper48/MHO-Package-Modifier](https://github.com/leeper48/MHO-Package-Modifier), included here as a submodule (`MhoPackageModifier/`) because MHO Extended Mod Manager builds on its code.
 
 ## AnimExportCli
 
@@ -101,7 +101,7 @@ Source: [`AnimExportCli/`](AnimExportCli).
 ## Building from source
 
 - **Needs:** the .NET 8 SDK, on Windows.
-- **Building:** each tool has a `build.bat` in its folder. MHO Extended Mod Manager references MHO Package Modifier, so build from a full checkout.
+- **Building:** each tool has a `build.bat` in its folder. MHO Extended Mod Manager references MHO Package Modifier, a submodule: clone with `git clone --recurse-submodules`, or run `git submodule update --init` after cloning.
 
 ## Credits and license
 
