@@ -193,16 +193,21 @@ sealed class Mod
 
     public string Name => string.IsNullOrWhiteSpace(Manifest.Name) ? FolderName : Manifest.Name;
 
-    /// <summary>The .dds of the first costume icon the mod replaces (TextureName costume…, in manifest order), for the
-    /// mod list's picture; null if it has none or the file is missing.</summary>
+    /// <summary>The mod list's picture: the .dds of the first hero portrait the mod replaces (TextureName herohor…, in manifest
+    /// order), else its first costume… icon, else its store image, else its first inventory_ image; null if it has none or the file is missing.</summary>
     public string? CostumeIconFile()
     {
-        var r = Manifest.Replacements.Select(x => (x.TextureName, x.DdsFileName))
+        // The first herohor… portrait (69 of Kurt's 80 mods); failing that costume…, then the store image (pets have no
+        // portrait: Jeff (Pet)'s store_petoldlace), then inventory_ (items: Kurt).
+        var all = Manifest.Replacements.Select(x => (x.TextureName, x.DdsFileName))
             .Concat(Manifest.Extra.Select(x => (x.TextureName, x.DdsFileName)))
-            .FirstOrDefault(x => x.TextureName?.StartsWith("costume", StringComparison.OrdinalIgnoreCase) == true && x.DdsFileName != null);
-        if (r.DdsFileName == null) return null;
-        string path = Path.Combine(Folder, r.DdsFileName);
-        return File.Exists(path) ? path : null;
+            .Concat(Manifest.StoreReplacements.Select(x => (x.TextureName, x.DdsFileName))).ToList();
+        foreach (string prefix in new[] { "herohor", "costume", "store", "inventory_" })
+        {
+            var r = all.FirstOrDefault(x => x.TextureName?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) == true && x.DdsFileName != null);
+            if (r.DdsFileName != null && File.Exists(Path.Combine(Folder, r.DdsFileName))) return Path.Combine(Folder, r.DdsFileName);
+        }
+        return null;
     }
 
     /// <summary>Everything this mod needs from its folder that isn't there.</summary>

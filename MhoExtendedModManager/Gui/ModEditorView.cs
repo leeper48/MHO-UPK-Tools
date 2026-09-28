@@ -204,7 +204,9 @@ sealed class ModEditorView : UserControl
             if (!file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) return null;
             var p = Path.GetFileNameWithoutExtension(file).Split('_', StringSplitOptions.RemoveEmptyEntries);
             if (p.Length < 3) return null;
-            var costume = p.Skip(3).Where(x => !x.Equals("SF", StringComparison.OrdinalIgnoreCase)).ToList();
+            // Only the final _SF is the seek-free suffix: uc__marvelplayer_blade_sf_SF is Blade's "sf" costume (herohor_blade_sf).
+            var costume = p.Skip(3).ToList();
+            if (costume.Count > 0 && costume[^1].Equals("SF", StringComparison.OrdinalIgnoreCase)) costume.RemoveAt(costume.Count - 1);
             string hero = AutoTags.DisplayName(p[2]) ?? p[2];
             string spaced = System.Text.RegularExpressions.Regex.Replace(string.Join(" ", costume), "(?<=[a-z0-9])(?=[A-Z])", " ");   // CivilWarMovie → Civil War Movie
             return new CostumeFilter(costume.Count > 0 ? $"{hero} {spaced}" : hero, AutoTags.Spellings(p[2]), string.Join("", costume).ToLowerInvariant());

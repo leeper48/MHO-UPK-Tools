@@ -66,6 +66,65 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
         return bgra == null ? null : (bgra, mip.Width, mip.Height, mip.Format);
     }
 
+    /// <summary>
+    /// The stock picture for a mod without one of its own (Kurt: a package-only mod shows its default icon), a texture of the
+    /// original icons package: a costume package's own hero portrait (herohor_psylocke_xforce), else its costume icon, else
+    /// the hero's default portrait; a team-up's portrait (herohor_teamup_angel); else the main character's portrait (from
+    /// the automatic tags: Agatha Harkness's ScarletWitch powers → herohor_scarletwitch). Null for zones and the like.
+    /// </summary>
+    static readonly Dictionary<string, string> DefaultCostume = new(StringComparer.OrdinalIgnoreCase) { ["angela"] = "aa" };
+
+    public string? DefaultIconFor(Mod m) => DefaultFor(m, Applier.IconPackages[0].File, "herohor_", ["herohor_", "costume_", "costume"]);
+
+    /// <summary>The stock store image for a mod without one (the same choice as DefaultIconFor, in the store package:
+    /// store_psylocke_xforce, store_teamup_angel, store_angela_aa, store_scarletwitch_classic …).</summary>
+    public string? DefaultStoreFor(Mod m) => DefaultFor(m, Applier.IconPackages[2].File, "store_", ["store_"]);
+
+    string? DefaultFor(Mod m, string package, string heroPrefix, string[] costumePrefixes)
+    {
+        if (Textures(package) is not { } names) return null;
+        bool Has(string n) => names.ContainsKey(n);
+        // A hero's default image: <prefix><hero>, else _original / _classic, else the first of theirs.
+        string? HeroDefault(IEnumerable<string> spellings, string prefix)
+        {
+            foreach (string s in spellings)
+            {
+                // Heroes whose default costume has its own name (Kurt: Angela's default is "aa").
+                if (DefaultCostume.TryGetValue(s, out string? dc) && Has(prefix + s + "_" + dc)) return prefix + s + "_" + dc;
+                foreach (string end in new[] { "", "_original", "_classic", "_default" })
+                    if (Has(prefix + s + end)) return prefix + s + end;
+                if (names.Keys.FirstOrDefault(n => n.StartsWith(prefix + s + "_", StringComparison.OrdinalIgnoreCase)) is string any) return any;
+            }
+            return null;
+        }
+        foreach (string file in m.Manifest.UpkReplacements)
+        {
+            string n = Path.GetFileNameWithoutExtension(file);
+            if (Gui.ModEditorView.CostumeFilter.FromPackage(file) is { } cf)
+            {
+                if (cf.Costume.Length > 0)
+                {
+                    foreach (string h in cf.Heroes)
+                        foreach (string p in costumePrefixes)
+                            if (Has($"{p}{h}_{cf.Costume}")) return $"{p}{h}_{cf.Costume}";
+                    var match = names.Keys.Where(cf.Matches).ToList();
+                    foreach (string p in costumePrefixes)
+                        if (match.FirstOrDefault(x => x.StartsWith(p, StringComparison.OrdinalIgnoreCase)) is string fuzzy) return fuzzy;
+                }
+                if (HeroDefault(cf.Heroes, heroPrefix) is string hd) return hd;
+            }
+            else if (n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__PowerTeamUp_", StringComparison.OrdinalIgnoreCase))
+            {
+                string token = n.Split('_', StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(2) ?? "";
+                if (HeroDefault(AutoTags.Spellings(token), heroPrefix + "teamup_") is string td) return td;
+            }
+        }
+        foreach (string tag in m.AutoTags)
+            if (AutoTags.Classify(tag) == AutoTags.TagClass.Character && AutoTags.IdOf(tag) is string id && HeroDefault(AutoTags.Spellings(id), heroPrefix) is string d)
+                return d;
+        return null;
+    }
+
     /// <summary>The stock texture's full size (what a replacement should match).</summary>
     public (int W, int H, string Format)? Size(string iconPackage, string texture)
     {

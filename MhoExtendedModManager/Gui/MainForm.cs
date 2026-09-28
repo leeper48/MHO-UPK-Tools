@@ -28,7 +28,8 @@ sealed class MainForm : Form
     readonly ModListBox list = new() { Dock = DockStyle.Fill };
     readonly TextBox filter = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f) };
     readonly NexusStatus nexusStatus = new() { Dock = DockStyle.Fill };
-    string? nexusBusy;   // what Nexus work is running ("Checking 23 Linked Mods…"), shown in the Nexus strip
+    string? nexusBusy;
+    string? listCatalogKey;   // what Nexus work is running ("Checking 23 Linked Mods…"), shown in the Nexus strip
     readonly Label countLabel = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(8.25f), Padding = new Padding(4, 0, 0, 0) };
     readonly DetailsHeader header = new() { Dock = DockStyle.Top };
     readonly StorePreview storePreview = new() { Dock = DockStyle.Fill };
@@ -415,6 +416,9 @@ sealed class MainForm : Form
         string? gameRoot = settings.ResolvedGameRoot(data);
         gameLabel.Text = gameRoot != null ? Settings.TrueCase(gameRoot) : "(not set: Settings → Change game folder)";
         if (gameRoot != null && Directory.Exists(Settings.Cooked(gameRoot))) game = new GameState(gameRoot, data);
+        // Stock pictures for mods without one: one catalog per library + game folder (its icon package loads once).
+        string catKey = data + "|" + gameRoot;
+        if (catKey != listCatalogKey) { listCatalogKey = catKey; list.Catalog = storePreview.Catalog = game != null ? new StockCatalog(lib, game) : null; }
         winners = lib.PackageWinners();
         var conflicts = lib.Conflicts();
         conflicted = conflicts.SelectMany(c => c.Mods).ToHashSet();
@@ -1749,7 +1753,7 @@ sealed class MainForm : Form
         Directory.CreateDirectory(dir);
         if (modName != null && lib?.Find(modName) is Mod pick) { SelectMod(pick.FolderName); list.TopIndex = Math.Max(0, list.SelectedIndex - 5); }
         foreach (var t in new[] { loading, pending }) if (t != null) { try { await t; } catch { } }
-        await Task.Delay(1500);
+        await Task.Delay(5000);   // card pictures (stock ones open the icons package) decode in the background
         using var bmp = new Bitmap(Width, Height);
         DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height));
         bmp.Save(Path.Combine(dir, "main.png"));

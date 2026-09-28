@@ -8,6 +8,7 @@ namespace MhoExtendedModManager;
 ///   UC__MarvelTeamUp_&lt;Hero&gt;_SF                 team-up                        → Team-Up
 ///   UC__MarvelNPC_&lt;Name&gt;_SF                    NPC                            → NPC
 ///   UC__MarvelAgent_…Pet_SF                   pet                            → Pet  (other agents: the character only)
+///   UC__MarvelVanityPet_<Name>_SF             vanity pet (Old Lace, Cosmo …) → Pet
 ///   UC__PowerTeamUp_&lt;Hero&gt;_…                  team-up powers                 → Team-up, Power effects
 ///   UC__Power&lt;Hero&gt;_…, UC__MarvelProjectile_…, UC__MarvelEntity_Hotspot_…, UC__MarvelConditionEffect_…
 ///                                             power visuals                  → Power effects
@@ -91,6 +92,9 @@ static class AutoTags
                      .Select(k => Alias.TryGetValue(k, out var b) ? b : k).FirstOrDefault();
     }
 
+    /// <summary>The id of a character's display name ("Scarlet Witch" → scarletwitch), or null.</summary>
+    public static string? IdOf(string displayName) => Heroes.FirstOrDefault(h => h.Value.Name.Equals(displayName, StringComparison.OrdinalIgnoreCase)).Key;
+
     /// <summary>A character's display name for a name part of a package ("Spiderman" → "Spider-Man"), or null.</summary>
     public static string? DisplayName(string token) => Hero(token) is string id ? Heroes[id].Name : null;
 
@@ -152,10 +156,11 @@ static class AutoTags
             else if (l.StartsWith("uc__marvelnpc_")) { AddHero(Hero(Part(n[14..], 0))); AddKind("NPC"); }
             else if (l.StartsWith("uc__powerteamup_")) { AddHero(Hero(Part(n[16..], 0))); AddKind("Team-Up"); AddKind("Power Effects"); }
             else if (l.StartsWith("uc__power")) { AddHero(Hero(Part(n[9..], 0))); AddKind("Power Effects"); }
+            else if (l.StartsWith("uc__marvelvanitypet_")) AddKind("Pet");   // vanity pets: Old Lace (Jeff), Baby Groot, Bamf, Cosmo …
             else if (l.StartsWith("uc__marvelagent_"))
             {
-                // Agents: pets (…Pet), bosses and enemies. A pet adds only "Pet" (Unique333GambitPet isn't a Gambit mod).
-                if (l.EndsWith("pet_sf") || l.Contains("pet_")) AddKind("Pet");
+                // Agents: pets (…Pet, …PetEmmaFrost, …PetSquirrel), bosses and enemies. A pet adds only "Pet" (Unique333GambitPet isn't a Gambit mod).
+                if (Regex.IsMatch(n[16..], "Pet(?=[A-Z_]|$)")) AddKind("Pet");
                 else AddHero(HeroInside(n[16..]));
             }
             else if (l.StartsWith("uc__marvelprojectile_") || l.StartsWith("uc__marvelentity_hotspot_") || l.StartsWith("uc__marvelconditioneffect_"))
@@ -176,6 +181,7 @@ static class AutoTags
             }
             else if (l.StartsWith("power_")) { AddHero(Hero(Part(l, 1))); AddKind("Power Icons"); }
             else if (l.StartsWith("teamup_")) { AddHero(Hero(Part(l, 1))); AddKind("Team-Up"); }
+            else if (l.StartsWith("store_pet")) AddKind("Pet");
             else if (l.StartsWith("store_") || l.StartsWith("herohor_"))
             {
                 string p1 = Part(l, 1);

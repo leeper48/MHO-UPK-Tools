@@ -41,6 +41,7 @@ static class Program
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
         ("--post", "--post <mod> [nexus|discord]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown)."),
         ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
+        ("--card-pictures", "--card-pictures", "Each mod's card picture: its own image (hero portrait, costume icon, store image, inventory icon), else the stock one it falls back to."),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
     ];
 
@@ -426,6 +427,16 @@ static class Program
             case "--auto-tags":
                 foreach (var m in lib.Mods) Console.WriteLine($"{m.Name}: {string.Join(", ", m.AutoTags)}");
                 return 0;
+            case "--card-pictures":
+            {
+                // Each mod's card picture: its own image (herohor / costume / store / inventory), else the stock one.
+                string? cgr = settings.ResolvedGameRoot(data);
+                var cat = cgr != null && Directory.Exists(Settings.Cooked(cgr)) ? new StockCatalog(lib, new GameState(cgr, data)) : null;
+                foreach (var m in lib.Mods)
+                    Console.WriteLine($"{m.Name}: " + (m.CostumeIconFile() is string own ? "own " + Path.GetFileName(own) : "stock " + (cat?.DefaultIconFor(m) ?? "(none)")) +
+                        (m.Manifest.StoreReplacements.Count > 0 ? "" : "  ·  store: stock " + (cat?.DefaultStoreFor(m) ?? "(none)")));
+                return 0;
+            }
             case "--list": return List(lib);
             case "--conflicts": return Conflicts(lib);
             case "--check": return Check(lib);

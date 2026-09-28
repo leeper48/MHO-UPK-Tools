@@ -201,8 +201,13 @@ static class Ui
     {
         var d = TextureDecode.ReadDds(path, out _);
         var bgra = d is { } x ? TextureDecode.ToBgra(x.Format, x.W, x.H, x.Data, out _) : null;
-        if (bgra == null) return null;
-        using var full = TextureDecode.ToBitmap(bgra, d!.Value.W, d.Value.H);
+        return bgra == null ? null : Thumb(bgra, d!.Value.W, d.Value.H, size);
+    }
+
+    /// <summary>A thumbnail (at most size × size) from decoded BGRA pixels.</summary>
+    public static Image Thumb(byte[] bgra, int w, int h, int size)
+    {
+        using var full = TextureDecode.ToBitmap(bgra, w, h);
         float k = Math.Min(1f, Math.Min((float)size / full.Width, (float)size / full.Height));
         var bmp = new Bitmap(Math.Max(1, (int)(full.Width * k)), Math.Max(1, (int)(full.Height * k)));
         using var g = Graphics.FromImage(bmp);
@@ -471,6 +476,9 @@ sealed class ModListBox : ListBox
     public event Action<Mod, Point>? MenuRequested;
     /// <summary>The newer Nexus version for a mod (null: none), and a click on its ↑ badge.</summary>
     public Func<Mod, string?>? UpdateFor { get; set; }
+    /// <summary>Stock pictures for mods without one of their own (StockCatalog.DefaultIconFor); null: none.</summary>
+    public StockCatalog? Catalog { get; set; }
+    static readonly object stockLock = new();
     public event Action<Mod>? UpdateClicked;
     /// <summary>What a padlock click would lock the mod to (ModLibrary.CanLock); None hides the padlock of an unlocked mod.</summary>
     public Func<Mod, ModLock>? CanLock { get; set; }
@@ -720,7 +728,7 @@ sealed class ModListBox : ListBox
     Image? Icon(Mod m)
     {
         string? file = m.CostumeIconFile();
-        if (file == null) return null;
+        if (file == null) return StockIcon(m);
         string key;
         try { key = file + "|" + File.GetLastWriteTimeUtc(file).Ticks; } catch { return null; }
         if (icons.TryGetValue(key, out var img)) return img;
@@ -731,6 +739,31 @@ sealed class ModListBox : ListBox
             if (IsDisposed) { t.Result?.Dispose(); return; }
             icons[key] = t.Result;
             Invalidate();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+        return null;
+    }
+
+    /// <summary>The stock picture for a mod without one (decoded once per mod, in the background, one at a time).</summary>
+    Image? StockIcon(Mod m)
+    {
+        if (Catalog is not { } cat) return null;
+        string key = "stock|" + m.FolderName;
+        if (icons.TryGetValue(key, out var img)) return img;
+        icons[key] = null;
+        int size = (int)(64 * S);
+        Task.Run(() =>
+        {
+            try
+            {
+                lock (stockLock)
+                    return cat.DefaultIconFor(m) is string tex && cat.Preview(Applier.IconPackages[0].File, tex) is { } p ? Ui.Thumb(p.Bgra, p.W, p.H, size) : null;
+            }
+            catch { return null; }
+        }).ContinueWith(t =>
+        {
+            if (IsDisposed) { t.Result?.Dispose(); return; }
+            icons[key] = t.Result;
+            if (t.Result != null) Invalidate();
         }, TaskScheduler.FromCurrentSynchronizationContext());
         return null;
     }
@@ -822,11 +855,15 @@ sealed class ModListBox : ListBox
 }
 
 /// <summary>The middle column of the Mods page: the selected mod's store image(s) (StoreReplacements, 300×420 in the
-/// mods), fitted into a card. Click to step through a mod with several. Decoded in the background.</summary>
+/// mods), fitted into a card. Click to step through a mod with several. A mod without one shows the stock store image of
+/// what it changes (StockCatalog.DefaultStoreFor), captioned as the game's. Decoded in the background.</summary>
 sealed class StorePreview : Control
 {
     Mod? mod;
     List<(string Texture, string Path)> items = [];
+    string? stock;   // the stock store image shown for a mod without one of its own
+    /// <summary>Stock store images for mods without one; null: none.</summary>
+    public StockCatalog? Catalog { get; set; }
     int index;
     Image? image;
     int request;
@@ -858,15 +895,38 @@ sealed class StorePreview : Control
     void Load()
     {
         var old = image; image = null; old?.Dispose();
+        stock = null;
         Cursor = items.Count > 1 ? Cursors.Hand : Cursors.Default;
         Invalidate();
-        if (items.Count == 0) return;
+        if (items.Count == 0) { LoadStock(); return; }
         int req = ++request;
         string path = items[index].Path;
         Task.Run(() => { try { return Ui.DdsThumb(path, 1024); } catch { return null; } }).ContinueWith(t =>
         {
             if (IsDisposed || req != request) { t.Result?.Dispose(); return; }
             image = t.Result;
+            Invalidate();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>No store image in the mod: the game's own one for what it changes.</summary>
+    void LoadStock()
+    {
+        if (Catalog is not { } cat || mod is not { } m) return;
+        int req = ++request;
+        string storePkg = Applier.IconPackages[2].File;
+        Task.Run(() =>
+        {
+            try
+            {
+                if (cat.DefaultStoreFor(m) is not string tex || cat.Preview(storePkg, tex) is not { } p) return (null, null);
+                return ((string?)tex, (Image?)Ui.Thumb(p.Bgra, p.W, p.H, 1024));
+            }
+            catch { return (null, null); }
+        }).ContinueWith(t =>
+        {
+            if (IsDisposed || req != request) { t.Result.Item2?.Dispose(); return; }
+            (stock, image) = t.Result;
             Invalidate();
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
@@ -911,7 +971,15 @@ sealed class StorePreview : Control
                 TextRenderer.DrawText(g, text, smallFont, card, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.WordBreak);
             }
         }
-        if (items.Count == 0) return;
+        if (items.Count == 0)
+        {
+            if (stock == null) return;
+            var sc = new Rectangle(card.X, card.Bottom + (int)(4 * S), card.Width, (int)(18 * S));
+            TextRenderer.DrawText(g, stock, smallFont, sc, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            sc.Offset(0, (int)(18 * S));
+            TextRenderer.DrawText(g, "The Game's Image (Not in This Mod)", smallFont, sc, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
+            return;
+        }
         var cap = new Rectangle(card.X, card.Bottom + (int)(4 * S), card.Width, (int)(18 * S));
         TextRenderer.DrawText(g, items[index].Texture, smallFont, cap, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         if (items.Count > 1)

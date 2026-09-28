@@ -4,8 +4,8 @@ MHO Extended Mod Manager
 A mod manager for Marvel Heroes Omega. It installs, turns on and off, orders and applies mods in the MHModManager
 format (packages, icons, store images, strings, sound packs), and adds: verified original game files with undo,
 updating mods in place, automatic and your own tags, notes, search / sort / group, locking mods at the top or bottom of
-the order, PNG import and export for icons, and more icon packages. Mods it saves or exports still install in
-MHModManager 1.0.1 (there is also a legacy export).
+the order, PNG import and export for icons, more icon packages, and Nexus Mods update checks. Mods it saves or exports
+still install in MHModManager 1.0.1 (there is also a legacy export).
 
 Requirements
   Windows 10 or 11 (64-bit) and Microsoft's .NET 8 Desktop Runtime (x64):
@@ -37,6 +37,9 @@ Privacy
   Nothing is sent anywhere unless you ask for it. The update check contacts GitHub only if you agreed to it at the
   first start (Settings -> Check for Updates at Start) or when you pick Settings -> Check for Updates; nothing about
   you, your game or your mods is sent. Your mods, settings and undo history stay in the program's "data" folder.
+  Nexus Mods is contacted only when you use its features: Find My Mods reads the public list of Marvel Heroes Omega
+  mods (no account needed); update checks and downloads use your own Nexus API key, which you enter yourself. The key is
+  stored encrypted for your Windows user on this PC and is only ever sent to Nexus.
 
 Source code and licence (MIT): https://github.com/leeper48/MHO-UPK-Tools
 Thanks to the author of MHModManager, whose tool and mod format this builds on.
