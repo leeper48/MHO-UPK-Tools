@@ -467,6 +467,18 @@ sealed class ModGroup(string key, string name, int count, bool collapsed)
 sealed class ModListBox : ListBox
 {
     public HashSet<Mod> Conflicted { get; set; } = [];
+    /// <summary>Conflicting mods that lose at least one change to a higher mod (red stripe); the others only win (amber).</summary>
+    public HashSet<Mod> Overridden { get; set; } = [];
+    /// <summary>What each conflicting mod overrides / is overridden by (for the tooltip).</summary>
+    public Func<Mod, string?>? ConflictText { get; set; }
+    /// <summary>The selected mod's conflict partners: outlined in the list (a user: show which mods conflict).</summary>
+    public HashSet<Mod> Partners { get; set; } = [];
+    /// <summary>Drag and drop is allowed (the plain priority view).</summary>
+    public Func<bool>? CanReorder { get; set; }
+    /// <summary>A card dropped next to another: (moved mod, target mod, below the target).</summary>
+    public event Action<Mod, Mod, bool>? Dropped;
+    Mod? dragMod; Point dragFrom; bool dragging, leftDown; int dropItem = -1; bool dropBelow;
+    readonly System.Windows.Forms.Timer scrollTimer = new() { Interval = 60 };
     public event Action<Mod>? CheckClicked;
     /// <summary>Padlock clicked (a locked mod, or one that can be locked where it is).</summary>
     public event Action<Mod>? LockClicked;
@@ -504,6 +516,17 @@ sealed class ModListBox : ListBox
         IntegralHeight = false;
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
         tips = Ui.NewTips(() => tipText);
+        // While dragging near the top or bottom edge, scroll.
+        scrollTimer.Tick += (_, _) =>
+        {
+            if (!dragging) { scrollTimer.Stop(); return; }
+            var p = PointToClient(MousePosition);
+            int edge = (int)(28 * S);
+            if (p.Y < edge && TopIndex > 0) TopIndex--;
+            else if (p.Y > Height - edge && TopIndex < Items.Count - 1) TopIndex++;
+            else return;
+            UpdateDrop(p);
+        };
         tipTimer.Tick += (_, _) =>
         {
             tipTimer.Stop();
@@ -516,6 +539,7 @@ sealed class ModListBox : ListBox
 
     float S => DeviceDpi / 96f;
     static readonly Color NexusOrange = Color.FromArgb(230, 140, 60);
+    public static readonly Color ConflictAmber = Color.FromArgb(242, 170, 60);
 
     protected override void OnMeasureItem(MeasureItemEventArgs e)
     {
@@ -608,6 +632,28 @@ sealed class ModListBox : ListBox
         using (var path = Ui.Round(card, 4 * S))
         using (var fill = new SolidBrush(sel ? Ui.CardSelected : e.Index == hover ? Ui.CardHover : Ui.Card))
             g.FillPath(fill, path);
+        // Conflicts (enabled mods changing the same thing): a stripe on the left edge, red when part of this mod is
+        // overridden by a higher one, amber when it only overrides others; the selected mod's partners are outlined.
+        if (Conflicted.Contains(m))
+        {
+            var stripe = new Rectangle(card.X, card.Y + (int)(3 * S), Math.Max(3, (int)(4 * S)), card.Height - (int)(6 * S));
+            using var sb = new SolidBrush(Overridden.Contains(m) ? Ui.Warn : ConflictAmber);
+            using var sp = Ui.Round(stripe, 2 * S);
+            g.FillPath(sb, sp);
+        }
+        if (Partners.Contains(m))
+        {
+            using var pen = new Pen(Overridden.Contains(m) ? Ui.Warn : ConflictAmber, Math.Max(1.5f, 1.6f * S));
+            using var op = Ui.Round(Rectangle.Inflate(card, -1, -1), 4 * S);
+            g.DrawPath(pen, op);
+        }
+        // Drag and drop: where the card will go.
+        if (dragging && e.Index == dropItem)
+        {
+            int y = dropBelow ? card.Bottom + (int)(1 * S) : card.Top - (int)(1 * S);
+            using var lp = new Pen(Ui.Accent, Math.Max(2f, 3f * S));
+            g.DrawLine(lp, card.X, y, card.Right, y);
+        }
 
         int pad = (int)(10 * S);
         var check = CheckRect(b);
@@ -791,9 +837,10 @@ sealed class ModListBox : ListBox
         {
             foreach (var (rect, tag) in r.Chips) if (rect.Contains(p)) return $"Tag \"{tag}\" ({Ui.TagDescription(m, tag)}). Click to show only mods with this tag.";
             if (r.Badges.Contains(p))
-                return "Changes: " + m.Summary() + (Conflicted.Contains(m) ? ".\n! Some of them are also changed by another enabled mod: the one higher in the list wins (see Conflicts)." : ".");
+                return "Changes: " + m.Summary() + (Conflicted.Contains(m) ? ".\n! " + (ConflictText?.Invoke(m) ?? "Some of them are also changed by another enabled mod: the one higher in the list wins.") + "\nSelect it and open the Conflicts tab for the details." : ".");
         }
-        return $"{m.Name}\n{m.Summary()}\nDouble-click to edit. Right-click for tags and more.";
+        return $"{m.Name}\n{m.Summary()}" + (Conflicted.Contains(m) ? "\n! " + (ConflictText?.Invoke(m) ?? "Conflicts with another enabled mod.") : "") +
+               "\nDouble-click to edit. Right-click for tags and more." + (CanReorder?.Invoke() == true && m.Lock == ModLock.None ? " Drag to move it in the order." : "");
     }
 
     /// <summary>Test hook: the centre of item <paramref name="i"/>'s padlock or checkbox (client coordinates).</summary>
@@ -828,12 +875,57 @@ sealed class ModListBox : ListBox
                 if (rect.Contains(e.Location)) { TagClicked?.Invoke(tag); return; }
 
         }
+        // A press on the card itself can become a drag (priority view, unlocked mods).
+        dragMod = CanReorder?.Invoke() == true && m.Lock == ModLock.None ? m : null;
+        dragFrom = e.Location;
+        leftDown = true;   // our own record: MouseEventArgs.Button on a move reflects the hardware state, not the message
         base.OnMouseDown(e);
+    }
+
+    void UpdateDrop(Point p)
+    {
+        int i = IndexFromPoint(p);
+        if (i < 0 || i >= Items.Count) i = p.Y < 0 ? TopIndex : Items.Count - 1;
+        var r = GetItemRectangle(i);
+        bool below = p.Y > r.Top + r.Height / 2;
+        if (i == dropItem && below == dropBelow) return;
+        (dropItem, dropBelow) = (i, below);
+        Invalidate();
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        leftDown = false;
+        if (!dragging) { dragMod = null; return; }
+        var (m, i, below) = (dragMod, dropItem, dropBelow);
+        EndDrag();
+        if (m != null && i >= 0 && i < Items.Count && Items[i] is Mod target && target != m) Dropped?.Invoke(m, target, below);
+    }
+
+    void EndDrag()
+    {
+        dragging = false; dragMod = null; dropItem = -1; scrollTimer.Stop();
+        Capture = false; Cursor = Cursors.Default; Invalidate();
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Escape && dragging) { EndDrag(); e.Handled = true; return; }
+        base.OnKeyUp(e);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        if (dragMod != null && leftDown)
+        {
+            var ds = SystemInformation.DragSize;
+            if (!dragging && (Math.Abs(e.X - dragFrom.X) > ds.Width || Math.Abs(e.Y - dragFrom.Y) > ds.Height))
+            { dragging = true; HideTip(); tipText = null; Capture = true; Cursor = Cursors.SizeNS; scrollTimer.Start(); }
+            if (dragging) { UpdateDrop(e.Location); return; }
+        }
+        else if (dragging) EndDrag();
         int i = IndexFromPoint(e.Location);
         if (i >= 0 && (i >= Items.Count || !GetItemRectangle(i).Contains(e.Location))) i = -1;
         if (i != hover) { int old = hover; hover = i; if (old >= 0 && old < Items.Count) Invalidate(GetItemRectangle(old)); if (i >= 0 && i < Items.Count) Invalidate(GetItemRectangle(i)); }
@@ -851,7 +943,7 @@ sealed class ModListBox : ListBox
         base.OnKeyDown(e);
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) { tipTimer.Dispose(); tips.Dispose(); } base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { tipTimer.Dispose(); tips.Dispose(); scrollTimer.Dispose(); } base.Dispose(disposing); }
 }
 
 /// <summary>The middle column of the Mods page: the selected mod's store image(s) (StoreReplacements, 300×420 in the
@@ -1111,6 +1203,9 @@ sealed class DetailsHeader : Control
     public Mod? Mod { get; set; }
     public bool Conflicted { get; set; }
     public event Action? PillClicked;
+    /// <summary>The "Conflict" badge clicked (opens the Conflicts tab).</summary>
+    public event Action? ConflictClicked;
+    Rectangle conflictRect;
     /// <summary>A tag chip or "+ Tag" clicked, at a screen point (opens the tags menu).</summary>
     public event Action<Point>? TagsClicked;
     Rectangle pill, tagArea;
@@ -1146,8 +1241,15 @@ sealed class DetailsHeader : Control
         }
         TextRenderer.DrawText(g, state, pillFont, pill, Ui.OnColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         var badges = Ui.Badges(m);
-        if (Conflicted) badges.Insert(0, ("Conflict", Ui.Warn));
         int left = Ui.DrawBadges(g, badges, pill.Left - (int)(8 * S), pill.Top + pill.Height / 2, badge, S * 1.15f);
+        conflictRect = Rectangle.Empty;
+        if (Conflicted)
+        {
+            int r0 = left - (int)(6 * S);
+            int l0 = Ui.DrawBadges(g, [("Conflict", Ui.Warn)], r0, pill.Top + pill.Height / 2, badge, S * 1.15f);
+            conflictRect = new Rectangle(l0, pill.Top, r0 - l0, pill.Height);
+            left = l0;
+        }
 
         // Left: name, version, by-line.
         var ts = TextRenderer.MeasureText(g, m.Name, title, Size.Empty, TextFormatFlags.NoPrefix);
@@ -1174,12 +1276,13 @@ sealed class DetailsHeader : Control
         }
     }
 
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); Cursor = (pill.Contains(e.Location) || tagArea.Contains(e.Location)) && Mod != null ? Cursors.Hand : Cursors.Default; }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); Cursor = (pill.Contains(e.Location) || tagArea.Contains(e.Location) || conflictRect.Contains(e.Location)) && Mod != null ? Cursors.Hand : Cursors.Default; }
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
         if (Mod == null) return;
         if (pill.Contains(e.Location)) PillClicked?.Invoke();
+        else if (conflictRect.Contains(e.Location)) ConflictClicked?.Invoke();
         else if (tagArea.Contains(e.Location)) TagsClicked?.Invoke(PointToScreen(new Point(e.X, tagArea.Bottom)));
     }
 }

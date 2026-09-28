@@ -31,6 +31,7 @@ static class Program
         ("--apply", "--apply [--dry-run [--out <dir>]]", "Make the game match the library: winners' packages in, icon packages rebuilt from stock with the winning textures, verified stock originals back for the rest. Writes through MPM's verified path with undo. --out saves what a dry run would write."),
         ("--capture-icons", "--capture-icons [mod name]", "Save icon changes in the game that no mod accounts for (other tools, deleted mods) as a new texture mod, so Apply keeps them."),
         ("--verify-strings", "--verify-strings", "Self-test: every .string file in the game and in the library's originals reads and writes back byte for byte."),
+        ("--sound-container", "--sound-container <file.pck> <bank id hex> <object id hex>", "Diagnostic: the sound a sound-pack line would copy for that target (looks inside nested containers)."),
         ("--build-sound", "--build-sound <pack.mhsfx> <original.pck> <out.pck>", "Test: patch a copy of a sound package with one sound pack (never into the game folder)."),
         ("--add-original", "--add-original <file.tfc>", "Keep a clean copy of a texture cache (e.g. Icons.tfc) as its original: must carry the stock date (2024-03-14) and the game file's size. Apply then keeps the live one original."),
         ("--extract-texture", "--extract-texture <icons|achievements|store> <texture> <out.dds|out.png>", "Save a stock icon / achievement / store image (from the originals) as .dds, or as .png."),
@@ -257,6 +258,11 @@ static class Program
                 }
             changed.ForEach(c => Console.WriteLine("  " + c));
             Console.WriteLine($"{changed.Count} texture(s) differ ({checkedMips} cached mips compared).");
+            return 0;
+        }
+        if (rest[0].Equals("--sound-container", StringComparison.OrdinalIgnoreCase) && rest.Count == 4)
+        {
+            Console.WriteLine(Akpk.ProbeTarget(rest[1], Convert.ToUInt32(rest[2], 16), Convert.ToUInt32(rest[3], 16)));
             return 0;
         }
         if (rest[0].Equals("--build-sound", StringComparison.OrdinalIgnoreCase) && rest.Count == 4)

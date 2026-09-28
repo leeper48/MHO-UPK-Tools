@@ -234,19 +234,34 @@ static class Applier
         catch (InvalidDataException ex) { return [ex.Message]; }
     }
 
+    /// <summary>A skipped sound-pack line ("SFX_x.pck: Name: skipped (why)"), not a whole file.</summary>
+    public static bool IsSoundLine(string problem) => problem.Contains(": skipped (", StringComparison.Ordinal);
+
     public static void Print(Plan p)
     {
         foreach (var s in p.Steps) Console.WriteLine($"  {s.File}: {s.What}");
-        if (p.Problems.Count > 0)
+        // Two kinds of skipped items (a user's 7 were all sound-pack lines, not files): sound-pack lines that can't be
+        // added (the rest of the pack is), and files that are left exactly as they are.
+        var lines = p.Problems.Where(IsSoundLine).ToList();
+        var files = p.Problems.Where(x => !IsSoundLine(x)).ToList();
+        if (files.Count > 0)
         {
             Console.WriteLine();
             Console.WriteLine("Left as they are (nothing is written to these; the game keeps its current copy):");
-            foreach (string x in p.Problems) Console.WriteLine($"  {x}");
+            foreach (string x in files) Console.WriteLine($"  {x}");
             Console.WriteLine("  Usually the game's copy was already changed before (by a mod or another tool) and there's no clean");
-            Console.WriteLine("  original to rebuild it from. They stay exactly as they are now; everything else still applies normally.");
-            Console.WriteLine();
+            Console.WriteLine("  original to rebuild it from. Everything else still applies normally.");
         }
-        Console.WriteLine($"{p.Steps.Count} file(s) to change, {p.UpToDate} already right, {p.Problems.Count} left as they are.");
+        if (lines.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Sound-pack lines left out (the rest of each pack is added and works):");
+            foreach (string x in lines) Console.WriteLine($"  {x}");
+            Console.WriteLine("  Each new line copies an existing sound event; these name one that isn't in that sound bank (for");
+            Console.WriteLine("  example one added by another pack that isn't installed or turned on).");
+        }
+        if (p.Problems.Count > 0) Console.WriteLine();
+        Console.WriteLine($"{p.Steps.Count} file(s) to change, {p.UpToDate} already right, {p.Problems.Count} skipped.");
         if (p.NotHandled.Count > 0)
             Console.WriteLine($"Not applied by this version: the sound packs of {p.NotHandled.Count} enabled mod(s); the game keeps whatever is there now.");
     }

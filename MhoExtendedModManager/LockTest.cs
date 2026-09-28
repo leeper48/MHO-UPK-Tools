@@ -42,6 +42,13 @@ static class LockTest
             lib.MoveToEnd(M("C"), 1); Expect("C to bottom: above the bottom lock", "[A][B]DEFC{G}{H}");
             lib.MoveToEnd(M("E"), -1); Expect("E to top: below the top lock", "[A][B]EDFC{G}{H}");
             lib.Move(M("C"), 1); Expect("C down: stops above the bottom lock", "[A][B]EDFC{G}{H}");
+            // Drag and drop (MoveTo): to a position, never past the locks; a locked mod can't be dragged.
+            // (positions count from the top, locked mods included)
+            lib.MoveTo(M("C"), 3); Expect("drag C to position 3", "[A][B]ECDF{G}{H}");
+            lib.MoveTo(M("F"), 0); Expect("drag F onto the top: stops under the top lock", "[A][B]FECD{G}{H}");
+            lib.MoveTo(M("E"), 99); Expect("drag E past the end: stops above the bottom lock", "[A][B]FCDE{G}{H}");
+            if (lib.MoveTo(M("G"), 2)) fails++; Expect("drag locked G: refused", "[A][B]FCDE{G}{H}");
+            lib.MoveTo(M("E"), 2); lib.MoveTo(M("D"), 3); Expect("back as before", "[A][B]EDFC{G}{H}");
             Lock("A"); Expect("unlock A (outer): goes under the locked B", "[B]AEDFC{G}{H}");
             // A new mod written at the top of ModOrder (as ModWriter / install do) lands under the top lock.
             Directory.CreateDirectory(Path.Combine(data, "mods", "N"));

@@ -183,6 +183,16 @@ sealed class ModLibrary
         return true;
     }
 
+    /// <summary>Moves a mod to a position (drag and drop), kept inside the unlocked range. False for a locked mod.</summary>
+    public bool MoveTo(Mod m, int position)
+    {
+        if (m.Lock != ModLock.None) return false;
+        Mods.Remove(m);
+        Mods.Insert(Math.Clamp(position, TopLocked, Mods.Count - BottomLocked), m);
+        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        return true;
+    }
+
     /// <summary>Every tag in use, sorted.</summary>
     public List<string> AllTags() => Mods.SelectMany(m => m.Tags).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
 

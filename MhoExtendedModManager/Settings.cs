@@ -21,6 +21,8 @@ sealed class Settings
     public string? Library { get; set; }
     /// <summary>The mod list's sort (priority, name, author, tag, enabled) and grouping (none, tag, author).</summary>
     public string ListSort { get; set; } = "priority";
+    /// <summary>The mod list's width as a fraction of the window (null: 30%), kept between starts (a user's request).</summary>
+    public float? ListWidth { get; set; }
     public string ListGroup { get; set; } = "none";
     /// <summary>Updates: look for a new version at start (at most once a day); a version the user chose to skip.</summary>
     public bool CheckUpdates { get; set; } = true;

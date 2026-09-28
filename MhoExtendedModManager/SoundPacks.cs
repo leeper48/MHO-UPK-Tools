@@ -124,19 +124,35 @@ sealed class Akpk
             var entry = pk.Banks.FirstOrDefault(b => b.Id == group.Key);
             if (entry == null) { problems.Add($"{pckName}: no bank '{group.First().Patch.Bank}'"); continue; }
             var bank = new Bank(ReadData(f, entry));
+            // A line can copy an event another line adds (a voice pack building on its own lines): lines whose original
+            // event isn't there yet are tried again after the rest, until a pass adds nothing. (User report 2026-09-28:
+            // an Aurheon voice pack's lines copy Aurheon_… events, which aren't in the stock bank.)
+            var waiting = new List<(SoundPack Pack, SoundPack.Patch Patch, byte[] Wem, string Err)>();
+            string? Add(SoundPack pack, SoundPack.Patch p, byte[] wem)
+            {
+                string? err = bank.AddEvent(p, wem, out bool streamed);
+                if (err != null) return err;
+                if (streamed)
+                {
+                    if (pk.Streams.Any(s => s.Id == p.SourceId) || newStreams.Any(s => s.Id == p.SourceId)) { problems.Add($"{p.EventName}: stream {p.SourceId:X8} already exists"); return null; }
+                    newStreams.Add((p.SourceId, entry.Language, wem));
+                }
+                return null;
+            }
             foreach (var (pack, p) in group)
             {
                 if (p.Type != "new_event") { problems.Add($"{p.EventName}: patch type '{p.Type}' not supported"); continue; }
                 if (!pack.Wems.TryGetValue(p.WemFile, out byte[]? wem)) { problems.Add($"{p.EventName}: {p.WemFile} missing from {Path.GetFileName(pack.File)}"); continue; }
                 if (SoundPack.Fnv(p.EventName) != p.EventHash) notes.Add($"{p.EventName}: event_hash {p.EventHash:X8} isn't the name's hash {SoundPack.Fnv(p.EventName):X8} (used as given)");
-                string? err = bank.AddEvent(p, wem, out bool streamed);
-                if (err != null) { notes.Add($"{p.EventName}: skipped ({err})"); continue; }
-                if (streamed)
-                {
-                    if (pk.Streams.Any(s => s.Id == p.SourceId) || newStreams.Any(s => s.Id == p.SourceId)) { problems.Add($"{p.EventName}: stream {p.SourceId:X8} already exists"); continue; }
-                    newStreams.Add((p.SourceId, entry.Language, wem));
-                }
+                if (Add(pack, p, wem) is string err) waiting.Add((pack, p, wem, err));
             }
+            for (bool progress = true; progress && waiting.Count > 0; )
+            {
+                progress = false;
+                foreach (var wt in waiting.ToList())
+                    if (wt.Err.StartsWith("original event") && Add(wt.Pack, wt.Patch, wt.Wem) == null) { waiting.Remove(wt); progress = true; }
+            }
+            foreach (var wt in waiting) notes.Add($"{wt.Patch.EventName}: skipped ({wt.Err})");
             bankData[entry.Id] = bank.Write();
         }
         if (problems.Count > 0) return null;
@@ -182,6 +198,16 @@ sealed class Akpk
         for (int i = 0; i < streams.Count; i++)
             (streams[i].New ?? ReadData(f, streams[i].Old!)).CopyTo(output, streamOut[i].StartBlock);
         return output;
+    }
+
+    /// <summary>Diagnostic (--sound-container): the sound a patch would clone for an action target, or why not.</summary>
+    public static string ProbeTarget(string pckPath, uint bankId, uint target)
+    {
+        using var f = File.OpenRead(pckPath);
+        var pk = Read(f);
+        var entry = pk.Banks.FirstOrDefault(b => b.Id == bankId);
+        if (entry == null) return $"no bank {bankId:X8}";
+        return new Bank(ReadData(f, entry)).Probe(target);
     }
 
     static int WriteTable(Span<byte> w, int at, List<Entry> t)
@@ -236,6 +262,39 @@ sealed class Akpk
         byte[]? Chunk(string tag) => chunks.FirstOrDefault(c => c.Tag == tag).Data;
         (byte Type, uint Id, byte[] Body)? Obj(uint id) => index.TryGetValue(id, out int i) ? objects[i] : null;
 
+        /// <summary>
+        /// A container whose children are containers (seen 2026-09-28: 3F5A4534, a random container holding two more): the
+        /// first sound under its first listed real child, depth first. A child is an object the container lists that also
+        /// names the container (its parent) in its own body, so the parent, a bus or the like is never followed.
+        /// </summary>
+        (byte Type, uint Id, byte[] Body)? NestedSound((byte Type, uint Id, byte[] Body) c, int depth, HashSet<uint> seen)
+        {
+            if (depth > 6 || !seen.Add(c.Id)) return null;
+            Span<byte> key = stackalloc byte[4], parentKey = stackalloc byte[4];
+            BinaryPrimitives.WriteUInt32LittleEndian(parentKey, c.Id);
+            var kids = new List<(int At, (byte Type, uint Id, byte[] Body) Obj)>();
+            foreach (var o in objects)
+            {
+                if (o.Id == c.Id || o.Type is not (2 or 5 or 6 or 9) || o.Body.AsSpan().IndexOf(parentKey) < 0) continue;
+                BinaryPrimitives.WriteUInt32LittleEndian(key, o.Id);
+                int at = c.Body.AsSpan().IndexOf(key);
+                if (at >= 0) kids.Add((at, o));
+            }
+            foreach (var (_, o) in kids.OrderBy(k => k.At))
+            {
+                if (o.Type == 2) return o;
+                if (NestedSound(o, depth + 1, seen) is { } s) return s;
+            }
+            return null;
+        }
+
+        public string Probe(uint target)
+        {
+            if (Obj(target) is not { } tgt) return $"{target:X8} not in the bank";
+            if (tgt.Type == 2) return $"{target:X8} is a sound";
+            return NestedSound(tgt, 0, []) is { } s ? $"{target:X8} (type {tgt.Type}): first sound {s.Id:X8}" : $"{target:X8} (type {tgt.Type}): no sound under it";
+        }
+
         /// <summary>Adds the Sound, Action and Event for one patch. Returns an error (nothing added) or null; streamed says where the media goes.</summary>
         public string? AddEvent(SoundPack.Patch p, byte[] wem, out bool streamed)
         {
@@ -259,6 +318,7 @@ sealed class Akpk
                     int at = tgt.Body.AsSpan().IndexOf(key);
                     if (at >= 0 && at < best) { best = at; found = o; }
                 }
+                found ??= NestedSound(tgt, 0, []);
                 if (found is not { } fs) return $"target {target:X8} (type {tgt.Type}) has no child sound";
                 sound = fs;
             }

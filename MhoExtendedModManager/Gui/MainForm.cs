@@ -18,6 +18,7 @@ sealed class MainForm : Form
     GameState? game;
     Dictionary<string, Mod> winners = [];
     HashSet<Mod> conflicted = [];
+    Dictionary<Mod, Dictionary<Mod, int>> conflictWith = [];   // mod → other mod → shared changes
     Task? loading, pending;
     bool readOnly;
     readonly List<Control> writeControls = [];
@@ -166,7 +167,7 @@ sealed class MainForm : Form
         groupButton.Click += (_, _) => GroupMenu().Show(groupButton, new Point(0, groupButton.Height));
         filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
         allVisible.Click += (_, _) => SetAllVisible();
-        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   (Nexus updates, linked mods)");
+        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   (Nexus updates, linked mods, conflicts)");
         tips.SetToolTip(sortButton, "Order the list by priority, name, author, tag, on first, or Nexus updates first. Priority buttons and padlocks work in the priority order only.");
         tips.SetToolTip(groupButton, "Group the list by tag or author. Click a group's header to fold it.");
         // Nexus strip (Kurt: status and actions by the list, not in Settings): status (click = the next step), Check for Updates, Find My Mods, ▾.
@@ -199,6 +200,19 @@ sealed class MainForm : Form
         list.TagClicked += t => filter.Text = t.Contains(' ') ? $"tag:\"{t}\"" : $"tag:{t}";
         list.MenuRequested += (m, pt) => CardMenu(m).Show(pt);
         list.UpdateFor = m => NexusUpdates.UpdateFor(m, nexus);
+        list.ConflictText = ConflictSummary;
+        list.CanReorder = () => ReorderView && !readOnly;
+        list.Dropped += (m, target, below) =>
+        {
+            if (lib == null || m.Lock != ModLock.None) return;
+            int to = target.Priority + (below ? 1 : 0);
+            if (m.Priority < to) to--;
+            if (to == m.Priority) return;
+            var l = lib;
+            int before = m.Priority;
+            Change($"move \"{m.Name}\" next to \"{target.Name}\"", () => l.MoveTo(m, to) && m.Priority != before);
+        };
+        header.ConflictClicked += () => { for (int i = 0; i < tabs.Count; i++) if (tabs.TitleAt(i).StartsWith("Conflicts")) { tabs.Select(i); break; } };
         list.UpdateClicked += m => UpdateFromNexus(m);
 
         // ---- Right: the selected mod
@@ -299,7 +313,13 @@ sealed class MainForm : Form
             Restyle(this);
             Reload();
         };
-        Shown += (_, _) => split.SplitterDistance = (int)(split.Width * 0.30);   // after maximizing
+        // After maximizing: the list width the user left it at (a fraction of the window, so it fits any size), else 30%.
+        Shown += (_, _) =>
+        {
+            float fr = settings.ListWidth is float f && f > 0.1f && f < 0.8f ? f : 0.30f;
+            split.SplitterDistance = (int)(split.Width * fr);
+            split.SplitterMoved += (_, _) => { if (split.Width > 0) { settings.ListWidth = (float)Math.Round((double)split.SplitterDistance / split.Width, 3); settings.Save(); } };
+        };
         FormClosing += (_, _) => SaveNote();
         // A quiet look for a new version, at most once a day (Settings: Check for updates at start).
         // The first time: ask whether it may look (code signing policy: nothing goes over the network without consent).
@@ -425,6 +445,17 @@ sealed class MainForm : Form
         var conflicts = lib.Conflicts();
         conflicted = conflicts.SelectMany(c => c.Mods).ToHashSet();
         list.Conflicted = conflicted;
+        // Per mod: which mods it overrides and which override it (the highest mod wins each shared change).
+        conflictWith = [];
+        foreach (var (_, ms) in conflicts)
+            for (int a = 0; a < ms.Count; a++)
+                for (int b = 0; b < ms.Count; b++)
+                    if (a != b)
+                    {
+                        var d = conflictWith.TryGetValue(ms[a], out var x) ? x : conflictWith[ms[a]] = [];
+                        d[ms[b]] = (d.TryGetValue(ms[b], out var c) ? c : 0) + 1;
+                    }
+        list.Overridden = conflicted.Where(m => conflictWith[m].Keys.Any(o => o.Priority < m.Priority)).ToHashSet();
         countLabel.Text = $"{lib.Mods.Count(m => m.Enabled)} of {lib.Mods.Count} On";
         UpdateNexusStatus();
         countLabel.ForeColor = Ui.Subtle;
@@ -451,7 +482,8 @@ sealed class MainForm : Form
     {
         if (t.StartsWith("is:", StringComparison.OrdinalIgnoreCase))
             return t[3..].ToLowerInvariant() switch { "on" => m.Enabled, "off" => !m.Enabled, "locked" => m.Lock != ModLock.None, "untagged" => m.Tags.Count == 0,
-                "update" => current?.nexus is NexusCache c && NexusUpdates.UpdateFor(m, c) != null, "nexus" => m.NexusModId != null, _ => true };
+                "update" => current?.nexus is NexusCache c && NexusUpdates.UpdateFor(m, c) != null, "nexus" => m.NexusModId != null,
+                "conflict" => current?.conflicted.Contains(m) == true, _ => true };
         if (t.StartsWith("tag:", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#'))
         {
             string x = t.StartsWith('#') ? t[1..] : t[4..];
@@ -818,7 +850,7 @@ sealed class MainForm : Form
             int n = t.Result.Steps.Count, skipped = t.Result.Problems.Count;
             applyButton.Text = n == 0 ? "Apply Changes" : $"Apply Changes ({n})";
             status.Text = baseText + Ui.TitleCase((n == 0 ? "  ·  the game matches your list" : $"  ·  {n} file(s) to change") +
-                          (skipped > 0 ? $"  ·  {skipped} left as they are" : "") + (n + skipped > 0 ? "  ·  click for details" : ""));
+                          (skipped > 0 ? $"  ·  {skipped} skipped" : "") + (n + skipped > 0 ? "  ·  click for details" : ""));
             status.ForeColor = n == 0 ? Ui.Subtle : Ui.Text;
             // A user saw "7 Can't Be (See Apply)" and didn't know what it meant or whether Apply was safe: the line now
             // says it plainly and opens the plan (the Apply window asks before it writes anything).
@@ -826,7 +858,7 @@ sealed class MainForm : Form
             status.Cursor = reviewable ? Cursors.Hand : Cursors.Default;
             tips.SetToolTip(status, !reviewable ? "" :
                 (n > 0 ? $"{n} game file(s) don't match your mod list yet. " : "") +
-                (skipped > 0 ? $"{skipped} file(s) can't be changed and are left exactly as they are (usually: the game's copy was already changed before, and there's no clean original to rebuild it from). " : "") +
+                (skipped > 0 ? $"{skipped} item(s) are skipped: files that can't be changed stay exactly as they are, and sound-pack lines that can't be added are left out (the rest of the pack still works). " : "") +
                 "Click to see the list: the Apply window shows every file first, and nothing is written until you press Apply there.");
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
@@ -862,6 +894,8 @@ sealed class MainForm : Form
     {
         if (Selected is not Mod m || lib == null) return;
         header.Mod = m; header.Conflicted = conflicted.Contains(m); header.Invalidate();
+        list.Partners = conflictWith.TryGetValue(m, out var partners) ? partners.Keys.ToHashSet() : [];
+        list.Invalidate();
         storePreview.Mod = m;
         ShowNote(m);
         int keepTab = Math.Max(0, tabs.SelectedIndex);
@@ -936,6 +970,14 @@ sealed class MainForm : Form
         if (mineConflicts.Count > 0)
         {
             var grid = Grid(false, ("Change", 0), ("Result", 420));
+            // First one row per other mod (a user: show which mods it conflicts with), then every shared change.
+            foreach (var (other, n) in conflictWith[m].OrderBy(kv => kv.Key.Priority))
+            {
+                bool wins = m.Priority < other.Priority;
+                int i = grid.Rows.Add($"\"{other.Name}\"  ·  {n} shared change(s)", wins ? "This mod wins (it's higher in the list)" : "That mod wins (it's higher in the list)");
+                grid.Rows[i].DefaultCellStyle.Font = Ui.Bold(9.5f);
+                grid.Rows[i].Cells[1].Style.ForeColor = wins ? Ui.Enabled : Ui.Warn;
+            }
             foreach (var (claim, mods) in mineConflicts)
             {
                 int i = grid.Rows.Add(claim, mods[0] == m ? "Wins over " + string.Join(", ", mods.Skip(1).Select(x => x.Name)) : "Loses to " + mods[0].Name);
@@ -1223,6 +1265,16 @@ sealed class MainForm : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open Marvel Heroes Omega Mods on Nexus", null, (_, _) => Process.Start(new ProcessStartInfo(Nexus.SiteMods) { UseShellExecute = true }));
         return menu;
+    }
+
+    /// <summary>"Overrides A, B · overridden by C" for a conflicting mod (list tooltips).</summary>
+    string? ConflictSummary(Mod m)
+    {
+        if (!conflictWith.TryGetValue(m, out var d)) return null;
+        var wins = d.Keys.Where(o => o.Priority > m.Priority).OrderBy(o => o.Priority).Select(o => $"\"{o.Name}\"").ToList();
+        var loses = d.Keys.Where(o => o.Priority < m.Priority).OrderBy(o => o.Priority).Select(o => $"\"{o.Name}\"").ToList();
+        return string.Join("\n", new[] { loses.Count > 0 ? "Overridden in part by " + string.Join(", ", loses) + " (higher in the list)" : null,
+                                         wins.Count > 0 ? "Overrides " + string.Join(", ", wins) + " where they change the same thing" : null }.Where(x => x != null));
     }
 
     ToolStripMenuItem NexusMenu(Mod m)
@@ -1521,6 +1573,25 @@ sealed class MainForm : Form
             CloseEditor(); pages.Select(0);
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
             Check("the list keeps its window through the double-click", list.Handle == listHandle);
+        }
+        // Drag and drop (a user's request): press on the third card, move with the button held over the top half of the
+        // first, let go: it becomes first (unless the first is locked there). Undo puts it back.
+        if (M(a).Lock == ModLock.None && M(c).Lock == ModLock.None)
+        {
+            int ci = list.Items.Cast<object>().ToList().FindIndex(o => o is Mod mm && mm.FolderName == c);
+            var from = list.GetItemRectangle(ci); var to = list.GetItemRectangle(topIndex);
+            IntPtr L(int x, int y) => (IntPtr)((y << 16) | (x & 0xFFFF));
+            int x0 = from.X + (int)(140 * DeviceDpi / 96f);
+            int y0 = from.Y + (int)(12 * DeviceDpi / 96f);   // the name row (the second row has tag chips)
+            SendMessage(list.Handle, 0x0201, (IntPtr)1, L(x0, y0));   // down
+            foreach (int y in new[] { y0 - 12, (from.Y + to.Y) / 2, to.Y + 4 })
+                SendMessage(list.Handle, 0x0200, (IntPtr)1, L(x0, y));                        // WM_MOUSEMOVE, MK_LBUTTON
+            SendMessage(list.Handle, 0x0202, IntPtr.Zero, L(x0, to.Y + 4));                  // up
+            Application.DoEvents();
+            await Task.Delay(300);
+            bool dragged = lib.Mods[0].FolderName == c && M(c).Priority == 0;
+            Check("drag the third mod onto the top: it becomes first", dragged);
+            if (dragged) { Undo(); Check("undo the drag: back in third place", M(c).Priority == 2 && lib.Mods[0].FolderName == a); }
         }
 
         Change("tag a", () => { ModLibrary.AddTag(M(a), "Selftest-One"); return true; });
