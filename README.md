@@ -1,6 +1,6 @@
 # MHO UPK Tools
 
-Free, open-source Windows tools for modding **Marvel Heroes Omega**. The game is built on a customised Unreal Engine 3, and its content lives in `.upk` packages. These tools read and write those packages.
+Free, open-source Windows tools for modding **Marvel Heroes Omega**. The game is built on a customized Unreal Engine 3, and its content lives in `.upk` packages. These tools read and write those packages.
 
 | Tool | What it's for | Status |
 |---|---|---|
@@ -12,7 +12,7 @@ Free, open-source Windows tools for modding **Marvel Heroes Omega**. The game is
 
 ## MHO Extended Mod Manager
 
-A mod manager for Marvel Heroes Omega. It does everything **MHModManager 1.0.1** does, in the same mod format, and adds a safety net, better organising tools, an editor and Nexus Mods update checks. Mods it saves or exports still install in MHModManager 1.0.1.
+A mod manager for Marvel Heroes Omega. It does everything **MHModManager 1.0.1** does, in the same mod format, and adds a safety net, better organizing tools, an editor and Nexus Mods update checks. Mods it saves or exports still install in MHModManager 1.0.1.
 
 ![The mod list, store image and details](docs/images/extmm-mods.jpg)
 
@@ -47,7 +47,7 @@ A mod manager for Marvel Heroes Omega. It does everything **MHModManager 1.0.1**
 
 ![Editing strings, with what each string is used by](docs/images/extmm-editor-strings.jpg)
 
-### Organising
+### Organizing
 - **Tags:** automatic ones (character, team, costume, team-up, power effects, pet …), the mod's own tags, and your own.
 - **Search, sort and group:** for example `tag:x-men`, `#costume`, `is:on`, `is:update`.
 - **Priority:** move a mod to the top or bottom, and use **padlocks** to keep mods there.
@@ -82,7 +82,7 @@ Source: [`MhoExtendedModManager/`](MhoExtendedModManager). The user guide ships 
 ## MHO Package Modifier
 
 `MHO_UPK_Mod.exe`, a workbench for looking inside the game's packages and changing them:
-- **Values:** browse any package's objects and change them: fog, colours, material parameters.
+- **Values:** browse any package's objects and change them: fog, colors, material parameters.
 - **Textures:** view and replace them, including images streamed from the `.tfc` caches.
 - **Meshes:** view them in 3D, export them to FBX and import edited ones back; changes are confirmed in-game.
 - **Zones:** edit a zone's building placements in Blender (a round trip), copy materials and objects between packages, and rebuild a zone's distant view.
@@ -104,10 +104,10 @@ Source: [`AnimExportCli/`](AnimExportCli).
 - **Needs:** the .NET 8 SDK, on Windows.
 - **Building:** each tool has a `build.bat` in its folder. MHO Extended Mod Manager references MHO Package Modifier, so build from a full checkout.
 
-## Credits and licence
+## Credits and license
 
 - **Krisan:** MHO Extended Mod Manager builds on **MHModManager**, by Krisan: its mod format, its ideas and the mods made for it. Thank you.
 - **Libraries:** [SharpCompress](https://github.com/adamhathcock/sharpcompress), ZstdSharp, System.IO.Hashing, AssimpNet and [assimp](https://github.com/assimp/assimp). See the `THIRD-PARTY-NOTICES.txt` files.
-- **Licence:** [MIT](LICENSE).
+- **License:** [MIT](LICENSE).
 
 Marvel Heroes Omega and Marvel characters are trademarks of their owners. This is an unofficial fan project, not affiliated with or endorsed by Marvel, Gazillion or Disney.
