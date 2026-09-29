@@ -409,7 +409,8 @@ sealed class DropList : ToolStripDropDown
         if (selected >= 0 && selected < texts.Count) list.SelectedIndex = selected;
 
         int widest = texts.Count == 0 ? 0 : texts.Max(t => TextRenderer.MeasureText(t, font).Width);
-        int width = Math.Clamp(widest + (int)(48 * s) + SystemInformation.VerticalScrollBarWidth, Math.Max(anchor.Width, (int)(140 * s)), (int)(640 * s));
+        int minW = Math.Max(anchor.Width, (int)(140 * s));
+        int width = Math.Clamp(widest + (int)(48 * s) + SystemInformation.VerticalScrollBarWidth, minW, Math.Max(minW, (int)(640 * s)));
         var screen = Screen.FromRectangle(anchor).WorkingArea;
         int rows = Math.Min(texts.Count, Math.Max(4, maxRows));
         int height = rows * row + searchH + 2;

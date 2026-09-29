@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.16
+- Fixed: a very wide drop-down (for example on a 4K screen) crashed the app when it opened.
+
 0.37.15
 - Card pictures: right-click a mod → Card Picture to choose which of its images its card in the list shows, or a custom image of your own (.PNG, .JPG or .DDS).
 - Custom preview picture: right-click the preview → Custom Image.
