@@ -482,6 +482,16 @@ static class Ui
         }
     }
 
+    /// <summary>A toggle button's state: lit (accent) when on, flat when off (Loop, Spec / Reflect / Glow).</summary>
+    public static void Lit(Button b, bool on)
+    {
+        b.Tag = on ? "accent" : "flat";
+        b.BackColor = on ? Accent : Bar; b.ForeColor = on ? Color.White : Text;
+        b.FlatAppearance.BorderColor = on ? Accent : Line;
+        b.FlatAppearance.MouseOverBackColor = on ? AccentHover : CardHover;
+        b.Invalidate();
+    }
+
     static Button Style(Button b, Action onClick, bool accent)
     {
         Rounded(b);
@@ -1742,14 +1752,7 @@ sealed class StorePreview : Control
     {
         if (viewer != null) { viewer.ShowSpec = PreviewViews.Spec; viewer.ShowReflections = PreviewViews.Reflect; viewer.ShowGlow = PreviewViews.Glow; }
         foreach (var (b, on) in new[] { (specBtn, PreviewViews.Spec), (reflBtn, PreviewViews.Reflect), (glowBtn, PreviewViews.Glow) })
-        {
-            if (b == null) continue;
-            b.Tag = on ? "accent" : "flat";
-            b.BackColor = on ? Ui.Accent : Ui.Bar; b.ForeColor = on ? Color.White : Ui.Text;
-            b.FlatAppearance.BorderColor = on ? Ui.Accent : Ui.Line;
-            b.FlatAppearance.MouseOverBackColor = on ? Ui.AccentHover : Ui.CardHover;
-            b.Invalidate();
-        }
+            if (b != null) Ui.Lit(b, on);
     }
 
     void TogglePlay()

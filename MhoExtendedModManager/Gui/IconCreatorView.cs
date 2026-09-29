@@ -51,6 +51,14 @@ sealed class IconCreatorView : UserControl
     readonly LightSlider turnSlider = new() { Label = "Turn", Min = -180, Max = 180, Step = 1, Mark = 0 };
     bool syncingTurn;
     readonly ModelView view = new() { Background = Color.FromArgb(22, 22, 24) };
+    readonly Button specBtn, reflBtn, glowBtn;
+
+    /// <summary>The Spec / Reflect / Glow toggles (shared with the main preview) into the view, and their look.</summary>
+    void ApplyShading()
+    {
+        view.ShowSpec = PreviewViews.Spec; view.ShowReflections = PreviewViews.Reflect; view.ShowGlow = PreviewViews.Glow;
+        Ui.Lit(specBtn, PreviewViews.Spec); Ui.Lit(reflBtn, PreviewViews.Reflect); Ui.Lit(glowBtn, PreviewViews.Glow);
+    }
     readonly Panel stage = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
     readonly PictureBox result = new() { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
     readonly Label title = new() { AutoSize = true, Font = Ui.Bold(11f), Margin = new Padding(0, 0, 0, 2) };
@@ -133,7 +141,17 @@ sealed class IconCreatorView : UserControl
         findRow.Controls.Add(animSearch, 1, 0);
         Row(Caption("POSE"), 8); Row(findRow); Row(animBox); Row(frameSlider);
         overlayBtn = Ui.FlatButton("Original Overlay", ToggleOverlay, tip: "Show or hide the game's original over the view (shortcut: O). Its opacity is the slider above.");
-        Row(Caption("LOOK"), 8); Row(lightSlider); Row(backBox); Row(overlaySlider); Row(overlayBtn);
+        // Spec / Reflect / Glow (Kurt): as in the main 3D preview, and shared with it; the snapshot is taken as shown.
+        var shading = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Width = cw, Height = (int)(30 * s), Margin = new Padding(0) };
+        for (int i = 0; i < 3; i++) shading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+        specBtn = Ui.FlatButton("Spec", () => { PreviewViews.Spec = !PreviewViews.Spec; ApplyShading(); }, tip: "Show the specular highlights (shine) the materials set, in the view and the snapshot. Lit when on; shared with the main 3D preview.");
+        reflBtn = Ui.FlatButton("Reflect", () => { PreviewViews.Reflect = !PreviewViews.Reflect; ApplyShading(); }, tip: "Show reflections of the materials' own environment images, in the view and the snapshot. Lit when on; shared with the main 3D preview.");
+        glowBtn = Ui.FlatButton("Glow", () => { PreviewViews.Glow = !PreviewViews.Glow; ApplyShading(); }, tip: "Show glowing (emissive) parts, in the view and the snapshot. Lit when on; shared with the main 3D preview.");
+        foreach (var b in new[] { specBtn, reflBtn, glowBtn }) { b.AutoSize = false; b.Dock = DockStyle.Fill; b.Margin = new Padding(0, 0, 3, 0); b.Padding = new Padding(0); shading.Controls.Add(b); }
+        ApplyShading();
+        // The main preview may have changed them since: pick them up whenever this shows again.
+        VisibleChanged += (_, _) => { if (Visible) ApplyShading(); };
+        Row(Caption("LOOK"), 8); Row(lightSlider); Row(shading); Row(backBox); Row(overlaySlider); Row(overlayBtn);
         previousBtn = Ui.FlatButton("Use Previous Setup", UsePrevious, tip: "Set this icon up like the one you had open before.");
         previousBtn.AutoEllipsis = true;
         Row(Caption("FRAMING"), 8); Row(turnSlider); Row(lensSlider); Row(presets); Row(previousBtn);

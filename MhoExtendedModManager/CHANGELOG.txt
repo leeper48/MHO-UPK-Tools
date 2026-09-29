@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.12
+- Create from 3D (the icon maker): the Spec, Reflect and Glow buttons too, shared with the main 3D preview; the snapshot is taken as the view shows it.
+
 0.37.11
 - 3D preview: Spec, Reflect and Glow buttons turn the materials' highlights, reflections and glowing parts on or off (lit when on; remembered).
 
