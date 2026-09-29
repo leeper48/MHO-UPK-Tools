@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.7
+- 3D preview: a Frame slider under the animation, like the icon maker's. It follows the animation as it plays; drag it (or use the arrow keys) to scrub to a moment, and ▶ plays on from there.
+
 0.37.6
 - The mod list's top rows fit a narrow list: the Nexus strip's buttons move into its ▾ menu when there's no room, and the Priority arrows, Sort and Group are no longer cut off.
 

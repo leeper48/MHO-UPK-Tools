@@ -1281,7 +1281,8 @@ sealed class StorePreview : Control
     bool fillingAnims;
     // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
     Button? playBtn, loopBtn, restBtn;
-    LightSlider? lightSlider, lensSlider;
+    LightSlider? lightSlider, lensSlider, frameSlider;
+    bool settingFrame;   // the frame slider follows playback without scrubbing
     bool paused = true;
     double playTime, lastTick;
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
@@ -1419,7 +1420,7 @@ sealed class StorePreview : Control
         // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
         bool showStrip = Tiles > 1;
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
-        int captionH = (int)((show3D ? 122 : 40) * S);
+        int captionH = (int)((show3D ? 148 : 40) * S);
         int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
         int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
         if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
@@ -1479,9 +1480,17 @@ sealed class StorePreview : Control
                 var lb = new Rectangle(pb.Right + gap, y, wLoop, bh); if (loopBtn.Bounds != lb) loopBtn.Bounds = lb;
                 var rb = new Rectangle(lb.Right + gap, y, wRest, bh); if (restBtn.Bounds != rb) restBtn.Bounds = rb;
                 foreach (Control c in new Control[] { animBox, playBtn, loopBtn, restBtn }) if (!c.Visible) c.Visible = true;
+                int below = y + bh;
+                if (frameSlider != null)
+                {
+                    var fb = new Rectangle(card.X, below + (int)(4 * S), card.Width, (int)(22 * S));
+                    if (frameSlider.Bounds != fb) frameSlider.Bounds = fb;
+                    if (!frameSlider.Visible) frameSlider.Visible = true;
+                    below = fb.Bottom;
+                }
                 if (lightSlider != null)
                 {
-                    var sb = new Rectangle(card.X, y + bh + (int)(4 * S), card.Width, (int)(22 * S));
+                    var sb = new Rectangle(card.X, below + (int)(4 * S), card.Width, (int)(22 * S));
                     if (lightSlider.Bounds != sb) lightSlider.Bounds = sb;
                     if (!lightSlider.Visible) lightSlider.Visible = true;
                     if (lensSlider != null)
@@ -1669,6 +1678,12 @@ sealed class StorePreview : Control
             loopBtn = Ui.FlatButton("⟳ Loop", () => { PreviewViews.Loop = !PreviewViews.Loop; UpdateButtons(); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
             restBtn = Ui.FlatButton("Reset View", ResetView, "Back to the mod's own view of the model, or the default one (your turned, zoomed or panned view is saved per mesh; this forgets it).");
             foreach (var b in new[] { playBtn, loopBtn, restBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+            // Frame (Kurt: like the icon maker's): where the animation is; dragging it pauses and scrubs.
+            frameSlider = new LightSlider { Visible = false, Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null, Enabled = false, Home = () => 0, Format = v => playing == null ? "—" : $"{v:0} / {playFrames:0}" };
+            frameSlider.ValueChanged += ScrubTo;
+            frameSlider.Committed += SaveAnim;
+            Ui.Tip(frameSlider, "The animation's frame: drag to scrub through it (it pauses), or use the arrow keys (Shift: 5 frames, Home / End: first / last). ▶ plays on from there.");
+            Controls.Add(frameSlider);
             lightSlider = new LightSlider { Visible = false, Home = () => mod == null ? 1f : PreviewViews.AuthorLight(mod) };
             lightSlider.ValueChanged += () => { if (viewer != null) viewer.Brightness = lightSlider.Value; };
             lightSlider.Committed += () => { if (mod != null) PreviewViews.SetLight(mod, lightSlider.Value); };
@@ -1740,6 +1755,7 @@ sealed class StorePreview : Control
         if (i < 0 || i >= anims.Count)
         {
             animator.Pose(null, 0); viewer.UpdateGeometry(animator);
+            ShowFrame(0);
             if (!fillingAnims && MeshOk) { Picked?.Invoke(mod, meshes[meshIndex].Key); SaveAnim(); }
             return;
         }
@@ -1755,11 +1771,34 @@ sealed class StorePreview : Control
             bool restoring = restoreTime != null;
             playTime = Math.Clamp(restoreTime ?? 0, 0, playSeconds); restoreTime = null;
             animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); viewer.UpdateGeometry(animator);
+            ShowFrame(playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0);
             UpdateButtons();
             // A restored animation is shown as it was left, not a new pick (no undo step, the preview choice unchanged).
             if (mod != null && MeshOk && !restoring) Picked?.Invoke(mod, CurrentMeshKey());
             SaveAnim();
         }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>The frame slider moved by the user: pause and show that frame.</summary>
+    void ScrubTo()
+    {
+        if (settingFrame || frameSlider == null || playing == null || animator == null || viewer == null || playFrames <= 0) return;
+        if (!paused) { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); }
+        playTime = frameSlider.Value / playFrames * playSeconds;
+        animator.Pose(playing, frameSlider.Value);
+        viewer.UpdateGeometry(animator);
+    }
+
+    /// <summary>The frame slider follows the animation (set without scrubbing).</summary>
+    void ShowFrame(float frame)
+    {
+        if (frameSlider == null) return;
+        settingFrame = true;
+        frameSlider.Enabled = playing != null;
+        frameSlider.Max = Math.Max(1, playFrames);
+        frameSlider.Value = playing == null ? 0 : Math.Clamp(frame, 0, Math.Max(1, playFrames));
+        settingFrame = false;
+        frameSlider.Invalidate();
     }
 
     void PlayTick(object? sender, EventArgs e)
@@ -1776,6 +1815,7 @@ sealed class StorePreview : Control
         else frame = (float)(playTime / playSeconds * playFrames);
         animator.Pose(playing, frame);
         viewer.UpdateGeometry(animator);
+        ShowFrame(frame);
     }
 
     /// <summary>
@@ -1814,6 +1854,15 @@ sealed class StorePreview : Control
         Check($"Play runs it (time {playTime:0.00} s, ❚❚ shown) and the mesh moves", !paused && playTime > 0.1 && playBtn.Text == "❚❚" && animator.Positions.Where((p, i) => System.Numerics.Vector3.Distance(p, p0[i]) > 0.01f).Any());
         playBtn.PerformClick();
         double held = playTime;
+        if (frameSlider != null)
+        {
+            Check("the frame slider follows the animation", frameSlider.Enabled && Math.Abs(frameSlider.Max - Math.Max(1, playFrames)) < 1e-4 && frameSlider.Value > 0);
+            playBtn.PerformClick();   // playing again, then a drag on the slider
+            await Idle(200);
+            frameSlider.Value = playFrames * 0.5f;
+            Check("dragging the frame slider pauses and shows that frame", paused && Math.Abs(playTime - playSeconds * 0.5) < 1e-3);
+            held = playTime;
+        }
         await Idle(300);
         Check("Pause holds the frame", paused && playTime == held);
         PreviewViews.Loop = false; UpdateButtons();
@@ -1945,9 +1994,9 @@ sealed class StorePreview : Control
         PreviewViews.SetAnim(PreviewViews.Key(mod, shownMesh), i >= 0 && i < anims.Count ? anims[i].Name : null, t);
     }
 
-    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, lightSlider, lensSlider }) if (c != null) c.Visible = false; }
+    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider }) if (c != null) c.Visible = false; }
 
-    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); }
+    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); }
 
     int ThumbAt(Point p)
     {
@@ -2029,7 +2078,7 @@ sealed class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); frameSlider?.Dispose(); }
         base.Dispose(disposing);
     }
 }
