@@ -103,7 +103,8 @@ sealed class ModEditorView : UserControl
         RefreshPackages(); RefreshSounds();
     }
 
-    string LastAuthor() => lib.Mods.OrderByDescending(m => Directory.GetLastWriteTimeUtc(m.Folder)).Select(m => m.Manifest.Author).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a)) ?? "";
+    // Null-safe: the tooltip audit opens an editor on an empty library (crashed 0.35.22 test run).
+    string LastAuthor() => (lib?.Mods ?? []).Where(m => m?.Folder != null).OrderByDescending(m => Directory.GetLastWriteTimeUtc(m.Folder)).Select(m => m.Manifest?.Author).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a)) ?? "";
 
     static Label Caption(string t) => new() { Text = t, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(10, 0, 6, 0), Tag = "subtle" };
     static FlowLayoutPanel Toolbar(params Control[] c) { var f = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) }; f.Controls.AddRange(c); return f; }

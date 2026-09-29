@@ -94,17 +94,19 @@ static class Dialog
             Padding = new Padding(14);
             var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            var heading = new Label
-            {
-                Text = Ui.TitleCase(caption), AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 8),
-                ForeColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Text },
-            };
+            // One button only (OK / Close): the heading is the button (Kurt: "Success" continues; no separate Close).
+            bool single = buttons is not (MessageBoxButtons.OKCancel or MessageBoxButtons.YesNo or MessageBoxButtons.YesNoCancel or MessageBoxButtons.RetryCancel or MessageBoxButtons.AbortRetryIgnore);
+            var toneColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Accent };
+            Control heading = single
+                ? Ui.HeadingButton(Ui.TitleCase(caption), toneColor, () => { DialogResult = DialogResult.OK; })
+                : new Label { Text = Ui.TitleCase(caption), AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 8), ForeColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Text } };
+            if (single) { heading.Margin = new Padding(0, 0, 0, 10); if (!log && !(text.Length > 420 || text.Count(c => c == '\n') > 7)) heading.Anchor = AnchorStyles.None; }
             t.Controls.Add(heading, 0, 0);
             float s = DeviceDpi / 96f;
             if (longText)
                 t.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = text.Replace("\n", "\r\n") }, 0, 1);
             else
-                t.Controls.Add(new Label { Text = text, AutoSize = true, MaximumSize = new Size((int)(470 * s), 0), Margin = new Padding(0, 0, 0, 4) }, 0, 1);
+                t.Controls.Add(new Label { Text = text, AutoSize = true, MaximumSize = new Size((int)(470 * s), 0), Margin = new Padding(0, 0, 0, 4), Anchor = single ? AnchorStyles.None : AnchorStyles.Left | AnchorStyles.Top, TextAlign = single ? ContentAlignment.TopCenter : ContentAlignment.TopLeft }, 0, 1);
 
             var bar = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 12, 0, 0) };
             (string Label, DialogResult Result)[] choices = buttons switch
@@ -127,15 +129,17 @@ static class Dialog
                 made.Add(b);
             }
             for (int i = made.Count - 1; i >= 0; i--) bar.Controls.Add(made[i]);   // right to left: first choice on the left
-            t.Controls.Add(bar, 0, 2);
+            if (!single) t.Controls.Add(bar, 0, 2);
             Controls.Add(t);
 
+            if (single) { made.Clear(); made.Add((Button)heading); main = 0; }
             AcceptButton = made[main];
-            int cancelAt = Array.FindIndex(choices, c => c.Result is DialogResult.Cancel or DialogResult.No);
+            int cancelAt = single ? -1 : Array.FindIndex(choices, c => c.Result is DialogResult.Cancel or DialogResult.No);
             CancelButton = made[cancelAt >= 0 ? cancelAt : 0];
             Theme.Apply(this, Palette.Dark);
             Ui.RestyleButtons(this);
-            heading.ForeColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Text };
+            if (single) { var hb = (Button)heading; hb.BackColor = toneColor; hb.ForeColor = toneColor == Ui.Accent ? Color.White : Ui.OnColor; hb.FlatAppearance.BorderColor = toneColor; }
+            else heading.ForeColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Text };
             if (longText) Ui.FitToScreen(this, 640, 460);
             else
             {

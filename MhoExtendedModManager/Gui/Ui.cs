@@ -166,6 +166,22 @@ static class Ui
         menu.Show(new Point(x, y));
     }
 
+    /// <summary>
+    /// A notification's heading as its only button (Kurt: no separate Close; the word itself, e.g. "Success", continues;
+    /// Enter too): large, bold, in the tone's colour (green success, red error, else the accent).
+    /// </summary>
+    public static Button HeadingButton(string text, Color color, Action action, float points = 13f)
+    {
+        var b = AccentButton(text, action, "Continue (Enter).");
+        b.Font = Bold(points);
+        b.AutoSize = true; b.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        b.Padding = new Padding(18, 6, 18, 6);
+        b.BackColor = color; b.ForeColor = color == Accent ? Color.White : OnColor;
+        b.FlatAppearance.BorderColor = color;
+        b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(color, 0.25f);
+        return b;
+    }
+
     /// <summary>A one-line text prompt in the dark theme (with suggestions); null when cancelled or empty.</summary>
     public static string? Prompt(IWin32Window owner, string title, string label, string initial = "", IEnumerable<string>? suggestions = null, bool secret = false)
     {

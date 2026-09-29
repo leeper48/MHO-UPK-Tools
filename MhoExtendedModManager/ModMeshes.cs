@@ -75,11 +75,19 @@ static class ModMeshes
         Package? mpm = null;
         try { mpm = Package.Open(r.File); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { notes.Add("textures: " + ex.Message); }
         var cache = new Dictionary<int, Gui.ModelView.Map?>();
+        var otherCaches = new Dictionary<Package, Dictionary<int, Gui.ModelView.Map?>>();
         for (int s = 0; s < lod.Sections.Count && mpm != null; s++)
         {
             int mi = lod.Sections[s].MaterialIndex;
             int mat = mi >= 0 && mi < materials.Count ? materials[mi] : 0;
             if (mat == 0) { notes.Add($"section {s}: no material"); continue; }
+            if (mat < 0 && ImportedMaterial(r, mpm, mat, cacheFolder) is var (opkg, oexp))
+            {
+                // Imported (Savage She-Hulk's hair lives in UC__MarvelPlayer_SheHulk_SF): read it where it lives.
+                if (!otherCaches.TryGetValue(opkg, out var oc)) otherCaches[opkg] = oc = [];
+                looks[s] = LookFor(opkg, oexp + 1, cacheFolder, oc, notes, s);
+                continue;
+            }
             looks[s] = LookFor(mpm, mat, cacheFolder, cache, notes, s);
         }
         var tri = new int[lod.Indices.Count / 3];
@@ -284,6 +292,37 @@ static class ModMeshes
             }
         }
         return materials;
+    }
+
+    /// <summary>
+    /// A material a costume package imports (by name) from the hero's base package UC__MarvelPlayer_&lt;Hero&gt;_SF, as the
+    /// game loads it: the copy next to the mesh's package (the mod's), else the game's. Null when it isn't found there.
+    /// </summary>
+    static (Package, int)? ImportedMaterial(MeshRef r, Package pkg, int mat, string? cooked)
+    {
+        const string player = "UC__MarvelPlayer_";
+        if (!r.Package.StartsWith(player, StringComparison.OrdinalIgnoreCase)) return null;
+        string name;
+        try { name = pkg.RefName(mat); } catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException) { return null; }
+        int dot = name.LastIndexOf('.');
+        if (dot >= 0) name = name[(dot + 1)..];
+        string hero = Path.GetFileNameWithoutExtension(r.Package)[player.Length..].Split('_')[0];
+        string baseFile = $"{player}{hero}_SF.upk";
+        if (baseFile.Equals(r.Package, StringComparison.OrdinalIgnoreCase)) return null;
+        foreach (var dir in new[] { Path.GetDirectoryName(r.File), cooked })
+        {
+            string path = dir == null ? "" : Path.Combine(dir, baseFile);
+            if (dir == null || !File.Exists(path)) continue;
+            try
+            {
+                var bp = Package.Open(path);
+                for (int i = 0; i < bp.Exports.Length; i++)
+                    if (bp.Exports[i].ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase) && bp.ClassOf(bp.Exports[i]).Contains("Material", StringComparison.OrdinalIgnoreCase))
+                        return (bp, i);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+        }
+        return null;
     }
 
     /// <summary>A section's colour texture (as MPM's Meshes tab chooses it).</summary>

@@ -13,6 +13,9 @@ sealed class ApplyForm : Form
     readonly TextBox body = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false };
     readonly Label footer = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 8, 0, 0) };
     readonly Button apply, cancel, close;
+    Button? headingBtn;
+    readonly TableLayoutPanel layout;
+    readonly FlowLayoutPanel buttonBar;
     readonly Func<Task<(bool Ok, string Log)>>? run;
     bool running;
 
@@ -28,13 +31,13 @@ sealed class ApplyForm : Form
         StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
+        var t = layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         t.Controls.Add(heading, 0, 0);
         t.Controls.Add(body, 0, 1);
         t.Controls.Add(footer, 0, 2);
-        var buttons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 10, 0, 0) };
+        var buttons = buttonBar = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 10, 0, 0) };
         apply = Ui.AccentButton("Apply", Run, tip: "Write these changes to the game (Enter).");
         cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; }, tip: "Change nothing (Esc).");
         close = Ui.AccentButton("Close", () => { DialogResult = DialogResult.OK; }, tip: "Close (Enter).");
@@ -45,9 +48,14 @@ sealed class ApplyForm : Form
         body.Text = Crlf(plan);
         if (run == null)
         {
-            heading.Text = "Nothing to Apply";
+            // One way out: the heading is the button (Kurt).
+            heading.Visible = false;
+            headingBtn = Ui.HeadingButton("Nothing to Apply", Ui.Accent, () => { DialogResult = DialogResult.OK; });
+            headingBtn.Margin = new Padding(0, 0, 0, 10);
+            t.Controls.Add(headingBtn, 0, 0);
             footer.Text = "The game already matches your list.";
-            apply.Visible = cancel.Visible = false;
+            apply.Visible = cancel.Visible = close.Visible = false;
+            buttons.Visible = false;
         }
         else
         {
@@ -60,9 +68,10 @@ sealed class ApplyForm : Form
         Ui.RestyleButtons(this);
         footer.ForeColor = Ui.Subtle;
         Ui.FitToScreen(this, 640, 460);
-        AcceptButton = run == null ? close : apply;   // Enter confirms
-        CancelButton = run == null ? close : cancel;
-        Shown += (_, _) => { body.SelectionLength = 0; ActiveControl = run == null ? close : apply; };
+        AcceptButton = run == null ? headingBtn : apply;   // Enter confirms
+        CancelButton = run == null ? headingBtn : cancel;
+        if (headingBtn != null) { headingBtn.BackColor = Ui.Accent; headingBtn.ForeColor = Color.White; }
+        Shown += (_, _) => { body.SelectionLength = 0; ActiveControl = run == null ? headingBtn : apply; };
     }
 
     /// <summary>--apply-snapshot: the window asking, after a success and after an error (made-up plan), as PNGs.</summary>
@@ -101,29 +110,30 @@ sealed class ApplyForm : Form
         catch (Exception ex) { result = (false, ex.Message); }
         UseWaitCursor = false;
         running = false;
-        apply.Visible = cancel.Visible = false;
-        close.Visible = true;
-        AcceptButton = CancelButton = close;
+        // The result's word is the only button (Kurt: no Close; "Success" continues, Enter too).
+        buttonBar.Visible = false;
+        heading.Visible = false;
+        var done = Ui.HeadingButton(result.Ok ? "Success" : "Not Applied", result.Ok ? Ui.Enabled : Ui.Warn, () => { DialogResult = DialogResult.OK; }, result.Ok ? 16f : 13f);
         if (result.Ok)
         {
-            // Success: just that.
-            heading.Text = "Success";
-            heading.ForeColor = Ui.Enabled;
-            heading.Font = Ui.Bold(16f);
-            heading.Anchor = AnchorStyles.None;   // centred in a small window
+            // Success: just that, in the middle of a small window.
             body.Visible = false;
             footer.Visible = false;
+            done.Anchor = AnchorStyles.None;
+            layout.Controls.Add(done, 0, 1);   // the stretching row: centred up and down
             var centre = new Point(Left + Width / 2, Top + Height / 2);
             Ui.FitToScreen(this, 340, 170);
             Location = new Point(centre.X - Width / 2, centre.Y - Height / 2);
         }
         else
         {
-            heading.Text = "Not Applied";
-            heading.ForeColor = Ui.Warn;
+            done.Margin = new Padding(0, 0, 0, 10);
+            layout.Controls.Add(done, 0, 0);
             body.Text = Crlf(result.Log);
             footer.Text = "Files written before the stop were verified and can be undone; nothing after it was changed.";
         }
-        ActiveControl = close;
+        done.BackColor = result.Ok ? Ui.Enabled : Ui.Warn; done.ForeColor = Ui.OnColor;
+        AcceptButton = CancelButton = done;
+        ActiveControl = done;
     }
 }

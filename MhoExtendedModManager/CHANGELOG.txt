@@ -1,7 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
-0.35 (next release)
+0.35.23
+- 3D preview: parts whose material comes from the hero's main package (for example Savage She-Hulk's hair) show their real textures instead of plain white.
+
+0.35.22
+- Notices with a single button (Success, errors, logs) have no separate Close or OK: the colored heading is the button (Enter works too), and Success sits in the middle of its window.
+
+0.35.21
 - Create from 3D, in the Editor's icon and store tabs: make a hero portrait, costume icon or store image from a character in 3D. Frame it (turn, pan, zoom; Shift for fine zoom), pick a pose and frame, a lens and the light, show the weapon or prop the character holds, lay the game's original over the view to line things up (O toggles it), and take a snapshot at the original's exact size. Each icon remembers its own setup, and Use Previous Setup copies the last icon's pose and camera to another one.
 - Click the Original, Replacement or Snapshot picture to look closer: fit, 1:1, zoom in 25% steps, full screen, and export as PNG.
 - Images you load or make are compressed more carefully (sharper, less blotchy).
