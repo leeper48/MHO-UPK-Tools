@@ -27,13 +27,13 @@ sealed class IconCreatorView : UserControl
     readonly string? cooked;
     readonly Func<IEnumerable<(string File, string Path)>> packages;
     readonly List<MeshRef> meshes = [];
-    readonly ComboBox meshBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    readonly ComboBox animBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, MaxDropDownItems = 24 };
+    readonly DropDown meshBox = new();
+    readonly DropDown animBox = new() { MaxDropDownItems = 24 };
     readonly TextBox animSearch = new() { PlaceholderText = "Search poses (e.g. idle, attack, run)" };
     // The animations the drop-down lists now (indexes into anims; Kurt: a search filter for poses). Item 0 is Rest Pose.
     List<int> shown = [];
     int current = -1;   // the animation shown (index into anims), -1 = rest pose
-    readonly ComboBox backBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    readonly DropDown backBox = new();
     readonly CheckedListBox propList = new() { CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.None };
     // Props shown with the character (Kurt: a character holding a sword or hammer): each loaded mesh and the bone it's held on.
     readonly List<(MeshRef Ref, ModMeshes.Loaded Mesh, int Bone, string BoneName)> props = [];

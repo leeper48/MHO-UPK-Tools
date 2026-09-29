@@ -64,7 +64,7 @@ sealed class ApplyForm : Form
             close.Visible = false;
         }
         FormClosing += (_, e) => { if (running) e.Cancel = true; };   // not while files are being written
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         footer.ForeColor = Ui.Subtle;
         Ui.FitToScreen(this, 640, 460);

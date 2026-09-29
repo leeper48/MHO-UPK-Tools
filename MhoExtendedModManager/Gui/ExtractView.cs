@@ -11,12 +11,12 @@ namespace MhoExtendedModManager.Gui;
 sealed class ExtractView : UserControl
 {
     readonly StockCatalog catalog;
-    readonly ComboBox kind = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    readonly DropDown kind = new();
     readonly TextBox search = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f) };
     readonly NameList names = new() { Dock = DockStyle.Fill, SelectionMode = SelectionMode.MultiExtended, Font = Ui.Regular(9.5f) };
     readonly PictureBox pic = new() { SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(22, 22, 24) };
     readonly Label info = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 0) };
-    readonly ComboBox lang = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    readonly DropDown lang = new();
     readonly Label status = new() { AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle" };
     readonly FlatTabs tabs = new() { Dock = DockStyle.Fill };
     List<TexEntry> all = [];

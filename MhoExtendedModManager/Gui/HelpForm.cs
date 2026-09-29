@@ -85,7 +85,7 @@ sealed class HelpForm : Form
         browser.DocumentCompleted += (_, _) => { searched = ""; found.Text = ""; };
         Controls.Add(browser);
         Controls.Add(bar);
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         Ui.FitToScreen(this, 1100, 900);
     }

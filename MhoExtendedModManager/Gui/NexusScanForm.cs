@@ -41,11 +41,12 @@ sealed class NexusScanForm : Form
         grid.ReadOnly = false;
         var tick = new DataGridViewCheckBoxColumn { Name = "link", HeaderText = "Link", Width = (int)(50 * s), FlatStyle = FlatStyle.Flat };
         grid.Columns.Insert(0, tick);
-        var pick = new DataGridViewComboBoxColumn { Name = "page", HeaderText = "Nexus Page", FlatStyle = FlatStyle.Flat, DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton, AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
+        // The page choice opens the app's own list (DropList), not a system drop-down.
+        var pick = new DataGridViewTextBoxColumn { Name = "page", HeaderText = "Nexus Page", ReadOnly = true, AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill };
         int pageAt = grid.Columns["Nexus Page"]!.Index;
         grid.Columns.RemoveAt(pageAt);
         grid.Columns.Insert(pageAt, pick);
-        foreach (DataGridViewColumn c in grid.Columns) c.ReadOnly = c.Name is not ("link" or "page");
+        foreach (DataGridViewColumn c in grid.Columns) c.ReadOnly = c.Name is not "link";
         Ui.StyleGrid(grid);
         pick.DefaultCellStyle.BackColor = Ui.Card; pick.DefaultCellStyle.ForeColor = Ui.Text;
 
@@ -62,11 +63,10 @@ sealed class NexusScanForm : Form
             row.Tag = (m, c);
             row.Cells["Your Mod"].Value = m.Name;
             row.Cells["Author"].Value = m.Manifest.Author ?? "";
-            var cell = (DataGridViewComboBoxCell)row.Cells["page"];
-            if (c.Count == 0) { cell.Items.Add("(no match found)"); cell.Value = "(no match found)"; row.Cells["link"].ReadOnly = true; row.Cells["page"].ReadOnly = true; row.DefaultCellStyle.ForeColor = Ui.Subtle; }
+            var cell = row.Cells["page"];
+            if (c.Count == 0) { cell.Value = "(no match found)"; row.Cells["link"].ReadOnly = true; row.DefaultCellStyle.ForeColor = Ui.Subtle; }
             else
             {
-                foreach (var x in c) cell.Items.Add(Label(x));
                 cell.Value = Label(c[0]);
                 row.Cells["link"].Value = NexusMatch.Confident(c);
             }
@@ -83,6 +83,20 @@ sealed class NexusScanForm : Form
                 row.Cells["link"].Value = true;   // choosing a page means "this one"
             }
             Count();
+        };
+        // A row with more than one likely page: the cell shows ▾ and a click opens the choices.
+        grid.CellFormatting += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && grid.Columns[e.ColumnIndex].Name == "page" && grid.Rows[e.RowIndex].Tag is (Mod, List<NexusMatch.Candidate> { Count: > 1 }))
+            { e.Value = e.Value + "  ▾"; e.FormattingApplied = true; }
+        };
+        grid.CellClick += (_, e) =>
+        {
+            if (e.RowIndex < 0 || grid.Columns[e.ColumnIndex].Name != "page" || grid.Rows[e.RowIndex].Tag is not (Mod, List<NexusMatch.Candidate> { Count: > 1 } cs)) return;
+            var row = grid.Rows[e.RowIndex];
+            var labels = cs.Select(Label).ToList();
+            var rect = grid.RectangleToScreen(grid.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false));
+            DropList.Show(grid, rect, labels, labels.IndexOf(row.Cells["page"].Value as string ?? ""), i => row.Cells["page"].Value = labels[i]);
         };
         grid.CurrentCellDirtyStateChanged += (_, _) => { if (grid.IsCurrentCellDirty) grid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
         grid.DataError += (_, e) => e.ThrowException = false;
@@ -103,7 +117,7 @@ sealed class NexusScanForm : Form
         CancelButton = null;
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) DialogResult = DialogResult.Cancel; };
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
         Ui.FitToScreen(this, 1100, 720);
         Resize += (_, _) => hint.MaximumSize = new Size(Math.Max(200, ClientSize.Width - Padding.Horizontal - 10), 0);

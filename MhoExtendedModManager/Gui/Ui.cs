@@ -204,7 +204,7 @@ static class Ui
         t.Controls.Add(buttons);
         f.Controls.Add(t);
         f.AcceptButton = ok; f.CancelButton = cancel;
-        MhoPackageModifier.Gui.Theme.Apply(f, MhoPackageModifier.Gui.Palette.Dark);
+        MhoPackageModifier.Gui.Theme.Apply(f, MhoPackageModifier.Gui.Palette.Dark); Modern.Modernize(f);
         RestyleButtons(f);
         box.SelectAll();
         return f.ShowDialog(owner) == DialogResult.OK && !string.IsNullOrWhiteSpace(box.Text) ? box.Text.Trim() : null;
@@ -538,7 +538,35 @@ static class Ui
         g.ColumnHeadersDefaultCellStyle.Font = Regular(9f);
         foreach (DataGridViewColumn c in g.Columns)
             if (!c.ReadOnly && c is DataGridViewTextBoxColumn) { c.DefaultCellStyle.BackColor = Color.FromArgb(40, 40, 46); }   // editable cells stand out
+        if (styledGrids.TryGetValue(g, out _)) return;
+        styledGrids.Add(g, new object());
+        // Check boxes in cells drawn like the app's own (Modern.Toggle), not the system's.
+        g.CellPainting += (_, e) =>
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex < 0 || g.Columns[e.ColumnIndex] is not DataGridViewCheckBoxColumn || e.Graphics == null) return;
+            e.PaintBackground(e.CellBounds, true);
+            float s = g.DeviceDpi / 96f, box = 14 * s;
+            var r = new RectangleF(e.CellBounds.X + (e.CellBounds.Width - box) / 2f, e.CellBounds.Y + (e.CellBounds.Height - box) / 2f, box, box);
+            bool on = e.Value is true || e.Value is CheckState.Checked;
+            bool ro = g.ReadOnly || g.Columns[e.ColumnIndex].ReadOnly || g.Rows[e.RowIndex].Cells[e.ColumnIndex].ReadOnly;
+            var gr = e.Graphics;
+            gr.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var path = Modern.Round(r, 3 * s))
+            {
+                using (var f = new SolidBrush(on ? (ro ? Color.FromArgb(90, Accent) : Accent) : Modern.FieldBack)) gr.FillPath(f, path);
+                using var pen = new Pen(on ? Accent : ro ? Modern.FieldBorder : Color.FromArgb(110, 110, 124), 1.2f * s); gr.DrawPath(pen, path);
+            }
+            if (on)
+            {
+                using var pen = new Pen(Color.White, 1.8f * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                gr.DrawLines(pen, [new PointF(r.X + box * 0.22f, r.Y + box * 0.52f), new PointF(r.X + box * 0.43f, r.Y + box * 0.73f), new PointF(r.X + box * 0.8f, r.Y + box * 0.3f)]);
+            }
+            gr.SmoothingMode = SmoothingMode.None;
+            e.Handled = true;
+        };
     }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DataGridView, object> styledGrids = [];
 
     /// <summary>
     /// After MPM's Theme.Apply: the manager's colours on top (dark panels, subtle labels, grids, card lists, accent / flat
@@ -562,6 +590,7 @@ static class Ui
         Walk(root);
         foreach (var b in bars) { b.BackColor = BarOverlay; foreach (Control c in b.Controls) if (c is not Button and not TextBox) { c.BackColor = Color.Transparent; foreach (Control k in c.Controls) if (k is not Button and not TextBox) k.BackColor = Color.Transparent; } }
         RestyleButtons(root);
+        Modern.Modernize(root);
         foreach (var t in All<FlatTabs>(root)) t.Select(Math.Max(0, t.SelectedIndex));
     }
 
@@ -662,7 +691,17 @@ static class Ui
                 pb.Tag = "flat"; pb.FlatStyle = FlatStyle.Flat;
                 Rounded(pb);
             }
-            if (c is Button b && b.Tag is "accent" or "flat")
+            if (c is Button d && d.Tag is "flat" && d.Text.TrimEnd().EndsWith('▾'))
+            {
+                // A button that opens a menu looks like the app's drop-downs (the header's Costume ▾): accent-tinted pill.
+                static Color Mix(int a) => Color.FromArgb((Accent.R * a + Bar.R * (255 - a)) / 255, (Accent.G * a + Bar.G * (255 - a)) / 255, (Accent.B * a + Bar.B * (255 - a)) / 255);
+                d.UseVisualStyleBackColor = false;
+                d.BackColor = Mix(40); d.ForeColor = Text;
+                d.FlatAppearance.BorderColor = Accent;
+                d.FlatAppearance.MouseOverBackColor = Mix(62);
+                d.FlatAppearance.MouseDownBackColor = Mix(80);
+            }
+            else if (c is Button b && b.Tag is "accent" or "flat")
             {
                 bool accent = (string)b.Tag == "accent";
                 b.UseVisualStyleBackColor = false;
@@ -1238,7 +1277,7 @@ sealed class StorePreview : Control
     float playFrames, playSeconds;
     readonly System.Diagnostics.Stopwatch playClock = new();
     readonly System.Windows.Forms.Timer playTimer = new() { Interval = 33 };
-    ComboBox? animBox;
+    DropDown? animBox;
     bool fillingAnims;
     // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
     Button? playBtn, loopBtn, restBtn;
@@ -1622,16 +1661,7 @@ sealed class StorePreview : Control
     {
         if (animBox == null)
         {
-            animBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Ui.Card, ForeColor = Ui.Text, Font = Ui.Regular(9f), Visible = false, MaxDropDownItems = 24, DrawMode = DrawMode.OwnerDrawFixed };
-            // Drawn here: Windows paints a drop-down list's face and items in system colours otherwise (white on the dark card).
-            animBox.DrawItem += (_, e) =>
-            {
-                if (e.Index < 0) return;
-                bool sel = (e.State & DrawItemState.Selected) != 0 && (e.State & DrawItemState.ComboBoxEdit) == 0;
-                using (var bg = new SolidBrush(sel ? Ui.CardSelected : Ui.Card)) e.Graphics.FillRectangle(bg, e.Bounds);
-                TextRenderer.DrawText(e.Graphics, animBox.Items[e.Index]?.ToString(), animBox.Font, Rectangle.Inflate(e.Bounds, -4, 0),
-                    animBox.Enabled ? Ui.Text : Ui.DisabledText, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            };
+            animBox = new DropDown { Font = Ui.Regular(9f), Visible = false, MaxDropDownItems = 24 };
             Ui.Tip(animBox, "Play one of this mesh's animations in the 3D view (it loops). Remembered with the mesh for this mod.");
             animBox.SelectedIndexChanged += (_, _) => { if (!fillingAnims) PlaySelected(); };
             Controls.Add(animBox);

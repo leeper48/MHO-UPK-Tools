@@ -39,7 +39,7 @@ sealed class UpdateForm : Form
         buttons.Controls.AddRange([update, later, skip, page]);
         t.Controls.Add(buttons, 0, 3);
         Controls.Add(t);
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         Ui.FitToScreen(this, 620, 440);
         notes.TabStop = false;

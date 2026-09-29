@@ -77,7 +77,7 @@ sealed class HeroPickerForm : Form
             heroes.ResumeLayout();
         };
 
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         Ui.FitToScreen(this, 1000, 700);
         // Portraits in the background (the hero's default costume's herohor image).

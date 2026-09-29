@@ -114,6 +114,36 @@ sealed class StringUsage
         public int I32() { var v = BitConverter.ToInt32(b, p); p += 4; return v; }
         public ulong U64() { var v = BitConverter.ToUInt64(b, p); p += 8; return v; }
         public string S16() { int n = U16(); var s = Encoding.Latin1.GetString(b, p, n); p += n; return s; }
+        public int Pos => p;
+        public int Length => b.Length;
+    }
+
+    /// <summary>
+    /// Self-check (--blueprint-check): every blueprint in Calligraphy.sip read with the given base types carrying a 64-bit
+    /// subtype; returns (read exactly to the end, ran short or past it, failed) and a few names that didn't fit.
+    /// </summary>
+    internal static (int Exact, int Off, int Failed, List<string> Examples) CheckBlueprints(string gameRoot, string subtyped)
+    {
+        using var sip = new Sip(Path.Combine(gameRoot, "Data", "Game", "Calligraphy.sip"));
+        int exact = 0, off = 0, failed = 0; var ex = new List<string>();
+        foreach (string name in sip.Entries.Keys.Where(k => k.EndsWith(".blueprint", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                var br = new Reader(sip.Read(name), 4);
+                br.S16(); br.U64();
+                for (int n = br.U16(), i = 0; i < n; i++) { br.U64(); br.U8(); }
+                for (int n = br.U16(), i = 0; i < n; i++) { br.U64(); br.U8(); }
+                for (int n = br.U16(), i = 0; i < n; i++)
+                {
+                    br.U64(); br.S16(); char baseType = (char)br.U8(); br.U8();
+                    if (subtyped.Contains(baseType)) br.U64();
+                }
+                if (br.Pos == br.Length) exact++; else { off++; if (ex.Count < 5) ex.Add($"{name}: ends at {br.Pos} of {br.Length}"); }
+            }
+            catch (Exception e) when (e is ArgumentException or IndexOutOfRangeException) { failed++; if (ex.Count < 5) ex.Add($"{name}: {e.GetType().Name}"); }
+        }
+        return (exact, off, failed, ex);
     }
 
     // ---- prototypes
@@ -145,7 +175,7 @@ sealed class StringUsage
                     for (int n = br.U16(), i = 0; i < n; i++)
                     {
                         ulong fid = br.U64(); string name = br.S16(); char baseType = (char)br.U8(); br.U8();
-                        if ("ACPRT".Contains(baseType)) br.U64();   // subtype
+                        if ("ACPR".Contains(baseType)) br.U64();   // subtype: asset, curve, prototype, RHStruct (not T: checked with --blueprint-check, all 5,659 read to the end)
                         f[fid] = name;
                     }
                 }

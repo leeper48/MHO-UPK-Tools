@@ -50,7 +50,7 @@ sealed class ImageViewerForm : Form
         ]);
         bar.Controls.Add(buttons, 1, 0);
         Controls.Add(canvas); Controls.Add(bar);
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
         Ui.FitToScreen(this, 1000, 780);
 

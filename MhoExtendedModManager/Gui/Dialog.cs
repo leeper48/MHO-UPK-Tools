@@ -136,7 +136,7 @@ static class Dialog
             AcceptButton = made[main];
             int cancelAt = single ? -1 : Array.FindIndex(choices, c => c.Result is DialogResult.Cancel or DialogResult.No);
             CancelButton = made[cancelAt >= 0 ? cancelAt : 0];
-            Theme.Apply(this, Palette.Dark);
+            Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
             Ui.RestyleButtons(this);
             if (single) { var hb = (Button)heading; hb.BackColor = toneColor; hb.ForeColor = toneColor == Ui.Accent ? Color.White : Ui.OnColor; hb.FlatAppearance.BorderColor = toneColor; }
             else heading.ForeColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Text };

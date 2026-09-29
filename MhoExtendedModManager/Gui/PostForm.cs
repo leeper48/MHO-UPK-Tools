@@ -93,7 +93,7 @@ sealed class PostForm : Form
         nexus.Text = Crlf(saved.Nexus ?? PostWriter.Nexus(source));
         discord.Text = Crlf(saved.Discord ?? PostWriter.Discord(source));
         dirty = false;
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
         Ui.FitToScreen(this, 1000, 800);
         hint.MaximumSize = new Size(Math.Max(200, ClientSize.Width - Padding.Horizontal - 10), 0);

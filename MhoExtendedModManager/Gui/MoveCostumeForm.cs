@@ -59,7 +59,7 @@ sealed class MoveCostumeForm : Form
         Controls.Add(t);
         AcceptButton = create.Enabled ? create : cancel;
         CancelButton = cancel;
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         Ui.FitToScreen(this, 620, 600);
         Shown += (_, _) => { box.SelectionLength = 0; ActiveControl = create.Enabled ? create : cancel; };

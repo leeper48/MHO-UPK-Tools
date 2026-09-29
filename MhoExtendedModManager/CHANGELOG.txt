@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.6
+- The mod list's top rows fit a narrow list: the Nexus strip's buttons move into its ▾ menu when there's no room, and the Priority arrows, Sort and Group are no longer cut off.
+
+0.37.5
+- Del removes the selected mod (it asks first, as Remove Mod does).
+- A new look for inputs across the app: every drop-down is an accent pill like the Costume one, opening a dark list (long lists get a search box); text boxes have rounded frames; check boxes and option buttons are drawn in the app's style; buttons that open a menu (Sort, Settings, Use Another Voice …) match the drop-downs.
+
 0.37.4
 - Voice tab: Use Another Voice gives a costume a whole voice from the game: its hero's own (so its lines can be played and turned off), another costume's (Lady Deadpool, Spider-Gwen, Jane Foster …) or any hero's.
 - Editor, Strings: Used By now reads all of the game's data (about 800 data files were misread before), so 212 more strings show what uses them.

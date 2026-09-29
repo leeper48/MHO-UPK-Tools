@@ -575,6 +575,30 @@ static class Program
                 Console.WriteLine($"--- {text.Length} characters");
                 return 0;
             }
+            case "--blueprint-check":
+            {
+                // Read-only self-check of the Calligraphy blueprint reader: which base types carry a subtype id.
+                string? bgr = settings.ResolvedGameRoot(data);
+                if (bgr == null) { Console.WriteLine("game folder not set"); return 1; }
+                foreach (string set in new[] { "ACPR", "ACPRT" })
+                {
+                    var (exact, off, failed, examples) = StringUsage.CheckBlueprints(bgr, set);
+                    Console.WriteLine($"subtype for {set}: {exact} blueprints read exactly to the end, {off} not, {failed} failed");
+                    foreach (string e in examples) Console.WriteLine("  " + e);
+                }
+                return 0;
+            }
+            case "--dropdown-test":
+            {
+                // Self-test of the app's drop-down list (nothing is shown on screen); writes droplist.png into <dir>.
+                if (rest.Count < 2) { Console.WriteLine("--dropdown-test <dir>"); return 1; }
+                Directory.CreateDirectory(rest[1]);
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Gui.Ui.UseDarkTheme();
+                var dp = Gui.DropList.Test(rest[1]);
+                Console.WriteLine(dp.Count == 0 ? "PASS: list built, current item marked, search narrows it, Enter picks" : "FAIL: " + string.Join("; ", dp));
+                return dp.Count == 0 ? 0 : 1;
+            }
             case "--string-usage":
             {
                 // --string-usage <text or id>: what uses the matching English strings (the editor's Used By column).

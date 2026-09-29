@@ -144,6 +144,9 @@ sealed class MainForm : Form
 
         // ---- Left: installed mods
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(6, 4, 2, 0) };
+        // One column that fits the panel (Kurt: the Nexus strip's buttons were cut off). Without a style it sizes to its
+        // widest row and runs past the list's edge.
+        left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         left.RowStyles.Add(new RowStyle(SizeType.Absolute, 46 * DeviceDpi / 96f));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -152,12 +155,14 @@ sealed class MainForm : Form
         lhead.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         lhead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (int i = 0; i < 7; i++) lhead.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        lhead.Controls.Add(new Label { Text = "INSTALLED MODS", AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Bold(8.5f), Tag = "subtle" }, 0, 0);
+        var headLabel = new Label { Text = "INSTALLED MODS", AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Bold(8.5f), Tag = "subtle" };
+        lhead.Controls.Add(headLabel, 0, 0);
         lhead.Controls.Add(countLabel, 1, 0);
         undoButton = Ui.FlatButton("Undo", Undo); redoButton = Ui.FlatButton("Redo", Redo);
         undoButton.Padding = redoButton.Padding = new Padding(2, 0, 2, 0);
         lhead.Controls.Add(undoButton, 2, 0); lhead.Controls.Add(redoButton, 3, 0);
-        lhead.Controls.Add(new Label { Text = "Priority:", AutoSize = true, Anchor = AnchorStyles.Right, Font = Ui.Regular(8.5f), Tag = "subtle", Margin = new Padding(10, 0, 0, 0) }, 4, 0);
+        var priorityLabel = new Label { Text = "Priority:", AutoSize = true, Anchor = AnchorStyles.Right, Font = Ui.Regular(8.5f), Tag = "subtle", Margin = new Padding(10, 0, 0, 0) };
+        lhead.Controls.Add(priorityLabel, 4, 0);
         var first = Ui.FlatButton("▲", () => MoveSelected(-1, toEnd: true)); var up = Ui.FlatButton("▲", () => MoveSelected(-1));
         var down = Ui.FlatButton("▼", () => MoveSelected(1)); var last = Ui.FlatButton("▼", () => MoveSelected(1, toEnd: true));
         Ui.AddEndBar(first, top: true); Ui.AddEndBar(last, top: false);   // ▲ with a bar over it = to the top; ▼ with one under it = to the bottom
@@ -173,7 +178,7 @@ sealed class MainForm : Form
         for (int i = 0; i < 3; i++) filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         filterRow.Controls.Add(new Label { Text = "Filter", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle", Padding = new Padding(0, 0, 4, 0) }, 0, 0);
         filterRow.Controls.Add(filter, 1, 0);
-        sortButton = Ui.FlatButton("Sort", () => { }); groupButton = Ui.FlatButton("Group", () => { });
+        sortButton = Ui.FlatButton("Sort  ▾", () => { }); groupButton = Ui.FlatButton("Group  ▾", () => { });
         sortButton.Click += (_, _) => Ui.ShowUnder(SortMenu(), sortButton);
         groupButton.Click += (_, _) => Ui.ShowUnder(GroupMenu(), groupButton);
         filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
@@ -198,6 +203,29 @@ sealed class MainForm : Form
         nexusBrowse.Padding = new Padding(4, 0, 4, 0);
         nexusButtons.Controls.AddRange([nexusCheck, nexusFind, nexusBrowse, nexusMore]);
         nexusRow.Controls.Add(nexusButtons, 1, 0);
+        nexusFolded = [nexusBrowse, nexusFind, nexusCheck];
+        nexusActions[nexusCheck] = () => CheckNexus(manual: true);
+        nexusActions[nexusFind] = () => FindOnNexus(null);
+        nexusActions[nexusBrowse] = () => Process.Start(new ProcessStartInfo(Nexus.SiteMods) { UseShellExecute = true });
+        // A narrow list: buttons fold into ▾ (Browse, then Find, then Check) so the status keeps a readable width; the
+        // head row drops its "Priority:" label before anything is cut.
+        nexusRow.Resize += (_, _) => FitNexusRow(nexusRow, nexusButtons);
+        lhead.Resize += (_, _) =>
+        {
+            // Narrow: drop "Priority:", then shorten the heading to MODS, then drop the count (nothing wraps or is cut).
+            int W(Control c) => TextRenderer.MeasureText(c.Text, c.Font).Width + c.Margin.Horizontal + c.Padding.Horizontal + 4;
+            int fixedW = lhead.Controls.Cast<Control>().Where(c => c is Button).Sum(c => c.GetPreferredSize(Size.Empty).Width + c.Margin.Horizontal);
+            int count = W(countLabel), prio = W(priorityLabel);
+            int headFull = TextRenderer.MeasureText("INSTALLED MODS", headLabel.Font).Width + 8, headShort = TextRenderer.MeasureText("MODS", headLabel.Font).Width + 8;
+            int w = lhead.ClientSize.Width;
+            bool showPrio = w >= fixedW + headFull + count + prio;
+            bool full = w >= fixedW + headFull + count;
+            bool showCount = w >= fixedW + headShort + count;
+            if (priorityLabel.Visible != showPrio) priorityLabel.Visible = showPrio;
+            string head = full || !showCount && w >= fixedW + headFull ? "INSTALLED MODS" : "MODS";
+            if (headLabel.Text != head) headLabel.Text = head;
+            if (countLabel.Visible != showCount) countLabel.Visible = showCount;
+        };
         nexusStatus.StatusClicked += NexusStatusClicked;
         writeControls.Add(nexusFind);
         left.Controls.Add(nexusRow, 0, 0); left.Controls.Add(lhead, 0, 1); left.Controls.Add(filterRow, 0, 2); left.Controls.Add(list, 0, 3);
@@ -302,7 +330,7 @@ sealed class MainForm : Form
         tagsButton.Click += (_, _) => { if (Selected is Mod m) Ui.ShowUnder(TagsMenu(m), tagsButton); };
         leftButtons.Controls.AddRange([remove, edit, export, tagsButton]);
         writeControls.AddRange([remove, edit, applyButton, tagsButton]);
-        tips.SetToolTip(remove, "Send the selected mod to the Recycle Bin (turn it off and Apply first).");
+        tips.SetToolTip(remove, "Send the selected mod to the Recycle Bin: it's turned off and the game gets its files back first. Asks before it does anything (Del).");
         tips.SetToolTip(edit, "Open the selected mod in the Editor tab (or double-click it).");
         tips.SetToolTip(export, "Save the selected mod as a .ZIP to share.");
         tips.SetToolTip(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
@@ -347,7 +375,7 @@ sealed class MainForm : Form
 
         Load += (_, _) =>
         {
-            Theme.Apply(this, Palette.Dark);
+            Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
             Restyle(this);
             Reload();
         };
@@ -731,6 +759,14 @@ sealed class MainForm : Form
         tips.SetToolTip(redoButton, redo.Count > 0 ? $"Redo: {redo[^1].Label}  (Ctrl+Y)" : "Nothing to redo.");
     }
 
+    /// <summary>The control with the keyboard focus, inside nested containers (a text box in the editor, the note box …).</summary>
+    Control? FocusedLeaf()
+    {
+        Control? a = ActiveControl;
+        while (a is ContainerControl cc && cc.ActiveControl != null) a = cc.ActiveControl;
+        return a;
+    }
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         // F1: the manual, at the section for the tab shown.
@@ -741,8 +777,10 @@ sealed class MainForm : Form
             Apply();
             return true;
         }
-        if (pages.SelectedIndex == 0 && ActiveControl is not TextBoxBase)
+        if (pages.SelectedIndex == 0 && FocusedLeaf() is not TextBoxBase)
         {
+            // Del: Remove Mod (Kurt), which asks first as the button does.
+            if (keyData == Keys.Delete && Selected is Mod && !readOnly) { RemoveMod(); return true; }
             if (keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
             if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z)) { Redo(); return true; }
         }
@@ -1428,9 +1466,33 @@ sealed class MainForm : Form
         }
     }
 
+    Button[] nexusFolded = [];
+    readonly Dictionary<Button, Action> nexusActions = [];
+
+    /// <summary>Shows as many of the Nexus strip's buttons as fit beside a status at least 230 px (scaled) wide; the rest are in ▾.</summary>
+    void FitNexusRow(Control row, Control buttons)
+    {
+        float s = DeviceDpi / 96f;
+        int room = row.ClientSize.Width - (int)(230 * s);
+        int always = buttons.Controls.Cast<Control>().Where(c => !nexusFolded.Contains(c)).Sum(c => c.GetPreferredSize(Size.Empty).Width + c.Margin.Horizontal) + buttons.Margin.Horizontal;
+        int used = always;
+        // Keep from the most useful (Check, Find, Browse); fold from the other end.
+        foreach (var b in nexusFolded.Reverse())
+        {
+            int w = b.GetPreferredSize(Size.Empty).Width + b.Margin.Horizontal;
+            bool fits = used + w <= room;
+            if (fits) used += w;
+            if (b.Visible != fits) b.Visible = fits;
+        }
+    }
+
     ContextMenuStrip NexusBarMenu()
     {
         var menu = NewMenu();
+        // Buttons folded away on a narrow list are here instead.
+        var folded = nexusFolded.Where(b => !b.Visible).ToList();
+        foreach (var b in folded.AsEnumerable().Reverse()) { var act = nexusActions[b]; menu.Items.Add(b.Text, null, (_, _) => act()); }
+        if (folded.Count > 0) menu.Items.Add(new ToolStripSeparator());
         if (NexusAuth.Available)
         {
             if (NexusAuth.Load(Settings.Home) is { } who)

@@ -62,7 +62,7 @@ sealed class NexusFileForm : Form
             if (e.KeyCode == Keys.Escape) DialogResult = DialogResult.Cancel;
             else if (e.KeyCode == Keys.Enter) { e.Handled = true; Choose(); }
         };
-        Theme.Apply(this, Palette.Dark);
+        Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
         Ui.FitToScreen(this, 900, 360);
         Resize += (_, _) => hint.MaximumSize = new Size(Math.Max(200, ClientSize.Width - Padding.Horizontal - 10), 0);

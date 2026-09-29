@@ -10,10 +10,12 @@ namespace MhoExtendedModManager.Gui;
 sealed class FirstRunForm : Form
 {
     readonly Settings settings;
-    readonly ComboBox gameBox = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown };
+    readonly TextBox gameBox = new() { Dock = DockStyle.Fill };
+    readonly DropDown gameFound = new() { Placeholder = "Found", ShowsSelection = false };
     readonly RadioButton fresh = new() { Text = "No, start with an empty mod library", AutoSize = true, Checked = true };
     readonly RadioButton migrate = new() { Text = "Yes, bring its mods, their order and its backups over (its folder is left as it is):", AutoSize = true };
-    readonly ComboBox oldBox = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown, Enabled = false };
+    readonly TextBox oldBox = new() { Dock = DockStyle.Fill, Enabled = false };
+    readonly DropDown oldFound = new() { Placeholder = "Found", ShowsSelection = false, Enabled = false };
     readonly TextBox log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Visible = false };
     readonly Button ok = new() { Text = "Set Up", AutoSize = true };
     bool finished;
@@ -31,6 +33,11 @@ sealed class FirstRunForm : Form
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         int row = 0;
         void Row(Control c, Control? right = null) { t.Controls.Add(c, 0, row); if (right != null) t.Controls.Add(right, 1, row); else t.SetColumnSpan(c, 2); row++; }
+        static FlowLayoutPanel Pair(Control a, Control b) { var p = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty }; a.Margin = new Padding(6, 3, 2, 0); p.Controls.Add(a); p.Controls.Add(b); return p; }
+        gameFound.SelectedIndexChanged += (_, _) => { if (gameFound.SelectedItem is string g) gameBox.Text = g; };
+        oldFound.SelectedIndexChanged += (_, _) => { if (oldFound.SelectedItem is string o) oldBox.Text = o; };
+        Ui.Tip(gameFound, "Game folders found through Steam: pick one.");
+        Ui.Tip(oldFound, "MHModManager folders found on this PC (newest first): pick one.");
         Label L(string s, bool bold = false) => new() { Text = s, AutoSize = true, MaximumSize = new Size(840, 0), Padding = new Padding(0, bold ? 10 : 2, 0, 4), Font = bold ? new Font(Font, FontStyle.Bold) : Font };
 
         Row(L("1. Where is Marvel Heroes installed?", true));
@@ -41,7 +48,7 @@ sealed class FirstRunForm : Form
             using var d = new FolderBrowserDialog { Description = "The Marvel Heroes folder (holds UnrealEngine3 and Data)", UseDescriptionForTitle = true };
             if (d.ShowDialog(this) == DialogResult.OK) gameBox.Text = d.SelectedPath;
         };
-        Row(gameBox, browseGame);
+        Row(gameBox, Pair(gameFound, browseGame));
 
         Row(L("2. Were you using MHModManager (the earlier mod manager)?", true));
         Row(fresh);
@@ -52,8 +59,8 @@ sealed class FirstRunForm : Form
             using var d = new FolderBrowserDialog { Description = "MHModManager's folder (holds MHModManager.exe and data)", UseDescriptionForTitle = true };
             if (d.ShowDialog(this) == DialogResult.OK) oldBox.Text = d.SelectedPath;
         };
-        migrate.CheckedChanged += (_, _) => { oldBox.Enabled = browseOld.Enabled = migrate.Checked; };
-        Row(oldBox, browseOld);
+        migrate.CheckedChanged += (_, _) => { oldBox.Enabled = browseOld.Enabled = migrate.Checked; oldFound.Enabled = migrate.Checked && oldFound.Items.Count > 0; };
+        Row(oldBox, Pair(oldFound, browseOld));
         Row(L("Your mods are kept in " + settings.LibraryPath + " (Settings… → Move library can put them elsewhere later). Nothing in the game folder changes until you press Apply."));
         t.RowStyles.Clear();
         for (int i = 0; i < row; i++) t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -71,17 +78,18 @@ sealed class FirstRunForm : Form
 
         Load += (_, _) =>
         {
-            Theme.Apply(this, Palette.Dark);
-            foreach (string g in Settings.FindGame()) gameBox.Items.Add(g);
+            Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
+            foreach (string g in Settings.FindGame()) gameFound.Items.Add(g);
+            gameFound.Enabled = gameFound.Items.Count > 0;
             if (settings.GameRoot != null && Settings.IsGameRoot(settings.GameRoot)) gameBox.Text = settings.GameRoot;
-            else if (gameBox.Items.Count > 0) gameBox.SelectedIndex = 0;
+            else if (gameFound.Items.Count > 0) gameFound.SelectedIndex = 0;
         };
         Shown += async (_, _) =>
         {
             // Look for an old manager in the usual places (a few seconds at most) and suggest it.
             var old = await Task.Run(() => Settings.FindOldManager(TimeSpan.FromSeconds(4)));
-            foreach (string o in old) oldBox.Items.Add(o);
-            if (old.Count > 0) { oldBox.SelectedIndex = 0; migrate.Checked = true; }
+            foreach (string o in old) oldFound.Items.Add(o);
+            if (old.Count > 0) { oldFound.SelectedIndex = 0; migrate.Checked = true; }
         };
     }
 

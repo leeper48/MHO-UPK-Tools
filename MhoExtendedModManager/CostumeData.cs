@@ -111,7 +111,7 @@ sealed record Costume(string Prototype, string Class, string? Icon, string? Port
                     for (int n = br.U16(), i = 0; i < n; i++)
                     {
                         ulong fid = br.U64(); string name = br.S16(); char baseType = (char)br.U8(); br.U8();
-                        if ("ACPRT".Contains(baseType)) br.U64();
+                        if ("ACPR".Contains(baseType)) br.U64();   // not T (--blueprint-check)
                         f[fid] = name;
                     }
                 }

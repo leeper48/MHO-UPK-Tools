@@ -33,7 +33,7 @@ sealed class ModEditorView : UserControl
     readonly Label changesCaption = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 10, 0, 4) };
     readonly TextBox nexusBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10f) };
     // The picture the manager shows big for the mod (manifest PreviewImage; users can still pick their own).
-    readonly ComboBox previewBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 460, Font = Ui.Regular(9.5f), FlatStyle = FlatStyle.Flat };
+    readonly DropDown previewBox = new() { Width = 460 };
     List<string> previewKeys = [];   // parallel to previewBox's items after "Automatic"
     readonly TextBox notesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f), Multiline = true, ScrollBars = ScrollBars.Vertical };
     readonly Label autoLabel = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Font = Ui.Regular(8.5f), Margin = new Padding(3, 2, 3, 6) };
@@ -550,7 +550,7 @@ sealed class ModEditorView : UserControl
         previewRow.Controls.Add(previewBox, 1, 0);
         Ui.Tip(previewBox, "What the manager shows big for this mod: one of its own images, the game's original, or a 3D view of one of its meshes. Automatic: the mod's first store image, else the game's store image.");
         FillPreviewChoices();
-        previewBox.DropDown += (_, _) => FillPreviewChoices();
+        previewBox.Opening += (_, _) => FillPreviewChoices();
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         p.Controls.Add(previewRow, 0, 6);
         p.Controls.Add(new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 0) }, 0, 4);
@@ -575,7 +575,7 @@ sealed class ModEditorView : UserControl
         readonly int view;
         readonly TextBox search = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f) };
         readonly NameList names = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f) };
-        readonly ComboBox packagePick = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+        readonly DropDown packagePick = new() { Dock = DockStyle.Fill };
         readonly DataGridView rows;
         readonly PictureBox stockPic = new() { SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(22, 22, 24) };
         readonly PictureBox newPic = new() { SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(22, 22, 24) };
@@ -866,7 +866,7 @@ sealed class ModEditorView : UserControl
     sealed class StringsPage : UserControl
     {
         readonly ModEditorView f;
-        readonly ComboBox lang = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 90 };
+        readonly DropDown lang = new() { Width = 90 };
         readonly TextBox search = new() { Width = 420 };
         readonly DataGridView results;
         readonly DataGridView grid;
