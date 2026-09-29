@@ -284,6 +284,18 @@ static class Ui
 
     public static Image? DdsThumb(string path, int size)
     {
+        if (!path.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+        {
+            // A custom picture (.png / .jpg / .bmp: ModPictures), read without locking the file.
+            using var ms = new MemoryStream(File.ReadAllBytes(path));
+            using var src = Image.FromStream(ms);
+            float k = Math.Min(1f, Math.Min((float)size / src.Width, (float)size / src.Height));
+            var bmp = new Bitmap(Math.Max(1, (int)(src.Width * k)), Math.Max(1, (int)(src.Height * k)));
+            using var g = Graphics.FromImage(bmp);
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.DrawImage(src, 0, 0, bmp.Width, bmp.Height);
+            return bmp;
+        }
         var d = TextureDecode.ReadDds(path, out _);
         var bgra = d is { } x ? TextureDecode.ToBgra(x.Format, x.W, x.H, x.Data, out _) : null;
         return bgra == null ? null : Thumb(bgra, d!.Value.W, d.Value.H, size);
@@ -1328,6 +1340,10 @@ sealed class StorePreview : Control
     public StockCatalog? Catalog { get; set; }
     /// <summary>The user picked a picture for a mod (a key), or went back to the mod's choice (null).</summary>
     public event Action<Mod, string?>? Picked;
+    /// <summary>A pick made by the window for this preview (a custom picture), handled like a click's.</summary>
+    public void RaisePicked(Mod m, string? key) => Picked?.Invoke(m, key);
+    /// <summary>Right-click → Custom Image (a user's request): the window asks for a file and picks it.</summary>
+    public event Action<Mod>? CustomRequested;
 
     public StorePreview()
     {
@@ -1629,7 +1645,14 @@ sealed class StorePreview : Control
     }
 
     /// <summary>The user's pick changed (saved by the window): show what's chosen now.</summary>
-    public void ChoiceChanged() { if (mod != null) Resolve(); }
+    public void ChoiceChanged()
+    {
+        if (mod == null) return;
+        // A custom picture may be new, or a new file under the same name: read the pictures again.
+        if (ModPictures.IsFile(mod.LocalPreview))
+        { var m = mod; mod = null; Mod = m; return; }
+        Resolve();
+    }
 
     /// <summary>What shows: the user's pick, else the mod's choice (a picture or a mesh), else a picture chosen automatically.</summary>
     void Resolve()
@@ -2101,10 +2124,12 @@ sealed class StorePreview : Control
             LoadBig();
             Picked?.Invoke(mod, items[i].Key);
         }
-        else if (e.Button == MouseButtons.Right && mod.LocalPreview != null)
+        else if (e.Button == MouseButtons.Right)
         {
             var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f) };
-            menu.Items.Add(mod.Manifest.PreviewImage != null ? "Use the Mod's Choice" : "Choose Automatically Again", null, (_, _) => Picked?.Invoke(mod, null));
+            var m = mod;
+            menu.Items.Add("Custom Image", null, (_, _) => CustomRequested?.Invoke(m)).ToolTipText = "Show a picture of your own for this mod (a .PNG, .JPG or .DDS; kept on this PC, and Export can put it into the mod).";
+            if (mod.LocalPreview != null) menu.Items.Add(mod.Manifest.PreviewImage != null ? "Use the Mod's Choice" : "Choose Automatically Again", null, (_, _) => Picked?.Invoke(m, null));
             menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
             Ui.ShowAt(menu, PointToScreen(e.Location));
         }

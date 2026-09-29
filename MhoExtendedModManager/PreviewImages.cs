@@ -3,7 +3,7 @@ namespace MhoExtendedModManager;
 /// <summary>A picture that can be shown big for a mod: one of its own images, or the game's original.</summary>
 sealed record PreviewCandidate(string Key, string Texture, bool FromMod, string? File, string Package)
 {
-    public string Source => FromMod ? "From the Mod" : "The Game's Image";
+    public string Source => Package.Length == 0 ? "Custom Image" : FromMod ? "From the Mod" : "The Game's Image";
 }
 
 /// <summary>
@@ -47,7 +47,12 @@ static class PreviewImages
         var images = man.StoreReplacements.Select(r => (r.TextureName ?? "", Path.Combine(m.Folder, r.DdsFileName ?? ""), Applier.IconPackages[2].File))
             .Concat(man.Replacements.Select(r => (r.TextureName ?? "", Path.Combine(m.Folder, r.DdsFileName ?? ""), Applier.IconPackages[0].File)))
             .Concat(man.Extra.Select(r => (r.TextureName ?? "", Path.Combine(m.Folder, r.DdsFileName ?? ""), r.Package)));
-        return For(images, [cat?.DefaultStoreFor(m), cat?.DefaultIconFor(m)], cat);
+        var list = For(images, [cat?.DefaultStoreFor(m), cat?.DefaultIconFor(m)], cat);
+        // Custom pictures (ModPictures): the user's own pick on this PC first, then the mod's own (Pictures\).
+        var custom = new List<PreviewCandidate>();
+        if (ModPictures.Resolve(m.Folder, m.LocalPreview) is string mine) custom.Add(new PreviewCandidate(m.LocalPreview!, ModPictures.Label(m.LocalPreview!), true, mine, ""));
+        foreach (var (key, file) in ModPictures.Own(m.Folder)) custom.Add(new PreviewCandidate(key, ModPictures.Label(key), true, file, ""));
+        return [.. custom, .. list];
     }
 
     /// <summary>The automatic choice: the mod's first store image, else the game's store image, else the first candidate.</summary>

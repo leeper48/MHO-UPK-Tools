@@ -53,6 +53,9 @@ sealed class ModManifest
     /// <summary>Extension: the picture the manager shows big for this mod, chosen by its author ("mod:&lt;texture&gt;" for one
     /// of its own images, "game:&lt;texture&gt;" for the game's original). Null: chosen automatically.</summary>
     public string? PreviewImage { get; set; }
+    /// <summary>Extension: the picture for the mod's card in the list, chosen by its author (a TextureName the mod replaces;
+    /// Kurt: a mod with many packages / images picks which one). Null: automatic. A user's own pick wins on their PC.</summary>
+    public string? CardPicture { get; set; }
     /// <summary>Extension: the author's 3D camera per mesh ("mesh:&lt;package&gt;|&lt;mesh&gt;" → MeshViewer.ViewState), the view a
     /// user starts from (their own turning is kept on their PC and wins there). Null when none.</summary>
     public Dictionary<string, float[]>? PreviewViews { get; set; }
@@ -96,13 +99,15 @@ sealed class ModState
     public Dictionary<string, NexusLink>? NexusLinks { get; set; }
     /// <summary>Extension: the picture the user picked to show big for a mod (this PC; see ModManifest.PreviewImage).</summary>
     public Dictionary<string, string>? Previews { get; set; }
+    /// <summary>Extension: the picture the user picked for a mod's card in the list (a TextureName the mod replaces; this PC).</summary>
+    public Dictionary<string, string>? CardPictures { get; set; }
 
     /// <summary>A mod folder was renamed (editor): its lock and tags follow it.</summary>
     public void RenameMod(string from, string to)
     {
         foreach (var l in new[] { LockedTop, LockedBottom })
             if (l != null) for (int i = 0; i < l.Count; i++) if (l[i].Equals(from, StringComparison.OrdinalIgnoreCase)) l[i] = to;
-        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to); Move(Previews, from, to);
+        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to); Move(Previews, from, to); Move(CardPictures, from, to);
     }
 
     static void Move<T>(Dictionary<string, T>? d, string from, string to)
@@ -120,7 +125,7 @@ sealed class ModState
     {
         LockedTop?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
         LockedBottom?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
-        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name); Drop(NexusLinks, name); Drop(Previews, name);
+        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name); Drop(NexusLinks, name); Drop(Previews, name); Drop(CardPictures, name);
     }
 
     /// <summary>
@@ -188,6 +193,20 @@ sealed class Mod
     /// <summary>The picture the user picked to show big (state.json); null = the mod's choice, else automatic.</summary>
     public string? LocalPreview { get; set; }
 
+    /// <summary>The card picture the user picked (a TextureName the mod replaces; state.json); null = automatic.</summary>
+    public string? LocalCard { get; set; }
+
+    /// <summary>Every image the mod replaces that could be its card picture: (texture, .dds file), existing files only.</summary>
+    public List<(string Texture, string File)> CardCandidates() =>
+        [.. Manifest.Replacements.Select(x => (x.TextureName, x.DdsFileName))
+            .Concat(Manifest.Extra.Select(x => (x.TextureName, x.DdsFileName)))
+            .Concat(Manifest.StoreReplacements.Select(x => (x.TextureName, x.DdsFileName)))
+            .Concat(Manifest.AchievementReplacements.Select(x => (x.TextureName, x.DdsFileName)))
+            .Where(x => x.TextureName != null && x.DdsFileName != null && File.Exists(Path.Combine(Folder, x.DdsFileName)))
+            .Select(x => (x.TextureName!, Path.Combine(Folder, x.DdsFileName!)))
+            .Concat(ModPictures.Own(Folder))   // its own custom pictures ("file:Pictures/…")
+            .DistinctBy(x => x.Item1, StringComparer.OrdinalIgnoreCase)];
+
     /// <summary>The user's own note (state.json); null = the mod's note is shown.</summary>
     public string? LocalNote { get; set; }
     public string Note => LocalNote ?? Manifest.Notes ?? "";
@@ -213,6 +232,10 @@ sealed class Mod
     /// order), else its first costume… icon, else its store image, else its first inventory_ image; null if it has none or the file is missing.</summary>
     public string? CostumeIconFile()
     {
+        // The user's pick (Kurt: right-click → Card Picture), else the author's (manifest CardPicture), while the mod has that image.
+        foreach (string? want in new[] { LocalCard, Manifest.CardPicture })
+            if (ModPictures.Resolve(Folder, want) is string custom) return custom;
+            else if (want != null && CardCandidates().FirstOrDefault(c => c.Texture.Equals(want, StringComparison.OrdinalIgnoreCase)) is { File: not null } pick) return pick.File;
         // The first herohor… portrait (69 of Kurt's 80 mods); failing that costume…, then the store image (pets have no
         // portrait: Jeff (Pet)'s store_petoldlace), then inventory_ (items: Kurt).
         var all = Manifest.Replacements.Select(x => (x.TextureName, x.DdsFileName))

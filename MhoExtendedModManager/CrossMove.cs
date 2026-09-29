@@ -192,7 +192,7 @@ static class CrossMove
             d.Strings = [.. plan.Strings.Select(sm => mod.Strings.First(x => x.Id == sm.From && x.Language.Equals(sm.Language, StringComparison.OrdinalIgnoreCase)) with { Id = sm.To, File = sm.File, Variants = null })];
             // The voice set moves with its events, so a mod's sound pack (the audio of its renamed events) goes along.
             d.SoundPacks = log.Any(l => l.StartsWith("voice: ")) ? [.. mod.Manifest.AudioPacks.Select(f => Path.Combine(mod.Folder, f))] : [];
-            d.PreviewImage = null; d.PreviewViews = null;
+            d.PreviewImage = null; d.PreviewViews = null; d.CardPicture = null;
             d.PostNexus = d.PostDiscord = null; d.PostImages = [];
             d.NexusModId = null; d.Changes = ""; d.Changelog = [];
             if (replace != null) { d.Tags = [.. replace.ModTags]; d.Notes = replace.Manifest.Notes ?? ""; }

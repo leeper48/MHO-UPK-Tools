@@ -910,6 +910,54 @@ static class Program
                 Console.WriteLine($"{(uok == utotal ? "ok  " : "FAIL")} {uok} of {utotal} events play");
                 return ulines.Count > 0 && uok == utotal ? 0 : 1;
             }
+            case "--picture-test":
+            {
+                // Test (scratch library only, MHO_EXTMM_HOME): custom card / preview pictures on this PC, carried by Export,
+                // stripped by a legacy export, used after install, and saved by the editor into Pictures\.
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") is not { Length: > 0 } phome || phome.Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase))
+                { Console.WriteLine("refused: needs MHO_EXTMM_HOME on a scratch library"); return 1; }
+                var pm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                if (pm == null) { Console.WriteLine("--picture-test <mod>"); return 1; }
+                int fails = 0;
+                void Check(string what, bool ok) { Console.WriteLine($"{(ok ? "ok  " : "FAIL")} {what}"); if (!ok) fails++; }
+                string work = Path.Combine(Path.GetTempPath(), "mho_picture_test"); if (Directory.Exists(work)) Directory.Delete(work, true); Directory.CreateDirectory(work);
+                string png = Path.Combine(work, "my card.png");
+                using (var bmp = new System.Drawing.Bitmap(64, 80)) { using (var g = System.Drawing.Graphics.FromImage(bmp)) g.Clear(System.Drawing.Color.OrangeRed); bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png); }
+                pm.LocalCard = ModPictures.KeepLocal(lib.DataFolder, pm.FolderName, png, "card");
+                pm.LocalPreview = ModPictures.KeepLocal(lib.DataFolder, pm.FolderName, png, "preview");
+                Check("your card picture shows on the card", pm.CostumeIconFile() is string cf && cf.EndsWith("card.png", StringComparison.OrdinalIgnoreCase));
+                Check("and decodes as a thumbnail", pm.CostumeIconFile() is string cf2 && Gui.Ui.DdsThumb(cf2, 40) is { Width: > 0 });
+                Check("your preview picture is offered first", PreviewImages.For(pm, null).FirstOrDefault()?.Key == pm.LocalPreview);
+                string zip = Path.Combine(work, "full.zip");
+                ModInstaller.Export(pm, zip, previewPick: pm.LocalPreview, cardPick: pm.LocalCard);
+                using (var z = System.IO.Compression.ZipFile.OpenRead(zip))
+                {
+                    var man = System.Text.Json.JsonSerializer.Deserialize<ModManifest>(new StreamReader(z.GetEntry("manifest.json")!.Open()).ReadToEnd(), ModManifest.Json)!;
+                    Check("export carries the pictures (Pictures/card.png, Pictures/preview.png)", z.GetEntry("Pictures/card.png") != null && z.GetEntry("Pictures/preview.png") != null);
+                    Check("and the manifest names them", man.CardPicture == "file:Pictures/card.png" && man.PreviewImage == "file:Pictures/preview.png");
+                }
+                string legacyZip = Path.Combine(work, "legacy.zip");
+                ModInstaller.Export(pm, legacyZip, legacy: true, previewPick: pm.LocalPreview, cardPick: pm.LocalCard);
+                using (var z = System.IO.Compression.ZipFile.OpenRead(legacyZip))
+                {
+                    string json = new StreamReader(z.GetEntry("manifest.json")!.Open()).ReadToEnd();
+                    Check("a legacy export leaves them out", !json.Contains("CardPicture") && z.GetEntry("Pictures/card.png") == null);
+                }
+                // Install the full export under another name and check its card uses the carried picture.
+                string unpacked = Path.Combine(work, "unpacked"); System.IO.Compression.ZipFile.ExtractToDirectory(zip, unpacked);
+                var inst = new Mod { Folder = unpacked, FolderName = "unpacked", Manifest = ModManifest.Load(Path.Combine(unpacked, "manifest.json")) };
+                Check("installed: its card uses the author's picture", inst.CostumeIconFile() is string icf && icf.Replace('\\', '/').EndsWith("Pictures/card.png", StringComparison.OrdinalIgnoreCase));
+                Check("installed: its preview offers the author's picture", PreviewImages.For(inst, null).Any(c => c.Key == "file:Pictures/preview.png"));
+                // The editor: a custom picture chosen for the card is saved into the mod's Pictures\.
+                var dr = ModDraft.From(pm);
+                dr.Pictures.Add(("Pictures/editor card.png", png)); dr.CardPicture = "file:Pictures/editor card.png";
+                string? saved = ModWriter.Save(lib, dr, pm, out string? perr);
+                Check("editor save keeps the custom card picture" + (perr != null ? ": " + perr : ""), saved != null && File.Exists(Path.Combine(lib.DataFolder, "mods", saved, "Pictures", "editor card.png"))
+                    && ModManifest.Load(Path.Combine(lib.DataFolder, "mods", saved, "manifest.json")).CardPicture == "file:Pictures/editor card.png");
+                Directory.Delete(work, true);
+                Console.WriteLine(fails == 0 ? "PASS" : $"{fails} FAILED");
+                return fails == 0 ? 0 : 1;
+            }
             case "--wem-to-ogg":
             {
                 // Test: Wwise Vorbis → Ogg (WwiseVorbis, the ww2ogg port); compare with ww2ogg.exe's output.
@@ -1245,7 +1293,7 @@ static class Program
                 ModInstaller.CreateEmptyLibrary(scratch);
                 // A folder whose name differs from its mod's name (MHModManager made "Bucky …_3"), copied as is, for the edit pass.
                 foreach (var m in lib.Mods.Where(m => m.FolderName != ModInstaller.Sanitise(m.Name)))
-                    foreach (string f in Directory.GetFiles(m.Folder)) { Directory.CreateDirectory(Path.Combine(scratch, "mods", m.FolderName)); File.Copy(f, Path.Combine(scratch, "mods", m.FolderName, Path.GetFileName(f))); }
+                    foreach (string f in Directory.GetFiles(m.Folder)) { Directory.CreateDirectory(Path.Combine(scratch, "mods", m.FolderName)); File.Copy(f, Path.Combine(scratch, "mods", m.FolderName, Path.GetFileName(f)), overwrite: true); }
                 int bad = 0, jsonSame = 0, jsonTotal = 0, manifestSame = 0, manifestTotal = 0; var manifestDiffs = new List<string>();
                 foreach (var m in lib.Mods)
                 {

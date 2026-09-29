@@ -32,6 +32,10 @@ sealed class ModDraft
     public int? NexusModId;
     /// <summary>Extension: the picture shown big for the mod ("mod:&lt;texture&gt;" / "game:&lt;texture&gt;"; null: automatic).</summary>
     public string? PreviewImage;
+    /// <summary>Extension: the card picture in the mod list (a TextureName the mod replaces; null: automatic).</summary>
+    public string? CardPicture;
+    /// <summary>Custom pictures the preview / card can use ("Pictures/x.png" → source file); the ones in use are saved.</summary>
+    public List<(string File, string Source)> Pictures = [];
     /// <summary>Extension: the author's 3D camera per mesh (kept as it is by the editor).</summary>
     public Dictionary<string, float[]>? PreviewViews;
     /// <summary>Extension: the author's 3D light level (kept as it is by the editor).</summary>
@@ -80,6 +84,8 @@ sealed class ModDraft
         (d.PostNexus, d.PostDiscord, d.PostImages) = ModPost.Read(m.Folder);
         d.NexusModId = m.Manifest.NexusModId;
         d.PreviewImage = m.Manifest.PreviewImage;
+        d.CardPicture = m.Manifest.CardPicture;
+        d.Pictures = [.. ModPictures.Own(m.Folder).Select(x => (x.Key[ModPictures.Prefix.Length..], x.File))];
         d.PreviewViews = m.Manifest.PreviewViews;
         d.PreviewLight = m.Manifest.PreviewLight;
         d.VoiceOff = m.Manifest.VoiceOff?.ToList() ?? [];
@@ -152,6 +158,7 @@ static class ModWriter
             manifest.Changelog = changelog.Count > 0 ? changelog : null;
             manifest.NexusModId = d.NexusModId;
             manifest.PreviewImage = d.PreviewImage;
+            manifest.CardPicture = d.CardPicture;
             manifest.PreviewViews = d.PreviewViews is { Count: > 0 } pv ? pv : null;
             manifest.PreviewLight = d.PreviewLight;
             manifest.VoiceOff = d.VoiceOff.Count > 0 ? d.VoiceOff : null;
@@ -198,6 +205,14 @@ static class ModWriter
             manifest.Type = kinds.Count == 1 ? kinds[0] : ModType.Mixed;
             File.WriteAllText(Path.Combine(temp, "manifest.json"), JsonSerializer.Serialize(manifest, ModManifest.Json));
             ModPost.Write(temp, d.PostNexus, d.PostDiscord, d.PostImages);   // copied before the old folder goes away
+            // Custom pictures the preview or card uses (Pictures\), copied before the old folder goes away too.
+            foreach (var (file, source) in d.Pictures)
+                if ((ModPictures.Prefix + file).Equals(d.PreviewImage, StringComparison.OrdinalIgnoreCase) || (ModPictures.Prefix + file).Equals(d.CardPicture, StringComparison.OrdinalIgnoreCase))
+                {
+                    string dest = Path.Combine(temp, file.Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                    File.Copy(source, dest, overwrite: true);
+                }
 
             // Check it reads back as the same mod before swapping it in.
             var probe = new Mod { Folder = temp, FolderName = name, Manifest = ModManifest.Load(Path.Combine(temp, "manifest.json")) };

@@ -35,6 +35,39 @@ sealed class ModEditorView : UserControl
     // The picture the manager shows big for the mod (manifest PreviewImage; users can still pick their own).
     readonly DropDown previewBox = new() { Width = 460 };
     List<string> previewKeys = [];   // parallel to previewBox's items after "Automatic"
+    // The card picture in the mod list (manifest CardPicture; Kurt: authors choose it; users can pick their own).
+    readonly DropDown cardBox = new() { Width = 460 };
+    List<string> cardKeys = [];      // parallel to cardBox's items after "Automatic"
+    const string CustomChoice = "Custom Image (Choose a File)";
+    int previewWas, cardWas;
+
+    /// <summary>"Custom Image" picked in one of the two picture drop-downs: a file becomes one of the mod's own pictures.</summary>
+    string? ChooseCustomPicture(string what)
+    {
+        using var d = new OpenFileDialog { Title = $"{what} for {draft.Name}", Filter = ModPictures.DialogFilter };
+        if (d.ShowDialog(this) != DialogResult.OK) return null;
+        string stem = ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(d.FileName)), ext = Path.GetExtension(d.FileName).ToLowerInvariant();
+        string file = $"{ModPictures.Folder}/{stem}{ext}";
+        for (int n = 2; draft.Pictures.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase) && !p.Source.Equals(d.FileName, StringComparison.OrdinalIgnoreCase)); n++) file = $"{ModPictures.Folder}/{stem}_{n}{ext}";
+        if (!draft.Pictures.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase))) draft.Pictures.Add((file, d.FileName));
+        return ModPictures.Prefix + file;
+    }
+
+    /// <summary>The Card Picture choices: automatic, the mod's images (the texture tabs now), its own custom pictures.</summary>
+    void FillCardChoices(string? select = null)
+    {
+        string? keep = select ?? (cardBox.SelectedIndex > 0 && cardBox.SelectedIndex <= cardKeys.Count ? cardKeys[cardBox.SelectedIndex - 1] : draft.CardPicture);
+        cardKeys = [.. draft.Textures[0].Select(t => t.Texture).Concat(draft.Extra.Select(t => t.Texture)).Concat(draft.Textures[2].Select(t => t.Texture)).Concat(draft.Textures[1].Select(t => t.Texture))
+            .Concat(draft.Pictures.Select(p => ModPictures.Prefix + p.File)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        cardBox.BeginUpdate();
+        cardBox.Items.Clear();
+        cardBox.Items.Add("Automatic (hero portrait, costume icon, store image)");
+        foreach (string k in cardKeys) cardBox.Items.Add(ModPictures.IsFile(k) ? ModPictures.Label(k) + "  ·  Custom Image" : k);
+        cardBox.Items.Add(CustomChoice);
+        int i = keep == null ? -1 : cardKeys.FindIndex(k => k.Equals(keep, StringComparison.OrdinalIgnoreCase));
+        cardBox.SelectedIndex = cardWas = i + 1;
+        cardBox.EndUpdate();
+    }
     readonly TextBox notesBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(9.5f), Multiline = true, ScrollBars = ScrollBars.Vertical };
     readonly Label autoLabel = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Font = Ui.Regular(8.5f), Margin = new Padding(3, 2, 3, 6) };
     readonly TextBox nameBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, authorBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, versionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) };
@@ -493,14 +526,16 @@ sealed class ModEditorView : UserControl
         List<PreviewCandidate> pics; List<MeshRef> meshes;
         try { lock (Ui.StockLock) pics = PreviewImages.For(images, [], catalog); } catch (Exception ex) when (ex is IOException or InvalidDataException) { pics = []; }
         try { meshes = ModMeshes.List(draft.Packages.Select(p => (p.File, p.Source))); } catch (Exception ex) when (ex is IOException or InvalidDataException) { meshes = []; }
-        previewKeys = [.. pics.Select(c => c.Key), .. meshes.Select(m => m.Key)];
+        previewKeys = [.. draft.Pictures.Select(p => ModPictures.Prefix + p.File), .. pics.Select(c => c.Key), .. meshes.Select(m => m.Key)];
         previewBox.BeginUpdate();
         previewBox.Items.Clear();
         previewBox.Items.Add("Automatic (the first store image)");
+        foreach (var pic in draft.Pictures) previewBox.Items.Add($"{ModPictures.Label(ModPictures.Prefix + pic.File)}  ·  Custom Image");
         foreach (var c in pics) previewBox.Items.Add($"{c.Texture}  ·  {c.Source}");
         foreach (var m in meshes) previewBox.Items.Add($"3D: {m.Name}  ·  {m.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}");
         int i = keep == null ? -1 : previewKeys.FindIndex(k => k.Equals(keep, StringComparison.OrdinalIgnoreCase));
-        previewBox.SelectedIndex = i + 1;
+        previewBox.Items.Add(CustomChoice);
+        previewBox.SelectedIndex = previewWas = i + 1;
         previewBox.EndUpdate();
     }
 
@@ -512,6 +547,7 @@ sealed class ModEditorView : UserControl
         draft.Changes = changesBox.Text;
         draft.NexusModId = Nexus.ParseModId(nexusBox.Text);
         if (previewBox.Items.Count > 0) draft.PreviewImage = previewBox.SelectedIndex > 0 && previewBox.SelectedIndex <= previewKeys.Count ? previewKeys[previewBox.SelectedIndex - 1] : null;
+        if (cardBox.Items.Count > 0) draft.CardPicture = cardBox.SelectedIndex > 0 && cardBox.SelectedIndex <= cardKeys.Count ? cardKeys[cardBox.SelectedIndex - 1] : null;
         draft.Tags = tagsBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(t => lib.CleanTag(t) ?? t).ToList();
         draft.Notes = notesBox.Text;
     }
@@ -528,7 +564,7 @@ sealed class ModEditorView : UserControl
 
     Control DescriptionPage()
     {
-        var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(0, 8, 0, 0) };
+        var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(0, 8, 0, 0) };
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -551,6 +587,27 @@ sealed class ModEditorView : UserControl
         Ui.Tip(previewBox, "What the manager shows big for this mod: one of its own images, the game's original, or a 3D view of one of its meshes. Automatic: the mod's first store image, else the game's store image.");
         FillPreviewChoices();
         previewBox.Opening += (_, _) => FillPreviewChoices();
+        previewBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (previewBox.SelectedItem as string != CustomChoice) { previewWas = previewBox.SelectedIndex; return; }
+            if (ChooseCustomPicture("Preview Picture") is string key) { draft.PreviewImage = key; FillPreviewChoices(); previewBox.SelectedIndex = previewWas = previewKeys.FindIndex(k => k.Equals(key, StringComparison.OrdinalIgnoreCase)) + 1; }
+            else previewBox.SelectedIndex = previewWas;
+        };
+        var cardRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 10, 0, 0) };
+        cardRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); cardRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        cardRow.Controls.Add(new Label { Text = "CARD PICTURE  ·  the mod's picture in the list (users can pick their own)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0) }, 0, 0);
+        cardRow.Controls.Add(cardBox, 1, 0);
+        Ui.Tip(cardBox, "Which of the mod's images its card in the mod list shows (handy when it has many), or a custom picture of your own. Automatic: its hero portrait, else costume icon, else store image.");
+        FillCardChoices();
+        cardBox.Opening += (_, _) => FillCardChoices();
+        cardBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (cardBox.SelectedItem as string != CustomChoice) { cardWas = cardBox.SelectedIndex; return; }
+            if (ChooseCustomPicture("Card Picture") is string key) FillCardChoices(key);
+            else cardBox.SelectedIndex = cardWas;
+        };
+        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        p.Controls.Add(cardRow, 0, 7);
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         p.Controls.Add(previewRow, 0, 6);
         p.Controls.Add(new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 0) }, 0, 4);

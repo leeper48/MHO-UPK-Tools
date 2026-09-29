@@ -330,7 +330,7 @@ static class CostumeMove
             }
             d.Strings = [.. plan.Strings.Select(sm => mod.Strings.First(x => x.Id == sm.From && x.Language.Equals(sm.Language, StringComparison.OrdinalIgnoreCase)) with { Id = sm.To, File = sm.File, Variants = null })];
             d.SoundPacks = [.. plan.SoundPacks.Select(f => Path.Combine(mod.Folder, f))];
-            d.PreviewImage = null; d.PreviewViews = null;
+            d.PreviewImage = null; d.PreviewViews = null; d.CardPicture = null;
             d.PostNexus = d.PostDiscord = null; d.PostImages = [];
             d.NexusModId = null; d.Changes = ""; d.Changelog = [];
             d.Notes = (d.Notes.Length > 0 ? d.Notes.TrimEnd() + Environment.NewLine : "") + $"Moved from {mod.Name} ({plan.Source.Short.Replace(".prototype", "")} → {plan.Target.Short.Replace(".prototype", "")}).";

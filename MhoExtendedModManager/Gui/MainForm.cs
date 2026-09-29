@@ -252,6 +252,17 @@ sealed class MainForm : Form
             UpdateUndo();
             storePreview.ChoiceChanged();
         };
+        storePreview.CustomRequested += m =>
+        {
+            if (readOnly || lib == null) return;
+            using var d = new OpenFileDialog { Title = $"Preview Picture for {m.Name}", Filter = ModPictures.DialogFilter };
+            if (d.ShowDialog(this) != DialogResult.OK) return;
+            string key;
+            try { key = ModPictures.KeepLocal(lib.DataFolder, m.FolderName, d.FileName, "preview"); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            if (lib.Find(m.FolderName) is Mod mm && mm.LocalPreview == key) mm.LocalPreview = null;   // the same file name again: still a change
+            storePreview.RaisePicked(m, key);
+        };
         list.CanReorder = () => ReorderView && !readOnly;
         list.Dropped += (m, target, below) =>
         {
@@ -858,6 +869,7 @@ sealed class MainForm : Form
         menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Create Post", null, (_, _) => CreatePost(m)));
         menu.Items.Insert(at++, NexusMenu(m));
+        menu.Items.Insert(at++, CardPictureMenu(m));
         if (SingleCostume(m) != null)
         {
             var move = new ToolStripMenuItem("Move to Another Costume") { Enabled = !readOnly };
@@ -866,6 +878,47 @@ sealed class MainForm : Form
         }
         menu.Items.Insert(at, new ToolStripSeparator());
         return menu;
+    }
+
+    /// <summary>
+    /// Right-click → Card Picture (Kurt): which of the mod's own images its card in the list shows, each with a small
+    /// thumbnail; Automatic = the usual pick (hero portrait, costume icon, store image …). One undo step.
+    /// </summary>
+    ToolStripMenuItem CardPictureMenu(Mod m)
+    {
+        var item = new ToolStripMenuItem("Card Picture") { Enabled = !readOnly };
+        string autoText = m.Manifest.CardPicture != null ? $"The Mod's Choice ({m.Manifest.CardPicture})" : "Automatic (Hero Portrait, Costume Icon, Store Image)";
+        var auto = new ToolStripMenuItem(autoText, null, (_, _) =>
+            Change($"Card picture of \"{m.Name}\": the mod's choice", () => { if (m.LocalCard == null) return false; m.LocalCard = null; return true; })) { Checked = m.LocalCard == null };
+        item.DropDownItems.Add(auto);
+        var candidates = m.CardCandidates();
+        // A picture of your own (a user's request): copied into data\pictures, kept on this PC; Export can put it into the mod.
+        var own = new ToolStripMenuItem("Custom Image", null, (_, _) =>
+        {
+            using var d = new OpenFileDialog { Title = $"Card Picture for {m.Name}", Filter = ModPictures.DialogFilter };
+            if (d.ShowDialog(this) != DialogResult.OK || lib == null) return;
+            string key;
+            try { key = ModPictures.KeepLocal(lib.DataFolder, m.FolderName, d.FileName, "card"); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            Change($"Card picture of \"{m.Name}\": {Path.GetFileName(d.FileName)}", () => { m.LocalCard = key; return true; });
+        })
+        { Checked = ModPictures.IsFile(m.LocalCard) && !candidates.Any(c => c.Texture.Equals(m.LocalCard, StringComparison.OrdinalIgnoreCase)) };
+        if (ModPictures.Resolve(m.Folder, m.LocalCard) is string ownFile && own.Checked) try { own.Image = Ui.DdsThumb(ownFile, (int)(32 * DeviceDpi / 96f)); own.ImageScaling = ToolStripItemImageScaling.None; } catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException) { }
+        item.DropDownItems.Add(own);
+        if (candidates.Count == 0) return item;
+        item.DropDownItems.Add(new ToolStripSeparator());
+        int px = (int)(32 * DeviceDpi / 96f);
+        string? current = m.LocalCard;
+        foreach (var (tex, file) in candidates)
+        {
+            string t = tex;
+            var pick = new ToolStripMenuItem(ModPictures.IsFile(tex) ? ModPictures.Label(tex) + "  ·  the Mod's Own Picture" : tex, null, (_, _) =>
+                Change($"Card picture of \"{m.Name}\": {t}", () => { if (t.Equals(m.LocalCard, StringComparison.OrdinalIgnoreCase)) return false; m.LocalCard = t; return true; }))
+            { Checked = tex.Equals(current, StringComparison.OrdinalIgnoreCase), ImageScaling = ToolStripItemImageScaling.None };
+            try { if (Ui.DdsThumb(file, px) is Image img) pick.Image = img; } catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or OutOfMemoryException) { }
+            item.DropDownItems.Add(pick);
+        }
+        return item;
     }
 
     // ---- Move to Another Costume
@@ -2069,7 +2122,7 @@ sealed class MainForm : Form
             legacy = answer == DialogResult.No;
         }
         // The user's own tags and note live on this PC; offered for the exported copy (the mod's own always go along).
-        List<string>? addTags = null; string? note = null, pick = null; Dictionary<string, float[]>? views = null; float? light = null;
+        List<string>? addTags = null; string? note = null, pick = null, card = null; Dictionary<string, float[]>? views = null; float? light = null;
         var mineTags = m.UserTags.Where(t => !m.ModTags.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
         var mineViews = PreviewViews.ForMod(m);
         var parts = new List<string>();
@@ -2079,6 +2132,7 @@ sealed class MainForm : Form
         if (mineViews.Count > 0) parts.Add($"your 3D camera view{(mineViews.Count > 1 ? "s" : "")}");
         var mineLight = PreviewViews.LocalLight(m);
         if (mineLight != null) parts.Add($"your 3D light level ({mineLight * 100:0} %)");
+        if (m.LocalCard != null) parts.Add($"your card picture ({m.LocalCard})");
         if (!legacy && parts.Count > 0)
         {
             string what = parts.Count == 1 ? parts[0] : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
@@ -2086,11 +2140,11 @@ sealed class MainForm : Form
                 "Whoever installs it starts from your preview, view and light, and can still pick, turn and light their own.",
                 "Export", MessageBoxButtons.YesNoCancel);
             if (a == DialogResult.Cancel) return;
-            if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; pick = m.LocalPreview; views = mineViews; light = mineLight; }
+            if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; pick = m.LocalPreview; views = mineViews; light = mineLight; card = m.LocalCard; }
         }
         using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views, light); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with your tags / note / preview)" : ""); }
+        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views, light, card); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with your tags / note / preview)" : ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 

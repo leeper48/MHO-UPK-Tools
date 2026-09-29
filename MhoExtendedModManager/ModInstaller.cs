@@ -128,29 +128,46 @@ static class ModInstaller
     }
 
     public static void Export(Mod mod, string zipPath, bool legacy = false, IEnumerable<string>? addTags = null, string? note = null,
-        string? previewPick = null, Dictionary<string, float[]>? views = null, float? light = null)
+        string? previewPick = null, Dictionary<string, float[]>? views = null, float? light = null, string? cardPick = null)
     {
         string temp = zipPath + ".tmp";
         if (File.Exists(temp)) File.Delete(temp);
         var files = Directory.GetFiles(mod.Folder, "*", SearchOption.AllDirectories)
             .Where(f => !Path.GetRelativePath(mod.Folder, f).StartsWith(ModPost.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();   // the post goes beside the zip
         byte[]? manifest = null;
+        // A user's own custom picture (kept on their PC) goes into the zip as one of the mod's pictures (Pictures/).
+        var carried = new List<(string Name, string Source)>();
+        var names = files.Select(f => Path.GetRelativePath(mod.Folder, f).Replace(Path.DirectorySeparatorChar, '/')).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string? Carry(string? key, string kind)
+        {
+            if (!ModPictures.IsFile(key) || legacy) return key;
+            string rel = key![ModPictures.Prefix.Length..];
+            if (!Path.IsPathRooted(rel)) return key;                       // the mod's own already
+            if (ModPictures.Resolve(mod.Folder, key) is not string src) return null;
+            string ext = Path.GetExtension(src).ToLowerInvariant(), name = $"{ModPictures.Folder}/{kind}{ext}";
+            for (int n = 2; names.Contains(name); n++) name = $"{ModPictures.Folder}/{kind}_{n}{ext}";
+            names.Add(name); carried.Add((name, src));
+            return ModPictures.Prefix + name;
+        }
+        previewPick = Carry(previewPick, "preview");
+        cardPick = Carry(cardPick, "card");
         var extraTags = (addTags ?? []).Where(t => !mod.ModTags.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
-        if (!legacy && (extraTags.Count > 0 || note != null || previewPick != null || views is { Count: > 0 } || light != null))
+        if (!legacy && (extraTags.Count > 0 || note != null || previewPick != null || views is { Count: > 0 } || light != null || cardPick != null))
         {
             // The user's tags / note / preview choice / 3D views / light go into the exported copy (the library's manifest isn't changed).
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
             if (extraTags.Count > 0) m.Tags = [.. m.Tags ?? [], .. extraTags];
             if (note != null) m.Notes = note.Length > 0 ? note : null;
             if (previewPick != null) m.PreviewImage = previewPick;
+            if (cardPick != null) m.CardPicture = cardPick;
             if (views is { Count: > 0 }) { m.PreviewViews ??= []; foreach (var (k, v) in views) m.PreviewViews[k] = v; }
             if (light is float lv) m.PreviewLight = Math.Abs(lv - 1f) < 1e-4 ? null : MathF.Round(lv, 2);
             manifest = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, ModManifest.Json));
         }
-        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null || mod.Manifest.PreviewLight != null || mod.Manifest.VoiceOff != null))
+        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null || mod.Manifest.PreviewLight != null || mod.Manifest.VoiceOff != null || mod.Manifest.CardPicture != null))
         {
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
-            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null; m.PreviewLight = null; m.VoiceOff = null;   // extensions: a legacy copy is MHModManager's format only
+            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null; m.PreviewLight = null; m.VoiceOff = null; m.CardPicture = null;   // extensions: a legacy copy is MHModManager's format only
             var keep = m.Replacements.Concat(m.AchievementReplacements).Concat(m.StoreReplacements).Select(r => r.DdsFileName).Concat(m.UpkReplacements).Concat(m.AudioPacks).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var dropOnly = m.Extra.Select(r => r.DdsFileName).Where(f => !keep.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             files.RemoveAll(f => dropOnly.Contains(Path.GetRelativePath(mod.Folder, f)));
@@ -171,9 +188,10 @@ static class ModInstaller
                 }
                 else z.CreateEntryFromFile(f, name, CompressionLevel.Optimal);
             }
+            foreach (var (name, src) in carried) z.CreateEntryFromFile(src, name, CompressionLevel.Optimal);
         }
         using (var z = ZipFile.OpenRead(temp))
-            if (z.GetEntry("manifest.json") == null || z.Entries.Count != files.Count)
+            if (z.GetEntry("manifest.json") == null || z.Entries.Count != files.Count + carried.Count)
                 throw new IOException("the zip doesn't read back complete");
         File.Move(temp, zipPath, overwrite: true);
     }

@@ -33,6 +33,7 @@ sealed class ModLibrary
         var notes = new Dictionary<string, string>(lib.State.Notes ?? [], StringComparer.OrdinalIgnoreCase);
         var nexus = new Dictionary<string, NexusLink>(lib.State.NexusLinks ?? [], StringComparer.OrdinalIgnoreCase);
         var previews = new Dictionary<string, string>(lib.State.Previews ?? [], StringComparer.OrdinalIgnoreCase);
+        var cards = new Dictionary<string, string>(lib.State.CardPictures ?? [], StringComparer.OrdinalIgnoreCase);
         foreach (var m in mods)
         {
             m.Enabled = enabled.Contains(m.FolderName);
@@ -41,6 +42,7 @@ sealed class ModLibrary
             m.LocalNote = notes.TryGetValue(m.FolderName, out var n) ? n : null;
             m.NexusLink = nexus.TryGetValue(m.FolderName, out var nl) ? nl : null;
             m.LocalPreview = previews.TryGetValue(m.FolderName, out var pv) ? pv : null;
+            m.LocalCard = cards.TryGetValue(m.FolderName, out var cp) ? cp : null;
             m.Lock = top.Contains(m.FolderName) ? ModLock.Top : bottom.Contains(m.FolderName) ? ModLock.Bottom : ModLock.None;
         }
         lib.Mods.AddRange(mods);
@@ -127,6 +129,8 @@ sealed class ModLibrary
         State.NexusLinks = linked.Count > 0 ? linked.ToDictionary(m => m.FolderName, m => m.NexusLink!) : null;
         var picked = Mods.Where(m => m.LocalPreview != null).OrderBy(m => m.Priority).ToList();
         State.Previews = picked.Count > 0 ? picked.ToDictionary(m => m.FolderName, m => m.LocalPreview!) : null;
+        var carded = Mods.Where(m => m.LocalCard != null).OrderBy(m => m.Priority).ToList();
+        State.CardPictures = carded.Count > 0 ? carded.ToDictionary(m => m.FolderName, m => m.LocalCard!) : null;
         string path = Path.Combine(DataFolder, "state.json"), tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(State, ModManifest.Json));
         File.Move(tmp, path, overwrite: true);
