@@ -24,8 +24,10 @@ sealed class Settings
     /// <summary>The mod list's width as a fraction of the window (null: 30%), kept between starts (a user's request).</summary>
     public float? ListWidth { get; set; }
     public string ListGroup { get; set; } = "none";
-    /// <summary>Updates: look for a new version at start (at most once a day); a version the user chose to skip.</summary>
+    /// <summary>Updates: look for a new version at start and every hour while open; a version the user chose to skip.</summary>
     public bool CheckUpdates { get; set; } = true;
+    /// <summary>The manual's text size in percent (A− / A+ in the Help window).</summary>
+    public int ManualTextSize { get; set; } = 100;
     /// <summary>The user was asked once whether the app may look for updates at start (nothing is sent without that).</summary>
     public bool UpdateCheckAsked { get; set; }
     /// <summary>Nexus Mods: check the linked mods (public data, no account) at start. Off unless the user turns it on.

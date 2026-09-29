@@ -249,6 +249,25 @@ static class Ui
         return sb.ToString();
     }
 
+    /// <summary>The " (on Classic)" end of a moved costume mod's name (drawn in amber: our override, not part of the mod's
+    /// name, Kurt), or null. Set by MainForm (it knows the costume each mod is for).</summary>
+    public static Func<Mod, string?>? OverrideSuffix { get; set; }
+    public static readonly Color OverrideAmber = Color.FromArgb(242, 170, 60);
+
+    /// <summary>A mod's name in <paramref name="rect"/>: the name, then its override suffix in amber (the name is shortened first).</summary>
+    public static void DrawModName(Graphics g, Mod m, Font font, Rectangle rect, Color color, TextFormatFlags flags)
+    {
+        string? suffix = OverrideSuffix?.Invoke(m);
+        if (suffix == null || !m.Name.EndsWith(suffix, StringComparison.Ordinal)) { TextRenderer.DrawText(g, m.Name, font, rect, color, flags); return; }
+        string head = m.Name[..^suffix.Length];
+        var nf = flags | TextFormatFlags.NoPadding;
+        const TextFormatFlags measure = TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;   // no ellipsis: with Size.Empty it shortens to nothing
+        int sw = TextRenderer.MeasureText(g, suffix, font, Size.Empty, measure).Width;
+        int hw = Math.Min(TextRenderer.MeasureText(g, head, font, Size.Empty, measure).Width, Math.Max(0, rect.Width - sw));
+        TextRenderer.DrawText(g, head, font, new Rectangle(rect.X, rect.Y, hw, rect.Height), color, nf | TextFormatFlags.EndEllipsis);
+        TextRenderer.DrawText(g, suffix, font, new Rectangle(rect.X + hw, rect.Y, Math.Max(0, rect.Width - hw), rect.Height), OverrideAmber, nf);
+    }
+
     /// <summary>A small preview of a .dds (null if it can't be read).</summary>
     public static Image? DdsThumb(string path, int size)
     {
@@ -439,7 +458,8 @@ static class Ui
 
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
-            e.TextColor = e.Item.Enabled ? Text : DisabledText;
+            // An item can carry its own colour in Tag (Move to Another Costume: the hero's default costume in green).
+            e.TextColor = e.Item.Tag is Color own ? (e.Item.Enabled ? own : Color.FromArgb(150, own)) : e.Item.Enabled ? Text : DisabledText;
             base.OnRenderItemText(e);
         }
 
@@ -691,6 +711,8 @@ sealed class ModListBox : ListBox
     public event Action<Mod, Point>? MenuRequested;
     /// <summary>The newer Nexus version for a mod (null: none), and a click on its ↑ badge.</summary>
     public Func<Mod, string?>? UpdateFor { get; set; }
+    /// <summary>The single costume a mod is for ("Age of Ultron Movie"), shown on the card instead of the count; null = the count.</summary>
+    public Func<Mod, string?>? CostumeLabel { get; set; }
     /// <summary>Stock pictures for mods without one of their own (StockCatalog.DefaultIconFor); null: none.</summary>
     public StockCatalog? Catalog { get; set; }
     public event Action<Mod>? UpdateClicked;
@@ -973,12 +995,12 @@ sealed class ModListBox : ListBox
         nexusParts[e.Index] = (pill, mark);
 
         var nameRect = new Rectangle(textLeft, card.Y + (int)(5 * S), badgesLeft - textLeft, (int)(20 * S));
-        TextRenderer.DrawText(g, m.Name, nameFont, nameRect, m.Enabled ? Ui.Text : Color.FromArgb(200, 200, 205), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        Ui.DrawModName(g, m, nameFont, nameRect, m.Enabled ? Ui.Text : Color.FromArgb(200, 200, 205), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
         // Second row: author and tag chips on the left, state and count on the right.
         var second = new Rectangle(textLeft, card.Y + (int)(25 * S), card.Right - pad - textLeft, (int)(16 * S));
         string state = broken ? "Missing Files" : m.Enabled ? "Enabled" : "Disabled";
-        string count = "  ·  " + Ui.CountText(m);
+        string count = "  ·  " + (CostumeLabel?.Invoke(m) ?? Ui.CountText(m));
         var countSize = TextRenderer.MeasureText(g, count, smallFont, Size.Empty, TextFormatFlags.NoPadding);
         var stateSize = TextRenderer.MeasureText(g, state, smallFont, Size.Empty, TextFormatFlags.NoPadding);
         int right = check.Left - (int)(8 * S);
@@ -2090,7 +2112,11 @@ sealed class DetailsHeader : Control
     Rectangle conflictRect;
     /// <summary>A tag chip or "+ Tag" clicked, at a screen point (opens the tags menu).</summary>
     public event Action<Point>? TagsClicked;
-    Rectangle pill, tagArea;
+    /// <summary>The single costume the mod is for ("Age of Ultron Movie"), or null (then no costume control).</summary>
+    public string? CostumeTitle { get; set; }
+    /// <summary>The costume control clicked, at a screen point (opens the Move to Another Costume menu).</summary>
+    public event Action<Point>? CostumeClicked;
+    Rectangle pill, tagArea, costumeRect;
     readonly Font chipFont = Ui.Heavy(8f);
     readonly Font title = Ui.Bold(14f), version = Ui.Regular(9.5f), by = Ui.Regular(9.5f), badge = Ui.Heavy(8.25f), pillFont = Ui.Heavy(8.5f);
 
@@ -2136,12 +2162,30 @@ sealed class DetailsHeader : Control
         // Left: name, version, by-line.
         var ts = TextRenderer.MeasureText(g, m.Name, title, Size.Empty, TextFormatFlags.NoPrefix);
         int maxName = left - x - (int)(80 * S);
-        TextRenderer.DrawText(g, m.Name, title, new Rectangle(x, (int)(8 * S), Math.Min(ts.Width, maxName), ts.Height), Ui.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        Ui.DrawModName(g, m, title, new Rectangle(x, (int)(8 * S), Math.Min(ts.Width, maxName), ts.Height), Ui.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         if (!string.IsNullOrEmpty(m.Manifest.Version))
             TextRenderer.DrawText(g, m.Manifest.Version, version, new Point(x + Math.Min(ts.Width, maxName) + (int)(4 * S), (int)(8 * S) + ts.Height - TextRenderer.MeasureText(m.Manifest.Version, version).Height - (int)(2 * S)), Ui.Subtle, TextFormatFlags.NoPrefix);
         string line = (string.IsNullOrEmpty(m.Manifest.Author) ? "" : $"by {m.Manifest.Author}   ") + Ui.CountText(m) + (m.Enabled ? "" : "   ·   Turned Off");
         var byPos = new Point(x, (int)(8 * S) + ts.Height + (int)(2 * S));
         TextRenderer.DrawText(g, line, by, byPos, Ui.Subtle, TextFormatFlags.NoPrefix);
+
+        // Right of the by-line: the mod's costume, a drop-down (Kurt: show the source costume, and choices to move it).
+        costumeRect = Rectangle.Empty;
+        int tagsRight = right;
+        if (!string.IsNullOrEmpty(CostumeTitle))
+        {
+            string ct = "Costume: " + CostumeTitle + "  ▾";
+            var cs = TextRenderer.MeasureText(g, ct, pillFont, Size.Empty, TextFormatFlags.NoPrefix);
+            var bs = TextRenderer.MeasureText(g, "X", by);
+            costumeRect = new Rectangle(right - cs.Width - (int)(12 * S), byPos.Y + bs.Height / 2 - (int)(11 * S), cs.Width + (int)(12 * S), (int)(22 * S));
+            using (var path = Ui.Round(costumeRect, 4 * S))
+            {
+                using var fill = new SolidBrush(Color.FromArgb(40, Ui.Accent)); g.FillPath(fill, path);
+                using var pen = new Pen(Ui.Accent); g.DrawPath(pen, path);
+            }
+            TextRenderer.DrawText(g, ct, pillFont, costumeRect, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            tagsRight = costumeRect.Left - (int)(8 * S);
+        }
 
         // The mod's tags, then "+ Tag" (both open the tags menu).
         var ls = TextRenderer.MeasureText(g, line, by, Size.Empty, TextFormatFlags.NoPrefix);
@@ -2151,14 +2195,23 @@ sealed class DetailsHeader : Control
         {
             bool add = i == m.Tags.Count;
             string tag = add ? "+ Tag" : m.Tags[i];
-            if (cx + Ui.ChipWidth(g, tag, chipFont, S) > right) break;
+            if (cx + Ui.ChipWidth(g, tag, chipFont, S) > tagsRight) break;
             var r = Ui.DrawChip(g, tag, chipFont, cx, mid, S, outline: add, soft: !add && m.KindOf(tag) == Mod.TagKind.Auto, mod: m);
             tagArea = tagArea.IsEmpty ? r : Rectangle.Union(tagArea, r);
             cx = r.Right + (int)(4 * S);
         }
     }
 
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); Cursor = (pill.Contains(e.Location) || tagArea.Contains(e.Location) || conflictRect.Contains(e.Location)) && Mod != null ? Cursors.Hand : Cursors.Default; }
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        bool hand = (pill.Contains(e.Location) || tagArea.Contains(e.Location) || conflictRect.Contains(e.Location) || costumeRect.Contains(e.Location)) && Mod != null;
+        Cursor = hand ? Cursors.Hand : Cursors.Default;
+        string? tip = costumeRect.Contains(e.Location) ? "The costume this mod is for. Click to move it to another costume of the same hero (as a new mod; this one isn't changed)." : null;
+        if (tip != shownTip) { shownTip = tip; if (tip == null) Ui.Tips.Hide(this); else Ui.Tips.Show(tip, this, e.X + 12, e.Y + 18, 8000); }
+    }
+    string? shownTip;
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (shownTip != null) { shownTip = null; Ui.Tips.Hide(this); } }
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
@@ -2166,6 +2219,7 @@ sealed class DetailsHeader : Control
         if (pill.Contains(e.Location)) PillClicked?.Invoke();
         else if (conflictRect.Contains(e.Location)) ConflictClicked?.Invoke();
         else if (tagArea.Contains(e.Location)) TagsClicked?.Invoke(PointToScreen(new Point(e.X, tagArea.Bottom)));
+        else if (costumeRect.Contains(e.Location)) CostumeClicked?.Invoke(PointToScreen(new Point(costumeRect.Left, costumeRect.Bottom)));
     }
 }
 

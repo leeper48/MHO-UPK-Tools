@@ -131,7 +131,8 @@ sealed class MainForm : Form
         updateAlert = Ui.FlatButton("↑ Update Available", () => CheckForUpdates(manual: true), tip: "A new version of MHO Extended Mod Manager is out. Click to see what's new and update (it restarts).");
         updateAlert.Visible = false;
         topButtons.Controls.AddRange([newMod, extractButton, install]);
-        rightButtons.Controls.AddRange([updateAlert, settingsButton]);
+        var helpButton = Ui.FlatButton("Help", () => HelpForm.Show(this, settings), tip: "The manual: how everything works, shortcuts, troubleshooting (F1).");
+        rightButtons.Controls.AddRange([updateAlert, helpButton, settingsButton]);
         writeControls.AddRange([newMod, install]);
         tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
         tips.SetToolTip(extractButton, "Save original game icons, store images or strings, to make replacements from.");
@@ -241,6 +242,9 @@ sealed class MainForm : Form
         var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 4, 8, 0) };
         right.Controls.Add(tabs); right.Controls.Add(header);
         header.PillClicked += () => { if (Selected is Mod m) Toggle(m); };
+        header.CostumeClicked += pt => { if (Selected is Mod m && !readOnly) CostumeMenu(m, pt); };
+        list.CostumeLabel = m => SingleCostume(m) is { } sc ? sc.Costume.Title + (sc.Costume.IsDefault ? " (Default)" : "") : null;
+        Ui.OverrideSuffix = m => SingleCostume(m) is { } c && m.Name.EndsWith($" (on {c.Costume.Title})", StringComparison.Ordinal) ? $" (on {c.Costume.Title})" : null;
         header.TagsClicked += pt => { if (Selected is Mod m && !readOnly) Ui.ShowAt(TagsMenu(m), pt); };
         tips.SetToolTip(header, "Click Enabled / Disabled to turn the mod on or off, and its tags or + Tag to change the tags.");
 
@@ -348,24 +352,24 @@ sealed class MainForm : Form
             split.SplitterMoved += (_, _) => { if (split.Width > 0) { settings.ListWidth = (float)Math.Round((double)split.SplitterDistance / split.Width, 3); settings.Save(); } };
         };
         FormClosing += (_, _) => SaveNote();
-        // A quiet look for a new version, at most once a day (Settings: Check for updates at start).
+        // A quiet look for a new version at start and every hour while open (Kurt: frequent releases; Settings: Check for updates at start).
         // The first time: ask whether it may look (code signing policy: nothing goes over the network without consent).
         Shown += (_, _) =>
         {
             if (!settings.UpdateCheckAsked)
             {
-                settings.CheckUpdates = Dialog.Show(this, "Look for new versions of MHO Extended Mod Manager when it starts (at most once a day)?" + Environment.NewLine + Environment.NewLine +
+                settings.CheckUpdates = Dialog.Show(this, "Look for new versions of MHO Extended Mod Manager when it starts and every hour while it's open?" + Environment.NewLine + Environment.NewLine +
                     "It asks GitHub (api.github.com) for the latest release; nothing about you, your game or your mods is sent. " +
                     "You can change this in Settings, and Settings → Check for updates works either way.",
                     "Updates", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
                 settings.UpdateCheckAsked = true;
                 settings.Save();
             }
-            ShowUpdateAlert();   // from the last check (the daily limit may skip checking now)
-            if (settings.CheckUpdates && (settings.LastUpdateCheck == null || DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromDays(1)))
+            ShowUpdateAlert();   // from the last check (a check under an hour ago isn't repeated)
+            if (settings.CheckUpdates && (settings.LastUpdateCheck == null || DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromHours(1)))
                 CheckForUpdates(manual: false);
-            // Left open: look again every 6 hours (only when checks are allowed).
-            var updateTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
+            // Left open: look again every hour (only when checks are allowed; GitHub allows 60 unauthenticated requests an hour).
+            var updateTimer = new System.Windows.Forms.Timer { Interval = 60 * 60 * 1000 };
             updateTimer.Tick += (_, _) => { if (settings.CheckUpdates) CheckForUpdates(manual: false); };
             updateTimer.Start();
             // Nexus (public data, no account): only when the user turned it on (off by default), at most every 6 hours.
@@ -498,6 +502,18 @@ sealed class MainForm : Form
         if (foldersKey != null && key != foldersKey) { undo.Clear(); redo.Clear(); }
         foldersKey = key;
         string? gameRoot = settings.ResolvedGameRoot(data);
+        singleCostumes.Clear();
+        if (gameRoot != null && Settings.IsGameRoot(gameRoot) && costumesRoot != gameRoot)
+        {
+            // The game's costume definitions (a second or so, once): which costume each mod is for.
+            costumesRoot = gameRoot;
+            string root = gameRoot;
+            Task.Run(() => Costume.All(root)).ContinueWith(t =>
+            {
+                if (IsDisposed || t.IsFaulted) return;
+                BeginInvoke(() => { costumes = t.Result; singleCostumes.Clear(); list.Invalidate(); if (Selected is Mod sm) { header.CostumeTitle = SingleCostume(sm) is { } hc ? hc.Costume.Title + (hc.Costume.IsDefault ? " (Default)" : "") : null; header.Invalidate(); } });
+            });
+        }
         gameLabel.Text = gameRoot != null ? Settings.TrueCase(gameRoot) : "(not set: Settings → Change game folder)";
         if (gameRoot != null && Directory.Exists(Settings.Cooked(gameRoot))) game = new GameState(gameRoot, data);
         // Stock pictures for mods without one: one catalog per library + game folder (its icon package loads once).
@@ -710,6 +726,8 @@ sealed class MainForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // F1: the manual, at the section for the tab shown.
+        if (keyData == Keys.F1) { HelpForm.Show(this, settings, pages.SelectedIndex switch { 1 => "editor", 2 => "extract", _ => "contents" }); return true; }
         // Ctrl+Enter: Apply Changes (Kurt), anywhere on the Mods tab.
         if (keyData == (Keys.Control | Keys.Enter) && pages.SelectedIndex == 0 && applyButton.Enabled && applyButton.Visible)
         {
@@ -795,8 +813,87 @@ sealed class MainForm : Form
         menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Create Post", null, (_, _) => CreatePost(m)));
         menu.Items.Insert(at++, NexusMenu(m));
+        if (SingleCostume(m) != null)
+        {
+            var move = new ToolStripMenuItem("Move to Another Costume") { Enabled = !readOnly };
+            FillCostumeItems(move.DropDownItems, m);
+            menu.Items.Insert(at++, move);
+        }
         menu.Items.Insert(at, new ToolStripSeparator());
         return menu;
+    }
+
+    // ---- Move to Another Costume
+
+    List<Costume>? costumes;
+    string? costumesRoot;
+    readonly Dictionary<string, (string File, Costume Costume)?> singleCostumes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The one costume a mod is for (null until the game's costume data is read, or for other mods).</summary>
+    (string File, Costume Costume)? SingleCostume(Mod m)
+    {
+        if (costumes == null) return null;
+        if (!singleCostumes.TryGetValue(m.FolderName, out var c)) singleCostumes[m.FolderName] = c = CostumeMove.Single(m, costumes);
+        return c;
+    }
+
+    /// <summary>The header's costume drop-down: the hero's other costumes.</summary>
+    void CostumeMenu(Mod m, Point pt)
+    {
+        var menu = NewMenu();
+        FillCostumeItems(menu.Items, m);
+        Ui.ShowAt(menu, pt);
+    }
+
+    /// <summary>The hero's other costumes with their store images; one already made from this mod selects that mod.</summary>
+    void FillCostumeItems(ToolStripItemCollection items, Mod m)
+    {
+        if (SingleCostume(m) is not { } src || lib == null || game == null || costumes == null) return;
+        var catalog = list.Catalog;
+        items.Add(new ToolStripMenuItem($"\"{m.Name}\" Is for {src.Costume.Title}. Move It To:") { Enabled = false });
+        foreach (var target in CostumeMove.Targets(src.Costume, costumes, game.Cooked))
+        {
+            var made = lib.Mods.FirstOrDefault(x => x.Name.Equals(CostumeMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
+            var others = lib.Mods.Where(x => x != m && x != made && x.Manifest.UpkReplacements.Contains(target.Package, StringComparer.OrdinalIgnoreCase)).ToList();
+            string text = target.Title + (target.IsDefault ? "  ·  Default" : "") + (made != null ? "  ·  Already Made (Select It)" : others.Count > 0 ? $"  ·  {others.Count} Other Mod(s)" : "");
+            var item = new ToolStripMenuItem(text, null, (_, _) => { if (made != null) SelectMod(made.FolderName); else MoveCostume(m, src.File, src.Costume, target); });
+            if (target.IsDefault) item.Tag = Ui.Enabled;
+            if (MoveCostumeForm.Image(target, catalog) is Bitmap b) { item.Image = b; item.ImageScaling = ToolStripItemImageScaling.None; item.Image = new Bitmap(b, new Size((int)(24 * DeviceDpi / 96f), (int)(34 * DeviceDpi / 96f))); b.Dispose(); }
+            items.Add(item);
+        }
+        // The hero's default costume when it lives in the hero's main package (Thor Modern): shown, but it can't be a target.
+        var def = costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c));
+        if (def != null && !def.Class.Equals(src.Costume.Class, StringComparison.OrdinalIgnoreCase))
+            items.Add(new ToolStripMenuItem($"{def.Title}  ·  Default (Can't Move Here: Its Package Holds the Hero's Animations)") { Enabled = false, Tag = Ui.Enabled });
+    }
+
+    /// <summary>The plan in the Move window, then the new mod (CostumeMove.CreateMod); optionally on, with the original off.</summary>
+    async void MoveCostume(Mod m, string file, Costume source, Costume target)
+    {
+        if (readOnly || lib == null || game == null || costumes == null) return;
+        var (l, g, all) = (lib, game, costumes);
+        var catalog = list.Catalog;
+        UseWaitCursor = true;
+        CostumeMove.Plan plan;
+        try { plan = await Task.Run(() => CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog)); }
+        finally { UseWaitCursor = false; }
+        var onTarget = l.Mods.Where(x => x.Manifest.UpkReplacements.Any(f => plan.Packages.Any(p => p.TargetFile.Equals(f, StringComparison.OrdinalIgnoreCase)))).ToList();
+        bool swap;
+        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget))
+        {
+            if (f.ShowDialog(this) != DialogResult.OK) return;
+            swap = f.SwapOn;
+        }
+        UseWaitCursor = true;
+        string? error = null, made;
+        try { made = await Task.Run(() => CostumeMove.CreateMod(l, m, plan, new Originals(l.DataFolder, g), out error)); }
+        finally { UseWaitCursor = false; }
+        if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        Reload();
+        if (swap && lib?.Mods.FirstOrDefault(x => x.FolderName == made) is Mod nm && lib.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod om)
+            Change($"turn on \"{nm.Name}\" and off \"{om.Name}\"", () => { nm.Enabled = true; om.Enabled = false; return true; });
+        SelectMod(made);
+        status.Text = Ui.TitleCase($"Made \"{CostumeMove.NewName(m, target)}\"") + (swap ? "  ·  Apply Changes to Put It in the Game" : "");
     }
 
     /// <summary>
@@ -955,7 +1052,7 @@ sealed class MainForm : Form
     void ShowDetails()
     {
         if (Selected is not Mod m || lib == null) return;
-        header.Mod = m; header.Conflicted = conflicted.Contains(m); header.Invalidate();
+        header.Mod = m; header.Conflicted = conflicted.Contains(m); header.CostumeTitle = SingleCostume(m) is { } hc ? hc.Costume.Title + (hc.Costume.IsDefault ? " (Default)" : "") : null; header.Invalidate();
         list.Partners = conflictWith.TryGetValue(m, out var partners) ? partners.Keys.ToHashSet() : [];
         list.Invalidate();
         storePreview.Mod = m;
@@ -1884,27 +1981,52 @@ sealed class MainForm : Form
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
+    /// <summary>
+    /// Remove (Kurt: say what will happen, ask once, then do it): turn the mod off, Apply Changes so the game gets its
+    /// original files back (with everything else waiting in the list), then move its folder to the Recycle Bin. If Apply
+    /// stops, nothing is removed: the mod stays in the list, turned off, and the log says where it stopped.
+    /// </summary>
     async void RemoveMod()
     {
         if (readOnly || lib == null || Selected is not Mod m) return;
-        if (Dialog.Show(this, $"Remove '{m.Name}' from the library? Its folder goes to the Recycle Bin.", "Remove", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+        bool inGame = game != null && (m.Enabled || m.Manifest.UpkReplacements.Count + m.Manifest.Replacements.Count + m.Manifest.StoreReplacements.Count
+            + m.Manifest.AchievementReplacements.Count + m.Manifest.Extra.Count() + m.Strings.Count + m.Manifest.AudioPacks.Count > 0);
+        string nl = Environment.NewLine;
+        string steps = inGame
+            ? $"This will:{nl}  1. Turn it off{(m.Enabled ? "" : " (it's off already)")}.{nl}  2. Apply Changes, so the game gets its original files back (other changes waiting in your list are applied too).{nl}  3. Move its folder to the Recycle Bin.{nl}{nl}The game must be closed."
+            : "Its folder goes to the Recycle Bin.";
+        if (Dialog.Show(this, $"Remove \"{m.Name}\" from the library?{nl}{nl}{steps}", "Remove Mod", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+        if (inGame && Process.GetProcessesByName("MarvelHeroesOmega").Length > 0)
+        { Dialog.Show(this, "Close the game first: the game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         var (l, g) = (lib, game);
+        string name = m.Name;
+        if (m.Enabled) { m.Enabled = false; l.SaveState(); }
         UseWaitCursor = true;
-        string? why = await Task.Run(() => ModInstaller.Remove(m, l, g));
-        UseWaitCursor = false;
-        if (why != null)
+        status.Text = Ui.TitleCase($"Removing \"{name}\"…");
+        (bool Ok, string Log, string? Why) r;
+        try
         {
-            // Its own files are still modded: offer Apply Changes (then Remove works).
-            if (why.StartsWith("Apply Changes first", StringComparison.Ordinal))
+            r = await Task.Run(() =>
             {
-                if (Dialog.Show(this, why + "\n\nApply Changes now? Then remove it again.", "Not Removed", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
-                    Apply();
-                return;
-            }
-            Dialog.Show(this, why, "Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return;
+                if (g != null)
+                {
+                    var originals = new Originals(l.DataFolder, g);
+                    var plan = Applier.MakePlan(l, g, originals);
+                    if (plan.Steps.Count > 0)
+                    {
+                        bool ok = false;
+                        string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
+                        if (!ok) return (false, log, (string?)null);
+                    }
+                }
+                return (true, "", ModInstaller.Remove(m, l, g));
+            });
         }
+        finally { UseWaitCursor = false; }
         Reload();
+        if (!r.Ok) { Dialog.ShowLog(this, "Not Removed", $"Apply Changes stopped, so \"{name}\" wasn't removed (it's turned off).{nl}{nl}" + r.Log, Dialog.Tone.Bad); return; }
+        if (r.Why != null) { Dialog.Show(this, r.Why, "Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        status.Text = Ui.TitleCase($"Removed \"{name}\"  ·  its folder is in the Recycle Bin");
     }
 
     async void MoveLibrary()

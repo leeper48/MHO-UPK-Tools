@@ -1,6 +1,27 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.36.6
+- Moving a costume takes its sound pack along too (when every sound it plays is in the costume's package, as with Miles Morales). If a mod and its moved copy are both on, the pack is only added once.
+
+0.36.4
+- Move to Another Costume marks each hero's default costume ("Default", in green), in the list of costumes and on mods made for it.
+- Any of the costume's text a mod changes (its name, and others such as a description) moves with it onto the new costume.
+
+0.36.3
+- A manual: Help in the top bar or F1 (search, larger or smaller text, open in your web browser).
+- Remove Mod does the whole job after one question: it turns the mod off, applies the changes so the game gets its original files back, then moves the mod to the Recycle Bin.
+- The Move to Another Costume window has "Turn the new mod on and the original off" ticked by default.
+
+0.36.0
+- Move to Another Costume: a mod made for one costume can be moved onto another costume of the same hero (for example Unworthy Thor, made for Age of Ultron, onto Thor Classic). The costume a mod is for shows on its card and in its header; click it (or right-click the card) and pick the costume. It's made as a new mod with the model, materials, animations, weapon, icons and costume name moved over; the original isn't changed. The "(on Classic)" at the end of a moved mod's name is shown in amber.
+
+0.35.29
+- Apply Changes closes by itself when everything went well (no Success popup); it only stays open to show what went wrong.
+
+0.35.24
+- New versions of the app are found sooner: it looks at every start and every hour while open (was once a day).
+
 0.35.23
 - 3D preview: parts whose material comes from the hero's main package (for example Savage She-Hulk's hair) show their real textures instead of plain white.
 

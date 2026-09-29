@@ -50,7 +50,7 @@ sealed class StringUsage
 
     // ---- .sip archive
 
-    sealed class Sip : IDisposable
+    internal sealed class Sip : IDisposable
     {
         readonly FileStream f;
         readonly long body;
@@ -106,7 +106,7 @@ sealed class StringUsage
         public void Dispose() => f.Dispose();
     }
 
-    sealed class Reader(byte[] b, int p = 0)
+    internal sealed class Reader(byte[] b, int p = 0)
     {
         int p = p;
         public byte U8() => b[p++];

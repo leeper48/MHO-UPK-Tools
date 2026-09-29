@@ -42,6 +42,9 @@ static class Program
         ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
         ("--material-probe", "--material-probe <mod | package.upk> [png folder]", "Each section's material for a mod's meshes (parent, switches, parameters, maps); with a folder, the maps as PNG and the spec map's channels one by one. Changes nothing."),
+        ("--costume-move", "--costume-move <mod> [target costume] [--from <package>] [--build <folder>] [--create | --update-copy]", "Plan moving a costume mod onto another costume of the same hero: the package renames, icons and costume name that would move. Without a target, lists the hero's costumes. --build writes the moved package(s) to a folder (not the game's), verified; --create adds the moved costume as a new disabled mod; --update-copy rebuilds an existing moved copy in place. Changes nothing in the game."),
+        ("--manual", "--manual <out.html>", "Save the manual (what Help / F1 shows) as one .html file."),
+        ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
@@ -84,6 +87,44 @@ static class Program
                     f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
                     b.Save(Path.Combine(args[1], tab == 0 ? "post_nexus.png" : "post_discord.png"));
                 }
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
+        if (args.Length == 2 && args[0].Equals("--manual", StringComparison.OrdinalIgnoreCase))
+        {
+            // The manual as the Help window shows it (version and command reference filled in), saved as one .html.
+            if (Gui.HelpForm.Render() is not string m) { Console.WriteLine("Manual/manual.html isn't next to the app"); return 1; }
+            File.Copy(m, args[1], overwrite: true);
+            Console.WriteLine("saved " + args[1]);
+            return 0;
+        }
+        if (args.Length == 4 && args[0].Equals("--move-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: the Move to Another Costume window for a mod and target, as a PNG (the plan only; nothing is made).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            var st = Settings.Load();
+            var mlib = ModLibrary.Load(Settings.LibraryData(st.LibraryPath)!);
+            string? mgr = st.ResolvedGameRoot(mlib.DataFolder);
+            var mm = mlib.Find(args[1]);
+            var all = mgr == null ? null : Costume.All(mgr);
+            if (mm == null || mgr == null || all == null || CostumeMove.Single(mm, all) is not { } one) { Console.WriteLine("no single-costume mod / game data"); return 1; }
+            var mgame = new GameState(mgr, mlib.DataFolder);
+            var tgt = CostumeMove.Targets(one.Costume, all, mgame.Cooked).FirstOrDefault(t => t.Title.Equals(args[2], StringComparison.OrdinalIgnoreCase) || t.Class.EndsWith("_" + args[2], StringComparison.OrdinalIgnoreCase));
+            if (tgt == null) { Console.WriteLine("no such target"); return 1; }
+            var mcat = new StockCatalog(mlib, mgame);
+            var plan = CostumeMove.Make(mm, one.File, one.Costume, tgt, all, mgame.Cooked, mcat);
+            using var f = new Gui.MoveCostumeForm(mm, plan, mcat, mlib.Mods.Where(x => x.Manifest.UpkReplacements.Contains(tgt.Package, StringComparer.OrdinalIgnoreCase)).ToList())
+                { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(400);
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[3]);
                 f.Close();
             });
             f.ShowDialog();
@@ -578,6 +619,75 @@ static class Program
                 string cpk = rest[1].Equals("store", StringComparison.OrdinalIgnoreCase) ? Applier.IconPackages[2].File : Applier.IconPackages[0].File;
                 Console.WriteLine($"original: {ccat.Size(cpk, rest[2])}");
                 Console.WriteLine(ccat.ImageToDds(cpk, rest[2], rest[3], rest[4], keepSize: rest.Contains("--keep-size")));
+                return 0;
+            }
+            case "--costume-move":
+            {
+                // Read-only (phase 1): what moving a costume mod onto another costume of the same hero would do.
+                var cm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                string? cgr = settings.ResolvedGameRoot(data);
+                if (cm == null || cgr == null || !Settings.IsGameRoot(cgr)) { Console.WriteLine("--costume-move <mod> [target costume] [--from <package>]  (needs the game folder)"); return 1; }
+                var costumes = Costume.All(cgr);
+                if (costumes == null) { Console.WriteLine("the game's costume data (Calligraphy.sip) can't be read"); return 1; }
+                string cooked = Settings.Cooked(cgr);
+                int fromAt = rest.IndexOf("--from");
+                string? from = fromAt >= 0 && fromAt + 1 < rest.Count ? rest[fromAt + 1] : null;
+                var sources = CostumeMove.SourceCostumes(cm, costumes);
+                Console.WriteLine($"{costumes.Count} costumes in the game data; this mod's costume packages: " + (sources.Count == 0 ? "none" : string.Join(", ", sources.Select(x => $"{x.File} ({x.Costume.Short})"))));
+                var src = from != null ? sources.FirstOrDefault(x => x.File.Contains(from, StringComparison.OrdinalIgnoreCase)) : sources.FirstOrDefault();
+                if (src.Costume == null) { Console.WriteLine("no costume package to move" + (sources.Count > 1 ? " (use --from)" : "")); return 1; }
+                if (sources.Count > 1 && from == null) Console.WriteLine($"moving {src.File} (the first; --from picks another)");
+                var targets = CostumeMove.Targets(src.Costume, costumes, cooked);
+                string? want = rest.Count > 2 && !rest[2].StartsWith("--") ? rest[2] : null;
+                var tgt = want == null ? null : targets.FirstOrDefault(t => t.Class.Equals(want, StringComparison.OrdinalIgnoreCase) || t.Short.EndsWith("/" + want, StringComparison.OrdinalIgnoreCase)
+                    || t.Package.Equals(want, StringComparison.OrdinalIgnoreCase) || t.Class.EndsWith("_" + want, StringComparison.OrdinalIgnoreCase));
+                if (tgt == null)
+                {
+                    Console.WriteLine($"{src.Costume.Short} ({src.Costume.Class}); the hero's other costumes:");
+                    foreach (var t in targets) Console.WriteLine($"  {t.Short,-34} {t.Class}{(t.IsDefault ? "   (default)" : "")}");
+                    if (costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c)) is { } bd)
+                        Console.WriteLine($"  {bd.Short,-34} {bd.Class}   (default; in the hero's main package: can't be a target)");
+                    return want == null ? 0 : 1;
+                }
+                var mcat = new StockCatalog(lib, new GameState(cgr, data));
+                var plan = CostumeMove.Make(cm, src.File, src.Costume, tgt, costumes, cooked, mcat);
+                Console.Write(CostumeMove.Report(plan));
+                int buildAt = rest.IndexOf("--build");
+                if (buildAt >= 0)
+                {
+                    // Phase 2 test: the moved package(s) into a folder of your choice (refuses the game folder), verified.
+                    string outDir = buildAt + 1 < rest.Count ? Path.GetFullPath(rest[buildAt + 1]) : "";
+                    if (outDir.Length == 0 || outDir.StartsWith(Path.GetFullPath(cgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("--build <folder outside the game folder>"); return 1; }
+                    if (plan.Problems.Count > 0) { Console.WriteLine("not built: fix the problems above first"); return 1; }
+                    foreach (string w in CostumeMove.Build(plan, outDir, new Originals(lib.DataFolder, new GameState(cgr, data)))) Console.WriteLine($"built and verified: {w} ({new FileInfo(w).Length:N0} bytes)");
+                }
+                if (rest.Contains("--update-copy"))
+                {
+                    // Rebuild the existing moved copy ("<mod> (on <target>)") in place: same folder, place and on/off.
+                    var copy = lib.Mods.FirstOrDefault(x => x.Name.Equals(CostumeMove.NewName(cm, tgt), StringComparison.OrdinalIgnoreCase));
+                    if (copy == null) { Console.WriteLine($"no mod named \"{CostumeMove.NewName(cm, tgt)}\" (use --create)"); return 1; }
+                    string? done = CostumeMove.CreateMod(lib, cm, plan, new Originals(lib.DataFolder, new GameState(cgr, data)), out string? uerr, copy);
+                    Console.WriteLine(done != null ? $"updated mod folder '{done}' (run Apply Changes if it's on)" : "not updated: " + uerr);
+                    return done != null ? 0 : 1;
+                }
+                if (rest.Contains("--create"))
+                {
+                    // Phase 3: a new disabled mod in the library (the original is untouched).
+                    string? made = CostumeMove.CreateMod(lib, cm, plan, new Originals(lib.DataFolder, new GameState(cgr, data)), out string? err);
+                    Console.WriteLine(made != null ? $"created mod folder '{made}' (disabled, top of the list)" : "not created: " + err);
+                    return made != null ? 0 : 1;
+                }
+                return 0;
+            }
+            case "--mesh-bones":
+            {
+                // Read-only: every skeletal mesh in the given packages with its bone names (skeleton comparisons).
+                foreach (string f in rest.Skip(1))
+                    foreach (var mr in ModMeshes.List([(Path.GetFileName(f), f)]))
+                    {
+                        var ld = ModMeshes.Load(mr, null, out string why);
+                        Console.WriteLine(ld == null ? $"{mr.Package} | {mr.Name}: {why}" : $"{mr.Package} | {mr.Name} | {ld.Bones.Count} | " + string.Join(",", ld.Bones.Select(b => b.Name)));
+                    }
                 return 0;
             }
             case "--material-probe":

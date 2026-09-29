@@ -160,6 +160,11 @@ static class Applier
                 }
 
         // Sounds: every .pck any mod's sound pack patches, rebuilt from its original with the enabled packs (top of the order first).
+        static string PackKey(string file)
+        {
+            try { return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(file))); }
+            catch (IOException) { return file; }
+        }
         var loaded = new List<(Mod Mod, SoundPack Pack)>();
         foreach (var m in lib.Mods.OrderBy(m => m.Priority))
             foreach (string f in m.Manifest.AudioPacks)
@@ -172,7 +177,9 @@ static class Applier
         foreach (string pck in loaded.SelectMany(l => l.Pack.Patches.Select(p => p.PckFile)).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
         {
             string live = Path.Combine(game.Cooked, pck);
-            var packs = loaded.Where(l => l.Mod.Enabled && l.Pack.Patches.Any(p => p.PckFile.Equals(pck, StringComparison.OrdinalIgnoreCase))).ToList();
+            // The same pack in two enabled mods (a costume mod and its moved copy) counts once: the higher mod's.
+            var packs = loaded.Where(l => l.Mod.Enabled && l.Pack.Patches.Any(p => p.PckFile.Equals(pck, StringComparison.OrdinalIgnoreCase)))
+                .GroupBy(l => PackKey(l.Pack.File)).Select(g => g.First()).ToList();
             if (!File.Exists(live)) { if (packs.Count > 0) problems.Add($"{pck}: not in the game folder"); continue; }
             string? original = originals.FindSound(pck, legacy);
             if (original == null) { problems.Add($"{pck}: no original (it isn't stock-dated and there's no backup), so its sounds aren't changed"); continue; }

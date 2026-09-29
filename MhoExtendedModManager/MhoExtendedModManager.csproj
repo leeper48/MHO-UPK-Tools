@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.35.23</Version>
+    <Version>0.36.6</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -30,8 +30,10 @@
   <ItemGroup>
     <!-- Stock package checksums for new users without MHModManager (see StockData\README.txt). -->
     <None Include="StockData\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <!-- What's new, shown by Settings â†’ Changelog. -->
+    <!-- What's new, shown by Settings → Changelog. -->
     <None Include="CHANGELOG.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- The manual (Help button / F1). Named Manual\, not Help\: MPM's Help\ is dropped from this app's output below. -->
+    <None Include="Manual\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- The hero portrait backdrop (Kurt's blue hex grid, 180x136) behind icon-creator portraits. -->
     <None Include="Assets\herohor_bluebackdrop.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

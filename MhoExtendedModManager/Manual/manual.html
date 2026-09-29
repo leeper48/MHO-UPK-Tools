@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<!-- saved from url=(0014)about:internet -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>MHO Extended Mod Manager manual</title>
+<style>
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 15px; line-height: 1.55; margin: 0; padding: 24px 40px 80px 40px; background: #ffffff; color: #1d1d1d; max-width: 1000px; }
+h1 { font-size: 28px; margin: 8px 0 4px 0; }
+h2 { font-size: 22px; margin: 40px 0 8px 0; padding-top: 12px; border-top: 1px solid #d0d0d0; }
+h3 { font-size: 17px; margin: 24px 0 6px 0; }
+p, li { margin: 6px 0; }
+code, kbd { font-family: Consolas, monospace; font-size: 13.5px; background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 16px 0; }
+th, td { border: 1px solid #d0d0d0; padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #f2f2f2; }
+a { color: #0a5ac2; }
+.note { border-left: 4px solid #3b82c4; background: #eef5fc; padding: 8px 12px; margin: 12px 0; }
+.warn { border-left: 4px solid #d98a1c; background: #fdf4e6; padding: 8px 12px; margin: 12px 0; }
+.w { background: #d98a1c; color: #ffffff; font-size: 11px; padding: 1px 5px; border-radius: 3px; }
+.toc { columns: 2; -moz-columns: 2; -webkit-columns: 2; }
+.toc li { margin: 2px 0; }
+.sub { color: #666666; }
+ol.steps > li { margin: 10px 0; }
+body.dark { background: #1e1e1e; color: #dedede; }
+body.dark h2 { border-top-color: #444444; }
+body.dark code, body.dark kbd { background: #2d2d30; color: #e6e6e6; }
+body.dark th, body.dark td { border-color: #444444; }
+body.dark th { background: #2d2d30; }
+body.dark a { color: #6fb0ff; }
+body.dark .note { background: #1f2b38; border-left-color: #4f9be0; }
+body.dark .warn { background: #33291a; border-left-color: #e0a040; }
+body.dark .sub { color: #9a9a9a; }
+.hit { background: #ffe066; color: #000000; }
+.hit.cur { background: #ff9800; color: #000000; }
+</style>
+<script>
+// Search for the help window (ES5: the built-in browser is Internet Explorer's engine). mhoSearch marks every match
+// and returns the count; mhoNext moves to the next (+1) or previous (-1) one and returns "n of m".
+var mhoHits = [], mhoAt = -1;
+function mhoClear() {
+  for (var i = 0; i < mhoHits.length; i++) {
+    var m = mhoHits[i], p = m.parentNode;
+    if (!p) continue;
+    p.replaceChild(document.createTextNode(m.textContent), m);
+    p.normalize();
+  }
+  mhoHits = []; mhoAt = -1;
+}
+function mhoSearch(term) {
+  mhoClear();
+  if (!term) return 0;
+  var t = term.toLowerCase(), nodes = [];
+  function collect(n) {
+    for (var c = n.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType == 3) nodes.push(c);
+      else if (c.nodeType == 1 && c.tagName != 'SCRIPT' && c.tagName != 'STYLE') collect(c);
+    }
+  }
+  collect(document.body);
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i], text = node.nodeValue, low = text.toLowerCase(), idx = low.indexOf(t);
+    if (idx < 0) continue;
+    var frag = document.createDocumentFragment(), last = 0;
+    while (idx >= 0) {
+      frag.appendChild(document.createTextNode(text.substring(last, idx)));
+      var mk = document.createElement('span');
+      mk.className = 'hit';
+      mk.appendChild(document.createTextNode(text.substr(idx, t.length)));
+      frag.appendChild(mk);
+      mhoHits.push(mk);
+      last = idx + t.length;
+      idx = low.indexOf(t, last);
+    }
+    frag.appendChild(document.createTextNode(text.substring(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+  return mhoHits.length;
+}
+function mhoNext(dir) {
+  if (!mhoHits.length) return 'no matches';
+  if (mhoAt >= 0) mhoHits[mhoAt].className = 'hit';
+  mhoAt = (mhoAt + dir + mhoHits.length) % mhoHits.length;
+  var h = mhoHits[mhoAt];
+  h.className = 'hit cur';
+  h.scrollIntoView();
+  window.scrollBy(0, -80);
+  return (mhoAt + 1) + ' of ' + mhoHits.length;
+}
+</script>
+</head>
+<body>
+<h1 id="contents">MHO Extended Mod Manager</h1>
+<p class="sub">Manual for version <!--VERSION-->. Press <kbd>F1</kbd> in the app to open it, <kbd>Ctrl+F</kbd> here to search.</p>
+<p>MHO Extended Mod Manager installs, orders and removes mods for Marvel Heroes Omega. It reads and writes the same mod format as MHModManager 1.0.1, so mods made for either work in both, and it adds a lot on top: a 3D preview, an editor with an icon creator, Nexus update checks, and moving a costume mod to another costume.</p>
+<ul class="toc">
+<li><a href="#start">Getting started</a></li>
+<li><a href="#window">The main window</a></li>
+<li><a href="#list">The mod list</a></li>
+<li><a href="#details">A mod's details</a></li>
+<li><a href="#preview">Preview and 3D view</a></li>
+<li><a href="#apply">Apply Changes</a></li>
+<li><a href="#install">Installing, updating and exporting</a></li>
+<li><a href="#remove">Removing a mod</a></li>
+<li><a href="#costume">Move to Another Costume</a></li>
+<li><a href="#tags">Tags and notes</a></li>
+<li><a href="#editor">Making and editing mods</a></li>
+<li><a href="#icons">Icons and Create from 3D</a></li>
+<li><a href="#extract">Extract</a></li>
+<li><a href="#nexus">Nexus</a></li>
+<li><a href="#settings">Settings</a></li>
+<li><a href="#keys">Keyboard shortcuts</a></li>
+<li><a href="#trouble">Troubleshooting</a></li>
+<li><a href="#commands">Command line</a></li>
+</ul>
+
+<h2 id="start">Getting started</h2>
+<ol class="steps">
+<li><b>Install.</b> Run the Setup file (or unzip the ZIP) anywhere <i>except</i> Program Files or the game folder: the app keeps everything in a <code>data</code> folder next to itself. It needs the .NET 8 Desktop Runtime; Setup offers Microsoft's download if it's missing.</li>
+<li><b>Windows may warn you.</b> The app isn't code-signed, so SmartScreen can say "Windows protected your PC": click <b>More info</b>, then <b>Run anyway</b>. Download it only from Nexus or the GitHub releases page, and compare the <code>.sha256</code> file if you want to be sure.</li>
+<li><b>First start.</b> The app finds the game through Steam (or asks you to browse to it), then asks whether you used MHModManager. If you did, it copies your mods, their order and on/off state, and the verified stock backups; your old folder isn't changed. Stop using the old manager afterwards, or the two will undo each other's changes.</li>
+<li><b>Use it.</b> Tick the mods you want, order them, and press <b>Apply Changes</b> with the game closed.</li>
+</ol>
+<div class="note">Everything the app keeps (your library, settings, undo history, 3D views) is in <code>data</code> next to the exe. Keep one copy of the app: a copy somewhere else has its own <code>data</code>.</div>
+
+<h2 id="window">The main window</h2>
+<p><b>Top bar:</b> <b>+ New Mod</b>, <b>Extract</b>, <b>Install Mod</b>, the game folder and whether the game is running; on the right <b>Update Available</b> (only when a new version of the app is out), <b>Help</b> and <b>Settings ▾</b>.</p>
+<p><b>Tabs:</b> <b>Mods</b> (your library), <b>Editor</b> (make or change a mod; clicking it opens the mod selected in the list) and <b>Extract</b> (save the game's own icons and strings).</p>
+<p>The <b>Mods</b> tab has three columns: the mod list on the left, the <b>Preview</b> in the middle, and the selected mod's details on the right. At the bottom: <b>Remove Mod</b>, <b>Edit Mod</b>, <b>Export to ZIP</b>, <b>Tags ▾</b>, the status line and <b>Apply Changes (N)</b>. Drag the edge between the list and the rest to make the list wider; the width is remembered.</p>
+
+<h2 id="list">The mod list</h2>
+<p>Each mod is a card: its picture (the hero portrait or costume icon it replaces, or the game's own), its name, author, tags, the <b>P T S A</b> badges (Packages, Textures, Strings, Audio) and, on the right, whether it's on and either what it changes or the costume it's for.</p>
+<ul>
+<li><b>On / off:</b> the checkbox on the card. Nothing reaches the game until <a href="#apply">Apply Changes</a>.</li>
+<li><b>Priority:</b> the higher mod wins when two change the same file. Drag a card, or use ⤒ ▲ ▼ ⤓ above the list.</li>
+<li><b>Padlocks:</b> a mod at the top or bottom can be locked there (the padlock under its checkbox). Locked mods can't be moved, and new mods land inside the locks.</li>
+<li><b>Conflicts:</b> a stripe on the card's left edge. Red: part of this mod loses to a higher one. Amber: it only wins. The selected mod's partners are outlined, and the <b>Conflicts</b> tab says who wins what.</li>
+<li><b>Nexus:</b> an orange N on the picture means the mod is linked to a Nexus page, a green ↑ and an <b>↑ UPDATE</b> pill mean Nexus has a newer version.</li>
+<li><b>Moved costumes:</b> a mod made with <a href="#costume">Move to Another Costume</a> ends in <span style="color:#f2aa3c">(on Classic)</span> in amber: that part is the app's, not the mod's name.</li>
+<li><b>All</b> turns every mod the list shows on (or off, if they're all on).</li>
+<li><b>Undo / Redo</b> (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) step back through list changes: on/off, order, locks, tags, notes. They don't touch the game; Apply has its own history.</li>
+</ul>
+<h3>Filter</h3>
+<p>Type in <b>Filter</b>; every word must match. Plain words search names, authors and tags. Special words:</p>
+<table>
+<tr><th>Type</th><th>Shows</th></tr>
+<tr><td><code>tag:x-men</code> or <code>#x-men</code></td><td>mods with that tag (use quotes for spaces: <code>tag:"power icons"</code>)</td></tr>
+<tr><td><code>is:on</code> / <code>is:off</code></td><td>turned on / off</td></tr>
+<tr><td><code>is:locked</code>, <code>is:untagged</code></td><td>locked mods, mods without tags</td></tr>
+<tr><td><code>is:conflict</code></td><td>mods that share changes with another</td></tr>
+<tr><td><code>is:nexus</code>, <code>is:update</code></td><td>linked to Nexus, with an update on Nexus</td></tr>
+</table>
+<p><b>Sort</b> (priority, name, author, tag, on first, updates first) and <b>Group</b> (none, tag, author) are remembered. Priority buttons, drag and padlocks only work in the plain priority view.</p>
+
+<h2 id="details">A mod's details</h2>
+<p>The header shows the name and version, the author, what it changes, its tags (click to change them), the <b>Enabled</b> pill (click to turn it on or off) and its badges. For a mod made for one costume, <b>Costume: … ▾</b> shows which, and opens <a href="#costume">Move to Another Costume</a>.</p>
+<p>The tabs appear only when the mod has that content: <b>Packages</b> (each .upk and whether the game has it), <b>Textures</b>, <b>Strings</b>, <b>Sound Packs</b>, <b>Conflicts</b> and <b>Info</b>.</p>
+
+<h2 id="preview">Preview and 3D view</h2>
+<p>The middle column shows one picture large and a strip of choices under it: the mod's store images, portraits and icons, the game's originals (marked G) and, for character mods, a <b>3D</b> view. Click a picture to make it the one shown for this mod; right-click to go back to the mod's own choice.</p>
+<p>The <b>3D view</b> shows the mod's models with their materials, lit like the game. Drag to turn, right-drag to move, the mouse wheel to zoom (<kbd>Shift</kbd> for fine steps), double-click to frame. Pick an animation from the drop-down, then ▶ to play, ⟳ to loop, and <b>Reset View</b> to go back. The <b>Light</b> slider changes the brightness per mod. The view, animation and light are remembered per mod.</p>
+<p>The <b>Note</b> under the preview is the mod's note, or your own (it replaces the mod's on this PC).</p>
+
+<h2 id="apply">Apply Changes</h2>
+<p>Apply makes the game match your list. It's the only thing that writes into the game folder, and it needs the game closed.</p>
+<ul>
+<li>For every package a mod names, the highest enabled mod's copy goes in; if none is on, the game's original goes back.</li>
+<li>Icons, store images and strings are rebuilt from the game's originals with the winning replacements, so turning a mod off really takes its icons out.</li>
+<li>Sound packs are built into the game's sound files from their originals.</li>
+<li>Every file is written to a temporary copy, checked, and only then swapped in, with an undo snapshot.</li>
+</ul>
+<p>The status line says how many files are waiting ("4 File(s) to Change"). Click it, or press <b>Apply Changes</b> (<kbd>Ctrl+Enter</kbd>), to see the plan first; nothing is written until you press <b>Apply</b> in that window. When everything went well the window just closes. If something stops, it stays open with the log: files written before the stop were checked and stay; nothing after it changed.</p>
+<div class="note"><b>Originals:</b> the app only trusts a copy of a game file as "original" if it matches the stock checksum list (every one of the game's 15,250 packages). Files that were already modded before and have no clean copy are "left as they are" and listed in the plan.</div>
+
+<h2 id="install">Installing, updating and exporting</h2>
+<ul>
+<li><b>Install Mod</b> (or drag an archive onto the window) takes a .zip, .7z, .rar or a folder. An archive can hold several mods. New mods go to the top of the list, turned off: tick them, then Apply Changes.</li>
+<li><b>Updating:</b> installing a mod whose name you already have asks to replace it. Right-click a card → <b>Update from a File</b> replaces that mod with an archive's mod under any name. Either way the mod keeps its place, on/off, lock, tags and note.</li>
+<li><b>Export to ZIP</b> saves the mod as <code>Name - vVersion.zip</code>, with its post and images in a folder beside it. If the mod uses features MHModManager doesn't know, you can export a <b>legacy</b> copy without them.</li>
+</ul>
+
+<h2 id="remove">Removing a mod</h2>
+<p><b>Remove Mod</b> tells you what will happen and asks once:</p>
+<ol>
+<li>the mod is turned off (if it's on);</li>
+<li>Apply Changes runs, so the game gets its original files back (other changes waiting in your list are applied too);</li>
+<li>its folder goes to the Recycle Bin.</li>
+</ol>
+<p>The game must be closed. If Apply stops, the mod isn't removed: it stays in the list, turned off, and the log shows why.</p>
+
+<h2 id="costume">Move to Another Costume</h2>
+<p>A costume mod made for one costume can be moved onto another costume of the same hero, for example Unworthy Thor (made for Age of Ultron) onto Thor Classic, so you can wear both.</p>
+<ol class="steps">
+<li>Select the mod. Its card and header show the costume it's for (only mods for a single costume can move).</li>
+<li>Click <b>Costume: … ▾</b> in the header, or right-click the card → <b>Move to Another Costume</b>, and pick a costume. The list shows each costume's store image and whether other mods already use it; the hero's default costume is marked <span style="color:#4cbc6c">Default</span> in green.</li>
+<li>The <b>Move</b> window shows what moves (the model, materials, animations, weapon or prop, the costume icon, portrait, store image, the costume's name and other text the mod changes, and its sound pack), what's left out, and other mods for that costume.</li>
+<li>Press <b>Create Mod</b>. The new mod, "Name <span style="color:#f2aa3c">(on Costume)</span>", goes to the top of the list; with <b>Turn the new mod on and … off</b> ticked (the default) it's on and the original is off. Then Apply Changes.</li>
+</ol>
+<p>The original mod isn't changed. Moving again to a costume you've already moved to selects that mod instead.</p>
+<p><b>Sound packs</b> come along when every sound they play belongs to the costume (as with Miles Morales' voice pack). If the original and its moved copy are both on, the pack is only added once.</p>
+<div class="note">How it works: the game finds a costume by its class name and its icons by name, so the moved package is the mod's own package with the costume's class renamed to the target's, the model and materials given their own names (so they can't mix with the original costume's), and the target costume's package ID. Textures the game streams from its texture caches keep their names, as the caches find them by name. Costumes that live in a hero's main package (for example Vision Classic) can't be moved to or from.</div>
+
+<h2 id="tags">Tags and notes</h2>
+<p>Tags come from three places, shown together: <b>automatic</b> ones worked out from the mod's content (hero, team, Costume, Team-Up, Pet, Zone …; tinted), <b>the mod's</b> own (set by its author) and <b>yours</b>. Colors say what a tag names: heroes gold, teams blue, kinds of content teal. Click a tag on a card to filter by it; use the header's chips, <b>Tags ▾</b> or right-click to add, rename or delete your tags, or hide an automatic one.</p>
+<p>The note under the preview is the mod's, or yours if you write one.</p>
+
+<h2 id="editor">Making and editing mods</h2>
+<p><b>+ New Mod</b> or <b>Edit Mod</b> opens the <b>Editor</b> tab. A mod is saved in MHModManager's format, so the old manager can install it too.</p>
+<table>
+<tr><th>Tab</th><th>What it holds</th></tr>
+<tr><td>Description</td><td>name, author, version, tags, note, the description and this version's changes, the Nexus page, the preview picture</td></tr>
+<tr><td>Packages</td><td>the .upk files the mod replaces</td></tr>
+<tr><td>Icons, Achievement Icons, Store Images, More Icon Packages</td><td>images the mod replaces; search the game's names, see the original and your replacement side by side. A PNG, JPG or BMP is converted to the right size and format.</td></tr>
+<tr><td>Strings</td><td>text changes: search the game's strings (the <b>Used By</b> column says what each belongs to), add or edit rows, or import a language .json</td></tr>
+<tr><td>Sound Packs</td><td>.mhsfx voice or sound packs</td></tr>
+</table>
+<p>When a mod is for one costume, the image tabs open filtered to that costume's images. <b>Create Post</b> writes a Nexus and a Discord post for the mod, with images, and keeps it with the mod.</p>
+
+<h2 id="icons">Icons and Create from 3D</h2>
+<p>In the icon, store and portrait tabs, <b>Create from 3D</b> makes the image from the character itself: frame it (drag, pan, zoom), pick a pose and frame from the animations, a lens and the light, show the weapon or prop, and lay the game's original over it to line things up (<kbd>O</kbd>). The snapshot is made at the original's exact size. Each icon remembers its setup; <b>Use Previous Setup</b> copies the last one.</p>
+<p>Click the Original, Replacement or Snapshot picture to look closer: fit, 1:1, zoom, full screen (<kbd>F11</kbd>) and save as PNG (<kbd>Ctrl+S</kbd>).</p>
+
+<h2 id="extract">Extract</h2>
+<p>The <b>Extract</b> tab saves the game's own images (as .dds or .png) and strings (as a language .json in the mod format), always from the clean originals, never from files mods have changed.</p>
+
+<h2 id="nexus">Nexus</h2>
+<p>The strip above the mod list links your mods to their Nexus pages and checks for updates, using Nexus's public data (no account needed).</p>
+<ul>
+<li><b>Find My Mods</b> matches your mods against the game's Nexus mods and lists likely pages; tick the right ones and link them. Mods installed from a Nexus download are linked by the file's name automatically.</li>
+<li><b>Check for Updates</b> looks at every linked mod; mods with a newer version get the green ↑. Click it to open the Files page; download the file and the app offers to install it as the update.</li>
+<li>A Nexus page with several files (a default and a variant): right-click → <b>Nexus</b> → <b>Choose the Nexus File</b> says which one your mod follows.</li>
+</ul>
+
+<h2 id="settings">Settings</h2>
+<ul>
+<li><b>Change Game Folder</b>, <b>Move Library</b>, <b>Open Library Folder</b>, <b>Migrate from MHModManager</b>, <b>Refresh</b>.</li>
+<li><b>Capture Icon Changes</b>: icons in the game that no mod accounts for (from other tools) are saved as a mod, so Apply keeps them.</li>
+<li><b>Check for Updates</b> / <b>Check for Updates at Start</b>: the app looks at its GitHub releases at start and every hour while open; <b>Update Available</b> appears in the top bar when there's a new version. Updating keeps your <code>data</code> folder.</li>
+<li><b>Changelog</b> (what's new) and <b>About</b>.</li>
+</ul>
+
+<h2 id="keys">Keyboard shortcuts</h2>
+<table>
+<tr><th>Keys</th><th>Does</th></tr>
+<tr><td><kbd>F1</kbd></td><td>this manual</td></tr>
+<tr><td><kbd>Ctrl+Enter</kbd></td><td>Apply Changes (Mods tab)</td></tr>
+<tr><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd></td><td>undo / redo a list change</td></tr>
+<tr><td><kbd>Enter</kbd> / <kbd>Esc</kbd></td><td>a window's main button / Cancel</td></tr>
+<tr><td><kbd>O</kbd></td><td>Create from 3D: show or hide the original over the view</td></tr>
+<tr><td><kbd>Shift</kbd> + mouse wheel</td><td>3D views: fine zoom</td></tr>
+<tr><td>Arrow keys, <kbd>Home</kbd>, <kbd>End</kbd></td><td>sliders (click one first; <kbd>Shift</kbd> for bigger steps)</td></tr>
+<tr><td><kbd>F11</kbd>, <kbd>Ctrl+S</kbd></td><td>image viewer: full screen, save as PNG</td></tr>
+</table>
+
+<h2 id="trouble">Troubleshooting</h2>
+<table>
+<tr><th>You see</th><th>What to do</th></tr>
+<tr><td>"The Game Is Running"</td><td>Close Marvel Heroes Omega; the game's files can only be changed while it isn't running.</td></tr>
+<tr><td>A file "left as they are" in the plan</td><td>The game's copy was changed before (by another tool) and there's no clean original. Restore that file from a clean copy of the game (or Steam's "Verify integrity"), then Apply again.</td></tr>
+<tr><td>A red conflict stripe</td><td>Part of the mod loses to a higher one. Open the Conflicts tab and drag the mod you want higher.</td></tr>
+<tr><td>Antivirus or SmartScreen warning</td><td>The app isn't code-signed. Compare the download with its <code>.sha256</code> file; false positives can be reported at microsoft.com/wdsi/filesubmission.</td></tr>
+<tr><td>A costume looks like the original in game</td><td>Check which costume you're wearing: some heroes have two costumes with the same model (Thor's Age of Ultron and its Armored Variant). The costume's name in game tells them apart.</td></tr>
+</table>
+
+<h2 id="commands">Command line</h2>
+<p>Every feature is also available from a command prompt (<code>MHO_Ext_ModManager.exe --command …</code>), for scripting and checks. Commands that don't say they write change nothing.</p>
+<!--COMMANDS-->
+</body>
+</html>

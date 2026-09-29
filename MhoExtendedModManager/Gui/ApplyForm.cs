@@ -74,12 +74,12 @@ sealed class ApplyForm : Form
         Shown += (_, _) => { body.SelectionLength = 0; ActiveControl = run == null ? headingBtn : apply; };
     }
 
-    /// <summary>--apply-snapshot: the window asking, after a success and after an error (made-up plan), as PNGs.</summary>
+    /// <summary>--apply-snapshot: the window asking and after an error (made-up plan), as PNGs (a success just closes it).</summary>
     public static void Snapshot(string dir)
     {
         Directory.CreateDirectory(dir);
         const string plan = "3 file(s) to change:\n  UC__MarvelPlayer_Storm_Classic_SF.upk: Storm Classic Costume Visual Update's copy\n  ICO__MarvelUIIcons_SF.upk: icons rebuilt from stock with 12 replacement(s)\n  eng.all_7FFFFFFFFFFFFFFF.string: 2 string(s) from Jeff (Pet)\n351 file(s) already right.";
-        foreach (var (name, ok) in new[] { ("apply_ask", (bool?)null), ("apply_success", true), ("apply_error", false) })
+        foreach (var (name, ok) in new[] { ("apply_ask", (bool?)null), ("apply_error", false) })
         {
             using var f = new ApplyForm(plan, () => Task.FromResult((ok ?? true, "UC__MarvelPlayer_Storm_Classic_SF.upk: Storm Classic Costume Visual Update's copy\n  no clean original (the live file isn't stock and no backup matches); stopping.\nStopped after 0 of 3.")));
             f.Shown += (_, _) => f.BeginInvoke(async () =>
@@ -110,6 +110,8 @@ sealed class ApplyForm : Form
         catch (Exception ex) { result = (false, ex.Message); }
         UseWaitCursor = false;
         running = false;
+        // Success: no popup (Kurt): the window closes and the status line shows the game matches the list again.
+        if (result.Ok) { DialogResult = DialogResult.OK; return; }
         // The result's word is the only button (Kurt: no Close; "Success" continues, Enter too).
         buttonBar.Visible = false;
         heading.Visible = false;
