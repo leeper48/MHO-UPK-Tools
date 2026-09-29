@@ -109,6 +109,18 @@ sealed class MeshAnimator
 
     static Quaternion Unit(Quaternion q) { float l = q.Length(); return l > 0.0001f ? Quaternion.Normalize(q) : Quaternion.Identity; }
 
+    /// <summary>The bones' names (skeleton order), for finding one such as the head.</summary>
+    public IEnumerable<string> BoneNames => bones.Select(b => b.Name);
+
+    /// <summary>A bone's transform (bone → model space) in the pose last made by Pose: what a held prop follows.</summary>
+    public Matrix4x4 BoneMatrix(int bone) => bone >= 0 && bone < posed.Length ? posed[bone] : Matrix4x4.Identity;
+
+    /// <summary>A bone's index by name (case-insensitive), or -1.</summary>
+    public int BoneIndex(string name) { int i = 0; foreach (var b in bones) { if (b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) return i; i++; } return -1; }
+
+    /// <summary>A bone's position in the pose last made by Pose (engine space).</summary>
+    public Vector3 BonePosition(int bone) => bone >= 0 && bone < posed.Length ? posed[bone].Translation : Vector3.Zero;
+
     /// <summary>The frames an animation spans (its last key), and its length in seconds.</summary>
     public static (float Frames, float Seconds) Span(BoneAnimation a)
     {

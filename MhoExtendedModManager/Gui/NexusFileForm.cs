@@ -17,6 +17,7 @@ sealed class NexusFileForm : Form
     {
         Text = "Choose the Nexus File";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Ui.DarkFrame(this);
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);

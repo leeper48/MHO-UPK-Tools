@@ -26,6 +26,15 @@ static class NexusTest
             Check("file name: Storm Classic-176-1-2-1690000000.zip → mod 176, v1.2", Nexus.FromFileName(@"C:\x\Storm Classic-176-1-2-1690000000.zip") is (176, "1.2", 1690000000));
             Check("file name with a copy number: X-12-2-0-1690000000 (1).7z → mod 12, v2.0", Nexus.FromFileName("X-12-2-0-1690000000 (1).7z") is (12, "2.0", 1690000000));
             Check("not a Nexus name: Storm Classic.zip", Nexus.FromFileName("Storm Classic.zip") == null);
+            // Nexus's newer names (2026-09-28): title, mod, version, upload minute, a random code.
+            var nn = Nexus.FromFileName(@"C:\x\Kitty Pryde Astonishing X Men Costume Refresh 390 2 2026-09-28T15-20Z xYx5Dp4YA (1).zip");
+            Check("new file name: … 390 2 2026-09-28T15-20Z xYx5Dp4YA (1).zip → mod 390, v2, 15:20 UTC", nn is { ModId: 390, Version: "2", MinuteOnly: true } n1 && n1.Uploaded == new DateTimeOffset(2026, 9, 28, 15, 20, 0, TimeSpan.Zero).ToUnixTimeSeconds() && n1.Title.StartsWith("Kitty Pryde"));
+            var kitty = new Nexus.ModInfo(390, "Kitty", "2", 0, true, [new Nexus.NexusFile(773, "Kitty Pryde Astonishing X Men Costume Refresh v1", "1", "OLD_VERSION", 1790525087, ""), new Nexus.NexusFile(779, "Kitty Pryde Astonishing X Men Costume Refresh v2", "2", "MAIN", 1790608805, "")], []);
+            Check("new file name → Nexus file 779 (uploaded 15:20:05, within the minute)", Nexus.FileOf(kitty, nn!.Value)?.FileId == 779);
+            var rg = new Nexus.ModInfo(300, "Rogue", "5", 0, true, [new Nexus.NexusFile(781, "Rogue Classic 90's Costume Visual Update (Variant)", "5", "MAIN", 1790611272, ""), new Nexus.NexusFile(782, "Rogue Classic 90's Costume Visual Update", "5", "MAIN", 1790611297, "")], []);
+            var vn = Nexus.FromFileName("Rogue Classic 90's Costume Visual Update (Variant) 300 5 " + DateTimeOffset.FromUnixTimeSeconds(1790611272).UtcDateTime.ToString("yyyy-MM-dd'T'HH-mm'Z'") + " AbC123.zip")!.Value;
+            Check("two files in one minute (Rogue #300): the title picks the Variant", Nexus.FileOf(rg, vn)?.FileId == 781);
+            Check("a mod already at the newest version isn't flagged (link still on the old file)", Nexus.UpdateFor(new NexusLink { ModId = 390, FileId = 773, Version = "1", FromNexus = true }, kitty, "2") == null);
             Check("page link → 176", Nexus.ParseModId("https://www.nexusmods.com/marvelheroesomega/mods/176?tab=files") == 176 && Nexus.ParseModId("176") == 176);
             Check("versions: 1.2 → 1.10 is an update; v2.0 = 2.0 isn't",
                   Nexus.UpdateFor(new NexusLink { ModId = 1, Version = "1.2", FromNexus = true }, Info("1.10"), null) == "1.10" && Nexus.UpdateFor(new NexusLink { ModId = 1, Version = "v2.0", FromNexus = true }, Info("2.0"), null) == null);

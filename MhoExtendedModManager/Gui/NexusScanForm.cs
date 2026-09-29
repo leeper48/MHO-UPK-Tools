@@ -20,6 +20,7 @@ sealed class NexusScanForm : Form
     {
         Text = "Find My Mods on Nexus";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Ui.DarkFrame(this);
         MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);

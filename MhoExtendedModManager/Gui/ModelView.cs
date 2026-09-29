@@ -14,7 +14,7 @@ namespace MhoExtendedModManager.Gui;
 ///
 /// Two passes: the triangles are rasterised into a buffer of (triangle, barycentrics) with a depth test (and the cut-out
 /// test of masked materials), then only the visible pixels are shaded, rows in parallel. Half resolution while dragging.
-/// Left-drag rotates round the mesh, right- or middle-drag pans, the wheel zooms, double-click frames the mesh.
+/// Left-drag rotates round the mesh, right- or middle-drag pans, the wheel zooms (Shift: finer), double-click frames the mesh.
 /// UE is left-handed (X forward, Y right, Z up): everything is mirrored in Y for display.
 /// </summary>
 sealed class ModelView : UserControl
@@ -116,6 +116,17 @@ sealed class ModelView : UserControl
     }
     float brightness = 1;
 
+    /// <summary>A picture behind the mesh, stretched over the view (the icon creator's portrait backdrop), or null.</summary>
+    public Image? Backdrop { get => backdrop; set { backdrop = value; Redraw(); } }
+    Image? backdrop;
+
+    /// <summary>A picture laid over the view at <see cref="OverlayOpacity"/> (the icon creator: the game's original, to line up
+    /// pose and size); never part of a snapshot.</summary>
+    public Image? Overlay { get => overlay; set { overlay = value; canvas.Invalidate(); } }
+    Image? overlay;
+    public float OverlayOpacity { get => overlayOpacity; set { overlayOpacity = Math.Clamp(value, 0, 1); canvas.Invalidate(); } }
+    float overlayOpacity = 0.35f;
+
     /// <summary>The colour behind the mesh.</summary>
     public Color Background { get; set; } = Color.FromArgb(30, 31, 36);
 
@@ -128,7 +139,12 @@ sealed class ModelView : UserControl
         canvas.MouseDown += (_, e) => { dragFrom = e.Location; dragButton = e.Button; fast = true; canvas.Focus(); };
         canvas.MouseUp += (_, _) => { bool moved = dragFrom != null; dragFrom = null; fast = false; Redraw(); if (moved) ViewChanged?.Invoke(); };
         canvas.MouseMove += (_, e) => Drag(e);
-        canvas.MouseWheel += (_, e) => { distance *= MathF.Pow(0.85f, e.Delta / 120f); distance = Math.Clamp(distance, radius * 0.05f, radius * 50); Redraw(); ViewChanged?.Invoke(); };
+        // Wheel zoom: 8 % a notch, 2 % with Shift held (Kurt: one notch went too far for framing an icon).
+        canvas.MouseWheel += (_, e) =>
+        {
+            float step = (ModifierKeys & Keys.Shift) != 0 ? 0.98f : 0.92f;
+            distance *= MathF.Pow(step, e.Delta / 120f); distance = Math.Clamp(distance, radius * 0.05f, radius * 50); Redraw(); ViewChanged?.Invoke();
+        };
         canvas.DoubleClick += (_, _) => { FrameMesh(); Redraw(); ViewChanged?.Invoke(); };
         Controls.Add(canvas);
     }
@@ -137,6 +153,18 @@ sealed class ModelView : UserControl
     public event Action? ViewChanged;
 
     /// <summary>Shows a loaded mesh (bind pose) with its section looks.</summary>
+    /// <summary>
+    /// Shows a mesh; <paramref name="framedVertices"/> limits the framing bounds to the first vertices (a character with
+    /// props: the camera stays relative to the character, so ticking a prop doesn't move a saved view).
+    /// </summary>
+    public void ShowMesh(ModMeshes.Loaded l, int framedVertices)
+    {
+        framedCount = framedVertices;
+        ShowMesh(l);
+        framedCount = -1;
+    }
+    int framedCount = -1;
+
     public void ShowMesh(ModMeshes.Loaded l)
     {
         uv = l.Uv; idx = l.Indices; triSection = l.TriangleSection; looks = l.Looks;
@@ -151,7 +179,8 @@ sealed class ModelView : UserControl
             if (d > 0) agree++; else if (d < 0) disagree++;
         }
         windingSign = agree >= disagree ? 1f : -1f;
-        Vector3 lo = pos.Length > 0 ? pos.Aggregate(Vector3.Min) : Vector3.Zero, hi = pos.Length > 0 ? pos.Aggregate(Vector3.Max) : Vector3.Zero;
+        var framed = framedCount > 0 && framedCount < pos.Length ? pos.Take(framedCount) : pos;
+        Vector3 lo = pos.Length > 0 ? framed.Aggregate(Vector3.Min) : Vector3.Zero, hi = pos.Length > 0 ? framed.Aggregate(Vector3.Max) : Vector3.Zero;
         center = (lo + hi) / 2; radius = Math.Max(1f, (hi - lo).Length() / 2);
         message = "";
         FrameMesh();
@@ -159,6 +188,14 @@ sealed class ModelView : UserControl
     }
 
     /// <summary>An animation frame: new positions, normals and tangents for the mesh shown (same triangles and camera).</summary>
+    /// <summary>New positions, normals and tangents (engine space) for the mesh shown, e.g. a character with props.</summary>
+    public void UpdateGeometry(Vector3[] p, Vector3[] n, Vector4[] t)
+    {
+        if (p.Length != pos.Length) return;
+        SetGeometry(p, n, t);
+        Redraw();
+    }
+
     public void UpdateGeometry(MeshAnimator a)
     {
         if (a.Positions.Length != pos.Length) return;
@@ -188,6 +225,14 @@ sealed class ModelView : UserControl
     }
 
     public void ResetView() { FrameMesh(); Redraw(); }
+
+    /// <summary>Points the camera at a spot (engine space) from a distance, turned by yaw / pitch (radians).</summary>
+    public void Aim(Vector3 engineTarget, float dist, float yawRad, float pitchRad)
+    {
+        target = new Vector3(engineTarget.X, -engineTarget.Y, engineTarget.Z);
+        distance = Math.Clamp(dist, radius * 0.05f, radius * 50); yaw = yawRad; pitch = Math.Clamp(pitchRad, -1.5f, 1.5f);
+        Redraw();
+    }
     public void ZoomOut(float factor) { FrameMesh(); distance *= factor; Redraw(); }
 
     public void ShowMessage(string text)
@@ -214,7 +259,27 @@ sealed class ModelView : UserControl
         Redraw();
     }
 
-    const float Fov = 0.8f;
+    /// <summary>The vertical field of view (radians); 0.8 by default (about a 28.5 mm lens).</summary>
+    float Fov = DefaultFov;
+    public const float DefaultFov = 0.8f;
+
+    /// <summary>
+    /// The lens as a 35 mm camera's focal length (a 24 mm tall frame: fov = 2·atan(12 / mm)). Setting it keeps what's
+    /// framed the same size (the camera moves back or in, a dolly zoom), so only the perspective changes (Kurt: icons).
+    /// </summary>
+    public float FocalLength
+    {
+        get => 12f / MathF.Tan(Fov / 2);
+        set
+        {
+            float fov = 2 * MathF.Atan(12f / Math.Clamp(value, 8f, 400f));
+            if (Math.Abs(fov - Fov) < 1e-5f) return;
+            distance *= MathF.Tan(Fov / 2) / MathF.Tan(fov / 2);
+            Fov = fov;
+            Redraw();
+        }
+    }
+    public static float DefaultFocalLength => 12f / MathF.Tan(DefaultFov / 2);
 
     (Vector3 Right, Vector3 Up, Vector3 Forward, Vector3 Eye) Basis()
     {
@@ -235,7 +300,15 @@ sealed class ModelView : UserControl
             return;
         }
         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
+        if (backdrop != null) { using (var b = new SolidBrush(Background)) g.FillRectangle(b, canvas.ClientRectangle); g.DrawImage(backdrop, canvas.ClientRectangle); }
         g.DrawImage(frame, canvas.ClientRectangle);
+        if (overlay != null && overlayOpacity > 0.01f)
+        {
+            using var ia = new System.Drawing.Imaging.ImageAttributes();
+            ia.SetColorMatrix(new System.Drawing.Imaging.ColorMatrix { Matrix33 = overlayOpacity });
+            var r = canvas.ClientRectangle;
+            g.DrawImage(overlay, r, 0, 0, overlay.Width, overlay.Height, GraphicsUnit.Pixel, ia);
+        }
     }
 
     // ---------------------------------------------------------------- the renderer
@@ -251,14 +324,18 @@ sealed class ModelView : UserControl
     /// <summary>For tests: how long the last frame took to draw (ms).</summary>
     public double LastFrameMs { get; private set; }
 
-    void Render()
+    void Render() => Render(0, 0);
+
+    /// <summary>Draws the view; with a size, at that size for a snapshot (the frame shown isn't touched).</summary>
+    void Render(int width, int height)
     {
-        if (idx.Length == 0 || canvas.ClientSize.Width < 8 || canvas.ClientSize.Height < 8) return;
+        bool snap = width > 0;
+        if (idx.Length == 0 || (!snap && (canvas.ClientSize.Width < 8 || canvas.ClientSize.Height < 8))) return;
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        int scale = fast ? 2 : 1;
-        W = canvas.ClientSize.Width / scale; H = canvas.ClientSize.Height / scale;
+        int scale = fast && !snap ? 2 : 1;
+        W = snap ? width : canvas.ClientSize.Width / scale; H = snap ? height : canvas.ClientSize.Height / scale;
         if (color.Length != W * H) { color = new int[W * H]; depth = new float[W * H]; gTri = new int[W * H]; gB0 = new float[W * H]; gB1 = new float[W * H]; }
-        int bg = Background.ToArgb();
+        int bg = backdrop != null && !snap ? 0 : Background.ToArgb();   // with a backdrop, empty pixels stay see-through
         Array.Fill(color, bg);
         Array.Clear(depth);
         Array.Fill(gTri, -1);
@@ -309,6 +386,7 @@ sealed class ModelView : UserControl
             }
         });
 
+        if (snap) return;
         if (frame == null || frame.Width != W || frame.Height != H) { frame?.Dispose(); frame = new Bitmap(W, H, PixelFormat.Format32bppArgb); }
         var bd = frame.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
         for (int y = 0; y < H; y++) Marshal.Copy(color, y * W, bd.Scan0 + y * bd.Stride, W);
@@ -416,6 +494,52 @@ sealed class ModelView : UserControl
 
         int R = (int)(Math.Clamp(outc.X, 0, 1) * 255 + 0.5f), G = (int)(Math.Clamp(outc.Y, 0, 1) * 255 + 0.5f), Bc = (int)(Math.Clamp(outc.Z, 0, 1) * 255 + 0.5f);
         return unchecked((int)0xFF000000) | (R << 16) | (G << 8) | Bc;
+    }
+
+    /// <summary>
+    /// The model as the view frames it, at <paramref name="w"/>×<paramref name="h"/> (the view's shape is expected to match),
+    /// on a transparent background: drawn <paramref name="supersample"/> times larger and scaled down, so edges are smooth and
+    /// the alpha is soft. Null when no mesh is shown. (The icon creator, Kurt: herohor, costume and store images.)
+    /// </summary>
+    public Bitmap? Snapshot(int w, int h, int supersample = 4)
+    {
+        if (idx.Length == 0 || w < 1 || h < 1) return null;
+        int bw = w * supersample, bh = h * supersample;
+        bool wasFast = fast; fast = false;
+        try
+        {
+            Render(bw, bh);
+            var big = new byte[bw * bh * 4];
+            for (int p = 0; p < bw * bh; p++)
+            {
+                if (gTri[p] < 0) continue;   // background: fully transparent
+                int c = color[p];
+                big[p * 4] = (byte)c; big[p * 4 + 1] = (byte)(c >> 8); big[p * 4 + 2] = (byte)(c >> 16); big[p * 4 + 3] = 255;
+            }
+            // Box-filter down with premultiplied colour, so the soft edge doesn't pick up the background's colour.
+            var small = new byte[w * h * 4];
+            int k = supersample * supersample;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int sb = 0, sg = 0, sr = 0, sa = 0;
+                    for (int yy = 0; yy < supersample; yy++)
+                        for (int xx = 0; xx < supersample; xx++)
+                        {
+                            int i = ((y * supersample + yy) * bw + x * supersample + xx) * 4, a = big[i + 3];
+                            sb += big[i] * a; sg += big[i + 1] * a; sr += big[i + 2] * a; sa += a;
+                        }
+                    int o = (y * w + x) * 4;
+                    small[o + 3] = (byte)((sa + k / 2) / k);
+                    if (sa > 0) { small[o] = (byte)(sb / sa); small[o + 1] = (byte)(sg / sa); small[o + 2] = (byte)(sr / sa); }
+                }
+            var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            var bd = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            for (int y = 0; y < h; y++) Marshal.Copy(small, y * w * 4, bd.Scan0 + y * bd.Stride, w * 4);
+            bmp.UnlockBits(bd);
+            return bmp;
+        }
+        finally { fast = wasFast; Redraw(); }   // back to the view's own size
     }
 
     protected override void Dispose(bool disposing) { if (disposing) frame?.Dispose(); base.Dispose(disposing); }

@@ -49,11 +49,12 @@ static class NexusUpdates
     {
         if (Nexus.FromFileName(archive) is not { } name) return;
         long? fileId = null;
-        if (cache != null && !cache.Mods.ContainsKey(name.ModId) && online)
+        // Fetch the page when it isn't cached, or the cached list doesn't have this file yet (uploaded since the last check).
+        if (cache != null && online && (!cache.Mods.TryGetValue(name.ModId, out var cached) || Nexus.FileOf(cached, name) == null))
             try { foreach (var (id, info) in await Nexus.Mods([name.ModId])) cache.Mods[id] = info; }
             catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { }
         string? line = null;
-        if (cache != null && cache.Mods.TryGetValue(name.ModId, out var mi) && Nexus.FileUploadedAt(mi, name.Uploaded) is { } file) { fileId = file.FileId; line = file.Name; }
+        if (cache != null && cache.Mods.TryGetValue(name.ModId, out var mi) && Nexus.FileOf(mi, name) is { } file) { fileId = file.FileId; line = file.Name; }
         foreach (string folder in installed)
             if (lib.Mods.FirstOrDefault(x => x.FolderName.Equals(folder, StringComparison.OrdinalIgnoreCase)) is Mod m)
                 m.NexusLink = new NexusLink { ModId = name.ModId, FileId = fileId, Version = name.Version, Installed = DateTime.Now, FromNexus = true, File = line };
@@ -66,7 +67,7 @@ static class NexusUpdates
         if (m.NexusModId is not int id) throw new Nexus.NexusException("The mod isn't linked to a Nexus page.");
         if (!cache.Mods.ContainsKey(id)) foreach (var (i, info) in await Nexus.Mods([id])) cache.Mods[i] = info;
         var mi = cache.Mods[id];
-        var latest = LatestFor(m, cache) ?? throw new Nexus.NexusException(LineFor(m, cache) is string l ? $"The Nexus page has no file named \"{l}\" anymore; choose the right file (Nexus → Choose the Nexus File…)." : "The Nexus page has no main file.");
+        var latest = LatestFor(m, cache) ?? throw new Nexus.NexusException(LineFor(m, cache) is string l ? $"The Nexus page has no file named \"{l}\" anymore; choose the right file (Nexus → Choose the Nexus File)." : "The Nexus page has no main file.");
         string uri = await Nexus.DownloadLink(accessToken, id, latest.FileId);
         string name = latest.FileName.Length > 0 ? latest.FileName : $"{(mi.Name.Length > 0 ? mi.Name : "mod")}-{id}-{latest.Version.Replace('.', '-')}-{latest.Uploaded}.zip";
         string path = await Nexus.Download(uri, name, Path.Combine(home, "downloads"), progress);

@@ -23,6 +23,7 @@ sealed class FirstRunForm : Form
         this.settings = settings;
         Text = "MHO Extended Mod Manager: First-Run Setup";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Ui.DarkFrame(this);
         Width = 900; Height = 640; StartPosition = FormStartPosition.CenterScreen;
 
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14) };
@@ -34,7 +35,7 @@ sealed class FirstRunForm : Form
 
         Row(L("1. Where is Marvel Heroes installed?", true));
         Row(L("Found from Steam where possible. It's the folder that holds UnrealEngine3 and Data."));
-        var browseGame = new Button { Text = "Browse…", AutoSize = true };
+        var browseGame = new Button { Text = "Browse", AutoSize = true };
         browseGame.Click += (_, _) =>
         {
             using var d = new FolderBrowserDialog { Description = "The Marvel Heroes folder (holds UnrealEngine3 and Data)", UseDescriptionForTitle = true };
@@ -45,7 +46,7 @@ sealed class FirstRunForm : Form
         Row(L("2. Were you using MHModManager (the earlier mod manager)?", true));
         Row(fresh);
         Row(migrate);
-        var browseOld = new Button { Text = "Browse…", AutoSize = true, Enabled = false };
+        var browseOld = new Button { Text = "Browse", AutoSize = true, Enabled = false };
         browseOld.Click += (_, _) =>
         {
             using var d = new FolderBrowserDialog { Description = "MHModManager's folder (holds MHModManager.exe and data)", UseDescriptionForTitle = true };

@@ -36,6 +36,7 @@ sealed class PostForm : Form
         modName = string.IsNullOrWhiteSpace(source.Manifest.Name) ? "Mod" : source.Manifest.Name;
         Text = "Create Post";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Ui.DarkFrame(this);
         MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
@@ -61,7 +62,7 @@ sealed class PostForm : Form
         // Images: the post's pictures, in the order they'll be uploaded.
         var imgHead = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 10, 0, 4) };
         imgHead.Controls.Add(new Label { Text = "IMAGES", AutoSize = true, Font = Ui.Bold(8.5f), Tag = "subtle", Margin = new Padding(0, 6, 8, 0) });
-        imgHead.Controls.Add(Ui.FlatButton("Add Screenshots…", AddScreenshots, tip: "Add pictures (.PNG, .JPG) to the post, e.g. in-game screenshots of the mod."));
+        imgHead.Controls.Add(Ui.FlatButton("Add Screenshots", AddScreenshots, tip: "Add pictures (.PNG, .JPG) to the post, e.g. in-game screenshots of the mod."));
         imgHead.Controls.Add(Ui.FlatButton("Add Mod Images", AddModImages, tip: "Add the mod's own store image, costume icons and hero portraits as .PNG."));
         imgHead.Controls.Add(Ui.FlatButton("Remove", RemoveImage, tip: "Remove the selected picture from the post (click a picture to select it)."));
         t.Controls.Add(imgHead, 0, 3);
@@ -75,7 +76,7 @@ sealed class PostForm : Form
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
         var copy = Ui.AccentButton("Copy", Copy, tip: "Copy the text of the tab you're on, ready to paste.");
         var keep = Ui.AccentButton("Save to Mod", SaveToMod, tip: keptWithDraft ? "Keep this post (text and images) with the mod; it's written when you save the mod." : "Keep this post (text and images) in the mod's folder. Export ZIP writes it out next to the zip.");
-        var export = Ui.FlatButton("Export Images…", ExportImages, tip: "Save the post's pictures to a folder, to upload them.");
+        var export = Ui.FlatButton("Export Images", ExportImages, tip: "Save the post's pictures to a folder, to upload them.");
         var reset = Ui.FlatButton("Start Over", Fill, tip: "Fill both posts in again from the mod (your edits here are dropped).");
         var close = Ui.FlatButton("Close", CloseAsked, tip: "Close (asks first if the post has changes that aren't saved to the mod).");
         buttons.Controls.AddRange([reset, export, close, keep, copy]);
@@ -150,7 +151,7 @@ sealed class PostForm : Form
             Ui.Tips.SetToolTip(pic, Path.GetFileName(f) + "  ·  click to select");
             strip.Controls.Add(pic);
         }
-        if (images.Count == 0) strip.Controls.Add(new Label { Text = "No images yet: Add Screenshots… or Add Mod Images.", AutoSize = true, Tag = "subtle", ForeColor = Ui.Subtle, Margin = new Padding(4, 8, 0, 0) });
+        if (images.Count == 0) strip.Controls.Add(new Label { Text = "No images yet: Add Screenshots or Add Mod Images.", AutoSize = true, Tag = "subtle", ForeColor = Ui.Subtle, Margin = new Padding(4, 8, 0, 0) });
     }
 
     void AddScreenshots()
@@ -185,7 +186,7 @@ sealed class PostForm : Form
 
     void ExportImages()
     {
-        if (images.Count == 0) { Dialog.Show(this, "The post has no images yet: Add Screenshots… or Add Mod Images first.", "No Images"); return; }
+        if (images.Count == 0) { Dialog.Show(this, "The post has no images yet: Add Screenshots or Add Mod Images first.", "No Images"); return; }
         using var d = new FolderBrowserDialog { Description = $"Folder for the images of \"{modName}\"", UseDescriptionForTitle = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         string folder = Path.Combine(d.SelectedPath, ModInstaller.Sanitise(modName) + " images");

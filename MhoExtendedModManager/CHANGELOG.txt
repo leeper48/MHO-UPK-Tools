@@ -1,0 +1,69 @@
+MHO Extended Mod Manager: what's new
+====================================
+
+0.35 (next release)
+- Create from 3D, in the Editor's icon and store tabs: make a hero portrait, costume icon or store image from a character in 3D. Frame it (turn, pan, zoom; Shift for fine zoom), pick a pose and frame, a lens and the light, show the weapon or prop the character holds, lay the game's original over the view to line things up (O toggles it), and take a snapshot at the original's exact size. Each icon remembers its own setup, and Use Previous Setup copies the last icon's pose and camera to another one.
+- Click the Original, Replacement or Snapshot picture to look closer: fit, 1:1, zoom in 25% steps, full screen, and export as PNG.
+- Images you load or make are compressed more carefully (sharper, less blotchy).
+- Every slider works with the keyboard: click it, then the arrow keys (Shift for bigger steps), Home and End.
+- Nexus: downloads with Nexus's new file names are recognized again, so updating a mod clears its green Update mark.
+- An Update Available button in the top bar when a new version of the app is out.
+- The top bar is rearranged: New Mod, Extract, Install Mod and the game folder on the left; Update Available and Settings on the right. Menus open on the same monitor as their button.
+- Clicking the Editor tab opens the mod selected in the list.
+- Every popup, menu and title bar is dark with light text.
+- Shorter button names; no "..." on buttons and menus.
+- Safer archive handling: SharpCompress updated to 1.0.
+
+0.34.3
+- The 3D preview is lit like the game's characters: smooth shading, sharper textures, normal-map detail, and each costume's own highlights, rim light and glowing parts.
+- A Light slider under the 3D view, remembered per mod; modders can include their light level when exporting.
+- The 3D view remembers the animation and the frame you left it on, per mod.
+- Fixed: picking a picture and going back to 3D no longer resets the pose, zoom and animation.
+
+0.33.2
+- Nexus pages with more than one mod file (for example a default and a Variant): each of your mods follows its own file, so updating a Variant no longer installs the default. Right-click → Nexus → Choose the Nexus File picks it.
+- No more flickering in the mod list when hovering, showing tooltips or scrolling.
+
+0.33.1
+- Fixed a crash when clicking the 3D tile after switching mods.
+
+0.33.0
+- The preview column shows a 3D view of the mod's character, with its animations: play, loop, reset view. The camera you set is remembered, and modders can include their preview choice and camera when exporting.
+- Rounded buttons; a thumbnail strip to pick the preview picture.
+
+0.27
+- Nexus update checks use Nexus's public data only: no API key or account needed.
+
+0.26.0
+- Drag a mod card to change its priority.
+- Conflicts are marked on the cards (red: partly overridden, amber: only overrides), with who overrides whom.
+- The mod list's width is remembered.
+- Sound packs that build on their own lines, or use nested sound containers, apply fully.
+
+0.25.12
+- Remove Mod only waits for the mod's own files to be taken out of the game, and says which.
+- The status line explains itself; a click opens the Apply window.
+
+0.25.9
+- Mod cards show the hero portrait (or the costume icon, store image or inventory icon); mods without an image show the game's matching one. Pets get a Pet tag.
+
+0.25.2
+- A Browse Nexus button above the mod list.
+
+0.25.1
+- Nexus: update marks on mods with a newer version, Find My Mods (links your mods to their Nexus pages), and a Nexus bar above the mod list; sort by Updates First.
+
+0.22.3
+- Create Post: Nexus and Discord descriptions for your mod, with images, kept with the mod.
+- The string editor shows what each string is used by (hero name, NPC, item, costume, power).
+- Fixed: the string editor's replacement column couldn't be edited (since 0.21.1).
+
+Earlier versions
+- 0.21: Title Case labels, colored tags, one styled Apply window and popups.
+- 0.20: self-update from GitHub, the installer, release packaging.
+- 0.19: update a mod in place, export names, PNG in and out.
+- 0.18: automatic tags, tags and notes that travel with a mod.
+- 0.17: tags, sort and group, All, undo / redo, tooltips.
+- 0.16: priority locks and top / bottom moves.
+- 0.10 - 0.15: the redesigned window, Editor and Extract tabs, mod cards with icons, the store image column.
+- 0.1 - 0.9: reads MHModManager's library, applies packages, icons, strings and sound packs, migrates from MHModManager, first-run setup, install / export / remove, the mod editor, Extract, the portable data folder.

@@ -122,7 +122,7 @@ static class PostWriter
         b.AppendLine("[b]Installation[/b]");
         b.AppendLine("[list=1]");
         b.AppendLine("[*]Close the game.");
-        b.AppendLine("[*][b]MHO Extended Mod Manager:[/b] Install Mod… (or drop the zip on the window), tick the mod, then Apply Changes (Ctrl+Enter).");
+        b.AppendLine("[*][b]MHO Extended Mod Manager:[/b] Install Mod (or drop the zip on the window), tick the mod, then Apply Changes (Ctrl+Enter).");
         b.AppendLine("[*][b]MHModManager:[/b] Install the zip, enable the mod, then Apply.");
         b.AppendLine("[/list]");
         if (f.Replaces.Count > 0 || f.Changes.Count > 0)

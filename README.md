@@ -106,7 +106,7 @@ Source: [`AnimExportCli/`](AnimExportCli).
 ## Credits and license
 
 - **Krisan:** MHO Extended Mod Manager builds on **MHModManager**, by Krisan: its mod format, its ideas and the mods made for it. Thank you.
-- **Libraries:** [SharpCompress](https://github.com/adamhathcock/sharpcompress), ZstdSharp, System.IO.Hashing, AssimpNet and [assimp](https://github.com/assimp/assimp). See the `THIRD-PARTY-NOTICES.txt` files.
+- **Libraries:** [SharpCompress](https://github.com/adamhathcock/sharpcompress), System.IO.Hashing, AssimpNet and [assimp](https://github.com/assimp/assimp). See the `THIRD-PARTY-NOTICES.txt` files.
 - **License:** [MIT](LICENSE).
 
 Marvel Heroes Omega and Marvel characters are trademarks of their owners. This is an unofficial fan project, not affiliated with or endorsed by Marvel, Gazillion or Disney.

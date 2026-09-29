@@ -64,6 +64,7 @@ static class Program
             return 2;
         }
         Updater.CleanUp();   // the *.old files a self-update left behind
+        Gui.Ui.UseDarkTheme();   // dark menus and title bars for every window (nothing to do without one)
         if (args.Length == 3 && args[0].Equals("--post-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: Create Post for a library mod (read only), both tabs as PNGs.
@@ -162,6 +163,58 @@ static class Program
                 f.Close();
             });
             Application.Run(f);
+            return 0;
+        }
+        if (args.Length >= 4 && args[0].Equals("--icon-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: the icon creator for a mod's texture (window off-screen), snapshot taken and saved with the window.
+            // --icon-snapshot <dir> <mod> <texture> [animation part]
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var st = Settings.Load();
+            var ilib = ModLibrary.Load(Settings.LibraryData(st.LibraryPath)!);
+            var im = ilib.Find(args[2]);
+            string? igr = st.ResolvedGameRoot(ilib.DataFolder);
+            var igame = igr != null && Settings.IsGameRoot(igr) ? new GameState(igr, ilib.DataFolder) : null;
+            var icat = igame != null ? new StockCatalog(ilib, igame) : null;
+            string file = args[3].StartsWith("store_", StringComparison.OrdinalIgnoreCase) ? Applier.IconPackages[2].File : Applier.IconPackages[0].File;
+            if (im == null || icat?.Size(file, args[3]) is not { } isz) { Console.WriteLine("no such mod, or the texture's size isn't known"); return 1; }
+            Directory.CreateDirectory(args[1]);
+            using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000), Size = new Size(1300, 760), ShowInTaskbar = false, Font = Gui.Ui.Regular(9.5f) };
+            var cv = new Gui.IconCreatorView(() => im.Manifest.UpkReplacements.Select(u => (u, Path.Combine(im.Folder, u))), igame!.Cooked);
+            f.Controls.Add(cv);
+            MhoPackageModifier.Gui.Theme.Apply(f, MhoPackageModifier.Gui.Palette.Dark);
+            Gui.Ui.Restyle(f);
+            var orig = icat.Preview(file, args[3]);
+            string report = "";
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                PreviewViews.ForgetIcon("selftest:" + im.FolderName + "|" + args[3]);   // start from the kind's framing
+                cv.SetTarget("selftest:" + im.FolderName, args[3], isz.W, isz.H, orig is { } o ? MhoPackageModifier.TextureDecode.ToBitmap(o.Bgra, o.W, o.H) : null);
+                report = await cv.SelfTest(args[1], args.Length > 4 ? args[4] : null);
+                f.Close();
+            });
+            Application.Run(f);
+            Console.WriteLine(report);
+            return report.StartsWith("ok") ? 0 : 1;
+        }
+        if (args.Length == 3 && args[0].Equals("--viewer-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: the image viewer (off-screen) on a picture, fitted and at 8×, as PNGs. --viewer-snapshot <image> <dir>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Directory.CreateDirectory(args[2]);
+            using var img = Image.FromFile(args[1]);
+            using var v = new Gui.ImageViewerForm(img, Path.GetFileName(args[1])) { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000) };
+            v.Shown += (_, _) => v.BeginInvoke(async () =>
+            {
+                await Task.Delay(300);
+                void Shot(string n) { using var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); b.Save(Path.Combine(args[2], n)); }
+                Shot("viewer_fit.png");
+                v.TestZoom(8); await Task.Delay(200); Shot("viewer_8x.png");
+                v.Close();
+            });
+            Application.Run(v);
             return 0;
         }
         if (args.Length == 2 && args[0].Equals("--update-snapshot", StringComparison.OrdinalIgnoreCase))
@@ -470,6 +523,63 @@ static class Program
                 }
                 return 0;
             }
+            case "--icon-formats":
+            {
+                // Read-only: how many textures of each format the game's icon packages hold (originals), with examples.
+                string? fgr = settings.ResolvedGameRoot(data);
+                if (fgr == null || !Settings.IsGameRoot(fgr)) { Console.WriteLine("game folder not set"); return 1; }
+                var fgame = new GameState(fgr, data);
+                var fcat = new StockCatalog(lib, fgame);
+                if (rest.Count > 2)
+                {
+                    // --icon-formats <package> <name part>: each matching texture's size and format
+                    var hits = fcat.EntriesFor(rest[1]) ?? [];
+                    foreach (var e in hits.Where(e => e.Name.Contains(rest[2], StringComparison.OrdinalIgnoreCase)).Take(40)) Console.WriteLine($"  {e.Name}: {fcat.Size(rest[1], e.Name)}");
+                    return 0;
+                }
+                foreach (string pk in Applier.IconPackages.Select(p => p.File).Concat(IconCapture.ExtraPackages(fgame)))
+                {
+                    var list = fcat.EntriesFor(pk);
+                    if (list == null) { Console.WriteLine($"{pk}: no original"); continue; }
+                    var by = list.Select(e => (e.Name, S: fcat.Size(pk, e.Name))).GroupBy(x => x.S?.Format ?? "?").OrderByDescending(g => g.Count());
+                    Console.WriteLine($"{pk}: " + string.Join(", ", by.Select(g => $"{g.Key} {g.Count()}" + (g.Key.Contains("DXT") ? "" : $" (e.g. {string.Join(", ", g.Take(3).Select(x => x.Name))})"))));
+                }
+                return 0;
+            }
+            case "--menu-place-test":
+            {
+                // The Settings menu on a two-monitor desktop (a user's: it opened on the other screen). No windows.
+                var main = new Rectangle(0, 0, 1920, 1040);   // main monitor's work area; the second starts at x 1920
+                var menuSize = new Size(300, 420);
+                var cases = new (string What, Rectangle Button, Point Want)[]
+                {
+                    ("Settings at the right edge: right-aligned, on the main monitor", new Rectangle(1800, 40, 110, 30), new Point(1610, 70)),
+                    ("room to the right: under the button's left edge", new Rectangle(100, 40, 110, 30), new Point(100, 70)),
+                    ("near the bottom: above the button", new Rectangle(100, 900, 110, 30), new Point(100, 480)),
+                };
+                int bad = 0;
+                foreach (var (what, b, want) in cases)
+                {
+                    var got = Gui.Ui.PlaceUnder(b, menuSize, main);
+                    bool ok = got == want && got.X + menuSize.Width <= main.Right;
+                    if (!ok) bad++;
+                    Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}: {got.X},{got.Y}");
+                }
+                return bad == 0 ? 0 : 1;
+            }
+            case "--convert-image":
+            {
+                // Test: an image converted like a replacement chosen in the editor (size and DXT format of the original).
+                // --convert-image <icons|store> <texture> <image> <out.dds>
+                if (rest.Count < 5) { Console.WriteLine("--convert-image <icons|store> <texture> <image> <out.dds>"); return 1; }
+                string? cgr2 = settings.ResolvedGameRoot(data);
+                if (cgr2 == null || !Settings.IsGameRoot(cgr2)) { Console.WriteLine("game folder not set"); return 1; }
+                var ccat = new StockCatalog(lib, new GameState(cgr2, data));
+                string cpk = rest[1].Equals("store", StringComparison.OrdinalIgnoreCase) ? Applier.IconPackages[2].File : Applier.IconPackages[0].File;
+                Console.WriteLine($"original: {ccat.Size(cpk, rest[2])}");
+                Console.WriteLine(ccat.ImageToDds(cpk, rest[2], rest[3], rest[4], keepSize: rest.Contains("--keep-size")));
+                return 0;
+            }
             case "--material-probe":
             {
                 // Read-only: each section's material (parent, switches on, parameters, maps) for a mod's meshes; with an
@@ -582,6 +692,16 @@ static class Program
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     var loaded = ModMeshes.Load(r, cooked, out string why);
                     Console.WriteLine($"  {r.Package} | {r.Name}: {(loaded == null ? "can't be read: " + why : loaded.Info)}  ({sw.ElapsedMilliseconds} ms)");
+                    if (loaded != null && rest.Contains("--bones"))
+                    {
+                        // Which bones the mesh has, and where its vertices are (for props: does it share the character's skeleton?).
+                        var used = new HashSet<int>(loaded.Influences.SelectMany(i => i.Bones ?? []));
+                        Vector3 lo = loaded.Positions.Aggregate(Vector3.Min), hi = loaded.Positions.Aggregate(Vector3.Max);
+                        Console.WriteLine($"    {loaded.Bones.Count} bones, {used.Count} weighted; bounds {lo.X:0},{lo.Y:0},{lo.Z:0} .. {hi.X:0},{hi.Y:0},{hi.Z:0}");
+                        Console.WriteLine("    weighted: " + string.Join(", ", used.OrderBy(i => i).Take(12).Select(i => loaded.Bones[i].Name)));
+                        Console.WriteLine("    first bones: " + string.Join(", ", loaded.Bones.Take(8).Select(b => b.Name)));
+                        Console.WriteLine("    unweighted: " + string.Join(", ", loaded.Bones.Select((b, i) => (b, i)).Where(x => !used.Contains(x.i)).Select(x => x.b.Name)));
+                    }
                 }
                 return 0;
             }

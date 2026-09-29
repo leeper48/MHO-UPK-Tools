@@ -76,6 +76,7 @@ sealed class MainForm : Form
         current = this;
         Text = $"MHO Extended Mod Manager v{Program.Version}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Ui.DarkFrame(this, Ui.GradientTop);   // the title bar continues the window's navy
         Width = 1400; Height = 850; WindowState = FormWindowState.Maximized;
         StartPosition = FormStartPosition.CenterScreen;
         Font = Ui.Regular(9.5f);
@@ -84,51 +85,61 @@ sealed class MainForm : Form
         applyButton = Ui.AccentButton("Apply Changes", Apply);
 
         // ---- Top bar
-        var top = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 4, Padding = new Padding(10, 6, 10, 6) };
+        // Kurt's order: New Mod, Extract, Install Mod, the game folder and whether it runs on the left; the update alert and
+        // Settings on the right.
+        var top = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 5, Padding = new Padding(10, 6, 10, 6) };
         topBar = top;
+        top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        top.Controls.Add(new Label { Text = "Game Root:", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle", Font = Ui.Regular(9.75f) }, 0, 0);
-        top.Controls.Add(gameLabel, 1, 0);
-        top.Controls.Add(runningLabel, 2, 0);
-        var topButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
+        top.Controls.Add(new Label { Text = "Game Root:", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle", Font = Ui.Regular(9.75f), Margin = new Padding(12, 0, 0, 0) }, 1, 0);
+        top.Controls.Add(gameLabel, 2, 0);
+        top.Controls.Add(runningLabel, 3, 0);
+        var topButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left };
+        var rightButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
         var newMod = Ui.AccentButton("+  New Mod", () => EditMod(null));
         var extractButton = Ui.FlatButton("Extract", () => pages.Select(2));
-        var install = Ui.FlatButton("Install Mod…", InstallMod);
+        var install = Ui.FlatButton("Install Mod", InstallMod);
         var settingsButton = Ui.FlatButton("Settings  ▾", () => { });
-        var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f), RenderMode = ToolStripRenderMode.System };
-        menu.Items.Add("Change Game Folder…", null, (_, _) => BrowseGame());
-        menu.Items.Add("Move Library…", null, (_, _) => MoveLibrary());
+        var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f) };
+        menu.Items.Add("Change Game Folder", null, (_, _) => BrowseGame());
+        menu.Items.Add("Move Library", null, (_, _) => MoveLibrary());
         menu.Items.Add("Open Library Folder", null, (_, _) => { if (Settings.LibraryData(settings.LibraryPath) is string d) Process.Start("explorer.exe", $"\"{d}\""); });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Capture Icon Changes", null, (_, _) => CaptureIcons());
-        menu.Items.Add("Migrate from MHModManager…", null, (_, _) => Migrate());
+        menu.Items.Add("Migrate from MHModManager", null, (_, _) => Migrate());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Refresh", null, (_, _) => Reload());
-        menu.Items.Add("Find My Mods on Nexus…", null, (_, _) => FindOnNexus(null));
+        menu.Items.Add("Find My Mods on Nexus", null, (_, _) => FindOnNexus(null));
         menu.Items.Add("Check Mods on Nexus", null, (_, _) => CheckNexus(manual: true));
         var nexusAtStart = new ToolStripMenuItem("Check Mods on Nexus at Start") { CheckOnClick = true };
         nexusAtStart.CheckedChanged += (_, _) => { if (settings.NexusCheckAtStart != nexusAtStart.Checked) { settings.NexusCheckAtStart = nexusAtStart.Checked; settings.Save(); } };
         menu.Opening += (_, _) => nexusAtStart.Checked = settings.NexusCheckAtStart;
         menu.Items.Add(nexusAtStart);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Check for Updates…", null, (_, _) => CheckForUpdates(manual: true));
+        menu.Items.Add("Check for Updates", null, (_, _) => CheckForUpdates(manual: true));
         var autoCheck = new ToolStripMenuItem("Check for Updates at Start") { CheckOnClick = true };
         autoCheck.CheckedChanged += (_, _) => { if (settings.CheckUpdates != autoCheck.Checked) { settings.CheckUpdates = autoCheck.Checked; settings.Save(); } };
         menu.Opening += (_, _) => autoCheck.Checked = settings.CheckUpdates;
         menu.Items.Add(autoCheck);
+        menu.Items.Add("Changelog", null, (_, _) => ShowChangelog());
         menu.Items.Add("About", null, (_, _) => About());
-        settingsButton.Click += (_, _) => menu.Show(settingsButton, new Point(0, settingsButton.Height));
-        topButtons.Controls.AddRange([newMod, extractButton, install, settingsButton]);
+        settingsButton.Click += (_, _) => Ui.ShowUnder(menu, settingsButton);
+        // Update alert (Kurt): shown when a newer release is known; a click offers it (the update window).
+        updateAlert = Ui.FlatButton("↑ Update Available", () => CheckForUpdates(manual: true), tip: "A new version of MHO Extended Mod Manager is out. Click to see what's new and update (it restarts).");
+        updateAlert.Visible = false;
+        topButtons.Controls.AddRange([newMod, extractButton, install]);
+        rightButtons.Controls.AddRange([updateAlert, settingsButton]);
         writeControls.AddRange([newMod, install]);
         tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
         tips.SetToolTip(extractButton, "Save original game icons, store images or strings, to make replacements from.");
         tips.SetToolTip(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");
-        tips.SetToolTip(settingsButton, "Game folder, library folder, capture icon changes, migrate from MHModManager, about.");
+        tips.SetToolTip(settingsButton, "Game folder, library folder, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
         tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
-        top.Controls.Add(topButtons, 3, 0);
+        top.Controls.Add(topButtons, 0, 0);
+        top.Controls.Add(rightButtons, 4, 0);
 
         // ---- Left: installed mods
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(6, 4, 2, 0) };
@@ -162,8 +173,8 @@ sealed class MainForm : Form
         filterRow.Controls.Add(new Label { Text = "Filter", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle", Padding = new Padding(0, 0, 4, 0) }, 0, 0);
         filterRow.Controls.Add(filter, 1, 0);
         sortButton = Ui.FlatButton("Sort", () => { }); groupButton = Ui.FlatButton("Group", () => { });
-        sortButton.Click += (_, _) => SortMenu().Show(sortButton, new Point(0, sortButton.Height));
-        groupButton.Click += (_, _) => GroupMenu().Show(groupButton, new Point(0, groupButton.Height));
+        sortButton.Click += (_, _) => Ui.ShowUnder(SortMenu(), sortButton);
+        groupButton.Click += (_, _) => Ui.ShowUnder(GroupMenu(), groupButton);
         filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
         allVisible.Click += (_, _) => SetAllVisible();
         tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   (Nexus updates, linked mods, conflicts)");
@@ -176,10 +187,10 @@ sealed class MainForm : Form
         var nexusButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(4, 0, 0, 0) };
         var nexusCheck = Ui.FlatButton("Check for Updates", () => CheckNexus(manual: true),
             "Ask Nexus whether your linked mods have newer versions (public information: no account or key needed). Mods with one get a green Update mark.");
-        var nexusFind = Ui.FlatButton("Find My Mods…", () => FindOnNexus(null),
+        var nexusFind = Ui.FlatButton("Find My Mods", () => FindOnNexus(null),
             "Look up your mods that aren't linked yet among the Nexus mods for Marvel Heroes Omega, and link the right ones.");
         var nexusMore = Ui.FlatButton("▾", () => { }, "Nexus account, checking at start, the Nexus mod pages.");
-        nexusMore.Click += (_, _) => NexusBarMenu().Show(nexusMore, new Point(0, nexusMore.Height));
+        nexusMore.Click += (_, _) => Ui.ShowUnder(NexusBarMenu(), nexusMore);
         nexusCheck.Padding = nexusFind.Padding = new Padding(4, 0, 4, 0); nexusMore.Padding = new Padding(2, 0, 2, 0);
         var nexusBrowse = Ui.FlatButton("Browse Nexus", () => Process.Start(new ProcessStartInfo(Nexus.SiteMods) { UseShellExecute = true }),
             "Open the Marvel Heroes Omega mods on Nexus in your browser.");
@@ -197,7 +208,7 @@ sealed class MainForm : Form
         list.DoubleClick += (_, _) => { if (Selected is Mod m) EditMod(m); };
         list.GroupClicked += g => { if (!collapsed.Remove(g.Key)) collapsed.Add(g.Key); FillList(Selected?.FolderName); };
         list.TagClicked += t => filter.Text = t.Contains(' ') ? $"tag:\"{t}\"" : $"tag:{t}";
-        list.MenuRequested += (m, pt) => CardMenu(m).Show(pt);
+        list.MenuRequested += (m, pt) => Ui.ShowAt(CardMenu(m), pt);
         list.UpdateFor = m => NexusUpdates.UpdateFor(m, nexus);
         list.ConflictText = ConflictSummary;
         // The picture shown big: the user's pick is kept per mod (state.json Previews), one undo step, no reload.
@@ -230,7 +241,7 @@ sealed class MainForm : Form
         var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 4, 8, 0) };
         right.Controls.Add(tabs); right.Controls.Add(header);
         header.PillClicked += () => { if (Selected is Mod m) Toggle(m); };
-        header.TagsClicked += pt => { if (Selected is Mod m && !readOnly) TagsMenu(m).Show(pt); };
+        header.TagsClicked += pt => { if (Selected is Mod m && !readOnly) Ui.ShowAt(TagsMenu(m), pt); };
         tips.SetToolTip(header, "Click Enabled / Disabled to turn the mod on or off, and its tags or + Tag to change the tags.");
 
         // Middle column: the selected mod's store image (Kurt), between the list and the details.
@@ -274,10 +285,10 @@ sealed class MainForm : Form
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var leftButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         var remove = Ui.FlatButton("Remove Mod", RemoveMod);
-        var edit = Ui.FlatButton("Edit Mod…", () => { if (Selected is Mod m) EditMod(m); });
-        var export = Ui.FlatButton("Export to ZIP…", ExportMod);
+        var edit = Ui.FlatButton("Edit Mod", () => { if (Selected is Mod m) EditMod(m); });
+        var export = Ui.FlatButton("Export to ZIP", ExportMod);
         tagsButton = Ui.FlatButton("Tags  ▾", () => { });
-        tagsButton.Click += (_, _) => { if (Selected is Mod m) TagsMenu(m).Show(tagsButton, new Point(0, tagsButton.Height)); };
+        tagsButton.Click += (_, _) => { if (Selected is Mod m) Ui.ShowUnder(TagsMenu(m), tagsButton); };
         leftButtons.Controls.AddRange([remove, edit, export, tagsButton]);
         writeControls.AddRange([remove, edit, applyButton, tagsButton]);
         tips.SetToolTip(remove, "Send the selected mod to the Recycle Bin (turn it off and Apply first).");
@@ -308,7 +319,12 @@ sealed class MainForm : Form
         pages.Add("Mods", modsPage);
         pages.Add("Editor", editorHost);
         pages.Add("Extract", extractHost);
-        pages.SelectedChanged += i => { if (i == 2) EnsureExtract(); };
+        pages.SelectedChanged += i =>
+        {
+            if (i == 2) EnsureExtract();
+            // The Editor tab with nothing open: open the mod highlighted in the list (Kurt). A mod already open stays as it is.
+            if (i == 1 && editor == null && !readOnly && Selected is Mod m) BeginInvoke(() => { if (editor == null) EditMod(m); });
+        };
         var pagesWrap = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6, 2, 6, 0) };
         pagesWrap.Controls.Add(pages);
         Controls.Add(pagesWrap); Controls.Add(top);
@@ -340,13 +356,18 @@ sealed class MainForm : Form
             {
                 settings.CheckUpdates = Dialog.Show(this, "Look for new versions of MHO Extended Mod Manager when it starts (at most once a day)?" + Environment.NewLine + Environment.NewLine +
                     "It asks GitHub (api.github.com) for the latest release; nothing about you, your game or your mods is sent. " +
-                    "You can change this in Settings, and Settings → Check for updates… works either way.",
+                    "You can change this in Settings, and Settings → Check for updates works either way.",
                     "Updates", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
                 settings.UpdateCheckAsked = true;
                 settings.Save();
             }
+            ShowUpdateAlert();   // from the last check (the daily limit may skip checking now)
             if (settings.CheckUpdates && (settings.LastUpdateCheck == null || DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromDays(1)))
                 CheckForUpdates(manual: false);
+            // Left open: look again every 6 hours (only when checks are allowed).
+            var updateTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
+            updateTimer.Tick += (_, _) => { if (settings.CheckUpdates) CheckForUpdates(manual: false); };
+            updateTimer.Start();
             // Nexus (public data, no account): only when the user turned it on (off by default), at most every 6 hours.
             if (settings.NexusCheckAtStart && lib?.Mods.Any(m => m.NexusModId != null) == true && (nexus.Checked == null || DateTime.Now - nexus.Checked > TimeSpan.FromHours(6)))
                 CheckNexus(manual: false);
@@ -394,6 +415,24 @@ sealed class MainForm : Form
         runningLabel.ForeColor = running ? Ui.Warn : Ui.Subtle;
     }
 
+    Button updateAlert = null!;
+
+    /// <summary>The top bar's update alert: shown while a release newer than this one is known and not skipped.</summary>
+    void ShowUpdateAlert()
+    {
+        bool show = Version.TryParse(settings.LatestKnownVersion, out var v) && v > Updater.Current && settings.SkipVersion != v.ToString();
+        if (show)
+        {
+            updateAlert.Text = $"↑ Update Available: v{v}";
+            updateAlert.Tag = "accent";
+            updateAlert.BackColor = Ui.Enabled; updateAlert.ForeColor = Ui.OnColor;
+            updateAlert.FlatAppearance.BorderColor = Ui.Enabled;
+            updateAlert.FlatAppearance.MouseOverBackColor = Color.FromArgb(96, 210, 130);
+            Ui.Tip(updateAlert, $"Version {v} of MHO Extended Mod Manager is out (you have {Program.Version}). Click to see what's new and update; it restarts when done.");
+        }
+        updateAlert.Visible = show;
+    }
+
     /// <summary>Looks for a newer release (GitHub); offers it. Quiet (no messages when there's nothing, or no network) unless <paramref name="manual"/>.</summary>
     async void CheckForUpdates(bool manual)
     {
@@ -404,20 +443,32 @@ sealed class MainForm : Form
             if (manual) Dialog.Show(this, ex.Message, "Couldn't Check for Updates", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        settings.LastUpdateCheck = DateTime.Now; settings.Save();
+        settings.LastUpdateCheck = DateTime.Now;
+        settings.LatestKnownVersion = r?.Version.ToString();
+        settings.Save();
+        ShowUpdateAlert();
         if (r == null || r.Version <= Updater.Current)
         {
             if (manual) Dialog.Show(this, $"You have the latest version ({Program.Version}).", "Updates");
             return;
         }
-        if (!manual && settings.SkipVersion == r.Version.ToString()) { status.Text = $"Version {r.Version} Is Available (Skipped: Settings → Check for Updates)"; return; }
+        // At start: the alert in the top bar is enough (Kurt: a prompt to update by hand, not a window in the way).
+        if (!manual) { if (settings.SkipVersion != r.Version.ToString()) status.Text = Ui.TitleCase($"Version {r.Version} is available: click Update Available at the top"); return; }
         using var f = new UpdateForm(r);
         f.ShowDialog(this);
-        if (f.SkipThis) { settings.SkipVersion = r.Version.ToString(); settings.Save(); }
+        if (f.SkipThis) { settings.SkipVersion = r.Version.ToString(); settings.Save(); ShowUpdateAlert(); }
         if (!f.Installed) return;
         SaveNote();
         Updater.Restart();
         Close();
+    }
+
+    /// <summary>Settings → Changelog (Kurt): what's new in each version, from CHANGELOG.txt next to the program.</summary>
+    void ShowChangelog()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "CHANGELOG.txt");
+        string text = File.Exists(path) ? File.ReadAllText(path) : "The changelog isn't next to the program (CHANGELOG.txt). See the release notes on GitHub: " + Updater.ReleasesPage;
+        Dialog.ShowLog(this, $"Changelog (You Have {Program.Version})", text);
     }
 
     void About() => Dialog.Show(this,
@@ -575,7 +626,7 @@ sealed class MainForm : Form
     ContextMenuStrip NewMenu()
     {
         lastMenu?.Dispose();
-        return lastMenu = new() { Font = Ui.Regular(9.5f), RenderMode = ToolStripRenderMode.System };
+        return lastMenu = new() { Font = Ui.Regular(9.5f) };
     }
 
     ContextMenuStrip SortMenu()
@@ -739,10 +790,10 @@ sealed class MainForm : Form
         var menu = TagsMenu(m);
         int at = 0;
         menu.Items.Insert(at++, new ToolStripMenuItem(m.Enabled ? "Turn Off" : "Turn On", null, (_, _) => Toggle(m)) { Enabled = !readOnly });
-        menu.Items.Insert(at++, new ToolStripMenuItem("Edit…", null, (_, _) => EditMod(m)) { Enabled = !readOnly });
-        menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP…", null, (_, _) => ExportMod()));
-        menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File…", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
-        menu.Items.Insert(at++, new ToolStripMenuItem("Create Post…", null, (_, _) => CreatePost(m)));
+        menu.Items.Insert(at++, new ToolStripMenuItem("Edit", null, (_, _) => EditMod(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP", null, (_, _) => ExportMod()));
+        menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem("Create Post", null, (_, _) => CreatePost(m)));
         menu.Items.Insert(at++, NexusMenu(m));
         menu.Items.Insert(at, new ToolStripSeparator());
         return menu;
@@ -777,7 +828,7 @@ sealed class MainForm : Form
         if (own.Count == 0) menu.Items.Add(new ToolStripMenuItem("(No Tags Yet)") { Enabled = false });
 
         var add = new ToolStripMenuItem("Add a Tag") { Enabled = !readOnly };
-        add.DropDownItems.Add("New Tag…", null, (_, _) =>
+        add.DropDownItems.Add("New Tag", null, (_, _) =>
         {
             string? t = l.CleanTag(Ui.Prompt(this, "New Tag", $"Tag for \"{Short(m.Name)}\":", "", all));
             if (t != null) Change($"tag \"{m.Name}\" as \"{t}\"", () => { if (ModLibrary.HasTag(m, t)) return false; ModLibrary.AddTag(m, t); return true; });
@@ -799,7 +850,7 @@ sealed class MainForm : Form
                 foreach (var x in targets) ModLibrary.AddTag(x, t);
                 return any;
             });
-            addAll.DropDownItems.Add("New Tag…", null, (_, _) =>
+            addAll.DropDownItems.Add("New Tag", null, (_, _) =>
             {
                 string? t = l.CleanTag(Ui.Prompt(this, "Tag the List", $"Tag for all {targets.Count} mods in the list:", "", all));
                 if (t != null) TagAll(t);
@@ -1017,7 +1068,7 @@ sealed class MainForm : Form
             string upd = NexusUpdates.UpdateFor(m, nexus) is string nv ? "  ·  Update Available" : latest.Length > 0 ? "  ·  Up to Date" : "";
             InfoRow("Nexus", $"{Nexus.SiteMods}{nid}  ·  Installed v{(m.NexusLink?.Version ?? m.Manifest.Version ?? "?").TrimStart('v', 'V')}{latest}{upd}{how}", upd.Contains("Update") ? Ui.Enabled : null);
             if (nexus.Mods.TryGetValue(nid, out var pageInfo) && Nexus.Lines(pageInfo).Count > 1)
-                InfoRow("Nexus File", NexusUpdates.LineFor(m, nexus) is string line ? $"\"{line}\" (Updates Come Only From This File)" : "Not Known Yet: the Page Has Several Files (Right-Click → Nexus → Choose the Nexus File…)",
+                InfoRow("Nexus File", NexusUpdates.LineFor(m, nexus) is string line ? $"\"{line}\" (Updates Come Only From This File)" : "Not Known Yet: the Page Has Several Files (Right-Click → Nexus → Choose the Nexus File)",
                     NexusUpdates.LineFor(m, nexus) == null ? Ui.Warn : null);
         }
         InfoRow("Folder", m.Folder);
@@ -1109,7 +1160,7 @@ sealed class MainForm : Form
             (existing.Enabled ? "\n\nIt's on: Apply Changes afterwards puts the new version in the game." : ""),
             "Update Mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes);
 
-    /// <summary>A card's "Update from a File…": the chosen archive / folder replaces this mod (even under another name).</summary>
+    /// <summary>A card's "Update from a File": the chosen archive / folder replaces this mod (even under another name).</summary>
     void UpdateFromFile(Mod m)
     {
         using var d = new OpenFileDialog { Title = $"Update \"{m.Name}\" from", Filter = "Mod archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|All files|*.*" };
@@ -1163,7 +1214,7 @@ sealed class MainForm : Form
     {
         if (lib == null) return;
         int linked = lib.Mods.Count(m => m.NexusModId != null);
-        if (linked == 0) { if (manual) Dialog.Show(this, "No mod is linked to a Nexus page yet. Mods installed from a Nexus download are linked by their file name; for others, right-click → Nexus → Link to Nexus Page….", "Check Mods on Nexus"); return; }
+        if (linked == 0) { if (manual) Dialog.Show(this, "No mod is linked to a Nexus page yet. Mods installed from a Nexus download are linked by their file name; for others, right-click → Nexus → Link to Nexus Page.", "Check Mods on Nexus"); return; }
         var l = lib;
         nexusBusy = $"Checking {linked} Linked Mod(s) on Nexus…"; UpdateNexusStatus();
         int n; List<string> problems;
@@ -1239,7 +1290,7 @@ sealed class MainForm : Form
                 menu.Items.Add(new ToolStripMenuItem($"Signed In as {who.UserName} ({(who.Premium ? "Premium" : "Free Account")})") { Enabled = false });
                 menu.Items.Add("Sign Out of Nexus", null, (_, _) => SignOutNexus());
             }
-            else menu.Items.Add("Sign In with Nexus (One-Click Updates for Premium)…", null, (_, _) => SignInNexus());
+            else menu.Items.Add("Sign In with Nexus (One-Click Updates for Premium)", null, (_, _) => SignInNexus());
             menu.Items.Add(new ToolStripSeparator());
         }
         var atStart = new ToolStripMenuItem("Check for Updates at Start") { Checked = settings.NexusCheckAtStart };
@@ -1272,21 +1323,21 @@ sealed class MainForm : Form
             sub.DropDownItems.Add("Open the Nexus Page", null, (_, _) => Process.Start(new ProcessStartInfo(Nexus.SiteMods + id) { UseShellExecute = true }));
             if (NexusUpdates.UpdateFor(m, nexus) is string v)
             {
-                sub.DropDownItems.Add($"Update to v{v.TrimStart('v', 'V')}…", null, (_, _) => UpdateFromNexus(m));
+                sub.DropDownItems.Add($"Update to v{v.TrimStart('v', 'V')}", null, (_, _) => UpdateFromNexus(m));
                 if (NexusAuth.Available && NexusAuth.Load(Settings.Home)?.Premium == true)
-                    sub.DropDownItems.Add("Download From the Files Page Instead…", null, (_, _) => UpdateFromNexus(m, manual: true));
+                    sub.DropDownItems.Add("Download From the Files Page Instead", null, (_, _) => UpdateFromNexus(m, manual: true));
                 if (NexusUpdates.LatestFor(m, nexus) is { } lf) sub.DropDownItems.Add("Ignore This Update", null, (_, _) => IgnoreUpdate(m, lf.FileId));
             }
             if (nexus.Mods.TryGetValue(id, out var pi) && Nexus.Lines(pi).Count > 1)
-                sub.DropDownItems.Add("Choose the Nexus File…", null, (_, _) => ChooseNexusFile(m));
+                sub.DropDownItems.Add("Choose the Nexus File", null, (_, _) => ChooseNexusFile(m));
             sub.DropDownItems.Add("Check for an Update Now", null, (_, _) => CheckNexus(manual: true));
-            sub.DropDownItems.Add("Change the Nexus Link…", null, (_, _) => LinkToNexus(m));
+            sub.DropDownItems.Add("Change the Nexus Link", null, (_, _) => LinkToNexus(m));
             if (m.NexusLink != null) sub.DropDownItems.Add("Unlink", null, (_, _) => { if (lib != null) { m.NexusLink = null; lib.SaveState(); Reload(); } });
         }
         else
         {
-            sub.DropDownItems.Add("Find on Nexus…", null, (_, _) => FindOnNexus(m));
-            sub.DropDownItems.Add("Link to Nexus Page…", null, (_, _) => LinkToNexus(m));
+            sub.DropDownItems.Add("Find on Nexus", null, (_, _) => FindOnNexus(m));
+            sub.DropDownItems.Add("Link to Nexus Page", null, (_, _) => LinkToNexus(m));
         }
         sub.Enabled = !readOnly;
         return sub;
@@ -1430,7 +1481,7 @@ sealed class MainForm : Form
     async Task FinishNexusUpdate(Mod m, int id, string archive, long? fileId, string? version)
     {
         string folder = m.FolderName;
-        if (fileId == null && Nexus.FromFileName(archive) is { } fn && nexus.Mods.TryGetValue(id, out var ci)) fileId = Nexus.FileUploadedAt(ci, fn.Uploaded)?.FileId;
+        if (fileId == null && Nexus.FromFileName(archive) is { } fn && nexus.Mods.TryGetValue(id, out var ci)) fileId = Nexus.FileOf(ci, fn)?.FileId;
         var done = await InstallAsync([archive], m, ask: false, showLog: false);
         if (done.Count == 0 || lib == null)
         {
@@ -1620,6 +1671,12 @@ sealed class MainForm : Form
             Application.DoEvents();
             await Task.Delay(500);
             Check("double-click opens the Editor tab", editor != null && pages.SelectedIndex == 1);
+            CloseEditor(); pages.Select(0);
+            // The Editor tab itself with nothing open: the highlighted mod opens (Kurt).
+            string? highlighted = Selected?.FolderName;
+            pages.Select(1);
+            for (int t = 0; t < 3000 && editor == null; t += 100) { await Task.Delay(100); Application.DoEvents(); }
+            Check("the Editor tab opens the highlighted mod", editor != null && highlighted != null && editor.Editing?.FolderName == highlighted);
             CloseEditor(); pages.Select(0);
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
             Check("the list keeps its window through the double-click", list.Handle == listHandle);

@@ -38,7 +38,7 @@ sealed class ExtractView : UserControl
         var tex = new Panel { Dock = DockStyle.Fill };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
         bar.Controls.AddRange([new Label { Text = "Package", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, kind,
-            Ui.AccentButton("Save Selected as .DDS…", () => SaveTextures(".dds"), tip: "Save the selected original textures as .DDS (the game's format)."), Ui.FlatButton("Save Selected as .PNG…", () => SaveTextures(".png"), tip: "Save the selected original textures as .PNG (with transparency), to edit in any image program.")]);
+            Ui.AccentButton("Save Selected as .DDS", () => SaveTextures(".dds"), tip: "Save the selected original textures as .DDS (the game's format)."), Ui.FlatButton("Save Selected as .PNG", () => SaveTextures(".png"), tip: "Save the selected original textures as .PNG (with transparency), to edit in any image program.")]);
         var left = new TableLayoutPanel { Dock = DockStyle.Left, Width = (int)(380 * s), ColumnCount = 1, RowCount = 2, Padding = new Padding(0, 0, 8, 0) };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var searchRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 0, 0, 6) };
@@ -54,7 +54,7 @@ sealed class ExtractView : UserControl
         // ---- Strings
         var str = new Panel { Dock = DockStyle.Fill };
         var sbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) };
-        sbar.Controls.AddRange([new Label { Text = "Language", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, lang, Ui.AccentButton("Save All as .JSON…", SaveStrings, tip: "Save every original string of the language as one .JSON in the mod format.")]);
+        sbar.Controls.AddRange([new Label { Text = "Language", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, lang, Ui.AccentButton("Save All as .JSON", SaveStrings, tip: "Save every original string of the language as one .JSON in the mod format.")]);
         str.Controls.Add(sbar);
         str.Controls.Add(new Label { Text = "Every original string of a language, in the mod format ({ file: { id: { String … } } }). Edit the ones you want, then use Import Changes (.JSON) on the mod editor's Strings tab, or copy entries into a mod's <lang>.JSON.", Dock = DockStyle.Top, AutoSize = true, MaximumSize = new Size((int)(1150 * s), 0), Tag = "subtle", Padding = new Padding(2, 8, 2, 2) });
         tabs.Add("Strings", str);

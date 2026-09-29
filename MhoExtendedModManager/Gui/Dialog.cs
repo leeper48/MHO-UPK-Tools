@@ -43,7 +43,26 @@ static class Dialog
             ("dialog_log", () => new DialogForm("Storm Classic.zip:\nInstalled 'Storm Classic Costume Visual Update' by Wlzzer, version 5 (disabled, top of the list).\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes.",
                 "Installed", MessageBoxButtons.OK, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Good, true)),
             ("dialog_error", () => new DialogForm("The folder is in use by another program.", "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error, MessageBoxDefaultButton.Button1, Tone.Bad, false)),
+            ("dialog_changelog", () => new DialogForm(File.Exists(Path.Combine(AppContext.BaseDirectory, "CHANGELOG.txt")) ? File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "CHANGELOG.txt")) : "(no CHANGELOG.txt)",
+                "Changelog (You Have " + Program.Version + ")", MessageBoxButtons.OK, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, true)),
         };
+        // A menu as the app draws them (dark renderer): normal, checked, disabled, separator, submenu.
+        using (var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f) })
+        {
+            menu.Items.Add("Change Game Folder");
+            menu.Items.Add(new ToolStripMenuItem("Check for Updates at Start") { Checked = true });
+            menu.Items.Add(new ToolStripMenuItem("Sign In with Nexus") { Enabled = false });
+            menu.Items.Add(new ToolStripSeparator());
+            var sub = new ToolStripMenuItem("Nexus");
+            sub.DropDownItems.Add("Open the Nexus Page");
+            menu.Items.Add(sub);
+            menu.Show(new Point(-3000, -3000));
+            Application.DoEvents();
+            using var b = new Bitmap(menu.Width, menu.Height);
+            menu.DrawToBitmap(b, new Rectangle(0, 0, menu.Width, menu.Height));
+            b.Save(Path.Combine(dir, "menu.png"));
+            menu.Close();
+        }
         foreach (var (name, make) in samples)
         {
             using var f = make();
@@ -67,6 +86,7 @@ static class Dialog
             bool longText = log || text.Length > 420 || text.Count(c => c == '\n') > 7;
             Text = caption;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            Ui.DarkFrame(this);
             FormBorderStyle = longText ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
             MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;

@@ -33,6 +33,8 @@ sealed class Settings
     public bool NexusCheckAtStart { get; set; }
     public DateTime? LastUpdateCheck { get; set; }
     public string? SkipVersion { get; set; }
+    /// <summary>The newest release a check found (the top bar's update alert shows it until it's installed or skipped).</summary>
+    public string? LatestKnownVersion { get; set; }
 
     static string? TestHome => Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
     /// <summary>The data folder: next to the exe (or MHO_EXTMM_HOME).</summary>

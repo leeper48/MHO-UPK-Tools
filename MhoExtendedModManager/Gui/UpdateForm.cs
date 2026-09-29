@@ -18,6 +18,7 @@ sealed class UpdateForm : Form
         release = r;
         Text = "Update Available";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Ui.DarkFrame(this);
         FormBorderStyle = FormBorderStyle.Sizable; MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);

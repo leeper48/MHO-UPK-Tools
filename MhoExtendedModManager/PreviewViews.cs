@@ -16,6 +16,7 @@ static class PreviewViews
         public Dictionary<string, AnimState> Anims { get; set; } = [];
         public bool Loop { get; set; } = true;
         public Dictionary<string, float> Lights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, IconSetup> Icons { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     static Data? data;
@@ -28,6 +29,7 @@ static class PreviewViews
         {
             var d = File.Exists(FilePath) ? JsonSerializer.Deserialize<Data>(File.ReadAllText(FilePath)) ?? new() : new();
             d.Lights = new(d.Lights ?? [], StringComparer.OrdinalIgnoreCase);
+            d.Icons = new(d.Icons ?? [], StringComparer.OrdinalIgnoreCase);
             return d;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return new(); }
@@ -95,6 +97,35 @@ static class PreviewViews
         if (isAuthor) D.Lights.Remove(m.FolderName); else D.Lights[m.FolderName] = value;
         Save();
     }
+
+    /// <summary>
+    /// How an icon was set up in the editor's Create from 3D (Kurt: each icon its own pose and camera): the character
+    /// (mesh key, and its file when it came from Open a .UPK), animation and frame, camera (ModelView.ViewState), light,
+    /// background (0 transparent, 1 portrait backdrop, 2 color, 3 picture) and the original's overlay opacity.
+    /// </summary>
+    public sealed class IconSetup
+    {
+        public string? Mesh { get; set; }
+        public string? MeshFile { get; set; }
+        public string? Anim { get; set; }
+        public float Frame { get; set; }
+        public float[]? View { get; set; }
+        public float Light { get; set; } = 1;
+        /// <summary>The lens (35 mm equivalent focal length); 0 = the view's default.</summary>
+        public float Lens { get; set; }
+        public int Back { get; set; } = -1;
+        public int BackColor { get; set; }
+        public string? BackPicture { get; set; }
+        public float Overlay { get; set; } = 0.35f;
+        /// <summary>Props shown with the character (mesh keys); null = the ones the game attaches.</summary>
+        public List<string>? Props { get; set; }
+    }
+
+    /// <summary>An icon's setup, by "&lt;mod&gt;|&lt;texture&gt;" (null when never set up).</summary>
+    public static IconSetup? GetIcon(string key) => D.Icons.TryGetValue(key, out var s) ? s : null;
+    public static void SetIcon(string key, IconSetup s) { D.Icons[key] = s; Save(); }
+    public static void ForgetIcon(string key) { if (D.Icons.Remove(key)) Save(); }
+    public static float Overlay { get => D.Icons.TryGetValue("*", out var s) ? s.Overlay : 0.35f; set { D.Icons["*"] = new IconSetup { Overlay = value }; Save(); } }
 
     public static bool Loop
     {

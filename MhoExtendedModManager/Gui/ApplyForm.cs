@@ -23,6 +23,7 @@ sealed class ApplyForm : Form
         this.run = run;
         Text = "Apply Changes";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Ui.DarkFrame(this);
         FormBorderStyle = FormBorderStyle.Sizable; MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);

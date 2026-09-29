@@ -130,11 +130,48 @@ static class Ui
     public static int ChipWidth(Graphics g, string text, Font font, float s) =>
         TextRenderer.MeasureText(g, text, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + (int)(12 * s);
 
+    /// <summary>
+    /// Opens a menu under a button, kept on the button's own monitor (a user with two monitors: Settings, at the window's
+    /// right edge, opened its menu on the other screen; Windows only keeps menus inside the whole desktop). Aligned to the
+    /// button's right edge when it doesn't fit, above the button when there's no room below; submenus open to the left there.
+    /// </summary>
+    public static void ShowUnder(ContextMenuStrip menu, Control button)
+    {
+        var area = Screen.FromControl(button).WorkingArea;
+        ShowOnScreen(menu, PlaceUnder(button.RectangleToScreen(button.ClientRectangle), menu.GetPreferredSize(Size.Empty), area), area);
+    }
+
+    /// <summary>Where a menu of <paramref name="menu"/> size goes under a button (screen rectangle) on a monitor's work area.</summary>
+    internal static Point PlaceUnder(Rectangle button, Size menu, Rectangle area)
+    {
+        int x = button.Left, y = button.Bottom;
+        if (x + menu.Width > area.Right) x = button.Right - menu.Width;      // right-aligned to the button
+        if (y + menu.Height > area.Bottom) y = button.Top - menu.Height;     // above it
+        return new Point(Math.Max(area.Left, x), Math.Max(area.Top, y));
+    }
+
+    /// <summary>A menu at a screen point (right-click), kept on that point's monitor.</summary>
+    public static void ShowAt(ContextMenuStrip menu, Point screenPoint) => ShowOnScreen(menu, screenPoint, Screen.FromPoint(screenPoint).WorkingArea, flip: true);
+
+    static void ShowOnScreen(ContextMenuStrip menu, Point p, Rectangle area, bool flip = false)
+    {
+        var size = menu.GetPreferredSize(Size.Empty);
+        int x = p.X, y = p.Y;
+        if (x + size.Width > area.Right) x = flip ? p.X - size.Width : area.Right - size.Width;
+        if (y + size.Height > area.Bottom) y = flip ? p.Y - size.Height : area.Bottom - size.Height;
+        x = Math.Max(area.Left, x); y = Math.Max(area.Top, y);
+        // Near the right edge, submenus (Nexus, Tags …) open to the left, so they stay on this monitor too.
+        bool left = x + size.Width + 260 * menu.DeviceDpi / 96 > area.Right;
+        foreach (var item in menu.Items.OfType<ToolStripMenuItem>()) if (item.HasDropDownItems) item.DropDownDirection = left ? ToolStripDropDownDirection.Left : ToolStripDropDownDirection.Right;
+        menu.Show(new Point(x, y));
+    }
+
     /// <summary>A one-line text prompt in the dark theme (with suggestions); null when cancelled or empty.</summary>
     public static string? Prompt(IWin32Window owner, string title, string label, string initial = "", IEnumerable<string>? suggestions = null, bool secret = false)
     {
         using var f = new Form { Text = title, FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false,
                                  StartPosition = FormStartPosition.CenterParent, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Font = Regular(9.5f), Padding = new Padding(12) };
+        DarkFrame(f);
         var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill };
         t.Controls.Add(new Label { Text = TitleCase(title), AutoSize = true, Font = Bold(12f), Margin = new Padding(0, 0, 0, 8) });   // as every popup
         t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 0, 0, 6), MaximumSize = new Size((int)(460 * f.DeviceDpi / 96f), 0) });
@@ -311,6 +348,101 @@ static class Ui
 
     /// <summary>Text of a disabled button (Kurt: medium grey, not the near-black Windows draws on our dark buttons).</summary>
     public static readonly Color DisabledText = Color.FromArgb(128, 128, 136);
+
+    // ---- the dark theme for everything Windows draws itself (Kurt: every popup dark with light text)
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Form, object> darkFrames = new();
+
+    /// <summary>
+    /// A window's title bar and frame in the app's colours: Windows' dark mode (Windows 10 1809+), and on Windows 11 the
+    /// caption colour itself (<paramref name="caption"/>, default the popups' background) with light text, since "show
+    /// accent colour on title bars" otherwise paints them in the system accent (seen teal on Kurt's PC).
+    /// </summary>
+    public static void DarkFrame(Form f, Color? caption = null)
+    {
+        if (darkFrames.TryGetValue(f, out _)) return;
+        darkFrames.Add(f, new object());
+        void Apply()
+        {
+            int on = 1;
+            if (DwmSetWindowAttribute(f.Handle, 20, ref on, sizeof(int)) != 0) DwmSetWindowAttribute(f.Handle, 19, ref on, sizeof(int));   // DWMWA_USE_IMMERSIVE_DARK_MODE (19 before 20H1)
+            int border = ColorTranslator.ToWin32(Line), cap = ColorTranslator.ToWin32(caption ?? Back), text = ColorTranslator.ToWin32(Text);
+            DwmSetWindowAttribute(f.Handle, 34, ref border, sizeof(int));   // DWMWA_BORDER_COLOR (Windows 11)
+            DwmSetWindowAttribute(f.Handle, 35, ref cap, sizeof(int));      // DWMWA_CAPTION_COLOR
+            DwmSetWindowAttribute(f.Handle, 36, ref text, sizeof(int));     // DWMWA_TEXT_COLOR
+        }
+        if (f.IsHandleCreated) Apply();
+        f.HandleCreated += (_, _) => Apply();
+    }
+
+    /// <summary>
+    /// At start: every menu (right-click, the ▾ buttons, submenus) drawn dark, and every window's title bar dark, also
+    /// windows made elsewhere (MHO Package Modifier's): a new window gets it as soon as the app is idle.
+    /// </summary>
+    public static void UseDarkTheme()
+    {
+        ToolStripManager.Renderer = new DarkMenuRenderer();
+        Application.Idle += (_, _) => { foreach (Form f in Application.OpenForms) DarkFrame(f); };
+    }
+
+    /// <summary>Menus in the app's colours: dark background, light text, the hover row highlighted, accent check marks.</summary>
+    sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public DarkMenuRenderer() : base(new DarkColors()) { RoundedEdges = false; }
+
+        sealed class DarkColors : ProfessionalColorTable
+        {
+            static readonly Color Menu = Color.FromArgb(38, 38, 44), Hover = Color.FromArgb(58, 58, 80), Border = Color.FromArgb(70, 70, 80);
+            public override Color ToolStripDropDownBackground => Menu;
+            public override Color ImageMarginGradientBegin => Menu;
+            public override Color ImageMarginGradientMiddle => Menu;
+            public override Color ImageMarginGradientEnd => Menu;
+            public override Color MenuBorder => Border;
+            public override Color MenuItemBorder => Hover;
+            public override Color MenuItemSelected => Hover;
+            public override Color MenuItemSelectedGradientBegin => Hover;
+            public override Color MenuItemSelectedGradientEnd => Hover;
+            public override Color MenuItemPressedGradientBegin => Hover;
+            public override Color MenuItemPressedGradientMiddle => Hover;
+            public override Color MenuItemPressedGradientEnd => Hover;
+            public override Color MenuStripGradientBegin => Menu;
+            public override Color MenuStripGradientEnd => Menu;
+            public override Color SeparatorDark => Border;
+            public override Color SeparatorLight => Menu;
+            public override Color CheckBackground => Menu;
+            public override Color CheckSelectedBackground => Hover;
+            public override Color CheckPressedBackground => Hover;
+            public override Color ButtonSelectedBorder => Hover;
+            public override Color ToolStripBorder => Border;
+            public override Color ToolStripGradientBegin => Menu;
+            public override Color ToolStripGradientMiddle => Menu;
+            public override Color ToolStripGradientEnd => Menu;
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            e.TextColor = e.Item.Enabled ? Text : DisabledText;
+            base.OnRenderItemText(e);
+        }
+
+        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+        {
+            e.ArrowColor = e.Item?.Enabled == false ? DisabledText : Subtle;
+            base.OnRenderArrow(e);
+        }
+
+        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var r = e.ImageRectangle;
+            float s = Math.Max(1.6f, r.Height / 9f);
+            using var pen = new Pen(Accent, s) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
+            g.DrawLines(pen, [new PointF(r.X + r.Width * 0.18f, r.Y + r.Height * 0.52f), new PointF(r.X + r.Width * 0.42f, r.Y + r.Height * 0.76f), new PointF(r.X + r.Width * 0.84f, r.Y + r.Height * 0.26f)]);
+        }
+    }
 
     static Button Style(Button b, Action onClick, bool accent)
     {
@@ -1776,10 +1908,10 @@ sealed class StorePreview : Control
         }
         else if (e.Button == MouseButtons.Right && mod.LocalPreview != null)
         {
-            var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f), RenderMode = ToolStripRenderMode.System };
+            var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f) };
             menu.Items.Add(mod.Manifest.PreviewImage != null ? "Use the Mod's Choice" : "Choose Automatically Again", null, (_, _) => Picked?.Invoke(mod, null));
             menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
-            menu.Show(this, e.Location);
+            Ui.ShowAt(menu, PointToScreen(e.Location));
         }
     }
 
@@ -2032,19 +2164,56 @@ sealed class LightSlider : Control
     public event Action? ValueChanged, Committed;
     /// <summary>What a double-click goes back to (default 1).</summary>
     public Func<float>? Home { get; set; }
-    const float Min = 0.5f, Max = 2f;
+    /// <summary>Range and step (the Light slider: 0.5–2 in 0.05); the icon creator's frame slider uses its own.</summary>
+    public float Min { get; set; } = 0.5f;
+    public float Max { get; set; } = 2f;
+    public float Step { get; set; } = 0.05f;
+    /// <summary>The label on the left and how the value is written on the right.</summary>
+    public string Label { get; set; } = "Light";
+    public Func<float, string> Format { get; set; } = v => $"{v * 100:0} %";
+    readonly Font labelFont = Ui.Regular(8.5f);
+    /// <summary>A tick at this value (the Light slider's 100 %), or null.</summary>
+    public float? Mark { get; set; } = 1f;
 
     public LightSlider()
     {
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor | ControlStyles.Selectable, true);
         BackColor = Color.Transparent;
         Cursor = Cursors.Hand;
+        TabStop = true;
     }
+
+    // Keyboard (Kurt: click once, then step with the arrow keys, Shift for faster): ← → ↑ ↓ one step, Shift five,
+    // Home / End the ends. The steps while a key is held are one change; Committed fires when it's let go.
+    float KeyStep => Step > 0 ? Step : (Max - Min) / 100f;
+    bool keyChanged;
+    protected override bool IsInputKey(Keys keyData) => (keyData & Keys.KeyCode) is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End || base.IsInputKey(keyData);
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (!Enabled) return;
+        float step = KeyStep * (e.Shift ? 5 : 1), was = value;
+        switch (e.KeyCode)
+        {
+            case Keys.Left: case Keys.Down: Value = value - step; break;
+            case Keys.Right: case Keys.Up: Value = value + step; break;
+            case Keys.Home: Value = Min; break;
+            case Keys.End: Value = Max; break;
+            default: return;
+        }
+        e.Handled = true;
+        if (Math.Abs(was - value) > 1e-6) keyChanged = true;
+    }
+    /// <summary>Tests: a key pressed and let go, as the keyboard does.</summary>
+    internal void TestKey(Keys key) { OnKeyDown(new KeyEventArgs(key)); OnKeyUp(new KeyEventArgs(key)); }
+    protected override void OnKeyUp(KeyEventArgs e) { base.OnKeyUp(e); if (keyChanged) { keyChanged = false; Committed?.Invoke(); } }
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); if (keyChanged) { keyChanged = false; Committed?.Invoke(); } Invalidate(); }
 
     public float Value
     {
         get => value;
-        set { float v = Math.Clamp(MathF.Round(value * 20) / 20, Min, Max); if (Math.Abs(v - this.value) < 1e-4) return; this.value = v; Invalidate(); ValueChanged?.Invoke(); }
+        set { float v = Math.Clamp(Step > 0 ? MathF.Round(value / Step) * Step : value, Min, Max); if (Math.Abs(v - this.value) < 1e-4) return; this.value = v; Invalidate(); ValueChanged?.Invoke(); }
     }
 
     float S => DeviceDpi / 96f;
@@ -2052,7 +2221,8 @@ sealed class LightSlider : Control
     {
         get
         {
-            int left = (int)(44 * S), right = (int)(46 * S);
+            // Room for the label (measured: "Light", "Frame", "Original") and the value on the right.
+            int left = Math.Max((int)(44 * S), TextRenderer.MeasureText(Label, labelFont).Width + (int)(8 * S)), right = (int)(52 * S);
             return new Rectangle(left, Height / 2 - (int)(2 * S), Math.Max(10, Width - left - right), Math.Max(3, (int)(4 * S)));
         }
     }
@@ -2064,23 +2234,38 @@ sealed class LightSlider : Control
         var g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         var t = Track;
-        float k = (value - Min) / (Max - Min);
+        float k = Max > Min ? (value - Min) / (Max - Min) : 0;
         int tx = t.X + (int)(k * t.Width);
         using var font = Ui.Regular(8.5f);
-        TextRenderer.DrawText(g, "Light", font, new Rectangle(0, 0, t.X - (int)(8 * S), Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        TextRenderer.DrawText(g, Label, font, new Rectangle(0, 0, t.X - (int)(8 * S), Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
         using (var back = new SolidBrush(Color.FromArgb(70, 255, 255, 255))) using (var p = Ui.Round(t, t.Height / 2f)) g.FillPath(back, p);
         var done = new Rectangle(t.X, t.Y, Math.Max(1, tx - t.X), t.Height);
         using (var acc = new SolidBrush(Ui.Accent)) using (var p = Ui.Round(done, t.Height / 2f)) g.FillPath(acc, p);
-        int one = t.X + (int)((1 - Min) / (Max - Min) * t.Width);   // the 100 % mark
-        using (var pen = new Pen(Color.FromArgb(140, 255, 255, 255), Math.Max(1f, S))) g.DrawLine(pen, one, t.Y - (int)(3 * S), one, t.Bottom + (int)(3 * S));
+        if (Mark is float mark && Max > Min)
+        {
+            int one = t.X + (int)((mark - Min) / (Max - Min) * t.Width);   // e.g. the 100 % mark
+            using var pen = new Pen(Color.FromArgb(140, 255, 255, 255), Math.Max(1f, S));
+            g.DrawLine(pen, one, t.Y - (int)(3 * S), one, t.Bottom + (int)(3 * S));
+        }
         float r = 6 * S;
         using (var thumb = new SolidBrush(Ui.Text)) g.FillEllipse(thumb, tx - r, Height / 2f - r, 2 * r, 2 * r);
-        TextRenderer.DrawText(g, $"{value * 100:0} %", font, new Rectangle(t.Right + (int)(6 * S), 0, Width - t.Right - (int)(6 * S), Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        if (Focused) using (var ring = new Pen(Ui.Accent, Math.Max(1.5f, 2 * S))) g.DrawEllipse(ring, tx - r - 2 * S, Height / 2f - r - 2 * S, 2 * r + 4 * S, 2 * r + 4 * S);   // selected: the arrow keys move it
+        TextRenderer.DrawText(g, Enabled ? Format(value) : "–", font, new Rectangle(t.Right + (int)(6 * S), 0, Width - t.Right - (int)(6 * S), Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
     }
 
-    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (e.Button != MouseButtons.Left) return; dragging = true; Capture = true; Value = ValueAt(e.X); }
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button != MouseButtons.Left) return;
+        Focus();   // then the arrow keys step it
+        // A press on the thumb only selects it (no jump); elsewhere on the track it goes there, as before.
+        var t = Track;
+        int tx = t.X + (int)((Max > Min ? (value - Min) / (Max - Min) : 0) * t.Width);
+        dragging = true; Capture = true;
+        if (Math.Abs(e.X - tx) > 7 * S) Value = ValueAt(e.X);
+    }
     protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (dragging) Value = ValueAt(e.X); }
     protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if (!dragging) return; dragging = false; Capture = false; Committed?.Invoke(); }
-    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Value += e.Delta > 0 ? 0.05f : -0.05f; Committed?.Invoke(); }
+    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Value += e.Delta > 0 ? Math.Max(Step, (Max - Min) / 40) : -Math.Max(Step, (Max - Min) / 40); Committed?.Invoke(); }
     protected override void OnDoubleClick(EventArgs e) { base.OnDoubleClick(e); Value = Home?.Invoke() ?? 1; Committed?.Invoke(); }
 }

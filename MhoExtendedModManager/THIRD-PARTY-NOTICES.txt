@@ -9,11 +9,6 @@ SharpCompress (reading .7z and .rar mod archives)
   License: MIT
   Copyright (c) 2014 Adam Hathcock
 
-ZstdSharp.Port (used by SharpCompress)
-  https://github.com/oleg-st/ZstdSharp
-  License: MIT
-  Copyright Oleg Stepanischev 2024 (Zstandard: Copyright (c) Meta Platforms, Inc., BSD)
-
 System.IO.Hashing (CRC-32 of game packages)
   https://github.com/dotnet/runtime
   License: MIT

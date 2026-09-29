@@ -215,6 +215,50 @@ static class ModMeshes
         return m;
     }
 
+    /// <summary>A held prop as the game defines it: a mesh and the character bone it's attached to (weapon slot for info).</summary>
+    public sealed record Attachment(string Mesh, string? Bone, string? Slot);
+
+    /// <summary>
+    /// The props a package attaches (Kurt: characters holding a sword or hammer): its "marvelattachment_…" objects name
+    /// the prop mesh (ModelMesh) and the bone it's held on (AttachmentBones), e.g. Thor's hammer: thorhammer → g_r_palm,
+    /// slot righthand. A costume's own attachment (thorhammer_ageofultron) only swaps the mesh and inherits the bone from
+    /// the one its name extends, so the bone comes from the longest such name that has one.
+    /// </summary>
+    public static List<Attachment> Attachments(string packagePath)
+    {
+        var raw = new List<(string Class, List<string> Meshes, string? Bone, string? Slot)>();
+        try
+        {
+            var pkg = Package.Open(packagePath);
+            for (int i = 0; i < pkg.Exports.Length; i++)
+            {
+                var e = pkg.Exports[i];
+                string cls = pkg.ClassOf(e);
+                if (!cls.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase)) continue;
+                var d = pkg.ReadExportBytes(e);
+                if (TagWalker.Walk(pkg, d, 4) is not { } tags) continue;
+                var meshes = new List<string>(); string? bone = null, slot = null;
+                foreach (var t in tags)
+                {
+                    int count = t.Size >= 4 ? BitConverter.ToInt32(d, t.ValueAt) : 0;
+                    if (t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase))
+                        for (int k = 0; k < count && t.ValueAt + 8 + 4 * k <= t.End; k++) { int r = BitConverter.ToInt32(d, t.ValueAt + 4 + 4 * k); if (r != 0) meshes.Add(r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r)); }
+                    else if (t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase) && count > 0) bone = TagWalker.NameAt(pkg, d, t.ValueAt + 4);
+                    else if (t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase) && count > 0) slot = TagWalker.NameAt(pkg, d, t.ValueAt + 4);
+                }
+                raw.Add((cls, meshes, bone, slot));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
+        var result = new List<Attachment>();
+        foreach (var a in raw)
+        {
+            var parent = raw.Where(p => p.Bone != null && a.Class.StartsWith(p.Class, StringComparison.OrdinalIgnoreCase)).OrderByDescending(p => p.Class.Length).FirstOrDefault();
+            foreach (string m in a.Meshes) result.Add(new Attachment(m, a.Bone ?? parent.Bone, a.Slot ?? parent.Slot));
+        }
+        return result;
+    }
+
     /// <summary>For --material-probe: each section of a mesh (highest detail) with its material reference.</summary>
     public static List<(int Section, int Material)> SectionMaterials(MeshRef r)
     {

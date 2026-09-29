@@ -156,16 +156,46 @@ static class Nexus
     // ---- links
 
     static readonly Regex NexusFileName = new(@"^(?<name>.+?)-(?<id>\d+)-(?<ver>[0-9][0-9a-zA-Z\-]*?)-(?<time>\d{9,11})(\s*\(\d+\))?\.(zip|7z|rar)$", RegexOptions.IgnoreCase);
+    // Nexus's newer download names (seen 2026-09-28): "<file title> <mod id> <version> <yyyy-MM-ddTHH-mmZ> <random>.zip", e.g.
+    // "Kitty Pryde Astonishing X Men Costume Refresh 390 2 2026-09-28T15-20Z xYx5Dp4YA.zip"; the upload time only to the minute.
+    static readonly Regex NexusFileName2 = new(@"^(?<name>.+?) (?<id>\d+) (?<ver>[0-9][0-9a-zA-Z.\-]*?) (?<time>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}Z) [A-Za-z0-9]+(\s*\(\d+\))?\.(zip|7z|rar)$", RegexOptions.IgnoreCase);
+
+    /// <summary>A Nexus download's name: mod, version, upload time (to the second, or only the minute), and the file's title.</summary>
+    public readonly record struct DownloadName(int ModId, string Version, long Uploaded, string Title, bool MinuteOnly)
+    {
+        public void Deconstruct(out int modId, out string version, out long uploaded) { modId = ModId; version = Version; uploaded = Uploaded; }
+    }
 
     /// <summary>The Nexus mod, version and upload time in a downloaded file's name ("Storm Classic-176-1-2-1690000000.zip"), or null.</summary>
-    public static (int ModId, string Version, long Uploaded)? FromFileName(string path)
+    public static DownloadName? FromFileName(string path)
     {
-        var m = NexusFileName.Match(Path.GetFileName(path));
-        return m.Success && int.TryParse(m.Groups["id"].Value, out int id) ? (id, m.Groups["ver"].Value.Replace('-', '.'), long.Parse(m.Groups["time"].Value)) : null;
+        string f = Path.GetFileName(path);
+        var m = NexusFileName.Match(f);
+        if (m.Success && int.TryParse(m.Groups["id"].Value, out int id)) return new(id, m.Groups["ver"].Value.Replace('-', '.'), long.Parse(m.Groups["time"].Value), m.Groups["name"].Value, false);
+        m = NexusFileName2.Match(f);
+        if (m.Success && int.TryParse(m.Groups["id"].Value, out id)
+            && DateTime.TryParseExact(m.Groups["time"].Value, "yyyy-MM-dd'T'HH-mm'Z'", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var t))
+            return new(id, m.Groups["ver"].Value.Replace('-', '.'), new DateTimeOffset(t, TimeSpan.Zero).ToUnixTimeSeconds(), m.Groups["name"].Value, true);
+        return null;
     }
 
     /// <summary>The file a download is: the one uploaded at the time in its name (Nexus puts it there).</summary>
     public static NexusFile? FileUploadedAt(ModInfo info, long uploaded) => info.Files.FirstOrDefault(f => f.Uploaded == uploaded);
+
+    /// <summary>
+    /// The file a download is. Old names carry the exact upload time; new ones only the minute, and two files can share a
+    /// minute (Rogue #300's default and Variant: 25 s apart), so then the title in the name, and the version, decide.
+    /// </summary>
+    public static NexusFile? FileOf(ModInfo info, DownloadName n)
+    {
+        var at = info.Files.Where(f => n.MinuteOnly ? f.Uploaded >= n.Uploaded && f.Uploaded < n.Uploaded + 60 : f.Uploaded == n.Uploaded).ToList();
+        if (at.Count <= 1) return at.FirstOrDefault();
+        return at.FirstOrDefault(f => SameLine(f.Name, n.Title) && Norm(f.Version) == Norm(n.Version))
+            ?? at.FirstOrDefault(f => SameLine(f.Name, n.Title))
+            ?? at.FirstOrDefault(f => Norm(f.Version) == Norm(n.Version))
+            ?? at[0];
+    }
 
     /// <summary>A mod ID from a pasted Nexus page (…/marvelheroesomega/mods/176…) or a plain number.</summary>
     public static int? ParseModId(string? text)
@@ -240,6 +270,11 @@ static class Nexus
         if (latest == null || !info.Available) return null;
         string latestVersion = latest.Version.Length > 0 ? latest.Version : info.Version;
         if (link.Ignore == latest.FileId) return null;
+        // The mod says it's that version already (Kurt, 2026-09-29: an update installed from a download whose name the app
+        // didn't read left the badge on): no update, whatever the link remembers.
+        // Not when the mod was switched to another file on the page (a Variant of the same version is still an update).
+        bool otherLine = line != null && link.FileId is long lf && info.Files.FirstOrDefault(f => f.FileId == lf) is { } had && !SameLine(had.Name, line);
+        if (!otherLine && localVersion != null && latestVersion.Length > 0 && Norm(localVersion) == Norm(latestVersion)) return null;
         if (link.FileId == null && !link.FromNexus)
         {
             // Linked by name: which Nexus file the user has is unknown. An update is a file uploaded after the link, or a
@@ -291,7 +326,7 @@ sealed class NexusLink
     public bool FromNexus { get; set; }
     /// <summary>
     /// The Nexus file (its name on the page) this mod is, when the page has several side by side (a variant): updates come
-    /// only from files of that name. Set from the installed file, or chosen by the user (Nexus → Choose the Nexus File…).
+    /// only from files of that name. Set from the installed file, or chosen by the user (Nexus → Choose the Nexus File).
     /// </summary>
     public string? File { get; set; }
     /// <summary>A Nexus file the user chose to ignore (not an update for them, or not installable here).</summary>

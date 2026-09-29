@@ -94,7 +94,7 @@ sealed class ModEditorView : UserControl
         bottom.Controls.Add(new Label { Text = editing == null ? "New mods are added at the top of the list, turned off. Nothing in the game changes until Apply Changes." : "Saving replaces the mod's folder (the old one goes to the Recycle Bin). Nothing in the game changes until Apply Changes.", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle" }, 0, 0);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
         var cancel = Ui.FlatButton("Cancel", () => Cancelled?.Invoke(), tip: "Close the editor without saving (the mod stays as it was).");
-        var post = Ui.FlatButton("Create Post…", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");
+        var post = Ui.FlatButton("Create Post", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");
         var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", Save, tip: "Save the mod to the library. Nothing in the game changes until Apply Changes.");
         buttons.Controls.AddRange([post, cancel, save]);
         bottom.Controls.Add(buttons, 1, 0);
@@ -117,7 +117,7 @@ sealed class ModEditorView : UserControl
     }
 
     // ---- Packages
-    Control PackagesPage() => Page(packages, Toolbar(Ui.FlatButton("Add .UPK Files…", AddPackages, tip: "Add game packages (.UPK) this mod replaces; each file name must match the package it replaces."), Ui.Tip(Ui.FlatButton("Remove", () =>
+    Control PackagesPage() => Page(packages, Toolbar(Ui.FlatButton("Add .UPK Files", AddPackages, tip: "Add game packages (.UPK) this mod replaces; each file name must match the package it replaces."), Ui.Tip(Ui.FlatButton("Remove", () =>
         {
             foreach (DataGridViewRow r in packages.SelectedRows) draft.Packages.RemoveAll(x => x.File == (string)r.Tag!);
             RefreshPackages();
@@ -148,7 +148,7 @@ sealed class ModEditorView : UserControl
     }
 
     // ---- Sound packs
-    Control SoundsPage() => Page(sounds, Toolbar(Ui.FlatButton("Add .MHSFX Files…", AddSounds, tip: "Add sound packs (.MHSFX): new voice lines and sounds."), Ui.Tip(Ui.FlatButton("Remove", () =>
+    Control SoundsPage() => Page(sounds, Toolbar(Ui.FlatButton("Add .MHSFX Files", AddSounds, tip: "Add sound packs (.MHSFX): new voice lines and sounds."), Ui.Tip(Ui.FlatButton("Remove", () =>
         {
             foreach (DataGridViewRow r in sounds.SelectedRows) draft.SoundPacks.Remove((string)r.Tag!);
             RefreshSounds();
@@ -361,7 +361,7 @@ sealed class ModEditorView : UserControl
         string? dismissed;   // the costume the user chose Show All for
         readonly Label costumeLabel = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(8.75f) };
         readonly Button showAll;
-        readonly FlowLayoutPanel costumeRow = new() { AutoSize = true, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 4), Visible = false };
+        readonly FlowLayoutPanel costumeRow = new() { AutoSize = true, WrapContents = true, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 4), Visible = false };   // Show All goes under a long label (it was cut off)
         int thumbRequest;
         bool Extra => view == 3;
 
@@ -389,6 +389,7 @@ sealed class ModEditorView : UserControl
             searchBlock.Controls.Add(searchRow, 0, 0);
             showAll = Ui.FlatButton("Show All", () => { dismissed = costume?.Label; costume = null; costumeRow.Visible = false; Filter(); }, tip: "Show every texture again, not only the selected package's costume.");
             showAll.Padding = new Padding(4, 0, 4, 0); showAll.Font = Ui.Regular(8.5f);
+            costumeRow.MaximumSize = new Size((int)(348 * s), 0);   // the column's width, so the row wraps instead of running off
             costumeRow.Controls.AddRange([costumeLabel, showAll]);
             searchBlock.Controls.Add(costumeRow, 0, 1);
             left.Controls.Add(searchBlock, 0, 2);
@@ -403,22 +404,34 @@ sealed class ModEditorView : UserControl
             var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Margin = new Padding(0) };
             right.RowStyles.Add(new RowStyle(SizeType.AutoSize)); right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 55)); right.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-            string hintText = "Pick the stock texture on the left (search, then click), then choose its replacement: a .DDS (DXT1, or DXT5 for soft alpha) or a .PNG / .JPG, converted to match the original. Double-click a name to choose straight away.";
+            string hintText = "Pick the stock texture on the left (search, then click), then load its replacement (Load .DDS/.PNG: a .DDS in DXT1, or DXT5 for soft alpha, or a .PNG / .JPG converted to match the original) or make one from a character (Create from 3D). Double-click a name to load straight away.";
             if (Extra) hintText += "  These packages are an extension: the old MHModManager installs the mod but skips these images.";
             var hint = new Label { Text = hintText, AutoSize = true, Tag = "subtle", Padding = new Padding(2, 8, 2, 2), Dock = DockStyle.Fill };
             right.Controls.Add(hint, 0, 0);
-            var tools = Toolbar(Ui.AccentButton("Choose .DDS or .PNG for the Selected Texture…", ChooseDds, tip: "Pick the replacement for the texture selected on the left: a .DDS, or a .PNG / .JPG converted to match the original."), Ui.FlatButton("Remove Replacement", RemoveRow, tip: "Take the selected replacements out of the mod."), Ui.FlatButton("Save Original as .DDS / .PNG…", SaveOriginal, tip: "Save the game's original of the selected texture, as a starting point for your replacement."));
+            var tools = Toolbar(Ui.AccentButton("Load .DDS/.PNG", ChooseDds, tip: "Load the replacement for the texture selected on the left: a .DDS, or a .PNG / .JPG converted to match the original."),
+                Ui.AccentButton("Create from 3D", CreateFrom3D, tip: "Make the replacement for the selected texture from a character in 3D: frame it, take a snapshot at the texture's size (store images, hero portraits, costume icons)."),
+                Ui.FlatButton("Remove Replacement", RemoveRow, tip: "Take the selected replacements out of the mod."), Ui.FlatButton("Export Original", SaveOriginal, tip: "Save (as .DDS or .PNG) the game's original of the selected texture, as a starting point for your replacement."));
             tools.Dock = DockStyle.Fill;
             right.Controls.Add(tools, 0, 1);
             right.Controls.Add(rows, 0, 2);
             right.Controls.Add(previews, 0, 3);
             right.Resize += (_, _) => hint.MaximumSize = new Size(Math.Max(100, right.Width - 10), 0);
-            Controls.Add(right); Controls.Add(left);
+            // Two views of the selected texture (Kurt: the 3D creator in the Editor tab, not a popup): its replacement,
+            // or Create from 3D (built the first time it's opened).
+            sides.Add("Replacements", right);
+            sides.Add("Create from 3D", creatorHost);
+            sides.SelectedChanged += i => { if (i == 1) ShowCreator(); };
+            Controls.Add(sides); Controls.Add(left);
 
+            // Click a preview to look closer (Kurt: 1:1, full screen, zoom).
+            // Export names say what each is: the game's original, or the replacement .DDS decoded (to compare with a snapshot's PNG).
+            static string First(string info) => info.Split("  ·  ")[0].Trim();
+            ImageViewerForm.Attach(stockPic, () => (stockPic.Image, "Original: " + stockInfo.Text, First(stockInfo.Text) + "_original"));
+            ImageViewerForm.Attach(newPic, () => (newPic.Image, "Replacement: " + newInfo.Text, Path.GetFileNameWithoutExtension(newInfo.Text.Split("  ·  ").Select(x => x.Trim()).FirstOrDefault(x => x.EndsWith(".dds", StringComparison.OrdinalIgnoreCase), First(newInfo.Text))) + "_dds"));
             search.TextChanged += (_, _) => Filter();
-            names.SelectedIndexChanged += (_, _) => { if (names.SelectedItem is TexEntry e) ShowStock(e.File, e.Name); };
+            names.SelectedIndexChanged += (_, _) => { if (names.SelectedItem is TexEntry e) { ShowStock(e.File, e.Name); if (sides.SelectedIndex == 1) ShowCreator(); } };
             names.DoubleClick += (_, _) => ChooseDds();
-            rows.SelectionChanged += (_, _) => { if (rows.SelectedRows.Count == 1 && rows.SelectedRows[0].Tag is (string file, string t, string src)) { ShowStock(file, t); ShowNew(src); } };
+            rows.SelectionChanged += (_, _) => { if (rows.SelectedRows.Count == 1 && rows.SelectedRows[0].Tag is (string file, string t, string src)) { ShowStock(file, t); ShowNew(src); if (sides.SelectedIndex == 1) ShowCreator(); } };
             packagePick.SelectedIndexChanged += async (_, _) => await LoadNames();
             VisibleChanged += (_, _) => { if (Visible && loaded) ApplyCostume(); };
             VisibleChanged += async (_, _) =>
@@ -441,6 +454,30 @@ sealed class ModEditorView : UserControl
         }
 
         string? CurrentPackage => Extra ? packagePick.SelectedItem as string : Applier.IconPackages[view].File;
+
+        readonly FlatTabs sides = new() { Dock = DockStyle.Fill };
+        readonly Panel creatorHost = new() { Dock = DockStyle.Fill };
+        IconCreatorView? creator;
+        string? creatorTarget;
+
+        /// <summary>The 3D creator on the texture selected on the left (its size, the original for the overlay, its setup).</summary>
+        void ShowCreator()
+        {
+            if (creator == null)
+            {
+                creator = new IconCreatorView(() => f.draft.Packages.Where(p => File.Exists(p.Source)).Select(p => (p.File, p.Source)), f.game?.Cooked);
+                creator.Use += (tex, png, keepSize) => { if ((all.FirstOrDefault(x => x.Name.Equals(tex, StringComparison.OrdinalIgnoreCase)) ?? Selected()) is TexEntry te) { UseFile(te, png, keepSize); sides.Select(0); } };
+                creatorHost.Controls.Add(creator);
+                Theme.ApplyTree(creator, Palette.Dark);
+                Ui.Restyle(creator);
+            }
+            if (Selected() is not TexEntry e) return;
+            if (creatorTarget == e.File + "|" + e.Name) { creator.Activated(); return; }
+            if (f.catalog?.Size(e.File, e.Name) is not { } size) { Dialog.Show(this, "The original's size isn't known: set the game folder first (the snapshot is made at the original's size).", "Textures"); return; }
+            creatorTarget = e.File + "|" + e.Name;
+            var p = f.catalog.Preview(e.File, e.Name);
+            creator.SetTarget(f.editing?.FolderName ?? "new:" + f.draft.Name, e.Name, size.W, size.H, p is { } x ? TextureDecode.ToBitmap(x.Bgra, x.W, x.H) : null);
+        }
 
         async Task LoadNames()
         {
@@ -505,13 +542,33 @@ sealed class ModEditorView : UserControl
             if (names.SelectedItem is not TexEntry e) { Dialog.Show(this, "Select the stock texture to replace first (search on the left).", "Textures"); return; }
             using var d = new OpenFileDialog { Title = $"Replacement for {e.Name}", Filter = "Textures and images (*.dds;*.png;*.jpg;*.jpeg;*.bmp)|*.dds;*.png;*.jpg;*.jpeg;*.bmp|DDS textures (*.dds)|*.dds|Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
-            string chosen = d.FileName;
+            UseFile(e, d.FileName);
+        }
+
+        /// <summary>
+        /// Create from 3D (Kurt): the creator tab on the selected texture, with the mod's packages as the characters to
+        /// choose from; its snapshot (a PNG at the original's size) goes in like a chosen PNG.
+        /// </summary>
+        /// <summary>The texture to make: the one selected on the left, else the replacement row selected on the right.</summary>
+        TexEntry? Selected() =>
+            names.SelectedItem as TexEntry
+            ?? (rows.SelectedRows.Count == 1 && rows.SelectedRows[0].Tag is (string file, string t, string _) ? all.FirstOrDefault(x => x.Name.Equals(t, StringComparison.OrdinalIgnoreCase)) ?? new TexEntry(file, t) : null);
+
+        void CreateFrom3D()
+        {
+            if (Selected() is not TexEntry) { Dialog.Show(this, "Select the stock texture to make first (search on the left).", "Textures"); return; }
+            sides.Select(1);
+        }
+
+        /// <summary>A replacement for a stock texture: a .dds as it is, an image converted to match the original.</summary>
+        void UseFile(TexEntry e, string chosen, bool keepSize = false)
+        {
             if (!chosen.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
             {
                 // An image: made into a .dds like the original (size, DXT1 / DXT5); the mod gets the .dds.
                 if (f.catalog == null) { Dialog.Show(this, "Set the game folder first: the original texture's size and format are needed to convert an image.", "Textures"); return; }
                 string outDds = Path.Combine(Settings.Home, "converted", ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(chosen)) + ".dds");
-                try { convertNote = $"{Path.GetFileName(chosen)}: " + f.catalog.ImageToDds(e.File, e.Name, chosen, outDds); chosen = outDds; }
+                try { convertNote = $"{Path.GetFileName(chosen)}: " + f.catalog.ImageToDds(e.File, e.Name, chosen, outDds, keepSize); chosen = outDds; }
                 catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException or System.Runtime.InteropServices.ExternalException) { Dialog.Show(this, $"{Path.GetFileName(chosen)} can't be converted: {ex.Message}", "Textures"); return; }
             }
             else convertNote = null;
@@ -537,7 +594,7 @@ sealed class ModEditorView : UserControl
         void SaveOriginal()
         {
             if (f.catalog == null || names.SelectedItem is not TexEntry e) { Dialog.Show(this, "Select a stock texture on the left first.", "Textures"); return; }
-            using var d = new SaveFileDialog { Title = $"Save Original {e.Name}", Filter = "DDS texture (*.dds)|*.dds|PNG image (*.png)|*.png", FileName = e.Name + ".dds" };
+            using var d = new SaveFileDialog { Title = $"Export Original {e.Name}", Filter = "DDS texture (*.dds)|*.dds|PNG image (*.png)|*.png", FileName = e.Name + ".dds" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string? why = f.catalog.ExportImage(e.File, e.Name, d.FileName);
             if (why != null) Dialog.Show(this, "Not saved: " + why, "Textures");
@@ -619,7 +676,7 @@ sealed class ModEditorView : UserControl
             split.Panel1.Controls.Add(Toolbar(Ui.FlatButton("Add Selected to the Mod  ↓", AddSelected, tip: "Add the selected game strings to the mod, to type their new text below."), new Label { Text = "GAME TEXT", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
             split.Panel2.Controls.Add(grid);
             split.Panel2.Controls.Add(Toolbar(Ui.Tip(Ui.FlatButton("Remove Selected Rows", () => { foreach (DataGridViewRow r in grid.SelectedRows) grid.Rows.Remove(r); }), "Take the selected string changes out of the mod."),
-                Ui.FlatButton("Import Changes (.JSON)…", ImportJson, tip: "Load string changes from a .JSON in the mod format (e.g. one saved from Extract)."), new Label { Text = "THIS MOD'S CHANGES", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
+                Ui.FlatButton("Import Changes (.JSON)", ImportJson, tip: "Load string changes from a .JSON in the mod format (e.g. one saved from Extract)."), new Label { Text = "THIS MOD'S CHANGES", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));
             Controls.Add(split); Controls.Add(bar);
             results.CellDoubleClick += (_, _) => AddSelected();
             VisibleChanged += (_, _) =>

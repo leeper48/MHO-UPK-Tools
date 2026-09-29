@@ -150,11 +150,12 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
     /// DXT1 (1-bit alpha cut at 85, the masked clip) or DXT5 as the original, no mips (as 387 of the library's 420 mod
     /// .dds files). Written to <paramref name="outDds"/>. Returns a note on what was done, or throws.
     /// </summary>
-    public string ImageToDds(string iconPackage, string texture, string image, string outDds)
+    /// <param name="keepSize">Keep the image's own size instead of the original's (the icon creator's Double Size test).</param>
+    public string ImageToDds(string iconPackage, string texture, string image, string outDds, bool keepSize = false)
     {
         var size = Size(iconPackage, texture);
         using var src = new System.Drawing.Bitmap(image);
-        int w = size?.W ?? src.Width, h = size?.H ?? src.Height;
+        int w = keepSize ? src.Width : size?.W ?? src.Width, h = keepSize ? src.Height : size?.H ?? src.Height;
         w = Math.Max(4, w / 4 * 4); h = Math.Max(4, h / 4 * 4);
         string note = src.Width == w && src.Height == h ? "" : $"scaled {src.Width}×{src.Height} → {w}×{h}; ";
         string temp = Path.Combine(Path.GetTempPath(), "mhoextmm_img_" + Guid.NewGuid().ToString("N")[..8] + ".png");
@@ -173,7 +174,7 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
             }
             string fmt = size?.Format ?? "";
             string? want = fmt.Contains("DXT1", StringComparison.OrdinalIgnoreCase) ? "dxt1" : fmt.Contains("DXT5", StringComparison.OrdinalIgnoreCase) ? "dxt5" : null;
-            var r = TextureEncode.FromImage(temp, want, 85, 1f, noMips: true);
+            var r = TextureEncode.FromImage(temp, want, 85, 1f, noMips: true, refine: true);   // refined endpoints: smooth shading (icon snapshots) without blotches
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outDds))!);
             File.WriteAllBytes(outDds, TextureImport.WriteDds(r));
             return note + $"converted to {r.FourCC}";

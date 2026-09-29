@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.34.3</Version>
+    <Version>0.35.21</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -25,11 +25,15 @@
     <!-- CRC-32 of whole packages (the stock checksum list and mod copies). -->
     <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
     <!-- Installing .7z / .rar mod archives (MHModManager accepted .zip and .7z). -->
-    <PackageReference Include="SharpCompress" Version="0.38.0" />
+    <PackageReference Include="SharpCompress" Version="1.0.0" />
   </ItemGroup>
   <ItemGroup>
     <!-- Stock package checksums for new users without MHModManager (see StockData\README.txt). -->
     <None Include="StockData\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- What's new, shown by Settings → Changelog. -->
+    <None Include="CHANGELOG.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- The hero portrait backdrop (Kurt's blue hex grid, 180x136) behind icon-creator portraits. -->
+    <None Include="Assets\herohor_bluebackdrop.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- MPM's zone recipe inputs and manual would otherwise be copied here too (27 MB); this app doesn't use them. -->
   <Target Name="DropMpmContent" BeforeTargets="_CopyOutOfDateSourceItemsToOutputDirectory;_CopyOutOfDateSourceItemsToOutputDirectoryAlways">
