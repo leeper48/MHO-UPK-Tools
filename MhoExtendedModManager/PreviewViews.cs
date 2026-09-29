@@ -15,6 +15,10 @@ static class PreviewViews
         public Dictionary<string, float[]> Views { get; set; } = [];
         public Dictionary<string, AnimState> Anims { get; set; } = [];
         public bool Loop { get; set; } = true;
+        /// <summary>The 3D preview's shading toggles (Kurt): specular highlights, reflections, glow. Remembered on this PC.</summary>
+        public bool Spec { get; set; } = true;
+        public bool Reflect { get; set; } = true;
+        public bool Glow { get; set; } = true;
         public Dictionary<string, float> Lights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>The 3D preview's lens (35 mm-equivalent focal length) per mod on this PC (Kurt, from a user).</summary>
         public Dictionary<string, float> Lenses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -147,4 +151,8 @@ static class PreviewViews
         get => D.Loop;
         set { if (D.Loop == value) return; D.Loop = value; Save(); }
     }
+
+    public static bool Spec { get => D.Spec; set { if (D.Spec == value) return; D.Spec = value; Save(); } }
+    public static bool Reflect { get => D.Reflect; set { if (D.Reflect == value) return; D.Reflect = value; Save(); } }
+    public static bool Glow { get => D.Glow; set { if (D.Glow == value) return; D.Glow = value; Save(); } }
 }

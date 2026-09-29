@@ -1281,6 +1281,7 @@ sealed class StorePreview : Control
     bool fillingAnims;
     // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
     Button? playBtn, loopBtn, restBtn;
+    Button? specBtn, reflBtn, glowBtn;   // shading toggles (Kurt): specular, reflections, glow
     LightSlider? lightSlider, lensSlider, frameSlider;
     bool settingFrame;   // the frame slider follows playback without scrubbing
     bool paused = true;
@@ -1420,7 +1421,7 @@ sealed class StorePreview : Control
         // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
         bool showStrip = Tiles > 1;
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
-        int captionH = (int)((show3D ? 148 : 40) * S);
+        int captionH = (int)((show3D ? 186 : 40) * S);
         int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
         int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
         if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
@@ -1498,6 +1499,14 @@ sealed class StorePreview : Control
                         var lb2 = new Rectangle(card.X, sb.Bottom + (int)(4 * S), card.Width, (int)(22 * S));
                         if (lensSlider.Bounds != lb2) lensSlider.Bounds = lb2;
                         if (!lensSlider.Visible) lensSlider.Visible = true;
+                        if (specBtn != null && reflBtn != null && glowBtn != null)
+                        {
+                            int tw = (card.Width - 2 * gap) / 3, ty = lb2.Bottom + (int)(4 * S);
+                            var r1 = new Rectangle(card.X, ty, tw, bh); if (specBtn.Bounds != r1) specBtn.Bounds = r1;
+                            var r2 = new Rectangle(r1.Right + gap, ty, tw, bh); if (reflBtn.Bounds != r2) reflBtn.Bounds = r2;
+                            var r3 = new Rectangle(r2.Right + gap, ty, card.Right - r2.Right - gap, bh); if (glowBtn.Bounds != r3) glowBtn.Bounds = r3;
+                            foreach (var b in new[] { specBtn, reflBtn, glowBtn }) if (!b.Visible) b.Visible = true;
+                        }
                     }
                 }
             }
@@ -1678,6 +1687,10 @@ sealed class StorePreview : Control
             loopBtn = Ui.FlatButton("⟳ Loop", () => { PreviewViews.Loop = !PreviewViews.Loop; UpdateButtons(); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
             restBtn = Ui.FlatButton("Reset View", ResetView, "Back to the mod's own view of the model, or the default one (your turned, zoomed or panned view is saved per mesh; this forgets it).");
             foreach (var b in new[] { playBtn, loopBtn, restBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+            specBtn = Ui.FlatButton("Spec", () => { PreviewViews.Spec = !PreviewViews.Spec; ApplyShading(); }, "Show the specular highlights (shine) the materials set. Lit when on; remembered on this PC.");
+            reflBtn = Ui.FlatButton("Reflect", () => { PreviewViews.Reflect = !PreviewViews.Reflect; ApplyShading(); }, "Show reflections of the materials' own environment images. Lit when on; remembered on this PC.");
+            glowBtn = Ui.FlatButton("Glow", () => { PreviewViews.Glow = !PreviewViews.Glow; ApplyShading(); }, "Show glowing (emissive) parts. Lit when on; remembered on this PC.");
+            foreach (var b in new[] { specBtn, reflBtn, glowBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
             // Frame (Kurt: like the icon maker's): where the animation is; dragging it pauses and scrubs.
             frameSlider = new LightSlider { Visible = false, Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null, Enabled = false, Home = () => 0, Format = v => playing == null ? "—" : $"{v:0} / {playFrames:0}" };
             frameSlider.ValueChanged += ScrubTo;
@@ -1711,6 +1724,7 @@ sealed class StorePreview : Control
     /// <summary>The buttons' state: play shows ▶ or ❚❚; loop is filled (accent) when on; both need an animation.</summary>
     void UpdateButtons()
     {
+        ApplyShading();
         if (playBtn == null || loopBtn == null) return;
         bool has = playing != null;
         playBtn.Text = has && !paused ? "❚❚" : "▶";
@@ -1721,6 +1735,21 @@ sealed class StorePreview : Control
         loopBtn.FlatAppearance.BorderColor = on ? Ui.Accent : Ui.Line;
         loopBtn.FlatAppearance.MouseOverBackColor = on ? Ui.AccentHover : Ui.CardHover;
         loopBtn.Invalidate(); playBtn.Invalidate();
+    }
+
+    /// <summary>The Spec / Reflect / Glow toggles into the 3D view, and their look (accent when on, like Loop).</summary>
+    void ApplyShading()
+    {
+        if (viewer != null) { viewer.ShowSpec = PreviewViews.Spec; viewer.ShowReflections = PreviewViews.Reflect; viewer.ShowGlow = PreviewViews.Glow; }
+        foreach (var (b, on) in new[] { (specBtn, PreviewViews.Spec), (reflBtn, PreviewViews.Reflect), (glowBtn, PreviewViews.Glow) })
+        {
+            if (b == null) continue;
+            b.Tag = on ? "accent" : "flat";
+            b.BackColor = on ? Ui.Accent : Ui.Bar; b.ForeColor = on ? Color.White : Ui.Text;
+            b.FlatAppearance.BorderColor = on ? Ui.Accent : Ui.Line;
+            b.FlatAppearance.MouseOverBackColor = on ? Ui.AccentHover : Ui.CardHover;
+            b.Invalidate();
+        }
     }
 
     void TogglePlay()
@@ -1994,7 +2023,7 @@ sealed class StorePreview : Control
         PreviewViews.SetAnim(PreviewViews.Key(mod, shownMesh), i >= 0 && i < anims.Count ? anims[i].Name : null, t);
     }
 
-    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider }) if (c != null) c.Visible = false; }
+    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider, specBtn, reflBtn, glowBtn }) if (c != null) c.Visible = false; }
 
     void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); }
 
@@ -2078,7 +2107,7 @@ sealed class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); frameSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); frameSlider?.Dispose(); specBtn?.Dispose(); reflBtn?.Dispose(); glowBtn?.Dispose(); }
         base.Dispose(disposing);
     }
 }

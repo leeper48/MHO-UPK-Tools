@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.11
+- 3D preview: Spec, Reflect and Glow buttons turn the materials' highlights, reflections and glowing parts on or off (lit when on; remembered).
+
 0.37.10
 - 3D views: reflections. Materials with reflections now mirror their own environment image (the game's stock studio, sky or mountain pictures), as strong as the material sets it, stronger at glancing angles where it asks for that, tinted by the colour where it asks for that.
 - 3D views: a costume's separate glow texture (full-colour emissive) now glows too.

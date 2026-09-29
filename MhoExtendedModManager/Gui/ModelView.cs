@@ -137,6 +137,12 @@ sealed class ModelView : UserControl
     }
     float brightness = 1;
 
+    /// <summary>Shading parts shown (the preview's Spec / Reflect / Glow toggles). Each redraws.</summary>
+    public bool ShowSpec { get => showSpec; set { if (showSpec == value) return; showSpec = value; Redraw(); } }
+    public bool ShowReflections { get => showRefl; set { if (showRefl == value) return; showRefl = value; Redraw(); } }
+    public bool ShowGlow { get => showGlow; set { if (showGlow == value) return; showGlow = value; Redraw(); } }
+    bool showSpec = true, showRefl = true, showGlow = true;
+
     /// <summary>A picture behind the mesh, stretched over the view (the icon creator's portrait backdrop), or null.</summary>
     public Image? Backdrop { get => backdrop; set { backdrop = value; Redraw(); } }
     Image? backdrop;
@@ -502,7 +508,7 @@ sealed class ModelView : UserControl
         if (look.Fill) light += look.FillColor * (0.25f * MathF.Max(Vector3.Dot(N, fillDir), 0));
         var outc = rgb * light;
 
-        if (look.UseSpec)
+        if (look.UseSpec && showSpec)
         {
             float m = look.Spec.At(tuv, ratio, 0.35f);
             float pch = look.SpecPow.Map != null ? look.SpecPow.At(tuv, ratio, 0.5f) : -1f;
@@ -530,7 +536,7 @@ sealed class ModelView : UserControl
             }
             outc += color * look.SpecTint * spec;
         }
-        if (look.UseReflection && look.Reflection is { } env)
+        if (showRefl && look.UseReflection && look.Reflection is { } env)
         {
             float rm = look.ReflectAt.Map != null ? look.ReflectAt.At(tuv, ratio, 0f) : 0.5f;
             if (rm > 0.002f)
@@ -551,9 +557,9 @@ sealed class ModelView : UserControl
             outc += look.Rim * (look.DiffuseInRim ? rgb : Vector3.One) * (rim * 0.6f);
         }
         outc *= brightness;
-        if (look.UseEmissive && look.Emissive.Map != null)
+        if (showGlow && look.UseEmissive && look.Emissive.Map != null)
             outc += rgb * (look.Emissive.At(tuv, ratio, 0f) * look.EmissiveMult);
-        if (look.UseEmissive && look.EmissiveTex is { } em)
+        if (showGlow && look.UseEmissive && look.EmissiveTex is { } em)
         {
             var ev = em.Sample(tuv.X, tuv.Y, Lod(ratio, em));
             outc += new Vector3(ev.X, ev.Y, ev.Z) * look.EmissiveMult;
