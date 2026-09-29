@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using MhoPackageModifier;
 using MhoPackageModifier.Gui;
 
@@ -38,6 +39,13 @@ sealed class ModEditorView : UserControl
     readonly Label autoLabel = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Font = Ui.Regular(8.5f), Margin = new Padding(3, 2, 3, 6) };
     readonly TextBox nameBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, authorBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) }, versionBox = new() { Dock = DockStyle.Fill, Font = Ui.Regular(10.5f) };
     readonly DataGridView packages, sounds;
+    // ---- Voice (Kurt: turn lines of a voice set off)
+    DataGridView voice = null!;
+    readonly TextBox voiceFind = new() { Width = 240 };
+    readonly Label voiceCount = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(10, 8, 0, 0) };
+    List<VoiceLine> voiceLines = [];
+    /// <summary>The on / off the user wants per line (package, offset); lines not here are as read.</summary>
+    readonly Dictionary<(string, int), bool> voiceWanted = [];
     readonly TexturePage[] texturePages;
     readonly StringsPage stringsPage;
     readonly FlatTabs tabs = new() { Dock = DockStyle.Fill };
@@ -85,6 +93,7 @@ sealed class ModEditorView : UserControl
         stringsPage = new StringsPage(this);
         tabs.Add("Strings", stringsPage);
         tabs.Add("Sound Packs", SoundsPage());
+        tabs.Add("Voice", VoicePage());
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 
@@ -146,6 +155,217 @@ sealed class ModEditorView : UserControl
         foreach (var (file, src) in draft.Packages)
             packages.Rows[packages.Rows.Add(file, File.Exists(src) ? $"{new FileInfo(src).Length / 1048576.0:0.0} MB" : "missing", src)].Tag = file;
         packages.ClearSelection();
+        RefreshVoice();
+    }
+
+    // ---- Voice
+    Control VoicePage()
+    {
+        voice = Ui.Grid(S, false, ("Situation", 230), ("Detail", 260), ("Sound Event", 0), ("Package", 280));
+        voice.Columns.Insert(0, new DataGridViewCheckBoxColumn { Name = "on", HeaderText = "On", Width = (int)(46 * S), SortMode = DataGridViewColumnSortMode.NotSortable });
+        voice.Columns.Insert(1, new DataGridViewTextBoxColumn { Name = "play", HeaderText = "Play", Width = (int)(50 * S), ReadOnly = true, SortMode = DataGridViewColumnSortMode.NotSortable,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter, ForeColor = Ui.Accent, SelectionForeColor = Ui.Accent } });
+        voice.CellClick += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && voice.Columns[e.ColumnIndex].Name == "play" && voice.Rows[e.RowIndex].Tag is VoiceLine pl) { PlayVoice(pl); return; }
+            if (e.RowIndex < 0 || voice.Columns[e.ColumnIndex].Name != "on" || voice.Rows[e.RowIndex].Tag is not VoiceLine l) return;
+            bool on = !IsOn(l);
+            voiceWanted[(l.Package, l.Offset)] = on;
+            voice.Rows[e.RowIndex].Cells["on"].Value = on;
+            voice.Rows[e.RowIndex].DefaultCellStyle.ForeColor = on ? Ui.Text : Ui.Subtle;
+            UpdateVoiceCount();
+        };
+        voiceFind.TextChanged += (_, _) => FillVoice();
+        Disposed += (_, _) => { VoiceAudio.Stop(); if (voiceWork != null) try { Directory.Delete(voiceWork, true); } catch (IOException) { } };
+        Ui.Tip(voiceFind, "Show only lines whose situation, detail or sound event has these words.");
+        var find = new Label { Text = "Find", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 4, 0) };
+        var allOn = Ui.FlatButton("Turn All On", () =>
+        {
+            foreach (var l in voiceLines) voiceWanted[(l.Package, l.Offset)] = true;
+            FillVoice();
+        }, tip: "Turn every line of the voice set back on.");
+        var stop = Ui.FlatButton("Stop", () => { VoiceAudio.Stop(); voiceStatus.Text = ""; }, tip: "Stop the line that's playing.");
+        Button? another = null;
+        another = Ui.FlatButton("Use Another Voice ▾", () => VoiceMenu(another!),
+            tip: "Give the costume a whole voice from the game: its hero's own (so you can play and turn off its lines), another costume's voice such as Lady Deadpool or Spider-Gwen, or any hero's.");
+        return Page(voice, Toolbar(find, voiceFind, allOn, stop, another, voiceCount, voiceStatus),
+            "The costume's voice set: what the hero says in each situation. Click ▶ to hear a line. Untick a line to turn it off (for example a donor voice naming its own team); it's saved into the mod's package, and can be turned on again. A stock costume has no voice set of its own (it uses its hero's): Use Another Voice puts its hero's voice in, or another costume's or hero's.");
+    }
+
+    /// <summary>Packages given another voice in this edit: their source before (for Back to This Mod's Voice).</summary>
+    readonly Dictionary<string, string> voiceBefore = new(StringComparer.OrdinalIgnoreCase);
+    string? voiceWork;
+
+    /// <summary>The draft's costume packages (UC__MarvelPlayer_&lt;Hero&gt;_&lt;Costume&gt;_SF): the ones a voice can be put into.</summary>
+    List<(string File, string Source)> CostumePackages() =>
+        [.. draft.Packages.Where(p => File.Exists(p.Source) && Regex.IsMatch(p.File, @"^UC__MarvelPlayer_[A-Za-z0-9]+_[A-Za-z0-9_]+_SF\.upk$", RegexOptions.IgnoreCase))];
+
+    /// <summary>The voice menu: per costume package, its hero's voices first, then every other hero's (submenus by hero).</summary>
+    async void VoiceMenu(Control button)
+    {
+        var targets = CostumePackages();
+        if (targets.Count == 0) { Dialog.Show(this, "A voice goes into a costume package (UC__MarvelPlayer_<Hero>_<Costume>_SF.upk). Add one on the Packages tab first.", "No Costume Package", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (game == null) { Dialog.Show(this, "Set the game folder first (Settings → Change Game Folder): the voices come from the game's files.", "No Game Folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        voiceStatus.ForeColor = Ui.Subtle; voiceStatus.Text = "Loading the game's voices…";
+        List<VoiceSet.Source> all;
+        string cooked = game.Cooked;
+        try { all = await Task.Run(() => VoiceSet.Sources(cooked)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { voiceStatus.Text = ""; Dialog.Show(this, ex.Message, "Can't Read the Voices", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        voiceStatus.Text = "";
+        if (IsDisposed) return;
+        var menu = new ContextMenuStrip();
+        foreach (var (file, source) in targets)
+        {
+            ToolStripItemCollection items = menu.Items;
+            if (targets.Count > 1) { var sub = new ToolStripMenuItem(file); menu.Items.Add(sub); items = sub.DropDownItems; }
+            string hero = (VoiceSet.HeroOf(file) ?? "").ToLowerInvariant();
+            bool Mine(VoiceSet.Source v) => hero.Length > 0 && (v.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase) || v.Hero.StartsWith(hero, StringComparison.OrdinalIgnoreCase) || hero.StartsWith(v.Hero.ToLowerInvariant()));
+            var own = all.Where(Mine).ToList();
+            foreach (var v in own) items.Add(VoiceItem(file, v));
+            if (own.Count > 0) items.Add(new ToolStripSeparator());
+            var others = new ToolStripMenuItem("Other Heroes");
+            foreach (var g in all.Where(v => !Mine(v)).GroupBy(v => v.Title.Split(" · ")[0]))
+            {
+                if (g.Count() == 1) { others.DropDownItems.Add(VoiceItem(file, g.First())); continue; }
+                var h = new ToolStripMenuItem(g.Key);
+                foreach (var v in g) h.DropDownItems.Add(VoiceItem(file, v));
+                others.DropDownItems.Add(h);
+            }
+            items.Add(others);
+            if (voiceBefore.ContainsKey(file))
+            {
+                items.Add(new ToolStripSeparator());
+                items.Add(new ToolStripMenuItem("Back to This Mod's Voice", null, (_, _) => UseVoice(file, null)));
+            }
+        }
+        Ui.ShowUnder(menu, button);
+    }
+
+    ToolStripMenuItem VoiceItem(string file, VoiceSet.Source v) => new(v.Title, null, (_, _) => UseVoice(file, v)) { ToolTipText = Path.GetFileName(v.File) };
+
+    /// <summary>Puts a stock voice into a costume package of the draft (VoiceSet.Replace, verified, in a work folder until Save), or back to the mod's own.</summary>
+    async void UseVoice(string file, VoiceSet.Source? v)
+    {
+        int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+        if (k < 0) return;
+        if (v == null)
+        {
+            if (voiceBefore.Remove(file, out string? before)) draft.Packages[k] = (file, before);
+        }
+        else
+        {
+            string from = voiceBefore.TryGetValue(file, out string? b) ? b : draft.Packages[k].Source;
+            voiceStatus.ForeColor = Ui.Subtle; voiceStatus.Text = "Copying " + v.Title + "…";
+            var log = new List<string>();
+            byte[] bytes;
+            try { bytes = await Task.Run(() => VoiceSet.Replace(from, v.File, log)); }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException)
+            { voiceStatus.Text = ""; Dialog.Show(this, $"{v.Title}'s voice couldn't be copied into {file}: {ex.Message}", "Voice Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            if (IsDisposed) return;
+            voiceWork ??= Path.Combine(lib.DataFolder, "voice-work-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(voiceWork);
+            string path = Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+            File.WriteAllBytes(path, bytes);
+            voiceBefore.TryAdd(file, from);
+            draft.Packages[k] = (file, path);
+            voiceStatus.Text = "Voice: " + v.Title;
+        }
+        // The lines are new: what was turned off applied to the old set.
+        draft.VoiceOff.RemoveAll(o => o.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
+        foreach (var key in voiceWanted.Keys.Where(x => x.Item1.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList()) voiceWanted.Remove(key);
+        voiceWavs.Clear();
+        RefreshPackages();
+    }
+
+    readonly Label voiceStatus = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(14, 8, 0, 0) };
+    readonly Dictionary<string, byte[]> voiceWavs = new(StringComparer.OrdinalIgnoreCase);
+    int voicePlayId;
+
+    /// <summary>Plays a line (VoiceAudio: the mod's sound pack, else the game's sound files), found and decoded in the background.</summary>
+    async void PlayVoice(VoiceLine l)
+    {
+        int id = ++voicePlayId;
+        string leaf = l.Event[(l.Event.LastIndexOf('.') + 1)..];
+        voiceStatus.ForeColor = Ui.Subtle;
+        voiceStatus.Text = "Loading " + leaf + "…";
+        var packs = draft.SoundPacks.ToList();
+        string cooked = game?.Cooked ?? "";
+        try
+        {
+            if (!voiceWavs.TryGetValue(l.Event, out byte[]? wav))
+            {
+                wav = await Task.Run(() => VoiceAudio.ToWav(VoiceAudio.Wem(l.Event, packs, cooked).Wem));
+                voiceWavs[l.Event] = wav;
+            }
+            if (id != voicePlayId || IsDisposed) return;
+            VoiceAudio.Play(wav);
+            voiceStatus.Text = "Playing " + leaf;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException or UnauthorizedAccessException)
+        {
+            if (id != voicePlayId || IsDisposed) return;
+            voiceStatus.ForeColor = Ui.Packages;
+            voiceStatus.Text = "No Sound: " + ex.Message + (ex.Message.Contains("isn't in the game's sound files") ? " (silent in the game too)" : "");
+        }
+    }
+
+    bool IsOn(VoiceLine l) => voiceWanted.TryGetValue((l.Package, l.Offset), out bool on) ? on : !l.Off;
+
+    void RefreshVoice()
+    {
+        voiceLines = [.. draft.Packages.SelectMany(p => File.Exists(p.Source) ? VoiceSet.Read(p.File, p.Source, draft.VoiceOff) : [])];
+        FillVoice();
+    }
+
+    void FillVoice()
+    {
+        if (voice == null) return;
+        string[] words = voiceFind.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        voice.Rows.Clear();
+        voice.Columns["Package"]!.Visible = voiceLines.Select(l => l.Package).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
+        foreach (var l in voiceLines)
+        {
+            string text = $"{l.Situation} {l.Detail} {l.Event}";
+            if (!words.All(w => text.Contains(w, StringComparison.OrdinalIgnoreCase))) continue;
+            bool on = IsOn(l);
+            int i = voice.Rows.Add(on, "▶", l.Situation, l.Detail, l.Event, l.Package);
+            voice.Rows[i].Tag = l;
+            voice.Rows[i].Cells["play"].ToolTipText = "Play this line";
+            if (!on) voice.Rows[i].DefaultCellStyle.ForeColor = Ui.Subtle;
+        }
+        voice.ClearSelection();
+        UpdateVoiceCount();
+    }
+
+    void UpdateVoiceCount() =>
+        voiceCount.Text = voiceLines.Count == 0 ? "No Voice Set in This Mod's Packages" : Ui.TitleCase($"{voiceLines.Count(IsOn)} of {voiceLines.Count} Lines On");
+
+    /// <summary>
+    /// Before saving: each package whose lines changed is rewritten (VoiceSet.Write: the voice set's references, verified)
+    /// into a work folder and used as the draft's source; the manifest's VoiceOff keeps what's off. Returns the work folder.
+    /// </summary>
+    string? ApplyVoice()
+    {
+        var changed = voiceLines.Where(l => voiceWanted.TryGetValue((l.Package, l.Offset), out bool on) && on == l.Off).ToList();
+        if (changed.Count == 0) return null;
+        string work = Path.Combine(lib.DataFolder, "voice-edit-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(work);
+        foreach (var g in changed.GroupBy(l => l.Package, StringComparer.OrdinalIgnoreCase))
+        {
+            int k = draft.Packages.FindIndex(p => p.File.Equals(g.Key, StringComparison.OrdinalIgnoreCase));
+            if (k < 0) continue;
+            byte[]? bytes = VoiceSet.Write(draft.Packages[k].Source, [.. g.Select(l => (l.Offset, l.Off ? l.Event : (string?)null))]);
+            if (bytes == null) continue;
+            string file = Path.Combine(work, g.Key);
+            File.WriteAllBytes(file, bytes);
+            draft.Packages[k] = (g.Key, file);
+            foreach (var l in g)
+            {
+                draft.VoiceOff.RemoveAll(o => o.Package.Equals(l.Package, StringComparison.OrdinalIgnoreCase) && o.Offset == l.Offset);
+                if (!l.Off) draft.VoiceOff.Add(new VoiceOffEntry { Package = l.Package, Offset = l.Offset, Event = l.Event });
+            }
+        }
+        return work;
     }
 
     // ---- Sound packs
@@ -252,7 +472,12 @@ sealed class ModEditorView : UserControl
     {
         Collect();
         draft.Strings = stringsPage.Collect();
+        string? work;
+        try { work = ApplyVoice(); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, "The voice lines couldn't be changed: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
+        if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+        if (saved != null && voiceWork != null) try { Directory.Delete(voiceWork, true); voiceWork = null; } catch (IOException) { }
         if (saved == null) { Dialog.Show(this, error ?? "", "Can't Save Yet"); return; }
         SavedName = saved;
         Saved?.Invoke(saved);

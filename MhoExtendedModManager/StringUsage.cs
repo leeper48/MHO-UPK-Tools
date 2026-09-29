@@ -11,7 +11,7 @@ namespace MhoExtendedModManager;
 /// Format (checked 2026-09-27: all 85,186 prototypes read, 70,535 of the 77,089 English strings have a user; the Python
 /// decoder in MPM's publish\scans\tools had skipped curve fields' subtype and misread 43% of prototypes):
 ///   .sip: "KAPG", version, count; entries (u64 hash, u32 name length, name, i32 mod, offset, compressed, uncompressed size);
-///         then the body; an entry is stored as is or as one LZ4 block.
+///         then the body; every entry is one LZ4 block (also when compressed size = size).
 ///   Calligraphy/Blueprint.directory / Prototype.directory: 4-byte header, count, entries (ids, flags, path).
 ///   Blueprint: header, runtime binding, default prototype, parents, contributing blueprints, fields (id, name, base type,
 ///         structure type, and a subtype id for base types A C P R T).
@@ -80,7 +80,7 @@ sealed class StringUsage
             var data = new byte[csize];
             f.Position = body + off;
             f.ReadExactly(data);
-            return csize == usize ? data : Lz4Block(data, usize);
+            return Lz4Block(data, usize);   // always one LZ4 block, even when the sizes are equal (799 entries; MHServerEmu decodes all)
         }
 
         static byte[] Lz4Block(byte[] src, int outLen)

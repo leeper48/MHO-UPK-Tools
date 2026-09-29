@@ -59,6 +59,8 @@ sealed class ModManifest
     /// <summary>Extension: the author's light level for the 3D preview (0.5–2), the one a user starts from (their own, kept on
     /// their PC, wins there). Null when not set.</summary>
     public float? PreviewLight { get; set; }
+    /// <summary>Extension: voice lines turned off in the editor (so they can be turned on again). Null when none.</summary>
+    public List<VoiceOffEntry>? VoiceOff { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }

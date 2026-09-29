@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.4
+- Voice tab: Use Another Voice gives a costume a whole voice from the game: its hero's own (so its lines can be played and turned off), another costume's (Lady Deadpool, Spider-Gwen, Jane Foster …) or any hero's.
+- Editor, Strings: Used By now reads all of the game's data (about 800 data files were misread before), so 212 more strings show what uses them.
+
+0.37.2
+- Editor: a Voice tab lists the costume's voice lines (what the hero says on death, level up, hits, banter, missions …). Click ▶ to hear a line; untick a line to turn it off (for example a borrowed voice naming its own team). It's saved into the mod and can be turned on again.
+
 0.37.1
 - Move to Another Hero takes the voice along: the mod's own voice lines (with its sound pack), or the original hero's voice, played by the new hero's powers.
 - 3D preview: animations move bones the way the game does (rotation only, except the bones an animation set lists), so a costume on another hero no longer shows misplaced eyes or face parts.

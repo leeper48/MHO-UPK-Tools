@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.37.1</Version>
+    <Version>0.37.4</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -26,6 +26,7 @@
     <PackageReference Include="System.IO.Hashing" Version="8.0.0" />
     <!-- Installing .7z / .rar mod archives (MHModManager accepted .zip and .7z). -->
     <PackageReference Include="SharpCompress" Version="1.0.0" />
+    <PackageReference Include="NVorbis" Version="0.10.5" />
   </ItemGroup>
   <ItemGroup>
     <!-- Stock package checksums for new users without MHModManager (see StockData\README.txt). -->
@@ -36,6 +37,8 @@
     <None Include="Manual\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- The hero portrait backdrop (Kurt's blue hex grid, 180x136) behind icon-creator portraits. -->
     <None Include="Assets\herohor_bluebackdrop.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Wwise Vorbis codebooks for WwiseVorbis.cs (from ww2ogg, BSD; voice playback in the Editor). -->
+    <None Include="Assets\packed_codebooks_aoTuV_603.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- MPM's zone recipe inputs and manual would otherwise be copied here too (27 MB); this app doesn't use them. -->
   <Target Name="DropMpmContent" BeforeTargets="_CopyOutOfDateSourceItemsToOutputDirectory;_CopyOutOfDateSourceItemsToOutputDirectoryAlways">

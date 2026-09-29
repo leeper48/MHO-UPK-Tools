@@ -106,6 +106,7 @@ function mhoNext(dir) {
 <li><a href="#costume">Move to Another Costume</a></li>
 <li><a href="#tags">Tags and notes</a></li>
 <li><a href="#editor">Making and editing mods</a></li>
+<li><a href="#voice">Voice lines</a></li>
 <li><a href="#icons">Icons and Create from 3D</a></li>
 <li><a href="#extract">Extract</a></li>
 <li><a href="#nexus">Nexus</a></li>
@@ -217,8 +218,18 @@ function mhoNext(dir) {
 <tr><td>Icons, Achievement Icons, Store Images, More Icon Packages</td><td>images the mod replaces; search the game's names, see the original and your replacement side by side. A PNG, JPG or BMP is converted to the right size and format.</td></tr>
 <tr><td>Strings</td><td>text changes: search the game's strings (the <b>Used By</b> column says what each belongs to), add or edit rows, or import a language .json</td></tr>
 <tr><td>Sound Packs</td><td>.mhsfx voice or sound packs</td></tr>
+<tr><td>Voice</td><td>the costume's voice set: every line the hero says and when (death, level up, hits, banter, mission lines …); play a line, or untick it to turn it off</td></tr>
 </table>
 <p>When a mod is for one costume, the image tabs open filtered to that costume's images. <b>Create Post</b> writes a Nexus and a Discord post for the mod, with images, and keeps it with the mod.</p>
+
+<h2 id="voice">Voice lines</h2>
+<p>The Editor's <b>Voice</b> tab lists the voice set of the mod's costume packages: the <b>Situation</b> (Death, Level Up, Crit Hit Landed, Banter …), extra <b>Detail</b> (the enemy type or mission) and the <b>Sound Event</b> it plays. Only costumes with their own voice set have lines here: a voice mod, or a costume moved to another hero (which brings its voice along).</p>
+<ul>
+<li><b>▶</b> plays a line: from the mod's own sound pack if it has that line, otherwise from the game's sound files. <b>Stop</b> stops it. If a line has no sound anywhere, it says so; it's silent in the game too.</li>
+<li><b>Untick</b> a line to turn it off, for example when a voice borrowed from another hero names its own team. <b>Save Changes</b> writes it into the mod's package; the mod remembers what was turned off, so it can be ticked again later (or <b>Turn All On</b>).</li>
+<li><b>Find</b> narrows the list by words in the situation, detail or event.</li>
+<li><b>Use Another Voice</b> gives the costume a whole voice from the game. Its hero's own voice comes first: a stock costume has no voice set of its own (it uses its hero's), so this is how you get its lines to play and turn off. Below it are the other voices the game has, such as Lady Deadpool, Spider-Gwen or Jane Foster, and under <b>Other Heroes</b> every hero's voice. The costume's powers then play that voice's lines. <b>Back to This Mod's Voice</b> undoes it before you save.</li>
+</ul>
 
 <h2 id="icons">Icons and Create from 3D</h2>
 <p>In the icon, store and portrait tabs, <b>Create from 3D</b> makes the image from the character itself: frame it (drag, pan, zoom), pick a pose and frame from the animations, a lens and the light, show the weapon or prop, and lay the game's original over it to line things up (<kbd>O</kbd>). Characters start facing the camera; the <b>Turn</b> slider turns them (0° = straight on), and <b>Reset View</b> goes back to the usual framing, facing front, with the standard lens and light. The snapshot is made at the original's exact size. Each icon remembers its setup; <b>Use Previous Setup</b> copies the last one.</p>

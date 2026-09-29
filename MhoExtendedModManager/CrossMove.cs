@@ -22,7 +22,7 @@ static class CrossMove
 
     static readonly object consoleGate = new();
     /// <summary>Runs the copier with its console output captured (the GUI has no console; the refusal reason goes in the error).</summary>
-    static T Quiet<T>(Func<T> f, out string said)
+    internal static T Quiet<T>(Func<T> f, out string said)
     {
         lock (consoleGate)
         {
@@ -111,33 +111,9 @@ static class CrossMove
                 int vc = Array.FindIndex(vp.Exports, e => vp.PathOf(e).Equals(compName, StringComparison.OrdinalIgnoreCase));
                 if (vc < 0 || vp.Exports[vc].SerialSize <= 64) continue;          // empty: this costume uses its hero's
                 string targetDefault = $"marvelgamecontent.default__{targetClass.ToLowerInvariant()}";
-                var vreplace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [defName] = targetDefault };
-                // Reference lists (audioemotes, bantertargets) may hold stale stock values: She-Hulk's bantertargets[1] points
-                // at a property of her anger-meter UI class. Only sound events are kept; anything else becomes none.
-                byte[] vd = vp.ReadExportBytes(vp.Exports[vc]).ToArray();
-                if (TagWalker.Walk(vp, vd, 16) is { } vtags)
-                    foreach (var t in vtags.Where(t => t.Name is var n && (n.Equals("AudioEmotes", StringComparison.OrdinalIgnoreCase) || n.Equals("BanterTargets", StringComparison.OrdinalIgnoreCase))))
-                    {
-                        int n = BinaryPrimitives.ReadInt32LittleEndian(vd.AsSpan(t.ValueAt));
-                        if (t.Size != 4 + n * 4) continue;
-                        for (int k = 0; k < n; k++)
-                        {
-                            int r = BinaryPrimitives.ReadInt32LittleEndian(vd.AsSpan(t.ValueAt + 4 + 4 * k));
-                            if (r > 0 && r <= vp.Exports.Length && !vp.ClassOf(vp.Exports[r - 1]).Equals("AkEvent", StringComparison.OrdinalIgnoreCase))
-                            { vreplace[vp.PathOf(vp.Exports[r - 1])] = "none"; log.Add($"voice: {t.Name}[{k}] pointed at {vp.PathOf(vp.Exports[r - 1])}; set to none"); }
-                        }
-                    }
-                var vcopy = Quiet(() => ExportCopy.Copy(vp, vc, pkg, [], "soundscomponent_voice", vreplace), out string vsaid);
-                if (vcopy == null)
-                {
-                    if (Environment.GetEnvironmentVariable("MHO_EXTMM_DEBUG") == "1") log.Add(vsaid);
-                    log.Add("voice not moved: " + string.Join(" ", vsaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
-                    break;
-                }
-                pkg = Package.FromBytes(vcopy.Output);
-                voiceData = pkg.ReadExportBytes(pkg.Exports[vcopy.RootRef - 1]).ToArray();
-                voiceComp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(targetDefault + ".soundscomponent", StringComparison.OrdinalIgnoreCase));
-                if (voiceComp < 0) { voiceData = null; log.Add("voice not moved: the target has no soundscomponent"); break; }
+                var got = VoiceSet.CopyInto(pkg, targetDefault, vp, vc, log);
+                if (got == null) break;
+                (pkg, voiceComp, voiceData) = got.Value;
                 log.Add($"voice: {compName} from {Path.GetFileName(path)} ({vp.Exports[vc].SerialSize:N0} bytes, with its sound events)");
                 break;
             }

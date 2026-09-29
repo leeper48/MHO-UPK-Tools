@@ -210,6 +210,32 @@ sealed class Akpk
         return new Bank(ReadData(f, entry)).Probe(target);
     }
 
+    /// <summary>The event IDs (HIRC type 4) of a bank's bytes, without building the bank (voice playback's event index).</summary>
+    public static IEnumerable<uint> EventIds(byte[] b)
+    {
+        var ids = new List<uint>();
+        for (int p = 0; p + 8 <= b.Length; )
+        {
+            int n = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4));
+            if (n < 0 || p + 8 + n > b.Length) break;
+            if (b[p] == 'H' && b[p + 1] == 'I' && b[p + 2] == 'R' && b[p + 3] == 'C')
+            {
+                int count = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 8)), q = p + 12, end = p + 8 + n;
+                for (int i = 0; i < count && q + 9 <= end; i++)
+                {
+                    int size = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(q + 1));
+                    if (b[q] == 4) ids.Add(BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(q + 5)));
+                    q += 5 + size;
+                }
+            }
+            p += 8 + n;
+        }
+        return ids;
+    }
+
+    /// <summary>Voice playback: what an event in one of this .pck's banks plays (see Bank.Media).</summary>
+    public static (uint SourceId, byte[]? Embedded)? EventMedia(Stream f, Entry bank, uint eventId) => new Bank(ReadData(f, bank)).Media(eventId);
+
     static int WriteTable(Span<byte> w, int at, List<Entry> t)
     {
         BinaryPrimitives.WriteUInt32LittleEndian(w[at..], (uint)t.Count); at += 4;
@@ -284,6 +310,29 @@ sealed class Akpk
             {
                 if (o.Type == 2) return o;
                 if (NestedSound(o, depth + 1, seen) is { } s) return s;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// What an event plays (voice playback): its first action whose target is, or holds, a sound → that sound's media:
+        /// embedded (the bytes, from DIDX / DATA) or streamed (the source ID, to look up in a .pck's stream table). Null if none.
+        /// </summary>
+        public (uint SourceId, byte[]? Embedded)? Media(uint eventId)
+        {
+            if (Obj(eventId) is not { } ev || ev.Type != 4 || ev.Body.Length < 4) return null;
+            int n = (int)BinaryPrimitives.ReadUInt32LittleEndian(ev.Body);
+            for (int i = 0; i < n && 8 + 4 * i <= ev.Body.Length; i++)
+            {
+                if (Obj(BinaryPrimitives.ReadUInt32LittleEndian(ev.Body.AsSpan(4 + 4 * i))) is not { } act || act.Type != 3 || act.Body.Length < 6) continue;
+                if (Obj(BinaryPrimitives.ReadUInt32LittleEndian(act.Body.AsSpan(2))) is not { } tgt) continue;
+                var sound = tgt.Type == 2 ? tgt : NestedSound(tgt, 0, []);
+                if (sound is not { } s || s.Body.Length < 13) continue;
+                uint source = BinaryPrimitives.ReadUInt32LittleEndian(s.Body.AsSpan(5));
+                if (s.Body[4] != 0) return (source, null);
+                var d = didx.FirstOrDefault(x => x.Id == source);
+                if (d.Id != source || d.Offset + d.Size > data.Length) continue;
+                return (source, data.GetBuffer().AsSpan((int)d.Offset, (int)d.Size).ToArray());
             }
             return null;
         }
