@@ -16,6 +16,8 @@ static class PreviewViews
         public Dictionary<string, AnimState> Anims { get; set; } = [];
         public bool Loop { get; set; } = true;
         public Dictionary<string, float> Lights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The 3D preview's lens (35 mm-equivalent focal length) per mod on this PC (Kurt, from a user).</summary>
+        public Dictionary<string, float> Lenses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, IconSetup> Icons { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
@@ -29,6 +31,7 @@ static class PreviewViews
         {
             var d = File.Exists(FilePath) ? JsonSerializer.Deserialize<Data>(File.ReadAllText(FilePath)) ?? new() : new();
             d.Lights = new(d.Lights ?? [], StringComparer.OrdinalIgnoreCase);
+            d.Lenses = new(d.Lenses ?? [], StringComparer.OrdinalIgnoreCase);
             d.Icons = new(d.Icons ?? [], StringComparer.OrdinalIgnoreCase);
             return d;
         }
@@ -87,6 +90,18 @@ static class PreviewViews
 
     /// <summary>The mod author's value, else 1 (what the slider's double-click goes back to).</summary>
     public static float AuthorLight(Mod m) => m.Manifest.PreviewLight is float a ? Math.Clamp(a, 0.5f, 2f) : 1f;
+
+    /// <summary>The 3D preview's lens for a mod (the view's default when none is kept).</summary>
+    public static float Lens(Mod m) => D.Lenses.TryGetValue(m.FolderName, out float v) ? Math.Clamp(v, 15f, 200f) : Gui.ModelView.DefaultFocalLength;
+
+    public static void SetLens(Mod m, float value)
+    {
+        value = Math.Clamp(value, 15f, 200f);
+        if (Math.Abs(value - Gui.ModelView.DefaultFocalLength) < 1e-3) { if (!D.Lenses.Remove(m.FolderName)) return; }
+        else if (D.Lenses.TryGetValue(m.FolderName, out float old) && Math.Abs(old - value) < 1e-3) return;
+        else D.Lenses[m.FolderName] = value;
+        Save();
+    }
 
     /// <summary>Sets this PC's value; the same as the mod's own forgets it (so a later author change comes through).</summary>
     public static void SetLight(Mod m, float value)

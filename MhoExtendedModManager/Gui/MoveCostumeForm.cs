@@ -13,8 +13,12 @@ sealed class MoveCostumeForm : Form
     readonly CheckBox swap;
     public bool SwapOn => swap.Checked;
 
-    public MoveCostumeForm(Mod mod, CostumeMove.Plan plan, StockCatalog? catalog, IReadOnlyList<Mod> onTarget)
+    readonly bool cross;
+
+    /// <param name="crossHero">A move to another hero (CrossMove): the model goes into the target costume's own package; sounds stay.</param>
+    public MoveCostumeForm(Mod mod, CostumeMove.Plan plan, StockCatalog? catalog, IReadOnlyList<Mod> onTarget, bool crossHero = false)
     {
+        cross = crossHero;
         Text = "Move to Another Costume";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this);
@@ -27,7 +31,8 @@ sealed class MoveCostumeForm : Form
 
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5 };
         for (int i = 0; i < 5; i++) t.RowStyles.Add(new RowStyle(i == 2 ? SizeType.Percent : SizeType.AutoSize, 100));
-        t.Controls.Add(new Label { Text = Ui.TitleCase($"Move to {plan.Target.Title}"), AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 8) }, 0, 0);
+        string targetName = crossHero ? $"{HeroOf(plan.Target)} {plan.Target.Title}" : plan.Target.Title;
+        t.Controls.Add(new Label { Text = Ui.TitleCase($"Move to {targetName}"), AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 8) }, 0, 0);
 
         // The two costumes' store images (the game's own), source → target.
         var pics = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.None, Margin = new Padding(0, 0, 0, 8) };
@@ -35,10 +40,10 @@ sealed class MoveCostumeForm : Form
         var modStore = plan.Icons.FirstOrDefault(i => i.Kind == "Store Image");
         pics.Controls.Add(Card(plan.Source, catalog, s, modStore == null ? null : Ui.DdsThumb(Path.Combine(mod.Folder, modStore.Dds), 420), mod.Name));
         pics.Controls.Add(new Label { Text = "→", AutoSize = true, Font = Ui.Bold(20f), Anchor = AnchorStyles.None, Margin = new Padding((int)(10 * s), 0, (int)(10 * s), 0) });
-        pics.Controls.Add(Card(plan.Target, catalog, s));
+        pics.Controls.Add(crossHero ? Card(plan.Target, catalog, s, null, null, $"{HeroOf(plan.Target)} {plan.Target.Title}") : Card(plan.Target, catalog, s));
         t.Controls.Add(pics, 0, 1);
 
-        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = Summary(mod, plan, onTarget) };
+        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = crossHero ? CrossSummary(mod, plan, onTarget) : Summary(mod, plan, onTarget) };
         t.Controls.Add(box, 0, 2);
 
         swap = new CheckBox { Text = $"Turn the new mod on and \"{mod.Name}\" off", AutoSize = true, Checked = true, Margin = new Padding(0, 8, 0, 0) };
@@ -48,7 +53,7 @@ sealed class MoveCostumeForm : Form
         var bar = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 12, 0, 0) };
         var cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; }, "Change nothing (Esc).");
         var create = Ui.AccentButton("Create Mod", () => { DialogResult = DialogResult.OK; }, "Add the moved costume as a new mod at the top of the list; the original isn't changed (Enter).");
-        create.Enabled = plan.Problems.Count == 0 && plan.Packages.Count > 0;
+        create.Enabled = crossHero || (plan.Problems.Count == 0 && plan.Packages.Count > 0);
         bar.Controls.Add(cancel); bar.Controls.Add(create);
         t.Controls.Add(bar, 0, 4);
         Controls.Add(t);
@@ -61,14 +66,14 @@ sealed class MoveCostumeForm : Form
     }
 
     /// <summary>A costume's store image (the game's) with its name under it.</summary>
-    static Control Card(Costume c, StockCatalog? catalog, float s, Image? own = null, string? caption = null)
+    static Control Card(Costume c, StockCatalog? catalog, float s, Image? own = null, string? caption = null, string? title = null)
     {
         var p = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, RowCount = 2, Anchor = AnchorStyles.None };
         var pic = new PictureBox { Size = new Size((int)(120 * s), (int)(168 * s)), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0), Tag = "card" };
         if (own != null) pic.Image = own;
         else if (Image(c, catalog) is Bitmap b) pic.Image = b;
         p.Controls.Add(pic, 0, 0);
-        p.Controls.Add(new Label { Text = caption == null ? c.Title : caption + Environment.NewLine + $"({c.Title})", AutoSize = true, Anchor = AnchorStyles.None, TextAlign = ContentAlignment.TopCenter, MaximumSize = new Size((int)(220 * s), 0), Margin = new Padding(0, 4, 0, 0) }, 0, 1);
+        p.Controls.Add(new Label { Text = caption == null ? title ?? c.Title : caption + Environment.NewLine + $"({c.Title})", AutoSize = true, Anchor = AnchorStyles.None, TextAlign = ContentAlignment.TopCenter, MaximumSize = new Size((int)(220 * s), 0), Margin = new Padding(0, 4, 0, 0) }, 0, 1);
         return p;
     }
 
@@ -82,6 +87,40 @@ sealed class MoveCostumeForm : Form
                 return catalog.Preview(st.Package, st.Texture) is { } pv ? MhoPackageModifier.TextureDecode.ToBitmap(pv.Bgra, pv.W, pv.H) : null;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { return null; }
+    }
+
+    /// <summary>"Storm" from Entity/Characters/Avatars/Shipping/Storm.prototype.</summary>
+    static string HeroOf(Costume c)
+    {
+        string id = Path.GetFileNameWithoutExtension((c.Hero ?? c.Short).Replace('\\', '/').Split('/')[^1]);
+        return AutoTags.DisplayName(id) ?? id;
+    }
+
+    static string CrossSummary(Mod mod, CostumeMove.Plan plan, IReadOnlyList<Mod> onTarget)
+    {
+        var sb = new System.Text.StringBuilder();
+        void Line(string x = "") => sb.Append(x).Append("\r\n");
+        string hero = HeroOf(plan.Target), from = HeroOf(plan.Source);
+        Line("What moves:");
+        Line($"  • the model, with its materials and textures, into {plan.Target.Package}");
+        if (plan.Icons.Count > 0) Line("  • " + string.Join(", ", plan.Icons.Select(i => i.Kind.ToLowerInvariant())) + $", under {hero} {plan.Target.Title}'s names");
+        foreach (var st in plan.Strings) Line($"  • the costume text \"{st.Text}\" ({st.Language}), as {hero} {plan.Target.Title}'s");
+        Line(mod.Manifest.AudioPacks.Count > 0
+            ? $"  • the voice: the mod's own voice lines (its sound pack comes along)"
+            : $"  • the voice: {from}'s lines, played by {hero}'s powers");
+        Line();
+        Line($"What stays {hero}'s:");
+        Line($"  • the animations and powers. Parts of the model {hero}'s skeleton doesn't move (hair, a cape) stay still.");
+        Line();
+        var others = onTarget.Where(m => m != mod).ToList();
+        if (others.Count > 0)
+        {
+            Line($"Other mods for {hero} {plan.Target.Title} (the one higher in the list wins):");
+            foreach (var o in others) Line($"  • \"{o.Name}\"" + (o.Enabled ? " (on)" : ""));
+            Line();
+        }
+        Line($"The new mod \"{CrossMove.NewName(mod, plan.Target)}\" goes at the top of the list. \"{mod.Name}\" isn't changed.");
+        return sb.ToString();
     }
 
     static string Summary(Mod mod, CostumeMove.Plan plan, IReadOnlyList<Mod> onTarget)

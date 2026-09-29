@@ -113,11 +113,15 @@ static class Program
             var all = mgr == null ? null : Costume.All(mgr);
             if (mm == null || mgr == null || all == null || CostumeMove.Single(mm, all) is not { } one) { Console.WriteLine("no single-costume mod / game data"); return 1; }
             var mgame = new GameState(mgr, mlib.DataFolder);
-            var tgt = CostumeMove.Targets(one.Costume, all, mgame.Cooked).FirstOrDefault(t => t.Title.Equals(args[2], StringComparison.OrdinalIgnoreCase) || t.Class.EndsWith("_" + args[2], StringComparison.OrdinalIgnoreCase));
+            // A target given as Hero/Costume (e.g. Storm/Modern) is another hero's: the cross-hero window.
+            bool crossHero = args[2].Contains('/');
+            var tgt = crossHero
+                ? all.FirstOrDefault(c => c.Short.Replace(".prototype", "", StringComparison.OrdinalIgnoreCase).Equals(args[2], StringComparison.OrdinalIgnoreCase))
+                : CostumeMove.Targets(one.Costume, all, mgame.Cooked).FirstOrDefault(t => t.Title.Equals(args[2], StringComparison.OrdinalIgnoreCase) || t.Class.EndsWith("_" + args[2], StringComparison.OrdinalIgnoreCase));
             if (tgt == null) { Console.WriteLine("no such target"); return 1; }
             var mcat = new StockCatalog(mlib, mgame);
             var plan = CostumeMove.Make(mm, one.File, one.Costume, tgt, all, mgame.Cooked, mcat);
-            using var f = new Gui.MoveCostumeForm(mm, plan, mcat, mlib.Mods.Where(x => x.Manifest.UpkReplacements.Contains(tgt.Package, StringComparer.OrdinalIgnoreCase)).ToList())
+            using var f = new Gui.MoveCostumeForm(mm, plan, mcat, mlib.Mods.Where(x => x.Manifest.UpkReplacements.Contains(tgt.Package, StringComparer.OrdinalIgnoreCase)).ToList(), crossHero)
                 { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
@@ -125,6 +129,33 @@ static class Program
                 using var b = new Bitmap(f.Width, f.Height);
                 f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
                 b.Save(args[3]);
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
+        if (args.Length == 4 && args[0].Equals("--hero-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: the Another Hero picker for a mod, with a hero's costumes shown, as a PNG. --hero-snapshot <mod> <hero> <out.png>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            var st = Settings.Load();
+            var hlib = ModLibrary.Load(Settings.LibraryData(st.LibraryPath)!);
+            string? hgr = st.ResolvedGameRoot(hlib.DataFolder);
+            var hm = hlib.Find(args[1]);
+            var all = hgr == null ? null : Costume.All(hgr);
+            if (hm == null || hgr == null || all == null || CostumeMove.Single(hm, all) is not { } one) { Console.WriteLine("no single-costume mod / game data"); return 1; }
+            var hgame = new GameState(hgr, hlib.DataFolder);
+            using var f = new Gui.HeroPickerForm(hm, one.Costume, all, hgame.Cooked, new StockCatalog(hlib, hgame)) { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(300);
+                foreach (var b in Gui.HeroPickerForm.Tiles(f)) if (b.Text.Equals(args[2], StringComparison.OrdinalIgnoreCase)) { b.PerformClick(); break; }
+                await Task.Delay(3000);
+                using var bmp = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+                bmp.Save(args[3]);
                 f.Close();
             });
             f.ShowDialog();
@@ -175,7 +206,8 @@ static class Program
             var rm = rlib.Find(args[1]);
             string? rgr = st.ResolvedGameRoot(rlib.DataFolder);
             string? rc = rgr != null && Settings.IsGameRoot(rgr) ? Settings.Cooked(rgr) : null;
-            var mr = rm == null ? null : ModMeshes.List(rm).FirstOrDefault();
+            // Optional 5th argument: which mesh (e.g. a cross-hero move's copied mesh), else the first.
+            var mr = rm == null ? null : ModMeshes.List(rm).FirstOrDefault(x => args.Length < 5 || x.Name.Equals(args[4], StringComparison.OrdinalIgnoreCase));
             var ld = mr == null ? null : ModMeshes.Load(mr, rc, out _);
             if (rm == null || mr == null || ld == null) { Console.WriteLine("no mesh"); return 1; }
             var ar = ModAnimations.For(mr, ld.Bones, rm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(rm.Folder, f))), rc).FirstOrDefault(a => a.Name.Contains(args[2], StringComparison.OrdinalIgnoreCase));
@@ -678,6 +710,97 @@ static class Program
                     return made != null ? 0 : 1;
                 }
                 return 0;
+            }
+            case "--mesh-tail":
+            {
+                // Read-only (cross-hero move, phase 1): the bytes after a skeletal mesh's LODs, read as UE3's NameIndexMap
+                // (count, then name + int per bone) where they fit, the rest shown raw.
+                foreach (string f in rest.Skip(1))
+                {
+                    AnimExportCli.Packages.Package ap;
+                    try { ap = AnimExportCli.Packages.Package.Open(f); } catch (Exception ex) { Console.WriteLine($"{f}: {ex.Message}"); continue; }
+                    foreach (int i in ap.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName))
+                    {
+                        string why = "";
+                        var sm = AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i, e => why = e);
+                        byte[] d = ap.GetExportData(i).ToArray();
+                        if (sm == null) { Console.WriteLine($"{Path.GetFileName(f)} | {ap.GetExportName(i)} | unread: {why}"); continue; }
+                        int p = sm.LodsEnd, tail = d.Length - p;
+                        string map = "";
+                        if (tail >= 4)
+                        {
+                            int n = BitConverter.ToInt32(d, p);
+                            if (n == sm.Bones.Count && p + 4 + n * 12 <= d.Length) { map = $"namemap {n}"; p += 4 + n * 12; }
+                            else map = $"first int {n} (bones {sm.Bones.Count})";
+                        }
+                        int left = d.Length - p;
+                        string hex = string.Join(" ", d.Skip(p).Take(96).Select(x => x.ToString("x2")));
+                        Console.WriteLine($"{Path.GetFileName(f)} | {sm.Name} | size {d.Length} lods {sm.Lods.Count} tail {tail} | {map} | left {left} | {hex}");
+                    }
+                }
+                return 0;
+            }
+            case "--cross-move":
+            {
+                // Test (cross-hero move, phase 2): the target costume's stock package with the mod's main mesh in it, written to a
+                // folder (never the game's). --cross-move <mod> <Hero/Costume, e.g. Storm/ClassicBlack> --build <folder>
+                var xm = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                string? xgr = settings.ResolvedGameRoot(data);
+                int xb = rest.IndexOf("--build");
+                if (xm == null || xgr == null || !Settings.IsGameRoot(xgr) || xb < 0 || xb + 1 >= rest.Count) { Console.WriteLine("--cross-move <mod> <Hero/Costume> --build <folder>"); return 1; }
+                string xout = Path.GetFullPath(rest[xb + 1]);
+                if (xout.StartsWith(Path.GetFullPath(xgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                var xall = Costume.All(xgr)!;
+                var xsrc = CostumeMove.Single(xm, xall);
+                if (xsrc is not { } one) { Console.WriteLine("not a single-costume mod"); return 1; }
+                var xt = xall.FirstOrDefault(c => c.Short.Replace(".prototype", "", StringComparison.OrdinalIgnoreCase).Equals(rest[2], StringComparison.OrdinalIgnoreCase) || c.Class.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (xt == null) { Console.WriteLine($"no costume '{rest[2]}' (use Hero/Costume as in the prototype, e.g. Storm/ClassicBlack)"); return 1; }
+                var xgame = new GameState(xgr, data);
+                string? xstock = new Originals(lib.DataFolder, xgame).Find(xt.Package);
+                if (xstock == null) { Console.WriteLine($"no stock copy of {xt.Package}"); return 1; }
+                string modPkg = Path.Combine(xm.Folder, one.File);
+                // The mod's main mesh: the one its costume's component uses (initialskeletalmesh), else its first.
+                var mp = MhoPackageModifier.Package.Open(modPkg);
+                string meshName = ModMeshes.List(xm).Where(r => r.Package.Equals(one.File, StringComparison.OrdinalIgnoreCase)).Select(r => r.Name).FirstOrDefault() ?? "";
+                string heroBase = "UC__MarvelPlayer_" + one.Costume.Class.Split('_')[1] + "_SF.upk";
+                string? baseHero = File.Exists(Path.Combine(xm.Folder, heroBase)) ? Path.Combine(xm.Folder, heroBase) : File.Exists(Path.Combine(xgame.Cooked, heroBase)) ? Path.Combine(xgame.Cooked, heroBase) : null;
+                Console.WriteLine($"{one.Costume.Short} ({meshName}) → {xt.Short} ({xt.Class}); target stock {xstock}; source hero base {baseHero ?? "none"}");
+                var xlog = new List<string>();
+                try
+                {
+                    byte[] built = CrossMove.Build(modPkg, meshName, xstock, xt.Class, baseHero, xlog, sounds: false, sourceClass: one.Costume.Class);
+                    foreach (var l in xlog) Console.WriteLine("  " + l);
+                    Directory.CreateDirectory(xout);
+                    string f = Path.Combine(xout, xt.Package);
+                    File.WriteAllBytes(f, built);
+                    Console.WriteLine($"built and verified: {f} ({built.Length:N0} bytes)");
+                    if (rest.Contains("--create") || rest.Contains("--update-copy"))
+                    {
+                        // The moved costume as a mod: package, icons, costume text, sound packs (--update-copy rebuilds the existing one).
+                        var existing = lib.Mods.FirstOrDefault(x => x.Name.Equals(CrossMove.NewName(xm, xt), StringComparison.OrdinalIgnoreCase));
+                        if (rest.Contains("--update-copy") && existing == null) { Console.WriteLine($"no mod named \"{CrossMove.NewName(xm, xt)}\""); return 1; }
+                        var clog = new List<string>();
+                        string? made = CrossMove.CreateMod(lib, xm, one.File, one.Costume, xt, xall, xgame, new StockCatalog(lib, xgame), clog, out string? merr, rest.Contains("--update-copy") ? existing : null);
+                        foreach (var l in clog.Where(l => l.StartsWith("icons") || l.StartsWith("sound"))) Console.WriteLine("  " + l);
+                        Console.WriteLine(made != null ? $"{(existing != null && rest.Contains("--update-copy") ? "updated" : "created")} mod folder '{made}'" : "not created: " + merr);
+                    }
+                    return 0;
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
+                {
+                    foreach (var l in xlog) Console.WriteLine("  " + l);
+                    Console.WriteLine("FAILED: " + ex.Message);
+                    return 1;
+                }
+            }
+            case "--mesh-copy-test":
+            {
+                // Test (phase 1): copy a skeletal mesh into another package (renamed), write it to a scratch file, read it back.
+                // --mesh-copy-test <source.upk> <mesh> <target.upk> <out.upk>   (never the game folder)
+                if (rest.Count < 5) { Console.WriteLine("--mesh-copy-test <source.upk> <mesh> <target.upk> <out.upk>"); return 1; }
+                var probs = MeshCopy.Test(rest[1], rest[2], rest[3], rest[4]);
+                Console.WriteLine(probs.Count == 0 ? $"PASS: {rest[2]} copied and read back identical (bones, geometry, material paths)" : "FAIL: " + string.Join("; ", probs));
+                return probs.Count == 0 ? 0 : 1;
             }
             case "--mesh-bones":
             {

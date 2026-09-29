@@ -47,6 +47,9 @@ sealed class IconCreatorView : UserControl
     Button overlayBtn = null!;
     bool overlayOn = true;
     readonly LightSlider lensSlider = new() { Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = ModelView.DefaultFocalLength };
+    /// <summary>The model's turn in degrees (0 = facing the camera); follows a drag in the view (a user: a visual slider for it).</summary>
+    readonly LightSlider turnSlider = new() { Label = "Turn", Min = -180, Max = 180, Step = 1, Mark = 0 };
+    bool syncingTurn;
     readonly ModelView view = new() { Background = Color.FromArgb(22, 22, 24) };
     readonly Panel stage = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
     readonly PictureBox result = new() { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
@@ -93,16 +96,29 @@ sealed class IconCreatorView : UserControl
         // Left: what to show and how.
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(0, 0, 4, 0) };
         int cw = (int)(250 * s) - SystemInformation.VerticalScrollBarWidth;   // no sideways scrolling
-        void Row(Control c, int top = 0) { c.Margin = new Padding(0, top, 0, 4); if (c is not System.Windows.Forms.Label) c.Width = cw; left.Controls.Add(c); }
+        void Row(Control c, int top = 0)
+        {
+            c.Margin = new Padding(0, top, 0, 4);
+            if (c is Button b) { b.AutoSize = false; b.AutoEllipsis = true; b.Height = (int)(30 * s); }
+            if (c is not System.Windows.Forms.Label) c.Width = cw;
+            left.Controls.Add(c);
+        }
+        // Never scroll sideways: a horizontal bar appearing and going made the whole window jitter (a user, 0.35.23).
+        left.HorizontalScroll.Maximum = 0; left.AutoScroll = false; left.HorizontalScroll.Visible = false; left.HorizontalScroll.Enabled = false; left.AutoScroll = true;
         Label Caption(string t) => new() { Text = t, AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f) };
         hint.MaximumSize = new Size(cw, 0);
-        foreach (var sl in new[] { frameSlider, lightSlider, overlaySlider, lensSlider }) sl.Height = (int)(24 * s);
-        var presets = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Width = cw };
+        foreach (var sl in new[] { frameSlider, lightSlider, overlaySlider, lensSlider, turnSlider }) sl.Height = (int)(24 * s);
+        // The framing buttons as a fixed 2 × 2 grid: always the column's width (a wrapping row overflowed at 150 % scaling).
+        var presets = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, Width = cw, Height = (int)(64 * s), Margin = new Padding(0) };
+        presets.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); presets.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        presets.RowStyles.Add(new RowStyle(SizeType.Percent, 50)); presets.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         presets.Controls.AddRange([
             Ui.FlatButton("Full Body", () => { Preset(Kind.Store); SaveSetup(); }, tip: "Frame the whole character (as the store images are)."),
             Ui.FlatButton("Head & Shoulders", () => { Preset(Kind.Portrait); SaveSetup(); }, tip: "Frame the head and shoulders (as the hero portraits are)."),
             Ui.FlatButton("Bust", () => { Preset(Kind.Costume); SaveSetup(); }, tip: "Frame head and chest (as the costume icons are)."),
+            Ui.FlatButton("Reset View", ResetView, tip: "Back to this icon's usual framing, facing front, with the standard lens and light."),
         ]);
+        foreach (Button pb in presets.Controls) { pb.AutoSize = false; pb.AutoEllipsis = true; pb.Dock = DockStyle.Fill; pb.Margin = new Padding(0, 0, 3, 3); pb.Padding = new Padding(2, 0, 2, 0); }
         Row(title); Row(hint);
         Row(Caption("MODEL"), 8); Row(meshBox);
         Row(Ui.FlatButton("Open a .UPK", OpenUpk, tip: "Show a character from any package file (for example a stock costume) instead of the mod's own."));
@@ -120,7 +136,7 @@ sealed class IconCreatorView : UserControl
         Row(Caption("LOOK"), 8); Row(lightSlider); Row(backBox); Row(overlaySlider); Row(overlayBtn);
         previousBtn = Ui.FlatButton("Use Previous Setup", UsePrevious, tip: "Set this icon up like the one you had open before.");
         previousBtn.AutoEllipsis = true;
-        Row(Caption("FRAMING"), 8); Row(lensSlider); Row(presets); Row(previousBtn);
+        Row(Caption("FRAMING"), 8); Row(turnSlider); Row(lensSlider); Row(presets); Row(previousBtn);
         root.Controls.Add(left, 0, 0);
 
         // Middle: the viewfinder in the target's shape.
@@ -175,18 +191,46 @@ sealed class IconCreatorView : UserControl
         overlaySlider.Home = () => 0.35f;
         ApplyOverlay();
         view.ViewChanged += SaveSetup;
+        view.ViewChanged += SyncTurn;
+        turnSlider.Format = v => $"{v:0}°";
+        turnSlider.Home = () => 0;
+        turnSlider.ValueChanged += () =>
+        {
+            if (restoring || syncingTurn) return;
+            var vs = view.ViewState; vs[0] = turnSlider.Value * MathF.PI / 180f; view.ViewState = vs;
+        };
+        turnSlider.Committed += SaveSetup;
+        Ui.Tip(turnSlider, "Turn the model: 0° faces the camera. Dragging in the view turns it too (double-click here: 0°).");
         lensSlider.Format = v => $"{v:0} mm";
         lensSlider.Value = ModelView.DefaultFocalLength;
         lensSlider.Home = () => ModelView.DefaultFocalLength;
         lensSlider.ValueChanged += () => { if (!restoring) view.FocalLength = lensSlider.Value; };
         lensSlider.Committed += SaveSetup;
-        Ui.Tip(lensSlider, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter. The character stays the same size in the frame; only the perspective changes (double-click: 28.5 mm, the 3D view's own).");
+        Ui.Tip(lensSlider, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter. The character stays the same size in the frame; only the perspective changes (double-click: 50 mm, the 3D view's own).");
         title.Text = "Create from 3D";
         hint.Text = "Select a texture on the left.";
         ImageViewerForm.Attach(result, () => (snapshot, $"Snapshot: {texture}  ·  {targetW}×{targetH}", texture + "_snapshot"));   // the real pixels, not the enlarged copy
     }
 
     void ToggleOverlay() { overlayOn = !overlayOn; ApplyOverlay(); }
+
+    /// <summary>The Turn slider follows the view (a drag, a preset, a restored setup) without turning it back.</summary>
+    void SyncTurn()
+    {
+        float deg = view.ViewState[0] * 180f / MathF.PI;
+        deg = ((deg + 180f) % 360f + 360f) % 360f - 180f;
+        syncingTurn = true;
+        try { turnSlider.Value = deg; } finally { syncingTurn = false; }
+    }
+
+    /// <summary>Reset View: this icon's usual framing, facing front, the standard lens and light.</summary>
+    void ResetView()
+    {
+        lensSlider.Value = ModelView.DefaultFocalLength; view.FocalLength = ModelView.DefaultFocalLength;
+        lightSlider.Value = 1; view.Brightness = 1;
+        Preset(kind);
+        SaveSetup();
+    }
 
     /// <summary>The overlay at the slider's opacity, or hidden; the button is accent-coloured while it shows.</summary>
     void ApplyOverlay()
@@ -384,7 +428,7 @@ sealed class IconCreatorView : UserControl
         frameSlider.Enabled = false;
         status.Text = "";
         SetLens(setup);
-        if (setup?.View == null) Preset(kind); else view.ViewState = setup.View;
+        if (setup?.View == null) Preset(kind); else { view.ViewState = setup.View; SyncTurn(); }
         FillProps(r, setup);
         await LoadPropsAsync(req);
         if (IsDisposed || req != request) return;
@@ -426,7 +470,7 @@ sealed class IconCreatorView : UserControl
         float mm = setup?.Lens is float ln && ln > 0 ? ln : ModelView.DefaultFocalLength;
         var keep = view.ViewState;
         view.FocalLength = mm;
-        view.ViewState = keep;
+        view.ViewState = keep; SyncTurn();
     }
 
     /// <summary>A mesh already shown: just this icon's animation, frame and camera.</summary>
@@ -434,7 +478,7 @@ sealed class IconCreatorView : UserControl
     {
         if (loadedRef != null) { FillProps(loadedRef, setup); await LoadPropsAsync(request); }
         SetLens(setup);
-        if (setup?.View == null) Preset(kind); else view.ViewState = setup.View;
+        if (setup?.View == null) Preset(kind); else { view.ViewState = setup.View; SyncTurn(); }
         int ai = setup?.Anim is string an ? anims.FindIndex(a => a.Name.Equals(an, StringComparison.OrdinalIgnoreCase)) : -1;
         current = ai;
         FillAnims();
@@ -528,7 +572,7 @@ sealed class IconCreatorView : UserControl
         }
         var keep = view.ViewState;
         view.ShowMesh(Combined(), loaded.Positions.Length);
-        view.ViewState = keep;
+        view.ViewState = keep; SyncTurn();
         int total = loaded.Positions.Length + props.Sum(p => p.Mesh.Positions.Length);
         allPos = new Vector3[total]; allNrm = new Vector3[total]; allTan = new Vector4[total];
         PoseAll();
@@ -581,16 +625,18 @@ sealed class IconCreatorView : UserControl
     /// height from the feet (the lowest vertex) to it. The view shows 0.845 × distance vertically (field of view 0.8 rad).
     /// Without a head bone, by the bounding box. The camera sits on +X, where characters face, a little turned.
     /// </summary>
-    void Preset(Kind k)
+    void Preset(Kind k) { PresetCore(k); SyncTurn(); }
+
+    void PresetCore(Kind k)
     {
-        const float yaw = -0.25f;
+        const float yaw = 0f;   // facing the camera (was −0.25 rad, about 14°; a user: most want straight on)
         if (animator != null && loaded != null && HeadBone() is int head)
         {
             if (playing == null) animator.Pose(null, 0);
             var h = animator.BonePosition(head);
             float feet = animator.Positions.Min(p => p.Z), top = animator.Positions.Max(p => p.Z), tall = Math.Max(1f, h.Z - feet);
             // Only a standing character has its head near the top (a pet shark's "head" is low in its body: Jeff).
-            float lens = view.FocalLength / ModelView.DefaultFocalLength;   // a longer lens stands further back for the same framing
+            float lens = view.FocalLength / ModelView.ReferenceFocalLength;   // a longer lens stands further back for the same framing
             if (tall >= 0.75f * (top - feet))
                 switch (k)
                 {
@@ -740,8 +786,8 @@ sealed class IconCreatorView : UserControl
             int before = Tall(snapshot);
             var keepView = view.ViewState; float keepLens = view.FocalLength;
             lensSlider.Value = 85;
-            using (var tele = view.Snapshot(targetW, targetH)) { int after = tele == null ? 0 : Tall(tele); lensNote = $"; lens 28.5 → 85 mm: height {before} → {after} px"; if (tele != null) tele.Save(Path.Combine(dir, texture + "_85mm.png"), ImageFormat.Png); }
-            lensSlider.Value = keepLens; view.ViewState = keepView;
+            using (var tele = view.Snapshot(targetW, targetH)) { int after = tele == null ? 0 : Tall(tele); lensNote = $"; lens 50 → 85 mm: height {before} → {after} px"; if (tele != null) tele.Save(Path.Combine(dir, texture + "_85mm.png"), ImageFormat.Png); }
+            lensSlider.Value = keepLens; view.ViewState = keepView; SyncTurn();
         }
         bool size = snapshot.Width == SnapW && snapshot.Height == SnapH;
         int opaque = 0, clear = 0;

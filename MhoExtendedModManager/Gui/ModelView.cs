@@ -214,11 +214,11 @@ sealed class ModelView : UserControl
     /// <summary>The camera, relative to the mesh: yaw, pitch, distance / radius, target offset / radius (x, y, z) (as MeshViewer's).</summary>
     public float[] ViewState
     {
-        get => [yaw, pitch, distance / radius, (target.X - center.X) / radius, (target.Y - center.Y) / radius, (target.Z - center.Z) / radius];
+        get => [yaw, pitch, distance / radius / LensScale, (target.X - center.X) / radius, (target.Y - center.Y) / radius, (target.Z - center.Z) / radius];
         set
         {
             if (value is not { Length: 6 }) return;
-            yaw = value[0]; pitch = Math.Clamp(value[1], -1.5f, 1.5f); distance = Math.Clamp(value[2], 0.05f, 50f) * radius;
+            yaw = value[0]; pitch = Math.Clamp(value[1], -1.5f, 1.5f); distance = Math.Clamp(value[2], 0.05f, 50f) * radius * LensScale;
             target = center + new Vector3(value[3], value[4], value[5]) * radius;
             Redraw();
         }
@@ -242,7 +242,7 @@ sealed class ModelView : UserControl
         canvas.Invalidate();
     }
 
-    void FrameMesh() { target = center; distance = radius * 2.6f; yaw = -0.8f; pitch = 0.35f; }
+    void FrameMesh() { target = center; distance = radius * 2.6f * LensScale; yaw = -0.8f; pitch = 0.35f; }
 
     void Drag(MouseEventArgs e)
     {
@@ -259,9 +259,17 @@ sealed class ModelView : UserControl
         Redraw();
     }
 
-    /// <summary>The vertical field of view (radians); 0.8 by default (about a 28.5 mm lens).</summary>
+    /// <summary>The vertical field of view (radians). Default: a 50 mm lens (Kurt, 2026-09-29; was 0.8 rad, about 28.5 mm).</summary>
     float Fov = DefaultFov;
-    public const float DefaultFov = 0.8f;
+    public static readonly float DefaultFov = 2 * MathF.Atan(12f / 50f);
+    /// <summary>
+    /// Framing is kept as it would be with the old 0.8 rad (28.5 mm) lens: saved views, the automatic framing and the icon
+    /// presets store a distance for that lens, and the camera stands back by this factor for the current one (a dolly zoom),
+    /// so a different lens changes the perspective, not the size in the frame.
+    /// </summary>
+    public const float ReferenceFov = 0.8f;
+    public static float ReferenceFocalLength => 12f / MathF.Tan(ReferenceFov / 2);
+    float LensScale => MathF.Tan(ReferenceFov / 2) / MathF.Tan(Fov / 2);
 
     /// <summary>
     /// The lens as a 35 mm camera's focal length (a 24 mm tall frame: fov = 2·atan(12 / mm)). Setting it keeps what's

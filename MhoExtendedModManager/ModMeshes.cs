@@ -278,7 +278,7 @@ static class ModMeshes
     }
 
     /// <summary>The mesh's materials: not a property but the native data's first array, right after the bounds.</summary>
-    static List<int> MaterialRefs(AnimPackage pkg, int export)
+    internal static List<int> MaterialRefs(AnimPackage pkg, int export)
     {
         var materials = new List<int>();
         if (pkg.TryReadProperties(export) is { } props)

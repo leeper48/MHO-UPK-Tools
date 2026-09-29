@@ -244,7 +244,14 @@ sealed class MainForm : Form
         header.PillClicked += () => { if (Selected is Mod m) Toggle(m); };
         header.CostumeClicked += pt => { if (Selected is Mod m && !readOnly) CostumeMenu(m, pt); };
         list.CostumeLabel = m => SingleCostume(m) is { } sc ? sc.Costume.Title + (sc.Costume.IsDefault ? " (Default)" : "") : null;
-        Ui.OverrideSuffix = m => SingleCostume(m) is { } c && m.Name.EndsWith($" (on {c.Costume.Title})", StringComparison.Ordinal) ? $" (on {c.Costume.Title})" : null;
+        // The "(on …)" a moved costume's name ends with: "(on Storm Modern)" = moved to another hero (amber), "(on Classic)" =
+        // moved within its hero (teal); only when it names the costume the mod's package is for.
+        Ui.OverrideSuffix = m =>
+        {
+            if (SingleCostume(m) is not { } c) return null;
+            string other = $" (on {c.Costume.Short.Split('/')[0]} {c.Costume.Title})", same = $" (on {c.Costume.Title})";
+            return m.Name.EndsWith(other, StringComparison.Ordinal) ? (other, true) : m.Name.EndsWith(same, StringComparison.Ordinal) ? (same, false) : null;
+        };
         header.TagsClicked += pt => { if (Selected is Mod m && !readOnly) Ui.ShowAt(TagsMenu(m), pt); };
         tips.SetToolTip(header, "Click Enabled / Disabled to turn the mod on or off, and its tags or + Tag to change the tags.");
 
@@ -861,10 +868,54 @@ sealed class MainForm : Form
             if (MoveCostumeForm.Image(target, catalog) is Bitmap b) { item.Image = b; item.ImageScaling = ToolStripItemImageScaling.None; item.Image = new Bitmap(b, new Size((int)(24 * DeviceDpi / 96f), (int)(34 * DeviceDpi / 96f))); b.Dispose(); }
             items.Add(item);
         }
+        // Another hero (Kurt): a picker of heroes, then their costumes.
+        items.Add(new ToolStripSeparator());
+        var other = new ToolStripMenuItem("Another Hero", null, (_, _) => PickOtherHero(m, src.File, src.Costume));
+        other.ToolTipText = "Move the model and voice onto a costume of a different hero (that hero's animations and powers stay).";
+        items.Add(other);
         // The hero's default costume when it lives in the hero's main package (Thor Modern): shown, but it can't be a target.
         var def = costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c));
         if (def != null && !def.Class.Equals(src.Costume.Class, StringComparison.OrdinalIgnoreCase))
             items.Add(new ToolStripMenuItem($"{def.Title}  ·  Default (Can't Move Here: Its Package Holds the Hero's Animations)") { Enabled = false, Tag = Ui.Enabled });
+    }
+
+    /// <summary>Another Hero: the hero / costume picker, then the Move window and CrossMove.CreateMod.</summary>
+    async void PickOtherHero(Mod m, string file, Costume source)
+    {
+        if (readOnly || lib == null || game == null || costumes == null) return;
+        var (l, g, all) = (lib, game, costumes);
+        var catalog = list.Catalog;
+        Costume target;
+        using (var pick = new HeroPickerForm(m, source, all, g.Cooked, catalog))
+        {
+            if (pick.ShowDialog(this) != DialogResult.OK || pick.Chosen == null) return;
+            target = pick.Chosen;
+        }
+        var made0 = l.Mods.FirstOrDefault(x => x.Name.Equals(CrossMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
+        if (made0 != null) { SelectMod(made0.FolderName); status.Text = Ui.TitleCase($"\"{made0.Name}\" is made already"); return; }
+        UseWaitCursor = true;
+        CostumeMove.Plan plan;
+        try { plan = await Task.Run(() => CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog)); }
+        finally { UseWaitCursor = false; }
+        var onTarget = l.Mods.Where(x => x.Manifest.UpkReplacements.Contains(target.Package, StringComparer.OrdinalIgnoreCase)).ToList();
+        bool swap;
+        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget, crossHero: true))
+        {
+            if (f.ShowDialog(this) != DialogResult.OK) return;
+            swap = f.SwapOn;
+        }
+        UseWaitCursor = true;
+        status.Text = Ui.TitleCase($"Moving \"{m.Name}\" to {target.Title}…");
+        string? error = null, made;
+        var log = new List<string>();
+        try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error)); }
+        finally { UseWaitCursor = false; }
+        if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); Reload(); return; }
+        Reload();
+        if (swap && lib?.Mods.FirstOrDefault(x => x.FolderName == made) is Mod nm && lib.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod om)
+            Change($"turn on \"{nm.Name}\" and off \"{om.Name}\"", () => { nm.Enabled = true; om.Enabled = false; return true; });
+        SelectMod(made);
+        status.Text = Ui.TitleCase($"Made \"{CrossMove.NewName(m, target)}\"") + (swap ? "  ·  Apply Changes to Put It in the Game" : "");
     }
 
     /// <summary>The plan in the Move window, then the new mod (CostumeMove.CreateMod); optionally on, with the original off.</summary>

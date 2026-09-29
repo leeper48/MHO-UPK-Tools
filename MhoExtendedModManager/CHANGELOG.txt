@@ -1,6 +1,19 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.1
+- Move to Another Hero takes the voice along: the mod's own voice lines (with its sound pack), or the original hero's voice, played by the new hero's powers.
+- 3D preview: animations move bones the way the game does (rotation only, except the bones an animation set lists), so a costume on another hero no longer shows misplaced eyes or face parts.
+
+0.37.0
+- Move to Another Hero: put a costume mod's model onto a costume of a different hero (for example Savage She-Hulk on Storm's default costume). Pick the hero from their portraits, then the costume. The model, its textures, the icons and the costume's name move; the hero's own animations, powers and voice stay.
+- 3D views start with a 50 mm lens (was 28.5 mm): less distortion, same framing.
+
+0.36.9
+- Create from 3D: characters start facing the camera; a Turn slider (0° = straight on) and a Reset View button. Fixed the window jittering there at larger display scaling.
+- 3D preview: a Lens slider (remembered per mod), and the strip of pictures sits right under the preview.
+- Moved costumes: the "(on …)" is teal for another costume of the same hero, amber for another hero.
+
 0.36.6
 - Moving a costume takes its sound pack along too (when every sound it plays is in the costume's package, as with Miles Morales). If a mod and its moved copy are both on, the pack is only added once.
 

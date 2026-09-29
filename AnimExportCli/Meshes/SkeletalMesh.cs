@@ -77,6 +77,8 @@ public sealed record SkeletalMesh
     public required string Name { get; init; }
     public required IReadOnlyList<MeshBone> Bones { get; init; }
     public required IReadOnlyList<SkeletalMeshLod> Lods { get; init; }
+    /// <summary>Byte offset in the export data where the last level of detail ends (what follows is the mesh's tail).</summary>
+    public int LodsEnd { get; init; }
 
     public SkeletalMeshLod? HighestDetail => Lods.Count > 0 ? Lods[0] : null;
 
@@ -159,7 +161,7 @@ public static class SkeletalMeshReader
         var lods = new List<SkeletalMeshLod>(lodCount);
         for (int i = 0; i < lodCount; i++) lods.Add(ReadLod(ref cursor, i, hasVertexColours));
 
-        return new SkeletalMesh { Name = package.GetExportName(exportIndex), Bones = bones, Lods = lods };
+        return new SkeletalMesh { Name = package.GetExportName(exportIndex), Bones = bones, Lods = lods, LodsEnd = cursor.Position };
     }
 
     private static void SkipObjectArray(ref PackageCursor cursor)

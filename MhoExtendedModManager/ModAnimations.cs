@@ -6,7 +6,11 @@ using AnimPackage = AnimExportCli.Packages.Package;
 namespace MhoExtendedModManager;
 
 /// <summary>An animation (AnimSequence) that can play on a mesh in the preview's 3D view.</summary>
-sealed record AnimRef(string Package, string File, string Name, int SequenceExport, IReadOnlyList<string> TrackBoneNames);
+sealed record AnimRef(string Package, string File, string Name, int SequenceExport, IReadOnlyList<string> TrackBoneNames)
+{
+    /// <summary>The AnimSet's bones that take the animation's positions; null = all (bAnimRotationOnly false).</summary>
+    public IReadOnlySet<string>? TranslationBones { get; init; }
+}
 
 /// <summary>
 /// Animations for the preview's 3D view (Kurt: pick one from a drop-down). A costume's meshes are in
@@ -18,6 +22,15 @@ sealed record AnimRef(string Package, string File, string Name, int SequenceExpo
 /// </summary>
 static class ModAnimations
 {
+    /// <summary>
+    /// UE3 AnimSets are rotation-only by default (bAnimRotationOnly, omitted when true): a bone's position comes from the
+    /// mesh's own bind pose unless the set lists it in UseTranslationBoneNames (Daredevil's: 16 of 98 bones). Applying every
+    /// position put Daredevil's eyes on Magik's head in the preview (a costume moved to another hero), while the game
+    /// showed her right. Kept per decoded animation for MeshAnimator.
+    /// </summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BoneAnimation, IReadOnlySet<string>> translation = new();
+    public static IReadOnlySet<string>? TranslationBones(BoneAnimation a) => translation.TryGetValue(a, out var s) ? s : null;
+
     static readonly Dictionary<string, AnimPackage> open = new(StringComparer.OrdinalIgnoreCase);
 
     static AnimPackage Open(string path)
@@ -63,7 +76,8 @@ static class ModAnimations
                 {
                     string name;
                     try { name = AnimObjectReader.GetSequenceDisplayName(pkg, seq.ExportIndex); } catch { continue; }
-                    if (seen.Add(name)) result.Add(new AnimRef(file, path, name, seq.ExportIndex, set.TrackBoneNames));
+                    if (seen.Add(name)) result.Add(new AnimRef(file, path, name, seq.ExportIndex, set.TrackBoneNames)
+                        { TranslationBones = set.RotationOnly ? new HashSet<string>(set.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null });
                 }
             }
         }
@@ -73,7 +87,12 @@ static class ModAnimations
     /// <summary>Decodes an animation; null if it can't be read.</summary>
     public static BoneAnimation? Load(AnimRef a)
     {
-        try { return AnimObjectReader.TryRead(Open(a.File), a.SequenceExport, a.TrackBoneNames); }
+        try
+        {
+            var anim = AnimObjectReader.TryRead(Open(a.File), a.SequenceExport, a.TrackBoneNames);
+            if (anim != null && a.TranslationBones != null) translation.AddOrUpdate(anim, a.TranslationBones);
+            return anim;
+        }
         catch (Exception ex) when (ex is IOException or InvalidDataException or AnimExportCli.Packages.InvalidPackageException or ArgumentException or IndexOutOfRangeException) { return null; }
     }
 }
@@ -142,7 +161,9 @@ sealed class MeshAnimator
             Vector3 p = b.Position; Quaternion r = Unit(b.Orientation);
             if (a != null && a.Tracks.TryGetValue(b.Name, out var t))
             {
-                p = Sample(t.PositionKeys, frame, p);
+                // Rotation-only sets: the animation's position only for its listed bones (and the root).
+                var tb = ModAnimations.TranslationBones(a);
+                if (tb == null || i == 0 || b.ParentIndex < 0 || tb.Contains(b.Name)) p = Sample(t.PositionKeys, frame, p);
                 var keys = t.RotationKeys;
                 if (keys.Count == 1) r = SingleKey(keys[0].Rotation, r);
                 else r = Sample(keys, frame, r);

@@ -251,13 +251,15 @@ static class Ui
 
     /// <summary>The " (on Classic)" end of a moved costume mod's name (drawn in amber: our override, not part of the mod's
     /// name, Kurt), or null. Set by MainForm (it knows the costume each mod is for).</summary>
-    public static Func<Mod, string?>? OverrideSuffix { get; set; }
-    public static readonly Color OverrideAmber = Color.FromArgb(242, 170, 60);
+    public static Func<Mod, (string Suffix, bool OtherHero)?>? OverrideSuffix { get; set; }
+    /// <summary>Kurt: amber for a costume moved to another hero, teal for one moved within its hero.</summary>
+    public static readonly Color OverrideAmber = Color.FromArgb(242, 170, 60), OverrideTeal = TagContent;
 
     /// <summary>A mod's name in <paramref name="rect"/>: the name, then its override suffix in amber (the name is shortened first).</summary>
     public static void DrawModName(Graphics g, Mod m, Font font, Rectangle rect, Color color, TextFormatFlags flags)
     {
-        string? suffix = OverrideSuffix?.Invoke(m);
+        var over = OverrideSuffix?.Invoke(m);
+        string? suffix = over?.Suffix;
         if (suffix == null || !m.Name.EndsWith(suffix, StringComparison.Ordinal)) { TextRenderer.DrawText(g, m.Name, font, rect, color, flags); return; }
         string head = m.Name[..^suffix.Length];
         var nf = flags | TextFormatFlags.NoPadding;
@@ -265,7 +267,7 @@ static class Ui
         int sw = TextRenderer.MeasureText(g, suffix, font, Size.Empty, measure).Width;
         int hw = Math.Min(TextRenderer.MeasureText(g, head, font, Size.Empty, measure).Width, Math.Max(0, rect.Width - sw));
         TextRenderer.DrawText(g, head, font, new Rectangle(rect.X, rect.Y, hw, rect.Height), color, nf | TextFormatFlags.EndEllipsis);
-        TextRenderer.DrawText(g, suffix, font, new Rectangle(rect.X + hw, rect.Y, Math.Max(0, rect.Width - hw), rect.Height), OverrideAmber, nf);
+        TextRenderer.DrawText(g, suffix, font, new Rectangle(rect.X + hw, rect.Y, Math.Max(0, rect.Width - hw), rect.Height), over!.Value.OtherHero ? OverrideAmber : OverrideTeal, nf);
     }
 
     /// <summary>A small preview of a .dds (null if it can't be read).</summary>
@@ -614,6 +616,7 @@ static class Ui
         {
             var g = e.Graphics;
             var r = b.ClientRectangle;
+            if (r.Width < 4 || r.Height < 4) return;   // nothing to draw (a button laid out at zero size crashed AddArc)
             // Behind the corners: what the parent shows there.
             var parentColor = b.Parent?.BackColor ?? Back;
             if (parentColor.A < 255) PaintGradient(g, b, r);
@@ -639,6 +642,7 @@ static class Ui
     {
         float d = Math.Min(radius * 2, Math.Min(r.Width, r.Height));
         var p = new GraphicsPath();
+        if (d <= 0) { p.AddRectangle(r); return p; }
         p.AddArc(r.X, r.Y, d, d, 180, 90);
         p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
         p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
@@ -1238,7 +1242,7 @@ sealed class StorePreview : Control
     bool fillingAnims;
     // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
     Button? playBtn, loopBtn, restBtn;
-    LightSlider? lightSlider;
+    LightSlider? lightSlider, lensSlider;
     bool paused = true;
     double playTime, lastTick;
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
@@ -1376,7 +1380,7 @@ sealed class StorePreview : Control
         // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
         bool showStrip = Tiles > 1;
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
-        int captionH = (int)((show3D ? 96 : 40) * S);
+        int captionH = (int)((show3D ? 122 : 40) * S);
         int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
         int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
         if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
@@ -1441,6 +1445,12 @@ sealed class StorePreview : Control
                     var sb = new Rectangle(card.X, y + bh + (int)(4 * S), card.Width, (int)(22 * S));
                     if (lightSlider.Bounds != sb) lightSlider.Bounds = sb;
                     if (!lightSlider.Visible) lightSlider.Visible = true;
+                    if (lensSlider != null)
+                    {
+                        var lb2 = new Rectangle(card.X, sb.Bottom + (int)(4 * S), card.Width, (int)(22 * S));
+                        if (lensSlider.Bounds != lb2) lensSlider.Bounds = lb2;
+                        if (!lensSlider.Visible) lensSlider.Visible = true;
+                    }
                 }
             }
         }
@@ -1458,7 +1468,7 @@ sealed class StorePreview : Control
         thumbRects.Clear();
         leftArrow = rightArrow = strip = Rectangle.Empty;
         if (!showStrip || mod == null) return;
-        int top = Height - stripH + (int)(4 * S), arrowW = (int)(16 * S);
+        int top = card.Bottom + captionH - (int)(2 * S), arrowW = (int)(16 * S);
         strip = new Rectangle(pad, top, Width - 2 * pad, ThumbSize);
         int total = Tiles * (ThumbSize + (int)(6 * S)) - (int)(6 * S);
         if (total > strip.Width)
@@ -1567,6 +1577,7 @@ sealed class StorePreview : Control
         shownMesh = null;
         StopAnimation(); anims = []; animator = null; FillAnims();
         if (mod != null) { float lv = PreviewViews.Light(mod); viewer.Brightness = lv; if (lightSlider != null) lightSlider.Value = lv; }   // this mod's light
+        if (mod != null) { float fl = PreviewViews.Lens(mod); viewer.FocalLength = fl; if (lensSlider != null) lensSlider.Value = fl; }    // and lens
         Invalidate();
         if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + File.GetLastWriteTimeUtc(r.File).Ticks, out var hit) && hit != null) { Show(hit); return; }
         viewer.ShowMessage("Loading the 3D view…");
@@ -1633,6 +1644,11 @@ sealed class StorePreview : Control
             lightSlider.Committed += () => { if (mod != null) PreviewViews.SetLight(mod, lightSlider.Value); };
             Ui.Tip(lightSlider, "Light brightness in the 3D view for this mod (drag, or the mouse wheel; double-click: back to the mod's own level, else 100%). Remembered per mod on this PC; Export can put it into the mod.");
             Controls.Add(lightSlider);
+            lensSlider = new LightSlider { Visible = false, Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = ModelView.DefaultFocalLength, Format = v => $"{v:0} mm", Home = () => ModelView.DefaultFocalLength };
+            lensSlider.ValueChanged += () => { if (viewer != null) viewer.FocalLength = lensSlider.Value; };
+            lensSlider.Committed += () => { if (mod != null) PreviewViews.SetLens(mod, lensSlider.Value); };
+            Ui.Tip(lensSlider, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter; the model stays the same size (double-click: 50 mm). Remembered per mod on this PC.");
+            Controls.Add(lensSlider);
         }
         fillingAnims = true;
         animBox.BeginUpdate();
@@ -1899,7 +1915,7 @@ sealed class StorePreview : Control
         PreviewViews.SetAnim(PreviewViews.Key(mod, shownMesh), i >= 0 && i < anims.Count ? anims[i].Name : null, t);
     }
 
-    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, lightSlider }) if (c != null) c.Visible = false; }
+    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, lightSlider, lensSlider }) if (c != null) c.Visible = false; }
 
     void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); }
 
@@ -1983,7 +1999,7 @@ sealed class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); }
         base.Dispose(disposing);
     }
 }

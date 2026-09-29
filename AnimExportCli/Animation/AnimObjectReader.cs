@@ -26,7 +26,10 @@ public static class AnimObjectReader
     public const string AnimSetClassName = "animset";
     public const string AnimSequenceClassName = "animsequence";
 
-    public sealed record AnimSetInfo(int ExportIndex, IReadOnlyList<string> TrackBoneNames, IReadOnlyList<ObjectReference> Sequences);
+    /// <param name="RotationOnly">UE3's bAnimRotationOnly (true unless stored: defaults are omitted): the animation drives bone
+    /// rotations; positions come from the mesh's own bind pose, except for the bones in <paramref name="TranslationBones"/>.</param>
+    public sealed record AnimSetInfo(int ExportIndex, IReadOnlyList<string> TrackBoneNames, IReadOnlyList<ObjectReference> Sequences,
+        bool RotationOnly = true, IReadOnlyList<string>? TranslationBones = null);
 
     public static IEnumerable<AnimSetInfo> FindAnimSets(Package package)
     {
@@ -42,7 +45,10 @@ public static class AnimObjectReader
             List<string> trackBoneNames = DecodeNameArray(trackBoneNamesTag, package.Names);
             if (trackBoneNames.Count == 0) continue;
 
-            yield return new AnimSetInfo(index, trackBoneNames, DecodeObjectArray(sequencesTag));
+            PropertyTag? translationTag = properties.Find("UseTranslationBoneNames");
+            bool rotationOnly = properties.Find("bAnimRotationOnly") is null || properties.GetBool("bAnimRotationOnly");
+            yield return new AnimSetInfo(index, trackBoneNames, DecodeObjectArray(sequencesTag), rotationOnly,
+                translationTag is null ? [] : DecodeNameArray(translationTag, package.Names));
         }
     }
 

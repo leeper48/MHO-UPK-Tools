@@ -159,7 +159,7 @@ function mhoNext(dir) {
 
 <h2 id="preview">Preview and 3D view</h2>
 <p>The middle column shows one picture large and a strip of choices under it: the mod's store images, portraits and icons, the game's originals (marked G) and, for character mods, a <b>3D</b> view. Click a picture to make it the one shown for this mod; right-click to go back to the mod's own choice.</p>
-<p>The <b>3D view</b> shows the mod's models with their materials, lit like the game. Drag to turn, right-drag to move, the mouse wheel to zoom (<kbd>Shift</kbd> for fine steps), double-click to frame. Pick an animation from the drop-down, then ▶ to play, ⟳ to loop, and <b>Reset View</b> to go back. The <b>Light</b> slider changes the brightness per mod. The view, animation and light are remembered per mod.</p>
+<p>The <b>3D view</b> shows the mod's models with their materials, lit like the game. Drag to turn, right-drag to move, the mouse wheel to zoom (<kbd>Shift</kbd> for fine steps), double-click to frame. Pick an animation from the drop-down, then ▶ to play, ⟳ to loop, and <b>Reset View</b> to go back. The <b>Light</b> slider changes the brightness and the <b>Lens</b> slider the camera's focal length (wide and close, or long and flat; double-click for the standard 50 mm). The view, animation, light and lens are remembered per mod. The strip of pictures sits right under the preview.</p>
 <p>The <b>Note</b> under the preview is the mod's note, or your own (it replaces the mod's on this PC).</p>
 
 <h2 id="apply">Apply Changes</h2>
@@ -190,7 +190,7 @@ function mhoNext(dir) {
 <p>The game must be closed. If Apply stops, the mod isn't removed: it stays in the list, turned off, and the log shows why.</p>
 
 <h2 id="costume">Move to Another Costume</h2>
-<p>A costume mod made for one costume can be moved onto another costume of the same hero, for example Unworthy Thor (made for Age of Ultron) onto Thor Classic, so you can wear both.</p>
+<p>A costume mod made for one costume can be moved onto another costume of the same hero, for example Unworthy Thor (made for Age of Ultron) onto Thor Classic, so you can wear both, or onto a costume of another hero (below).</p>
 <ol class="steps">
 <li>Select the mod. Its card and header show the costume it's for (only mods for a single costume can move).</li>
 <li>Click <b>Costume: … ▾</b> in the header, or right-click the card → <b>Move to Another Costume</b>, and pick a costume. The list shows each costume's store image and whether other mods already use it; the hero's default costume is marked <span style="color:#4cbc6c">Default</span> in green.</li>
@@ -198,6 +198,9 @@ function mhoNext(dir) {
 <li>Press <b>Create Mod</b>. The new mod, "Name <span style="color:#f2aa3c">(on Costume)</span>", goes to the top of the list; with <b>Turn the new mod on and … off</b> ticked (the default) it's on and the original is off. Then Apply Changes.</li>
 </ol>
 <p>The original mod isn't changed. Moving again to a costume you've already moved to selects that mod instead.</p>
+<h3>To another hero</h3>
+<p>At the bottom of the costume list, <b>Another Hero</b> opens a picker: the heroes with their portraits (type in <b>Filter</b> to narrow them), then the chosen hero's costumes with their store images (the default in green). The Move window then shows what moves: the <b>model</b> with its materials and textures goes into that costume's package, and the costume icon, portrait, store image and name follow. The <b>voice</b> moves too: the costume's voice set (death, level up, hits, banter, mission lines …) is copied with its sound events, so the target hero's powers play the source's lines: the mod's own voice lines (with its sound pack) if it has them, otherwise the source hero's stock voice. What stays the target hero's: the animations and powers; parts of the model the target's skeleton doesn't move (hair, a cape) stay still. The new mod is "Name <span style="color:#f2aa3c">(on Storm Modern)</span>": amber for another hero, teal for another costume of the same hero.</p>
+<p>A few models can't move to another hero yet: ones with APEX cloth (a simulated cape or coat), an animated material, or their own physics setup. The Move window says so.</p>
 <p><b>Sound packs</b> come along when every sound they play belongs to the costume (as with Miles Morales' voice pack). If the original and its moved copy are both on, the pack is only added once.</p>
 <div class="note">How it works: the game finds a costume by its class name and its icons by name, so the moved package is the mod's own package with the costume's class renamed to the target's, the model and materials given their own names (so they can't mix with the original costume's), and the target costume's package ID. Textures the game streams from its texture caches keep their names, as the caches find them by name. Costumes that live in a hero's main package (for example Vision Classic) can't be moved to or from.</div>
 
@@ -218,7 +221,7 @@ function mhoNext(dir) {
 <p>When a mod is for one costume, the image tabs open filtered to that costume's images. <b>Create Post</b> writes a Nexus and a Discord post for the mod, with images, and keeps it with the mod.</p>
 
 <h2 id="icons">Icons and Create from 3D</h2>
-<p>In the icon, store and portrait tabs, <b>Create from 3D</b> makes the image from the character itself: frame it (drag, pan, zoom), pick a pose and frame from the animations, a lens and the light, show the weapon or prop, and lay the game's original over it to line things up (<kbd>O</kbd>). The snapshot is made at the original's exact size. Each icon remembers its setup; <b>Use Previous Setup</b> copies the last one.</p>
+<p>In the icon, store and portrait tabs, <b>Create from 3D</b> makes the image from the character itself: frame it (drag, pan, zoom), pick a pose and frame from the animations, a lens and the light, show the weapon or prop, and lay the game's original over it to line things up (<kbd>O</kbd>). Characters start facing the camera; the <b>Turn</b> slider turns them (0° = straight on), and <b>Reset View</b> goes back to the usual framing, facing front, with the standard lens and light. The snapshot is made at the original's exact size. Each icon remembers its setup; <b>Use Previous Setup</b> copies the last one.</p>
 <p>Click the Original, Replacement or Snapshot picture to look closer: fit, 1:1, zoom, full screen (<kbd>F11</kbd>) and save as PNG (<kbd>Ctrl+S</kbd>).</p>
 
 <h2 id="extract">Extract</h2>
