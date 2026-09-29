@@ -1,6 +1,16 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.10
+- 3D views: reflections. Materials with reflections now mirror their own environment image (the game's stock studio, sky or mountain pictures), as strong as the material sets it, stronger at glancing angles where it asks for that, tinted by the colour where it asks for that.
+- 3D views: a costume's separate glow texture (full-colour emissive) now glows too.
+
+0.37.9
+- 3D views: highlights follow each material's own specular settings (strength, how sharp, the power map's range, a second highlight, the highlight colour or the diffuse-coloured highlight of newer materials), not one set of defaults.
+
+0.37.8
+- Mod header: the P / T / S badges and the Enabled pill no longer touch the Costume drop-down under them.
+
 0.37.7
 - 3D preview: a Frame slider under the animation, like the icon maker's. It follows the animation as it plays; drag it (or use the arrow keys) to scrub to a moment, and ▶ plays on from there.
 

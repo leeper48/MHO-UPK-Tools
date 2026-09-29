@@ -85,6 +85,27 @@ sealed class ModelView : UserControl
         public Channel Spec, SpecPow, RimMaskAt, Emissive;
         public bool UseNormal, UseSpec, UseRim, RimMask, DiffuseInRim, HalfLambert, Fill, UseEmissive, Cutout, TwoSided;
         public float NormalStrength = 1, SpecStrength = 1, SpecPower = 16, EmissiveMult = 1, Ambient = 1;
+        /// <summary>
+        /// Specular as the material sets it (Kurt, 2026-09-29; a survey of 96 stock character materials):
+        /// chbasematerial (v1) spreads the power map from SpecPower to SpecPowerMax (specularpower1min / max) and may add a
+        /// second highlight (specmult2, specularpower2min / max); chbasematerial_v2 with usespecpowermask takes the power as
+        /// specularpower × map × specularpowermask (typically 255: the map's byte value). SpecTint: speccolorvalue;
+        /// DiffuseSpec (usediffusemultspec): the highlight takes the diffuse colour × DiffuseSpecMult, desaturated by SpecDesat.
+        /// </summary>
+        public float SpecPowerMax, SpecPowerMask, Spec2Strength, Spec2Min, Spec2Max, DiffuseSpecMult = 1, SpecDesat;
+        public Vector3 SpecTint = Vector3.One;
+        public bool DiffuseSpec;
+        /// <summary>
+        /// Reflections (Kurt, 2026-09-29): the material's own reflectiontex, a latitude-longitude environment image (stock
+        /// bw_reflect / nova_original_reflect / lukecage_90s_reflect are square, pano_mountains 2:1: sky or ceiling lights on
+        /// top, the horizon across the middle), looked up by the reflected view direction (Z up). Strength: the packed map's
+        /// reflect channel × reflectionmult, stronger at grazing angles by fresnelpower; multiplyreflectionbydiffuse tints it
+        /// by the diffuse colour. EmissiveTex: a separate full-colour glow texture ("emissive", with use_emissivergb).
+        /// </summary>
+        public Map? Reflection, EmissiveTex;
+        public Channel ReflectAt;
+        public bool UseReflection, ReflectByDiffuse;
+        public float ReflectMult = 1, FresnelPower;
         public Vector3 Rim = new(0.5f, 0.55f, 0.65f), FillColor = new(0.8f, 0.6f, 0.5f);
         /// <summary>A plain look: just a colour texture (a material that couldn't be read), cut out at alpha 64 as before.</summary>
         public static Look Plain(Map? diffuse) => new() { Diffuse = diffuse, Cutout = true, UseRim = true, Rim = new(0.35f, 0.38f, 0.45f) };
@@ -484,11 +505,44 @@ sealed class ModelView : UserControl
         if (look.UseSpec)
         {
             float m = look.Spec.At(tuv, ratio, 0.35f);
-            float power = look.SpecPower * (look.SpecPow.Map != null ? 0.5f + 1.5f * look.SpecPow.At(tuv, ratio, 0.5f) : 1f);
+            float pch = look.SpecPow.Map != null ? look.SpecPow.At(tuv, ratio, 0.5f) : -1f;
+            float power = look.SpecPowerMask > 0 && pch >= 0 ? look.SpecPower * pch * look.SpecPowerMask
+                : look.SpecPowerMax > 0 && pch >= 0 ? look.SpecPower + (look.SpecPowerMax - look.SpecPower) * pch
+                : pch >= 0 ? look.SpecPower * (0.5f + 1.5f * pch) : look.SpecPower;
             var h = Vector3.Normalize(key + V);
-            float spec = MathF.Pow(MathF.Max(Vector3.Dot(N, h), 0), Math.Clamp(power, 2, 128)) * m * look.SpecStrength * 0.5f;
-            var sc = look.SpecColor is { } scm ? scm.Sample(tuv.X, tuv.Y, Lod(ratio, scm)) : Vector4.One;
-            outc += new Vector3(sc.X, sc.Y, sc.Z) * spec;
+            float ndh = MathF.Max(Vector3.Dot(N, h), 0);
+            float spec = MathF.Pow(ndh, Math.Clamp(power, 2, 256)) * m * look.SpecStrength * 0.5f;
+            if (look.Spec2Strength > 0)
+            {
+                float p2 = look.Spec2Min + (look.Spec2Max - look.Spec2Min) * (pch >= 0 ? pch : 0.5f);
+                spec += MathF.Pow(ndh, Math.Clamp(p2, 2, 256)) * m * look.Spec2Strength * 0.5f;
+            }
+            Vector3 color;
+            if (look.DiffuseSpec)
+            {
+                float grey = rgb.X * 0.3f + rgb.Y * 0.59f + rgb.Z * 0.11f;
+                color = Vector3.Lerp(rgb, new Vector3(grey), Math.Clamp(look.SpecDesat, 0, 1)) * look.DiffuseSpecMult;
+            }
+            else
+            {
+                var sc = look.SpecColor is { } scm ? scm.Sample(tuv.X, tuv.Y, Lod(ratio, scm)) : Vector4.One;
+                color = new Vector3(sc.X, sc.Y, sc.Z);
+            }
+            outc += color * look.SpecTint * spec;
+        }
+        if (look.UseReflection && look.Reflection is { } env)
+        {
+            float rm = look.ReflectAt.Map != null ? look.ReflectAt.At(tuv, ratio, 0f) : 0.5f;
+            if (rm > 0.002f)
+            {
+                var rv = -V - 2 * Vector3.Dot(-V, N) * N;
+                float u = 0.5f + MathF.Atan2(rv.Y, rv.X) / (2 * MathF.PI), v = MathF.Acos(Math.Clamp(rv.Z, -1, 1)) / MathF.PI;
+                var e = env.Sample(u, v, 0);
+                float fr = look.FresnelPower > 0 ? MathF.Pow(1 - Math.Clamp(Vector3.Dot(N, V), 0, 1), look.FresnelPower) : 1f;
+                var rc = new Vector3(e.X, e.Y, e.Z) * (rm * look.ReflectMult * fr * 0.5f);
+                if (look.ReflectByDiffuse) rc *= rgb;
+                outc += rc;
+            }
         }
         if (look.UseRim)
         {
@@ -499,6 +553,11 @@ sealed class ModelView : UserControl
         outc *= brightness;
         if (look.UseEmissive && look.Emissive.Map != null)
             outc += rgb * (look.Emissive.At(tuv, ratio, 0f) * look.EmissiveMult);
+        if (look.UseEmissive && look.EmissiveTex is { } em)
+        {
+            var ev = em.Sample(tuv.X, tuv.Y, Lod(ratio, em));
+            outc += new Vector3(ev.X, ev.Y, ev.Z) * look.EmissiveMult;
+        }
 
         int R = (int)(Math.Clamp(outc.X, 0, 1) * 255 + 0.5f), G = (int)(Math.Clamp(outc.Y, 0, 1) * 255 + 0.5f), Bc = (int)(Math.Clamp(outc.Z, 0, 1) * 255 + 0.5f);
         return unchecked((int)0xFF000000) | (R << 16) | (G << 8) | Bc;

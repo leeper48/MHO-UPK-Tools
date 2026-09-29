@@ -180,11 +180,34 @@ static class ModMeshes
                      || mi.Switches.Keys.Any(k => k.StartsWith("opacitymask", StringComparison.OrdinalIgnoreCase)),
             TwoSided = mi.Parent.Contains("doublesided", StringComparison.OrdinalIgnoreCase) || mi.Parent.Contains("hair", StringComparison.OrdinalIgnoreCase),
             NormalStrength = mi.Scalar("normalstrength", 1),
-            SpecStrength = Math.Clamp(mi.Scalar("specmult1", 1) * mi.Scalar("totalspecmult", 1), 0, 4),
-            SpecPower = mi.Scalar("specularpower1min", 0) is float sp && sp > 0 ? sp : 16,
+            SpecStrength = 1, SpecPower = 16,
             EmissiveMult = mi.Scalar("emissivemultiplier", 1),
             Ambient = Math.Clamp(mi.Scalar("ambientmult", 1), 0, 3),
         };
+        // Specular numbers by material generation (see ModelView.Look; values from a survey of 96 stock materials).
+        if (mi.Parent.Contains("_v2", StringComparison.OrdinalIgnoreCase))
+        {
+            look.SpecStrength = Math.Clamp(mi.Scalar("specmult", 1), 0, 6);
+            float sp = mi.Scalar("specularpower", 0);
+            if (mi.Switch("usespecpowermask")) { look.SpecPower = sp > 0 ? sp : 1; look.SpecPowerMask = mi.Scalar("specularpowermask", 255); }
+            else look.SpecPower = sp > 1 ? sp : 16;
+            if (mi.Switch("usediffusemultspec")) { look.DiffuseSpec = true; look.DiffuseSpecMult = mi.Scalar("diffusespecmult", 1); look.SpecDesat = mi.Scalar("speccolordesat", 0); }
+        }
+        else
+        {
+            float total = mi.Scalar("totalspecmult", 1);
+            look.SpecStrength = Math.Clamp(mi.Scalar("specmult1", 1) * total, 0, 6);
+            float lo = mi.Scalar("specularpower1min", 0), hi = mi.Scalar("specularpower1max", 0);
+            look.SpecPower = lo > 0 ? lo : hi > 0 ? hi : 16;
+            if (hi > look.SpecPower) look.SpecPowerMax = hi;
+            if (mi.Scalar("specmult2", 0) is float s2 && s2 > 0)
+            {
+                look.Spec2Strength = Math.Clamp(s2 * total, 0, 6);
+                float lo2 = mi.Scalar("specularpower2min", 0), hi2 = mi.Scalar("specularpower2max", 0);
+                look.Spec2Min = lo2 > 0 ? lo2 : hi2 > 0 ? hi2 : 16; look.Spec2Max = Math.Max(look.Spec2Min, hi2);
+            }
+        }
+        if (mi.Vectors.TryGetValue("speccolorvalue", out var scv)) look.SpecTint = new Vector3(scv.X, scv.Y, scv.Z);
         int normalAt = mi.Texture("normaltex", "hairnorm", "norm");
         if (normalAt >= 0) look.Normal = Map(normalAt);
         else look.UseNormal = false;
@@ -199,10 +222,22 @@ static class ModMeshes
                 if (look.SpecPow.Map == null && ch[1] >= 0) look.SpecPow = new(pm, ch[1]);
                 if (look.RimMaskAt.Map == null && ch[2] >= 0) look.RimMaskAt = new(pm, ch[2]);
                 if (look.Emissive.Map == null && ch[4] >= 0) look.Emissive = new(pm, ch[4]);
+                if (look.ReflectAt.Map == null && ch[3] >= 0) look.ReflectAt = new(pm, ch[3]);
             }
+        // Reflections and a separate glow texture (see ModelView.Look).
+        look.UseReflection = mi.Switch("usereflection") || mi.Switch("alwaysusereflection");
+        int rt = mi.Texture("reflectiontex");
+        if (look.UseReflection && rt >= 0) look.Reflection = Map(rt);
+        look.ReflectMult = Math.Clamp(mi.Scalar("reflectionmult", 1), 0, 4);
+        look.FresnelPower = mi.Scalar("fresnelpower", 0);
+        look.ReflectByDiffuse = mi.Switch("multiplyreflectionbydiffuse");
+        foreach (var (k, v) in mi.Textures)
+            if (k.Contains("emissive", StringComparison.OrdinalIgnoreCase) && !IsPacked(k)) { look.EmissiveTex = Map(v); if (mi.Switch("use_emissivergb") || mi.Switch("useemissive")) look.UseEmissive = true; break; }
         int sc = mi.Texture("speccolortex");
         if (sc >= 0) look.SpecColor = Map(sc);
         if (mi.Switch("useemissivespecpow")) look.UseEmissive = true;
+        if (Environment.GetEnvironmentVariable("MHO_EXTMM_LOOKDEBUG") == "1")
+            Console.WriteLine($"look s{s} {mi.Parent}: refl={look.UseReflection} map={look.Reflection != null} mask={(look.ReflectAt.Map != null)} mult={look.ReflectMult} fres={look.FresnelPower} bydiff={look.ReflectByDiffuse} spec={look.UseSpec} str={look.SpecStrength} pow={look.SpecPower}/{look.SpecPowerMax}/{look.SpecPowerMask} emTex={look.EmissiveTex != null} em={look.UseEmissive}");
         if (mi.Vectors.TryGetValue("rimcolor", out var rc)) look.Rim = new Vector3(rc.X, rc.Y, rc.Z) * mi.Scalar("rimcolormult", 1);
         if (mi.Vectors.TryGetValue("filllightcolor", out var fc)) look.FillColor = new Vector3(fc.X, fc.Y, fc.Z) * Math.Clamp(mi.Scalar("filllightamount", 5) / 5f, 0, 2);
         return look;

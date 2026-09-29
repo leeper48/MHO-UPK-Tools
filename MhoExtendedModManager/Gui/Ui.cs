@@ -2236,7 +2236,8 @@ sealed class DetailsHeader : Control
         // Right side: the Enabled / Disabled pill, then the badges.
         string state = m.Enabled ? "Enabled" : "Disabled";
         var ps = TextRenderer.MeasureText(g, state, pillFont);
-        pill = new Rectangle(right - ps.Width - (int)(8 * S), (int)(14 * S), ps.Width + (int)(8 * S), (int)(22 * S));
+        // Level with the name, so the Costume pill below keeps a gap (Kurt: the badges hit it).
+        pill = new Rectangle(right - ps.Width - (int)(8 * S), (int)(8 * S), ps.Width + (int)(8 * S), (int)(21 * S));
         var pc = m.Enabled ? Ui.Enabled : Ui.Subtle;
         using (var path = Ui.Round(pill, 4 * S))
         {
@@ -2273,6 +2274,7 @@ sealed class DetailsHeader : Control
             var cs = TextRenderer.MeasureText(g, ct, pillFont, Size.Empty, TextFormatFlags.NoPrefix);
             var bs = TextRenderer.MeasureText(g, "X", by);
             costumeRect = new Rectangle(right - cs.Width - (int)(12 * S), byPos.Y + bs.Height / 2 - (int)(11 * S), cs.Width + (int)(12 * S), (int)(22 * S));
+            if (costumeRect.Top < pill.Bottom + (int)(5 * S)) costumeRect.Y = pill.Bottom + (int)(5 * S);
             using (var path = Ui.Round(costumeRect, 4 * S))
             {
                 using var fill = new SolidBrush(Color.FromArgb(40, Ui.Accent)); g.FillPath(fill, path);
