@@ -634,7 +634,7 @@ sealed class ModEditorView : UserControl
             if (Extra) hintText += "  These packages are an extension: the old MHModManager installs the mod but skips these images.";
             var hint = new Label { Text = hintText, AutoSize = true, Tag = "subtle", Padding = new Padding(2, 8, 2, 2), Dock = DockStyle.Fill };
             right.Controls.Add(hint, 0, 0);
-            var tools = Toolbar(Ui.AccentButton("Load .DDS/.PNG", ChooseDds, tip: "Load the replacement for the texture selected on the left: a .DDS, or a .PNG / .JPG converted to match the original."),
+            var tools = Toolbar(Ui.AccentButton("Load .DDS/.PNG", ChooseDds, tip: "Load the replacement for the texture selected on the left, or a new file for the replacement selected in the table (double-click a row does the same): a .DDS, or a .PNG / .JPG converted to match the original."),
                 Ui.AccentButton("Create from 3D", CreateFrom3D, tip: "Make the replacement for the selected texture from a character in 3D: frame it, take a snapshot at the texture's size (store images, hero portraits, costume icons)."),
                 Ui.FlatButton("Remove Replacement", RemoveRow, tip: "Take the selected replacements out of the mod."), Ui.FlatButton("Export Original", SaveOriginal, tip: "Save (as .DDS or .PNG) the game's original of the selected texture, as a starting point for your replacement."));
             tools.Dock = DockStyle.Fill;
@@ -657,7 +657,9 @@ sealed class ModEditorView : UserControl
             search.TextChanged += (_, _) => Filter();
             names.SelectedIndexChanged += (_, _) => { if (names.SelectedItem is TexEntry e) { ShowStock(e.File, e.Name); if (sides.SelectedIndex == 1) ShowCreator(); } };
             names.DoubleClick += (_, _) => ChooseDds();
-            rows.SelectionChanged += (_, _) => { if (rows.SelectedRows.Count == 1 && rows.SelectedRows[0].Tag is (string file, string t, string src)) { ShowStock(file, t); ShowNew(src); if (sides.SelectedIndex == 1) ShowCreator(); } };
+            // A replacement row: selecting it clears the left's pick, so Load / Export act on it; double-click loads a new file.
+            rows.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && rows.Rows[e.RowIndex].Tag is (string, string, string)) { names.ClearSelected(); ChooseDds(); } };
+            rows.SelectionChanged += (_, _) => { if (rows.SelectedRows.Count == 1 && rows.SelectedRows[0].Tag is (string file, string t, string src)) { if (rows.Focused) names.ClearSelected(); ShowStock(file, t); ShowNew(src); if (sides.SelectedIndex == 1) ShowCreator(); } };
             packagePick.SelectedIndexChanged += async (_, _) => await LoadNames();
             VisibleChanged += (_, _) => { if (Visible && loaded) ApplyCostume(); };
             VisibleChanged += async (_, _) =>
@@ -765,7 +767,9 @@ sealed class ModEditorView : UserControl
 
         void ChooseDds()
         {
-            if (names.SelectedItem is not TexEntry e) { Dialog.Show(this, "Select the stock texture to replace first (search on the left).", "Textures"); return; }
+            // The texture selected on the left, else the replacement selected on the right (Kurt: loading a new file for
+            // an existing replacement was refused).
+            if (Selected() is not TexEntry e) { Dialog.Show(this, "Select the stock texture to replace on the left, or a replacement on the right to change it.", "Textures"); return; }
             using var d = new OpenFileDialog { Title = $"Replacement for {e.Name}", Filter = "Textures and images (*.dds;*.png;*.jpg;*.jpeg;*.bmp)|*.dds;*.png;*.jpg;*.jpeg;*.bmp|DDS textures (*.dds)|*.dds|Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             UseFile(e, d.FileName);
@@ -819,7 +823,7 @@ sealed class ModEditorView : UserControl
         /// <summary>The selected stock texture as .dds (a starting point for its replacement).</summary>
         void SaveOriginal()
         {
-            if (f.catalog == null || names.SelectedItem is not TexEntry e) { Dialog.Show(this, "Select a stock texture on the left first.", "Textures"); return; }
+            if (f.catalog == null || Selected() is not TexEntry e) { Dialog.Show(this, "Select a stock texture on the left, or a replacement on the right.", "Textures"); return; }
             using var d = new SaveFileDialog { Title = $"Export Original {e.Name}", Filter = "DDS texture (*.dds)|*.dds|PNG image (*.png)|*.png", FileName = e.Name + ".dds" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string? why = f.catalog.ExportImage(e.File, e.Name, d.FileName);
