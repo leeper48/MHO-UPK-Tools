@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.13
+- Preview: after a mod's icons are changed (saved in the Editor or updated), the picture strip under the preview and the mod's card picture show the new images, not the old ones.
+
 0.37.12
 - Create from 3D (the icon maker): the Spec, Reflect and Glow buttons too, shared with the main 3D preview; the snapshot is taken as the view shows it.
 

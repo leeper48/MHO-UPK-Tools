@@ -271,6 +271,17 @@ static class Ui
     }
 
     /// <summary>A small preview of a .dds (null if it can't be read).</summary>
+    /// <summary>
+    /// A file's identity for picture caches: size, last write and creation time. A saved or updated mod copies its files
+    /// (a copy keeps the source's write time), so the write time alone missed a replaced icon (Kurt: the preview's
+    /// thumbnails kept the old images); the new copy's creation time changes. "" when the file can't be read.
+    /// </summary>
+    public static string FileStamp(string path)
+    {
+        try { var fi = new FileInfo(path); return fi.Exists ? $"{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{fi.CreationTimeUtc.Ticks}" : ""; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return ""; }
+    }
+
     public static Image? DdsThumb(string path, int size)
     {
         var d = TextureDecode.ReadDds(path, out _);
@@ -1088,7 +1099,7 @@ sealed class ModListBox : ListBox
         string? file = m.CostumeIconFile();
         if (file == null) return StockIcon(m);
         string key;
-        try { key = file + "|" + File.GetLastWriteTimeUtc(file).Ticks; } catch { return null; }
+        key = file + "|" + Ui.FileStamp(file);
         if (icons.TryGetValue(key, out var img)) return img;
         icons[key] = null;
         int size = (int)(64 * S);
@@ -1332,7 +1343,8 @@ sealed class StorePreview : Control
         get => mod;
         set
         {
-            if (value != null && mod != null && value.FolderName == mod.FolderName && value.FilesMade == mod.FilesMade && (items.Count > 0 || meshes.Count > 0))
+            string stamp = value == null ? "" : FilesStamp(value);
+            if (value != null && mod != null && value.FolderName == mod.FolderName && value.FilesMade == mod.FilesMade && stamp == modStamp && (items.Count > 0 || meshes.Count > 0))
             {
                 // The same mod after a reload (a pick, a tag, undo …): keep the pictures and the 3D view (Kurt: its pose,
                 // zoom and animation were lost when a picture was picked and then 3D again); only show the new choice.
@@ -1342,7 +1354,7 @@ sealed class StorePreview : Control
                 return;
             }
             SaveAnim();   // leaving this mod: its animation and frame are kept for next time
-            mod = value;
+            mod = value; modStamp = stamp;
             items = []; meshes = []; index = -1; meshIndex = 0; scroll = 0; show3D = false; shownMesh = null;
             if (viewer != null) viewer.Visible = false;
             StopAnimation(); anims = []; animator = null; wantedAnim = null;
@@ -1394,13 +1406,31 @@ sealed class StorePreview : Control
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
+    string modStamp = "";
+
+    /// <summary>The mod's files as they are (names, sizes, dates; not the manifest): an edit or update changes it even when
+    /// the copied files keep their old write times, so the preview reloads its pictures and meshes.</summary>
+    static string FilesStamp(Mod m)
+    {
+        try
+        {
+            return string.Join(";", Directory.EnumerateFiles(m.Folder, "*", SearchOption.AllDirectories)
+                .Where(f => !Path.GetFileName(f).Equals("manifest.json", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).Select(f => Path.GetFileName(f) + "|" + Ui.FileStamp(f)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ""; }
+    }
+
+    /// <summary>A strip thumbnail's cache key: the mod, the picture, and its file as it is now (a replaced icon gets a new one).</summary>
+    static string ThumbKey(Mod m, PreviewCandidate c) => m.FolderName + "|" + c.Key + (c.FromMod && c.File != null ? "|" + Ui.FileStamp(c.File) : "");
+
     void LoadThumbs()
     {
         if (mod is not { } m || items.Count < 2) return;
-        var todo = items.Where(c => !thumbs.ContainsKey(m.FolderName + "|" + c.Key)).ToList();
-        foreach (var c in todo) thumbs[m.FolderName + "|" + c.Key] = null;
+        var todo = items.Where(c => !thumbs.ContainsKey(ThumbKey(m, c))).ToList();
+        foreach (var c in todo) thumbs[ThumbKey(m, c)] = null;
         int size = ThumbSize * 2;
-        Task.Run(() => todo.Select(c => (Key: m.FolderName + "|" + c.Key, Img: Decode(c, size))).ToList()).ContinueWith(t =>
+        Task.Run(() => todo.Select(c => (Key: ThumbKey(m, c), Img: Decode(c, size))).ToList()).ContinueWith(t =>
         {
             if (IsDisposed) { foreach (var x in t.Result) x.Img?.Dispose(); return; }
             foreach (var (k, img) in t.Result) thumbs[k] = img;
@@ -1575,7 +1605,7 @@ sealed class StorePreview : Control
             using (var path = Ui.Round(r, 4 * S))
             {
                 using (var fill = new SolidBrush(ti == hoverThumb ? Ui.CardHover : Ui.Card)) g.FillPath(fill, path);
-                if (thumbs.GetValueOrDefault(mod.FolderName + "|" + items[i].Key) is Image t)
+                if (thumbs.GetValueOrDefault(ThumbKey(mod, items[i])) is Image t)
                 {
                     var clip = g.Clip; g.SetClip(path, CombineMode.Intersect);
                     g.InterpolationMode = InterpolationMode.HighQualityBicubic;
@@ -1646,11 +1676,11 @@ sealed class StorePreview : Control
         if (mod != null) { float lv = PreviewViews.Light(mod); viewer.Brightness = lv; if (lightSlider != null) lightSlider.Value = lv; }   // this mod's light
         if (mod != null) { float fl = PreviewViews.Lens(mod); viewer.FocalLength = fl; if (lensSlider != null) lensSlider.Value = fl; }    // and lens
         Invalidate();
-        if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + File.GetLastWriteTimeUtc(r.File).Ticks, out var hit) && hit != null) { Show(hit); return; }
+        if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File), out var hit) && hit != null) { Show(hit); return; }
         viewer.ShowMessage("Loading the 3D view…");
         int req = ++request;
         string? cooked = CookedFolder;
-        string key = r.File + "|" + r.Export + "|" + File.GetLastWriteTimeUtc(r.File).Ticks;
+        string key = r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File);
         Task.Run(() => { try { var l = ModMeshes.Load(r, cooked, out string why); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || viewer == null) return;
