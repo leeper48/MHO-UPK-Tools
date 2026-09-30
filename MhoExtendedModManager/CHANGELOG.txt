@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.17
+- Fixed: some heroes' animations (for example most of Punisher's) played wrong in the 3D preview, with the legs stretched far below the floor. The game stores them in a compression the preview couldn't read yet.
+
 0.37.16
 - Fixed: a very wide drop-down (for example on a 4K screen) crashed the app when it opened.
 
