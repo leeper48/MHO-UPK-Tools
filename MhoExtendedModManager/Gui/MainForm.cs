@@ -230,6 +230,7 @@ sealed class MainForm : Form
         writeControls.Add(nexusFind);
         left.Controls.Add(nexusRow, 0, 0); left.Controls.Add(lhead, 0, 1); left.Controls.Add(filterRow, 0, 2); left.Controls.Add(list, 0, 3);
         filter.TextChanged += (_, _) => { FillList(Selected?.FolderName); UpdateNexusStatus(); };
+        MhoPackageModifier.Gui.SearchBox.AddClear(filter);
         list.SelectedIndexChanged += (_, _) => ShowDetails();
         list.CheckClicked += m => Toggle(m);
         list.LockClicked += m => ToggleLock(m);

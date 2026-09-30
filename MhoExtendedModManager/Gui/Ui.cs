@@ -443,6 +443,8 @@ static class Ui
     /// </summary>
     public static void UseDarkTheme()
     {
+        // Filter / search boxes' clear button (×) uses the app's own dark tooltips.
+        MhoPackageModifier.Gui.SearchBox.Tip = (c, t) => Tip(c, t);
         ToolStripManager.Renderer = new DarkMenuRenderer();
         Application.Idle += (_, _) => { foreach (Form f in Application.OpenForms) DarkFrame(f); };
     }

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.19
+- Every filter and search box has a × to clear it (the mod list, the Editor's searches, Extract, Help, the hero picker, pose search, the drop-down lists); Esc clears it too.
+
 0.37.18
 - Fixed: a few small helper bones (Black Widow, Kate Bishop, Spider-Ham) were placed wrong in some animations in the 3D preview.
 

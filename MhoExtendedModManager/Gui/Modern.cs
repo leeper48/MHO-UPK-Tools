@@ -397,11 +397,12 @@ sealed class DropList : ToolStripDropDown
             frame.Height = search.PreferredHeight + frame.Padding.Vertical;
             searchH = frame.Height;
             search.TextChanged += (_, _) => Filter();
+            MhoPackageModifier.Gui.SearchBox.AddClear(search);
             search.KeyDown += (_, e) =>
             {
                 if (e.KeyCode == Keys.Down && list.Items.Count > 0) { list.Focus(); if (list.SelectedIndex < 0) list.SelectedIndex = 0; e.Handled = true; }
                 else if (e.KeyCode == Keys.Enter) { if (list.Items.Count > 0) Pick(Math.Max(0, list.SelectedIndex)); e.Handled = e.SuppressKeyPress = true; }
-                else if (e.KeyCode == Keys.Escape) { Close(); e.Handled = e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Escape && search.TextLength == 0) { Close(); e.Handled = e.SuppressKeyPress = true; }   // with text, Esc clears it first (SearchBox)
             };
             panel.Controls.Add(frame);
         }

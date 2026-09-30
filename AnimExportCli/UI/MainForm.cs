@@ -136,6 +136,7 @@ public sealed class MainForm : Form
         _filterBox.Dock = DockStyle.Top;
         _filterBox.Margin = new Padding(0, 2, 0, 10);
         left.Controls.Add(_filterBox, 0, 7);
+        SearchBox.AddClear(_filterBox);
 
         left.Controls.Add(MakeLeftLabel("Output folder:"), 0, 8);
         var outputRow = new TableLayoutPanel

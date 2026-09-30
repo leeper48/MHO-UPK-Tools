@@ -196,6 +196,7 @@ sealed class IconCreatorView : UserControl
         meshBox.SelectedIndexChanged += (_, _) => { if (!restoring) LoadMesh(null); };
         animBox.SelectedIndexChanged += (_, _) => { if (!restoring) { current = animBox.SelectedIndex > 0 && animBox.SelectedIndex - 1 < shown.Count ? shown[animBox.SelectedIndex - 1] : -1; LoadAnim(0); } };
         animSearch.TextChanged += (_, _) => FillAnims();
+        MhoPackageModifier.Gui.SearchBox.AddClear(animSearch);
         Ui.Tip(animSearch, "Narrow the pose list: every word must be in the animation's name. The pose shown stays until you pick another.");
         frameSlider.ValueChanged += Pose;
         frameSlider.Committed += SaveSetup;

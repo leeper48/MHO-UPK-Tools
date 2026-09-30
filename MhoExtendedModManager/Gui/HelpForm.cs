@@ -76,6 +76,7 @@ sealed class HelpForm : Form
         bar.Controls.Add(found);
         search.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Find(e.Shift ? -1 : +1); } };
         search.TextChanged += (_, _) => { searched = ""; found.Text = ""; };
+        MhoPackageModifier.Gui.SearchBox.AddClear(search);
         KeyPreview = true;
         KeyDown += (_, e) =>
         {

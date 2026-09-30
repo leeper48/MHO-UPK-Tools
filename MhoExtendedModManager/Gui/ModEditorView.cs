@@ -209,6 +209,7 @@ sealed class ModEditorView : UserControl
             UpdateVoiceCount();
         };
         voiceFind.TextChanged += (_, _) => FillVoice();
+        MhoPackageModifier.Gui.SearchBox.AddClear(voiceFind);
         Disposed += (_, _) => { VoiceAudio.Stop(); if (voiceWork != null) try { Directory.Delete(voiceWork, true); } catch (IOException) { } };
         Ui.Tip(voiceFind, "Show only lines whose situation, detail or sound event has these words.");
         var find = new Label { Text = "Find", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 4, 0) };
@@ -712,6 +713,7 @@ sealed class ModEditorView : UserControl
             ImageViewerForm.Attach(stockPic, () => (stockPic.Image, "Original: " + stockInfo.Text, First(stockInfo.Text) + "_original"));
             ImageViewerForm.Attach(newPic, () => (newPic.Image, "Replacement: " + newInfo.Text, Path.GetFileNameWithoutExtension(newInfo.Text.Split("  ·  ").Select(x => x.Trim()).FirstOrDefault(x => x.EndsWith(".dds", StringComparison.OrdinalIgnoreCase), First(newInfo.Text))) + "_dds"));
             search.TextChanged += (_, _) => Filter();
+            MhoPackageModifier.Gui.SearchBox.AddClear(search);
             names.SelectedIndexChanged += (_, _) => { if (names.SelectedItem is TexEntry e) { ShowStock(e.File, e.Name); if (sides.SelectedIndex == 1) ShowCreator(); } };
             names.DoubleClick += (_, _) => ChooseDds();
             // A replacement row: selecting it clears the left's pick, so Load / Export act on it; double-click loads a new file.
@@ -958,6 +960,7 @@ sealed class ModEditorView : UserControl
             bar.Controls.AddRange([new Label { Text = "Language", AutoSize = true, Padding = new Padding(0, 8, 4, 0), Tag = "subtle" }, lang,
                 new Label { Text = "Find Text or ID", AutoSize = true, Padding = new Padding(12, 8, 4, 0), Tag = "subtle" }, search, Ui.AccentButton("Search", Search, tip: "Search the game's original text of the chosen language (text or string ID)."), found]);
             search.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Search(); } };
+            MhoPackageModifier.Gui.SearchBox.AddClear(search);
             var split = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 5 };
             split.Panel1.Controls.Add(results);
             split.Panel1.Controls.Add(Toolbar(Ui.FlatButton("Add Selected to the Mod  ↓", AddSelected, tip: "Add the selected game strings to the mod, to type their new text below."), new Label { Text = "GAME TEXT", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Padding = new Padding(12, 8, 0, 0) }));

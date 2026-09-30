@@ -77,6 +77,7 @@ sealed class ExtractView : UserControl
             if (t == null) names.Items.Add("(no verified original of this package)");
         };
         search.TextChanged += (_, _) => Filter();
+        MhoPackageModifier.Gui.SearchBox.AddClear(search);
         names.SelectedIndexChanged += async (_, _) =>
         {
             if (names.SelectedItem is not TexEntry e) return;

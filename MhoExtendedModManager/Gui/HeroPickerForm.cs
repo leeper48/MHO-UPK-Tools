@@ -70,6 +70,7 @@ sealed class HeroPickerForm : Form
         }
         list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         heroes.Controls.AddRange([.. list.Select(x => (Control)x.Tile)]);
+        MhoPackageModifier.Gui.SearchBox.AddClear(filter);
         filter.TextChanged += (_, _) =>
         {
             heroes.SuspendLayout();

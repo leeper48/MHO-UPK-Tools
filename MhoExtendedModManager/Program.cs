@@ -14,6 +14,8 @@ static class Program
 {
     [DllImport("kernel32.dll")]
     static extern bool AttachConsole(int dwProcessId);
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    static extern IntPtr SearchMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     public static string Version => Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+')[0] ?? "?";
 
@@ -957,6 +959,43 @@ static class Program
                 Directory.Delete(work, true);
                 Console.WriteLine(fails == 0 ? "PASS" : $"{fails} FAILED");
                 return fails == 0 ? 0 : 1;
+            }
+            case "--searchbox-test":
+            {
+                // Test: the clear button (×) on a filter box, in an off-screen window: shown only with text, a click and Esc
+                // clear, the text stops short of it; the framed box rendered to <dir>\searchbox.png.
+                if (rest.Count < 2) { Console.WriteLine("--searchbox-test <dir>"); return 1; }
+                Directory.CreateDirectory(rest[1]);
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Gui.Ui.UseDarkTheme();
+                int sfail = 0;
+                void SCheck(string what, bool ok) { Console.WriteLine($"{(ok ? "ok  " : "FAIL")} {what}"); if (!ok) sfail++; }
+                using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new System.Drawing.Point(-4000, -4000), Size = new System.Drawing.Size(840, 160), ShowInTaskbar = false, FormBorderStyle = FormBorderStyle.None, BackColor = Gui.Ui.Back };
+                var box = new TextBox { Location = new System.Drawing.Point(24, 40), Width = 720, Font = Gui.Ui.Regular(9.5f) };
+                form.Controls.Add(box);
+                MhoPackageModifier.Gui.Theme.Apply(form, MhoPackageModifier.Gui.Palette.Dark); Gui.Modern.Modernize(form);
+                MhoPackageModifier.Gui.SearchBox.AddClear(box);
+                form.Show(); Application.DoEvents();
+                var x = box.Controls.Cast<Control>().FirstOrDefault();
+                SCheck("an empty box shows no ×", x != null && !x.Visible);
+                box.Text = "storm classic"; Application.DoEvents();
+                SCheck("with text, the × shows", x!.Visible);
+                const int EM_GETMARGINS = 0xD4;
+                int margins = (int)SearchMessage(box.Handle, EM_GETMARGINS, IntPtr.Zero, IntPtr.Zero);
+                SCheck($"the text stops short of the × (right margin {margins >> 16} px, × {x.Width} px)", (margins >> 16) >= x.Width);
+                using (var bmp = new System.Drawing.Bitmap(form.ClientSize.Width, form.ClientSize.Height))
+                { form.DrawToBitmap(bmp, new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.ClientSize)); bmp.Save(Path.Combine(rest[1], "searchbox.png")); }
+                x.GetType().GetMethod("OnMouseClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                    .Invoke(x, [new MouseEventArgs(MouseButtons.Left, 1, 5, 5, 0)]);
+                Application.DoEvents();
+                SCheck("a click on the × clears the box and hides the ×", box.TextLength == 0 && !x.Visible);
+                box.Text = "vision"; box.Focus(); Application.DoEvents();
+                const int WM_KEYDOWN = 0x100;
+                SearchMessage(box.Handle, WM_KEYDOWN, (IntPtr)Keys.Escape, IntPtr.Zero); Application.DoEvents();
+                SCheck("Esc clears it", box.TextLength == 0);
+                form.Close();
+                Console.WriteLine(sfail == 0 ? "PASS" : $"{sfail} FAILED");
+                return sfail == 0 ? 0 : 1;
             }
             case "--wem-to-ogg":
             {
