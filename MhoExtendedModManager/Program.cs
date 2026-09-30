@@ -393,6 +393,61 @@ static class Program
             Application.Run(form);
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--downloads-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: Settings → Download Counts rendered off-screen to a PNG (use a scratch MHO_EXTMM_HOME: it saves the total seen).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            using var f = new Gui.DownloadsForm(Settings.Load()) { StartPosition = FormStartPosition.Manual, Location = new System.Drawing.Point(-6000, -6000) };
+            f.Shown += async (_, _) =>
+            {
+                for (int i = 0; i < 100 && !f.Controls[0].Controls[0].Text.Contains("Downloads", StringComparison.Ordinal) && !f.Controls[0].Controls[0].Text.Contains("Couldn't"); i++) await Task.Delay(100);
+                using var bmp = new System.Drawing.Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(bmp, new System.Drawing.Rectangle(System.Drawing.Point.Empty, f.Size));
+                bmp.Save(args[1]);
+                f.Close();
+            };
+            Application.Run(f);
+            return 0;
+        }
+        if (args.Length == 1 && args[0].Equals("--window-place-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test (scratch MHO_EXTMM_HOME only): the main window's remembered monitor / size / position, built but never shown.
+            AttachCliConsole();
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") is not { Length: > 0 } wh || wh.Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase))
+            { Console.WriteLine("refused: needs MHO_EXTMM_HOME on a scratch folder"); return 1; }
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            int wfail = 0;
+            void WCheck(string what, bool ok) { Console.WriteLine($"{(ok ? "ok  " : "FAIL")} {what}"); if (!ok) wfail++; }
+            var second = Screen.AllScreens.FirstOrDefault(s => !s.Primary);
+            var st = Settings.Load();
+            if (second != null)
+            {
+                var a = second.WorkingArea;
+                st.RememberWindow = true; st.WindowBounds = [a.X + 50, a.Y + 40, Math.Min(1200, a.Width - 100), Math.Min(700, a.Height - 80)]; st.WindowMaximized = false; st.Save();
+                using (var f = new Gui.MainForm())
+                    WCheck($"a window left on {second.DeviceName} ({a}) opens there, same size, not maximized: {f.Bounds}", f.StartPosition == FormStartPosition.Manual && f.WindowState == FormWindowState.Normal && a.Contains(f.Bounds) && f.Bounds.X == a.X + 50);
+                st.WindowMaximized = true; st.Save();
+                using (var f = new Gui.MainForm())
+                    WCheck("left maximized there: it opens maximized on that monitor", f.WindowState == FormWindowState.Maximized && Screen.FromRectangle(f.Bounds).DeviceName == second.DeviceName);
+            }
+            else Console.WriteLine("(one monitor only: the second-monitor checks are skipped)");
+            st.WindowBounds = [60000, 60000, 1200, 700]; st.Save();
+            using (var f = new Gui.MainForm())
+                WCheck("a spot on a monitor that's gone: maximized on the main monitor, as before", f.StartPosition == FormStartPosition.CenterScreen && f.WindowState == FormWindowState.Maximized);
+            st.RememberWindow = false; st.WindowBounds = [0, 0, 1200, 700]; st.Save();
+            using (var f = new Gui.MainForm())
+                WCheck("Remember Window Position off: maximized on the main monitor", f.StartPosition == FormStartPosition.CenterScreen && f.WindowState == FormWindowState.Maximized);
+            st.RememberWindow = true; st.WindowBounds = [10, 10, 1200, 700]; st.Save();
+            using (var f = new Gui.MainForm())
+            {
+                f.WindowState = FormWindowState.Normal; f.Bounds = new System.Drawing.Rectangle(-40000, -40000, 1200, 700);
+                typeof(Gui.MainForm).GetMethod("SaveWindowPlace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(f, null);
+            }
+            WCheck("an off-screen window (a test's) doesn't overwrite the saved place", Settings.Load().WindowBounds is [10, 10, 1200, 700]);
+            Console.WriteLine(wfail == 0 ? "PASS" : $"{wfail} FAILED");
+            return wfail == 0 ? 0 : 1;
+        }
         if (args.Length == 3 && args[0].Equals("--preview-selftest", StringComparison.OrdinalIgnoreCase))
         {
             // The 3D view's controls, driven as a user would (a scratch library: MHO_EXTMM_HOME). --preview-selftest <dir> <mod>
@@ -959,6 +1014,15 @@ static class Program
                 Directory.Delete(work, true);
                 Console.WriteLine(fails == 0 ? "PASS" : $"{fails} FAILED");
                 return fails == 0 ? 0 : 1;
+            }
+            case "--download-counts":
+            {
+                // Read-only: every release's GitHub download counts (downloads, not people; the zip includes in-app updates).
+                var rows = Updater.DownloadCounts().GetAwaiter().GetResult();
+                Console.WriteLine($"{"release",-16} {"published",-11} {"total",6} {"zip",5} {"setup",6}");
+                foreach (var r in rows) Console.WriteLine($"{r.Tag,-16} {(r.Published == DateTime.MinValue ? "" : r.Published.ToString("yyyy-MM-dd")),-11} {r.Total,6} {r.Zip,5} {r.Setup,6}");
+                Console.WriteLine($"all releases: {rows.Sum(r => r.Total)} (zip {rows.Sum(r => r.Zip)}, Setup.exe {rows.Sum(r => r.Setup)})");
+                return 0;
             }
             case "--searchbox-test":
             {

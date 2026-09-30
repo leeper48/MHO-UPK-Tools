@@ -23,6 +23,15 @@ sealed class Settings
     public string ListSort { get; set; } = "priority";
     /// <summary>The mod list's width as a fraction of the window (null: 30%), kept between starts (a user's request).</summary>
     public float? ListWidth { get; set; }
+    /// <summary>The main window's monitor, size and position (a user's request: it always opened maximized on the main
+    /// monitor): its normal bounds (x, y, width, height) and whether it was maximized, restored at start while that spot is
+    /// on a connected monitor. <see cref="RememberWindow"/> off = the old behavior (maximized on the main monitor).</summary>
+    public bool RememberWindow { get; set; } = true;
+    public int[]? WindowBounds { get; set; }
+    public bool WindowMaximized { get; set; } = true;
+    /// <summary>Settings → Download Counts: the total seen last time and when (to show the change since).</summary>
+    public int? LastDownloadTotal { get; set; }
+    public DateTime? LastDownloadCheck { get; set; }
     public string ListGroup { get; set; } = "none";
     /// <summary>Updates: look for a new version at start and every hour while open; a version the user chose to skip.</summary>
     public bool CheckUpdates { get; set; } = true;

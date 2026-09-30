@@ -71,14 +71,53 @@ sealed class MainForm : Form
     ExtractView? extract;
     string? extractKey;
 
+    bool wasMaximized = true;
+
+    /// <summary>
+    /// Where the window starts: where it was left (monitor, size, position, maximized) while that spot is still on a
+    /// connected monitor (a user's request: with two monitors it always came up on the main one); else maximized on the
+    /// main monitor, as before. Off in Settings → Remember Window Position.
+    /// </summary>
+    void PlaceWindow()
+    {
+        Width = 1400; Height = 850;
+        if (settings.RememberWindow && settings.WindowBounds is [int x, int y, int w, int h] && w >= 400 && h >= 300)
+        {
+            var saved = new Rectangle(x, y, w, h);
+            var screen = Screen.AllScreens.FirstOrDefault(s => Rectangle.Intersect(s.WorkingArea, saved) is { Width: >= 200, Height: >= 100 });
+            if (screen != null)
+            {
+                var area = screen.WorkingArea;
+                int cw = Math.Min(w, area.Width), ch = Math.Min(h, area.Height);
+                StartPosition = FormStartPosition.Manual;
+                Bounds = new Rectangle(Math.Clamp(x, area.Left, area.Right - cw), Math.Clamp(y, area.Top, area.Bottom - ch), cw, ch);
+                WindowState = settings.WindowMaximized ? FormWindowState.Maximized : FormWindowState.Normal;
+                wasMaximized = settings.WindowMaximized;
+                return;
+            }
+        }
+        StartPosition = FormStartPosition.CenterScreen;
+        WindowState = FormWindowState.Maximized;
+    }
+
+    /// <summary>Keeps the window's place for the next start, only when it's on a monitor (test windows off-screen aren't kept).</summary>
+    void SaveWindowPlace()
+    {
+        if (!settings.RememberWindow) return;
+        var normal = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        if (normal.Width < 400 || normal.Height < 300 || !Screen.AllScreens.Any(s => Rectangle.Intersect(s.WorkingArea, normal) is { Width: >= 200, Height: >= 100 })) return;
+        settings.WindowBounds = [normal.X, normal.Y, normal.Width, normal.Height];
+        settings.WindowMaximized = WindowState == FormWindowState.Maximized || (WindowState == FormWindowState.Minimized && wasMaximized);
+        settings.Save();
+    }
+
     public MainForm()
     {
         current = this;
         Text = $"MHO Extended Mod Manager v{Program.Version}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this, Ui.GradientTop);   // the title bar continues the window's navy
-        Width = 1400; Height = 850; WindowState = FormWindowState.Maximized;
-        StartPosition = FormStartPosition.CenterScreen;
+        PlaceWindow();
         Font = Ui.Regular(9.5f);
         DoubleBuffered = true;
         SetStyle(ControlStyles.ResizeRedraw, true);
@@ -124,7 +163,12 @@ sealed class MainForm : Form
         autoCheck.CheckedChanged += (_, _) => { if (settings.CheckUpdates != autoCheck.Checked) { settings.CheckUpdates = autoCheck.Checked; settings.Save(); } };
         menu.Opening += (_, _) => autoCheck.Checked = settings.CheckUpdates;
         menu.Items.Add(autoCheck);
+        var rememberWindow = new ToolStripMenuItem("Remember Window Position") { CheckOnClick = true, ToolTipText = "Start on the monitor, at the size and place you left the window (maximized if it was). Off: always start maximized on the main monitor." };
+        rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
+        menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
+        menu.Items.Add(rememberWindow);
         menu.Items.Add("Changelog", null, (_, _) => ShowChangelog());
+        menu.Items.Add("Download Counts", null, (_, _) => { using var f = new DownloadsForm(settings); f.ShowDialog(this); }).ToolTipText = "How often each release of the app was downloaded from GitHub (downloads, not people).";
         menu.Items.Add("About", null, (_, _) => About());
         settingsButton.Click += (_, _) => Ui.ShowUnder(menu, settingsButton);
         // Update alert (Kurt): shown when a newer release is known; a click offers it (the update window).
@@ -399,6 +443,8 @@ sealed class MainForm : Form
             split.SplitterMoved += (_, _) => { if (split.Width > 0) { settings.ListWidth = (float)Math.Round((double)split.SplitterDistance / split.Width, 3); settings.Save(); } };
         };
         FormClosing += (_, _) => SaveNote();
+        FormClosing += (_, _) => SaveWindowPlace();
+        Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) wasMaximized = WindowState == FormWindowState.Maximized; };
         // A quiet look for a new version at start and every hour while open (Kurt: frequent releases; Settings: Check for updates at start).
         // The first time: ask whether it may look (code signing policy: nothing goes over the network without consent).
         Shown += (_, _) =>

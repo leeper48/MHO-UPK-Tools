@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.21
+- Settings → Download Counts: how often each release of the app was downloaded from GitHub, with the change since you last looked.
+
+0.37.20
+- The window remembers its monitor, size and place: it starts where you left it (maximized if it was), for example on your second monitor. Settings → Remember Window Position turns it off.
+
 0.37.19
 - Every filter and search box has a × to clear it (the mod list, the Editor's searches, Extract, Help, the hero picker, pose search, the drop-down lists); Esc clears it too.
 

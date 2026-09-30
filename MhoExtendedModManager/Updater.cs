@@ -72,6 +72,47 @@ static class Updater
         return best;
     }
 
+    /// <summary>One release's download counts (GitHub counts every download of each file; .sha256 files left out).</summary>
+    public sealed record Downloads(string Tag, Version Version, DateTime Published, int Zip, int Setup)
+    {
+        public int Total => Zip + Setup;
+    }
+
+    /// <summary>
+    /// Every published release of this app with its download counts (Kurt, 2026-09-30), newest first, from GitHub's public
+    /// release list (no account needed). Counts are downloads, not people: the zip includes in-app updates.
+    /// </summary>
+    public static async Task<List<Downloads>> DownloadCounts()
+    {
+        var list = new List<Downloads>();
+        for (int page = 1; page <= 20; page++)
+        {
+            string json = Feed is string f ? (page == 1 ? await File.ReadAllTextAsync(Path.Combine(f, "releases.json")) : "[]")
+                : await GetText($"https://api.github.com/repos/{Repo}/releases?per_page=100&page={page}");
+            using var doc = JsonDocument.Parse(json);
+            int n = 0;
+            foreach (var r in doc.RootElement.EnumerateArray())
+            {
+                n++;
+                if (r.TryGetProperty("draft", out var d) && d.GetBoolean()) continue;
+                string tag = r.GetProperty("tag_name").GetString() ?? "";
+                if (!tag.StartsWith(TagPrefix, StringComparison.OrdinalIgnoreCase) || !Version.TryParse(tag[TagPrefix.Length..], out var ver)) continue;
+                int zip = 0, setup = 0;
+                foreach (var a in r.GetProperty("assets").EnumerateArray())
+                {
+                    string name = a.GetProperty("name").GetString() ?? "";
+                    int c = a.TryGetProperty("download_count", out var dc) ? dc.GetInt32() : 0;
+                    if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) zip += c;
+                    else if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) setup += c;
+                }
+                var published = r.TryGetProperty("published_at", out var pa) && pa.ValueKind == JsonValueKind.String && pa.TryGetDateTime(out var dt) ? dt.ToLocalTime() : DateTime.MinValue;
+                list.Add(new Downloads(tag, ver, published, zip, setup));
+            }
+            if (n < 100) break;
+        }
+        return [.. list.OrderByDescending(x => x.Version)];
+    }
+
     /// <summary>Downloads, verifies and installs a release over the running app. Returns null when done, else why not.</summary>
     public static async Task<string?> Install(Release r, Action<string> progress)
     {
