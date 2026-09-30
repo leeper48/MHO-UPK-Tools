@@ -734,11 +734,14 @@ public static class AnimObjectReader
                     (mask & 2) != 0 ? cursor.ReadSingle() : 0f,
                     (mask & 4) != 0 ? cursor.ReadSingle() : 0f);
             case AnimationCompressionFormat.Fixed48NoW:
-                // FVectorFixed48: uint16, (v - 32767) / 32767 × 128.
+                // uint16 - 255, NOT UE4's (v - 32767) / 32767 × 128. Evidence (2026-09-30, all 33 such tracks in
+                // the stock UC__ packages, every one single-key): raw 255 / 257 / 305 / 315 are 0 / 2 / 50 / 60,
+                // the values the same bones (Spider-Ham fingers, Black Widow's g_fwd_uprik) have in the other
+                // sequences. Only whole numbers were seen, so a finer scale can't be ruled out.
                 return new System.Numerics.Vector3(
-                    (mask & 1) != 0 ? (cursor.ReadUInt16() - 32767) / 32767f * 128f : 0f,
-                    (mask & 2) != 0 ? (cursor.ReadUInt16() - 32767) / 32767f * 128f : 0f,
-                    (mask & 4) != 0 ? (cursor.ReadUInt16() - 32767) / 32767f * 128f : 0f);
+                    (mask & 1) != 0 ? cursor.ReadUInt16() - 255f : 0f,
+                    (mask & 2) != 0 ? cursor.ReadUInt16() - 255f : 0f,
+                    (mask & 4) != 0 ? cursor.ReadUInt16() - 255f : 0f);
             case AnimationCompressionFormat.IntervalFixed32NoW:
             {
                 // FVectorIntervalFixed32NoW: X low 10 bits, Y next 11, Z top 11.

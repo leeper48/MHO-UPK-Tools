@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.18
+- Fixed: a few small helper bones (Black Widow, Kate Bishop, Spider-Ham) were placed wrong in some animations in the 3D preview.
+
 0.37.17
 - Fixed: some heroes' animations (for example most of Punisher's) played wrong in the 3D preview, with the legs stretched far below the floor. The game stores them in a compression the preview couldn't read yet.
 
