@@ -2,10 +2,12 @@ using System.Text;
 
 namespace MhoExtendedModManager.Fx;
 
-// Ported from the MHO Hero Creator's Calligraphy.cs (2026-09-30; power effects in the 3D preview); kept in step with it.
+// Ported from the MHO Hero Creator's Calligraphy.cs (2026-09-30; power effects in the 3D preview), READ ONLY: its
+// prototype, directory and asset-type writers were removed 2026-09-30 (Kurt: nothing in the public repos may change what
+// a stock server install expects; game data is only ever read here).
 /// <summary>
 /// Calligraphy data files inside Calligraphy.sip: prototypes (.prototype / .defaults), the prototype and blueprint
-/// directories, and blueprints (for field names). Parse → change → write back.
+/// directories, and blueprints (for field names). Read only.
 ///
 /// Format (MHServerEmu 1.0.0: CalligraphyHeader, PrototypeDataHeader, CalligraphySerializer, DataDirectory):
 ///   Every file starts with a 4-byte header: 3-byte magic + version byte.
@@ -87,14 +89,6 @@ static class Calligraphy
             return f;
         }
 
-        public byte[] Write()
-        {
-            var ms = new MemoryStream();
-            var w = new BinaryWriter(ms);
-            w.Write(Header);
-            WriteData(w, Data);
-            return ms.ToArray();
-        }
     }
 
     static Data ReadData(Reader r)
@@ -134,31 +128,6 @@ static class Calligraphy
         return new Value { Raw = r.U64() };
     }
 
-    static void WriteData(BinaryWriter w, Data d)
-    {
-        w.Write(d.Flags);
-        if (d.HasParent) w.Write(d.Parent);
-        if (!d.HasGroups) return;
-        w.Write(checked((short)d.Groups.Count));
-        foreach (var g in d.Groups)
-        {
-            w.Write(g.Blueprint); w.Write(g.Copy);
-            w.Write(checked((short)g.Simple.Count));
-            foreach (var f in g.Simple) { w.Write(f.Id); w.Write((byte)f.Type); WriteValue(w, f.Type, f.Value); }
-            w.Write(checked((short)g.Lists.Count));
-            foreach (var f in g.Lists)
-            {
-                w.Write(f.Id); w.Write((byte)f.Type); w.Write(checked((short)f.Values.Count));
-                foreach (var v in f.Values) WriteValue(w, f.Type, v);
-            }
-        }
-    }
-
-    static void WriteValue(BinaryWriter w, char type, Value v)
-    {
-        if (type == 'R') WriteData(w, v.Struct ?? throw new InvalidDataException("struct value without data"));
-        else w.Write(v.Raw);
-    }
 
     // ---- directories
 
@@ -193,21 +162,6 @@ static class Calligraphy
             return d;
         }
 
-        public byte[] Write()
-        {
-            var ms = new MemoryStream();
-            var w = new BinaryWriter(ms);
-            w.Write(Header); w.Write(Entries.Count);
-            foreach (var e in Entries)
-            {
-                w.Write(e.Id); w.Write(e.Guid);
-                if (HasBlueprint) w.Write(e.Blueprint);
-                w.Write(e.Flags);
-                var p = Encoding.Latin1.GetBytes(e.Path);
-                w.Write(checked((ushort)p.Length)); w.Write(p);
-            }
-            return ms.ToArray();
-        }
     }
 
     /// <summary>A prototype's data-ref id from its directory path (MHServerEmu: HashPath(path.ToCalligraphyPath()),
@@ -240,17 +194,6 @@ static class Calligraphy
             return t;
         }
 
-        public byte[] Write()
-        {
-            var ms = new MemoryStream(); var w = new BinaryWriter(ms);
-            w.Write(Header); w.Write(checked((ushort)Assets.Count));
-            foreach (var a in Assets)
-            {
-                w.Write(a.Id); w.Write(a.Guid); w.Write(a.Flags);
-                var n = Encoding.Latin1.GetBytes(a.Name); w.Write(checked((ushort)n.Length)); w.Write(n);
-            }
-            return ms.ToArray();
-        }
     }
 
     // ---- blueprints (field names)

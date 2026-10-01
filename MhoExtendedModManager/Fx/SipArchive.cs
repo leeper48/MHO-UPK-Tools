@@ -2,19 +2,18 @@ using System.Text;
 
 namespace MhoExtendedModManager.Fx;
 
-// Ported from the MHO Hero Creator's SipArchive.cs (2026-09-30; power effects in the 3D preview); kept in step with it.
+// Ported from the MHO Hero Creator's SipArchive.cs (2026-09-30; power effects in the 3D preview), READ ONLY: the writer
+// (Put / Write) and the LZ4 encoder were removed 2026-09-30 (Kurt: nothing in the public repos may change what a stock
+// server install expects; the game data archives are only ever read here).
 /// <summary>
-/// The game's data archives (Data\Game\Calligraphy.sip, mu_cdata.sip): read, and write with entries replaced or added.
-/// Nothing here writes into the game folder.
+/// The game's data archives (Data\Game\Calligraphy.sip, mu_cdata.sip), read only.
 ///
 /// Format (checked 2026-09-29 on the stock Calligraphy.sip, 94,788 entries, and against MHServerEmu 1.0.0's PakFile):
 ///   "KAPG", u32 version 1, i32 count; entries (u64 hash, i32 name length, name, i32 mod time, i32 offset,
 ///   i32 compressed size, i32 size); then the body.
 ///   - The hash is <see cref="HashPath"/> of the entry's name (lower case, as stored: "Calligraphy/…").
-///   - The table is sorted by hash, and the body holds the entries contiguously in table order. MHServerEmu takes the
-///     body's length from the last entry (offset + compressed size), so that order is required, not just stock habit.
 ///   - Every entry is one LZ4 block, also the 799 whose compressed size equals their size (all 799 decode as LZ4 to
-///     different bytes; readers that took those as stored misread them). MHServerEmu always decodes.
+///     different bytes; readers that took those as stored misread them).
 /// </summary>
 sealed class SipArchive
 {
@@ -73,42 +72,6 @@ sealed class SipArchive
     public byte[] Read(string name) => Read(Find(name) ?? throw new KeyNotFoundException(name));
     public static byte[] Read(Entry e) => Lz4.Decode(e.Compressed, e.Size);
 
-    /// <summary>Replaces an entry's data, or adds a new entry (mod time taken from <paramref name="modTime"/>).</summary>
-    public Entry Put(string name, byte[] data, int modTime = 0)
-    {
-        var e = Find(name);
-        if (e == null)
-        {
-            e = new Entry { NameBytes = Encoding.Latin1.GetBytes(Norm(name)), ModTime = modTime };
-            e.Hash = HashPath(e.Name);
-            if (Entries.Any(x => x.Hash == e.Hash)) throw new InvalidOperationException("hash collision: " + name);
-            Entries.Add(e);
-            byName[Norm(name)] = e;
-        }
-        e.Size = data.Length;
-        e.Compressed = Lz4.Encode(data);
-        if (!Lz4.Decode(e.Compressed, e.Size).AsSpan().SequenceEqual(data)) throw new InvalidDataException("LZ4 encode check failed: " + name);
-        return e;
-    }
-
-    /// <summary>The archive's bytes: the table sorted by hash (stable, as stock), the body contiguous in table order.</summary>
-    public byte[] Write()
-    {
-        var order = Entries.Select((e, i) => (e, i)).OrderBy(x => x.e.Hash).ThenBy(x => x.i).Select(x => x.e).ToList();
-        var ms = new MemoryStream();
-        var w = new BinaryWriter(ms, Encoding.Latin1);
-        w.Write(Magic); w.Write(Version); w.Write(order.Count);
-        int off = 0;
-        foreach (var e in order)
-        {
-            w.Write(e.Hash); w.Write(e.NameBytes.Length); w.Write(e.NameBytes);
-            w.Write(e.ModTime); w.Write(off); w.Write(e.Compressed.Length); w.Write(e.Size);
-            off = checked(off + e.Compressed.Length);
-        }
-        foreach (var e in order) w.Write(e.Compressed);
-        return ms.ToArray();
-    }
-
     /// <summary>The game's data reference hash of a path (MHServerEmu HashHelper.HashPath): (Adler-32 | CRC-32 &lt;&lt; 32) − 1
     /// of the lower-cased path. Checked on every stock entry name.</summary>
     public static ulong HashPath(string path)
@@ -136,11 +99,10 @@ sealed class SipArchive
     }
 }
 
-/// <summary>LZ4 block format (no frame). The encoder is a plain greedy one; it only has to be valid LZ4, which
-/// <see cref="Decode"/> and the round-trip check in <see cref="SipArchive.Put"/> prove on every write.</summary>
+/// <summary>LZ4 block format (no frame): decoding only.</summary>
 static class Lz4
 {
-    const int MinMatch = 4, LastLiterals = 5, MfLimit = 12, HashBits = 16;
+    const int MinMatch = 4;
 
     public static byte[] Decode(byte[] src, int outLen)
     {
@@ -162,51 +124,5 @@ static class Lz4
         }
         if (o != outLen) throw new InvalidDataException("bad LZ4 block");
         return dst;
-    }
-
-    public static byte[] Encode(byte[] src)
-    {
-        var dst = new MemoryStream(src.Length + src.Length / 255 + 16);
-        int n = src.Length, anchor = 0, i = 0;
-        var table = new int[1 << HashBits];
-        Array.Fill(table, -1);
-        int matchLimit = n - MfLimit;      // a match may not start after this
-        while (i <= matchLimit)
-        {
-            uint seq = BitConverter.ToUInt32(src, i);
-            int h = (int)(seq * 2654435761u >> (32 - HashBits));
-            int cand = table[h];
-            table[h] = i;
-            if (cand >= 0 && i - cand <= 65535 && BitConverter.ToUInt32(src, cand) == seq)
-            {
-                int len = MinMatch, max = n - LastLiterals - i;
-                while (len < max && src[cand + len] == src[i + len]) len++;
-                Sequence(dst, src, anchor, i - anchor, i - cand, len);
-                i += len;
-                anchor = i;
-            }
-            else i++;
-        }
-        int litLen = n - anchor;           // last literals
-        dst.WriteByte((byte)(Math.Min(litLen, 15) << 4));
-        if (litLen >= 15) Length(dst, litLen - 15);
-        dst.Write(src, anchor, litLen);
-        return dst.ToArray();
-    }
-
-    static void Sequence(MemoryStream d, byte[] src, int litStart, int litLen, int offset, int matchLen)
-    {
-        int ml = matchLen - MinMatch;
-        d.WriteByte((byte)(Math.Min(litLen, 15) << 4 | Math.Min(ml, 15)));
-        if (litLen >= 15) Length(d, litLen - 15);
-        d.Write(src, litStart, litLen);
-        d.WriteByte((byte)offset); d.WriteByte((byte)(offset >> 8));
-        if (ml >= 15) Length(d, ml - 15);
-    }
-
-    static void Length(MemoryStream d, int v)
-    {
-        while (v >= 255) { d.WriteByte(255); v -= 255; }
-        d.WriteByte((byte)v);
     }
 }
