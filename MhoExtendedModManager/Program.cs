@@ -55,6 +55,9 @@ static class Program
         ("--power-anims", "--power-anims <hero> [animation name part]", "A hero's animations and the powers that play them (from the hero's power packages). Changes nothing."),
         ("--power-fx", "--power-fx <power class> [hero] [mod]", "What the 3D preview plays for a power class: its particle effects, beams, decals, weapon slots, mesh emitters. Changes nothing."),
         ("--anim-power", "--anim-power <hero> <animation>", "The power a hero's animation belongs to, and what the 3D preview would play for it. Changes nothing."),
+        ("--attach-census", "--attach-census [package.upk ...]", "Every property the game's power and hero packages use to show, hide or swap a character's props, counted, with an example of each. Changes nothing."),
+        ("--props-audit", "--props-audit [hero ...]", "For every hero (or those given): props no power shows, power rules that name no prop, props without a mesh, power buttons without a name or icon. Changes nothing."),
+        ("--hero-powers", "--hero-powers <hero>", "A hero's powers as the 3D preview's power buttons list them: name, icon, animations. Changes nothing."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
@@ -225,7 +228,7 @@ static class Program
             Console.WriteLine(ar == null ? "no such animation: rest pose" : $"{ar.Name} ({ar.Package})");
             var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences, ld.Tangents);
             float frames = ba == null ? 0 : MeshAnimator.Span(ba).Frames;
-            using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = new Size(420, 560), ShowInTaskbar = false };
+            using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = Environment.GetEnvironmentVariable("MHO_RENDER_SIZE") is string rs && rs.Split('x') is [var rw, var rh] ? new Size(int.Parse(rw), int.Parse(rh)) : new Size(420, 560), ShowInTaskbar = false };   // MHO_RENDER_SIZE=WxH: time frames at the preview's size
             var v = new Gui.ModelView { Dock = DockStyle.Fill, Background = Gui.Ui.Card };
             f.Controls.Add(v);
             var shots = new List<Bitmap>();
@@ -233,17 +236,55 @@ static class Program
             {
                 // MHO_RENDER_PROPS=1: with the props the preview shows (PropRig), as it shows them.
                 var rrig = new PropRig();
+                PropRig? renderRig = null;
                 if (Environment.GetEnvironmentVariable("MHO_RENDER_PROPS") == "1")
                 {
                     AppDomain.CurrentDomain.FirstChanceException += (_, e) => Console.WriteLine("  exception: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
-                    foreach (var (pr, bone) in PropRig.Attached(mr, ModMeshes.List(rm)))
-                        if (ModMeshes.Load(pr, rc, out _) is { } pm) { rrig.Add(pm, PropRig.BoneFor(anim8, bone)); Console.WriteLine($"  prop {pr.Name} on {bone}"); }
+                    foreach (var w in PropRig.Attached(mr, ModMeshes.List(rm), rc))
+                        if (ModMeshes.Load(w.Ref, rc, out _) is { } pm) { rrig.Add(pm, PropRig.BoneFor(anim8, w.Bone), w.Slots, w.OnDemand, w.Class); Console.WriteLine($"  prop {w.Ref.Name} on {w.Bone}{(w.OnDemand ? " (on demand)" : "")}"); }
+                    // The playing power's weapon-slot switches, as the preview applies them.
+                    if (ar != null && rc != null && mr.Package.Split('_', StringSplitOptions.RemoveEmptyEntries) is [_, _, var rhero, ..]
+                        && Fx.PowerIndex.For(rhero, rc, rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f))).TryGetValue(ar.Name, out var prefs))
+                    {
+                        var sw = prefs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(ModMeshes.PropRules).Distinct().ToList();
+                        float rsecs = ba == null ? 0 : MeshAnimator.Span(ba).Seconds;
+                        rrig.SetRules(sw, 0.4f * rsecs, rsecs);
+                        renderRig = rrig;
+                        Console.WriteLine("  prop rules: " + (sw.Count == 0 ? "none" : string.Join(", ", sw.Select(x => $"{(x.Show ? "show" : "hide")} {x.Target} @{x.StartPoint}+{x.StartOffset:0.##}{(x.EndPoint != null ? $" to {x.EndPoint}+{x.EndOffset:0.##}" : "")}"))));
+                    }
                     v.ShowMesh(rrig.Combine(ld), ld.Positions.Length);
                 }
                 else v.ShowMesh(ld);
+                // MHO_RENDER_POWERS=1: the power's effects too (as the preview plays them), stepped at 30 fps to each frame shown.
+                Fx.PowerEffects.Player? fxp = null; double fxt = 0; float secs = ba == null ? 0 : MeshAnimator.Span(ba).Seconds;
+                if (Environment.GetEnvironmentVariable("MHO_RENDER_POWERS") == "1" && ar != null && rc != null)
+                {
+                    var parts = mr.Package.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                    string hero = parts[2];
+                    string sip = Path.GetFullPath(Path.Combine(rc, "..", "..", "..", "Data", "Game", "Calligraphy.sip"));
+                    var db = new Fx.GameData(Fx.SipArchive.Load(sip));
+                    var modFiles = rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f)).ToList();
+                    var idx = Fx.PowerIndex.For(hero, rc, modFiles);
+                    if (idx.TryGetValue(ar.Name, out var pw) && pw.SelectMany(p => Fx.PowerIndex.PrototypesByClass(db).TryGetValue(p.Class, out var l) ? l : []).FirstOrDefault() is string proto)
+                    {
+                        var pfx = Fx.PowerEffects.For(new Fx.FxGame(rc, modFiles), db, proto, hero);
+                        var socks = Fx.FxSockets.Of(mr.File, mr.Name);
+                        System.Numerics.Matrix4x4? Sock(string n) => socks.TryGetValue(n, out var sk) && anim8.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * anim8.BoneMatrix(b) : anim8.BoneIndex(n) is int bi && bi >= 0 ? anim8.BoneMatrix(bi) : null;
+                        fxp = new Fx.PowerEffects.Player(pfx, Sock, new System.Numerics.Vector3(250, 0, ld.Positions.Min(q => q.Z)), Fx.PowerEffects.Player.PhaseOf(ar.Name)) { AnimSeconds = Math.Max(0.1f, secs) };
+                        Console.WriteLine($"  power {Path.GetFileNameWithoutExtension(proto)}: {pfx.Effects.Count} effects, {pfx.Decals.Count} decals, {pfx.Meshes.Count} mesh emitters");
+                        v.ZoomOut(1.6f);
+                        v.EffectStrength = PreviewViews.FxPower;
+                    }
+                    else Console.WriteLine("  no power plays " + ar.Name);
+                }
+                v.Moving = Environment.GetEnvironmentVariable("MHO_RENDER_MOVING") == "1";   // timed as during playback
                 foreach (float at in new[] { 0f, 0.33f, 0.66f, 1f })
                 {
+                    if (fxp != null)
+                        for (; fxt + 1e-6 < secs * at; fxt += 1.0 / 30) { anim8.Pose(ba, (float)(fxt / secs * frames)); fxp.Step(1f / 30, false); }
                     anim8.Pose(ba, frames * at);
+                    renderRig?.At(secs * at);
+                    if (fxp != null) { v.Effects = fxp.Quads(); v.EffectTris = fxp.Tris(); Console.WriteLine($"    {v.Effects.Count} sprites, {v.EffectTris.Count} triangles"); }
                     rrig.Update(v, anim8);
                     await Task.Delay(200);
                     var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); shots.Add(b);
@@ -902,8 +943,9 @@ static class Program
                 var all = ModMeshes.List(pm);
                 foreach (var r in all)
                 {
-                    var props = PropRig.Attached(r, all);
-                    Console.WriteLine($"{r.Name} ({r.Package}): {(props.Count == 0 ? "no props" : string.Join(", ", props.Select(p => $"{p.Ref.Name} on {p.Bone ?? "the right hand"}")))}");
+                    string? pgr2 = settings.ResolvedGameRoot(data);
+                    var props = PropRig.Attached(r, all, pgr2 != null && Settings.IsGameRoot(pgr2) ? Settings.Cooked(pgr2) : null);
+                    Console.WriteLine($"{r.Name} ({r.Package}): {(props.Count == 0 ? "no props" : string.Join(", ", props.Select(p => $"{p.Ref.Name} on {p.Bone ?? "the right hand"}{(p.OnDemand ? " (on demand)" : "")} [{string.Join(" ", p.Slots)}]")))}");
                     if (props.Count == 0 || Environment.GetEnvironmentVariable("MHO_PROPS_CHECK") != "1") continue;
                     // Check: load, combine and pose as the preview does; report sizes and anything not finite.
                     string? pc = settings.ResolvedGameRoot(data) is string pgr && Settings.IsGameRoot(pgr) ? Settings.Cooked(pgr) : null;
@@ -1027,7 +1069,7 @@ static class Program
                 else fx = Fx.PowerEffects.ForClass(game, rest[1], rest.Count > 2 ? rest[2] : null);
                 Console.WriteLine($"{rest[1]}: particles {string.Join(", ", fx.Effects.Where(e => e.BeamTarget == null).GroupBy(e => e.Kind).Select(g => $"{g.Key} {g.Count()}"))}; beams {fx.Effects.Count(e => e.BeamTarget != null)}; decals {fx.Decals.Count} ({fx.Decals.Count(d => d.Tex != null)} with a texture); weapon slots {string.Join(" ", fx.Slots.Select(x => (x.Show != null ? "+" + x.Show : "") + (x.Hide != null ? " -" + x.Hide : "")))}; thrown {fx.ThrownSlot ?? "-"}; mesh emitters {fx.Meshes.Count}; contact {fx.ContactPercent:0.##}{(fx.Returning ? ", returning" : "")}  ({sw.ElapsedMilliseconds} ms)");
                 foreach (var e in fx.Effects)
-                    Console.WriteLine($"  {e.Kind,-10} {e.Name}: {e.System.Name} ({e.System.Emitters.Count} emitters, {e.System.Emitters.Count(em => fx.Looks.TryGetValue(em, out var lk) && lk.Tex != null)} textured) at {(e.AtTarget ? "the target" : string.Join("/", e.Sockets.DefaultIfEmpty("root")))}, {e.Point}+{e.Offset:0.##}{(e.BeamTarget != null ? " beam to " + e.BeamTarget : "")}");
+                    Console.WriteLine($"  {e.Kind,-10} {e.Name}: {e.System.Name} ({e.System.Emitters.Count} emitters, {e.System.Emitters.Count(em => fx.Looks.TryGetValue(em, out var lk) && lk.Tex != null)} textured) at {(e.AtTarget ? "the target" : string.Join("/", e.Sockets.DefaultIfEmpty("root")))}, {e.Point}+{e.Offset:0.##}{(e.BeamTarget != null ? " beam to " + e.BeamTarget : "")}{(e.TriggeredBy != null ? " · by " + e.TriggeredBy : "")} · in {(e.System.Emitters.Count > 0 ? e.System.Emitters[0].Required.P.Name : "?")}");
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
                 return 0;
             }
@@ -1055,6 +1097,139 @@ static class Program
                         var fx = Fx.PowerEffects.For(game, db, proto, rest[1]);
                         Console.WriteLine($"  {Path.GetFileNameWithoutExtension(proto)}: {fx.Effects.Count} particle effects ({fx.Effects.Count(e => e.TriggeredBy != null)} triggered), {fx.Decals.Count} decals, {fx.Meshes.Count} mesh emitters, contact {fx.ContactPercent:0.##}  ({sw.ElapsedMilliseconds} ms)");
                     }
+                }
+                return 0;
+            }
+            case "--props-audit":
+            {
+                // Read-only: every hero's base package (or the heroes given): its props (attachment classes) and what its
+                // powers do with them, and its power buttons. Lists only problems: an on-demand prop no power brings out, a
+                // power switch that names no prop, a prop whose mesh isn't found, a power button without a name or icon.
+                string? agr = settings.ResolvedGameRoot(data);
+                string? acook = agr != null && Settings.IsGameRoot(agr) ? Settings.Cooked(agr) : null;
+                if (acook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var adb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(agr!, "Data", "Game", "Calligraphy.sip")));
+                var heroes = rest.Count > 1 ? rest.Skip(1).ToList()
+                    : Directory.EnumerateFiles(acook, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileNameWithoutExtension)
+                        .Select(n => n!.Split('_', StringSplitOptions.RemoveEmptyEntries)).Where(q => q.Length == 4).Select(q => q[2]).Order(StringComparer.OrdinalIgnoreCase).ToList();
+                int clean = 0;
+                foreach (string hero in heroes)
+                {
+                    var issues = new List<string>();
+                    string basePath = Path.Combine(acook, $"UC__MarvelPlayer_{hero}_SF.upk");
+                    var classes = File.Exists(basePath) ? ModMeshes.AttachmentClasses(basePath) ?? [] : [];
+                    var atts = File.Exists(basePath) ? ModMeshes.Attachments(basePath) : [];
+                    var meshNames = File.Exists(basePath) ? ModMeshes.List([(Path.GetFileName(basePath), basePath)]).Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase) : [];
+                    var listed = atts.Where(x => classes.Contains(x.Class, StringComparer.OrdinalIgnoreCase)).ToList();
+                    foreach (string c in classes.Where(c => !atts.Any(x => x.Class.Equals(c, StringComparison.OrdinalIgnoreCase)))) issues.Add($"class {c}: no attachment default in the base package");
+                    foreach (var x in listed.Where(x => !meshNames.Contains(x.Mesh))) issues.Add($"prop {x.Mesh} ({x.Class}): mesh not in the base package");
+                    var idx = Fx.PowerIndex.For(hero, acook, []);
+                    var allRules = idx.Values.SelectMany(v => v).Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase)
+                        .SelectMany(f => ModMeshes.PropRules(f).Select(w => (Rule: w, File: Path.GetFileNameWithoutExtension(f)))).ToList();
+                    bool Hits(ModMeshes.Attachment x, string target) => target.Equals("class:" + x.Class, StringComparison.OrdinalIgnoreCase) || x.Slots.Contains(target, StringComparer.OrdinalIgnoreCase)
+                        || target.Equals("bothhands", StringComparison.OrdinalIgnoreCase) && (x.Slots.Contains("lefthand", StringComparer.OrdinalIgnoreCase) || x.Slots.Contains("righthand", StringComparer.OrdinalIgnoreCase));
+                    foreach (var x in listed.Where(x => x.OnDemand))
+                        if (!allRules.Any(w => w.Rule.Show && Hits(x, w.Rule.Target)))
+                            issues.Add($"prop {x.Mesh} ({x.Class}, slots {string.Join(" ", x.Slots)}): on demand, no power shows it");
+                    foreach (var w in allRules.Where(w => w.Rule.Show).DistinctBy(w => w.Rule.Target, StringComparer.OrdinalIgnoreCase))
+                        if (!listed.Any(x => Hits(x, w.Rule.Target)) && !ModMeshes.Attachments(Path.Combine(acook, w.File + ".upk")).Any(x => Hits(x, w.Rule.Target)))
+                            issues.Add($"show {w.Rule.Target} in {w.File}: no prop fills it");
+                    var buttons = Fx.PowerList.For(adb, hero, acook, []);
+                    foreach (var pw in buttons)
+                    {
+                        if (!pw.HasName) issues.Add($"power button {Path.GetFileNameWithoutExtension(pw.Prototype)}: no name");
+                        if (pw.Icon == null) issues.Add($"power button {pw.Name}: no icon");
+                        else if (Fx.PowerList.Icon(pw.Icon, acook) == null) issues.Add($"power button {pw.Name}: icon {pw.Icon} not found");
+                    }
+                    if (idx.Count == 0) issues.Add("no power animations found");
+                    if (issues.Count == 0) { clean++; Console.WriteLine($"{hero}: ok ({listed.Count} props, {buttons.Count} power buttons)"); continue; }
+                    Console.WriteLine($"{hero}: {issues.Count} issue(s) ({listed.Count} props, {buttons.Count} power buttons)");
+                    foreach (string i in issues) Console.WriteLine("    " + i);
+                }
+                Console.WriteLine($"{clean} of {heroes.Count} heroes clean");
+                return 0;
+            }
+            case "--attach-census":
+            {
+                // Read-only: every export whose class mentions "attach" in the game's power and hero packages (or the files
+                // given): counts per class and per property name, with one example each. Finds every way the game shows,
+                // hides or switches a prop, instead of meeting them one hero at a time.
+                string? cgr = settings.ResolvedGameRoot(data);
+                string? ccook = cgr != null && Settings.IsGameRoot(cgr) ? Settings.Cooked(cgr) : null;
+                if (ccook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var files = rest.Count > 1 ? rest.Skip(1).ToList()
+                    : Directory.EnumerateFiles(ccook, "UC__*.upk").Where(f => { string n = Path.GetFileName(f); return !n.Contains("bak", StringComparison.OrdinalIgnoreCase) && !n.Contains("copy", StringComparison.OrdinalIgnoreCase) && (n.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)); }).ToList();
+                var classes = new Dictionary<string, (int Count, string Example)>(StringComparer.OrdinalIgnoreCase);
+                var propsByClass = new Dictionary<string, Dictionary<string, (int Count, string Example)>>(StringComparer.OrdinalIgnoreCase);
+                int done = 0, failed = 0;
+                foreach (string f in files)
+                {
+                    try
+                    {
+                        var pk = MhoPackageModifier.Package.Open(f);
+                        for (int i = 0; i < pk.Exports.Length; i++)
+                        {
+                            var e = pk.Exports[i];
+                            string cls = pk.ClassOf(e);
+                            if (!cls.Contains("attach", StringComparison.OrdinalIgnoreCase) || cls.Equals("Class", StringComparison.OrdinalIgnoreCase)) continue;
+                            if (cls.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase)) cls = "marvelattachment*";
+                            string where = Path.GetFileName(f) + " : " + e.ObjectName;
+                            classes[cls] = classes.TryGetValue(cls, out var c) ? (c.Count + 1, c.Example) : (1, where);
+                            var d = pk.ReadExportBytes(e);
+                            // Components (power fx, anim notifies are objects too): try properties at 16, else 4.
+                            var tags = MhoPackageModifier.TagWalker.Walk(pk, d, 16) ?? MhoPackageModifier.TagWalker.Walk(pk, d, 4);
+                            if (tags == null) continue;
+                            if (!propsByClass.TryGetValue(cls, out var pm)) propsByClass[cls] = pm = new(StringComparer.OrdinalIgnoreCase);
+                            foreach (var t in tags)
+                            {
+                                string val = t.Type switch
+                                {
+                                    "NameProperty" => MhoPackageModifier.TagWalker.NameAt(pk, d, t.ValueAt),
+                                    "ByteProperty" when t.Size == 8 => MhoPackageModifier.TagWalker.NameAt(pk, d, t.ValueAt),
+                                    "ObjectProperty" => BitConverter.ToInt32(d, t.ValueAt) is int r && r != 0 ? (r > 0 ? pk.Exports[r - 1].ObjectName : pk.RefName(r)) : "none",
+                                    "BoolProperty" => d[t.ValueAt - 1] != 0 ? "true" : "false",
+                                    "FloatProperty" => BitConverter.ToSingle(d, t.ValueAt).ToString("0.###"),
+                                    "IntProperty" => BitConverter.ToInt32(d, t.ValueAt).ToString(),
+                                    "ArrayProperty" => $"[{BitConverter.ToInt32(d, t.ValueAt)}]",
+                                    _ => t.Type,
+                                };
+                                string ex = $"{val}   ({where})";
+                                pm[t.Name] = pm.TryGetValue(t.Name, out var q) ? (q.Count + 1, q.Example) : (1, ex);
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException or IndexOutOfRangeException) { failed++; }
+                    if (++done % 500 == 0) Console.Error.WriteLine($"  {done} / {files.Count}");
+                }
+                Console.WriteLine($"{files.Count} packages read ({failed} failed)");
+                foreach (var (cls, (count, ex)) in classes.OrderByDescending(x => x.Value.Count))
+                {
+                    Console.WriteLine($"{cls}: {count}   e.g. {ex}");
+                    if (propsByClass.TryGetValue(cls, out var pm) && cls != "marvelattachment*")
+                        foreach (var (pn, (pc, pe)) in pm.OrderByDescending(x => x.Value.Count)) Console.WriteLine($"    {pn}: {pc}   e.g. {pe}");
+                }
+                return 0;
+            }
+            case "--hero-powers":
+            {
+                // Read-only: a hero's powers as the 3D preview's power buttons list them (name, icon, animations).
+                if (rest.Count < 2) { Console.WriteLine("--hero-powers <hero>"); return 1; }
+                string? hgr = settings.ResolvedGameRoot(data);
+                string? hcook = hgr != null && Settings.IsGameRoot(hgr) ? Settings.Cooked(hgr) : null;
+                if (hcook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(hgr!, "Data", "Game", "Calligraphy.sip")));
+                foreach (var pw in Fx.PowerList.For(db, rest[1], hcook, []))
+                {
+                    var ic = pw.Icon == null ? null : Fx.PowerList.Icon(pw.Icon, hcook);
+                    Console.WriteLine($"  {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): icon {pw.Icon ?? "none"}{(ic == null ? "" : $" {ic.Width}×{ic.Height}")}; {string.Join(", ", pw.Animations)}");
+                    // MHO_POWER_FIELDS=1: every asset (A) field of the power, to see which icons it names.
+                    if (Environment.GetEnvironmentVariable("MHO_POWER_FIELDS") == "1" && db.Find(pw.Prototype) is { } pe)
+                        foreach (var grp in db.Prototype(pe.Id).Data.Groups)
+                            foreach (var fl in grp.Simple)
+                                if (fl.Type == 'A')
+                                    Console.WriteLine($"      {db.FieldName(grp.Blueprint, fl.Id)} = {(db.Assets.TryGetValue(fl.Value.Raw, out var asx) ? asx.Asset.Name : fl.Value.Raw.ToString())}");
+                    // MHO_POWER_ICON_DIR: each icon as <power>.png too, to look at.
+                    if (ic != null && Environment.GetEnvironmentVariable("MHO_POWER_ICON_DIR") is string pid) { Directory.CreateDirectory(pid); ic.Save(Path.Combine(pid, string.Concat(pw.Name.Where(char.IsLetterOrDigit)) + ".png")); }
                 }
                 return 0;
             }

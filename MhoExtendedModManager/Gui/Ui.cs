@@ -699,6 +699,9 @@ static class Ui
     /// state (normal, hover, pressed; the FlatAppearance colours), a 1 px border, and the text (grey when disabled).
     /// Paint handlers added later (e.g. AddEndBar's bar) draw on top.
     /// </summary>
+    /// <summary>Buttons drawn with an icon instead of their text (the painter gets the button's area and text colour).</summary>
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Button, Action<Graphics, Rectangle, Color>> IconPainters = new();
+
     public static void Rounded(Button b)
     {
         if (rounded.TryGetValue(b, out _)) return;
@@ -728,6 +731,7 @@ static class Ui
                 var border = b.FlatAppearance.BorderColor.IsEmpty ? Line : b.FlatAppearance.BorderColor;
                 if (b.FlatAppearance.BorderSize > 0) { using var pen = new Pen(border, 1f); g.DrawPath(pen, path); }
             }
+            if (IconPainters.TryGetValue(b, out var icon)) { icon(g, r, b.Enabled ? b.ForeColor : DisabledText); return; }
             g.SmoothingMode = SmoothingMode.None;
             TextRenderer.DrawText(g, b.Text, b.Font, r, b.Enabled ? b.ForeColor : DisabledText,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
@@ -1428,6 +1432,15 @@ sealed class StorePreview : Control
     Button? playBtn, loopBtn, restBtn;
     Button? specBtn, reflBtn, glowBtn;   // shading toggles (Kurt): specular, reflections, glow
     Button? propsBtn;                    // props (Kurt, 2026-09-30: weapons in the preview too)
+    // Power effects (Kurt, 2026-09-30; ported from the MHO Hero Creator): the effects of the power an animation belongs to,
+    // played with it. The game data is read once (in the background); each power's effects when its animation is picked.
+    Button? powersBtn;
+    Fx.PowerEffects.Player? fxPlayer;
+    string fxNote = "";                  // "Shockwave · 5 Effects" in the 3D caption
+    Dictionary<string, (string Bone, System.Numerics.Matrix4x4 Local)> fxSockets = new();
+    double fxTime;                       // where the effects are (seconds into the animation)
+    int fxRequest;
+    static Task<Fx.GameData?>? fxDb;
     readonly PropRig rig = new();
     ModMeshes.Loaded? shownLoaded;       // the character as loaded (without props)
     LightSlider? lightSlider, lensSlider, frameSlider;
@@ -1435,6 +1448,26 @@ sealed class StorePreview : Control
     // Full screen (Kurt, 2026-09-30): the whole preview moves into a borderless window covering the app's monitor, the 3D
     // view filling it with the controls in a column on the right; Esc, F11 or the button bring it back.
     Button? fullBtn;
+    // Compact 3D controls (Kurt, 2026-09-30: room for more): playback in a bar over the view's bottom and framing in its top
+    // right corner, both shown while the mouse is over the view (always in full screen); the look toggles and the Light /
+    // Lens sliders in a Look ▾ menu; under the view only the caption and Look ▾ · Reset View · ⛶.
+    Panel? playBar;
+    // Power buttons (Kurt, 2026-09-30: like the MHO Hero Creator's 3D View): the hero's powers as icons in the strip under
+    // the preview while the 3D view shows (the Power Icons button switches back to the pictures); a click filters the
+    // animations to that power's and plays its first, with its effects; a second click shows them all again.
+    List<Fx.PowerList.Power> heroPowers = [];
+    List<AnimRef> allAnims = [];
+    bool autoPlay, powersLoaded;
+    string? powerFilter;
+    readonly List<(Rectangle Rect, int Index)> powerRects = [];
+    Rectangle powerLeft, powerRight;
+    int powerScroll, hoverPower = -1, heroPowersRequest;
+    Button? lookBtn;
+    ContextMenuStrip? lookMenu;
+    readonly System.Windows.Forms.Timer hoverTimer = new() { Interval = 150 };
+    bool overView;
+    DateTime overUntil;
+    Rectangle viewRect;
     Button? frameFullBtn, frameHeadBtn, frameBustBtn;   // framings (Kurt: as in Create from 3D)
     Form? fullForm;
     Control? homeParent;
@@ -1600,45 +1633,44 @@ sealed class StorePreview : Control
 
         // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
         bool full = IsFull && show3D;
+        // The pictures strip is always there; the power block (Powers toggle + two rows of power buttons) sits at the bottom
+        // (Kurt, 2026-09-30), kept while the hero's powers load and dropped when the hero has none.
+        bool powerBlock = show3D && HeroOfMesh() != null && (!powersLoaded || heroPowers.Count > 0);
         bool showStrip = Tiles > 1 && !full;
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
-        int captionH = (int)((show3D ? 216 : 40) * S);
+        int pbh = animBox?.Height ?? (int)(26 * S), pgap = (int)(6 * S);
+        int powersH = powerBlock && !full ? pbh + pgap + 2 * ThumbSize + pgap + (int)(4 * S) : 0;
+        int captionH = (int)((show3D ? 80 : 40) * S);
         int panelW = (int)(320 * S);
         Rectangle card;
         if (full)
         {
             // Full screen: the 3D view fills everything left of a controls column.
-            card = Rectangle.FromLTRB(pad, title.Bottom + (int)(4 * S), Width - panelW - 2 * pad, Height - pad - (int)(26 * S));   // the ⛶ button goes under it
+            card = Rectangle.FromLTRB(pad, title.Bottom + (int)(4 * S), Width - panelW - 2 * pad, Height - pad);
             if (card.Width <= 0 || card.Height <= 0) return;
         }
         else
         {
             int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
-            int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
+            int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH - powersH;
             if (h > maxH && maxH > 0) { h = maxH; if (!show3D) w = (int)(h * 300f / 420f); }   // the 3D view uses the column's whole width; pictures keep their shape
             if (w <= 0 || h <= 0) return;
             card = new Rectangle((Width - w) / 2, title.Bottom + (int)(4 * S), w, h);
         }
         // Where the caption and the 3D controls go: under the card, or the column on the right when full screen.
         int ctlX = full ? card.Right + pad : card.X, ctlW = full ? panelW : card.Width;
-        int fbs = (int)(22 * S);
+        int fbs = (int)(33 * S);   // ⛶ and the three framing buttons: one square size (Kurt: ⛶ 50 % bigger)
         // The caption under the card leaves room on the right for the ⛶ button (Kurt: lower right, under the view).
-        int capX = full ? ctlX : pad + fbs + (int)(4 * S), capW = full ? panelW : Width - 2 * pad - 2 * (fbs + (int)(4 * S)), capY = full ? card.Top : card.Bottom + (int)(4 * S);
-        if (fullBtn != null)
-        {
-            int fb = fbs;
-            var fr = new Rectangle(card.Right - fb, card.Bottom + (int)(4 * S), fb, fb);
-            if (fullBtn.Bounds != fr) fullBtn.Bounds = fr;
-            bool want = show3D && viewer != null && mod != null;
-            if (fullBtn.Visible != want) fullBtn.Visible = want;
-            string label = full ? "✕" : "⛶";
-            if (fullBtn.Text != label) fullBtn.Text = label;
-        }
+        int capX = full ? ctlX : pad, capW = full ? panelW : Width - 2 * pad, capY = full ? card.Top : card.Bottom + (int)(4 * S);
         if (show3D && viewer != null)
         {
             // The 3D view fills the card; the caption steps through the meshes.
             var inner = Rectangle.Inflate(card, -(int)(2 * S), -(int)(2 * S));
+            // The playback bar (frame slider, animation, ▶, Loop) is always shown, under the view inside the card (Kurt:
+            // it kept disappearing as a hover overlay).
+            if (animBox != null) inner.Height -= (int)(22 * S) + animBox.Height + 3 * (int)(4 * S);
             if (viewer.Bounds != inner) viewer.Bounds = inner;
+            viewRect = inner;
             if (!viewer.Visible) viewer.Visible = true;
             using (var path = Ui.Round(card, 5 * S)) using (var fill = new SolidBrush(Ui.Card)) g.FillPath(fill, path);
         }
@@ -1678,57 +1710,43 @@ sealed class StorePreview : Control
             TextRenderer.DrawText(g, meshes.Count > 1 ? $"{r.Name}  ({meshIndex + 1} of {meshes.Count})" : r.Name, smallFont, mid, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             string whose = mod.LocalPreview != null && MeshPart(mod.LocalPreview) == r.Key ? "User Pick" : mod.Manifest.PreviewImage != null && MeshPart(mod.Manifest.PreviewImage) == r.Key ? "The Mod's Choice" : "3D View";
             cap.Offset(0, (int)(18 * S));
-            TextRenderer.DrawText(g, $"3D  ·  {r.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}  ·  {whose}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            if (animBox != null && playBtn != null && loopBtn != null && restBtn != null)
+            TextRenderer.DrawText(g, $"3D  ·  {r.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}  ·  {whose}{(fxNote.Length > 0 ? "  ·  " + fxNote : "")}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            if (animBox != null && playBtn != null && loopBtn != null && restBtn != null && playBar != null && lookBtn != null && fullBtn != null && frameSlider != null)
             {
-                int bh = animBox.Height, gap = (int)(4 * S), wPlay = (int)(30 * S), wLoop = (int)(56 * S), wRest = (int)(72 * S);
-                int y = cap.Bottom + (int)(4 * S);
-                var ab = new Rectangle(ctlX, y, ctlW - wPlay - wLoop - wRest - 3 * gap, bh);
-                if (animBox.Bounds != ab) animBox.Bounds = ab;
-                var pb = new Rectangle(ab.Right + gap, y, wPlay, bh); if (playBtn.Bounds != pb) playBtn.Bounds = pb;
-                var lb = new Rectangle(pb.Right + gap, y, wLoop, bh); if (loopBtn.Bounds != lb) loopBtn.Bounds = lb;
-                var rb = new Rectangle(lb.Right + gap, y, wRest, bh); if (restBtn.Bounds != rb) restBtn.Bounds = rb;
-                foreach (Control c in new Control[] { animBox, playBtn, loopBtn, restBtn }) if (!c.Visible) c.Visible = true;
-                int below = y + bh;
-                if (frameSlider != null)
+                int bh = animBox.Height, gap = (int)(4 * S), wPlay = (int)(30 * S), wLoop = (int)(56 * S), wRest = (int)(80 * S), wLook = (int)(78 * S);
+                // Under the caption: Look ▾ · Reset View, and ⛶ at the right.
+                // One row: Look ▾ · Reset View on the left; Full Body / Head / Bust and ⛶ (square icon buttons) on the right.
+                int y = cap.Bottom + (int)(4 * S), by = y + (fbs - bh) / 2;
+                var lk = new Rectangle(ctlX, by, wLook, bh); if (lookBtn.Bounds != lk) lookBtn.Bounds = lk;
+                var rb = new Rectangle(lk.Right + gap, by, wRest, bh); if (restBtn.Bounds != rb) restBtn.Bounds = rb;
+                var fr = new Rectangle(ctlX + ctlW - fbs, y, fbs, fbs); if (fullBtn.Bounds != fr) fullBtn.Bounds = fr;
+                string label = full ? "Back" : "Full Screen";
+                if (fullBtn.Text != label) { fullBtn.Text = label; fullBtn.Invalidate(); }
+                foreach (Control c in new Control[] { lookBtn, restBtn, fullBtn }) if (!c.Visible) c.Visible = true;
+                if (powersBtn != null)
                 {
-                    var fb = new Rectangle(ctlX, below + (int)(4 * S), ctlW, (int)(22 * S));
-                    if (frameSlider.Bounds != fb) frameSlider.Bounds = fb;
-                    if (!frameSlider.Visible) frameSlider.Visible = true;
-                    below = fb.Bottom;
+                    // The Powers toggle heads the power block: the bottom of the panel, or under the Look row when full screen.
+                    var pw2 = full ? new Rectangle(ctlX, fr.Bottom + (int)(10 * S), (int)(92 * S), bh) : new Rectangle(pad, Height - powersH, (int)(92 * S), bh);
+                    if (powersBtn.Bounds != pw2) powersBtn.Bounds = pw2;
+                    if (powersBtn.Visible != powerBlock) powersBtn.Visible = powerBlock;
                 }
-                if (lightSlider != null)
+                // The playback bar under the view, always shown.
+                int barH = (int)(22 * S) + bh + 3 * gap;
+                var bar = new Rectangle(viewRect.X, viewRect.Bottom, viewRect.Width, barH);
+                if (playBar.Bounds != bar) playBar.Bounds = bar;
+                int iw = bar.Width - 2 * gap;
+                var fsb = new Rectangle(gap, gap, iw, (int)(22 * S)); if (frameSlider.Bounds != fsb) frameSlider.Bounds = fsb;
+                var ab = new Rectangle(gap, fsb.Bottom + gap, iw - wPlay - wLoop - 2 * gap, bh); if (animBox.Bounds != ab) animBox.Bounds = ab;
+                var pb = new Rectangle(ab.Right + gap, ab.Y, wPlay, bh); if (playBtn.Bounds != pb) playBtn.Bounds = pb;
+                var lb = new Rectangle(pb.Right + gap, ab.Y, wLoop, bh); if (loopBtn.Bounds != lb) loopBtn.Bounds = lb;
+                if (!playBar.Visible) playBar.Visible = true;
+                if (frameFullBtn != null && frameHeadBtn != null && frameBustBtn != null)
                 {
-                    var sb = new Rectangle(ctlX, below + (int)(4 * S), ctlW, (int)(22 * S));
-                    if (lightSlider.Bounds != sb) lightSlider.Bounds = sb;
-                    if (!lightSlider.Visible) lightSlider.Visible = true;
-                    if (lensSlider != null)
-                    {
-                        var lb2 = new Rectangle(ctlX, sb.Bottom + (int)(4 * S), ctlW, (int)(22 * S));
-                        if (lensSlider.Bounds != lb2) lensSlider.Bounds = lb2;
-                        if (!lensSlider.Visible) lensSlider.Visible = true;
-                        if (specBtn != null && reflBtn != null && glowBtn != null)
-                        {
-                            int tw4 = (ctlW - 3 * gap) / 4, ty = lb2.Bottom + (int)(4 * S), tw = (ctlW - 2 * gap) / 3;
-                            var r1 = new Rectangle(ctlX, ty, tw4, bh); if (specBtn.Bounds != r1) specBtn.Bounds = r1;
-                            var r2 = new Rectangle(r1.Right + gap, ty, tw4, bh); if (reflBtn.Bounds != r2) reflBtn.Bounds = r2;
-                            var r3 = new Rectangle(r2.Right + gap, ty, tw4, bh); if (glowBtn.Bounds != r3) glowBtn.Bounds = r3;
-                            foreach (var b in new[] { specBtn, reflBtn, glowBtn }) if (!b.Visible) b.Visible = true;
-                            if (propsBtn != null)
-                            {
-                                var r4 = new Rectangle(r3.Right + gap, ty, ctlX + ctlW - r3.Right - gap, bh); if (propsBtn.Bounds != r4) propsBtn.Bounds = r4;
-                                if (!propsBtn.Visible) propsBtn.Visible = true;
-                            }
-                            if (frameFullBtn != null && frameHeadBtn != null && frameBustBtn != null)
-                            {
-                                int fy = r1.Bottom + (int)(4 * S);
-                                var f1 = new Rectangle(ctlX, fy, tw, bh); if (frameFullBtn.Bounds != f1) frameFullBtn.Bounds = f1;
-                                var f2 = new Rectangle(f1.Right + gap, fy, tw, bh); if (frameHeadBtn.Bounds != f2) frameHeadBtn.Bounds = f2;
-                                var f3 = new Rectangle(f2.Right + gap, fy, ctlX + ctlW - f2.Right - gap, bh); if (frameBustBtn.Bounds != f3) frameBustBtn.Bounds = f3;
-                                foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn }) if (!b.Visible) b.Visible = true;
-                            }
-                        }
-                    }
+                    // Left to right: Head, Bust, Full Body (Kurt).
+                    var f3 = new Rectangle(fr.X - 2 * gap - fbs, y, fbs, fbs); if (frameFullBtn.Bounds != f3) frameFullBtn.Bounds = f3;
+                    var f2 = new Rectangle(f3.X - gap - fbs, y, fbs, fbs); if (frameBustBtn.Bounds != f2) frameBustBtn.Bounds = f2;
+                    var f1 = new Rectangle(f2.X - gap - fbs, y, fbs, fbs); if (frameHeadBtn.Bounds != f1) frameHeadBtn.Bounds = f1;
+                    foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn }) if (!b.Visible) b.Visible = true;
                 }
             }
         }
@@ -1745,6 +1763,61 @@ sealed class StorePreview : Control
         // The strip: thumbnails, with arrows when they don't all fit.
         thumbRects.Clear();
         leftArrow = rightArrow = strip = Rectangle.Empty;
+        powerRects.Clear(); powerLeft = powerRight = Rectangle.Empty;
+        if (mod != null && powerBlock && powersBtn != null)
+        {
+            var hb = powersBtn.Bounds;
+            string head = !powersLoaded ? "Loading Powers…" : powerFilter != null && heroPowers.FirstOrDefault(p => p.Prototype == powerFilter) is { } fp ? fp.Name + " (Click Again for All)" : $"{heroPowers.Count} Powers: Click One to Play It";
+            var ht = Rectangle.FromLTRB(hb.Right + pgap, hb.Top, full ? ctlX + ctlW : Width - pad, hb.Bottom);
+            TextRenderer.DrawText(g, head, smallFont, ht, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+        if (mod != null && show3D && heroPowers.Count > 0 && powerBlock && powersBtn != null)
+        {
+            if (full)
+            {
+                // Full screen: every power as a grid in the column, under the Powers toggle.
+                int gx = card.Right + pad, gy = powersBtn.Bottom + pgap, cell = ThumbSize, gp = pgap;
+                int per = Math.Max(1, (panelW + gp) / (cell + gp));
+                for (int k = 0; k < heroPowers.Count; k++)
+                {
+                    var r = new Rectangle(gx + k % per * (cell + gp), gy + k / per * (cell + gp), cell, cell);
+                    if (r.Bottom > Height - pad) break;
+                    DrawPower(g, r, k);
+                }
+            }
+            else
+            {
+                // Two rows under the Powers toggle, scrolled sideways together when they don't fit.
+                int ptop = powersBtn.Bottom + pgap, aw = (int)(16 * S), step = ThumbSize + pgap, areaH = 2 * ThumbSize + pgap;
+                int cols = (heroPowers.Count + 1) / 2;
+                var pstrip = new Rectangle(pad, ptop, Width - 2 * pad, areaH);
+                int ptotal = cols * step - pgap;
+                if (ptotal > pstrip.Width)
+                {
+                    powerLeft = new Rectangle(pad, ptop, aw, areaH);
+                    powerRight = new Rectangle(Width - pad - aw, ptop, aw, areaH);
+                    pstrip = new Rectangle(powerLeft.Right + (int)(4 * S), ptop, powerRight.Left - powerLeft.Right - (int)(8 * S), areaH);
+                    powerScroll = Math.Clamp(powerScroll, 0, Math.Max(0, ptotal - pstrip.Width));
+                    foreach (var (ar, left, on) in new[] { (powerLeft, true, powerScroll > 0), (powerRight, false, powerScroll < ptotal - pstrip.Width) })
+                    {
+                        using var ab = new SolidBrush(on ? Ui.Text : Color.FromArgb(70, 255, 255, 255));
+                        float cx = ar.X + ar.Width / 2f, cy = ar.Y + ar.Height / 2f, aa = 5 * S;
+                        g.FillPolygon(ab, left ? [new PointF(cx + aa / 2, cy - aa), new PointF(cx - aa / 2, cy), new PointF(cx + aa / 2, cy + aa)]
+                                               : [new PointF(cx - aa / 2, cy - aa), new PointF(cx + aa / 2, cy), new PointF(cx - aa / 2, cy + aa)]);
+                    }
+                }
+                else { powerScroll = 0; pstrip = new Rectangle(pad, ptop, Math.Max(0, ptotal), areaH); }
+                var pclip = g.Clip;
+                g.SetClip(pstrip);
+                for (int k = 0; k < heroPowers.Count; k++)
+                {
+                    var r = new Rectangle(pstrip.X + k % cols * step - powerScroll, ptop + k / cols * step, ThumbSize, ThumbSize);
+                    if (r.Right < pstrip.Left || r.Left > pstrip.Right) continue;
+                    DrawPower(g, r, k);
+                }
+                g.Clip = pclip;
+            }
+        }
         if (!showStrip || mod == null) return;
         int top = card.Bottom + captionH - (int)(2 * S), arrowW = (int)(16 * S);
         strip = new Rectangle(pad, top, Width - 2 * pad, ThumbSize);
@@ -1860,7 +1933,7 @@ sealed class StorePreview : Control
         viewer.Visible = true;
         SaveAnim();
         shownMesh = null;
-        StopAnimation(); anims = []; animator = null; FillAnims();
+        StopAnimation(); ClearEffects(); anims = []; animator = null; FillAnims();
         if (mod != null) { float lv = PreviewViews.Light(mod); viewer.Brightness = lv; if (lightSlider != null) lightSlider.Value = lv; }   // this mod's light
         if (mod != null) { float fl = PreviewViews.Lens(mod); viewer.FocalLength = fl; if (lensSlider != null) lensSlider.Value = fl; }    // and lens
         Invalidate();
@@ -1898,8 +1971,9 @@ sealed class StorePreview : Control
             Task.Run(() => { try { return ModAnimations.For(r, l.Bones, pkgs, cooked2); } catch { return []; } }).ContinueWith(t =>
             {
                 if (IsDisposed || req2 != request || mod?.FolderName != m?.FolderName) return;   // (a reload of the same mod is a new object)
-                anims = t.Result;
+                anims = allAnims = t.Result;
                 FillAnims();
+                LoadHeroPowers();
                 // This PC's last animation and frame for the mesh, else the pick's "@animation".
                 var saved = mod == null ? null : PreviewViews.GetAnim(PreviewViews.Key(mod, r));
                 string? name = saved?.Name ?? wantedAnim;
@@ -1928,12 +2002,18 @@ sealed class StorePreview : Control
             foreach (var b in new[] { specBtn, reflBtn, glowBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
             propsBtn = Ui.FlatButton("Props", () => { PreviewViews.Props = !PreviewViews.Props; ApplyShading(); LoadProps(); }, "Show the weapons and props the game attaches to this character (Thor's hammer in his hand …), held on their bones. Lit when on; remembered on this PC.");
             propsBtn.AutoSize = false; propsBtn.Padding = new Padding(0); propsBtn.Visible = false; Controls.Add(propsBtn);
+            powersBtn = Ui.FlatButton("Power FXs", () => { PreviewViews.Powers = !PreviewViews.Powers; ApplyShading(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's or the mod's power packages). Lit when on; remembered on this PC.");
+            powersBtn.AutoSize = false; powersBtn.Padding = new Padding(0); powersBtn.Visible = false; Controls.Add(powersBtn);
             frameFullBtn = Ui.FlatButton("Full Body", () => FrameShot(Framing.Shot.Full), "Frame the whole character (as Create from 3D does). Saved as this mesh's view.");
             frameHeadBtn = Ui.FlatButton("Head", () => FrameShot(Framing.Shot.HeadShoulders), "Frame the head and shoulders. Saved as this mesh's view.");
             frameBustBtn = Ui.FlatButton("Bust", () => FrameShot(Framing.Shot.Bust), "Frame head and chest. Saved as this mesh's view.");
             foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+            Ui.IconPainters.AddOrUpdate(frameFullBtn, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.Full));
+            Ui.IconPainters.AddOrUpdate(frameHeadBtn, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.HeadShoulders));
+            Ui.IconPainters.AddOrUpdate(frameBustBtn, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.Bust));
             fullBtn = Ui.FlatButton("⛶", ToggleFull, "Full screen: the 3D view fills the screen with its controls beside it (F11). Esc, F11 or ✕ come back.");
             fullBtn.AutoSize = false; fullBtn.Padding = new Padding(0); fullBtn.Visible = false; Controls.Add(fullBtn);
+            Ui.IconPainters.AddOrUpdate(fullBtn, (g, r, c) => FullScreenIcon(g, r, c, IsFull));
             // Frame (Kurt: like the icon maker's): where the animation is; dragging it pauses and scrubs.
             frameSlider = new LightSlider { Visible = false, Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null, Enabled = false, Home = () => 0, Format = v => playing == null ? "—" : $"{v:0} / {playFrames:0}" };
             frameSlider.ValueChanged += ScrubTo;
@@ -1949,12 +2029,22 @@ sealed class StorePreview : Control
             lensSlider.ValueChanged += () => { if (viewer != null) viewer.FocalLength = lensSlider.Value; };
             lensSlider.Committed += () => { if (mod != null) PreviewViews.SetLens(mod, lensSlider.Value); };
             Ui.Tip(lensSlider, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter; the model stays the same size (double-click: 50 mm). Remembered per mod on this PC.");
-            Controls.Add(lensSlider);
+            Controls.Remove(lightSlider);   // both live in the Look ▾ menu
+            // The playback bar over the view's bottom (shown while the mouse is over the view).
+            playBar = new Panel { Visible = false, BackColor = Color.FromArgb(24, 26, 34) };
+            foreach (Control c in new Control[] { frameSlider, animBox, playBtn, loopBtn }) { playBar.Controls.Add(c); c.Visible = true; }
+            Controls.Add(playBar);
+            lookBtn = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow and Props on or off, and the Light and Lens sliders. Remembered on this PC.");
+            lookBtn.AutoSize = false; lookBtn.Padding = new Padding(0); lookBtn.Visible = false; Controls.Add(lookBtn);
+            hoverTimer.Tick += (_, _) => CheckHover();
+            hoverTimer.Start();
         }
         fillingAnims = true;
         animBox.BeginUpdate();
         animBox.Items.Clear();
-        animBox.Items.Add(anims.Count > 0 ? $"Rest Pose  ·  {anims.Count} animations" : show3D ? "Rest Pose  ·  (looking for animations…)" : "Rest Pose");
+        string? filterName = powerFilter == null ? null : heroPowers.FirstOrDefault(p => p.Prototype == powerFilter)?.Name;
+        animBox.Items.Add(filterName != null ? $"Rest Pose  ·  {anims.Count} of {allAnims.Count} animations ({filterName})"
+            : anims.Count > 0 ? $"Rest Pose  ·  {anims.Count} animations" : show3D ? "Rest Pose  ·  (looking for animations…)" : "Rest Pose");
         foreach (var a in anims) animBox.Items.Add(a.Name);
         animBox.SelectedIndex = 0;
         animBox.EndUpdate();
@@ -1968,6 +2058,7 @@ sealed class StorePreview : Control
     void UpdateButtons()
     {
         ApplyShading();
+        if (viewer != null) viewer.Moving = playing != null && !paused;   // smaller frames while playing (ModelView.Moving)
         if (playBtn == null || loopBtn == null) return;
         bool has = playing != null;
         playBtn.Text = has && !paused ? "❚❚" : "▶";
@@ -1984,7 +2075,11 @@ sealed class StorePreview : Control
     void ApplyShading()
     {
         if (viewer != null) { viewer.ShowSpec = PreviewViews.Spec; viewer.ShowReflections = PreviewViews.Reflect; viewer.ShowGlow = PreviewViews.Glow; }
-        foreach (var (b, on) in new[] { (specBtn, PreviewViews.Spec), (reflBtn, PreviewViews.Reflect), (glowBtn, PreviewViews.Glow), (propsBtn, PreviewViews.Props) })
+        if (lookMenu != null)
+            foreach (ToolStripItem it in lookMenu.Items)
+                if (it is ToolStripMenuItem mi)
+                    mi.Checked = mi.Text switch { "Spec" => PreviewViews.Spec, "Reflect" => PreviewViews.Reflect, "Glow" => PreviewViews.Glow, "Props" => PreviewViews.Props, "Powers" => PreviewViews.Powers, _ => mi.Checked };
+        foreach (var (b, on) in new[] { (specBtn, PreviewViews.Spec), (reflBtn, PreviewViews.Reflect), (glowBtn, PreviewViews.Glow), (propsBtn, PreviewViews.Props), (powersBtn, PreviewViews.Powers) })
             if (b != null) Ui.Lit(b, on);
     }
 
@@ -2019,6 +2114,7 @@ sealed class StorePreview : Control
         StopAnimation();
         if (i < 0 || i >= anims.Count)
         {
+            ClearEffects();
             animator.Pose(null, 0); ShowPose();
             ShowFrame(0);
             if (!fillingAnims && MeshOk) { Picked?.Invoke(mod, meshes[meshIndex].Key); SaveAnim(); }
@@ -2038,6 +2134,9 @@ sealed class StorePreview : Control
             animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); ShowPose();
             ShowFrame(playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0);
             UpdateButtons();
+            LoadEffects();
+            LoadPropSwitches();
+            if (autoPlay) { autoPlay = false; if (paused) TogglePlay(); }
             // A restored animation is shown as it was left, not a new pick (no undo step, the preview choice unchanged).
             if (mod != null && MeshOk && !restoring) Picked?.Invoke(mod, CurrentMeshKey());
             SaveAnim();
@@ -2050,6 +2149,7 @@ sealed class StorePreview : Control
         if (settingFrame || frameSlider == null || playing == null || animator == null || viewer == null || playFrames <= 0) return;
         if (!paused) { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); }
         playTime = frameSlider.Value / playFrames * playSeconds;
+        FxReplay(playTime);
         animator.Pose(playing, frameSlider.Value);
         ShowPose();
     }
@@ -2079,6 +2179,7 @@ sealed class StorePreview : Control
         else if (playTime >= playSeconds) { playTime = playSeconds; frame = playFrames; paused = true; playTimer.Stop(); UpdateButtons(); }
         else frame = (float)(playTime / playSeconds * playFrames);
         animator.Pose(playing, frame);
+        FxAdvance(PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime, ended: !PreviewViews.Loop && playTime >= playSeconds);
         ShowPose();
         ShowFrame(frame);
     }
@@ -2249,6 +2350,14 @@ sealed class StorePreview : Control
 
     void Pause() { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); SaveAnim(); }
 
+    /// <summary>Esc (Kurt): pauses a playing animation; false when nothing was playing (Esc then does its usual job).</summary>
+    public bool PausePlayback()
+    {
+        if (playing == null || paused || !show3D) return false;
+        Pause();
+        return true;
+    }
+
     /// <summary>Stores the shown mesh's animation and the frame it's on (preview_views.json), so it comes back as it was.</summary>
     void SaveAnim()
     {
@@ -2261,12 +2370,119 @@ sealed class StorePreview : Control
 
     void HideAnimControls()
     {
-        foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider, specBtn, reflBtn, glowBtn, propsBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn }) if (c != null) c.Visible = false;
+        // (Not the playback bar's own controls: hiding the bar hides them, and nothing showed them again: Kurt's
+        // "animation filter and scrub bar keep disappearing".)
+        foreach (Control? c in new Control?[] { restBtn, lightSlider, lensSlider, specBtn, reflBtn, glowBtn, propsBtn, powersBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn, playBar, lookBtn }) if (c != null) c.Visible = false;
         if (IsFull) ToggleFull();   // a picture (or another mod without 3D) shows: back from full screen
     }
 
     /// <summary>The pose last made by the animator, with the props on their bones.</summary>
-    void ShowPose() { if (viewer != null && animator != null) rig.Update(viewer, animator); }
+    void ShowPose()
+    {
+        if (viewer == null || animator == null) return;
+        if (fxPlayer != null) { viewer.Effects = fxPlayer.Quads(); viewer.EffectTris = fxPlayer.Tris(); }
+        else if (viewer.Effects.Count > 0 || viewer.EffectTris.Count > 0) { viewer.Effects = []; viewer.EffectTris = []; }
+        // Props shown at this moment of the animation (a power's rules have their times).
+        rig.At(playing == null || playSeconds <= 0 ? 0 : PreviewViews.Loop ? playTime % playSeconds : Math.Min(playTime, playSeconds));
+        rig.Update(viewer, animator);
+    }
+
+    void ClearEffects() { fxRequest++; fxPlayer = null; fxNote = ""; if (viewer != null) { viewer.Effects = []; viewer.EffectTris = []; } }
+
+    /// <summary>The game data (Calligraphy.sip), read once in the background for every power lookup.</summary>
+    Task<Fx.GameData?> GameDb(string cooked)
+    {
+        if (fxDb != null) return fxDb;
+        string sip = Path.GetFullPath(Path.Combine(cooked, "..", "..", "..", "Data", "Game", "Calligraphy.sip"));
+        return fxDb = Task.Run(() => { try { return File.Exists(sip) ? new Fx.GameData(Fx.SipArchive.Load(sip)) : null; } catch (Exception ex) when (ex is IOException or InvalidDataException) { return (Fx.GameData?)null; } });
+    }
+
+    /// <summary>
+    /// The effects of the power the playing animation belongs to (Powers on): the hero's power packages name it
+    /// (PowerIndex, the mod's copies first), the game data gives the power with what it sets off (PowerEffects.For),
+    /// then they play from the animation's time. Read in the background; nothing is added to the mod.
+    /// </summary>
+    void LoadEffects()
+    {
+        ClearEffects();
+        if (!PreviewViews.Powers || playing == null || animator == null || mod == null || !MeshOk || CookedFolder is not string cooked || animBox == null) { ShowPose(); Invalidate(); return; }
+        int ai = animBox.SelectedIndex - 1;
+        if (ai < 0 || ai >= anims.Count) return;
+        string anim = anims[ai].Name;
+        var r = meshes[meshIndex];
+        // The hero whose animations these are: UC__MarvelPlayer_<Hero>_… (a moved costume plays its target hero's).
+        var parts = r.Package.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        string? hero = parts.Length >= 2 && parts[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && parts[1].StartsWith("MarvelPlayer", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3 ? parts[2] : null;
+        if (hero == null) return;
+        var modFiles = mod.Manifest.UpkReplacements.Select(f => Path.Combine(mod.Folder, f)).ToList();
+        int req = fxRequest;
+        var a = animator; var l = shownLoaded;
+        string meshFile = r.File, meshName = r.Name;
+        fxNote = "Reading Powers…"; Invalidate();
+        GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
+        {
+            var db = dbt.Result;
+            if (db == null) return ((Fx.PowerEffects?)null, "", (Dictionary<string, (string, System.Numerics.Matrix4x4)>?)null);
+            var idx = Fx.PowerIndex.For(hero, cooked, modFiles);
+            if (!idx.TryGetValue(anim, out var powers) || powers.Count == 0) return (null, "", null);
+            var byClass = Fx.PowerIndex.PrototypesByClass(db);
+            var proto = powers.SelectMany(p => byClass.TryGetValue(p.Class, out var list) ? list : []).FirstOrDefault();
+            if (proto == null) return (null, "", null);
+            var fx = Fx.PowerEffects.For(new Fx.FxGame(cooked, modFiles), db, proto, hero);
+            return (fx, Path.GetFileNameWithoutExtension(proto), Fx.FxSockets.Of(meshFile, meshName));
+        })).Unwrap().ContinueWith(t =>
+        {
+            if (IsDisposed || req != fxRequest || animator != a || playing == null || viewer == null) return;
+            var (fx, power, sockets) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, "", null);
+            if (fx == null) { fxNote = ""; Invalidate(); return; }
+            fxSockets = sockets ?? new();
+            var phase = Fx.PowerEffects.Player.PhaseOf(anim);
+            // The target of effects at the world position: the ground 250 units in front (characters face +X).
+            float ground = l == null || l.Positions.Length == 0 ? 0 : l.Positions.Min(v => v.Z);
+            fxPlayer = new Fx.PowerEffects.Player(fx, Socket, new System.Numerics.Vector3(250, 0, ground), phase) { AnimSeconds = Math.Max(0.1f, playSeconds) };
+            viewer.EffectStrength = PreviewViews.FxPower;   // the effects' opacity / glow (default 15 %)
+            int n = fx.Effects.Count(e => phase(e));
+            fxNote = $"{Ui.TitleCase(SplitWords(power))} · {n} Effect{(n == 1 ? "" : "s")}";
+            FxReplay(PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime);
+            animator.Pose(playing, playSeconds > 0 ? (float)((PreviewViews.Loop ? playTime % playSeconds : playTime) / playSeconds * playFrames) : 0);
+            ShowPose();
+            Invalidate();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    static string SplitWords(string s) => System.Text.RegularExpressions.Regex.Replace(s, "(?<=[a-z])(?=[A-Z])", " ");
+
+    /// <summary>A socket's place in the pose last made: the mesh's socket on its bone, else a bone of that name, else null.</summary>
+    System.Numerics.Matrix4x4? Socket(string name)
+    {
+        if (animator == null) return null;
+        if (fxSockets.TryGetValue(name, out var sk) && animator.BoneIndex(sk.Bone) is int b && b >= 0) return sk.Local * animator.BoneMatrix(b);
+        int bi = animator.BoneIndex(name);
+        return bi >= 0 ? animator.BoneMatrix(bi) : null;
+    }
+
+    /// <summary>The effects moved on to <paramref name="seconds"/> (from where they were; started over when time went back: a loop).</summary>
+    void FxAdvance(double seconds, bool ended)
+    {
+        if (fxPlayer == null) return;
+        if (seconds < fxTime - 1e-6) { fxPlayer.Reset(); fxTime = 0; }
+        float dt = (float)(seconds - fxTime);
+        if (dt > 0 || ended) fxPlayer.Step(Math.Max(0, dt), ended);
+        fxTime = seconds;
+    }
+
+    /// <summary>The effects as they are at <paramref name="seconds"/>: played from the start in 1/30 s steps, posing for the sockets.</summary>
+    void FxReplay(double seconds)
+    {
+        if (fxPlayer == null || playing == null || animator == null) return;
+        fxPlayer.Reset(); fxTime = 0;
+        for (double t = 0; t + 1e-6 < seconds; t += 1.0 / 30)
+        {
+            animator.Pose(playing, playSeconds > 0 ? (float)(t / playSeconds * playFrames) : 0);
+            fxPlayer.Step(1f / 30, false);
+            fxTime = t + 1.0 / 30;
+        }
+    }
 
     /// <summary>
     /// The props the game attaches to the shown character (PropRig.Attached: other meshes of the mod's packages that a
@@ -2280,27 +2496,220 @@ sealed class StorePreview : Control
         var l = shownLoaded;
         var a = animator;
         int req = request;
-        var want = PreviewViews.Props ? PropRig.Attached(main, meshes) : [];
+        bool on = PreviewViews.Props;
+        var all = meshes.ToList();
         string? cooked = CookedFolder;
-        if (want.Count == 0 && rig.Count == 0) return;
-        Task.Run(() => want.Select(w => { try { return (w.Bone, Mesh: ModMeshes.Load(w.Ref, cooked, out _)); } catch { return (w.Bone, Mesh: (ModMeshes.Loaded?)null); } }).ToList())
+        if (!on && rig.Count == 0) return;
+        // (in the background: the hero's base package may be read for its props)
+        Task.Run(() => (on ? PropRig.Attached(main, all, cooked) : []).Select(w => { try { return (W: w, Mesh: ModMeshes.Load(w.Ref, cooked, out _)); } catch { return (W: w, Mesh: (ModMeshes.Loaded?)null); } }).ToList())
             .ContinueWith(t =>
             {
                 if (IsDisposed || req != request || viewer == null || animator != a || shownLoaded != l) return;
-                rig.Clear();
-                foreach (var (bone, m) in t.Result) if (m != null) rig.Add(m, PropRig.BoneFor(a, bone));
-                var keep = viewer.ViewState;
-                viewer.ShowMesh(rig.Combine(l), l.Positions.Length);   // framed (and the saved view measured) by the character alone
-                viewer.ViewState = keep;
-                ShowPose();
+                baseProps = [.. t.Result.Where(x => x.Mesh != null).Select(x => (x.W, x.Mesh!))];
+                RebuildRig();
             }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    // The character's own props (LoadProps) and the ones the playing power brings from its own package (LoadPropSwitches:
+    // Jean Grey's, Luke Cage's and Magneto's thrown cars are defined in their power packages).
+    List<(PropRig.Prop W, ModMeshes.Loaded M)> baseProps = [], powerProps = [];
+
+    /// <summary>The character with its props and the power's, as one mesh; the view and the pose kept.</summary>
+    void RebuildRig()
+    {
+        if (viewer == null || animator == null || shownLoaded == null) return;
+        rig.Clear();
+        foreach (var (w, m) in baseProps.Concat(powerProps)) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class);
+        rig.SetRules(propRules, propContact, playSeconds);
+        var keep = viewer.ViewState;
+        viewer.ShowMesh(rig.Combine(shownLoaded), shownLoaded.Positions.Length);   // framed (and the saved view measured) by the character alone
+        viewer.ViewState = keep;
+        ShowPose();
+    }
+
+    /// <summary>One power button: its icon on a card; accent border while one of its animations plays, tinted while it filters.</summary>
+    void DrawPower(Graphics g, Rectangle r, int k)
+    {
+        var pw = heroPowers[k];
+        powerRects.Add((r, k));
+        string? current = animBox != null && animBox.SelectedIndex > 0 && animBox.SelectedIndex - 1 < anims.Count ? anims[animBox.SelectedIndex - 1].Name : null;
+        bool playingIt = current != null && pw.Animations.Contains(current, StringComparer.OrdinalIgnoreCase);
+        bool filtering = powerFilter == pw.Prototype;
+        using var path = Ui.Round(r, 4 * S);
+        using (var fill = new SolidBrush(filtering ? Color.FromArgb(70, Ui.Accent) : k == hoverPower ? Ui.CardHover : Ui.Card)) g.FillPath(fill, path);
+        if (pw.Icon != null && CookedFolder is string cooked && Fx.PowerList.Icon(pw.Icon, cooked) is { } img)
+        {
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            int inset = (int)(4 * S);
+            g.DrawImage(img, Rectangle.Inflate(r, -inset, -inset));
+        }
+        else TextRenderer.DrawText(g, string.Concat(pw.Name.Split(' ').Where(w => w.Length > 0).Take(2).Select(w => w[0])), Ui.Heavy(11f), r, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        using var pen = new Pen(playingIt || filtering ? Ui.Accent : Ui.Line, playingIt || filtering ? Math.Max(2f, 2f * S) : 1f);
+        g.DrawPath(pen, path);
+    }
+
+    /// <summary>The hero's powers for the power buttons (in the background; their icons decoded there too).</summary>
+    void LoadHeroPowers()
+    {
+        heroPowers = []; powerRects.Clear(); hoverPower = -1; powerFilter = null; powerScroll = 0; powersLoaded = false;
+        int req = ++heroPowersRequest;
+        if (mod == null || !MeshOk || CookedFolder is not string cooked) { powersLoaded = true; return; }
+        string? hero = HeroOfMesh();
+        if (hero == null) { powersLoaded = true; return; }
+        var modFiles = mod.Manifest.UpkReplacements.Select(f => Path.Combine(mod.Folder, f)).ToList();
+        var names = allAnims.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
+        {
+            if (dbt.Result is not { } db) return new List<Fx.PowerList.Power>();
+            var list = Fx.PowerList.For(db, hero, cooked, modFiles).Where(p => p.Animations.Any(names.Contains)).ToList();
+            foreach (var p in list) if (p.Icon != null) Fx.PowerList.Icon(p.Icon, cooked);   // decoded here, off the UI thread
+            return list;
+        })).Unwrap().ContinueWith(t =>
+        {
+            if (IsDisposed || req != heroPowersRequest || t.Status != TaskStatus.RanToCompletion) return;
+            heroPowers = t.Result;
+            powersLoaded = true;
+            Invalidate();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>A framing button's icon: a figure cropped as the shot frames it (whole body, head and shoulders, head and chest).</summary>
+    static void PersonIcon(Graphics g, Rectangle r, Color c, Framing.Shot shot)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float m = r.Width * 0.18f;
+        var box = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
+        float w = box.Width, h = box.Height, cx = box.X + w / 2;
+        var clip = g.Clip;
+        g.SetClip(box);
+        using var br = new SolidBrush(c);
+        void Head(float cy, float rad) => g.FillEllipse(br, cx - rad, cy - rad, 2 * rad, 2 * rad);
+        void Block(RectangleF b, float radius) { using var p = RoundRect(b, radius); g.FillPath(br, p); }
+        switch (shot)
+        {
+            case Framing.Shot.Full:
+                Head(box.Y + h * 0.12f, h * 0.12f);
+                Block(new RectangleF(cx - w * 0.17f, box.Y + h * 0.27f, w * 0.34f, h * 0.36f), w * 0.08f);
+                g.FillRectangle(br, cx - w * 0.15f, box.Y + h * 0.58f, w * 0.12f, h * 0.42f);
+                g.FillRectangle(br, cx + w * 0.03f, box.Y + h * 0.58f, w * 0.12f, h * 0.42f);
+                break;
+            case Framing.Shot.HeadShoulders:
+                Head(box.Y + h * 0.36f, h * 0.26f);
+                Block(new RectangleF(cx - w * 0.5f, box.Y + h * 0.72f, w, h * 1.2f), w * 0.35f);
+                break;
+            default:   // bust
+                Head(box.Y + h * 0.22f, h * 0.18f);
+                Block(new RectangleF(cx - w * 0.36f, box.Y + h * 0.46f, w * 0.72f, h * 1.2f), w * 0.25f);
+                break;
+        }
+        g.Clip = clip;
+    }
+
+    static GraphicsPath RoundRect(RectangleF r, float radius)
+    {
+        float d = Math.Max(0.1f, Math.Min(radius * 2, Math.Min(r.Width, r.Height)));
+        var p = new GraphicsPath();
+        p.AddArc(r.X, r.Y, d, d, 180, 90);
+        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
+
+    /// <summary>The full screen button's icon: four corners pointing out, or a cross while full screen (back).</summary>
+    static void FullScreenIcon(Graphics g, Rectangle r, Color c, bool full)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float m = r.Width * 0.27f, l = r.Width * 0.16f;
+        var b = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
+        using var pen = new Pen(c, Math.Max(1.6f, r.Width / 16f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+        if (full) { g.DrawLine(pen, b.Left, b.Top, b.Right, b.Bottom); g.DrawLine(pen, b.Right, b.Top, b.Left, b.Bottom); return; }
+        g.DrawLines(pen, new[] { new PointF(b.Left, b.Top + l), new PointF(b.Left, b.Top), new PointF(b.Left + l, b.Top) });
+        g.DrawLines(pen, new[] { new PointF(b.Right - l, b.Top), new PointF(b.Right, b.Top), new PointF(b.Right, b.Top + l) });
+        g.DrawLines(pen, new[] { new PointF(b.Right, b.Bottom - l), new PointF(b.Right, b.Bottom), new PointF(b.Right - l, b.Bottom) });
+        g.DrawLines(pen, new[] { new PointF(b.Left + l, b.Bottom), new PointF(b.Left, b.Bottom), new PointF(b.Left, b.Bottom - l) });
+    }
+
+    /// <summary>The hero of the shown mesh's package (UC__MarvelPlayer_<Hero>_…), else null.</summary>
+    string? HeroOfMesh()
+    {
+        if (!MeshOk) return null;
+        var parts = meshes[meshIndex].Package.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 3 && parts[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && parts[1].StartsWith("MarvelPlayer", StringComparison.OrdinalIgnoreCase) ? parts[2] : null;
+    }
+
+    /// <summary>A power button clicked: its animations only (its first plays), or all again when it was filtering.</summary>
+    void PowerClicked(int k)
+    {
+        if (animBox == null || k < 0 || k >= heroPowers.Count) return;
+        var pw = heroPowers[k];
+        string? current = animBox.SelectedIndex > 0 && animBox.SelectedIndex - 1 < anims.Count ? anims[animBox.SelectedIndex - 1].Name : null;
+        if (powerFilter == pw.Prototype)
+        {
+            powerFilter = null;
+            anims = allAnims;
+            FillAnims();
+            int at = current == null ? -1 : anims.FindIndex(a => a.Name.Equals(current, StringComparison.OrdinalIgnoreCase));
+            if (at >= 0) { fillingAnims = true; animBox.SelectedIndex = at + 1; fillingAnims = false; }   // the playing one stays
+        }
+        else
+        {
+            powerFilter = pw.Prototype;
+            anims = [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))];
+            FillAnims();
+            if (anims.Count > 0) { autoPlay = true; animBox.SelectedIndex = 1; }
+        }
+        Invalidate();
+    }
+
+    /// <summary>Whether the mouse is over the 3D view (or was a moment ago): the playback bar and framing buttons show then.</summary>
+    void CheckHover()
+    {
+        if (!show3D || viewer == null || !IsHandleCreated || !Visible) { if (overView) { overView = false; Invalidate(); } return; }
+        bool over = viewRect.Contains(PointToClient(Cursor.Position)) && (FindForm()?.ContainsFocus ?? false) || lookMenu?.Visible == true || animBox?.IsOpen == true;
+        if (over) overUntil = DateTime.Now.AddSeconds(1.2);
+        bool now = over || DateTime.Now < overUntil;
+        if (now != overView) { overView = now; Invalidate(); }
+    }
+
+    /// <summary>Look ▾: the look toggles and the Light / Lens sliders; stays open while toggling.</summary>
+    void ShowLookMenu()
+    {
+        if (lookBtn == null || lightSlider == null || lensSlider == null) return;
+        if (lookMenu == null)
+        {
+            lookMenu = new ContextMenuStrip { ShowCheckMargin = true, ShowImageMargin = false };
+            ToolStripMenuItem Item(string text, string tip, Func<bool> get, Action set)
+            {
+                var it = new ToolStripMenuItem(text) { ToolTipText = tip };
+                it.Click += (_, _) => { set(); it.Checked = get(); ApplyShading(); };
+                lookMenu.Opening += (_, _) => it.Checked = get();
+                return it;
+            }
+            lookMenu.Items.Add(Item("Spec", "Specular highlights (shine) the materials set.", () => PreviewViews.Spec, () => PreviewViews.Spec = !PreviewViews.Spec));
+            lookMenu.Items.Add(Item("Reflect", "Reflections of the materials' own environment images.", () => PreviewViews.Reflect, () => PreviewViews.Reflect = !PreviewViews.Reflect));
+            lookMenu.Items.Add(Item("Glow", "Glowing (emissive) parts.", () => PreviewViews.Glow, () => PreviewViews.Glow = !PreviewViews.Glow));
+            lookMenu.Items.Add(Item("Props", "The weapons and props the game attaches to the character, held on their bones.", () => PreviewViews.Props, () => { PreviewViews.Props = !PreviewViews.Props; LoadProps(); }));
+            lookMenu.Items.Add(new ToolStripSeparator());
+            foreach (var sl in new Control[] { lightSlider, lensSlider })
+            {
+                sl.Visible = true;
+                var host = new ToolStripControlHost(sl) { AutoSize = false, Size = new Size((int)(260 * S), (int)(26 * S)), Margin = new Padding((int)(6 * S), 2, (int)(6 * S), 2) };
+                lookMenu.Items.Add(host);
+            }
+            // Clicking a toggle keeps the menu open (several at once); a click outside closes it.
+            lookMenu.Closing += (_, e) => { if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true; };
+        }
+        lightSlider.Visible = lensSlider.Visible = true;   // (hidden with the other 3D controls while a picture shows)
+        Ui.ShowUnder(lookMenu, lookBtn);
     }
 
     /// <summary>A framing button: aims the camera like Create from 3D, and keeps it as this mesh's view (as a drag does).</summary>
     void FrameShot(Framing.Shot shot)
     {
         if (viewer == null || !MeshOk || mod == null) return;
-        if (animator != null) { Framing.Apply(viewer, animator, playing != null, shot); if (playing == null) { animator.Pose(null, 0); } }
+        if (animator != null) { Framing.Apply(viewer, animator, playing != null, shot, centerHead: true); if (playing == null) { animator.Pose(null, 0); } }
         else Framing.Apply(viewer, null, false, shot);
         PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState);
     }
@@ -2333,7 +2742,7 @@ sealed class StorePreview : Control
             FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = screen, ShowInTaskbar = false,
             Text = mod == null ? "Preview" : $"Preview: {mod.Name}", BackColor = Ui.GradientTop, KeyPreview = true,
         };
-        form.KeyDown += (_, e) => { if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; ToggleFull(); } };
+        form.KeyDown += (_, e) => { if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !PausePlayback()) ToggleFull(); } };   // Esc: pause first, then back
         form.FormClosing += (_, e) => { if (fullForm == form && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; ToggleFull(); } };   // Alt+F4: back, not closed
         fullForm = form;
         Parent = form;
@@ -2342,7 +2751,72 @@ sealed class StorePreview : Control
         Invalidate();
     }
 
-    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); }
+    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); if (propRules.Count > 0) { propRules = []; rig.SetRules(propRules, 0, 0); } }
+
+    List<ModMeshes.PropRule> propRules = [];
+    float propContact;
+    readonly Dictionary<string, Task<Dictionary<string, List<Fx.PowerIndex.PowerRef>>>> powerIndexCache = new(StringComparer.OrdinalIgnoreCase);
+    int propSwitchRequest;
+
+    /// <summary>
+    /// The props for the animation picked (Kurt: Punisher's sawed-off shotgun, not his pistols): the power playing it
+    /// (PowerIndex) switches weapon slots (its power package's PowerFxMeshAttachment), read in the background; the
+    /// rest pose shows what's always held.
+    /// </summary>
+    void LoadPropSwitches()
+    {
+        int req = ++propSwitchRequest;
+        if (!PreviewViews.Props || mod == null || !MeshOk || CookedFolder is not string cooked || animBox == null || HeroOfMesh() is not string hero)
+        {
+            if (propRules.Count > 0 || powerProps.Count > 0) { propRules = []; bool had = powerProps.Count > 0; powerProps = []; if (had) RebuildRig(); else { rig.SetRules(propRules, 0, 0); ShowPose(); } }
+            return;
+        }
+        var have = baseProps.Select(x => x.W).ToList();
+        int ai = animBox.SelectedIndex - 1;
+        string? anim = playing != null && ai >= 0 && ai < anims.Count ? anims[ai].Name : null;
+        var modFiles = mod.Manifest.UpkReplacements.Select(f => Path.Combine(mod.Folder, f)).ToList();
+        string key = hero + "|" + mod.Folder;
+        if (!powerIndexCache.TryGetValue(key, out var idxTask)) powerIndexCache[key] = idxTask = Task.Run(() => Fx.PowerIndex.For(hero, cooked, modFiles));
+        float seconds = playSeconds;
+        var dbTask = GameDb(cooked);
+        Task.WhenAll(idxTask, dbTask).ContinueWith(done =>
+            {
+                if (anim == null || idxTask.Status != TaskStatus.RanToCompletion || !idxTask.Result.TryGetValue(anim, out var refs)) return (Rules: new List<ModMeshes.PropRule>(), Contact: 0f, Extra: new List<(PropRig.Prop, ModMeshes.Loaded)>());
+                var files = refs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var rules = files.SelectMany(ModMeshes.PropRules).Distinct().ToList();
+                // A prop the power shows that the character doesn't have: the power package's own attachment (a thrown car).
+                var extra = new List<(PropRig.Prop, ModMeshes.Loaded)>();
+                foreach (var r in rules.Where(r => r.Show && !have.Any(h => PropRig.Fills(h, r.Target))))
+                    foreach (string f in files)
+                    {
+                        var found = ModMeshes.Attachments(f).Where(x => PropRig.Fills(new PropRig.Prop(null!, x.Bone) { Slots = x.Slots, Class = x.Class }, r.Target)).ToList();
+                        if (found.Count == 0) continue;
+                        var inPkg = ModMeshes.List([(Path.GetFileName(f), f)], anyPackage: true);
+                        foreach (var x in found)
+                            if (!extra.Any(e => e.Item1.Class.Equals(x.Class, StringComparison.OrdinalIgnoreCase)) && inPkg.FirstOrDefault(m => m.Name.Equals(x.Mesh, StringComparison.OrdinalIgnoreCase)) is { } mr)
+                                try { if (ModMeshes.Load(mr, cooked, out _) is { } lm) extra.Add((new PropRig.Prop(mr, x.Bone) { Slots = x.Slots, OnDemand = true, Class = x.Class }, lm)); }
+                                catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
+                        break;
+                    }
+                // The contact time: the power's AnimationContactTimePercent (else 0.4) of the animation.
+                float pct = 0.4f;
+                if (dbTask.Status == TaskStatus.RanToCompletion && dbTask.Result is { } db)
+                {
+                    var byClass = Fx.PowerIndex.PrototypesByClass(db);
+                    if (refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).FirstOrDefault() is string proto) pct = Fx.PowerEffects.ContactPercentOf(db, proto);
+                }
+                return (Rules: rules, Contact: pct * seconds, Extra: extra);
+            })
+            .ContinueWith(t =>
+            {
+                if (IsDisposed || req != propSwitchRequest || t.Status != TaskStatus.RanToCompletion) return;
+                (propRules, propContact) = (t.Result.Rules, t.Result.Contact);
+                bool rebuild = powerProps.Count > 0 || t.Result.Extra.Count > 0;
+                powerProps = t.Result.Extra;
+                if (rebuild) RebuildRig();
+                else { rig.SetRules(propRules, propContact, playSeconds); ShowPose(); }
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
 
     int ThumbAt(Point p)
     {
@@ -2354,6 +2828,9 @@ sealed class StorePreview : Control
     {
         base.OnMouseClick(e);
         if (mod == null) return;
+        if (powerLeft.Contains(e.Location)) { powerScroll = Math.Max(0, powerScroll - (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
+        if (powerRight.Contains(e.Location)) { powerScroll += (ThumbSize + (int)(6 * S)) * 3; Invalidate(); return; }
+        if (e.Button == MouseButtons.Left && powerRects.FirstOrDefault(x => x.Rect.Contains(e.Location)) is { Rect.Width: > 0 } hit) { PowerClicked(hit.Index); return; }
         if (leftArrow.Contains(e.Location)) { scroll = Math.Max(0, scroll - (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
         if (rightArrow.Contains(e.Location)) { scroll = Math.Min(MaxScroll, scroll + (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
         if (e.Button == MouseButtons.Left && (meshPrev.Contains(e.Location) || meshNext.Contains(e.Location)) && meshes.Count > 1)
@@ -2399,6 +2876,7 @@ sealed class StorePreview : Control
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
+        if (!powerLeft.IsEmpty && powerRects.Count > 0 && e.Y >= powerLeft.Top && e.Y <= powerLeft.Bottom) { powerScroll = Math.Max(0, powerScroll - Math.Sign(e.Delta) * (ThumbSize + (int)(6 * S))); Invalidate(); return; }
         if (strip.IsEmpty || MaxScroll == 0) return;
         scroll = Math.Clamp(scroll - Math.Sign(e.Delta) * (ThumbSize + (int)(6 * S)), 0, MaxScroll);
         Invalidate();
@@ -2407,6 +2885,23 @@ sealed class StorePreview : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        int pk = powerRects.FirstOrDefault(x => x.Rect.Contains(e.Location)) is { Rect.Width: > 0 } ph ? ph.Index : -1;
+        if (pk >= heroPowers.Count) pk = -1;   // 0.37.49 crash: areas from the last paint while the list reloads
+        if (pk >= 0 || hoverPower >= 0)
+        {
+            Cursor = pk >= 0 || powerLeft.Contains(e.Location) || powerRight.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+            if (pk != hoverPower)
+            {
+                hoverPower = pk; Invalidate();
+                if (pk >= 0)
+                {
+                    var pw = heroPowers[pk];
+                    tips.Show($"{pw.Name}\n{string.Join(", ", pw.Animations)}\n{(powerFilter == pw.Prototype ? "Click to show all animations again." : "Click to play it with its effects (the animation list shows only this power's).")}", this, e.X + (int)(14 * S), e.Y + (int)(20 * S), 8000);
+                }
+                else tips.Hide(this);
+            }
+            if (pk >= 0) return;
+        }
         int i = ThumbAt(e.Location);
         Cursor = i >= 0 || leftArrow.Contains(e.Location) || rightArrow.Contains(e.Location) || meshPrev.Contains(e.Location) || meshNext.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
         if (i == hoverThumb) return;
@@ -2422,7 +2917,7 @@ sealed class StorePreview : Control
         else tips.Hide(this);
     }
 
-    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoverThumb = -1; tips.Hide(this); Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoverThumb = -1; hoverPower = -1; tips.Hide(this); Invalidate(); }
 
     protected override void Dispose(bool disposing)
     {

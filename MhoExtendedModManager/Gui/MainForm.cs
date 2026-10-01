@@ -386,7 +386,8 @@ sealed class MainForm : Form
         noteBox.Leave += (_, _) => SaveNote();
         tips.SetToolTip(noteBox, "The mod's note travels with it. What you type here is kept on this PC only (it replaces the mod's note for you); Undo takes it back.");
         tips.SetToolTip(noteReset, "Throw away your note and show the mod's own note again.");
-        middle.Controls.Add(storePreview); middle.Controls.Add(notesPanel);
+        // The note under the details (Kurt, 2026-09-30: more room for the preview in the middle).
+        middle.Controls.Add(storePreview); right.Controls.Add(notesPanel);
         middleAndRight.Controls.Add(right); middleAndRight.Controls.Add(middle);
         // As large as the column's height allows (store images are 300×420), but at most 28% of the space beside the list (Kurt: between the first size and 40%);
         // then the right column gives up a fifth of its width to it (Kurt, 2026-09-30: more room for the 3D view).
@@ -394,7 +395,7 @@ sealed class MainForm : Form
         {
             float sc = DeviceDpi / 96f;
             notesPanel.Height = (int)(170 * sc);
-            int cardH = middleAndRight.Height - notesPanel.Height - (int)(80 * sc);
+            int cardH = middleAndRight.Height - (int)(80 * sc);
             int w = (int)(cardH * 300f / 420f) + (int)(12 * sc);
             int fit = Math.Max((int)(200 * sc), Math.Min(w, (int)(middleAndRight.Width * 0.28f)));
             middle.Width = middleAndRight.Width - (int)((middleAndRight.Width - fit) * 0.8f);
@@ -871,6 +872,8 @@ sealed class MainForm : Form
         }
         if (pages.SelectedIndex == 0 && FocusedLeaf() is not TextBoxBase)
         {
+            // Esc: pauses the 3D preview's animation while one plays (Kurt); otherwise Esc does what it did.
+            if (keyData == Keys.Escape && storePreview.PausePlayback()) return true;
             // Del: Remove Mod (Kurt), which asks first as the button does.
             if (keyData == Keys.Delete && Selected is Mod && !readOnly) { RemoveMod(); return true; }
             // Ctrl+Up / Down: priority one step; Ctrl+Home / End: to the top / bottom (a marked group moves together).

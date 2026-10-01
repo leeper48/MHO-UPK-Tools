@@ -1,6 +1,56 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.55
+- 3D preview props, checked across every hero in the game: a survey of all 5,559 power and hero packages found every way the game shows, hides and swaps a character's props, and the preview now follows all of them, timed within the animation (from the power's start, its contact moment or its end; while-active windows end on time). Weapons defined in a power's own package are loaded with it (Jean Grey's, Luke Cage's and Magneto's thrown cars). Animated props (whips, chains, bikes) and props that take their mesh from a parent class (Kitty Pryde's katana) are found.
+- Power buttons: a power with no icon in the game data joins the power it belongs to or is left out (43 such across the heroes; Magik's demon-form attacks), and name markup is removed (Angela). All 66 heroes' 934 buttons have a name and an icon.
+- New read-only checks: --attach-census (every prop property in the game) and --props-audit (each hero's props, the powers that show them and the power buttons; lists only problems).
+
+0.37.54
+- 3D preview: weapons shown only for powers stay hidden unless the playing power switches them in (0.37.53 put Hulk's car fist on him during his roar).
+- A power that shows a prop without switching slots shows it too (Hulk's Knuckledusters: the car).
+- Power buttons: Ultimate Destruction's icon is found (its path leaves out the icon package); nameless internal powers without an icon (letter tiles T, T on Hulk) are left out.
+
+0.37.53
+- 3D preview props follow the power: the weapons a character can hold come from its class (a costume without its own list uses its hero's), and the power an animation belongs to switches its weapon in, as the game does (Punisher: the sawed-off shotgun for Buckshot Blast, the uzis for Submachine Guns, the sniper rifle for Sniper Shot). With no power playing, a character whose weapons are all shown on demand holds the first one listed (Punisher's pistols).
+
+0.37.52
+- 3D preview props: a costume that attaches nothing itself shows its hero's always-held props from the hero's base package (Punisher: a pistol in each hand). Props a power only shows while it plays (Punisher's shotgun, RPG ...) are left out.
+- Power buttons: nameless parts of a power join the power they belong to (Punisher's grenade launchers showed as letter tiles C, F and P).
+
+0.37.51
+- Esc pauses the 3D preview's animation (in full screen: the first Esc pauses, the next one comes back).
+
+0.37.50
+- Fixed a crash when the mouse moved over the power buttons while another mod or mesh was loading.
+
+0.37.49
+- 3D preview: the framing buttons are in the order Head, Bust, Full Body.
+
+0.37.48
+- 3D preview: the Head framing button centers the head in the view (Create from 3D keeps its portrait framing).
+
+0.37.47
+- 3D preview: the playback bar (Frame slider, animation, play, Loop) is always shown, under the view. It used to vanish for good after a picture was shown.
+- Faster playback: while an animation plays, the view draws fewer pixels and stretches them (fewer still while heavy power effects are on screen); a paused frame is drawn sharp again.
+- Full Body, Head and Bust are icon buttons in the row under the preview, beside a bigger full screen button, all the same size. The effects toggle is called Power FXs.
+
+0.37.46
+- 3D preview: the picture strip is always under the preview; the power buttons have their own block at the bottom of the column, two rows, headed by a Powers toggle (effects on / off, moved out of Look). The Power Icons button is gone.
+
+0.37.45
+- The note box moved under the mod's details (right column); the preview gets the middle column's full height.
+
+0.37.44
+- 3D preview, more room for the view: playback (animation, play, loop, frame) in a bar over the view's bottom and Full Body / Head / Bust in its top right corner, both shown while the mouse is over the view (always in full screen); Spec, Reflect, Glow, Props, Powers and the Light / Lens sliders in a Look menu; under the view only Look, Reset View, Power Icons and full screen.
+- Power buttons: the hero's powers with their icons in the strip under the preview. A click shows only that power's animations and plays the first with its effects; a second click shows them all. Power Icons switches the strip back to the pictures. In full screen they're a grid beside the view.
+
+0.37.43
+- Power effects at 10 % strength, and a power that sets off both a plain and a resource version (Thor's Ground Smash: the shockwave with and without Odinforce) shows only the plain one.
+
+0.37.41
+- 3D preview: power effects. Play an animation that belongs to one of the hero's powers and its effects play with it: particles, lightning, beams, ground decals and mesh effects, including what the power sets off (combos, procs). A mod's own copy of a power package (a recolored one) is shown as the mod has it. The Powers button turns them off (remembered).
+
 0.37.40
 - Preview: small images (costume icons) show at most 3× their size instead of stretched to fill the card.
 

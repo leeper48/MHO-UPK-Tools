@@ -48,6 +48,16 @@ sealed class PowerEffects
     public string? ThrownSlot;
     /// <summary>Mesh emitters' meshes, with each section's texture and blending.</summary>
     public readonly Dictionary<ParticleData.Emitter, (StaticMeshData Mesh, (Gui.ModelView.Map? Tex, bool Additive)[] Sections)> Meshes = new();
+    /// <summary>A power's AnimationContactTimePercent (0.4 when the game data doesn't set it): for the props' timing.</summary>
+    public static float ContactPercentOf(GameData db, string powerPath)
+    {
+        if (db.Find(powerPath) is not { } pe) return 0.4f;
+        foreach (var gr in db.Prototype(pe.Id).Data.Groups)
+            foreach (var f in gr.Simple)
+                if (f.Type == 'D' && db.FieldName(gr.Blueprint, f.Id) == "AnimationContactTimePercent") { float v = (float)BitConverter.Int64BitsToDouble((long)f.Value.Raw); if (v > 0 && v <= 1) return v; }
+        return 0.4f;
+    }
+
     /// <summary>When the power makes contact, as a fraction of its animation (the game data's AnimationContactTimePercent;
     /// not read yet: the Hero Creator's default).</summary>
     public float ContactPercent = 0.4f;
@@ -100,8 +110,14 @@ sealed class PowerEffects
         }
         else fx.Notes.Add("no power " + powerPath);
         if (!triggered) return fx;
-        foreach (var art in PowerClosure.Of(db, powerPath).Where(x => !(x.Prototype.Equals(db.Find(powerPath)?.Path, StringComparison.OrdinalIgnoreCase) && x.Class.Equals(ownClass ?? "", StringComparison.OrdinalIgnoreCase))))
+        var arts = PowerClosure.Of(db, powerPath).Where(x => !(x.Prototype.Equals(db.Find(powerPath)?.Path, StringComparison.OrdinalIgnoreCase) && x.Class.Equals(ownClass ?? "", StringComparison.OrdinalIgnoreCase))).ToList();
+        var names = arts.Select(x => Path.GetFileNameWithoutExtension(x.Prototype)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var art in arts)
         {
+            // One variant (Kurt, 2026-09-30: Ground Smash fired both shockwaves): a resource version whose plain twin is also
+            // set off (ShockwaveOFMissile beside ShockwaveNoOFMissile, HammerDashOdinforceCombo beside HammerDashNormalCombo)
+            // is left out; in game only one plays, by the hero's resource.
+            if (ResourceTwin(Path.GetFileNameWithoutExtension(art.Prototype), names) is { } plain) { fx.Notes.Add($"{Path.GetFileNameWithoutExtension(art.Prototype)}: left out (its plain twin {plain} plays)"); continue; }
             var more = ForClass(g, art.Class, seen, extra);
             string by = Path.GetFileNameWithoutExtension(art.Prototype);
             foreach (var e in more.Effects) fx.Effects.Add(e with { TriggeredBy = by });
@@ -114,6 +130,22 @@ sealed class PowerEffects
             fx.Notes.AddRange(more.Notes);
         }
         return fx;
+    }
+
+    static readonly (string Plain, string Resource)[] Twins = [("NoOF", "OF"), ("Normal", "Odinforce"), ("NoOdin", "Odin"), ("NoOdinforce", "Odinforce")];
+
+    /// <summary>The plain twin of a resource variant's name when that twin is also in <paramref name="names"/>, else null
+    /// (ShockwaveOFMissile → ShockwaveNoOFMissile).</summary>
+    static string? ResourceTwin(string name, HashSet<string> names)
+    {
+        foreach (var (plain, res) in Twins)
+            for (int i = name.IndexOf(res, StringComparison.Ordinal); i >= 0; i = name.IndexOf(res, i + 1, StringComparison.Ordinal))
+            {
+                if (i >= plain.Length - res.Length && name.Substring(Math.Max(0, i - (plain.Length - res.Length)), plain.Length).Equals(plain, StringComparison.Ordinal)) continue;   // it's the plain one itself (NoOF contains OF)
+                string twin = name[..i] + plain + name[(i + res.Length)..];
+                if (names.Contains(twin)) return twin;
+            }
+        return null;
     }
 
     /// <summary>A true B field of that name anywhere in the data (nested structs and lists too).</summary>
@@ -302,5 +334,267 @@ sealed class PowerEffects
             }
         fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
         return fx;
+    }
+
+    /// <summary>
+    /// A power's effects playing: each starts at its offset after the animation starts, at its socket (posed each frame
+    /// when attached; else where the socket was when it started) or at the target point.
+    /// </summary>
+    public sealed class Player(PowerEffects fx, Func<string, Matrix4x4?> socket, Vector3 target, Func<Effect, bool>? include = null)
+    {
+        readonly List<(Effect E, ParticleSim Sim, string? Socket)> running = new();
+
+        /// <summary>
+        /// Where an effect sits: the socket's position, facing the way the hero faces (+X, towards the target). A power's
+        /// effects aim where the power goes, not where the bone happens to point: Forked Lightning's cone follows the
+        /// socket on the hammer, but taking the hammer's turn sent the bolts off sideways (Kurt's game shot: straight ahead).
+        /// </summary>
+        static Matrix4x4 Facing(Matrix4x4 m) => Matrix4x4.CreateTranslation(m.Translation);
+
+        /// <summary>An effect's place at its socket: facing the hero's way (Facing), except a mesh laid over what holds the socket
+        /// (a local-space mesh emitter: the Odinforce lightning layer, the hammer's own shape), which takes the socket's turn too.</summary>
+        static Matrix4x4 Place(Effect e, Matrix4x4 m) => e.System.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false)) ? m : Facing(m);
+        readonly HashSet<Effect> started = new();
+        float time;
+
+        /// <summary>The animation's length in seconds: missiles leave and summons appear at the power's contact time in it.</summary>
+        public float AnimSeconds { get; set; } = 1;
+        float ContactTime => fx.ContactPercent * AnimSeconds;
+
+        // Missiles in flight (by their particle system): where they left from, when, where they go (+X, the way the hero faces).
+        readonly Dictionary<ParticleSim, (Vector3 From, float T0)> flights = new();
+        const float MissileRange = 300, MissileSpeed = 900;
+
+        /// <summary>A missile's place after <paramref name="t"/> seconds: out <see cref="MissileRange"/> units, back again when it
+        /// returns; null when its flight is over.</summary>
+        Vector3? Flight(Vector3 from, float t)
+        {
+            float d = t * MissileSpeed;
+            if (d <= MissileRange) return from + new Vector3(d, 0, 0);
+            if (fx.Returning && d <= 2 * MissileRange) return from + new Vector3(2 * MissileRange - d, 0, 0);
+            return null;
+        }
+
+        public void Reset() { running.Clear(); started.Clear(); flights.Clear(); decals.Clear(); time = 0; endedAt = -1; }
+
+        /// <summary>Also the parts that come from what the power sets off (decals, weapon slots, models) — the Triggered toggle.</summary>
+        public bool ShowTriggered { get; set; } = true;
+        float endedAt = -1;
+        readonly List<(Decal D, float Rot)> decals = new();
+        readonly HashSet<Decal> decalsStarted = new();
+
+        /// <summary>When a component starts: its activation point (the contact time for "…contact…" points, and for summons' and
+        /// missiles' components) plus its offset.</summary>
+        float StartOf(string point, float offset, string kind) => (point.Contains("contact", StringComparison.OrdinalIgnoreCase) || kind is "entity" or "projectile" ? ContactTime : 0) + offset;
+        bool Shown(string? by) => by == null || ShowTriggered;
+
+        /// <summary>Whether a weapon slot is shown / hidden by the power now (PowerFxMeshAttachment: from its activation point to its
+        /// deactivation point, else to the animation's end).</summary>
+        public bool SlotShown(string? slot) => slot != null && fx.Slots.Any(sc => Shown(sc.TriggeredBy) && slot.Equals(sc.Show, StringComparison.OrdinalIgnoreCase) && SlotActive(sc));
+        public bool SlotHidden(string? slot) => slot != null && fx.Slots.Any(sc => Shown(sc.TriggeredBy) && slot.Equals(sc.Hide, StringComparison.OrdinalIgnoreCase) && SlotActive(sc));
+        bool SlotActive(SlotChange sc)
+        {
+            if (time < StartOf(sc.Point, sc.Offset, "power")) return false;
+            if (sc.EndPoint is { Length: > 0 } ep && !ep.Contains("end", StringComparison.OrdinalIgnoreCase)) return time < StartOf(ep, 0, "power");
+            return endedAt < 0 || time < endedAt;
+        }
+
+        /// <summary>
+        /// How big the hero is now (1 = as built): each mesh scale grows over its transition from its start, and shrinks back
+        /// over the same time once the animation has ended (a condition's end: Ant-Man's grow lasts the stomp).
+        /// </summary>
+        public float HeroScale
+        {
+            get
+            {
+                float k = 1;
+                foreach (var sc in fx.Scales.Where(x => Shown(x.TriggeredBy)))
+                {
+                    float start = StartOf(sc.Point, sc.Offset, "power");
+                    if (time < start) continue;
+                    float grow = Math.Clamp((time - start) / sc.Transition, 0, 1);
+                    if (endedAt >= 0) grow = Math.Min(grow, 1 - Math.Clamp((time - endedAt) / sc.Transition, 0, 1));
+                    k *= 1 + (sc.Scale - 1) * grow;
+                }
+                return k;
+            }
+        }
+
+        /// <summary>Where a missile carrying this weapon slot is now (the thrown hammer), else null.</summary>
+        public Vector3? ThrownAt(string? slot)
+        {
+            if (slot == null || fx.ThrownSlot == null || !slot.Equals(fx.ThrownSlot, StringComparison.OrdinalIgnoreCase)) return null;
+            foreach (var (_, fl) in flights) if (Flight(fl.From, time - fl.T0) is { } pos) return pos;
+            return null;
+        }
+
+        Gui.ModelView.Map? Tex(Gui.ModelView.Map? t) => t;   // (the Hero Creator recolors here; the preview shows the game's colours)
+
+        /// <summary>Moves the effects on by <paramref name="dt"/> seconds; <paramref name="ended"/>: the animation is over.</summary>
+        public void Step(float dt, bool ended)
+        {
+            time += dt;
+            if (ended && endedAt < 0) endedAt = time;
+            var rng = new Random(7);
+            foreach (var d in fx.Decals)
+                if (!decalsStarted.Contains(d) && Shown(d.TriggeredBy) && time >= StartOf(d.Point, d.Offset, d.Kind))
+                { decalsStarted.Add(d); decals.Add((d, d.RandomRotation ? (float)(rng.NextDouble() * Math.PI * 2) : 0)); }
+            foreach (var e in fx.Effects)
+            {
+                // Summons' and missiles' effects start at the power's contact time.
+                float at = StartOf(e.Point, e.Offset, e.Kind);
+                if (started.Contains(e) || time < at || include?.Invoke(e) == false) continue;
+                started.Add(e);
+                if (e.Kind == "projectile")
+                {
+                    // One missile from its (first) spawn socket, else chest height over the ground below the hero.
+                    var from = e.Sockets.Select(n => socket(n)).FirstOrDefault(m => m != null)?.Translation ?? new Vector3(0, 0, target.Z + 60);
+                    var sim = new ParticleSim(e.System) { Origin = Matrix4x4.CreateTranslation(from) };
+                    flights[sim] = (from, time);
+                    running.Add((e, sim, null));
+                    continue;
+                }
+                var places = e.AtTarget ? [(Matrix4x4.CreateTranslation(target), (string?)null)]
+                    : e.Sockets.Count == 0 ? [(Matrix4x4.Identity, null)] : e.Sockets.Select(n => (Place(e, socket(n) ?? Matrix4x4.Identity), (string?)n)).ToList();
+                foreach (var (pl, sock) in places) running.Add((e, new ParticleSim(e.System) { Origin = pl }, sock));
+            }
+            for (int k = 0; k < running.Count; k++)
+            {
+                var (e, sim, sock) = running[k];
+                if (e.Attached && sock != null && socket(sock) is { } m) sim.Origin = Place(e, m);
+                if (flights.TryGetValue(sim, out var fl))
+                {
+                    if (Flight(fl.From, time - fl.T0) is { } pos) sim.Origin = Matrix4x4.CreateTranslation(pos);
+                    else if (!sim.Stopped) sim.Stop();
+                }
+                if (ended && e.StopOnEnd && !sim.Stopped) sim.Stop();
+                sim.Step(dt);
+            }
+            foreach (var r in running.Where(r => r.Sim.Stopped && !r.Sim.Alive || r.Sim.Age > 12)) flights.Remove(r.Sim);
+            running.RemoveAll(r => r.Sim.Stopped && !r.Sim.Alive || r.Sim.Age > 12);
+        }
+
+        /// <summary>The live particles as the view's quads.</summary>
+        public List<Gui.ModelView.FxQuad> Quads()
+        {
+            var list = new List<Gui.ModelView.FxQuad>();
+            // Decals: flat on the ground at the target, until 1.5 s after the animation (fading the last 0.5 s).
+            foreach (var (d, rot) in decals)
+            {
+                float left = endedAt < 0 ? 9 : endedAt + 1.5f - time;
+                if (left <= 0 || d.Tex == null) continue;
+                var pos = target + d.Shift + new Vector3(0, 0, 1);
+                list.Add(new Gui.ModelView.FxQuad(pos, new Vector2(d.W, d.H), rot, new Vector4(1, 1, 1, Math.Min(1, left / 0.5f)), Tex(d.Tex), 1, 1, 0, 0, false, d.Additive, Vector3.Zero)
+                    { PlaneRight = Vector3.UnitX, PlaneUp = Vector3.UnitY, KeepPlane = true });
+            }
+            foreach (var (re, sim, _) in running)
+                foreach (var (em, sp) in sim.Sprites())
+                {
+                    if (em.Kind == "beam")
+                    {
+                        // A beam from its socket to the target (chest high), in TextureTile pieces along its length.
+                        var (btex, badd) = fx.Looks.TryGetValue(em, out var bl) ? bl : (null, true);
+                        if (btex == null) continue;
+                        var from = sim.Origin.Translation; var to = target + new Vector3(0, 0, 60);
+                        var dir = to - from; float len = dir.Length();
+                        if (len < 1) continue;
+                        int tiles = Math.Clamp(em.TypeData?.Int("TextureTile", 1) ?? 1, 1, 12);
+                        float width = sp.Size.X > 1 ? sp.Size.X : 10;
+                        var bcol = sp.Color;
+                        for (int k = 0; k < tiles; k++)
+                            list.Add(new Gui.ModelView.FxQuad(from + dir * ((k + 0.5f) / tiles), new Vector2(width, len / tiles), 0, bcol, Tex(btex), 1, 1, 0, 2, false, badd, dir) { SwapUV = true });
+                        continue;
+                    }
+                    if (em.Kind is not ("sprite" or "physx")) continue;   // meshes: Tris()
+                    if (Environment.GetEnvironmentVariable("MHO_FXONLY") is { Length: > 0 } only && !only.Split(',').Contains(em.Name)) continue;   // debug: these emitters only
+                    var (tex, add) = fx.Looks.TryGetValue(em, out var l) ? l : (null, true);
+                    if (tex == null) continue;                              // no texture found: not drawn (a white blob says nothing)
+                    // A particle's Size is its full width (a ×2 reading was tried and was far too big once the bolts showed).
+                    string align = em.Required.Enum("ScreenAlignment", "psa_square").ToLowerInvariant();
+                    // Axis lock (UE3 EParticleAxisLock): EPAL_X / Y / Z (and negatives) = the sprite lies in the plane across
+                    // that axis of the emitter (Z: flat, spanning X and Y); EPAL_ROTATE_* = faces the camera turning only
+                    // around that axis (only Z is drawn so: upright).
+                    string lk = em.Module("ParticleModuleOrientationAxisLock")?.Enum("LockAxisFlags", "epal_none").ToLowerInvariant() ?? "epal_none";
+                    Vector3 pr = Vector3.Zero, pu = Vector3.Zero;
+                    if (!lk.Contains("rotate") && lk != "epal_none")
+                    {
+                        (pr, pu) = lk.EndsWith("_x") ? (Vector3.UnitY, Vector3.UnitZ) : lk.EndsWith("_y") ? (Vector3.UnitX, Vector3.UnitZ) : (Vector3.UnitX, Vector3.UnitY);
+                        if (lk.Contains("negative")) pr = -pr;
+                        if (em.Required.Bool("bUseLocalSpace", false)) { pr = Vector3.TransformNormal(pr, sim.Origin); pu = Vector3.TransformNormal(pu, sim.Origin); }
+                    }
+                    var col = sp.Color;
+                    list.Add(new Gui.ModelView.FxQuad(sp.Position, sp.Size, sp.Rotation, col, Tex(tex),
+                        em.Required.Int("SubImages_Horizontal", 1), em.Required.Int("SubImages_Vertical", 1), sp.Image,
+                        align == "psa_velocity" ? 2 : align == "psa_rectangle" ? 1 : 0, lk.Contains("rotate_z"), add, sp.Velocity) { PlaneRight = pr, PlaneUp = pu });
+                }
+            if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
+                foreach (var g in running.SelectMany(r => r.Sim.Sprites().Select(x => (Sys: r.Sim.Data.Name, x.Emitter, x.Sprite))).Where(x => x.Emitter.Kind == "sprite")
+                    .GroupBy(x => x.Sys + " / " + x.Emitter.Name).OrderByDescending(g => g.Max(x => x.Sprite.Size.X)).Take(8))
+                    Console.WriteLine($"    sprites {g.Key}: {g.Count()}, largest {g.Max(x => x.Sprite.Size.X):0}, colour {g.First().Sprite.Color}, texture {(fx.Looks.TryGetValue(g.First().Emitter, out var lk) && lk.Tex != null ? "yes" : "no")}");
+            return list;
+        }
+
+        /// <summary>Mesh particles (shockwave rings, debris) and summoned entities' models as triangles.</summary>
+        public List<Gui.ModelView.FxTri> Tris()
+        {
+            var tris = new List<Gui.ModelView.FxTri>();
+            const int Max = 60000;
+            foreach (var (_, sim, _) in running)
+                foreach (var (em, sp) in sim.Sprites())
+                {
+                    if (em.Kind != "mesh" || !fx.Meshes.TryGetValue(em, out var mm) || tris.Count > Max) continue;
+                    if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
+                    {
+                        var lo = mm.Mesh.Positions.Aggregate(Vector3.Min); var hi = mm.Mesh.Positions.Aggregate(Vector3.Max);
+                        Console.WriteLine($"    mesh particle {sim.Data.Name} / {em.Name}: size {sp.Size3}, at {sp.Position}, mesh bounds {lo}…{hi}, colour {sp.Color}");
+                    }
+                    var rot = sp.MeshRotation * MathF.PI * 2;
+                    // The type data's own turn of the mesh (Pitch / Yaw / Roll in degrees: Ant-Man's whirlwind cylinder -90), then the particle's.
+                    var td = em.TypeData;
+                    var pre = td == null ? Matrix4x4.Identity : Matrix4x4.CreateFromYawPitchRoll(td.Float("Yaw", 0) * MathF.PI / 180, td.Float("Pitch", 0) * MathF.PI / 180, td.Float("Roll", 0) * MathF.PI / 180);
+                    var m = pre * Matrix4x4.CreateScale(sp.Size3) * Matrix4x4.CreateFromYawPitchRoll(rot.Z, rot.Y, rot.X) * Matrix4x4.CreateTranslation(sp.Position);
+                    var col = sp.Color;
+                    var mesh = mm.Mesh;
+                    for (int si = 0; si < mesh.Sections.Count && si < mm.Sections.Length; si++)
+                    {
+                        var (stex, sadd) = mm.Sections[si];
+                        if (stex == null) continue;
+                        var sec = mesh.Sections[si]; var tx = Tex(stex);
+                        for (int k = 0; k < sec.Triangles; k++)
+                        {
+                            int i0 = sec.First + k * 3;
+                            if (i0 + 2 >= mesh.Indices.Length) break;
+                            int a = mesh.Indices[i0], b = mesh.Indices[i0 + 1], c = mesh.Indices[i0 + 2];
+                            tris.Add(new Gui.ModelView.FxTri(Vector3.Transform(mesh.Positions[a], m), Vector3.Transform(mesh.Positions[b], m), Vector3.Transform(mesh.Positions[c], m),
+                                mesh.Uvs[a], mesh.Uvs[b], mesh.Uvs[c], col, tx, sadd, false));
+                        }
+                    }
+                }
+            // (Animated actors and summoned models: not shown yet.)
+            return tris;
+        }
+
+        public int Live => running.Sum(r => r.Sim.Sprites().Count());
+
+        /// <summary>
+        /// Which effects go with an animation of the power (a guess from the names, not the game's state machine): a
+        /// "…_start" animation plays the effects of the power's start, "…_loop" those of its loop, "…_end" those of its
+        /// end; any other animation the start's.
+        /// </summary>
+        public static Func<Effect, bool> PhaseOf(string animation)
+        {
+            string a = animation.ToLowerInvariant();
+            var f = PhaseOnly(a);
+            return e => e.Kind == "resource" || f(e);
+        }
+
+        static Func<Effect, bool> PhaseOnly(string a)
+        {
+            // Summons and missiles go at the contact: with any animation but a loop (Hammer of Storms throws in its _end).
+            if (a.EndsWith("_loop")) return e => e.Kind is not ("entity" or "projectile") && e.Point.Contains("loop") && !e.Point.Contains("end");
+            if (a.EndsWith("_end")) return e => e.Kind is "entity" or "projectile" || e.Point.Contains("end");
+            return e => e.Kind is "entity" or "projectile" || !e.Point.Contains("loop") && !e.Point.Contains("end");
+        }
+
     }
 }

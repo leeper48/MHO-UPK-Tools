@@ -29,10 +29,10 @@ static class ModMeshes
     static readonly Dictionary<string, List<MeshRef>> listCache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The skeletal meshes in a set of packages (file name, path): character packages only, costumes first.</summary>
-    public static List<MeshRef> List(IEnumerable<(string File, string Path)> packages)
+    public static List<MeshRef> List(IEnumerable<(string File, string Path)> packages, bool anyPackage = false)
     {
         var result = new List<MeshRef>();
-        foreach (var (file, path) in packages.Where(p => Rank(p.File) < 99 && File.Exists(p.Path)).OrderBy(p => Rank(p.File)).ThenBy(p => p.File, StringComparer.OrdinalIgnoreCase))
+        foreach (var (file, path) in packages.Where(p => (anyPackage || Rank(p.File) < 99) && File.Exists(p.Path)).OrderBy(p => Rank(p.File)).ThenBy(p => p.File, StringComparer.OrdinalIgnoreCase))
         {
             string key;
             try { key = path + "|" + File.GetLastWriteTimeUtc(path).Ticks; } catch (IOException) { continue; }
@@ -259,7 +259,16 @@ static class ModMeshes
     }
 
     /// <summary>A held prop as the game defines it: a mesh and the character bone it's attached to (weapon slot for info).</summary>
-    public sealed record Attachment(string Mesh, string? Bone, string? Slot);
+    public sealed record Attachment(string Mesh, string? Bone, string? Slot)
+    {
+        /// <summary>VisibilityPoint = visible_on_demand: shown only while a power shows it (Punisher's shotgun, RPG …);
+        /// otherwise always held (his sidearms).</summary>
+        public bool OnDemand { get; init; }
+        /// <summary>The attachment's class (marvelattachment_punisher_shotgun), as a costume's mAttachmentClasses names it.</summary>
+        public string Class { get; init; } = "";
+        /// <summary>Every WeaponSlot it fills (a power's SwitchAttachments turns slots off and on: bothhands → pumpshotgun).</summary>
+        public IReadOnlyList<string> Slots { get; init; } = [];
+    }
 
     /// <summary>
     /// The props a package attaches (Kurt: characters holding a sword or hammer): its "marvelattachment_…" objects name
@@ -267,38 +276,240 @@ static class ModMeshes
     /// slot righthand. A costume's own attachment (thorhammer_ageofultron) only swaps the mesh and inherits the bone from
     /// the one its name extends, so the bone comes from the longest such name that has one.
     /// </summary>
-    public static List<Attachment> Attachments(string packagePath)
+    public static List<Attachment> Attachments(string packagePath, string? parentPackage = null)
     {
-        var raw = new List<(string Class, List<string> Meshes, string? Bone, string? Slot)>();
+        // Class defaults leave out what equals their parent class's, so bone, slots and visibility come from the longest
+        // class name this one extends that sets them (here, or in parentPackage: a costume's attachment extending the hero's).
+        var raw = RawAttachments(packagePath);
+        var parents = parentPackage != null ? [.. raw, .. RawAttachments(parentPackage)] : raw;
+        // The class it extends: the Class export's SuperStruct when read (Punisher's sidearmleft extends marvelattachment,
+        // not marvelattachment_punisher, which its name starts with: going by names made the pistols on-demand like the
+        // rifle), else the longest class name it starts with.
+        RawAttachment? Parent(RawAttachment a)
+        {
+            if (a.Super != null) return parents.FirstOrDefault(p => p.Class.Equals(a.Super, StringComparison.OrdinalIgnoreCase));
+            return parents.Where(p => a.Class.StartsWith(p.Class, StringComparison.OrdinalIgnoreCase) && p.Class.Length < a.Class.Length).OrderByDescending(p => p.Class.Length).FirstOrDefault();
+        }
+        T? Inherited<T>(RawAttachment a, Func<RawAttachment, T?> get)
+        {
+            for (RawAttachment? c = a; c != null; c = Parent(c))
+            {
+                if (get(c) is { } v) return v;
+                if (c != a && ReferenceEquals(c, Parent(c))) break;
+            }
+            return default;
+        }
+        T? From<T>(RawAttachment a, Func<RawAttachment, T?> get) where T : class => Inherited(a, get);
+        bool OnDemandOf(RawAttachment a) { for (RawAttachment? c = a; c != null; c = Parent(c)) if (c.OnDemand is bool v) return v; return false; }
+        var result = new List<Attachment>();
+        foreach (var a in raw)
+        {
+            var slots = From(a, x => x.Slots) ?? [];
+            // (the mesh too: a default that sets only its slots has its parent class's)
+            var meshes = From(a, x => x.Meshes.Count > 0 ? x.Meshes : null) ?? (a.GuessMesh != null ? [a.GuessMesh] : []);
+            foreach (string m in meshes)
+                result.Add(new Attachment(m, From(a, x => x.Bone), slots.FirstOrDefault()) { OnDemand = OnDemandOf(a), Class = a.Class, Slots = slots });
+        }
+        return result;
+    }
+
+    sealed record RawAttachment(string Class, List<string> Meshes, string? Bone, List<string>? Slots, bool? OnDemand, string? Super)
+    {
+        /// <summary>A skeletal mesh of the package whose name ends the class name (marvelattachment_kittypryde_katana →
+        /// katana): used only when the class sets no mesh and none is inherited (a guess: Kitty's katana names none, its
+        /// parent class isn't in the package, and the package has a mesh "katana").</summary>
+        public string? GuessMesh { get; init; }
+    }
+
+    static readonly Dictionary<string, List<RawAttachment>> rawCache = new(StringComparer.OrdinalIgnoreCase);
+
+    static List<RawAttachment> RawAttachments(string packagePath)
+    {
+        string key;
+        try { key = packagePath + "|" + File.GetLastWriteTimeUtc(packagePath).Ticks; } catch (IOException) { return []; }
+        lock (rawCache) if (rawCache.TryGetValue(key, out var hit)) return hit;
+        var raw = new List<RawAttachment>();
+        try
+        {
+            var pkg = Package.Open(packagePath);
+            var skeletal = pkg.Exports.Where(x => pkg.ClassOf(x).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)).Select(x => x.ObjectName).ToList();
+            for (int i = 0; i < pkg.Exports.Length; i++)
+            try
+            {
+                // (each export on its own: one that doesn't read stopped the rest, and Kitty's katana and Black Cat's
+                // whips, defaults in their base packages, went missing)
+                var e = pkg.Exports[i];
+                string cls = pkg.ClassOf(e);
+                if (!cls.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase)) continue;
+                var d = pkg.ReadExportBytes(e);
+                if (TagWalker.Walk(pkg, d, 4) is not { } tags) continue;
+                var meshes = new List<string>(); string? bone = null; List<string>? slots = null; bool? onDemand = null;
+                foreach (var t in tags)
+                {
+                    int count = t.Size >= 4 ? BitConverter.ToInt32(d, t.ValueAt) : 0;
+                    if (t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase))
+                        for (int k = 0; k < count && t.ValueAt + 8 + 4 * k <= t.End; k++) { int r = BitConverter.ToInt32(d, t.ValueAt + 4 + 4 * k); if (r != 0) meshes.Add(r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r)); }
+                    else if (t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4 && BitConverter.ToInt32(d, t.ValueAt) is int cr && cr > 0 && cr <= pkg.Exports.Length)
+                    {
+                        // An animated attachment (MarvelAttachmentAnimated: Black Cat's whips, bikes, chains) names a
+                        // skeletal mesh component; its SkeletalMesh is the prop (component properties from byte 16).
+                        var cd = pkg.ReadExportBytes(pkg.Exports[cr - 1]);
+                        if (TagWalker.Walk(pkg, cd, 16) is { } ct && ct.FirstOrDefault(x => x.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } sm
+                            && BitConverter.ToInt32(cd, sm.ValueAt) is int mr && mr != 0)
+                            meshes.Add(mr > 0 ? pkg.Exports[mr - 1].ObjectName : pkg.RefName(mr));
+                    }
+                    else if (t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase) && count > 0) bone = TagWalker.NameAt(pkg, d, t.ValueAt + 4);
+                    else if (t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase))
+                    {
+                        slots = [];
+                        for (int k = 0; k < count && t.ValueAt + 4 + 8 * (k + 1) <= t.End; k++) slots.Add(TagWalker.NameAt(pkg, d, t.ValueAt + 4 + 8 * k));
+                    }
+                    else if (t.Name.Equals("VisibilityPoint", StringComparison.OrdinalIgnoreCase))
+                        onDemand = TagWalker.NameAt(pkg, d, t.ValueAt).Contains("on_demand", StringComparison.OrdinalIgnoreCase);
+                }
+                raw.Add(new RawAttachment(cls, meshes, bone, slots, onDemand, SuperOf(pkg, cls))
+                {
+                    GuessMesh = skeletal.Where(m => cls.EndsWith("_" + m, StringComparison.OrdinalIgnoreCase)).OrderByDescending(m => m.Length).FirstOrDefault(),
+                });
+            }
+            catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
+        lock (rawCache) rawCache[key] = raw;
+        return raw;
+    }
+
+    /// <summary>The class a class export extends (its SuperStruct: after the object's NetIndex and empty property list come
+    /// UField.Next and then SuperStruct), or null when the class isn't exported here or doesn't read as expected.</summary>
+    static string? SuperOf(Package pkg, string className)
+    {
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            var e = pkg.Exports[i];
+            if (!e.ObjectName.Equals(className, StringComparison.OrdinalIgnoreCase) || !pkg.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                var d = pkg.ReadExportBytes(e);
+                if (TagWalker.Walk(pkg, d, 4) is not { } tags || tags.NoneAt + 16 > d.Length) return null;
+                int r = BitConverter.ToInt32(d, tags.NoneAt + 12);
+                string name = r > 0 && r <= pkg.Exports.Length ? pkg.Exports[r - 1].ObjectName : r < 0 ? pkg.RefName(r) : "";
+                return name.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase) || name.Equals("Actor", StringComparison.OrdinalIgnoreCase) ? name : null;
+            }
+            catch (Exception ex) when (ex is PackageFormatException or ArgumentException or IndexOutOfRangeException) { return null; }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The attachment classes a character package's player class default lists (mAttachmentClasses: Punisher's 17 guns,
+    /// Thor Age of Ultron's own hammer), by class name; null when the package has no player default or it doesn't set
+    /// them (a costume class that keeps its hero's list).
+    /// </summary>
+    public static List<string>? AttachmentClasses(string packagePath)
+    {
         try
         {
             var pkg = Package.Open(packagePath);
             for (int i = 0; i < pkg.Exports.Length; i++)
             {
                 var e = pkg.Exports[i];
-                string cls = pkg.ClassOf(e);
-                if (!cls.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!e.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) || !pkg.ClassOf(e).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase)) continue;
                 var d = pkg.ReadExportBytes(e);
                 if (TagWalker.Walk(pkg, d, 4) is not { } tags) continue;
-                var meshes = new List<string>(); string? bone = null, slot = null;
-                foreach (var t in tags)
+                foreach (var t in tags.Where(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)))
                 {
-                    int count = t.Size >= 4 ? BitConverter.ToInt32(d, t.ValueAt) : 0;
-                    if (t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase))
-                        for (int k = 0; k < count && t.ValueAt + 8 + 4 * k <= t.End; k++) { int r = BitConverter.ToInt32(d, t.ValueAt + 4 + 4 * k); if (r != 0) meshes.Add(r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r)); }
-                    else if (t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase) && count > 0) bone = TagWalker.NameAt(pkg, d, t.ValueAt + 4);
-                    else if (t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase) && count > 0) slot = TagWalker.NameAt(pkg, d, t.ValueAt + 4);
+                    int count = BitConverter.ToInt32(d, t.ValueAt);
+                    var list = new List<string>();
+                    for (int k = 0; k < count && t.ValueAt + 8 + 4 * k <= t.End; k++) { int r = BitConverter.ToInt32(d, t.ValueAt + 4 + 4 * k); if (r != 0) list.Add(r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r)); }
+                    return list;
                 }
-                raw.Add((cls, meshes, bone, slot));
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
-        var result = new List<Attachment>();
-        foreach (var a in raw)
+        return null;
+    }
+
+    /// <summary>
+    /// One thing a power does to a character's props (from a PowerFxMeshAttachment component of its package; the
+    /// --attach-census of all 5,559 power and hero packages lists every property these use). Show or hide a weapon slot or
+    /// (Target "class:&lt;name&gt;") an attachment class, from Start until End (End null = to the animation's end). Start and
+    /// End are a point (power_on_start = 0, a contact / target-result point = the power's contact time, power_on_end = the
+    /// animation's end) plus seconds.
+    /// </summary>
+    public sealed record PropRule(bool Show, string Target, string StartPoint, float StartOffset, string? EndPoint, float EndOffset);
+
+    static readonly Dictionary<string, List<PropRule>> ruleCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The prop rules of a power package's PowerFxMeshAttachment components:
+    /// WeaponSlotToShowOnActivate / ToHideOnActivate (a slot from the activation on), WhileActivatedShowWeaponSlot /
+    /// HideWeaponSlot and WhileActivatedAttachmentClass (until the deactivation point), AttachmentsToShowOnActivate /
+    /// ToHideOnActivate (classes), SwitchAttachments { From, To } (Punisher's Buckshot Blast: bothhands → pumpshotgun).
+    /// Components that need a condition or another entity (ConditionRequired, EntityRequired: a buff, a summon) are left
+    /// out: the preview has neither.
+    /// </summary>
+    public static List<PropRule> PropRules(string powerPackage)
+    {
+        lock (ruleCache) if (ruleCache.TryGetValue(powerPackage, out var hit)) return hit;
+        var result = new List<PropRule>();
+        try
         {
-            var parent = raw.Where(p => p.Bone != null && a.Class.StartsWith(p.Class, StringComparison.OrdinalIgnoreCase)).OrderByDescending(p => p.Class.Length).FirstOrDefault();
-            foreach (string m in a.Meshes) result.Add(new Attachment(m, a.Bone ?? parent.Bone, a.Slot ?? parent.Slot));
+            var pkg = Package.Open(powerPackage);
+            for (int i = 0; i < pkg.Exports.Length; i++)
+            {
+                var e = pkg.Exports[i];
+                if (!pkg.ClassOf(e).Equals("powerfxmeshattachment", StringComparison.OrdinalIgnoreCase)) continue;
+                var d = pkg.ReadExportBytes(e);
+                if (TagWalker.Walk(pkg, d, 16) is not { } tags) continue;   // a component: properties from byte 16
+                TagWalker.Tag? T(string n) => tags.FirstOrDefault(t => t.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (T("ConditionRequired") != null || T("EntityRequired") != null) continue;
+                string? Nm(string n) => T(n) is { } t ? TagWalker.NameAt(pkg, d, t.ValueAt) : null;
+                float Fl(string n) => T(n) is { } t && t.Size == 4 ? BitConverter.ToSingle(d, t.ValueAt) : 0;
+                string start = Nm("ActivationPoint") ?? "power_on_start", end = Nm("DeactivationPoint") ?? "";
+                float so = Fl("ActivationOffset"), eo = Fl("DeactivationOffset");
+                string? endPoint = end.Length > 0 ? end : null;
+                List<string> Classes(string n)
+                {
+                    var list = new List<string>();
+                    if (T(n) is not { } t) return list;
+                    if (t.Type.Equals("ObjectProperty", StringComparison.OrdinalIgnoreCase)) { int r = BitConverter.ToInt32(d, t.ValueAt); if (r != 0) list.Add(r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r)); return list; }
+                    int count = BitConverter.ToInt32(d, t.ValueAt);
+                    for (int k = 0; k < count && t.ValueAt + 8 + 4 * k <= t.End; k++) { int r = BitConverter.ToInt32(d, t.ValueAt + 4 + 4 * k); if (r != 0) list.Add(r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r)); }
+                    return list;
+                }
+                if (Nm("WeaponSlotToShowOnActivate") is { Length: > 0 } s1) result.Add(new PropRule(true, s1, start, so, null, 0));
+                if (Nm("WeaponSlotToHideOnActivate") is { Length: > 0 } s2) result.Add(new PropRule(false, s2, start, so, null, 0));
+                if (Nm("WhileActivatedShowWeaponSlot") is { Length: > 0 } s3) result.Add(new PropRule(true, s3, start, so, endPoint ?? "power_on_end", eo));
+                if (Nm("WhileActivatedHideWeaponSlot") is { Length: > 0 } s4) result.Add(new PropRule(false, s4, start, so, endPoint ?? "power_on_end", eo));
+                foreach (string c in Classes("WhileActivatedAttachmentClass")) result.Add(new PropRule(true, "class:" + c, start, so, endPoint ?? "power_on_end", eo));
+                foreach (string c in Classes("AttachmentsToShowOnActivate")) result.Add(new PropRule(true, "class:" + c, start, so, null, 0));
+                foreach (string c in Classes("AttachmentsToHideOnActivate")) result.Add(new PropRule(false, "class:" + c, start, so, null, 0));
+                if (T("SwitchAttachments") is { } sw)
+                {
+                    void One(int at)
+                    {
+                        if (TagWalker.Walk(pkg, d, at) is not { } st) return;
+                        string? from = st.FirstOrDefault(x => x.Name.Equals("From", StringComparison.OrdinalIgnoreCase)) is { } f ? TagWalker.NameAt(pkg, d, f.ValueAt) : null;
+                        string? to = st.FirstOrDefault(x => x.Name.Equals("To", StringComparison.OrdinalIgnoreCase)) is { } o ? TagWalker.NameAt(pkg, d, o.ValueAt) : null;
+                        if (from is { Length: > 0 }) result.Add(new PropRule(false, from, start, so, null, 0));
+                        if (to is { Length: > 0 }) result.Add(new PropRule(true, to, start, so, null, 0));
+                    }
+                    if (sw.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase)) One(sw.ValueAt);
+                    else if (sw.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int count = BitConverter.ToInt32(d, sw.ValueAt), at = sw.ValueAt + 4;
+                        for (int k = 0; k < count && at < sw.End; k++)
+                        {
+                            if (TagWalker.Walk(pkg, d, at) is not { } st) break;
+                            One(at);
+                            at = st.NoneAt + 8;
+                        }
+                    }
+                }
+            }
         }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
+        lock (ruleCache) ruleCache[powerPackage] = result;
         return result;
     }
 

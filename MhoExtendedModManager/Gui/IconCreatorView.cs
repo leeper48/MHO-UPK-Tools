@@ -783,7 +783,9 @@ static class Framing
     public enum Shot { Full, HeadShoulders, Bust }
 
     /// <param name="posed">An animation is showing (its pose is used); else the rest pose is made first.</param>
-    public static void Apply(ModelView view, MeshAnimator? animator, bool posed, Shot k)
+    /// <param name="centerHead">The 3D preview (a tall view): Head aims at the middle of the head itself (Kurt: the head should
+    /// be centred); the icon maker's portraits (wide 180 x 136) keep the lower aim that leaves room for the shoulders.</param>
+    public static void Apply(ModelView view, MeshAnimator? animator, bool posed, Shot k, bool centerHead = false)
     {
         const float yaw = 0f;   // facing the camera (was −0.25 rad, about 14°; a user: most want straight on)
         if (animator != null && HeadBone(animator) is int head)
@@ -796,7 +798,7 @@ static class Framing
             if (tall >= 0.75f * (top - feet))
                 switch (k)
                 {
-                    case Shot.HeadShoulders: view.Aim(h - new Vector3(0, 0, tall * 0.1f), tall * 0.5f * lens, yaw, 0.06f); return;
+                    case Shot.HeadShoulders: view.Aim(h + new Vector3(0, 0, tall * (centerHead ? 0.05f : -0.1f)), tall * 0.5f * lens, yaw, 0.06f); return;
                     case Shot.Bust: view.Aim(h - new Vector3(0, 0, tall * 0.12f), tall * 0.58f * lens, yaw, 0.06f); return;
                     default: view.Aim(new Vector3(h.X, h.Y, feet + (top - feet) * 0.5f), (top - feet) * 1.42f * lens, yaw, 0.08f); return;
                 }

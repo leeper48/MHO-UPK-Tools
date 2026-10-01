@@ -361,6 +361,257 @@ sealed class ModelView : UserControl
     float[] sx = [], sy = [], iz = [];
     float[] triRatio = [];                   // UV area / screen area per triangle (for the mip level)
 
+    /// <summary>
+    /// A particle to draw over the model (power effects; ported from the MHO Hero Creator's ModelView, which descends from this one). Engine-space
+    /// position, full size, rotation (radians), HDR colour and alpha, its texture's sub-image grid and image, how it faces
+    /// the camera (0 square, 1 rectangle, 2 stretched along its velocity), kept upright (axis lock on Z), and its blending
+    /// (additive: glows; else translucent).
+    /// </summary>
+    public readonly record struct FxQuad(Vector3 Position, Vector2 Size, float Rotation, Vector4 Color, Map? Texture, int Cols, int Rows, int Image,
+        int Align, bool LockZ, bool Additive, Vector3 Velocity)
+    {
+        /// <summary>A sprite fixed in a plane (UE3 axis lock EPAL_X / Y / Z): its width and height directions in engine space
+        /// (zero: it faces the camera).</summary>
+        public Vector3 PlaneRight { get; init; }
+        public Vector3 PlaneUp { get; init; }
+        /// <summary>Stays in its plane (a decal on the ground), not turned to face the camera like a flat bolt.</summary>
+        public bool KeepPlane { get; init; }
+        /// <summary>The texture's U runs along the quad's long side (a beam's texture runs along the beam).</summary>
+        public bool SwapUV { get; init; }
+    }
+
+    /// <summary>The particles drawn over the model (after shading, depth-tested against it). Set, then Redraw via UpdateEffects.</summary>
+    public List<FxQuad> Effects { get; set; } = new();
+
+    public void UpdateEffects(List<FxQuad> fx) { Effects = fx; EffectTris = new(); Redraw(); }
+
+    /// <summary>Pass 3: every particle as a camera-facing quad, depth-tested against the model, blended into the frame.</summary>
+    void DrawEffects(Vector3 r, Vector3 u, Vector3 f, Vector3 eye, float focal, float cx, float cy, float near)
+    {
+        foreach (var q in Effects)
+        {
+            if (q.PlaneRight != Vector3.Zero) { DrawPlaneQuad(q, r, u, f, eye, focal, cx, cy, near); continue; }
+            var pos = new Vector3(q.Position.X, -q.Position.Y, q.Position.Z);
+            var d = pos - eye;
+            float z = Vector3.Dot(d, f);
+            if (z < near) continue;
+            float izq = 1f / z, px = cx + Vector3.Dot(d, r) * focal * izq, py = cy - Vector3.Dot(d, u) * focal * izq;
+            float halfW = q.Size.X * 0.5f * focal * izq, halfH = (q.Align == 0 ? q.Size.X : q.Size.Y) * 0.5f * focal * izq;
+            if (halfW < 0.3f && halfH < 0.3f) continue;
+            // The quad's axes on screen: turned by its rotation, or its long side along the velocity / the world's up.
+            Vector2 ax, ay;
+            if (q.Align == 2 && q.Velocity.LengthSquared() > 1e-6f)
+            {
+                var v = new Vector3(q.Velocity.X, -q.Velocity.Y, q.Velocity.Z);
+                var sv = new Vector2(Vector3.Dot(v, r), -Vector3.Dot(v, u));
+                if (sv.LengthSquared() < 1e-8f) sv = new Vector2(0, -1);
+                ay = Vector2.Normalize(sv); ax = new Vector2(-ay.Y, ay.X);
+            }
+            else if (q.LockZ)
+            {
+                var sv = new Vector2(Vector3.Dot(Vector3.UnitZ, r), -Vector3.Dot(Vector3.UnitZ, u));
+                ay = sv.LengthSquared() > 1e-8f ? Vector2.Normalize(sv) : new Vector2(0, -1); ax = new Vector2(-ay.Y, ay.X);
+            }
+            else { float c = MathF.Cos(q.Rotation), sn = MathF.Sin(q.Rotation); ax = new Vector2(c, sn); ay = new Vector2(-sn, c); }
+            float ext = MathF.Sqrt(halfW * halfW + halfH * halfH);
+            int x0 = Math.Max(0, (int)(px - ext)), x1 = Math.Min(W - 1, (int)(px + ext)), y0 = Math.Max(0, (int)(py - ext)), y1 = Math.Min(H - 1, (int)(py + ext));
+            if (x0 > x1 || y0 > y1) continue;
+            int cols = Math.Max(1, q.Cols), rows = Math.Max(1, q.Rows), img = Math.Clamp(q.Image, 0, cols * rows - 1);
+            float cu = (img % cols) / (float)cols, cv = (img / cols) / (float)rows;
+            float lod = q.Texture == null ? 0 : Math.Max(0, MathF.Log2(Math.Max(1f, q.Texture.W / (float)cols / Math.Max(1f, 2 * halfW))));
+            var tint = q.Color;
+            Parallel.For(y0, y1 + 1, y =>
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    int p = y * W + x;
+                    if (depth[p] > izq) continue;                   // the model is nearer
+                    var o = new Vector2(x + 0.5f - px, y + 0.5f - py);
+                    float lx = Vector2.Dot(o, ax) / (2 * halfW), ly = Vector2.Dot(o, ay) / (2 * halfH);
+                    if (lx < -0.5f || lx > 0.5f || ly < -0.5f || ly > 0.5f) continue;
+                    if (q.Texture == null) continue;
+                    Vector4 t = q.SwapUV ? q.Texture.Sample(cu + (0.5f - ly) / cols, cv + (lx + 0.5f) / rows, lod) : q.Texture.Sample(cu + (lx + 0.5f) / cols, cv + (ly + 0.5f) / rows, lod);
+                    if (q.Additive && !q.Texture.AlphaVaries) t.W = 1;
+                    Blend(p, t, tint, q.Additive);
+                }
+            });
+        }
+    }
+
+    /// <summary>Blends a particle's texel into the frame: additive (glow: texture × HDR colour × alpha, added) or translucent.</summary>
+    /// <summary>Effects' strength (their opacity / glow; 1 = the game's values; the 3D View's Effects slider).</summary>
+    public float EffectStrength { get; set; } = 1.25f;
+
+    void Blend(int p, Vector4 t, Vector4 tint, bool additive)
+    {
+        tint.W *= EffectStrength;
+        int c0 = color[p];
+        float br = ((c0 >> 16) & 255) / 255f, bgc = ((c0 >> 8) & 255) / 255f, bb = (c0 & 255) / 255f;
+        float rr, gg, b2;
+        if (additive)
+        {
+            float k = Math.Max(0, tint.W) * t.W;
+            float ar = t.X * tint.X * k, ag = t.Y * tint.Y * k, ab = t.Z * tint.Z * k;
+            // Overbright (HDR colours such as lightning's 4, 5, 50) turns white, as the game's bloom shows it, instead of
+            // clipping one channel (magenta / pure blue fringes).
+            float ex = Math.Max(0, Math.Max(ar, Math.Max(ag, ab)) - 1), over = 0.3f * ex / (1 + ex);   // soft: at most +0.3
+            rr = br + ar + over; gg = bgc + ag + over; b2 = bb + ab + over;
+        }
+        else
+        {
+            float a = Math.Clamp(t.W * tint.W, 0, 1);
+            rr = br + (t.X * tint.X - br) * a; gg = bgc + (t.Y * tint.Y - bgc) * a; b2 = bb + (t.Z * tint.Z - bb) * a;
+        }
+        color[p] = unchecked((int)0xFF000000) | (Math.Clamp((int)(rr * 255), 0, 255) << 16) | (Math.Clamp((int)(gg * 255), 0, 255) << 8) | Math.Clamp((int)(b2 * 255), 0, 255);
+    }
+
+    /// <summary>A sprite fixed in a plane: each pixel's view ray meets the plane; depth-tested against the model.</summary>
+    void DrawPlaneQuad(FxQuad q, Vector3 r, Vector3 u, Vector3 f, Vector3 eye, float focal, float cx, float cy, float near)
+    {
+        static Vector3 M(Vector3 v) => new(v.X, -v.Y, v.Z);   // engine -> display (Y mirrored)
+        var c = M(q.Position);
+        var R0 = Vector3.Normalize(M(q.PlaneRight)); var U0 = Vector3.Normalize(M(q.PlaneUp));
+        float cr = MathF.Cos(q.Rotation), sr = MathF.Sin(q.Rotation);
+        var R = (R0 * cr + U0 * sr) * (q.Size.X * 0.5f); var U = (U0 * cr - R0 * sr) * (q.Size.Y * 0.5f);
+        if (!q.KeepPlane)
+        // The game's camera looks down from above, where these flat sprites (bolts lying in the socket's plane) read well;
+        // from the side they'd be edge-on and vanish (Kurt: the bolts didn't show). So the sprite keeps its long axis (the
+        // bolt's direction) and turns around it to face the camera: from above the same as flat, from the side visible.
+        {
+            bool rLong = R.LengthSquared() >= U.LengthSquared();
+            var lng = rLong ? R : U; var sht = rLong ? U : R;
+            var side = Vector3.Cross(Vector3.Normalize(lng), c - eye);
+            if (side.LengthSquared() > 1e-8f)
+            {
+                side = Vector3.Normalize(side) * sht.Length();
+                if (Vector3.Dot(side, sht) < 0) side = -side;
+                if (rLong) U = side; else R = side;
+            }
+        }
+        var n = Vector3.Cross(R, U);
+        if (n.LengthSquared() < 1e-6f) return;
+        // Screen bounds from the corners (all must be in front of the camera).
+        float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+        foreach (var k in new[] { c - R - U, c + R - U, c + R + U, c - R + U })
+        {
+            var d = k - eye; float z = Vector3.Dot(d, f);
+            if (z < near) return;
+            float sx = cx + Vector3.Dot(d, r) * focal / z, sy = cy - Vector3.Dot(d, u) * focal / z;
+            x0 = Math.Min(x0, sx); x1 = Math.Max(x1, sx); y0 = Math.Min(y0, sy); y1 = Math.Max(y1, sy);
+        }
+        int ix0 = Math.Max(0, (int)x0), ix1 = Math.Min(W - 1, (int)x1), iy0 = Math.Max(0, (int)y0), iy1 = Math.Min(H - 1, (int)y1);
+        if (ix0 > ix1 || iy0 > iy1 || q.Texture == null) return;
+        int cols = Math.Max(1, q.Cols), rows = Math.Max(1, q.Rows), img = Math.Clamp(q.Image, 0, cols * rows - 1);
+        float cu = (img % cols) / (float)cols, cv = (img / cols) / (float)rows;
+        float px = Math.Max(1f, Math.Max(x1 - x0, y1 - y0));
+        float lod = Math.Max(0, MathF.Log2(Math.Max(1f, q.Texture.W / (float)cols / px)));
+        float rr2 = R.LengthSquared(), uu2 = U.LengthSquared(), nd = Vector3.Dot(c - eye, n);
+        var tint = q.Color; var tex = q.Texture;
+        Parallel.For(iy0, iy1 + 1, y =>
+        {
+            for (int x = ix0; x <= ix1; x++)
+            {
+                var dir = f + r * ((x + 0.5f - cx) / focal) - u * ((y + 0.5f - cy) / focal);   // dot(dir, f) = 1: t = depth
+                float dn = Vector3.Dot(dir, n);
+                if (MathF.Abs(dn) < 1e-9f) continue;
+                float t = nd / dn;
+                if (t < near) continue;
+                int p = y * W + x;
+                if (depth[p] > 1f / t) continue;
+                var o = eye + dir * t - c;
+                float lx = Vector3.Dot(o, R) / rr2 * 0.5f, ly = -Vector3.Dot(o, U) / uu2 * 0.5f;
+                if (lx < -0.5f || lx > 0.5f || ly < -0.5f || ly > 0.5f) continue;
+                var tx = tex.Sample(cu + (lx + 0.5f) / cols, cv + (ly + 0.5f) / rows, lod);
+                if (q.Additive && !tex.AlphaVaries) tx.W = 1;
+                Blend(p, tx, tint, q.Additive);
+            }
+        });
+    }
+
+    /// <summary>
+    /// A textured triangle drawn with the effects (ported from the MHO Hero Creator): the triangles of a mesh effect (shockwave rings), a beam, a
+    /// pet's or a thrown weapon's model. Engine-space corners, UVs, HDR colour and alpha; opaque ones (models) are lit
+    /// simply and write depth, others are blended (additive or translucent) and only depth-tested.
+    /// </summary>
+    public readonly record struct FxTri(Vector3 A, Vector3 B, Vector3 C, Vector2 Ua, Vector2 Ub, Vector2 Uc, Vector4 Color, Map? Texture, bool Additive, bool Opaque);
+
+    /// <summary>The triangles drawn with the effects (opaque ones first, then the particles, then the blended ones).</summary>
+    public List<FxTri> EffectTris { get; set; } = new();
+
+    public void UpdateEffects(List<FxQuad> fx, List<FxTri> tris) { Effects = fx; EffectTris = tris; Redraw(); }
+
+    void DrawTris(bool opaque, Vector3 r, Vector3 u, Vector3 f, Vector3 eye, float focal, float cx, float cy, float near)
+    {
+        static Vector3 M(Vector3 v) => new(v.X, -v.Y, v.Z);
+        var light = Vector3.Normalize(-f * 0.4f + u * 0.8f - r * 0.3f);
+        foreach (var t in EffectTris)
+        {
+            if (t.Opaque != opaque) continue;
+            Vector3 a = M(t.A), b = M(t.B), c = M(t.C);
+            float za = Vector3.Dot(a - eye, f), zb = Vector3.Dot(b - eye, f), zc = Vector3.Dot(c - eye, f);
+            if (za < near || zb < near || zc < near) continue;
+            Vector2 S(Vector3 v, float z) => new(cx + Vector3.Dot(v - eye, r) * focal / z, cy - Vector3.Dot(v - eye, u) * focal / z);
+            var sa = S(a, za); var sb = S(b, zb); var sc = S(c, zc);
+            float area = (sb.X - sa.X) * (sc.Y - sa.Y) - (sb.Y - sa.Y) * (sc.X - sa.X);
+            if (MathF.Abs(area) < 1e-6f) continue;
+            int x0 = Math.Max(0, (int)MathF.Floor(Math.Min(sa.X, Math.Min(sb.X, sc.X)))), x1 = Math.Min(W - 1, (int)MathF.Ceiling(Math.Max(sa.X, Math.Max(sb.X, sc.X))));
+            int y0 = Math.Max(0, (int)MathF.Floor(Math.Min(sa.Y, Math.Min(sb.Y, sc.Y)))), y1 = Math.Min(H - 1, (int)MathF.Ceiling(Math.Max(sa.Y, Math.Max(sb.Y, sc.Y))));
+            if (x0 > x1 || y0 > y1) continue;
+            float ia = 1 / za, ib = 1 / zb, ic = 1 / zc;
+            var n = Vector3.Cross(b - a, c - a);
+            float shade = 1;
+            if (opaque && n.LengthSquared() > 1e-12f) { n = Vector3.Normalize(n); if (Vector3.Dot(n, eye - a) < 0) n = -n; shade = 0.35f + 0.65f * Math.Max(0, Vector3.Dot(n, light)); }
+            var tint = t.Color; var tex = t.Texture;
+            float px = Math.Max(1, Math.Max(x1 - x0, y1 - y0));
+            float lod = tex == null ? 0 : Math.Max(0, MathF.Log2(Math.Max(1f, tex.W * Math.Max(Vector2.Distance(t.Ua, t.Ub), Vector2.Distance(t.Ua, t.Uc)) / px)));
+            void Row(int y)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    float qx = x + 0.5f, qy = y + 0.5f;
+                    float w0 = ((sb.X - qx) * (sc.Y - qy) - (sb.Y - qy) * (sc.X - qx)) / area;
+                    float w1 = ((sc.X - qx) * (sa.Y - qy) - (sc.Y - qy) * (sa.X - qx)) / area;
+                    float w2 = 1 - w0 - w1;
+                    if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+                    float iz = w0 * ia + w1 * ib + w2 * ic;
+                    int p = y * W + x;
+                    if (depth[p] > iz) continue;                    // something nearer
+                    var uv = (t.Ua * (w0 * ia) + t.Ub * (w1 * ib) + t.Uc * (w2 * ic)) / iz;
+                    Vector4 tx = tex == null ? Vector4.One : tex.Sample(uv.X - MathF.Floor(uv.X), uv.Y - MathF.Floor(uv.Y), lod);
+                    if (opaque)
+                    {
+                        if (tex != null && tex.AlphaVaries && tx.W < 0.33f) continue;   // masked
+                        depth[p] = iz;
+                        color[p] = unchecked((int)0xFF000000) | (Math.Clamp((int)(tx.X * tint.X * shade * 255), 0, 255) << 16) | (Math.Clamp((int)(tx.Y * tint.Y * shade * 255), 0, 255) << 8) | Math.Clamp((int)(tx.Z * tint.Z * shade * 255), 0, 255);
+                    }
+                    else
+                    {
+                        if (t.Additive && tex != null && !tex.AlphaVaries) tx.W = 1;
+                        Blend(p, tx, tint, t.Additive);
+                    }
+                }
+            }
+            if ((x1 - x0) * (y1 - y0) > 4096) Parallel.For(y0, y1 + 1, Row);
+            else for (int y = y0; y <= y1; y++) Row(y);
+        }
+    }
+
+    /// <summary>
+    /// While an animation plays: frames are drawn at no more than <see cref="MovingPixels"/> and stretched to the view
+    /// (Kurt, 2026-09-30: playback was slow; a full-size frame of the preview column took 34–57 ms, with effects 100–220).
+    /// Turning it off draws the still frame at full size again.
+    /// </summary>
+    public bool Moving
+    {
+        get => moving;
+        set { if (moving == value) return; moving = value; if (!value) Redraw(); }
+    }
+    bool moving;
+    public const int MovingPixels = 360_000;
+    // The playing budget adapts (dynamic resolution): heavy power effects are fill-bound (Ground Smash's 46–89 sprites
+    // took 44–107 ms at 360k pixels), so it shrinks while frames take over 30 ms and grows back while they're quick.
+    float movingBudget = MovingPixels;
+
     /// <summary>For tests: how long the last frame took to draw (ms).</summary>
     public double LastFrameMs { get; private set; }
 
@@ -372,8 +623,9 @@ sealed class ModelView : UserControl
         bool snap = width > 0;
         if (idx.Length == 0 || (!snap && (canvas.ClientSize.Width < 8 || canvas.ClientSize.Height < 8))) return;
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        int scale = fast && !snap ? 2 : 1;
-        W = snap ? width : canvas.ClientSize.Width / scale; H = snap ? height : canvas.ClientSize.Height / scale;
+        int cw = canvas.ClientSize.Width, ch = canvas.ClientSize.Height;
+        float scale = snap ? 1 : fast ? 2 : moving ? Math.Max(1f, MathF.Sqrt((float)cw * ch / movingBudget)) : 1;
+        W = snap ? width : Math.Max(8, (int)(cw / scale)); H = snap ? height : Math.Max(8, (int)(ch / scale));
         if (color.Length != W * H) { color = new int[W * H]; depth = new float[W * H]; gTri = new int[W * H]; gB0 = new float[W * H]; gB1 = new float[W * H]; }
         int bg = backdrop != null && !snap ? 0 : Background.ToArgb();   // with a backdrop, empty pixels stay see-through
         Array.Fill(color, bg);
@@ -425,6 +677,10 @@ sealed class ModelView : UserControl
                 color[p] = Shade(g & 0x3FFFFFFF, (g & 0x40000000) != 0, gB0[p], gB1[p], eye, key, fill);
             }
         });
+        // Pass 3 (power effects): opaque effect triangles, the particles, then the blended triangles, depth-tested against the model.
+        if (EffectTris.Count > 0) DrawTris(true, r, u, f, eye, focal, cx, cy, near);
+        if (Effects.Count > 0) DrawEffects(r, u, f, eye, focal, cx, cy, near);
+        if (EffectTris.Count > 0) DrawTris(false, r, u, f, eye, focal, cx, cy, near);
 
         if (snap) return;
         if (frame == null || frame.Width != W || frame.Height != H) { frame?.Dispose(); frame = new Bitmap(W, H, PixelFormat.Format32bppArgb); }
@@ -432,6 +688,8 @@ sealed class ModelView : UserControl
         for (int y = 0; y < H; y++) Marshal.Copy(color, y * W, bd.Scan0 + y * bd.Stride, W);
         frame.UnlockBits(bd);
         LastFrameMs = clock.Elapsed.TotalMilliseconds;
+        if (moving && !fast)
+            movingBudget = LastFrameMs > 30 ? Math.Max(60_000, movingBudget * 0.75f) : LastFrameMs < 18 ? Math.Min(MovingPixels, movingBudget * 1.15f) : movingBudget;
     }
 
     internal static float Lod(float ratio, Map m) => ratio <= 0 ? 0 : 0.5f * MathF.Log2(Math.Max(1e-8f, ratio * m.W * m.H));

@@ -216,6 +216,8 @@ sealed class DropDown : Control
 
     int sel = -1;
     bool hover, open;
+    /// <summary>Its list is open (the 3D preview keeps its playback bar shown meanwhile).</summary>
+    public bool IsOpen => open;
     public ItemList Items { get; }
     public event EventHandler? SelectedIndexChanged;
     /// <summary>Just before the list opens (fill or refresh the items here).</summary>
