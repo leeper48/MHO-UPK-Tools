@@ -1091,6 +1091,8 @@ sealed class MainForm : Form
         try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error)); }
         finally { UseWaitCursor = false; }
         if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); Reload(); return; }
+        if (log.Where(x => x.StartsWith("resized ")).Select(x => x[8..]).ToList() is { Count: > 0 } resizedImages)
+            Dialog.Show(this, "These images weren't the target's size and were resized for the move:\n\n" + string.Join("\n", resizedImages), "Moved, Images Resized", MessageBoxButtons.OK, MessageBoxIcon.Information);
         Reload();
         if (swap && lib?.Mods.FirstOrDefault(x => x.FolderName == made) is Mod nm && lib.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod om)
             Change($"turn on \"{nm.Name}\" and off \"{om.Name}\"", () => { nm.Enabled = true; om.Enabled = false; return true; });
@@ -1117,9 +1119,11 @@ sealed class MainForm : Form
         }
         UseWaitCursor = true;
         string? error = null, made;
-        try { made = await Task.Run(() => CostumeMove.CreateMod(l, m, plan, new Originals(l.DataFolder, g), out error)); }
+        var resized = new List<string>();
+        try { made = await Task.Run(() => CostumeMove.CreateMod(l, m, plan, new Originals(l.DataFolder, g), out error, null, catalog, resized)); }
         finally { UseWaitCursor = false; }
         if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (resized.Count > 0) Dialog.Show(this, "These images weren't the target's size and were resized for the move:\n\n" + string.Join("\n", resized), "Moved, Images Resized", MessageBoxButtons.OK, MessageBoxIcon.Information);
         Reload();
         if (swap && lib?.Mods.FirstOrDefault(x => x.FolderName == made) is Mod nm && lib.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod om)
             Change($"turn on \"{nm.Name}\" and off \"{om.Name}\"", () => { nm.Enabled = true; om.Enabled = false; return true; });

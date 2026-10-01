@@ -381,9 +381,6 @@ static class CrossMove
         string heroBase = "UC__MarvelPlayer_" + source.Class.Split('_')[1] + "_SF.upk";
         string? baseHero = File.Exists(Path.Combine(mod.Folder, heroBase)) ? Path.Combine(mod.Folder, heroBase) : File.Exists(Path.Combine(game.Cooked, heroBase)) ? Path.Combine(game.Cooked, heroBase) : null;
         var plan = CostumeMove.Make(mod, srcFile, source, target, all, game.Cooked, catalog);   // icons, text, sound packs
-        foreach (var i in plan.Icons)
-            if (i.DdsSize is not { } a || i.TargetSize is not { } t || a.W != t.W || a.H != t.H)
-            { error = $"{i.Kind}: {i.Dds} isn't the size of the target's {i.To} (resizing isn't built yet)"; return null; }
         string work = Path.Combine(lib.DataFolder, "costume-move-" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
@@ -401,7 +398,9 @@ static class CrossMove
             d.Extra = [];
             foreach (var i in plan.Icons)
             {
-                string srcDds = Path.Combine(mod.Folder, i.Dds);
+                var resized = new List<string>();
+                string srcDds = CostumeMove.FitIcon(i, mod.Folder, work, catalog, resized);
+                foreach (string r in resized) log.Add("resized " + r);
                 if (byPackage.TryGetValue(i.Package, out int k)) d.Textures[k].Add((i.To, srcDds)); else d.Extra.Add((i.Package, i.To, srcDds));
             }
             d.Strings = [.. plan.Strings.Select(sm => mod.Strings.First(x => x.Id == sm.From && x.Language.Equals(sm.Language, StringComparison.OrdinalIgnoreCase)) with { Id = sm.To, File = sm.File, Variants = null })];

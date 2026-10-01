@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.60
+- Move to Another Costume / Hero: a costume icon, portrait or store image that isn't the game's size no longer stops the move ("resizing isn't built yet"). It's resized to the target's size (scaled to fill and centred, so nothing is stretched), and a message lists what was resized and from which size.
+
 0.37.59
 - Internal clean-up (code reorganized, unused parts removed); nothing changes in use.
 

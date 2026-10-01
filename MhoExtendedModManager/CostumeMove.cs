@@ -305,13 +305,11 @@ static class CostumeMove
     /// packages and icons, sound packs, the preview pick and 3D views, the saved post, the Nexus link and the changelog.
     /// Returns the new mod's folder name, or null with the reason.
     /// </summary>
-    public static string? CreateMod(ModLibrary lib, Mod mod, Plan plan, Originals originals, out string? error, Mod? replace = null)
+    public static string? CreateMod(ModLibrary lib, Mod mod, Plan plan, Originals originals, out string? error, Mod? replace = null,
+        StockCatalog? catalog = null, List<string>? resized = null)
     {
         error = null;
         if (plan.Problems.Count > 0) { error = string.Join(Environment.NewLine, plan.Problems); return null; }
-        foreach (var i in plan.Icons)
-            if (i.DdsSize is not { } a || i.TargetSize is not { } t || a.W != t.W || a.H != t.H)
-            { error = $"{i.Kind}: {i.Dds} isn't the size of the target's {i.To} (resizing isn't built yet)"; return null; }
         string work = Path.Combine(lib.DataFolder, "costume-move-" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
@@ -324,7 +322,7 @@ static class CostumeMove
             d.Extra = [];
             foreach (var i in plan.Icons)
             {
-                string src = Path.Combine(mod.Folder, i.Dds);
+                string src = FitIcon(i, mod.Folder, work, catalog, resized);
                 if (byPackage.TryGetValue(i.Package, out int k)) d.Textures[k].Add((i.To, src));
                 else d.Extra.Add((i.Package, i.To, src));
             }
@@ -350,6 +348,47 @@ static class CostumeMove
         foreach (var (file, _, list) in Applier.IconPackages)
             foreach (var r in list(mod.Manifest)) yield return (file, r.TextureName, r.DdsFileName);
         foreach (var r in mod.Manifest.Extra) yield return (r.Package, r.TextureName, r.DdsFileName);
+    }
+
+    /// <summary>
+    /// A costume image for the target's texture (Kurt, 2026-10-01: a user's LunaStore.dds stopped a move): as it is when
+    /// it's the target's size, else scaled to cover that size and centred (so nothing is stretched; the overflow is cut
+    /// off) and converted like an image loaded in the editor (the target's DXT format, no mips), into the work folder.
+    /// Each resize is added to <paramref name="resized"/> with both sizes. Throws with the sizes when it can't be done.
+    /// </summary>
+    internal static string FitIcon(IconMove i, string modFolder, string work, StockCatalog? catalog, List<string>? resized)
+    {
+        string src = Path.Combine(modFolder, i.Dds);
+        if (i.DdsSize is { } a0 && i.TargetSize is { } t0 && a0.W == t0.W && a0.H == t0.H) return src;
+        string have = i.DdsSize is { } a1 ? $"{a1.W}×{a1.H}" : "an unreadable size";
+        if (i.TargetSize is not { } t || catalog == null)
+            throw new InvalidDataException($"{i.Kind}: {i.Dds} is {have}, and the size of the target's {i.To} isn't known (not found in the game's icons)");
+        var d = TextureDecode.ReadDds(src, out string why) ?? throw new InvalidDataException($"{i.Kind}: {i.Dds} can't be read ({why})");
+        var bgra = TextureDecode.ToBgra(d.Format, d.W, d.H, d.Data, out why) ?? throw new InvalidDataException($"{i.Kind}: {i.Dds} ({d.Format}) can't be decoded ({why})");
+        Directory.CreateDirectory(work);
+        string png = Path.Combine(work, "fit-" + Guid.NewGuid().ToString("N")[..8] + ".png");
+        string outDds = Path.Combine(work, "fit-" + i.To + ".dds");
+        bool cropped;
+        using (var full = TextureDecode.ToBitmap(bgra, d.W, d.H))
+        using (var fit = new System.Drawing.Bitmap(t.W, t.H, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+        {
+            // Cover: the larger of the two scales, centred; what overflows is cut off.
+            float k = Math.Max((float)t.W / d.W, (float)t.H / d.H);
+            float w = d.W * k, h = d.H * k;
+            cropped = Math.Abs(w - t.W) > 1 || Math.Abs(h - t.H) > 1;
+            using (var g = System.Drawing.Graphics.FromImage(fit))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                g.DrawImage(full, (t.W - w) / 2, (t.H - h) / 2, w, h);
+            }
+            fit.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        try { catalog.ImageToDds(i.Package, i.To, png, outDds); }
+        finally { File.Delete(png); }
+        resized?.Add($"{i.Kind}: {i.Dds} {d.W}×{d.H} → {t.W}×{t.H} (the size of the target's {i.To}){(cropped ? ", centred and trimmed to keep its shape" : "")}");
+        return outDds;
     }
 
     static (int W, int H)? DdsSize(string path)

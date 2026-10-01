@@ -113,6 +113,53 @@ static partial class Program
                 }
                 return bad == 0 ? 0 : 1;
             }
+            case "--fit-icon-test":
+            {
+                // Test (scratch folder): a costume image of the wrong size is fitted for a costume move (CostumeMove.FitIcon):
+                // a stock store image made 512×700 (another shape), fitted back to the target's 300×420, its format kept.
+                string? fgr = settings.ResolvedGameRoot(data);
+                if (rest.Count < 2 || fgr == null) { Console.WriteLine("--fit-icon-test <scratch folder>"); return 1; }
+                string fdir = rest[1];
+                if (Path.GetFullPath(fdir).Contains(@"\CookedPCConsole", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("Refusing the game folder."); return 1; }
+                Directory.CreateDirectory(fdir);
+                var fcat = new StockCatalog(lib, new GameState(fgr, data));
+                const string pkg = "ICO__MarvelUIIcons_Store_SF.upk", tex = "store_storm_classicblack";
+                int ffails = 0;
+                void FCheck(string what, bool ok) { if (!ok) ffails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}"); }
+                var target = fcat.Size(pkg, tex);
+                FCheck($"target size known ({target?.W}×{target?.H} {target?.Format})", target != null);
+                string png = Path.Combine(fdir, "stock.png");
+                FCheck("stock image exported", fcat.ExportImage(pkg, tex, png) == null && File.Exists(png));
+                // the wrong size: 512×700 (wider shape than 300:420)
+                string bigPng = Path.Combine(fdir, "big.png"), bigDds = Path.Combine(fdir, "LunaStore.dds");
+                using (var src = new System.Drawing.Bitmap(png))
+                using (var big = new System.Drawing.Bitmap(512, 700))
+                {
+                    using (var g = System.Drawing.Graphics.FromImage(big)) g.DrawImage(src, 0, 0, 512, 700);
+                    big.Save(bigPng, System.Drawing.Imaging.ImageFormat.Png);
+                }
+                fcat.ImageToDds(pkg, tex, bigPng, bigDds, keepSize: true);
+                var made = MhoPackageModifier.TextureDecode.ReadDds(bigDds, out _);
+                FCheck($"wrong-size image made ({made?.W}×{made?.H})", made is { W: 512, H: 700 });
+                var icon = new CostumeMove.IconMove("Store Image", pkg, tex, tex, "LunaStore.dds", (512, 700), target);
+                var resized = new List<string>();
+                string fitted = CostumeMove.FitIcon(icon, fdir, Path.Combine(fdir, "work"), fcat, resized);
+                var o = MhoPackageModifier.TextureDecode.ReadDds(fitted, out _);
+                FCheck($"fitted to the target's size ({o?.W}×{o?.H})", target is { } tt && o is { } oo && oo.W == tt.W && oo.H == tt.H);
+                FCheck($"in the target's format ({o?.Format} for {target?.Format})", o is { } o2 && target is { } t2 && t2.Format.Contains(o2.Format.Replace("PF_", ""), StringComparison.OrdinalIgnoreCase));
+                FCheck("reported: " + string.Join(" | ", resized), resized.Count == 1 && resized[0].Contains("512×700") && resized[0].Contains("300×420"));
+                // the right size is used as it is
+                var same = new CostumeMove.IconMove("Store Image", pkg, tex, tex, "LunaStore.dds", (target!.Value.W, target.Value.H), target);
+                var none = new List<string>();
+                FCheck("an image of the right size is used unchanged", CostumeMove.FitIcon(same, fdir, Path.Combine(fdir, "work"), fcat, none) == Path.Combine(fdir, "LunaStore.dds") && none.Count == 0);
+                if (o is { } shown)
+                {
+                    var bgra = MhoPackageModifier.TextureDecode.ToBgra(shown.Format, shown.W, shown.H, shown.Data, out _);
+                    if (bgra != null) using (var bmp = MhoPackageModifier.TextureDecode.ToBitmap(bgra, shown.W, shown.H)) bmp.Save(Path.Combine(fdir, "fitted.png"));
+                }
+                Console.WriteLine(ffails == 0 ? "PASS" : $"{ffails} FAILED");
+                return ffails == 0 ? 0 : 1;
+            }
             case "--picture-test":
             {
                 // Test (scratch library only, MHO_EXTMM_HOME): custom card / preview pictures on this PC, carried by Export,
