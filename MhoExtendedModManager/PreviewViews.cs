@@ -27,6 +27,8 @@ static class PreviewViews
         /// <summary>The 3D preview's lens (35 mm-equivalent focal length) per mod on this PC (Kurt, from a user).</summary>
         public Dictionary<string, float> Lenses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, IconSetup> Icons { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The power colors' five preset slots (hue, saturation, brightness; null = empty), for every mod on this PC.</summary>
+        public float[]?[] PowerPresets { get; set; } = new float[]?[5];
     }
 
     static Data? data;
@@ -161,6 +163,17 @@ static class PreviewViews
     public static bool Glow { get => D.Glow; set { if (D.Glow == value) return; D.Glow = value; Save(); } }
     public static bool Props { get => D.Props; set { if (D.Props == value) return; D.Props = value; Save(); } }
     public static bool Powers { get => D.Powers; set { if (D.Powers == value) return; D.Powers = value; Save(); } }
+
+    /// <summary>A power color preset slot (0–4; the editor's Powers tab): null when empty.</summary>
+    public static PowerColor? PowerPreset(int k) =>
+        D.PowerPresets is { } a && k >= 0 && k < a.Length && a[k] is { Length: 3 } v ? new PowerColor(v[0], v[1], v[2]) : null;
+
+    public static void SetPowerPreset(int k, PowerColor c)
+    {
+        if (D.PowerPresets is not { Length: 5 }) D.PowerPresets = [.. (D.PowerPresets ?? []).Concat(new float[]?[5]).Take(5)];
+        D.PowerPresets[k] = [c.Hue, c.Saturation, c.Brightness];
+        Save();
+    }
     /// <summary>Power effects' strength in the preview (opacity / glow; 1 = the game's values): 10 % (Kurt; no slider).</summary>
     public const float FxPower = 0.10f;
 }

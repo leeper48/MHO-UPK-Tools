@@ -76,7 +76,7 @@ sealed class PropRig
         string file = $"UC__MarvelPlayer_{parts[2]}_SF.upk";
         string own = Path.Combine(Path.GetDirectoryName(main.File) ?? "", file);
         if (File.Exists(own)) return (file, own);
-        if (cooked != null && File.Exists(Path.Combine(cooked, file))) return (file, Path.Combine(cooked, file));
+        if (cooked != null && File.Exists(Path.Combine(cooked, file))) return (file, StockFiles.For(cooked, file));
         return null;
     }
 

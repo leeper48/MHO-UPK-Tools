@@ -265,7 +265,7 @@ static partial class Program
                     var listed = atts.Where(x => classes.Contains(x.Class, StringComparer.OrdinalIgnoreCase)).ToList();
                     foreach (string c in classes.Where(c => !atts.Any(x => x.Class.Equals(c, StringComparison.OrdinalIgnoreCase)))) issues.Add($"class {c}: no attachment default in the base package");
                     foreach (var x in listed.Where(x => !meshNames.Contains(x.Mesh))) issues.Add($"prop {x.Mesh} ({x.Class}): mesh not in the base package");
-                    var idx = Fx.PowerIndex.For(hero, acook, []);
+                    var idx = Fx.PowerIndex.For(hero, acook, [], adb);
                     var allRules = idx.Values.SelectMany(v => v).Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase)
                         .SelectMany(f => ModMeshes.PropRules(f).Select(w => (Rule: w, File: Path.GetFileNameWithoutExtension(f)))).ToList();
                     bool Hits(ModMeshes.Attachment x, string target) => target.Equals("class:" + x.Class, StringComparison.OrdinalIgnoreCase) || x.Slots.Contains(target, StringComparer.OrdinalIgnoreCase)
@@ -283,6 +283,8 @@ static partial class Program
                         if (pw.Icon == null) issues.Add($"power button {pw.Name}: no icon");
                         else if (Fx.PowerList.Icon(pw.Icon, acook) == null) issues.Add($"power button {pw.Name}: icon {pw.Icon} not found");
                     }
+                    if (Fx.PowerList.TravelPowerOf(adb, hero) is string tp && !buttons.Any(b => Path.GetFileNameWithoutExtension(b.Prototype).Equals(Path.GetFileNameWithoutExtension(tp), StringComparison.OrdinalIgnoreCase)))
+                        issues.Add($"travel power {Path.GetFileNameWithoutExtension(tp)}: no button");
                     if (idx.Count == 0) issues.Add("no power animations found");
                     if (issues.Count == 0) { clean++; Console.WriteLine($"{hero}: ok ({listed.Count} props, {buttons.Count} power buttons)"); continue; }
                     Console.WriteLine($"{hero}: {issues.Count} issue(s) ({listed.Count} props, {buttons.Count} power buttons)");
@@ -351,6 +353,60 @@ static partial class Program
                         foreach (var (pn, (pc, pe)) in pm.OrderByDescending(x => x.Value.Count)) Console.WriteLine($"    {pn}: {pc}   e.g. {pe}");
                 }
                 return 0;
+            }
+            case "--power-packages":
+            {
+                // Read-only: for each power button of a hero, every class the power sets off (PowerClosure) with its prototype,
+                // whether it has a package, and whether the power customizer recolours it (PowerRecolor.PackagesOf).
+                // --power-packages <hero> [power name part]
+                if (rest.Count < 2) { Console.WriteLine("--power-packages <hero> [power name part]"); return 1; }
+                string? qgr = settings.ResolvedGameRoot(data);
+                if (qgr == null || !Settings.IsGameRoot(qgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string qcook = Settings.Cooked(qgr);
+                var qdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(qgr, "Data", "Game", "Calligraphy.sip")));
+                foreach (var pw in Fx.PowerList.For(qdb, rest[1], qcook, []).Where(x => rest.Count < 3 || x.Name.Contains(rest[2], StringComparison.OrdinalIgnoreCase)))
+                {
+                    var used = PowerRecolor.PackagesOf(qdb, pw.Prototype, rest[1], qcook).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    Console.WriteLine($"{pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): {used.Count} package(s)");
+                    if (PowerRecolor.SharedWith(qdb, pw.Prototype, rest[1], qcook) is { Count: > 0 } sh) Console.WriteLine("    also changes: " + string.Join(", ", sh));
+                    var classes = new List<(string Class, string Proto)>();
+                    if (Fx.PowerEffects.UnrealClassOf(qdb, pw.Prototype) is string own) classes.Add((own, pw.Prototype));
+                    foreach (var art in Fx.PowerClosure.Of(qdb, pw.Prototype)) if (!string.IsNullOrEmpty(art.Class)) classes.Add((art.Class, art.Prototype));
+                    foreach (var (cls, proto) in classes.DistinctBy(x => x.Class, StringComparer.OrdinalIgnoreCase))
+                    {
+                        string f = $"UC__{cls}_SF.upk";
+                        string state = used.Contains(f) ? "RECOLORED" : File.Exists(Path.Combine(qcook, f)) ? "left (generic: 6+ owners)" : "no package";
+                        Console.WriteLine($"    {state,-26} {cls}   <- {proto.Replace('\\', '/')}");
+                        if (Environment.GetEnvironmentVariable("MHO_POWER_USERS") == "1" && !used.Contains(f) && File.Exists(Path.Combine(qcook, f)))
+                            foreach (string u in PowerRecolor.UsersOf(qdb, cls, rest[1], qcook)) Console.WriteLine("        used by " + u);
+                    }
+                }
+                return 0;
+            }
+            case "--power-recolor":
+            {
+                // Build (to a file outside the game folder): a power's stock package recoloured (PowerRecolor).
+                // --power-recolor <UC__Power….upk> <hue degrees> <saturation> <brightness> <out.upk>
+                if (rest.Count < 6) { Console.WriteLine("--power-recolor <UC__Power….upk> <hue> <saturation> <brightness> <out.upk>"); return 1; }
+                string? rgr = settings.ResolvedGameRoot(data);
+                if (rgr == null || !Settings.IsGameRoot(rgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string rout = Path.GetFullPath(rest[5]);
+                if (rout.StartsWith(Path.GetFullPath(rgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                var rgame = new GameState(rgr, data);
+                string pkgFile = Path.GetFileName(rest[1]).EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? Path.GetFileName(rest[1]) : Path.GetFileName(rest[1]) + ".upk";
+                string? stock = new Originals(lib.DataFolder, rgame).Find(pkgFile);
+                if (stock == null) { Console.WriteLine($"no verified stock copy of {pkgFile}"); return 1; }
+                var color = new PowerColor(float.Parse(rest[2], System.Globalization.CultureInfo.InvariantCulture), float.Parse(rest[3], System.Globalization.CultureInfo.InvariantCulture), float.Parse(rest[4], System.Globalization.CultureInfo.InvariantCulture));
+                try
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    byte[]? built = PowerRecolor.Build(stock, color, Settings.Cooked(rgr), l => Console.WriteLine("  " + l));
+                    if (built == null) { Console.WriteLine("nothing to recolor in it; no file written"); return 0; }
+                    File.WriteAllBytes(rout, built);
+                    Console.WriteLine($"built and verified: {rout} ({built.Length:N0} bytes, {sw.ElapsedMilliseconds} ms) from {stock}");
+                    return 0;
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException) { Console.WriteLine("not built: " + ex.Message); return 1; }
             }
             case "--hero-powers":
             {

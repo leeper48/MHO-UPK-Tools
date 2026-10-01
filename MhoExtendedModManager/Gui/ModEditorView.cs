@@ -11,7 +11,7 @@ namespace MhoExtendedModManager.Gui;
 /// both previews) · Strings (search the game's original text, set replacements) · Sound packs (.mhsfx).
 /// Saving writes MHModManager's mod format (ModWriter); nothing in the game folder changes until Apply.
 /// </summary>
-sealed class ModEditorView : UserControl
+sealed partial class ModEditorView : UserControl
 {
     /// <summary>Saved (the mod's folder name) or cancelled: the main window goes back to the mod list.</summary>
     public event Action<string>? Saved;
@@ -127,6 +127,7 @@ sealed class ModEditorView : UserControl
         tabs.Add("Strings", stringsPage);
         tabs.Add("Sound Packs", SoundsPage());
         tabs.Add("Voice", VoicePage());
+        tabs.Add("Powers", PowersPage());
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 
@@ -506,11 +507,19 @@ sealed class ModEditorView : UserControl
     {
         Collect();
         draft.Strings = stringsPage.Collect();
-        string? work;
+        string? work, powerWork;
         try { work = ApplyVoice(); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, "The voice lines couldn't be changed: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        var powerLog = new List<string>();
+        try { powerWork = ApplyPowerColors(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+            Dialog.Show(this, "The power colours couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+        if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
         if (saved != null && voiceWork != null) try { Directory.Delete(voiceWork, true); voiceWork = null; } catch (IOException) { }
         if (saved == null) { Dialog.Show(this, error ?? "", "Can't Save Yet"); return; }
         SavedName = saved;

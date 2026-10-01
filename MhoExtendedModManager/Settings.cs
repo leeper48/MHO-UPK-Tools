@@ -17,6 +17,9 @@ namespace MhoExtendedModManager;
 sealed class Settings
 {
     public string? GameRoot { get; set; }
+    /// <summary>A folder holding the game's stock packages (a clean CookedPCConsole copy, Kurt's H:\\CookedPCConsole - Original
+    /// Backup): read only, each file checked against the stock checksums before use. Null when not set.</summary>
+    public string? CleanGameFiles { get; set; }
     /// <summary>Null = the default location. May also be MHModManager's folder (read-only there until migrated).</summary>
     public string? Library { get; set; }
     /// <summary>The mod list's sort (priority, name, author, tag, enabled) and grouping (none, tag, author).</summary>

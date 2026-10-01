@@ -34,12 +34,22 @@ static class PowerList
         return english = d;
     }
 
-    static (ulong Raw, bool Found) Field(GameData db, string path, string name, char type)
+    static (ulong Raw, bool Found) Field(GameData db, string path, string name, char type) =>
+        db.Find(path) is { } e ? Field(db, e.Id, name, type, false) : (0, false);
+
+    /// <summary>A simple field of a prototype; <paramref name="inherit"/>: else its parents' (a travel power such as
+    /// WolverineRide takes its name and icon from the shared bike it's made from).</summary>
+    static (ulong Raw, bool Found) Field(GameData db, ulong id, string name, char type, bool inherit)
     {
-        if (db.Find(path) is not { } e) return (0, false);
-        foreach (var g in db.Prototype(e.Id).Data.Groups)
-            foreach (var f in g.Simple)
-                if (f.Type == type && db.FieldName(g.Blueprint, f.Id) == name) return (f.Value.Raw, true);
+        for (int guard = 0; guard < 8 && db.Prototypes.ContainsKey(id); guard++)
+        {
+            var d = db.Prototype(id).Data;
+            foreach (var g in d.Groups)
+                foreach (var f in g.Simple)
+                    if (f.Type == type && db.FieldName(g.Blueprint, f.Id) == name) return (f.Value.Raw, true);
+            if (!inherit || !d.HasParent) break;
+            id = d.Parent;
+        }
         return (0, false);
     }
 
@@ -91,6 +101,20 @@ static class PowerList
         // Nameless parts that joined nothing and have no icon (Hulk's Talent2DeflectBonusRevive, ThrowRockComboBigger) aren't
         // buttons in the game: left out here (their animations stay in the list).
         result.RemoveAll(p => !p.HasName || p.Icon == null);
+        // The hero's travel power (Kurt): the avatar's TravelPower (Powers\Player\TravelPower\…), found through the avatar
+        // (the prototype whose UnrealClass is MarvelPlayer_<Hero>); its animations from its own package (bikes, the
+        // Sky-Cycle and gliders live in shared packages: PowerIndex's travel overload reads them).
+        if (TravelPowerOf(db, hero) is string travel && !result.Any(x => x.Prototype.Equals(travel, StringComparison.OrdinalIgnoreCase))
+            && TravelClassOf(db, travel) is string tcls)
+        {
+            var anims = PowerIndex.For(hero, cooked, modFiles, db).Where(x => x.Value.Any(r => r.Class.Equals(tcls, StringComparison.OrdinalIgnoreCase))).Select(x => x.Key).ToList();
+            ulong tid = db.Find(travel)!.Id;
+            string? tname = Field(db, tid, "DisplayName", 'S', true) is { Found: true } tdn && strings.TryGetValue(tdn.Raw, out var tt) && tt.Length > 0 ? tt : null;
+            string? ticon = Field(db, tid, "IconPath", 'A', true) is { Found: true } tip && db.Assets.TryGetValue(tip.Raw, out var ta) ? ta.Asset.Name : null;
+            // (Beast's, Gambit's, Rogue's … sprints and flights have no name of their own: "Travel Power")
+            if (anims.Count > 0)
+                result.Add(new Power(travel, tname ?? "Travel Power", ticon, anims) { HasName = true });
+        }
         // One button per name (Ragnarok has two prototypes: the leap and the forward strike).
         foreach (var grp in result.GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).ToList())
         {
@@ -102,6 +126,33 @@ static class PowerList
             }
         }
         return [.. result.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>A travel power's Unreal class, its own or its parents' (BeastSprint takes the shared sprint's).</summary>
+    public static string? TravelClassOf(GameData db, string travel) =>
+        db.Find(travel) is { } e && Field(db, e.Id, "PowerUnrealClass", 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a) ? a.Asset.Name : null;
+
+    /// <summary>The hero's travel power prototype (the avatar's TravelPower), or null. The avatar: a prototype whose
+    /// UnrealClass is MarvelPlayer_&lt;hero&gt; and that has a TravelPower.</summary>
+    public static string? TravelPowerOf(GameData db, string hero)
+    {
+        string cls = "MarvelPlayer_" + hero;
+        foreach (var (id, e) in db.Prototypes)
+        {
+            if (!e.Path.Replace('/', '\\').StartsWith("Entity\\Characters\\Avatars", StringComparison.OrdinalIgnoreCase)) continue;
+            Calligraphy.Data d;
+            try { d = db.Prototype(id).Data; } catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { continue; }
+            bool mine = false; ulong travel = 0;
+            foreach (var g in d.Groups)
+                foreach (var f in g.Simple)
+                {
+                    string n = db.FieldName(g.Blueprint, f.Id);
+                    if (n == "UnrealClass" && f.Type == 'A' && db.Assets.TryGetValue(f.Value.Raw, out var a) && a.Asset.Name.Equals(cls, StringComparison.OrdinalIgnoreCase)) mine = true;
+                    else if (n == "TravelPower" && f.Type == 'P') travel = f.Value.Raw;
+                }
+            if (mine && travel != 0 && db.Prototypes.TryGetValue(travel, out var te)) return te.Path;
+        }
+        return null;
     }
 
     static readonly Dictionary<string, Bitmap?> icons = new(StringComparer.OrdinalIgnoreCase);
@@ -117,7 +168,7 @@ static class PowerList
         if (dot > 0)
             try
             {
-                string f = Path.Combine(cooked, $"ICO__{iconPath[..dot]}_SF.upk");
+                string f = StockFiles.For(cooked, $"ICO__{iconPath[..dot]}_SF.upk");
                 if (File.Exists(f))
                 {
                     var p = FxPkg.Open(f);

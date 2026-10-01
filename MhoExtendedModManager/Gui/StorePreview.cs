@@ -237,7 +237,7 @@ sealed partial class StorePreview : Control
         bool full = IsFull && show3D;
         // The pictures strip is always there; the power block (Powers toggle + two rows of power buttons) sits at the bottom
         // (Kurt, 2026-09-30), kept while the hero's powers load and dropped when the hero has none.
-        bool powerBlock = show3D && HeroOfMesh() != null && (!powersLoaded || heroPowers.Count > 0);
+        bool powerBlock = PowerStrip && show3D && HeroOfMesh() != null && (!powersLoaded || heroPowers.Count > 0);
         bool showStrip = Tiles > 1 && !full;
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
         int pbh = animBox?.Height ?? (int)(26 * S), pgap = (int)(6 * S);

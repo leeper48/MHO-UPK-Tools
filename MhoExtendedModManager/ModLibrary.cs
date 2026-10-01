@@ -169,11 +169,20 @@ sealed class ModLibrary
         return true;
     }
 
-    /// <summary>Moves a mod one place up (-1) or down (+1) within the unlocked range. False for a locked mod.</summary>
+    // Moves stay inside the mod's own region (Kurt, 2026-10-01): the top-locked run, the unlocked middle, or the
+    // bottom-locked run. Locked mods can be reordered among themselves; nothing crosses a region's edge.
+    static int Order(ModLock l) => l == ModLock.Top ? 0 : l == ModLock.None ? 1 : 2;
+
+    /// <summary>The first index of a lock's region and the number of mods in it (in the current list).</summary>
+    (int Lo, int Count) Region(ModLock l) => (Mods.Count(x => Order(x.Lock) < Order(l)), Mods.Count(x => x.Lock == l));
+
+    void Renumber() { for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i; }
+
+    /// <summary>Moves a mod one place up (-1) or down (+1) within its region.</summary>
     public bool Move(Mod m, int delta)
     {
-        if (m.Lock != ModLock.None) return false;
-        int to = Math.Clamp(m.Priority + delta, TopLocked, Mods.Count - 1 - BottomLocked);
+        var (lo, n) = Region(m.Lock);
+        int to = Math.Clamp(m.Priority + delta, lo, lo + n - 1);
         if (to == m.Priority) return true;
         var other = Mods.First(x => x.Priority == to);
         (other.Priority, m.Priority) = (m.Priority, to);
@@ -181,75 +190,89 @@ sealed class ModLibrary
         return true;
     }
 
-    /// <summary>Moves a mod to the top (-1) or bottom (+1) of the unlocked range. False for a locked mod.</summary>
+    /// <summary>Moves a mod to the top (-1) or bottom (+1) of its region.</summary>
     public bool MoveToEnd(Mod m, int direction)
     {
-        if (m.Lock != ModLock.None) return false;
+        var (lo, n) = Region(m.Lock);
         Mods.Remove(m);
-        Mods.Insert(direction < 0 ? TopLocked : Mods.Count - BottomLocked, m);
-        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        Mods.Insert(direction < 0 ? lo : lo + n - 1, m);
+        Renumber();
         return true;
     }
 
-    /// <summary>Moves a mod to a position (drag and drop), kept inside the unlocked range. False for a locked mod.</summary>
+    /// <summary>Moves a mod to a position (drag and drop), kept inside its region.</summary>
     public bool MoveTo(Mod m, int position)
     {
-        if (m.Lock != ModLock.None) return false;
+        var (lo, n) = Region(m.Lock);
         Mods.Remove(m);
-        Mods.Insert(Math.Clamp(position, TopLocked, Mods.Count - BottomLocked), m);
-        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        Mods.Insert(Math.Clamp(position, lo, lo + n - 1), m);
+        Renumber();
         return true;
     }
 
     /// <summary>
-    /// Moves several mods (a marked group) next to a target, keeping their order, inside the unlocked range; locked mods
-    /// stay where they are. False when nothing moved.
+    /// Moves several mods (a marked group) next to a target, keeping their order, inside their region (the group's lock
+    /// when they share one, else the target's; the others stay where they are). False when nothing moved.
     /// </summary>
     public bool MoveGroup(IEnumerable<Mod> group, Mod target, bool below)
     {
-        var g = group.Where(m => m.Lock == ModLock.None && m != target).OrderBy(m => m.Priority).ToList();
+        var all = group.ToList();
+        var locks = all.Select(m => m.Lock).Distinct().ToList();
+        var lk = locks.Count == 1 ? locks[0] : target.Lock;
+        var g = all.Where(m => m.Lock == lk && m != target).OrderBy(m => m.Priority).ToList();
         if (g.Count == 0 || !Mods.Contains(target)) return false;
         var before = Mods.ToList();
         foreach (var m in g) Mods.Remove(m);
-        int at = Math.Clamp(Mods.IndexOf(target) + (below ? 1 : 0), TopLocked, Mods.Count - BottomLocked);
+        var (lo, n) = Region(lk);
+        int at = Math.Clamp(Mods.IndexOf(target) + (below ? 1 : 0), lo, lo + n);
         Mods.InsertRange(at, g);
-        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        Renumber();
         return !before.SequenceEqual(Mods);
     }
 
     /// <summary>
     /// Moves several mods one step up (-1) or down (+1) together (the priority buttons on a marked group): each moves past
-    /// the next mod outside the group, a run of marked mods moves as a block, and the group stops at the locks.
+    /// the next mod outside the group, a run of marked mods moves as a block, and each stays inside its region.
     /// </summary>
     public bool MoveGroupBy(IEnumerable<Mod> group, int delta)
     {
-        var set = group.Where(m => m.Lock == ModLock.None).ToHashSet();
+        var set = group.ToHashSet();
         if (set.Count == 0) return false;
         var before = Mods.ToList();
-        int lo = TopLocked, hi = Mods.Count - 1 - BottomLocked;
-        if (delta < 0)
+        foreach (var lk in new[] { ModLock.Top, ModLock.None, ModLock.Bottom })
         {
-            for (int i = lo + 1; i <= hi; i++)
-                if (set.Contains(Mods[i]) && !set.Contains(Mods[i - 1])) (Mods[i], Mods[i - 1]) = (Mods[i - 1], Mods[i]);
+            var (lo, n) = Region(lk);
+            int hi = lo + n - 1;
+            if (delta < 0)
+            {
+                for (int i = lo + 1; i <= hi; i++)
+                    if (set.Contains(Mods[i]) && !set.Contains(Mods[i - 1])) (Mods[i], Mods[i - 1]) = (Mods[i - 1], Mods[i]);
+            }
+            else
+            {
+                for (int i = hi - 1; i >= lo; i--)
+                    if (set.Contains(Mods[i]) && !set.Contains(Mods[i + 1])) (Mods[i], Mods[i + 1]) = (Mods[i + 1], Mods[i]);
+            }
         }
-        else
-        {
-            for (int i = hi - 1; i >= lo; i--)
-                if (set.Contains(Mods[i]) && !set.Contains(Mods[i + 1])) (Mods[i], Mods[i + 1]) = (Mods[i + 1], Mods[i]);
-        }
-        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        Renumber();
         return !before.SequenceEqual(Mods);
     }
 
-    /// <summary>Moves several mods to the top (-1) or bottom (+1) of the unlocked range, keeping their order.</summary>
+    /// <summary>Moves several mods to the top (-1) or bottom (+1) of their regions, keeping their order.</summary>
     public bool MoveGroupToEnd(IEnumerable<Mod> group, int direction)
     {
-        var g = group.Where(m => m.Lock == ModLock.None).OrderBy(m => m.Priority).ToList();
-        if (g.Count == 0) return false;
+        var all = group.ToList();
+        if (all.Count == 0) return false;
         var before = Mods.ToList();
-        foreach (var m in g) Mods.Remove(m);
-        Mods.InsertRange(direction < 0 ? TopLocked : Mods.Count - BottomLocked, g);
-        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        foreach (var lk in new[] { ModLock.Top, ModLock.None, ModLock.Bottom })
+        {
+            var g = all.Where(m => m.Lock == lk).OrderBy(m => m.Priority).ToList();
+            if (g.Count == 0) continue;
+            var (lo, n) = Region(lk);
+            foreach (var m in g) Mods.Remove(m);
+            Mods.InsertRange(direction < 0 ? lo : lo + n - g.Count, g);
+        }
+        Renumber();
         return !before.SequenceEqual(Mods);
     }
 

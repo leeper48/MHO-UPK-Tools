@@ -4,6 +4,20 @@ using MhoPackageModifier;
 
 namespace MhoExtendedModManager;
 
+/// <summary>A power's colour change (the editor's Powers tab), kept in the manifest (PowerColors) so it can be changed again:
+/// the power (its prototype path), its name, the colour, and the packages built for it (recoloured stock power packages, in
+/// the mod's packages).</summary>
+sealed class PowerColorEntry
+{
+    public string Power { get; set; } = "";
+    public string Name { get; set; } = "";
+    public float Hue { get; set; }
+    public float Saturation { get; set; } = 1;
+    public float Brightness { get; set; } = 1;
+    public List<string> Packages { get; set; } = [];
+    [System.Text.Json.Serialization.JsonIgnore] public PowerColor Color => new(Hue, Saturation, Brightness);
+}
+
 /// <summary>A voice line turned off in the editor, kept in the manifest (VoiceOff) so it can be turned on again.</summary>
 sealed class VoiceOffEntry
 {

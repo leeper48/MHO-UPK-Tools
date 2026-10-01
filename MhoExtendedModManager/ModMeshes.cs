@@ -497,7 +497,9 @@ static class ModMeshes
             for (int i = 0; i < pkg.Exports.Length; i++)
             {
                 var e = pkg.Exports[i];
-                if (!pkg.ClassOf(e).Equals("powerfxmeshattachment", StringComparison.OrdinalIgnoreCase)) continue;
+                // A condition's too: a ride's bike is shown by its condition (marvelconditioneffect_shared_ridemotorcycle:
+                // show slot bike while active).
+                if (!pkg.ClassOf(e).Equals("powerfxmeshattachment", StringComparison.OrdinalIgnoreCase) && !pkg.ClassOf(e).Equals("conditionfxmeshattachment", StringComparison.OrdinalIgnoreCase)) continue;
                 var d = pkg.ReadExportBytes(e);
                 if (TagWalker.Walk(pkg, d, 16) is not { } tags) continue;   // a component: properties from byte 16
                 TagWalker.Tag? T(string n) => tags.FirstOrDefault(t => t.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
@@ -594,10 +596,9 @@ static class ModMeshes
         string hero = Path.GetFileNameWithoutExtension(r.Package)[player.Length..].Split('_')[0];
         string baseFile = $"{player}{hero}_SF.upk";
         if (baseFile.Equals(r.Package, StringComparison.OrdinalIgnoreCase)) return null;
-        foreach (var dir in new[] { Path.GetDirectoryName(r.File), cooked })
+        foreach (var path in new[] { Path.Combine(Path.GetDirectoryName(r.File) ?? "", baseFile), cooked == null ? "" : StockFiles.For(cooked, baseFile) })
         {
-            string path = dir == null ? "" : Path.Combine(dir, baseFile);
-            if (dir == null || !File.Exists(path)) continue;
+            if (path.Length == 0 || !File.Exists(path)) continue;
             try
             {
                 var bp = Package.Open(path);

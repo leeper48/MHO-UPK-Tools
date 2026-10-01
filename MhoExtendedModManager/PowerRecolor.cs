@@ -1,0 +1,441 @@
+using System.Buffers.Binary;
+using System.Numerics;
+using MhoPackageModifier;
+using MhoExtendedModManager.Fx;
+
+namespace MhoExtendedModManager;
+
+/// <summary>
+/// A power's color change (Kurt, 2026-10-01: the power customizer): hue turned by <see cref="Hue"/> degrees (luma kept:
+/// the YIQ hue rotation), saturation and brightness scaled. Linear in RGB, so it applies the same to HDR particle colors
+/// (lightning's 4, 5, 50) and to each sample of a package's color tables. Ported from the MHO Hero Creator's PowerColor.
+/// </summary>
+public sealed record PowerColor(float Hue, float Saturation = 1, float Brightness = 1)
+{
+    public bool IsNone => Math.Abs(Hue) < 0.5f && Math.Abs(Saturation - 1) < 0.005f && Math.Abs(Brightness - 1) < 0.005f;
+
+    public Vector3 Apply(Vector3 c)
+    {
+        float a = Hue * MathF.PI / 180, co = MathF.Cos(a), si = MathF.Sin(a);
+        var r = new Vector3(
+            (.299f + .701f * co + .168f * si) * c.X + (.587f - .587f * co + .330f * si) * c.Y + (.114f - .114f * co - .497f * si) * c.Z,
+            (.299f - .299f * co - .328f * si) * c.X + (.587f + .413f * co + .035f * si) * c.Y + (.114f - .114f * co + .292f * si) * c.Z,
+            (.299f - .300f * co + 1.25f * si) * c.X + (.587f - .588f * co - 1.05f * si) * c.Y + (.114f + .886f * co - .203f * si) * c.Z);
+        float luma = .299f * r.X + .587f * r.Y + .114f * r.Z;
+        r = new Vector3(luma) + (r - new Vector3(luma)) * Saturation;
+        return Vector3.Max(Vector3.Zero, r * Brightness);
+    }
+}
+
+/// <summary>
+/// A recolored power package for a mod (Kurt, 2026-10-01; ported from the MHO Hero Creator's PowerRecolor, package side
+/// only). The power's own stock package, the SAME file, class and GUID (nothing the server or the game data has to know
+/// about: rule 7), with:
+///   1. every particle color table recolored (StartColor, ColorOverLife, ColorScaleOverLife of every color module, every
+///      LOD level): each RGB sample through <see cref="PowerColor.Apply"/>, the table's [min, max] header recomputed; a
+///      distribution object's constant / range vectors too; curves are left (rare);
+///   2. the color parameters of its material instances (VectorParameterValues[].ParameterValue, a LinearColor);
+///   3. the effect textures the 3D preview draws for its emitters (FxTextures' pick) recolored and put back with every mip
+///      in the package (MHO Package Modifier's ReplaceMany: DXT1 / DXT5 only);
+///   4. the recolored textures, the materials showing them (with their parents) and the particle systems moved under a
+///      group of their own (&lt;class&gt;_recolor_fx.&lt;original groups&gt;…): objects are shared by path across loaded packages,
+///      so at their stock paths they would recolor (or be un-recolored by) the same effect in another package.
+/// The result is the whole hero's power: every costume shows it.
+/// </summary>
+static class PowerRecolor
+{
+    /// <summary>
+    /// The packages a power's color goes into: its own class's and those of everything it sets off (PowerClosure: combo and
+    /// triggered powers, conditions, missiles, hotspots, pets and summons, and what those set off: Thor's Rolling Thunder has
+    /// 6, Squirrel Girl's squirrel missile, Rocket's plasma cannon hotspot), each UC__&lt;class&gt;_SF.upk the game has; only
+    /// classes few others use: the prototypes using a class are grouped by owner (this hero: reached from its powers or in its
+    /// folders; else the hero, team-up or pet folder they sit in), and a class with 6 or more owners is generic (Knockdown,
+    /// Slow, Taunt, DebuffDamage: every hero's) and left. One with a few (Thor's Death From Above: Beta Ray Bill's team-up
+    /// copy too) is recolored; <see cref="SharedWith"/> names them so the editor can say so.
+    /// </summary>
+    public static List<string> PackagesOf(GameData db, string power, string hero, string cooked)
+    {
+        var classes = new List<string>();
+        if (PowerEffects.UnrealClassOf(db, power) is string own) classes.Add(own);
+        foreach (var a in PowerClosure.Of(db, power)) if (!string.IsNullOrEmpty(a.Class)) classes.Add(a.Class);
+        var users = ClassUsers(db);
+        var mine = HeroPrototypes(db, hero, cooked);
+        bool Owned(string cls) => Owners(db, cls, hero, cooked).Count < 6;   // (generic ones have dozens; a power copied by Rogue, a team-up and Omega has 4)
+        return [.. classes.Distinct(StringComparer.OrdinalIgnoreCase).Where(Owned)
+            .Select(c => $"UC__{c}_SF.upk").Where(f => File.Exists(Path.Combine(cooked, f)))];
+    }
+
+    /// <summary>The owners of the prototypes using a class: this hero (its own), else "Beta Ray Bill (team-up)", "Deadpool",
+    /// "Rogue (pet)", or the folder (enemies and other content).</summary>
+    static HashSet<string> Owners(GameData db, string cls, string hero, string cooked)
+    {
+        var mine = HeroPrototypes(db, hero, cooked);
+        var o = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { hero };
+        if (ClassUsers(db).TryGetValue(cls, out var list))
+            foreach (string u in list) o.Add(mine.Contains(u) ? hero : OwnerOf(u));
+        return o;
+    }
+
+    static string OwnerOf(string path)
+    {
+        var p = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (p.Length > 2 && p[0].Equals("Powers", StringComparison.OrdinalIgnoreCase))
+            return p[1].Equals("Player", StringComparison.OrdinalIgnoreCase) ? Spaced(p[2]) : p[1].Equals("TeamUps", StringComparison.OrdinalIgnoreCase) ? Spaced(p[2]) + " (team-up)" : p[1] + "/" + p[2];
+        int k = Array.FindIndex(p, x => x.Equals("PetsAndSummons", StringComparison.OrdinalIgnoreCase));
+        if (k >= 0 && k + 1 < p.Length - 1) return Spaced(p[k + 1]) + " (pet / summon)";
+        return string.Join("/", p.Take(Math.Min(3, p.Length - 1)));
+    }
+
+    static string Spaced(string s) => System.Text.RegularExpressions.Regex.Replace(s, "(?<=[a-z])(?=[A-Z])", " ");
+
+    /// <summary>Who else a power's recolor changes: the other owners of the packages it recolors (Beta Ray Bill (team-up),
+    /// Deadpool …); empty when it's the hero's alone.</summary>
+    public static List<string> SharedWith(GameData db, string power, string hero, string cooked)
+    {
+        var files = PackagesOf(db, power, hero, cooked).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var classes = new List<string>();
+        if (PowerEffects.UnrealClassOf(db, power) is string own) classes.Add(own);
+        foreach (var a in PowerClosure.Of(db, power)) if (!string.IsNullOrEmpty(a.Class)) classes.Add(a.Class);
+        return [.. classes.Distinct(StringComparer.OrdinalIgnoreCase).Where(c => files.Contains($"UC__{c}_SF.upk"))
+            .SelectMany(c => Owners(db, c, hero, cooked)).Where(o => !o.Equals(hero, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>For --power-packages: the prototypes using a class that aren't the hero's (why it's left).</summary>
+    public static IEnumerable<string> UsersOf(GameData db, string cls, string hero, string cooked)
+    {
+        var mine = HeroPrototypes(db, hero, cooked);
+        return ClassUsers(db).TryGetValue(cls, out var l) ? l.Where(u => !mine.Contains(u)).Take(4) : [];
+    }
+
+    static Dictionary<string, List<string>>? classUsers;
+    static readonly object usersLock = new();
+
+    /// <summary>Every Unreal class (UnrealClass / PowerUnrealClass asset fields) → the prototypes using it (paths, '/'),
+    /// over the whole game data; once per session.</summary>
+    static Dictionary<string, List<string>> ClassUsers(GameData db)
+    {
+        lock (usersLock)
+        {
+            if (classUsers != null) return classUsers;
+            var d = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (id, e) in db.Prototypes)
+            {
+                Calligraphy.Data data;
+                try { data = db.Prototype(id).Data; } catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { continue; }
+                foreach (var g in data.Groups)
+                    foreach (var f in g.Simple)
+                        if (f.Type == 'A' && db.FieldName(g.Blueprint, f.Id) is "UnrealClass" or "PowerUnrealClass" && db.Assets.TryGetValue(f.Value.Raw, out var a))
+                        {
+                            if (!d.TryGetValue(a.Asset.Name, out var list)) d[a.Asset.Name] = list = [];
+                            list.Add(e.Path.Replace('\\', '/'));
+                        }
+            }
+            return classUsers = d;
+        }
+    }
+
+    static readonly Dictionary<string, HashSet<string>> heroProtos = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The prototypes that are the hero's: everything reached from its powers (power buttons, PowerClosure), and
+    /// every prototype in a folder named after the hero (Powers/Player/SquirrelGirl/…, …/PetsAndSummons/DoctorStrange/…).</summary>
+    static HashSet<string> HeroPrototypes(GameData db, string hero, string cooked)
+    {
+        lock (heroProtos) if (heroProtos.TryGetValue(hero, out var hit)) return hit;
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in PowerList.For(db, hero, cooked, []))
+        {
+            set.Add(p.Prototype.Replace('\\', '/'));
+            foreach (var a in PowerClosure.Of(db, p.Prototype)) set.Add(a.Prototype.Replace('\\', '/'));
+        }
+        foreach (var e in db.Prototypes.Values)
+            if (e.Path.Replace('\\', '/').Contains("/" + hero + "/", StringComparison.OrdinalIgnoreCase)) set.Add(e.Path.Replace('\\', '/'));
+        lock (heroProtos) heroProtos[hero] = set;
+        return set;
+    }
+
+    /// <summary>Builds the recolored package from a stock copy; null when it has nothing to recolor (Crack the Sky's own class:
+    /// its lightning is the powers it sets off). Throws on any problem; writes nothing.</summary>
+    public static byte[]? Build(string stockFile, PowerColor color, string cooked, Action<string> log)
+    {
+        var pkg = Package.Open(stockFile);
+        string file = Path.GetFileName(stockFile);
+        string cls = Path.GetFileNameWithoutExtension(file);
+        if (cls.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) cls = cls[4..];
+        if (cls.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) cls = cls[..^3];
+        cls = cls.ToLowerInvariant();
+
+        // 1 + 2. Color tables, distribution vectors and material color parameters: in a copy of the body, sizes unchanged.
+        byte[] body = pkg.Body.ToArray();
+        var t = new FxTables(pkg);
+        var (tables, objects, left) = RecolorTables(body, t, color);
+        var tinted = new SortedSet<int>();
+        for (int i = 0; i < t.Exports.Count; i++)
+        {
+            if (!t.ClassOf(t.Exports[i]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var (_, at) in VectorParameters(body, t, i))
+            {
+                var r = color.Apply(new Vector3(F(body, at), F(body, at + 4), F(body, at + 8)));
+                W(body, at, r.X); W(body, at + 4, r.Y); W(body, at + 8, r.Z);
+                tinted.Add(i);
+            }
+        }
+        log($"{tables} particle color table(s) and {objects} color value(s) recolored" + (left > 0 ? $"; {left} curve(s) left as they are" : "") +
+            (tinted.Count > 0 ? $"; {tinted.Count} material instance(s)' color parameters" : ""));
+        var changed = new Dictionary<int, Func<long, byte[]>>();
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            var e = t.Exports[i];
+            if (e.SerialSize <= 0) continue;
+            if (!body.AsSpan(e.SerialOffset, e.SerialSize).SequenceEqual(pkg.Body.AsSpan(e.SerialOffset, e.SerialSize)))
+            {
+                byte[] d = body.AsSpan(e.SerialOffset, e.SerialSize).ToArray();
+                changed[i] = _ => d;
+            }
+        }
+        byte[] stage = PackageRebuilder.Rebuild(pkg, changed, [], out _);
+        bool anySystem = Enumerable.Range(0, t.Exports.Count).Any(i => t.ClassOf(t.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase));
+        if (changed.Count == 0 && !anySystem) { log($"{file}: nothing to recolor (no particle effects or material colors in it)"); return null; }
+
+        // 3. The drawn textures (the preview's pick for each emitter's material), recolored.
+        var fx = new FxPkg(file, pkg.Body, t);
+        var tex = new FxTextures([fx], cooked);
+        var picked = new SortedSet<int>(); var materials = new SortedSet<int>(); var systems = new SortedSet<int>();
+        for (int i = 0; i < t.Exports.Count; i++)
+        {
+            if (!t.ClassOf(t.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
+            systems.Add(i);
+            var data = ParticleData.Read(fx, i);
+            if (data == null) continue;
+            foreach (var em in data.Emitters)
+            {
+                int mat = em.Required.Ref("Material");
+                bool sub = em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1;
+                if (tex.ParticleTexture(fx, mat, sub, out _) is { } pk && ReferenceEquals(pk.P, fx)) { picked.Add(pk.Export); MaterialChain(t, pkg.Body, mat, materials); }
+            }
+        }
+        var items = new List<TextureImport.Replacement>();
+        var recolored = new SortedSet<int>();
+        string temp = Path.Combine(Path.GetTempPath(), "mhoextmm_recolor_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(temp);
+        try
+        {
+            foreach (int i in picked)
+            {
+                string path = t.PathOf(i + 1);
+                var props = FxProps.Find(pkg.Body, t, t.Exports[i])?.Props ?? [];
+                string fmt = props.FirstOrDefault(x => x.Name.Equals("Format", StringComparison.OrdinalIgnoreCase))?.Value?.ToLowerInvariant() ?? "";
+                string? want = fmt.EndsWith("pf_dxt1") ? "dxt1" : fmt.EndsWith("pf_dxt5") ? "dxt5" : null;
+                if (want == null) { log($"note: {path}: format {fmt} can't be written back (DXT1 / DXT5 only), its colors stay"); continue; }
+                var d = tex.Decoded(fx, i);
+                if (d == null) { log($"note: {path}: its pixels can't be read, its colors stay"); continue; }
+                string png = Path.Combine(temp, t.Exports[i].ObjectName + "_" + i + ".png");
+                WriteRecolored(d.Value.Bgra, d.Value.W, d.Value.H, color, png);
+                var enc = TextureEncode.FromImage(png, want, 85, 1f);
+                items.Add(new TextureImport.Replacement(path, TextureImport.WriteDds(enc), t.Exports[i].ObjectName));
+                recolored.Add(i);
+            }
+        }
+        finally { try { Directory.Delete(temp, true); } catch (IOException) { } }
+        if (items.Count > 0)
+        {
+            var sp = Package.FromBytes(stage);
+            stage = TextureImport.ReplaceMany(sp, items, out var problems, out var verify) ?? throw new InvalidDataException("textures: " + string.Join("; ", problems));
+            var vp = verify(stage);
+            if (vp.Count > 0) throw new InvalidDataException("textures: " + string.Join("; ", vp.Take(5)));
+        }
+        log($"{recolored.Count} of {picked.Count} effect texture(s) recolored");
+
+        // 4. Moved under a group of their own.
+        foreach (int i in tinted) materials.Add(i);
+        materials.RemoveWhere(m => m < 0);
+        var moved = recolored.Concat(materials).Concat(systems).Distinct().OrderBy(x => x).ToList();
+        string top = cls + "_recolor_fx";
+        byte[] output = Move(Package.FromBytes(stage), moved, top, out var mp);
+        if (mp.Count > 0) throw new InvalidDataException($"{file}: " + string.Join("; ", mp.Take(5)));
+        log($"{moved.Count} object(s) under {top} ({recolored.Count} texture(s), {materials.Count} material(s), {systems.Count} particle system(s)): no path shared with the stock effects");
+
+        // Read back: every particle system still reads.
+        var back = Package.FromBytes(output);
+        var bt = new FxTables(back);
+        var bp = new FxPkg(file, back.Body, bt);
+        int bad = systems.Count(i => ParticleData.Read(bp, i) == null);
+        if (bad > 0) throw new InvalidDataException($"{file}: {bad} particle system(s) don't read back");
+        if (!back.Exports.Select(e => back.ClassOf(e)).SequenceEqual(pkg.Exports.Select(e => pkg.ClassOf(e)).Concat(back.Exports.Skip(pkg.Exports.Length).Select(e => back.ClassOf(e)))))
+            throw new InvalidDataException($"{file}: the export table changed");
+        log($"{file}: reads back ({back.Exports.Length} exports, {systems.Count} particle system(s))");
+        return output;
+    }
+
+    /// <summary>A material instance's color parameters: each VectorParameterValues element's ParameterName and where its
+    /// ParameterValue (LinearColor: 4 floats) sits in the body (MIC and MITV).</summary>
+    public static List<(string Name, int At)> VectorParameters(byte[] b, FxTables t, int export)
+    {
+        var o = new List<(string, int)>();
+        var arr = FxProps.Find(b, t, t.Exports[export])?.Props.FirstOrDefault(x => x.Name.Equals("VectorParameterValues", StringComparison.OrdinalIgnoreCase));
+        if (arr == null || !arr.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)) return o;
+        int n = BitConverter.ToInt32(b, arr.ValueAt), at = arr.ValueAt + 4, end = arr.ValueAt + arr.Size;
+        for (int k = 0; k < n && at < end; k++)
+        {
+            var el = FxProps.TryRead(b, t, at, end);
+            if (el == null || el.Count == 0) break;
+            string name = el.FirstOrDefault(x => x.Name.Equals("ParameterName", StringComparison.OrdinalIgnoreCase))?.Value ?? "";
+            if (el.FirstOrDefault(x => x.Name.Equals("ParameterValue", StringComparison.OrdinalIgnoreCase)) is { Size: 16 } pv) o.Add((name, pv.ValueAt));
+            var last = el[^1];
+            at = last.ValueAt + (last.Type.Equals("BoolProperty", StringComparison.OrdinalIgnoreCase) ? 1 : last.Size) + 8;   // past its None
+        }
+        return o;
+    }
+
+    /// <summary>A material and its parents (MIC → parent …) that are exports of this package.</summary>
+    static void MaterialChain(FxTables t, byte[] b, int reference, SortedSet<int> into)
+    {
+        for (int depth = 0; depth < 8 && reference > 0; depth++)
+        {
+            int i = reference - 1;
+            if (!into.Add(i)) return;
+            var props = FxProps.Find(b, t, t.Exports[i])?.Props ?? [];
+            var parent = props.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase));
+            reference = parent != null && parent.Size == 4 ? BitConverter.ToInt32(b, parent.ValueAt) : 0;
+        }
+    }
+
+    /// <summary>A texture's pixels recolored into a PNG. Additive effect textures often carry an unused, flat alpha (Forked
+    /// Lightning's is all 0): that's written opaque, so the encoder keeps the colors (its mips weigh color by alpha).</summary>
+    static void WriteRecolored(byte[] bgra, int w, int h, PowerColor c, string png)
+    {
+        bool alphaVaries = false;
+        for (int k = 7; k < bgra.Length && !alphaVaries; k += 4) if (bgra[k] != bgra[3]) alphaVaries = true;
+        using var bmp = new System.Drawing.Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var bd = bmp.LockBits(new System.Drawing.Rectangle(0, 0, w, h), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var outp = new byte[w * h * 4];
+        for (int i = 0; i < w * h; i++)
+        {
+            int o = i * 4;
+            var v = c.Apply(new Vector3(bgra[o + 2], bgra[o + 1], bgra[o]) * (1f / 255f));
+            outp[o + 2] = (byte)Math.Clamp((int)(v.X * 255 + 0.5f), 0, 255); outp[o + 1] = (byte)Math.Clamp((int)(v.Y * 255 + 0.5f), 0, 255);
+            outp[o] = (byte)Math.Clamp((int)(v.Z * 255 + 0.5f), 0, 255); outp[o + 3] = alphaVaries ? bgra[o + 3] : (byte)255;
+        }
+        for (int y = 0; y < h; y++) System.Runtime.InteropServices.Marshal.Copy(outp, y * w * 4, bd.Scan0 + y * bd.Stride, w * 4);
+        bmp.UnlockBits(bd);
+        bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    /// <summary>Every color module's RGB distributions recolored in place (sizes unchanged). Returns the lookup tables and
+    /// distribution-object vectors changed, and the curves left (not baked: rare).</summary>
+    public static (int Tables, int Objects, int Left) RecolorTables(byte[] b, FxTables t, PowerColor c)
+    {
+        int tables = 0, objects = 0, left = 0;
+        var doneObjects = new HashSet<int>();
+        for (int i = 0; i < t.Exports.Count; i++)
+        {
+            if (!t.ClassOf(t.Exports[i]).StartsWith("ParticleModuleColor", StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var prop in FxProps.Find(b, t, t.Exports[i])?.Props ?? [])
+            {
+                if (!prop.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase)) continue;
+                string n = prop.Name.ToLowerInvariant();
+                if (n is not ("startcolor" or "coloroverlife" or "colorscaleoverlife")) continue;
+                var inner = FxProps.TryRead(b, t, prop.ValueAt, prop.ValueAt + prop.Size) ?? [];
+                int chunk = 0, dist = 0;
+                FxProps.Prop? table = null;
+                foreach (var x in inner)
+                {
+                    string xn = x.Name.ToLowerInvariant();
+                    if (xn == "lookuptablechunksize" && x.Size == 1) chunk = b[x.ValueAt];
+                    else if (xn == "lookuptable") table = x;
+                    else if (xn == "distribution" && x.Size == 4) dist = BitConverter.ToInt32(b, x.ValueAt);
+                }
+                if (table != null && BitConverter.ToInt32(b, table.ValueAt) is int count && count > 2 && table.Size == 4 + 4 * count)
+                {
+                    if (chunk == 0) chunk = 3;
+                    if (chunk % 3 != 0) continue;
+                    int at = table.ValueAt + 4;
+                    float lo = float.MaxValue, hi = float.MinValue;
+                    for (int k = 2; k + 3 <= count; k += 3)
+                    {
+                        var v = c.Apply(new Vector3(F(b, at + 4 * k), F(b, at + 4 * k + 4), F(b, at + 4 * k + 8)));
+                        W(b, at + 4 * k, v.X); W(b, at + 4 * k + 4, v.Y); W(b, at + 4 * k + 8, v.Z);
+                        lo = MathF.Min(lo, MathF.Min(v.X, MathF.Min(v.Y, v.Z))); hi = MathF.Max(hi, MathF.Max(v.X, MathF.Max(v.Y, v.Z)));
+                    }
+                    W(b, at, lo); W(b, at + 4, hi);
+                    tables++;
+                }
+                if (dist > 0 && doneObjects.Add(dist - 1))
+                {
+                    var de = t.Exports[dist - 1];
+                    string dc = t.ClassOf(de).ToLowerInvariant();
+                    if (dc.Contains("curve")) { left++; continue; }
+                    foreach (var v in FxProps.Find(b, t, de)?.Props ?? [])
+                        if (v.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase) && v.Size == 12 && v.Name.ToLowerInvariant() is "constant" or "min" or "max" or "minlow" or "minhigh" or "maxlow" or "maxhigh")
+                        {
+                            var r = c.Apply(new Vector3(F(b, v.ValueAt), F(b, v.ValueAt + 4), F(b, v.ValueAt + 8)));
+                            W(b, v.ValueAt, r.X); W(b, v.ValueAt + 4, r.Y); W(b, v.ValueAt + 8, r.Z);
+                            objects++;
+                        }
+                }
+            }
+        }
+        return (tables, objects, left);
+    }
+
+    static float F(byte[] b, int at) => BitConverter.ToSingle(b, at);
+    static void W(byte[] b, int at, float v) => BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(at), v);
+
+    /// <summary>
+    /// Moves exports under a new top group <paramref name="top"/> (a copy of the first moved object's top group entry,
+    /// renamed), holding copies of the groups each moved object sits in (same names), so a moved object keeps its path
+    /// below the top. Adds one name and the group exports; changes only the moved exports' Outer. Checked: every path as
+    /// planned, every original export's data identical.
+    /// </summary>
+    static byte[] Move(Package pkg, List<int> moved, string top, out List<string> problems)
+    {
+        problems = new List<string>();
+        if (moved.Count == 0) return PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), [], out _);
+        List<int> Chain(int i) { var c = new List<int>(); for (int o = pkg.Exports[i].OuterIndex; o > 0 && c.Count < 32; o = pkg.Exports[o - 1].OuterIndex) c.Insert(0, o - 1); return c; }
+        var addNames = pkg.Names.Any(n => n.Equals(top, StringComparison.OrdinalIgnoreCase)) ? new List<string>() : new List<string> { top };
+        int topName = Array.FindIndex(pkg.Names, n => n.Equals(top, StringComparison.OrdinalIgnoreCase)) is int k0 && k0 >= 0 ? k0 : pkg.Names.Length;
+        byte[] Entry(int i) => pkg.Body.AsSpan(pkg.ExportEntryStart[i], pkg.ExportEntryEnd[i] - pkg.ExportEntryStart[i]).ToArray();
+        var add = new List<NewExport>();
+        var copyOf = new Dictionary<int, int>();
+        int NewRef() => pkg.Exports.Length + add.Count + 1;
+        var firstChain = moved.Select(Chain).FirstOrDefault(c => c.Count > 0) ?? throw new InvalidDataException("the moved objects sit in no group");
+        byte[] topEntry = Entry(firstChain[0]);
+        BinaryPrimitives.WriteInt32LittleEndian(topEntry.AsSpan(8), 0);
+        BinaryPrimitives.WriteInt32LittleEndian(topEntry.AsSpan(12), topName);
+        BinaryPrimitives.WriteInt32LittleEndian(topEntry.AsSpan(16), 0);
+        int topRef = NewRef();
+        byte[] topData = pkg.ReadExportBytes(pkg.Exports[firstChain[0]]);
+        add.Add(new NewExport(firstChain[0], 0, _ => topData) { Entry = topEntry });
+        var outers = new Dictionary<int, int>();
+        foreach (int i in moved)
+        {
+            int parentRef = topRef;
+            foreach (int g in Chain(i))
+            {
+                if (!copyOf.TryGetValue(g, out int gRef))
+                {
+                    byte[] ge = Entry(g);
+                    BinaryPrimitives.WriteInt32LittleEndian(ge.AsSpan(8), parentRef);
+                    gRef = NewRef();
+                    byte[] gd = pkg.ReadExportBytes(pkg.Exports[g]);
+                    add.Add(new NewExport(g, 0, _ => gd) { Entry = ge });
+                    copyOf[g] = gRef;
+                }
+                parentRef = gRef;
+            }
+            outers[i] = parentRef;
+        }
+        byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), add, out var data, addNames, null, null, outers);
+        problems.AddRange(PackageRebuilder.Verify(pkg, output, [], add, data, addNames, null, null, outers));
+        var back = Package.FromBytes(output);
+        bool Inside(int i) { for (int o = i, k = 0; o >= 0 && k < 64; o = pkg.Exports[o].OuterIndex - 1, k++) if (outers.ContainsKey(o)) return true; return false; }
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            string was = pkg.PathOf(pkg.Exports[i]), now = back.PathOf(back.Exports[i]);
+            if (Inside(i)) { if (!now.Equals(top + "." + was, StringComparison.OrdinalIgnoreCase)) problems.Add($"{was} is {now}"); }
+            else if (!now.Equals(was, StringComparison.OrdinalIgnoreCase)) problems.Add($"{was} changed to {now}");
+            if (!pkg.ReadExportBytes(pkg.Exports[i]).AsSpan().SequenceEqual(back.ReadExportBytes(back.Exports[i]))) problems.Add($"{was}: data changed");
+        }
+        return output;
+    }
+}

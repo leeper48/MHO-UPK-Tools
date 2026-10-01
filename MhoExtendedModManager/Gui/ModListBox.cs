@@ -445,7 +445,7 @@ sealed class ModListBox : ListBox
         var m = (Mod)Items[i];
         if (CheckRect(b).Contains(p)) return m.Enabled ? "On. Click to turn it off, then Apply Changes." : "Off. Click to turn it on, then Apply Changes.";
         if (LockRect(b).Contains(p))
-            return m.Lock != ModLock.None ? $"Locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: it keeps its place, and new or moved mods can't pass it. Click to unlock."
+            return m.Lock != ModLock.None ? $"Locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: it stays in the locked run there (drag or the arrows reorder it among the other locked mods), and other mods can't pass it. Click to unlock."
                  : LockOffer(m) is var l && l != ModLock.None ? $"Click to lock it at the {(l == ModLock.Top ? "top" : "bottom")}: it keeps its place, and new or moved mods can't pass it."
                  : null;
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(p) || np.Mark.Contains(p)))
@@ -461,7 +461,7 @@ sealed class ModListBox : ListBox
                 return "Changes: " + m.Summary() + (Conflicted.Contains(m) ? ".\n! " + (ConflictText?.Invoke(m) ?? "Some of them are also changed by another enabled mod: the one higher in the list wins.") + "\nSelect it and open the Conflicts tab for the details." : ".");
         }
         return $"{m.Name}\n{m.Summary()}" + (Conflicted.Contains(m) ? "\n! " + (ConflictText?.Invoke(m) ?? "Conflicts with another enabled mod.") : "") +
-               "\nDouble-click to edit. Right-click for tags and more." + (CanReorder?.Invoke() == true && m.Lock == ModLock.None ? " Drag to move it in the order." : "");
+               "\nDouble-click to edit. Right-click for tags and more." + (CanReorder?.Invoke() == true ? m.Lock == ModLock.None ? " Drag to move it in the order." : $" Drag to move it among the mods locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}." : "");
     }
 
     /// <summary>Test hook: the centre of item <paramref name="i"/>'s padlock or checkbox (client coordinates).</summary>
@@ -517,7 +517,8 @@ sealed class ModListBox : ListBox
         if (!group) { int was = marked.Count; marked.Clear(); marked.Add(m.FolderName); if (was > 1) { Invalidate(); MarksChanged?.Invoke(1); } }
         anchor = i;
         // A press on the card itself can become a drag (priority view, unlocked mods; a marked group when none is locked).
-        dragMod = CanReorder?.Invoke() == true && m.Lock == ModLock.None && (!group || MarkedMods.All(x => x.Lock == ModLock.None)) ? m : null;
+        // A locked mod drags within its locked run (Kurt); a marked group only when all share one region.
+        dragMod = CanReorder?.Invoke() == true && (!group || MarkedMods.All(x => x.Lock == m.Lock)) ? m : null;
         dragFrom = e.Location;
         leftDown = true;   // our own record: MouseEventArgs.Button on a move reflects the hardware state, not the message
         base.OnMouseDown(e);

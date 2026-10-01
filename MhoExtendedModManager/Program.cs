@@ -56,6 +56,13 @@ static partial class Program
         ("--anim-power", "--anim-power <hero> <animation>", "The power a hero's animation belongs to, and what the 3D preview would play for it. Changes nothing."),
         ("--attach-census", "--attach-census [package.upk ...]", "Every property the game's power and hero packages use to show, hide or swap a character's props, counted, with an example of each. Changes nothing."),
         ("--props-audit", "--props-audit [hero ...]", "For every hero (or those given): props no power shows, power rules that name no prop, props without a mesh, power buttons without a name or icon. Changes nothing."),
+        ("--power-recolor", "--power-recolor <UC__Power….upk> <hue> <saturation> <brightness> <out.upk>", "Build a power's stock package recolored (hue in degrees, saturation and brightness as factors) to a file outside the game folder."),
+        ("--stock-path", "--stock-path <file.upk> ... [--clean <folder>]", "Where the app reads each game package as the game ships it (kept original, clean folder, live file or .bak, whichever is stock). Changes nothing."),
+        ("--changed-files", "--changed-files", "Game packages changed by something other than this app (no mod names them, and Apply never wrote them). Changes nothing."),
+        ("--keep-as-mod", "--keep-as-mod <mod name> <file.upk> ...", "Copies changed game files (see --changed-files) into a new mod, turned on and lowest priority, so Apply manages them. The game isn't changed."),
+        ("--restore-original", "--restore-original <file.upk> ... [--dry-run]", "Puts the game's original back for changed game files (see --changed-files), as Apply would: .bak made from the original if missing, verified, undo history."),
+        ("--fix-bak-dates", "--fix-bak-dates [--dry-run]", "Gives .bak files that are the game's original (checked against the stock checksums) but dated later the game's date, 2024-03-14. Only the date changes. A .bak that isn't the original is left alone."),
+        ("--backup-check", "--backup-check [--clean <folder>] [--all]", "Which game packages aren't stock now, whether their .bak is truly stock, and where a stock copy is (kept originals, the clean folder). Changes nothing."),
         ("--hero-powers", "--hero-powers <hero>", "A hero's powers as the 3D preview's power buttons list them: name, icon, animations. Changes nothing."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
@@ -177,6 +184,8 @@ static partial class Program
         string? data = Settings.LibraryData(settings.LibraryPath);
         if (data == null) { Console.WriteLine("No mod library yet. Open the window once (first-run setup), or run --migrate <MHModManager folder>."); return 1; }
         var lib = ModLibrary.Load(data);
+        if (settings.ResolvedGameRoot(data) is string sgr && Settings.IsGameRoot(sgr))
+            StockFiles.Init(new GameState(sgr, data), rest.IndexOf("--clean") is int cleanAt && cleanAt > 0 && cleanAt + 1 < rest.Count ? rest[cleanAt + 1] : settings.CleanGameFiles, Path.Combine(data, "originals"));
         Console.WriteLine($"library: {data} ({lib.Mods.Count} mods, {lib.Mods.Count(m => m.Enabled)} enabled)");
 
         string cmd = rest[0].ToLowerInvariant();
@@ -185,6 +194,76 @@ static partial class Program
         if (TestCommand(cmd, rest, settings, data, lib) is int testResult) return testResult;
         switch (rest[0].ToLowerInvariant())
         {
+            case "--stock-path":
+            {
+                // Read-only: where the app reads each named game package as the game ships it (StockFiles).
+                string? sgr2 = settings.ResolvedGameRoot(data);
+                if (sgr2 == null) { Console.WriteLine("game folder not found"); return 1; }
+                foreach (string f in rest.Skip(1).Where(x => x.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)))
+                    Console.WriteLine($"  {f}: {StockFiles.For(Settings.Cooked(sgr2), f)}");
+                return 0;
+            }
+            case "--changed-files":
+            case "--keep-as-mod":
+            case "--restore-original":
+            {
+                // GameFiles: game packages changed outside this app; list them, keep some as a mod, or restore the originals.
+                string? cgr = settings.ResolvedGameRoot(data);
+                if (cgr == null || !Settings.IsGameRoot(cgr)) { Console.WriteLine("game folder not found"); return 1; }
+                var cgame = new GameState(cgr, data);
+                var corig = new Originals(lib.DataFolder, cgame);
+                var changed = ApplyCheck.Unexpected(lib, cgame, corig);
+                string ccmd = rest[0].ToLowerInvariant();
+                if (ccmd == "--changed-files")
+                {
+                    foreach (var (f, clean) in changed) Console.WriteLine($"  {f}{(clean ? "" : "  (no clean original found)")}");
+                    Console.WriteLine($"{changed.Count} game file(s) changed outside this app.");
+                    return 0;
+                }
+                bool cdry = rest.Contains("--dry-run");
+                var cargs = rest.Skip(1).Where(a => a != "--dry-run").ToList();
+                string? kname = ccmd == "--keep-as-mod" && cargs.Count > 0 ? cargs[0] : null;
+                var picked = (ccmd == "--keep-as-mod" ? cargs.Skip(1) : cargs).ToList();
+                var unknown = picked.Where(f => !changed.Any(c => c.File.Equals(f, StringComparison.OrdinalIgnoreCase))).ToList();
+                if (picked.Count == 0 || unknown.Count > 0 || ccmd == "--keep-as-mod" && kname == null)
+                {
+                    Console.WriteLine(ccmd == "--keep-as-mod" ? "--keep-as-mod <mod name> <file.upk> ..." : "--restore-original <file.upk> ... [--dry-run]");
+                    if (unknown.Count > 0) Console.WriteLine("Not changed outside this app: " + string.Join(", ", unknown));
+                    return 1;
+                }
+                if (ccmd == "--keep-as-mod")
+                {
+                    string? why = GameFiles.KeepAsMod(lib, cgame, picked, kname!);
+                    Console.WriteLine(why ?? $"Kept {picked.Count} file(s) as the mod \"{kname}\" (turned on, lowest priority).");
+                    return why == null ? 0 : 1;
+                }
+                if (cdry) { foreach (string f in picked) Console.WriteLine($"  {f}: would be restored from {corig.Find(f) ?? "(no clean original)"}"); return 0; }
+                return GameFiles.Restore(cgame, corig, lib.DataFolder, picked) ? 0 : 1;
+            }
+            case "--fix-bak-dates":
+            {
+                // BackupCheck.FixDates: .bak files that are the original but dated later get the game's date (content unchanged).
+                string? fgr = settings.ResolvedGameRoot(data);
+                if (fgr == null || !Settings.IsGameRoot(fgr)) { Console.WriteLine("game folder not found"); return 1; }
+                bool fdry = rest.Contains("--dry-run");
+                var fixedBaks = BackupCheck.FixDates(new GameState(fgr, data), fdry);
+                fixedBaks.ForEach(n => Console.WriteLine("  " + n));
+                Console.WriteLine($"{fixedBaks.Count} .bak file(s) {(fdry ? "would get" : "got")} the game's date (2024-03-14); contents unchanged.");
+                return 0;
+            }
+            case "--backup-check":
+            {
+                // Read-only: BackupCheck (--clean <folder> to use a clean folder other than the setting; --all: every changed package).
+                string? bgr = settings.ResolvedGameRoot(data);
+                if (bgr == null || !Settings.IsGameRoot(bgr)) { Console.WriteLine("game folder not found"); return 1; }
+                var bgame = new GameState(bgr, data);
+                int ci = rest.IndexOf("--clean");
+                string? clean = ci > 0 && ci + 1 < rest.Count ? rest[ci + 1] : settings.CleanGameFiles;
+                var (blines, bsum) = BackupCheck.Run(bgame, new Originals(lib.DataFolder, bgame), clean, rest.Contains("--all"));
+                blines.ForEach(l => Console.WriteLine("  " + l));
+                Console.WriteLine(bsum);
+                return 0;
+            }
             case "--post":
             {
                 // --post <mod> [nexus|discord]: the mod's release post (what Create Post fills in).
@@ -373,6 +452,7 @@ static partial class Program
                 if (!game.HasStockList) { Console.WriteLine("No stock checksum list in the library; can't verify originals."); return 1; }
                 var originals = new Originals(data, game);
                 var plan = Applier.MakePlan(lib, game, originals);
+                Console.Write(ApplyCheck.Text(ApplyCheck.Run(lib, game, originals, plan), game));
                 Applier.Print(plan);
                 int outAt = rest.FindIndex(a => a.Equals("--out", StringComparison.OrdinalIgnoreCase));
                 if (outAt > 0 && outAt + 1 < rest.Count)

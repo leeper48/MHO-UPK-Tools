@@ -29,7 +29,9 @@ sealed class Originals(string libraryData, GameState game)
     IEnumerable<string> Candidates(string file, string[] extraSources)
     {
         string live = Path.Combine(game.Cooked, file);
-        return new[] { live, live + ".bak" }.Concat(extraSources.SelectMany(d => new[] { Path.Combine(d, file), Path.Combine(d, file + ".bak") }));
+        // The clean folder (a stock CookedPCConsole copy, read only) before the live file and its .bak.
+        var clean = StockFiles.Clean is string c ? new[] { Path.Combine(c, file) } : [];
+        return clean.Concat(new[] { live, live + ".bak" }).Concat(extraSources.SelectMany(d => new[] { Path.Combine(d, file), Path.Combine(d, file + ".bak") }));
     }
 
     /// <summary>

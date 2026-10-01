@@ -47,7 +47,12 @@ static class Applier
         string legacy = Path.Combine(lib.DataFolder, "legacy");
         var winners = lib.PackageWinners();
         var icons = IconPackages.Select(p => p.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var managed = lib.Mods.SelectMany(m => m.Manifest.UpkReplacements).Where(f => !icons.Contains(f)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+        // Also every package this app wrote before (its undo history) that no mod names now: a mod that dropped a package in
+        // an edit or update, or a mod folder deleted by hand. It goes back to the original like a mod turned off; before
+        // 0.37.72 it stayed changed for good (Kurt's Ms. Marvel power colors after Blue Marvel lost them).
+        var named = lib.Mods.SelectMany(m => m.Manifest.UpkReplacements).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var leftOver = WrittenBefore(game).Where(f => !named.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var managed = named.Concat(leftOver).Where(f => !icons.Contains(f)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
         foreach (string file in managed)
         {
             string live = Path.Combine(game.Cooked, file);
@@ -65,7 +70,7 @@ static class Applier
             if (game.Crc(live) == want) { upToDate++; continue; }
             // Installing needs a clean original too, or the mod could never be taken off again.
             if (original == null) { problems.Add($"{file} ({mod!.Name}): no clean original available, so it isn't installed"); continue; }
-            steps.Add(new Step(file, mod != null ? $"install from {mod.Name}" : "restore stock original", source, null, want));
+            steps.Add(new Step(file, mod != null ? $"install from {mod.Name}" : leftOver.Contains(file) ? "restore stock original (written by this app before; no mod names it now)" : "restore stock original", source, null, want));
         }
 
         // Icon packages: the three MHModManager lists, plus every other icon package a mod names in ExtraIconReplacements.
@@ -242,6 +247,30 @@ static class Applier
     }
 
     /// <summary>A skipped sound-pack line ("SFX_x.pck: Name: skipped (why)"), not a whole file.</summary>
+    /// <summary>
+    /// The game packages this app has written (its undo history, Settings.HistoryFolder: one folder per live file named
+    /// "&lt;file&gt;_&lt;first 8 hex of SHA-256 of the lower-cased full path&gt;", as MPM's History names them), that are
+    /// still in this game folder.
+    /// </summary>
+    public static List<string> WrittenBefore(GameState game)
+    {
+        var result = new List<string>();
+        string root = Settings.HistoryFolder;
+        if (!Directory.Exists(root)) return result;
+        foreach (string dir in Directory.EnumerateDirectories(root))
+        {
+            string name = Path.GetFileName(dir);
+            int us = name.LastIndexOf('_');
+            if (us <= 0 || name.Length - us != 9) continue;
+            string file = name[..us];
+            if (!file.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) continue;
+            string live = Path.GetFullPath(Path.Combine(game.Cooked, file));
+            string h = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(live.ToLowerInvariant())))[..8];
+            if (h.Equals(name[(us + 1)..], StringComparison.OrdinalIgnoreCase) && File.Exists(live)) result.Add(file);
+        }
+        return result;
+    }
+
     public static bool IsSoundLine(string problem) => problem.Contains(": skipped (", StringComparison.Ordinal);
 
     public static void Print(Plan p)
@@ -296,7 +325,7 @@ static class Applier
             {
                 string? original = originals.Ensure(s.File, out string? why, legacy);
                 if (original == null) { Console.WriteLine($"  no clean original ({why}); stopping."); return false; }
-                if (!MeshImport.CreateBak(live, File.ReadAllBytes(original))) return false;
+                if (!MeshImport.CreateBak(live, File.ReadAllBytes(original), stockDated: true)) return false;
             }
             byte[] bytes = s.Built ?? File.ReadAllBytes(s.Source!);
             if (game.CrcOf(bytes) != s.Crc) { Console.WriteLine("  source changed since the plan was made; stopping."); return false; }
@@ -310,6 +339,8 @@ static class Applier
                 return problems;
             }, bakBeside: s.Type == Kind.Package);
             if (!ok) { Console.WriteLine($"Stopped after {done} of {p.Steps.Count}."); return false; }
+            // A package put back to the game's own (CRC is the stock one): the stock date again, so it doesn't look modified.
+            if (s.Type == Kind.Package && game.MatchesStock(s.File, live)) MeshImport.SetStockDate(live);
             done++;
         }
         Console.WriteLine($"Applied: {done} file(s) written and verified.");

@@ -42,6 +42,7 @@ sealed class ModDraft
     public float? PreviewLight;
     /// <summary>Extension: voice lines turned off (the packages already carry the change; this lets them be turned on again).</summary>
     public List<VoiceOffEntry> VoiceOff = [];
+    public List<PowerColorEntry> PowerColors = [];
     public List<string> PostImages = [];
 
     /// <summary>The changelog as it will be saved: this version's changes (if any) on top of the earlier entries.</summary>
@@ -89,6 +90,7 @@ sealed class ModDraft
         d.PreviewViews = m.Manifest.PreviewViews;
         d.PreviewLight = m.Manifest.PreviewLight;
         d.VoiceOff = m.Manifest.VoiceOff?.ToList() ?? [];
+        d.PowerColors = m.Manifest.PowerColors?.ToList() ?? [];
         var log = m.Manifest.Changelog ?? [];
         d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
         d.Changelog = log.Select(e => new ChangelogEntry { Version = e.Version, Changes = e.Changes }).ToList();
@@ -162,6 +164,7 @@ static class ModWriter
             manifest.PreviewViews = d.PreviewViews is { Count: > 0 } pv ? pv : null;
             manifest.PreviewLight = d.PreviewLight;
             manifest.VoiceOff = d.VoiceOff.Count > 0 ? d.VoiceOff : null;
+            manifest.PowerColors = d.PowerColors.Count > 0 ? d.PowerColors : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };
             for (int k = 0; k < lists.Length; k++)

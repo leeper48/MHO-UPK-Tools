@@ -55,7 +55,7 @@ static class ModAnimations
         if (baseFile.Equals(mesh.Package, StringComparison.OrdinalIgnoreCase)) yield break;
         var mine = modPackages.FirstOrDefault(p => p.File.Equals(baseFile, StringComparison.OrdinalIgnoreCase));
         if (mine.Path != null && File.Exists(mine.Path)) yield return mine;
-        else if (cooked != null && File.Exists(Path.Combine(cooked, baseFile))) yield return (baseFile, Path.Combine(cooked, baseFile));
+        else if (cooked != null && File.Exists(Path.Combine(cooked, baseFile))) yield return (baseFile, StockFiles.For(cooked, baseFile));
     }
 
     /// <summary>The animations that fit a mesh (its bones), by name.</summary>

@@ -1,6 +1,48 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.76
+- Locked mods can be reordered within their locked run: drag, the arrows or Ctrl+arrows move a top-locked mod among the other top-locked mods (bottom likewise). They still can't leave the run, and other mods still can't pass the locks.
+
+0.37.75
+- Changed Game Files (Settings, or Review Changed Files in the Apply window): game files changed by something other than this app. Select some and Keep as a Mod (they go into one new mod in your list, turned on, so they can be turned off later) or Restore to Original (the game's own files go back, as Apply would). Files you don't act on stay as they are.
+
+0.37.74
+- Settings → Check Backups now offers to give .bak files that are the game's original files, but dated later, the game's own date (2024-03-14), so they no longer look modified. Only the date changes. Backups that aren't the original keep their dates.
+
+0.37.73
+- Apply Changes: the window with checks no longer runs past its right edge (the text, the note and the Apply / Cancel buttons were cut off).
+
+0.37.72
+- Apply Changes checks first: the top of its window lists anything unexpected (files with no clean original, game files changed by something other than this app) and, when a file has no clean copy, suggests the Clean Game Files Folder and how to get a clean copy from Steam.
+- A game file the app wrote earlier that no mod names any more (a mod that dropped a package in an edit or update, or a mod folder deleted by hand) goes back to the game's original on Apply. It used to stay changed.
+
+0.37.71
+- Travel powers: every hero's travel power is a power button and has power colors (Wolverine's Borrowed Ride, Black Widow's Electric Ride, Deadpool's Wade's Ride, Ghost Rider's Ride, Beast's and Gambit's sprints, Rogue's flight …). Ride animations come from the shared bike packages, and the bike shows under the hero in the preview while a ride animation plays (Wolverine, Nick Fury, Black Widow …). Travel powers without a name of their own are called "Travel Power".
+
+0.37.70
+- Power buttons and power colors list every power: powers whose files name the hero at the end (Captain Marvel's Photonic Devastation: UC__PowerChanneledEnergyBeam_MsMarvel_SF) and channelled or looping powers were missing. Across the heroes, 224 more powers show (Captain Marvel 11 → 19, Thor 9 → 16), none fewer.
+
+0.37.69
+- A .bak that Apply makes from a verified original, and a game file Apply puts back to the original, get the game's own date (2024-03-14), as MHModManager's backups had; they were dated the day they were written and looked modified. Check Backups also counts .bak files that are the original but dated later.
+
+0.37.68
+- Clean game files: Settings → Clean Game Files Folder takes a clean copy of the game's CookedPCConsole (only read; its files are checked against the game's own). Previews, power effects, power icons, power colors and Apply then read the game's original packages from it instead of game files a mod has already changed (after power colors were applied, the editor and other mods' previews showed the applied colors).
+- Settings → Check Backups lists the changed game files, whether each .bak is truly the original, and where a clean copy is.
+
+0.37.67
+- Powers tab: Apply to All Powers gives every power of the hero the color on the sliders.
+
+0.37.66
+- Powers tab: picking a power shows its animation paused on the first frame (press play); Esc stops playback there too.
+
+0.37.65
+- Power colors reach everything a power sets off: its missiles, hotspots, conditions, pets and summons (Thor's Rolling Thunder: 6 packages; Squirrel Girl's squirrels, Rocket's plasma cannon). Effects shared by many heroes (knockdown, slow, taunt ...) are left as they are; a power whose effects a few others share (Beta Ray Bill's team-up copy of Thor's) is recolored, and the Powers tab says who else it changes.
+- Powers tab: five color presets (right-click a swatch to store the sliders, click to use it on a power; kept on this PC for every mod). The list on the right picks the power that plays; the preview's own power strip is gone there.
+
+0.37.64
+- Power colors: the editor's new Powers tab recolors a hero's powers (hue, saturation, brightness per power), previewed in 3D with their effects. Saving recolors the power's own game files (particles, effect textures, material colors, also of what the power sets off) into the mod's packages: ordinary package replacements, nothing on the server changes. A color changes the power for every costume of that hero.
+
 0.37.63
 - 3D preview: after a picture is chosen (or Choose Automatically Again), the 3D tile opens the costume's own model, not the model picked before.
 

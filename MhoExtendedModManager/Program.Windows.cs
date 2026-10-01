@@ -223,7 +223,9 @@ static partial class Program
                     string sip = Path.GetFullPath(Path.Combine(rc, "..", "..", "..", "Data", "Game", "Calligraphy.sip"));
                     var db = new Fx.GameData(Fx.SipArchive.Load(sip));
                     var modFiles = rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f)).ToList();
-                    var idx = Fx.PowerIndex.For(hero, rc, modFiles);
+                    // MHO_RENDER_EXTRA=<file.upk;…>: packages read before the game's (a recoloured power package to look at).
+                    if (Environment.GetEnvironmentVariable("MHO_RENDER_EXTRA") is string extra) modFiles.InsertRange(0, extra.Split(';', StringSplitOptions.RemoveEmptyEntries));
+                    var idx = Fx.PowerIndex.For(hero, rc, modFiles, db);
                     if (idx.TryGetValue(ar.Name, out var pw) && pw.SelectMany(p => Fx.PowerIndex.PrototypesByClass(db).TryGetValue(p.Class, out var l) ? l : []).FirstOrDefault() is string proto)
                     {
                         var pfx = Fx.PowerEffects.For(new Fx.FxGame(rc, modFiles), db, proto, hero);
@@ -408,6 +410,29 @@ static partial class Program
             var form = new Gui.MainForm();
             if (args.Length >= 2) form.Shown += (_, _) => form.BeginInvoke(async () => { await form.Snapshot(args[1], args.Length == 3 ? args[2] : null); form.Close(); });
             Application.Run(form);
+            return 0;
+        }
+        if (args.Length == 2 && args[0].Equals("--gamefiles-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: Changed Game Files rendered off-screen to a PNG (reads only; nothing is kept or restored).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            var gs = Settings.Load();
+            string? gd = Settings.LibraryData(gs.LibraryPath);
+            if (gd == null || gs.ResolvedGameRoot(gd) is not string ggr) { Console.WriteLine("no library or game folder"); return 1; }
+            var glib = ModLibrary.Load(gd);
+            var ggame = new GameState(ggr, gd);
+            StockFiles.Init(ggame, gs.CleanGameFiles, Path.Combine(gd, "originals"));
+            using var f = new Gui.GameFilesForm(glib, ggame) { StartPosition = FormStartPosition.Manual, Location = new System.Drawing.Point(-6000, -6000) };
+            f.Shown += async (_, _) =>
+            {
+                await Task.Delay(300);
+                using var bmp = new System.Drawing.Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(bmp, new System.Drawing.Rectangle(System.Drawing.Point.Empty, f.Size));
+                bmp.Save(args[1]);
+                f.Close();
+            };
+            f.ShowDialog();
             return 0;
         }
         if (args.Length == 2 && args[0].Equals("--downloads-snapshot", StringComparison.OrdinalIgnoreCase))

@@ -11,7 +11,7 @@ sealed class ApplyForm : Form
 {
     readonly Label heading = new() { AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 8) };
     readonly TextBox body = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false };
-    readonly Label footer = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 8, 0, 0) };
+    readonly Label footer = new() { AutoSize = true, Dock = DockStyle.Fill, Tag = "subtle", Margin = new Padding(0, 8, 0, 0) };   // wraps in the column
     readonly Button apply, cancel, close;
     Button? headingBtn;
     readonly TableLayoutPanel layout;
@@ -21,7 +21,10 @@ sealed class ApplyForm : Form
 
     /// <param name="plan">The plan as text (what will be written).</param>
     /// <param name="run">Writes the plan; null when there's nothing to do.</param>
-    public ApplyForm(string plan, Func<Task<(bool Ok, string Log)>>? run)
+    /// <param name="checks">ApplyCheck found something: the footer points at the Checks section.</param>
+    /// <param name="review">Changed game files outside the app were found: a Review Changed Files button closes this window
+    /// with DialogResult.Retry (the caller opens Changed Game Files, then Apply again).</param>
+    public ApplyForm(string plan, Func<Task<(bool Ok, string Log)>>? run, bool checks = false, bool review = false)
     {
         this.run = run;
         Text = "Apply Changes";
@@ -32,6 +35,9 @@ sealed class ApplyForm : Form
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
         var t = layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
+        // One column the window's width: without a style it grew to the widest row (the long Checks note) and pushed the
+        // text and the buttons past the window's edge (0.37.72).
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         t.Controls.Add(heading, 0, 0);
@@ -42,6 +48,8 @@ sealed class ApplyForm : Form
         cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; }, tip: "Change nothing (Esc).");
         close = Ui.AccentButton("Close", () => { DialogResult = DialogResult.OK; }, tip: "Close (Enter).");
         buttons.Controls.AddRange([close, apply, cancel]);
+        if (review) buttons.Controls.Add(Ui.FlatButton("Review Changed Files", () => { DialogResult = DialogResult.Retry; },
+            tip: "Choose what to do with the game files changed outside this app: keep them as a mod, or put the game's originals back. Then this window opens again."));
         t.Controls.Add(buttons, 0, 3);
         Controls.Add(t);
 
@@ -55,7 +63,7 @@ sealed class ApplyForm : Form
             t.Controls.Add(headingBtn, 0, 0);
             footer.Text = "The game already matches your list.";
             apply.Visible = cancel.Visible = close.Visible = false;
-            buttons.Visible = false;
+            buttons.Visible = review;
         }
         else
         {
@@ -67,6 +75,7 @@ sealed class ApplyForm : Form
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         footer.ForeColor = Ui.Subtle;
+        if (checks) { footer.Text = "Some things need a look: see Checks at the top of the list. " + footer.Text; footer.ForeColor = Ui.Warn; }
         Ui.FitToScreen(this, 640, 460);
         AcceptButton = run == null ? headingBtn : apply;   // Enter confirms
         CancelButton = run == null ? headingBtn : cancel;
@@ -79,9 +88,10 @@ sealed class ApplyForm : Form
     {
         Directory.CreateDirectory(dir);
         const string plan = "3 file(s) to change:\n  UC__MarvelPlayer_Storm_Classic_SF.upk: Storm Classic Costume Visual Update's copy\n  ICO__MarvelUIIcons_SF.upk: icons rebuilt from stock with 12 replacement(s)\n  eng.all_7FFFFFFFFFFFFFFF.string: 2 string(s) from Jeff (Pet)\n351 file(s) already right.";
-        foreach (var (name, ok) in new[] { ("apply_ask", (bool?)null), ("apply_error", false) })
+        const string checks = "CHECKS\n• 27 game file(s) were changed by something other than this app (another tool, a mod that was deleted, a hand edit). No mod in your list names them, so Apply leaves them as they are:\n    MarvelGame.upk\n    UC__MarvelConditionEffect_Rogue_StolenPower_ColossusInvulnerability_90sXmen_SF.upk\n\nPLAN\n";
+        foreach (var (name, ok, warn) in new[] { ("apply_ask", (bool?)null, false), ("apply_error", false, false), ("apply_checks", (bool?)null, true) })
         {
-            using var f = new ApplyForm(plan, () => Task.FromResult((ok ?? true, "UC__MarvelPlayer_Storm_Classic_SF.upk: Storm Classic Costume Visual Update's copy\n  no clean original (the live file isn't stock and no backup matches); stopping.\nStopped after 0 of 3.")));
+            using var f = new ApplyForm(warn ? checks + plan : plan, checks: warn, run: () => Task.FromResult((ok ?? true,"UC__MarvelPlayer_Storm_Classic_SF.upk: Storm Classic Costume Visual Update's copy\n  no clean original (the live file isn't stock and no backup matches); stopping.\nStopped after 0 of 3.")));
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
                 if (ok != null) { f.Run(); await Task.Delay(400); }

@@ -428,7 +428,19 @@ sealed class PowerEffects
             return null;
         }
 
-        Gui.ModelView.Map? Tex(Gui.ModelView.Map? t) => t;   // (the Hero Creator recolors here; the preview shows the game's colours)
+        /// <summary>The power customizer's colour change for this power (null: as the game has it): applied to the particles'
+        /// colours and to the effect textures, as PowerRecolor writes them.</summary>
+        public PowerColor? Color { get => color; set { color = value; recolored.Clear(); } }
+        PowerColor? color;
+        readonly Dictionary<Gui.ModelView.Map, Gui.ModelView.Map> recolored = new();
+
+        Gui.ModelView.Map? Tex(Gui.ModelView.Map? t)
+        {
+            if (t == null || color is not { IsNone: false } c) return t;
+            lock (recolored) { if (!recolored.TryGetValue(t, out var r)) recolored[t] = r = t.Recolored(c.Apply); return r; }
+        }
+
+        Vector4 Col(Vector4 v) => color is { IsNone: false } c ? new Vector4(c.Apply(new Vector3(v.X, v.Y, v.Z)), v.W) : v;
 
         /// <summary>Moves the effects on by <paramref name="dt"/> seconds; <paramref name="ended"/>: the animation is over.</summary>
         public void Step(float dt, bool ended)
@@ -500,7 +512,7 @@ sealed class PowerEffects
                         if (len < 1) continue;
                         int tiles = Math.Clamp(em.TypeData?.Int("TextureTile", 1) ?? 1, 1, 12);
                         float width = sp.Size.X > 1 ? sp.Size.X : 10;
-                        var bcol = sp.Color;
+                        var bcol = Col(sp.Color);
                         for (int k = 0; k < tiles; k++)
                             list.Add(new Gui.ModelView.FxQuad(from + dir * ((k + 0.5f) / tiles), new Vector2(width, len / tiles), 0, bcol, Tex(btex), 1, 1, 0, 2, false, badd, dir) { SwapUV = true });
                         continue;
@@ -522,7 +534,7 @@ sealed class PowerEffects
                         if (lk.Contains("negative")) pr = -pr;
                         if (em.Required.Bool("bUseLocalSpace", false)) { pr = Vector3.TransformNormal(pr, sim.Origin); pu = Vector3.TransformNormal(pu, sim.Origin); }
                     }
-                    var col = sp.Color;
+                    var col = Col(sp.Color);
                     list.Add(new Gui.ModelView.FxQuad(sp.Position, sp.Size, sp.Rotation, col, Tex(tex),
                         em.Required.Int("SubImages_Horizontal", 1), em.Required.Int("SubImages_Vertical", 1), sp.Image,
                         align == "psa_velocity" ? 2 : align == "psa_rectangle" ? 1 : 0, lk.Contains("rotate_z"), add, sp.Velocity) { PlaneRight = pr, PlaneUp = pu });
@@ -553,7 +565,7 @@ sealed class PowerEffects
                     var td = em.TypeData;
                     var pre = td == null ? Matrix4x4.Identity : Matrix4x4.CreateFromYawPitchRoll(td.Float("Yaw", 0) * MathF.PI / 180, td.Float("Pitch", 0) * MathF.PI / 180, td.Float("Roll", 0) * MathF.PI / 180);
                     var m = pre * Matrix4x4.CreateScale(sp.Size3) * Matrix4x4.CreateFromYawPitchRoll(rot.Z, rot.Y, rot.X) * Matrix4x4.CreateTranslation(sp.Position);
-                    var col = sp.Color;
+                    var col = Col(sp.Color);
                     var mesh = mm.Mesh;
                     for (int si = 0; si < mesh.Sections.Count && si < mm.Sections.Length; si++)
                     {

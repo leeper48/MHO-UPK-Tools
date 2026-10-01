@@ -27,7 +27,7 @@ sealed class FxGame
         string n = packageName.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? packageName[..^4] : packageName;
         if (modFiles.TryGetValue(n, out var m)) return m;
         string f = Path.Combine(Cooked, n + ".upk");
-        return File.Exists(f) ? f : null;
+        return File.Exists(f) ? StockFiles.For(Cooked, n + ".upk") : null;   // the game's stock copy, not one a mod changed
     }
 
     public FxPkg? Open(string packageName) => FileFor(packageName) is { } f ? FxPkg.Open(f) : null;

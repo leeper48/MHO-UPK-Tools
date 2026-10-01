@@ -30,6 +30,20 @@ sealed class ModelView : UserControl
         /// alpha is all 0 (Forked Lightning's tex_lightning_storm) adds its colour as it is (power effects).</summary>
         public bool AlphaVaries { get; }
 
+        /// <summary>A copy with every pixel's colour through <paramref name="f"/> (the power customizer's preview).</summary>
+        public Map Recolored(Func<Vector3, Vector3> f)
+        {
+            var src = levels[0]; var dst = new byte[src.Length];
+            System.Threading.Tasks.Parallel.For(0, src.Length / 4, i =>
+            {
+                int o = i * 4;
+                var c = f(new Vector3(src[o + 2], src[o + 1], src[o]) * (1f / 255f));
+                dst[o + 2] = (byte)Math.Clamp((int)(c.X * 255 + 0.5f), 0, 255); dst[o + 1] = (byte)Math.Clamp((int)(c.Y * 255 + 0.5f), 0, 255);
+                dst[o] = (byte)Math.Clamp((int)(c.Z * 255 + 0.5f), 0, 255); dst[o + 3] = src[o + 3];
+            });
+            return new Map(dst, ws[0], hs[0]);   // (alpha kept, so AlphaVaries reads the same)
+        }
+
         public Map(byte[] bgra, int w, int h)
         {
             for (int i = 7; i < bgra.Length && !AlphaVaries; i += 4) if (bgra[i] != bgra[3]) AlphaVaries = true;

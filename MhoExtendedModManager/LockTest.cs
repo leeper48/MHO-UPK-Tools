@@ -37,7 +37,10 @@ static class LockTest
             if (!Lock("B")) fails++; Expect("lock B (next to A)", "[A][B]CDEFGH");
             if (!Lock("H")) fails++; Expect("lock H (bottom)", "[A][B]CDEFG{H}");
             if (!Lock("G")) fails++; Expect("lock G (next to H)", "[A][B]CDEF{G}{H}");
-            if (lib.Move(M("B"), 1)) fails++; Expect("move locked B: refused", "[A][B]CDEF{G}{H}");
+            // A locked mod moves within its locked run only (Kurt, 2026-10-01).
+            lib.Move(M("B"), 1); Expect("locked B down: stays in the top run", "[A][B]CDEF{G}{H}");
+            lib.Move(M("B"), -1); Expect("locked B up: above A, still locked", "[B][A]CDEF{G}{H}");
+            lib.MoveToEnd(M("B"), 1); Expect("locked B to bottom: end of the top run", "[A][B]CDEF{G}{H}");
             lib.Move(M("C"), -1); Expect("C up: stops under the top lock", "[A][B]CDEF{G}{H}");
             lib.MoveToEnd(M("C"), 1); Expect("C to bottom: above the bottom lock", "[A][B]DEFC{G}{H}");
             lib.MoveToEnd(M("E"), -1); Expect("E to top: below the top lock", "[A][B]EDFC{G}{H}");
@@ -47,7 +50,11 @@ static class LockTest
             lib.MoveTo(M("C"), 3); Expect("drag C to position 3", "[A][B]ECDF{G}{H}");
             lib.MoveTo(M("F"), 0); Expect("drag F onto the top: stops under the top lock", "[A][B]FECD{G}{H}");
             lib.MoveTo(M("E"), 99); Expect("drag E past the end: stops above the bottom lock", "[A][B]FCDE{G}{H}");
-            if (lib.MoveTo(M("G"), 2)) fails++; Expect("drag locked G: refused", "[A][B]FCDE{G}{H}");
+            lib.MoveTo(M("G"), 2); Expect("drag locked G up: stays in the bottom run", "[A][B]FCDE{G}{H}");
+            lib.MoveTo(M("G"), 7); Expect("drag locked G below H", "[A][B]FCDE{H}{G}");
+            lib.MoveGroup([M("H")], M("G"), below: true); Expect("drag locked H below G", "[A][B]FCDE{G}{H}");
+            lib.MoveGroup([M("C")], M("G"), below: true); Expect("drag C below locked G: stops above the bottom run", "[A][B]FDEC{G}{H}");
+            lib.MoveTo(M("C"), 3); Expect("C back", "[A][B]FCDE{G}{H}");
             lib.MoveTo(M("E"), 2); lib.MoveTo(M("D"), 3); Expect("back as before", "[A][B]EDFC{G}{H}");
             // Marked groups (Shift / Ctrl click): move together, keep their order, stop at the locks, locked members stay.
             lib.MoveGroupBy([M("E"), M("F")], 1); Expect("group E,F down one (each past the next mod outside the group)", "[A][B]DECF{G}{H}");

@@ -159,6 +159,9 @@ sealed class MainForm : Form
         var settingsButton = Ui.FlatButton("Settings  ▾", () => { });
         var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f) };
         menu.Items.Add("Change Game Folder", null, (_, _) => BrowseGame());
+        menu.Items.Add("Clean Game Files Folder", null, (_, _) => BrowseClean()).ToolTipText = "A folder with a clean copy of the game's CookedPCConsole (only read, never changed): previews, power colors and Apply take the game's own files from it when the game folder's are changed.";
+        menu.Items.Add("Changed Game Files", null, (_, _) => ChangedGameFiles()).ToolTipText = "Game files changed by something other than this app: keep them as a mod, or put the game's originals back.";
+        menu.Items.Add("Check Backups", null, (_, _) => CheckBackups()).ToolTipText = "Lists the game files that differ from the game's own, whether each one's .bak is truly the original, and where a clean copy is.";
         menu.Items.Add("Move Library", null, (_, _) => MoveLibrary());
         menu.Items.Add("Open Library Folder", null, (_, _) => { if (Settings.LibraryData(settings.LibraryPath) is string d) Process.Start("explorer.exe", $"\"{d}\""); });
         menu.Items.Add(new ToolStripSeparator());
@@ -341,7 +344,7 @@ sealed class MainForm : Form
         list.CanReorder = () => ReorderView && !readOnly;
         list.Dropped += (m, target, below) =>
         {
-            if (lib == null || m.Lock != ModLock.None) return;
+            if (lib == null) return;
             int to = target.Priority + (below ? 1 : 0);
             if (m.Priority < to) to--;
             if (to == m.Priority) return;
@@ -613,6 +616,57 @@ sealed class MainForm : Form
         settings.GameRoot = d.SelectedPath; settings.Save(); Reload();
     }
 
+    /// <summary>Settings → Clean Game Files Folder: a clean CookedPCConsole copy, accepted when packages in it match the stock
+    /// checksums (a sample of 40). Only ever read.</summary>
+    void BrowseClean()
+    {
+        using var d = new FolderBrowserDialog { Description = "A clean copy of the game's CookedPCConsole folder (only read)", UseDescriptionForTitle = true, SelectedPath = settings.CleanGameFiles ?? "" };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        if (game == null) { Dialog.Show(this, "Set the game folder first.", "Clean Game Files", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        var files = Directory.EnumerateFiles(d.SelectedPath, "*.upk").Select(p => Path.GetFileName(p)!).Where(f => !f.Contains("copy", StringComparison.OrdinalIgnoreCase)).ToList();
+        var sample = files.Where((_, k) => k % Math.Max(1, files.Count / 40) == 0).Take(40).ToList();
+        int ok = sample.Count(f => game.MatchesStock(f, Path.Combine(d.SelectedPath, f)));
+        if (files.Count < 100 || ok < sample.Count * 9 / 10)
+        {
+            Dialog.Show(this, $"That folder doesn't look like a clean CookedPCConsole: {files.Count:N0} package(s), {ok} of {sample.Count} checked match the game's own files.", "Not a Clean Copy", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        settings.CleanGameFiles = d.SelectedPath; settings.Save();
+        StockFiles.Init(game, settings.CleanGameFiles, Settings.LibraryData(settings.LibraryPath) is string dd ? Path.Combine(dd, "originals") : null);
+        status.Text = Ui.TitleCase($"Clean game files: {d.SelectedPath} ({files.Count:N0} packages, {ok} of {sample.Count} checked are the game's own)");
+    }
+
+    /// <summary>Settings → Check Backups (BackupCheck): read only, in a log window.</summary>
+    /// <summary>Settings → Changed Game Files / the Apply window's Review Changed Files (GameFilesForm).</summary>
+    void ChangedGameFiles()
+    {
+        if (readOnly || lib == null || game == null) return;
+        using var f = new GameFilesForm(lib, game);
+        f.ShowDialog(this);
+        if (f.Changed) Reload();
+    }
+
+    void CheckBackups()
+    {
+        if (game == null || lib == null) return;
+        UseWaitCursor = true;
+        try
+        {
+            var (lines, summary) = BackupCheck.Run(game, new Originals(lib.DataFolder, game), StockFiles.Clean);
+            Dialog.ShowLog(this, "Backups", summary + Environment.NewLine + Environment.NewLine + (lines.Count == 0 ? "Every changed game file has a stock copy kept or a stock .bak." : string.Join(Environment.NewLine, lines)));
+            // Backups that are the original but dated later: offer the game's date (Kurt: only those, never one that isn't
+            // the original).
+            var late = BackupCheck.FixDates(game, dryRun: true);
+            if (late.Count > 0 && Dialog.Show(this, $"{late.Count} .bak file(s) are the game's original files but carry a later date, so they look modified. Give them the game's own date (2024-03-14)? Only the date changes; their contents stay exactly as they are. Backups that aren't the original keep their dates.",
+                    "Fix Backup Dates", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            {
+                var done = BackupCheck.FixDates(game, dryRun: false);
+                status.Text = Ui.TitleCase($"{done.Count} of {late.Count} backup(s) got the game's date");
+            }
+        }
+        finally { UseWaitCursor = false; }
+    }
+
     Mod? Selected => list.SelectedItem as Mod;
 
     void Reload()
@@ -642,6 +696,7 @@ sealed class MainForm : Form
         }
         gameLabel.Text = gameRoot != null ? Settings.TrueCase(gameRoot) : "(not set: Settings → Change game folder)";
         if (gameRoot != null && Directory.Exists(Settings.Cooked(gameRoot))) game = new GameState(gameRoot, data);
+        StockFiles.Init(game, settings.CleanGameFiles, data == null ? null : Path.Combine(data, "originals"));
         // Stock pictures for mods without one: one catalog per library + game folder (its icon package loads once).
         string catKey = data + "|" + gameRoot;
         if (catKey != listCatalogKey) { listCatalogKey = catKey; list.Catalog = storePreview.Catalog = game != null ? new StockCatalog(lib, game) : null; storePreview.CookedFolder = game?.Cooked; }
@@ -1283,11 +1338,6 @@ sealed class MainForm : Form
                 () => toEnd ? lg.MoveGroupToEnd(group, delta) : lg.MoveGroupBy(group, delta));
             return;
         }
-        if (m.Lock != ModLock.None)
-        {
-            status.Text = Ui.TitleCase($"\"{m.Name}\" is locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: click its padlock to unlock it first");
-            return;
-        }
         int before = m.Priority;
         var l = lib;
         Change($"move \"{m.Name}\" {(toEnd ? (delta < 0 ? "to the top" : "to the bottom") : delta < 0 ? "up" : "down")}",
@@ -1474,17 +1524,19 @@ sealed class MainForm : Form
         var (l, g) = (lib, game);
         var originals = new Originals(l.DataFolder, g);
         UseWaitCursor = true;
-        var plan = await Task.Run(() => Applier.MakePlan(l, g, originals));
+        var (plan, check) = await Task.Run(() => { var p = Applier.MakePlan(l, g, originals); return (p, ApplyCheck.Run(l, g, originals, p)); });
         UseWaitCursor = false;
-        string planText = CaptureOutput(() => Applier.Print(plan));
+        // The checks first (Kurt: anything unexpected, the clean folder, how to get a clean copy from Steam), then the plan.
+        string planText = ApplyCheck.Text(check, g) + CaptureOutput(() => Applier.Print(plan));
         // One window (Kurt): the plan and the question, then "Success" or what went wrong.
         using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : () => Task.Run(() =>
         {
             bool ok = false;
             string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
-            return (ok, log);
-        }));
+            return (ok, ok ? log : log + "\n\n" + ApplyCheck.Text(check, g).Replace("\nPLAN", "").TrimEnd());
+        }), check.Any, review: check.Unexpected.Count > 0);
         f.ShowDialog(this);
+        if (f.DialogResult == DialogResult.Retry) { ChangedGameFiles(); Apply(); return; }
         if (plan.Steps.Count > 0 && f.DialogResult == DialogResult.OK) Reload();
     }
 
@@ -2171,7 +2223,8 @@ sealed class MainForm : Form
         pages.Select(0);
         if (lib?.Mods.FirstOrDefault() is Mod m)
             using (var p = new PostForm(PostWriter.From(m), m.Folder, ModPost.Read(m.Folder), (_, _, _) => { })) Check("Create Post", p);
-        using (var a = new ApplyForm("plan", () => Task.FromResult((true, "")))) Check("Apply", a);
+        using (var a = new ApplyForm("plan", () => Task.FromResult((true, "")), checks: true, review: true)) Check("Apply", a);
+        if (lib != null && game != null) using (var gf = new GameFilesForm(lib, game)) Check("Changed Game Files", gf);
         using (var u = new UpdateForm(new Updater.Release(new Version(9, 9, 9), "extmm-v9.9.9", "", "", Updater.ReleasesPage, "", "", 0))) Check("Update", u);
         using (var fr = new FirstRunForm(settings)) Check("First-run setup", fr);
         File.WriteAllLines(outFile, found.Count == 0 ? ["Every button has a tooltip."] : found);
@@ -2344,7 +2397,7 @@ sealed class MainForm : Form
 
     /// <summary>Runs an action with Console output captured (the write path reports through Console, as in the CLI).</summary>
     static readonly object consoleLock = new();
-    static string CaptureOutput(Action a)
+    internal static string CaptureOutput(Action a)
     {
         lock (consoleLock)
         {

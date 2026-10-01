@@ -113,6 +113,67 @@ static partial class Program
                 }
                 return bad == 0 ? 0 : 1;
             }
+            case "--power-color-test":
+            {
+                // Test (a scratch library only: MHO_EXTMM_HOME): a power color saved into a mod (PowerColorBuild.Apply + ModWriter.Save),
+                // read back, then taken off again. --power-color-test <mod> <power name>
+                string? home = Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
+                if (home == null || Path.GetFullPath(home).StartsWith(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "data")), StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFullPath(home).Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase))
+                { Console.WriteLine("Set MHO_EXTMM_HOME to a scratch folder (a copy of a library), never the real one."); return 2; }
+                var pm = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                string? pgr = settings.ResolvedGameRoot(data);
+                if (pm == null || pgr == null) { Console.WriteLine("--power-color-test <mod> <power name>"); return 1; }
+                var pgame = new GameState(pgr, data);
+                Fx.GameData? pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
+                string hero = pm.Manifest.UpkReplacements.Select(f => f.Split('_', StringSplitOptions.RemoveEmptyEntries)).First(x => x.Length >= 4 && x[1].Equals("MarvelPlayer", StringComparison.OrdinalIgnoreCase))[2];
+                var power = Fx.PowerList.For(pdb, hero, pgame.Cooked, []).FirstOrDefault(x => x.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                int pfails = 0;
+                void PCheck(string what, bool ok) { if (!ok) pfails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}"); }
+                PCheck($"power '{rest[2]}' of {hero} found", power != null);
+                if (power == null) return 1;
+                int before = pm.Manifest.UpkReplacements.Count;
+                // 1. a colour on
+                var d = ModDraft.From(pm);
+                if (rest.Contains("--all"))
+                    foreach (var ap in Fx.PowerList.For(pdb, hero, pgame.Cooked, [])) d.PowerColors.Add(new PowerColorEntry { Power = ap.Prototype, Name = ap.Name, Hue = 120 });
+                else d.PowerColors.Add(new PowerColorEntry { Power = power.Prototype, Name = power.Name, Hue = 120 });
+                var pclock = System.Diagnostics.Stopwatch.StartNew();
+                var plog = new List<string>();
+                string? work = PowerColorBuild.Apply(d, pm, lib, pgame, ref pdb, plog);
+                string? saved = ModWriter.Save(lib, d, pm, out string? perr);
+                if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+                plog.ForEach(l => Console.WriteLine("    " + l));
+                PCheck($"saved in {pclock.Elapsed.TotalSeconds:0.0} s" + (perr != null ? ": " + perr : ""), saved != null);
+                var lib2 = ModLibrary.Load(data);
+                var m2 = lib2.Find(rest[1])!;
+                if (rest.Contains("--all"))
+                {
+                    var all2 = m2.Manifest.PowerColors ?? [];
+                    var pk = all2.SelectMany(x => x.Packages).ToList();
+                    PCheck($"all powers coloured: {all2.Count} entries, {pk.Count} packages, none twice", all2.Count > 0 && pk.Count == pk.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+                    PCheck("every package in the mod folder", pk.All(f => File.Exists(Path.Combine(m2.Folder, f)) && m2.Manifest.UpkReplacements.Contains(f, StringComparer.OrdinalIgnoreCase)));
+                }
+                var entry = m2.Manifest.PowerColors?.FirstOrDefault();
+                PCheck($"manifest keeps the colour ({entry?.Name} hue {entry?.Hue}, {entry?.Packages.Count} package(s): {string.Join(", ", entry?.Packages ?? [])})", entry is { Hue: 120 } && entry.Packages.Count > 0);
+                PCheck("its packages are the mod's packages", entry != null && entry.Packages.All(f => m2.Manifest.UpkReplacements.Contains(f, StringComparer.OrdinalIgnoreCase) && File.Exists(Path.Combine(m2.Folder, f))));
+                PCheck("each holds the recoloured group", entry != null && entry.Packages.All(f => MhoPackageModifier.Package.Open(Path.Combine(m2.Folder, f)).Exports.Any(e => e.ObjectName.EndsWith("_recolor_fx", StringComparison.OrdinalIgnoreCase))));
+                int colored = m2.Manifest.PowerColors?.Sum(x => x.Packages.Count) ?? 0;
+                PCheck($"the mod's other packages kept ({before} + {colored} = {m2.Manifest.UpkReplacements.Count})", m2.Manifest.UpkReplacements.Count == before + colored);
+                if (rest.Contains("--keep")) { Console.WriteLine(pfails == 0 ? "PASS (colour kept)" : $"{pfails} FAILED"); return pfails == 0 ? 0 : 1; }
+                // 2. back to the game's colours
+                var d2 = ModDraft.From(m2);
+                foreach (var e in d2.PowerColors) { e.Hue = 0; e.Saturation = 1; e.Brightness = 1; }
+                string? work2 = PowerColorBuild.Apply(d2, m2, lib2, pgame, ref pdb, plog);
+                string? saved2 = ModWriter.Save(lib2, d2, m2, out perr);
+                if (work2 != null) try { Directory.Delete(work2, true); } catch (IOException) { }
+                var m3 = ModLibrary.Load(data).Find(rest[1])!;
+                PCheck("colour off: saved", saved2 != null);
+                PCheck("colour off: no PowerColors in the manifest", m3.Manifest.PowerColors == null);
+                PCheck($"colour off: its packages gone ({m3.Manifest.UpkReplacements.Count} = {before})", m3.Manifest.UpkReplacements.Count == before && entry != null && entry.Packages.All(f => !File.Exists(Path.Combine(m3.Folder, f))));
+                Console.WriteLine(pfails == 0 ? "PASS" : $"{pfails} FAILED");
+                return pfails == 0 ? 0 : 1;
+            }
             case "--fit-icon-test":
             {
                 // Test (scratch folder): a costume image of the wrong size is fitted for a costume move (CostumeMove.FitIcon):
