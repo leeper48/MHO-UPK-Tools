@@ -82,10 +82,13 @@ static class CostumeMove
                .GroupBy(c => c.Class, StringComparer.OrdinalIgnoreCase).Select(g => g.OrderByDescending(c => c.IsDefault).First()).OrderBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>The one costume a mod is for (its packages render exactly one costume that can move), or null.</summary>
-    public static (string File, Costume Costume)? Single(Mod mod, List<Costume> all)
+    /// <param name="allowBase">A costume in the hero's main package too (Star-Lord Infinity War replaces UC__MarvelPlayer_StarLord_SF):
+    /// it can't be renamed onto another costume, but the copy route (CrossMove: the target's stock package with the mod's
+    /// model copied in) only reads it.</param>
+    public static (string File, Costume Costume)? Single(Mod mod, List<Costume> all, bool allowBase = false)
     {
         var list = SourceCostumes(mod, all);
-        if (list.Count == 0 || list.Select(x => x.Costume.Class).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1 || IsBase(list[0].Costume)) return null;
+        if (list.Count == 0 || list.Select(x => x.Costume.Class).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1 || IsBase(list[0].Costume) && !allowBase) return null;
         return list[0];
     }
 

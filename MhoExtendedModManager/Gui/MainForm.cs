@@ -1020,7 +1020,7 @@ sealed class MainForm : Form
     (string File, Costume Costume)? SingleCostume(Mod m)
     {
         if (costumes == null) return null;
-        if (!singleCostumes.TryGetValue(m.FolderName, out var c)) singleCostumes[m.FolderName] = c = CostumeMove.Single(m, costumes);
+        if (!singleCostumes.TryGetValue(m.FolderName, out var c)) singleCostumes[m.FolderName] = c = CostumeMove.Single(m, costumes, allowBase: true);
         return c;
     }
 
@@ -1038,12 +1038,15 @@ sealed class MainForm : Form
         if (SingleCostume(m) is not { } src || lib == null || game == null || costumes == null) return;
         var catalog = list.Catalog;
         items.Add(new ToolStripMenuItem($"\"{m.Name}\" Is for {src.Costume.Title}. Move It To:") { Enabled = false });
+        // A costume in the hero's main package (Star-Lord Infinity War) can't be renamed onto another costume: its model is
+        // copied into the target's own package instead (as for another hero).
+        bool copy = CostumeMove.IsBase(src.Costume);
         foreach (var target in CostumeMove.Targets(src.Costume, costumes, game.Cooked))
         {
-            var made = lib.Mods.FirstOrDefault(x => x.Name.Equals(CostumeMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
+            var made = lib.Mods.FirstOrDefault(x => x.Name.Equals(copy ? CrossMove.NewName(m, target) : CostumeMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
             var others = lib.Mods.Where(x => x != m && x != made && x.Manifest.UpkReplacements.Contains(target.Package, StringComparer.OrdinalIgnoreCase)).ToList();
             string text = target.Title + (target.IsDefault ? "  ·  Default" : "") + (made != null ? "  ·  Already Made (Select It)" : others.Count > 0 ? $"  ·  {others.Count} Other Mod(s)" : "");
-            var item = new ToolStripMenuItem(text, null, (_, _) => { if (made != null) SelectMod(made.FolderName); else MoveCostume(m, src.File, src.Costume, target); });
+            var item = new ToolStripMenuItem(text, null, (_, _) => { if (made != null) SelectMod(made.FolderName); else if (copy) CopyMove(m, src.File, src.Costume, target); else MoveCostume(m, src.File, src.Costume, target); });
             if (target.IsDefault) item.Tag = Ui.Enabled;
             if (MoveCostumeForm.Image(target, catalog) is Bitmap b) { item.Image = b; item.ImageScaling = ToolStripItemImageScaling.None; item.Image = new Bitmap(b, new Size((int)(24 * DeviceDpi / 96f), (int)(34 * DeviceDpi / 96f))); b.Dispose(); }
             items.Add(item);
@@ -1071,6 +1074,16 @@ sealed class MainForm : Form
             if (pick.ShowDialog(this) != DialogResult.OK || pick.Chosen == null) return;
             target = pick.Chosen;
         }
+        CopyMove(m, file, source, target);
+    }
+
+    /// <summary>The copy route (CrossMove): the target costume's stock package with the mod's model copied in. For another hero,
+    /// and for a costume in the hero's main package (Star-Lord Infinity War) moving to one of the hero's own costumes.</summary>
+    async void CopyMove(Mod m, string file, Costume source, Costume target)
+    {
+        if (readOnly || lib == null || game == null || costumes == null) return;
+        var (l, g, all) = (lib, game, costumes);
+        var catalog = list.Catalog;
         var made0 = l.Mods.FirstOrDefault(x => x.Name.Equals(CrossMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
         if (made0 != null) { SelectMod(made0.FolderName); status.Text = Ui.TitleCase($"\"{made0.Name}\" is made already"); return; }
         UseWaitCursor = true;

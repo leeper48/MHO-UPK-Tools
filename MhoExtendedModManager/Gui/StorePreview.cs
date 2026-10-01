@@ -514,6 +514,7 @@ sealed partial class StorePreview : Control
             int i = items.FindIndex(x => x.Key == key);
             bool changed = show3D || i != index;
             show3D = false; index = i;
+            meshIndex = 0;   // the 3D tile then opens the costume's own model, not one picked before (Kurt: Doctor Strange on Daredevil reopened Daredevil)
             Hide3D();
             if (changed) LoadBig();
         }

@@ -1,6 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.63
+- 3D preview: after a picture is chosen (or Choose Automatically Again), the 3D tile opens the costume's own model, not the model picked before.
+
+0.37.62
+- 3D preview: a costume moved to another hero opens on the moved character, not on the target's original model that its package still holds; any package shows its costume's own model first (a hero's main package has props before the hero).
+
+0.37.61
+- Move to Another Costume works for a mod that replaces a hero's main package (Starlord Infinity War, Hellcat, Sentry Classic ...): its model is copied into the target costume's own package, as for a move to another hero. A move from a main package picks the character's own model, not the first one in the package (Star-Lord's has a knife first).
+
 0.37.60
 - Move to Another Costume / Hero: a costume icon, portrait or store image that isn't the game's size no longer stops the move ("resizing isn't built yet"). It's resized to the target's size (scaled to fill and centred, so nothing is stretched), and a message lists what was resized and from which size.
 

@@ -28,7 +28,33 @@ static class ModMeshes
     static int Rank(string file) { for (int i = 0; i < CharacterPrefixes.Length; i++) if (file.StartsWith(CharacterPrefixes[i], StringComparison.OrdinalIgnoreCase)) return i; return 99; }
     static readonly Dictionary<string, List<MeshRef>> listCache = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The skeletal meshes in a set of packages (file name, path): character packages only, costumes first.</summary>
+    /// <summary>
+    /// The model a character package's costume shows: the SkeletalMesh of its player class default's initialskeletalmesh
+    /// component (default__marvelplayer_….initialskeletalmesh), or null. A moved costume points it at the copied model.
+    /// </summary>
+    public static string? CostumeMesh(string path)
+    {
+        try
+        {
+            var p = Package.Open(path);
+            for (int i = 0; i < p.Exports.Length; i++)
+            {
+                var e = p.Exports[i];
+                if (!e.ObjectName.Equals("initialskeletalmesh", StringComparison.OrdinalIgnoreCase)) continue;
+                string at = p.PathOf(e);
+                if (!at.StartsWith("marvelgamecontent.default__marvelplayer", StringComparison.OrdinalIgnoreCase)) continue;
+                var d = p.ReadExportBytes(e);
+                if (TagWalker.Walk(p, d, 16) is { } tags && tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } sm
+                    && BitConverter.ToInt32(d, sm.ValueAt) is int r && r > 0 && r <= p.Exports.Length)
+                    return p.Exports[r - 1].ObjectName;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException or IndexOutOfRangeException) { }
+        return null;
+    }
+
+    /// <summary>The skeletal meshes in a set of packages (file name, path): character packages only, costumes first; in each
+    /// package the costume's own model (CostumeMesh) first.</summary>
     public static List<MeshRef> List(IEnumerable<(string File, string Path)> packages, bool anyPackage = false)
     {
         var result = new List<MeshRef>();
@@ -45,6 +71,12 @@ static class ModMeshes
                     {
                         var pkg = AnimPackage.Open(path);
                         foreach (int i in pkg.FindExportsOfClass(SkeletalMeshReader.ClassName)) found.Add(new MeshRef(file, path, pkg.GetExportName(i), i));
+                        // The costume's own model first (Kurt: a costume moved to another hero opened on the target's original
+                        // model, which its package still holds; a hero's main package has props before the hero).
+                        if (CostumeMesh(path) is string main && found.FindIndex(m => m.Name.Equals(main, StringComparison.OrdinalIgnoreCase)) is int at and > 0)
+                        {
+                            var first = found[at]; found.RemoveAt(at); found.Insert(0, first);
+                        }
                     }
                     catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidPackageException or ArgumentException or IndexOutOfRangeException) { }
                     listCache[key] = found;

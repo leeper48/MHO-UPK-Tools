@@ -81,7 +81,7 @@ static partial class Program
                 string xout = Path.GetFullPath(rest[xb + 1]);
                 if (xout.StartsWith(Path.GetFullPath(xgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
                 var xall = Costume.All(xgr)!;
-                var xsrc = CostumeMove.Single(xm, xall);
+                var xsrc = CostumeMove.Single(xm, xall, allowBase: true);
                 if (xsrc is not { } one) { Console.WriteLine("not a single-costume mod"); return 1; }
                 var xt = xall.FirstOrDefault(c => c.Short.Replace(".prototype", "", StringComparison.OrdinalIgnoreCase).Equals(rest[2], StringComparison.OrdinalIgnoreCase) || c.Class.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
                 if (xt == null) { Console.WriteLine($"no costume '{rest[2]}' (use Hero/Costume as in the prototype, e.g. Storm/ClassicBlack)"); return 1; }
@@ -91,7 +91,7 @@ static partial class Program
                 string modPkg = Path.Combine(xm.Folder, one.File);
                 // The mod's main mesh: the one its costume's component uses (initialskeletalmesh), else its first.
                 var mp = MhoPackageModifier.Package.Open(modPkg);
-                string meshName = ModMeshes.List(xm).Where(r => r.Package.Equals(one.File, StringComparison.OrdinalIgnoreCase)).Select(r => r.Name).FirstOrDefault() ?? "";
+                string meshName = CrossMove.SourceMeshName(xm, one.File, one.Costume.Class);
                 string heroBase = "UC__MarvelPlayer_" + one.Costume.Class.Split('_')[1] + "_SF.upk";
                 string? baseHero = File.Exists(Path.Combine(xm.Folder, heroBase)) ? Path.Combine(xm.Folder, heroBase) : File.Exists(Path.Combine(xgame.Cooked, heroBase)) ? Path.Combine(xgame.Cooked, heroBase) : null;
                 Console.WriteLine($"{one.Costume.Short} ({meshName}) → {xt.Short} ({xt.Class}); target stock {xstock}; source hero base {baseHero ?? "none"}");

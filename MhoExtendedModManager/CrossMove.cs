@@ -344,6 +344,31 @@ static class CrossMove
 
     /// <summary>The source mesh's physics asset: the source costume component's PhysicsAsset (an export), else a PhysicsAsset
     /// inside the mesh's group ("drstrange_classicvu.drstrange_classicvu_physics"); -1 if none.</summary>
+    /// <summary>
+    /// The character model of a costume in a package: the SkeletalMesh its class default's initialskeletalmesh component
+    /// names, else the package's first skeletal mesh. (A hero's main package holds props too: Star-Lord's has a knife,
+    /// techknife, before his own model, and the first mesh was taken.)
+    /// </summary>
+    public static string SourceMeshName(Mod mod, string file, string sourceClass)
+    {
+        var listed = ModMeshes.List(mod).Where(r => r.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).Select(r => r.Name).ToList();
+        try
+        {
+            var p = Package.Open(Path.Combine(mod.Folder, file));
+            string comp = $"marvelgamecontent.default__{sourceClass.ToLowerInvariant()}.initialskeletalmesh";
+            int ci = Array.FindIndex(p.Exports, e => p.PathOf(e).Equals(comp, StringComparison.OrdinalIgnoreCase));
+            if (ci >= 0)
+            {
+                var d = p.ReadExportBytes(p.Exports[ci]);
+                if (TagWalker.Walk(p, d, 16) is { } tags && tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } sm
+                    && BitConverter.ToInt32(d, sm.ValueAt) is int r && r > 0 && r <= p.Exports.Length && listed.Contains(p.Exports[r - 1].ObjectName, StringComparer.OrdinalIgnoreCase))
+                    return p.Exports[r - 1].ObjectName;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException or IndexOutOfRangeException) { }
+        return listed.FirstOrDefault() ?? "";
+    }
+
     static int SourcePhysics(Package src, string meshName, string? sourceClass)
     {
         if (sourceClass != null)
@@ -377,7 +402,7 @@ static class CrossMove
         string? stock = originals.Find(target.Package);
         if (stock == null) { error = $"no stock copy of {target.Package}"; return null; }
         string modPkg = Path.Combine(mod.Folder, srcFile);
-        string meshName = ModMeshes.List(mod).Where(r => r.Package.Equals(srcFile, StringComparison.OrdinalIgnoreCase)).Select(r => r.Name).FirstOrDefault() ?? "";
+        string meshName = SourceMeshName(mod, srcFile, source.Class);
         string heroBase = "UC__MarvelPlayer_" + source.Class.Split('_')[1] + "_SF.upk";
         string? baseHero = File.Exists(Path.Combine(mod.Folder, heroBase)) ? Path.Combine(mod.Folder, heroBase) : File.Exists(Path.Combine(game.Cooked, heroBase)) ? Path.Combine(game.Cooked, heroBase) : null;
         var plan = CostumeMove.Make(mod, srcFile, source, target, all, game.Cooked, catalog);   // icons, text, sound packs
