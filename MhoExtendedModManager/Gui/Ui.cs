@@ -2131,6 +2131,7 @@ sealed class StorePreview : Control
             paused = true;
             bool restoring = restoreTime != null;
             playTime = Math.Clamp(restoreTime ?? 0, 0, playSeconds); restoreTime = null;
+            rig.SetParentAnimation(playing);
             animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); ShowPose();
             ShowFrame(playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0);
             UpdateButtons();
@@ -2501,26 +2502,46 @@ sealed class StorePreview : Control
         string? cooked = CookedFolder;
         if (!on && rig.Count == 0) return;
         // (in the background: the hero's base package may be read for its props)
-        Task.Run(() => (on ? PropRig.Attached(main, all, cooked) : []).Select(w => { try { return (W: w, Mesh: ModMeshes.Load(w.Ref, cooked, out _)); } catch { return (W: w, Mesh: (ModMeshes.Loaded?)null); } }).ToList())
+        var modPkgs = mod == null ? [] : mod.Manifest.UpkReplacements.Select(f => (f, Path.Combine(mod.Folder, f))).ToList();
+        Task.Run(() => (on ? PropRig.Attached(main, all, cooked) : []).Select(w =>
+        {
+            try
+            {
+                var lm = ModMeshes.Load(w.Ref, cooked, out _);
+                // An animated prop gets its own animator and the animations made for its skeleton.
+                if (lm != null && w.UseParentAnim)
+                    return (W: w, Mesh: lm, A: new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents), R: (List<AnimRef>?)null);
+                if (lm != null && w.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase))
+                    return (W: w, Mesh: lm, A: new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents), R: ModAnimations.For(w.Ref, lm.Bones, modPkgs, cooked, minBones: 1));
+                return (W: w, Mesh: lm, A: (MeshAnimator?)null, R: (List<AnimRef>?)null);
+            }
+            catch { return (W: w, Mesh: (ModMeshes.Loaded?)null, A: (MeshAnimator?)null, R: (List<AnimRef>?)null); }
+        }).ToList())
             .ContinueWith(t =>
             {
                 if (IsDisposed || req != request || viewer == null || animator != a || shownLoaded != l) return;
-                baseProps = [.. t.Result.Where(x => x.Mesh != null).Select(x => (x.W, x.Mesh!))];
+                baseProps = [.. t.Result.Where(x => x.Mesh != null).Select(x => (x.W, x.Mesh!, x.A, x.R))];
                 RebuildRig();
             }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     // The character's own props (LoadProps) and the ones the playing power brings from its own package (LoadPropSwitches:
     // Jean Grey's, Luke Cage's and Magneto's thrown cars are defined in their power packages).
-    List<(PropRig.Prop W, ModMeshes.Loaded M)> baseProps = [], powerProps = [];
+    List<(PropRig.Prop W, ModMeshes.Loaded M, MeshAnimator? A, List<AnimRef>? R)> baseProps = [];
+    List<(PropRig.Prop W, ModMeshes.Loaded M)> powerProps = [];
+    Dictionary<string, AnimExportCli.Animation.BoneAnimation> propSeqs = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The character with its props and the power's, as one mesh; the view and the pose kept.</summary>
     void RebuildRig()
     {
         if (viewer == null || animator == null || shownLoaded == null) return;
         rig.Clear();
-        foreach (var (w, m) in baseProps.Concat(powerProps)) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class);
+        // (a prop rigged to the character's skeleton is held at the root: its bind pose is already in place)
+        rig.SetParentAnimation(playing);
+        foreach (var (w, m, an, refs) in baseProps) rig.Add(m, w.UseParentAnim ? -1 : PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, an, refs, w.UseParentAnim);
+        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class);
         rig.SetRules(propRules, propContact, playSeconds);
+        rig.SetMotions(propSeqs);
         var keep = viewer.ViewState;
         viewer.ShowMesh(rig.Combine(shownLoaded), shownLoaded.Positions.Length);   // framed (and the saved view measured) by the character alone
         viewer.ViewState = keep;
@@ -2751,7 +2772,7 @@ sealed class StorePreview : Control
         Invalidate();
     }
 
-    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); if (propRules.Count > 0) { propRules = []; rig.SetRules(propRules, 0, 0); } }
+    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; rig.SetParentAnimation(null); playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); if (propRules.Count > 0) { propRules = []; rig.SetRules(propRules, 0, 0); } }
 
     List<ModMeshes.PropRule> propRules = [];
     float propContact;
@@ -2772,6 +2793,8 @@ sealed class StorePreview : Control
             return;
         }
         var have = baseProps.Select(x => x.W).ToList();
+        int ai0 = animBox.SelectedIndex - 1;
+        var motionRefs = rig.MotionRefs(playing != null && ai0 >= 0 && ai0 < anims.Count ? anims[ai0].Name : null);
         int ai = animBox.SelectedIndex - 1;
         string? anim = playing != null && ai >= 0 && ai < anims.Count ? anims[ai].Name : null;
         var modFiles = mod.Manifest.UpkReplacements.Select(f => Path.Combine(mod.Folder, f)).ToList();
@@ -2781,7 +2804,7 @@ sealed class StorePreview : Control
         var dbTask = GameDb(cooked);
         Task.WhenAll(idxTask, dbTask).ContinueWith(done =>
             {
-                if (anim == null || idxTask.Status != TaskStatus.RanToCompletion || !idxTask.Result.TryGetValue(anim, out var refs)) return (Rules: new List<ModMeshes.PropRule>(), Contact: 0f, Extra: new List<(PropRig.Prop, ModMeshes.Loaded)>());
+                if (anim == null || idxTask.Status != TaskStatus.RanToCompletion || !idxTask.Result.TryGetValue(anim, out var refs)) return (Rules: new List<ModMeshes.PropRule>(), Contact: 0f, Extra: new List<(PropRig.Prop, ModMeshes.Loaded)>(), Seqs: new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase));
                 var files = refs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 var rules = files.SelectMany(ModMeshes.PropRules).Distinct().ToList();
                 // A prop the power shows that the character doesn't have: the power package's own attachment (a thrown car).
@@ -2805,16 +2828,20 @@ sealed class StorePreview : Control
                     var byClass = Fx.PowerIndex.PrototypesByClass(db);
                     if (refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).FirstOrDefault() is string proto) pct = Fx.PowerEffects.ContactPercentOf(db, proto);
                 }
-                return (Rules: rules, Contact: pct * seconds, Extra: extra);
+                // The animated props' own animations of this name.
+                var seqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (cls, ar) in motionRefs) if (!seqs.ContainsKey(cls) && ModAnimations.Load(ar) is { } ba) seqs[cls] = ba;
+                return (Rules: rules, Contact: pct * seconds, Extra: extra, Seqs: seqs);
             })
             .ContinueWith(t =>
             {
                 if (IsDisposed || req != propSwitchRequest || t.Status != TaskStatus.RanToCompletion) return;
                 (propRules, propContact) = (t.Result.Rules, t.Result.Contact);
+                propSeqs = t.Result.Seqs;
                 bool rebuild = powerProps.Count > 0 || t.Result.Extra.Count > 0;
                 powerProps = t.Result.Extra;
                 if (rebuild) RebuildRig();
-                else { rig.SetRules(propRules, propContact, playSeconds); ShowPose(); }
+                else { rig.SetRules(propRules, propContact, playSeconds); rig.SetMotions(propSeqs); ShowPose(); }
             }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 

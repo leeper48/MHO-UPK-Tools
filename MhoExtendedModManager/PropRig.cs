@@ -1,3 +1,4 @@
+using AnimExportCli.Animation;
 using System.Numerics;
 
 namespace MhoExtendedModManager;
@@ -27,6 +28,7 @@ sealed class PropRig
         public IReadOnlyList<string> Slots { get; init; } = [];
         public bool OnDemand { get; init; }
         public string Class { get; init; } = "";
+        public bool UseParentAnim { get; init; }
     }
 
     /// <summary>
@@ -56,7 +58,7 @@ sealed class PropRig
                 if (atts.Count == 0) atts = [.. baseAtt.Where(a => a.Class.Equals(cls, cmp))];
                 foreach (var a in atts)
                     if (candidates.FirstOrDefault(m => m.Name.Equals(a.Mesh, cmp)) is { } mr)
-                        list.Add(new Prop(mr, a.Bone) { Slots = a.Slots, OnDemand = a.OnDemand, Class = a.Class });
+                        list.Add(new Prop(mr, a.Bone) { Slots = a.Slots, OnDemand = a.OnDemand, Class = a.Class, UseParentAnim = a.UseParentAnim });
             }
             if (list.Count > 0) return list;
         }
@@ -86,9 +88,65 @@ sealed class PropRig
         return Math.Max(0, b);
     }
 
-    public void Clear() { props.Clear(); visible = []; }
+    public void Clear() { props.Clear(); motion.Clear(); visible = []; }
     public void Add(ModMeshes.Loaded mesh, int bone) => Add(mesh, bone, [], false, "");
-    public void Add(ModMeshes.Loaded mesh, int bone, IReadOnlyList<string> slots, bool onDemand, string cls) { props.Add((mesh, bone, slots, onDemand, cls)); At(0); }
+    public void Add(ModMeshes.Loaded mesh, int bone, IReadOnlyList<string> slots, bool onDemand, string cls, MeshAnimator? anim = null, List<AnimRef>? anims = null, bool parentAnim = false)
+    {
+        props.Add((mesh, bone, slots, onDemand, cls));
+        motion.Add(anim != null ? new Motion { Anim = anim, Anims = anims ?? [], ParentAnim = parentAnim, Seq = parentAnim ? parentSeq : null, Frames = parentAnim && parentSeq != null ? MeshAnimator.Span(parentSeq).Frames : 0 } : null);
+        At(0);
+    }
+
+    BoneAnimation? parentSeq;
+
+    /// <summary>The character's animation, for props rigged to its skeleton (UseParentAnim): they're posed with it, bone by
+    /// bone name; with none they show in their bind pose, which is already in the character's hands.</summary>
+    public void SetParentAnimation(BoneAnimation? seq)
+    {
+        parentSeq = seq;
+        foreach (var m in motion)
+            if (m is { ParentAnim: true }) { m.Seq = seq; m.Frames = seq == null ? 0 : MeshAnimator.Span(seq).Frames; }
+        At(lastSeconds);
+    }
+
+    /// <summary>
+    /// An animated prop (MarvelAttachmentAnimated: whips, nunchucks, cables, chains) has its own skeleton and plays its own
+    /// animation of the character's animation's name, at the same moment (Taskmaster's nunchucks in Nunchuck Beatdown:
+    /// absattack_daredevil_triplestrike_01 in both). Held on its bone (often the character's root). Without an animation
+    /// for the one playing it isn't shown: its bind pose is not how it's ever seen.
+    /// </summary>
+    sealed class Motion
+    {
+        public MeshAnimator Anim = null!;
+        public List<AnimRef> Anims = [];
+        public BoneAnimation? Seq;
+        public float Frames;
+        public bool ParentAnim;
+    }
+    readonly List<Motion?> motion = [];
+    double lastSeconds;
+
+    /// <summary>For the animation <paramref name="anim"/>: each animated prop's own animation of that name (to load).</summary>
+    public List<(string Class, AnimRef Ref)> MotionRefs(string? anim)
+    {
+        var list = new List<(string, AnimRef)>();
+        if (anim == null) return list;
+        for (int i = 0; i < props.Count; i++)
+            if (motion[i] is { } m && m.Anims.FirstOrDefault(a => a.Name.Equals(anim, StringComparison.OrdinalIgnoreCase)) is { } r) list.Add((props[i].Class, r));
+        return list;
+    }
+
+    /// <summary>The loaded animations of the animated props, by class (none = they don't show).</summary>
+    public void SetMotions(IReadOnlyDictionary<string, BoneAnimation> seqs)
+    {
+        for (int i = 0; i < props.Count; i++)
+            if (motion[i] is { ParentAnim: false } m)   // (props on the character's skeleton keep the character's animation)
+            {
+                m.Seq = seqs.TryGetValue(props[i].Class, out var s) ? s : null;
+                m.Frames = m.Seq == null ? 0 : MeshAnimator.Span(m.Seq).Frames;
+            }
+        At(lastSeconds);
+    }
 
     /// <summary>Some prop's showing depends on the power playing (on demand).</summary>
     public bool Switchable => props.Any(p => p.OnDemand);
@@ -119,6 +177,7 @@ sealed class PropRig
     /// has started (and, for a window, not ended) in start order. A slot "bothhands" means the left and right hands.</summary>
     public void At(double seconds)
     {
+        lastSeconds = seconds;
         if (visible.Length != props.Count) visible = new bool[props.Count];
         for (int i = 0; i < props.Count; i++) visible[i] = !props[i].OnDemand;
         foreach (var r in rules.OrderBy(r => PointTime(r.StartPoint, r.StartOffset)))
@@ -129,6 +188,7 @@ sealed class PropRig
             for (int i = 0; i < props.Count; i++)
                 if (Matches(props[i], r.Target)) visible[i] = r.Show;
         }
+        for (int i = 0; i < props.Count; i++) if (motion.Count > i && motion[i] is { Seq: null, ParentAnim: false }) visible[i] = false;
     }
 
     static bool Matches((ModMeshes.Loaded Mesh, int Bone, IReadOnlyList<string> Slots, bool OnDemand, string Class) p, string target) => Fills(p.Slots, p.Class, target);
@@ -171,7 +231,10 @@ sealed class PropRig
         int at = count, pi = 0;
         foreach (var (m, bone, _, _, _) in props)
         {
-            var mat = animator.BoneMatrix(bone);
+            // (bone -1: rigged to the character's skeleton and posed in its model space already; the root bone's matrix
+            // turned Taskmaster's bow a second time, onto the wrong side)
+            var mat = bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone);
+            var mo = pi < motion.Count ? motion[pi] : null;
             if (pi < visible.Length && !visible[pi++])
             {
                 // Hidden (not this power's weapon): every vertex on one point, so its triangles have no area and aren't drawn.
@@ -179,11 +242,18 @@ sealed class PropRig
                 for (int v = 0; v < m.Positions.Length; v++, at++) pos[at] = c;
                 continue;
             }
+            // An animated prop: its own animation posed at the character's moment, then held on its bone.
+            Vector3[] sp = m.Positions, sn = m.Normals; Vector4[] st = m.Tangents;
+            if (mo != null && (mo.Seq != null || mo.ParentAnim))
+            {
+                mo.Anim.Pose(mo.Seq, mo.Seq != null && animSeconds > 0 ? (float)(Math.Clamp(lastSeconds / animSeconds, 0, 1) * mo.Frames) : 0);
+                sp = mo.Anim.Positions; sn = mo.Anim.Normals; st = mo.Anim.Tangents;
+            }
             for (int v = 0; v < m.Positions.Length; v++, at++)
             {
-                pos[at] = Vector3.Transform(m.Positions[v], mat);
-                if (v < m.Normals.Length) nrm[at] = Vector3.Normalize(Vector3.TransformNormal(m.Normals[v], mat));
-                if (v < m.Tangents.Length) { var tv = m.Tangents[v]; var tt = Vector3.TransformNormal(new Vector3(tv.X, tv.Y, tv.Z), mat); tan[at] = new Vector4(tt.LengthSquared() > 0 ? Vector3.Normalize(tt) : tt, tv.W); }
+                pos[at] = Vector3.Transform(sp[v], mat);
+                if (v < sn.Length) nrm[at] = Vector3.Normalize(Vector3.TransformNormal(sn[v], mat));
+                if (v < st.Length) { var tv = st[v]; var tt = Vector3.TransformNormal(new Vector3(tv.X, tv.Y, tv.Z), mat); tan[at] = new Vector4(tt.LengthSquared() > 0 ? Vector3.Normalize(tt) : tt, tv.W); }
             }
         }
         view.UpdateGeometry(pos, nrm, tan);

@@ -240,8 +240,37 @@ static class Program
                 if (Environment.GetEnvironmentVariable("MHO_RENDER_PROPS") == "1")
                 {
                     AppDomain.CurrentDomain.FirstChanceException += (_, e) => Console.WriteLine("  exception: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
+                    var rpk = rm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(rm.Folder, f))).ToList();
                     foreach (var w in PropRig.Attached(mr, ModMeshes.List(rm), rc))
-                        if (ModMeshes.Load(w.Ref, rc, out _) is { } pm) { rrig.Add(pm, PropRig.BoneFor(anim8, w.Bone), w.Slots, w.OnDemand, w.Class); Console.WriteLine($"  prop {w.Ref.Name} on {w.Bone}{(w.OnDemand ? " (on demand)" : "")}"); }
+                        if (ModMeshes.Load(w.Ref, rc, out _) is { } pm)
+                        {
+                            bool animated = !w.UseParentAnim && w.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase);
+                            var pa = animated ? ModAnimations.For(w.Ref, pm.Bones, rpk, rc, minBones: 1) : null;
+                            if (w.UseParentAnim) rrig.SetParentAnimation(ba);
+                            rrig.Add(pm, w.UseParentAnim ? -1 : PropRig.BoneFor(anim8, w.Bone), w.Slots, w.OnDemand, w.Class, animated || w.UseParentAnim ? new MeshAnimator(pm.Bones, pm.Positions, pm.Normals, pm.Influences, pm.Tangents) : null, pa, w.UseParentAnim);
+                            Console.WriteLine($"  prop {w.Ref.Name} on {w.Bone}{(w.OnDemand ? " (on demand)" : "")}{(animated ? $", animated ({pa!.Count} animations)" : "")}");
+                            if (Environment.GetEnvironmentVariable("MHO_PROP_BONES") == "1" && w.UseParentAnim && ba != null)
+                            {
+                                var pt = new MeshAnimator(pm.Bones, pm.Positions, pm.Normals, pm.Influences, pm.Tangents);
+                                float mid = MeshAnimator.Span(ba).Frames / 2;
+                                pt.Pose(ba, mid); anim8.Pose(ba, mid);
+                                foreach (string bn in new[] { "g_l_wrist", "g_r_wrist", "g_pelvis" })
+                                    Console.WriteLine($"    {bn}: prop {pt.BonePosition(pt.BoneIndex(bn))}  character {anim8.BonePosition(anim8.BoneIndex(bn))}");
+                                var wsum = new Dictionary<string, float>();
+                                foreach (var inf in pm.Influences) for (int k = 0; k < inf.Bones.Count; k++) { string bn = inf.Bones[k] >= 0 && inf.Bones[k] < pm.Bones.Count ? pm.Bones[inf.Bones[k]].Name : "#" + inf.Bones[k]; wsum[bn] = wsum.GetValueOrDefault(bn) + inf.Weights[k]; }
+                                Console.WriteLine("    weights: " + string.Join(", ", wsum.OrderByDescending(x => x.Value).Take(8).Select(x => $"{x.Key} {x.Value:0}")));
+                                pt.Pose(null, 0); anim8.Pose(null, 0);
+                                Console.WriteLine($"    rest g_l_wrist: prop {pt.BonePosition(pt.BoneIndex("g_l_wrist"))}  character {anim8.BonePosition(anim8.BoneIndex("g_l_wrist"))}");
+                            }
+                            if (Environment.GetEnvironmentVariable("MHO_PROP_BONES") == "1") Console.WriteLine("    bones: " + string.Join(" ", pm.Bones.Select(x => x.Name.StartsWith("g_bow") ? $"{x.Name}<{(x.ParentIndex >= 0 && x.ParentIndex < pm.Bones.Count ? pm.Bones[x.ParentIndex].Name : "-")}" : x.Name)) + (ba != null ? $"   (tracks for {pm.Bones.Count(x => ba.Tracks.ContainsKey(x.Name))})" : ""));
+                        }
+                    if (ar != null)
+                    {
+                        var seqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var (cls, pref) in rrig.MotionRefs(ar.Name)) if (ModAnimations.Load(pref) is { } pba) seqs[cls] = pba;
+                        rrig.SetMotions(seqs);
+                        Console.WriteLine("  prop animations: " + (seqs.Count == 0 ? "none" : string.Join(", ", seqs.Keys)));
+                    }
                     // The playing power's weapon-slot switches, as the preview applies them.
                     if (ar != null && rc != null && mr.Package.Split('_', StringSplitOptions.RemoveEmptyEntries) is [_, _, var rhero, ..]
                         && Fx.PowerIndex.For(rhero, rc, rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f))).TryGetValue(ar.Name, out var prefs))

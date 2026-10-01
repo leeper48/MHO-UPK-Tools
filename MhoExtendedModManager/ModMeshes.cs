@@ -268,6 +268,9 @@ static class ModMeshes
         public string Class { get; init; } = "";
         /// <summary>Every WeaponSlot it fills (a power's SwitchAttachments turns slots off and on: bothhands → pumpshotgun).</summary>
         public IReadOnlyList<string> Slots { get; init; } = [];
+        /// <summary>bAttachUseParentAnim: rigged to the character's skeleton and moved by the character's animation (Taskmaster's
+        /// bow, Punisher's flamethrower): no bone of its own.</summary>
+        public bool UseParentAnim { get; init; }
     }
 
     /// <summary>
@@ -301,6 +304,7 @@ static class ModMeshes
         }
         T? From<T>(RawAttachment a, Func<RawAttachment, T?> get) where T : class => Inherited(a, get);
         bool OnDemandOf(RawAttachment a) { for (RawAttachment? c = a; c != null; c = Parent(c)) if (c.OnDemand is bool v) return v; return false; }
+        bool ParentAnimOf(RawAttachment a) { for (RawAttachment? c = a; c != null; c = Parent(c)) if (c.UseParentAnim is bool v) return v; return false; }
         var result = new List<Attachment>();
         foreach (var a in raw)
         {
@@ -308,13 +312,14 @@ static class ModMeshes
             // (the mesh too: a default that sets only its slots has its parent class's)
             var meshes = From(a, x => x.Meshes.Count > 0 ? x.Meshes : null) ?? (a.GuessMesh != null ? [a.GuessMesh] : []);
             foreach (string m in meshes)
-                result.Add(new Attachment(m, From(a, x => x.Bone), slots.FirstOrDefault()) { OnDemand = OnDemandOf(a), Class = a.Class, Slots = slots });
+                result.Add(new Attachment(m, From(a, x => x.Bone), slots.FirstOrDefault()) { OnDemand = OnDemandOf(a), Class = a.Class, Slots = slots, UseParentAnim = ParentAnimOf(a) });
         }
         return result;
     }
 
     sealed record RawAttachment(string Class, List<string> Meshes, string? Bone, List<string>? Slots, bool? OnDemand, string? Super)
     {
+        public bool? UseParentAnim { get; init; }
         /// <summary>A skeletal mesh of the package whose name ends the class name (marvelattachment_kittypryde_katana →
         /// katana): used only when the class sets no mesh and none is inherited (a guess: Kitty's katana names none, its
         /// parent class isn't in the package, and the package has a mesh "katana").</summary>
@@ -343,7 +348,7 @@ static class ModMeshes
                 if (!cls.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase)) continue;
                 var d = pkg.ReadExportBytes(e);
                 if (TagWalker.Walk(pkg, d, 4) is not { } tags) continue;
-                var meshes = new List<string>(); string? bone = null; List<string>? slots = null; bool? onDemand = null;
+                var meshes = new List<string>(); string? bone = null; List<string>? slots = null; bool? onDemand = null, parentAnim = null;
                 foreach (var t in tags)
                 {
                     int count = t.Size >= 4 ? BitConverter.ToInt32(d, t.ValueAt) : 0;
@@ -364,11 +369,13 @@ static class ModMeshes
                         slots = [];
                         for (int k = 0; k < count && t.ValueAt + 4 + 8 * (k + 1) <= t.End; k++) slots.Add(TagWalker.NameAt(pkg, d, t.ValueAt + 4 + 8 * k));
                     }
+                    else if (t.Name.Equals("bAttachUseParentAnim", StringComparison.OrdinalIgnoreCase)) parentAnim = d[t.ValueAt - 1] != 0;
                     else if (t.Name.Equals("VisibilityPoint", StringComparison.OrdinalIgnoreCase))
                         onDemand = TagWalker.NameAt(pkg, d, t.ValueAt).Contains("on_demand", StringComparison.OrdinalIgnoreCase);
                 }
                 raw.Add(new RawAttachment(cls, meshes, bone, slots, onDemand, SuperOf(pkg, cls))
                 {
+                    UseParentAnim = parentAnim,
                     GuessMesh = skeletal.Where(m => cls.EndsWith("_" + m, StringComparison.OrdinalIgnoreCase)).OrderByDescending(m => m.Length).FirstOrDefault(),
                 });
             }

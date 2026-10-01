@@ -59,7 +59,7 @@ static class ModAnimations
     }
 
     /// <summary>The animations that fit a mesh (its bones), by name.</summary>
-    public static List<AnimRef> For(MeshRef mesh, IReadOnlyList<MeshBone> bones, IEnumerable<(string File, string Path)> modPackages, string? cooked)
+    public static List<AnimRef> For(MeshRef mesh, IReadOnlyList<MeshBone> bones, IEnumerable<(string File, string Path)> modPackages, string? cooked, int minBones = 3)
     {
         var boneNames = bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var result = new List<AnimRef>();
@@ -71,7 +71,7 @@ static class ModAnimations
             foreach (var set in AnimObjectReader.FindAnimSets(pkg))
             {
                 int match = set.TrackBoneNames.Count(boneNames.Contains);
-                if (match < Math.Max(3, set.TrackBoneNames.Count / 2)) continue;   // another skeleton
+                if (match < Math.Max(minBones, set.TrackBoneNames.Count / 2)) continue;   // another skeleton (a prop's own skeleton can be small: minBones)
                 foreach (var seq in set.Sequences.Where(s => s.IsExport))
                 {
                     string name;

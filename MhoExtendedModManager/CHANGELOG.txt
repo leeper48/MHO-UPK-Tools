@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.57
+- 3D preview: props rigged to the character's own skeleton move with the character's animation, as in the game (Taskmaster's bow is in her hand and draws with the shot; it showed fixed behind her before).
+
+0.37.56
+- 3D preview: animated props (whips, nunchucks, cables, chains) play their own animation along with the character's, as in the game; they used to stand still in their resting shape at the character's feet (Taskmaster's nunchucks). One without an animation for the move being played isn't shown.
+
 0.37.55
 - 3D preview props, checked across every hero in the game: a survey of all 5,559 power and hero packages found every way the game shows, hides and swaps a character's props, and the preview now follows all of them, timed within the animation (from the power's start, its contact moment or its end; while-active windows end on time). Weapons defined in a power's own package are loaded with it (Jean Grey's, Luke Cage's and Magneto's thrown cars). Animated props (whips, chains, bikes) and props that take their mesh from a parent class (Kitty Pryde's katana) are found.
 - Power buttons: a power with no icon in the game data joins the power it belongs to or is left out (43 such across the heroes; Magik's demon-form attacks), and name markup is removed (Angela). All 66 heroes' 934 buttons have a name and an icon.
