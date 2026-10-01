@@ -14,7 +14,7 @@ namespace MhoExtendedModManager;
 /// Steps: (1) the mod's imports of materials / textures from its hero's base package (She-Hulk's hair material lives in
 /// UC__MarvelPlayer_SheHulk_SF, which isn't loaded for another hero) are copied into the target first, as exports under the
 /// same path; (2) the mesh is copied with those imports pointed at the copies; (3) the component's SkeletalMesh property is
-/// set to the copy and its PhysicsAsset to none (the target's physics asset is built for the target's bones).
+/// set to the copy and its PhysicsAsset to the source mesh's own (copied; 0.37.25: APEX cloth needs it), else none (the target's is built for the target's bones).
 /// </summary>
 static class CrossMove
 {
@@ -119,7 +119,19 @@ static class CrossMove
             }
         }
 
-        // (3) The costume's mesh component: SkeletalMesh → the copy, PhysicsAsset → none.
+        // (2c) The source mesh's own physics asset (Kurt, 2026-09-30: Doctor Strange's cape stayed static on Colossus; APEX cloth
+        // needs the component's physics asset, and the source's is built for the copied mesh's bones). From the source
+        // costume's component, else the "<mesh>_physics" beside the mesh. If it can't be copied, the component gets none.
+        int physRef = 0;
+        int pa = SourcePhysics(src, meshName, sourceClass);
+        if (pa >= 0)
+        {
+            var pc = Quiet(() => ExportCopy.Copy(src, pa, pkg, [], null, replace), out string psaid);
+            if (pc != null) { pkg = Package.FromBytes(pc.Output); physRef = pc.RootRef; log.Add($"physics asset {src.PathOf(src.Exports[pa])} is export #{physRef}"); }
+            else log.Add("physics asset: not copied (" + string.Join(" ", psaid.Split(Environment.NewLine).Where(l => l.Contains("can't")).Select(l => l.Trim())) + "); the component gets none");
+        }
+
+        // (3) The costume's mesh component: SkeletalMesh → the copy, PhysicsAsset → the copied one (else none).
         string compPath = $"marvelgamecontent.default__{targetClass}.initialskeletalmesh";
         int comp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
         if (comp < 0) throw new InvalidDataException($"no {compPath} in the target");
@@ -128,22 +140,225 @@ static class CrossMove
         var skel = tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) ?? throw new InvalidDataException("the mesh component has no SkeletalMesh property");
         int oldMesh = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(skel.ValueAt));
         BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(skel.ValueAt), copy.RootRef);
+        var addNames = new List<string>();
+        int noneAt = tags.Count > 0 ? tags[^1].End : 16;   // where the component's None tag starts (new tags go before it)
         if (tags.FirstOrDefault(t => t.Name.Equals("PhysicsAsset", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } phys)
         {
-            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(phys.ValueAt), 0);
-            log.Add("physics asset: none (the target's is built for its own bones)");
+            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(phys.ValueAt), physRef);
+            log.Add(physRef > 0 ? $"component: PhysicsAsset → #{physRef}" : "physics asset: none (the target's is built for its own bones)");
+        }
+        else if (physRef > 0)
+        {
+            // The target's component doesn't name one (Colossus): a PhysicsAsset ObjectProperty goes in before its None.
+            int NameIdx(string n)
+            {
+                int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) return i;
+                int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+                return pkg.Names.Length + j;
+            }
+            int at = noneAt;
+            var tag = new byte[28];
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), NameIdx("PhysicsAsset"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("ObjectProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(24), physRef);
+            d = [.. d.AsSpan(0, at), .. tag, .. d.AsSpan(at)];
+            noneAt += tag.Length;
+            log.Add($"component: PhysicsAsset added → #{physRef}");
         }
         log.Add($"component: SkeletalMesh {(oldMesh > 0 ? pkg.PathOf(pkg.Exports[oldMesh - 1]) : oldMesh.ToString())} → #{copy.RootRef}");
         var replaceData = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => d };
         if (voiceComp >= 0 && voiceData != null) replaceData[voiceComp] = _ => voiceData;   // the target costume's voice set = the source's
-        byte[] output = PackageRebuilder.Rebuild(pkg, replaceData, [], out var written);
-        var problems = PackageRebuilder.Verify(pkg, output, replaceData.Keys.ToList(), [], written);
+        // The animation tree (Kurt, 2026-09-30: Doctor Strange's cape stayed pinned on Colossus and Daredevil, moved on his own
+        // Fear Itself and Punisher S2's coat moved on Daredevil). Heroes use shared trees in Startup.upk: pc_at_v2 (Colossus,
+        // Daredevil, Punisher, Hulk, Spider-Man …) has per-bone blends starting at g_cape1 / g_l_cape1-3 / g_r_cape1-3 (one is
+        // "overridephysicsbones"), pc_at_nocape (Doctor Strange, Moon Knight, Emma Frost, Scarlet Witch, Thor …) leaves them
+        // out. Doctor Strange's cape hangs from exactly those bones; Punisher's coat from g_coat* / g_*coatback*. So the moved
+        // model gets the source's tree when that's a shared one (an import); a hero's own tree (Silver Surfer, Deadpool) stays.
+        var addImports = new List<NewImport>();
+        if (SourceTree(src, sourceClass, baseHero) is { } tree)
+        {
+            int NameIdx4(string n)
+            {
+                int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) return i;
+                if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+                return pkg.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            }
+            int treeRef = -1 - Array.FindIndex(pkg.Imports, im => im.ObjectName.Equals(tree.Name, StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals("AnimTree", StringComparison.OrdinalIgnoreCase)
+                && im.OuterIndex < 0 && pkg.Imports[-im.OuterIndex - 1].ObjectName.Equals(tree.Outer, StringComparison.OrdinalIgnoreCase));
+            if (treeRef == 0)   // not imported yet (FindIndex -1 → 0)
+            {
+                int outerIdx = Array.FindIndex(pkg.Imports, im => im.ObjectName.Equals(tree.Outer, StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals("Package", StringComparison.OrdinalIgnoreCase) && im.OuterIndex == 0);
+                int outerRef;
+                if (outerIdx >= 0) outerRef = -1 - outerIdx;
+                else
+                {
+                    foreach (string n in new[] { "Core", "Package", tree.Outer }) NameIdx4(n);
+                    addImports.Add(new NewImport("Core", "Package", 0, tree.Outer));
+                    outerRef = -(pkg.Imports.Length + addImports.Count);
+                }
+                foreach (string n in new[] { "Engine", "AnimTree", tree.Name }) NameIdx4(n);
+                addImports.Add(new NewImport("Engine", "AnimTree", outerRef, tree.Name));
+                treeRef = -(pkg.Imports.Length + addImports.Count);
+            }
+            if (tags.FirstOrDefault(t => t.Name.Equals("AnimTreeTemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } at0)
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(at0.ValueAt), treeRef);
+            else
+            {
+                var tag = new byte[28];
+                BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), NameIdx4("AnimTreeTemplate"));
+                BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx4("ObjectProperty"));
+                BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);
+                BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(24), treeRef);
+                d = [.. d.AsSpan(0, noneAt), .. tag, .. d.AsSpan(noneAt)];
+                noneAt += tag.Length;
+            }
+            log.Add($"component: AnimTreeTemplate → {tree.Outer}.{tree.Name} (the source's)");
+        }
+
+        // PhysicsWeight (Kurt, 2026-09-30: the cape stayed static with the physics asset alone): Doctor Strange's base component
+        // sets 1.0, Colossus's leaves the default 0, and that was the only difference between them besides their own meshes
+        // and assets. The source's value (its costume component, else its hero's base component) goes to the target's
+        // component when that doesn't set one; only with the source's own physics asset.
+        // A target that sets its own (Doctor Strange Fear Itself: 0.5) gets the source's too.
+        if (physRef > 0 && SourceFloat(src, sourceClass, baseHero, "PhysicsWeight") is float w0
+            && tags.FirstOrDefault(t => t.Name.Equals("PhysicsWeight", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } pw)
+        {
+            BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(pw.ValueAt), w0);   // existing tags sit before None, so an insert at None doesn't move them
+            log.Add($"component: PhysicsWeight {w0} (as the source's)");
+        }
+        else if (physRef > 0 && SourceFloat(src, sourceClass, baseHero, "PhysicsWeight") is float weight
+            && !tags.Any(t => t.Name.Equals("PhysicsWeight", StringComparison.OrdinalIgnoreCase)))
+        {
+            int NameIdx2(string n)
+            {
+                int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) return i;
+                int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+                return pkg.Names.Length + j;
+            }
+            int at = noneAt;
+            var tag = new byte[28];
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), NameIdx2("PhysicsWeight"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx2("FloatProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);
+            BinaryPrimitives.WriteSingleLittleEndian(tag.AsSpan(24), weight);
+            d = [.. d.AsSpan(0, at), .. tag, .. d.AsSpan(at)];
+            replaceData[comp] = _ => d;
+            log.Add($"component: PhysicsWeight {weight} (as the source's)");
+        }
+        // TargetPhysicsWeight on the costume class default (Kurt, 2026-09-30: with the physics asset and PhysicsWeight the sash
+        // swung on Colossus but the cape didn't). Stock cloth costumes set it to 0 (Storm Modern VU, Thing Incognito, Moon Knight
+        // Modern, Punisher TV, Old Man Logan, Iron Fist Immortal, Doctor Strange Classic), costumes without cloth leave the
+        // non-zero default (Storm Classic, Thing Classic, Colossus Modern). The source's value goes to the target's default.
+        if (physRef > 0 && SourceFloat(src, sourceClass, baseHero, "TargetPhysicsWeight", "") is float target)
+        {
+            string defPath = $"marvelgamecontent.default__{targetClass}";
+            int def = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(defPath, StringComparison.OrdinalIgnoreCase));
+            byte[]? dd = def < 0 ? null : replaceData.TryGetValue(def, out var f0) ? f0(0) : pkg.ReadExportBytes(pkg.Exports[def]).ToArray();
+            var dtags = dd == null ? null : TagWalker.Walk(pkg, dd, 4);
+            if (dd == null || dtags == null) log.Add("target physics weight: the costume's default doesn't read; left as it is");
+            else
+            {
+                if (dtags.FirstOrDefault(t => t.Name.Equals("TargetPhysicsWeight", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } tt)
+                    BinaryPrimitives.WriteSingleLittleEndian(dd.AsSpan(tt.ValueAt), target);
+                else
+                {
+                    int NameIdx3(string n)
+                    {
+                        int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                        if (i >= 0) return i;
+                        int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                        if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+                        return pkg.Names.Length + j;
+                    }
+                    int at = dtags.Count > 0 ? dtags[^1].End : 4;
+                    var tag = new byte[28];
+                    BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), NameIdx3("TargetPhysicsWeight"));
+                    BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx3("FloatProperty"));
+                    BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);
+                    BinaryPrimitives.WriteSingleLittleEndian(tag.AsSpan(24), target);
+                    dd = [.. dd.AsSpan(0, at), .. tag, .. dd.AsSpan(at)];
+                }
+                byte[] final = dd;
+                replaceData[def] = _ => final;
+                log.Add($"costume default: TargetPhysicsWeight {target} (as the source's)");
+            }
+        }
+        byte[] output = PackageRebuilder.Rebuild(pkg, replaceData, [], out var written, addNames, addImports);
+        var problems = PackageRebuilder.Verify(pkg, output, replaceData.Keys.ToList(), [], written, addNames, addImports);
         if (problems.Count > 0) throw new InvalidDataException(string.Join("; ", problems));
         // The GUID stays the target's (the game checks it): the target stock package's summary is kept as it was.
         var t0 = Package.Open(targetStock);
         if (!File.ReadAllBytes(targetStock).AsSpan(t0.GenerationsAt - 16, 16).SequenceEqual(output.AsSpan(Package.FromBytes(output).GenerationsAt - 16, 16)))
             throw new InvalidDataException("the GUID isn't the target's");
         return output;
+    }
+
+    /// <summary>The source's animation tree when it's a shared one (an import inside a package import, e.g. biped_lib.pc_at_nocape
+    /// from Startup.upk): the source costume component's AnimTreeTemplate, else its hero base component's; null otherwise.</summary>
+    static (string Outer, string Name)? SourceTree(Package src, string? sourceClass, string? baseHero)
+    {
+        if (sourceClass == null) return null;
+        string lower = sourceClass.ToLowerInvariant(), heroClass = "marvelplayer_" + lower.Split('_')[1];
+        foreach (var (p, comp) in new[] { (src, $"marvelgamecontent.default__{lower}.initialskeletalmesh"),
+                                          (baseHero != null && File.Exists(baseHero) ? Package.Open(baseHero) : null, $"marvelgamecontent.default__{heroClass}.initialskeletalmesh") })
+        {
+            if (p == null) continue;
+            int c = Array.FindIndex(p.Exports, e => p.PathOf(e).Equals(comp, StringComparison.OrdinalIgnoreCase));
+            if (c < 0) continue;
+            byte[] cd = p.ReadExportBytes(p.Exports[c]).ToArray();
+            if (TagWalker.Walk(p, cd, 16)?.FirstOrDefault(t => t.Name.Equals("AnimTreeTemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is not { } t) continue;
+            int r = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(t.ValueAt));
+            if (r >= 0) return null;                                  // none, or the hero's own tree (an export)
+            var im = p.Imports[-r - 1];
+            if (im.OuterIndex >= 0 || !im.ClassName.Equals("AnimTree", StringComparison.OrdinalIgnoreCase)) return null;
+            var outer = p.Imports[-im.OuterIndex - 1];
+            if (outer.OuterIndex != 0 || !outer.ClassName.Equals("Package", StringComparison.OrdinalIgnoreCase)) return null;
+            return (outer.ObjectName, im.ObjectName);
+        }
+        return null;
+    }
+
+    /// <summary>A float property of the source's mesh component: its costume component, else its hero's base component.</summary>
+    static float? SourceFloat(Package src, string? sourceClass, string? baseHero, string prop, string sub = ".initialskeletalmesh")
+    {
+        if (sourceClass == null) return null;
+        string lower = sourceClass.ToLowerInvariant(), heroClass = "marvelplayer_" + lower.Split('_')[1];
+        foreach (var (p, comp) in new[] { (src, $"marvelgamecontent.default__{lower}{sub}"),
+                                          (baseHero != null && File.Exists(baseHero) ? Package.Open(baseHero) : null, $"marvelgamecontent.default__{heroClass}{sub}") })
+        {
+            if (p == null) continue;
+            int c = Array.FindIndex(p.Exports, e => p.PathOf(e).Equals(comp, StringComparison.OrdinalIgnoreCase));
+            if (c < 0) continue;
+            byte[] cd = p.ReadExportBytes(p.Exports[c]).ToArray();
+            if (TagWalker.Walk(p, cd, sub.Length == 0 ? 4 : 16)?.FirstOrDefault(t => t.Name.Equals(prop, StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } t)
+                return BinaryPrimitives.ReadSingleLittleEndian(cd.AsSpan(t.ValueAt));
+        }
+        return null;
+    }
+
+    /// <summary>The source mesh's physics asset: the source costume component's PhysicsAsset (an export), else a PhysicsAsset
+    /// inside the mesh's group ("drstrange_classicvu.drstrange_classicvu_physics"); -1 if none.</summary>
+    static int SourcePhysics(Package src, string meshName, string? sourceClass)
+    {
+        if (sourceClass != null)
+        {
+            string compPath = $"marvelgamecontent.default__{sourceClass}.initialskeletalmesh";
+            int c = Array.FindIndex(src.Exports, e => src.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+            if (c >= 0)
+            {
+                byte[] cd = src.ReadExportBytes(src.Exports[c]).ToArray();
+                if (TagWalker.Walk(src, cd, 16)?.FirstOrDefault(t => t.Name.Equals("PhysicsAsset", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } t
+                    && BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(t.ValueAt)) is int r && r > 0) return r - 1;
+            }
+        }
+        return Array.FindIndex(src.Exports, e => src.ClassOf(e).Equals("PhysicsAsset", StringComparison.OrdinalIgnoreCase)
+            && src.PathOf(e).StartsWith(meshName + ".", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>"She-Hulk (on Storm Modern)": a move to another hero names the hero too.</summary>
@@ -204,10 +419,12 @@ static class CrossMove
         finally { try { if (Directory.Exists(work)) Directory.Delete(work, true); } catch (IOException) { } }
     }
 
-    /// <summary>A refused copy in plain words (checked on the library: 146 of 155 costume meshes copy; APEX cloth, animated
-    /// materials and a mesh's own physics asset don't yet).</summary>
+    /// <summary>A refused copy in plain words. APEX cloth (capes, coats) copies since 0.37.22 (ported from the MHO Hero Creator):
+    /// all 58 of the library's costume mods build onto Daredevil Modern since 0.37.25 (physics assets copy: Scarlet Witch House of M's
+    /// material has an import whose outer is a physics constraint).</summary>
     static string Friendly(string why) =>
-        why.Contains("clothing", StringComparison.OrdinalIgnoreCase) ? "Its model uses APEX cloth (a cape or coat simulated by PhysX), which can't be moved to another hero yet."
+        why.Contains("clothing", StringComparison.OrdinalIgnoreCase) ? "Its model's APEX cloth (a cape or coat simulated by PhysX) is set up in a way that can't be moved to another hero yet."
+        : why.Contains("physicsassetinstance", StringComparison.OrdinalIgnoreCase) ? "Its files link part of its model to its own physics setup, which can't be moved to another hero yet."
         : why.Contains("timevarying", StringComparison.OrdinalIgnoreCase) ? "It uses an animated material that can't be moved to another hero yet."
         : why.Contains("rb_bodysetup", StringComparison.OrdinalIgnoreCase) ? "Its model has its own physics setup, which can't be moved to another hero yet."
         : why;

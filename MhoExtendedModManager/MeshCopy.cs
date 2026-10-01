@@ -54,11 +54,17 @@ static class MeshCopy
         if (I32(d, map) != bones) throw new InvalidDataException($"name map count {I32(d, map)}, expected {bones}");
         int m = map + 4;
         for (int k = 0; k < bones; k++, m += 12) refs.Add(new(m, true, $"native.namemap[{k}]"));
-        // The 44-byte end: 3 empty arrays, 1, 0, 4, a float, 16 zero bytes.
-        // (two floats at +24 and +28: the second is 0 in most meshes, not in Beast, Dr Doom, Punisher Modern.)
-        if (d.Length - m != 44 || d.AsSpan(m, 12).ContainsAnyExcept((byte)0) || I32(d, m + 12) != 1 || I32(d, m + 16) != 0 || I32(d, m + 20) != 4
-            || d.AsSpan(m + 32, 12).ContainsAnyExcept((byte)0))
-            throw new InvalidDataException($"skeletal mesh end isn't the known 44-byte layout ({d.Length - m} bytes)");
+        // The end: 3 empty arrays (12 zero bytes); the per-LOD clothing assets (count, then object references: [none] for a
+        // mesh without cloth, the ApexClothingAsset then none per further LOD for a cape: Angela 1602's; the MHO Hero Creator's
+        // finding, ported 2026-09-30 so caped costumes can move to other heroes); 4; two floats (the second 0 in most meshes,
+        // not in Beast, Dr Doom, Punisher Modern); 12 zero bytes. (Without cloth that's the 44 bytes this used to require.)
+        if (d.AsSpan(m, 12).ContainsAnyExcept((byte)0)) throw new InvalidDataException("skeletal mesh end: the first three arrays aren't empty");
+        int clothCount = I32(d, m + 12);
+        if (clothCount < 0 || clothCount > 16) throw new InvalidDataException($"skeletal mesh end: {clothCount} clothing slots");
+        int q = m + 16;
+        for (int k = 0; k < clothCount; k++, q += 4) refs.Add(new(q, false, $"native.clothingassets[{k}]"));
+        if (d.Length - q != 24 || I32(d, q) != 4 || d.AsSpan(q + 12, 12).ContainsAnyExcept((byte)0))
+            throw new InvalidDataException($"skeletal mesh end isn't the known layout ({d.Length - m} bytes)");
         return refs;
     }
 

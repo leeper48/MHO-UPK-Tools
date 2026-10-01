@@ -93,7 +93,7 @@ static class Ui
         _ => m != null && m.KindOf(tag) == Mod.TagKind.Mod ? TagMod : TagUser,
     };
 
-    /// <summary>"team, automatic", "character, yours", "from the mod" … for tooltips.</summary>
+    /// <summary>"team, automatic", "character, user", "from the mod" … for tooltips.</summary>
     public static string TagDescription(Mod m, string tag)
     {
         string what = AutoTags.Classify(tag) switch { AutoTags.TagClass.Character => "character, ", AutoTags.TagClass.Team => "team, ", AutoTags.TagClass.Content => "content, ", _ => "" };
@@ -124,8 +124,8 @@ static class Ui
         return r;
     }
 
-    /// <summary>"automatic", "from the mod" or "yours", for tooltips.</summary>
-    public static string TagSource(Mod m, string tag) => m.KindOf(tag) switch { Mod.TagKind.User => "yours", Mod.TagKind.Mod => "from the mod", _ => "automatic" };
+    /// <summary>"automatic", "from the mod" or "user", for tooltips.</summary>
+    public static string TagSource(Mod m, string tag) => m.KindOf(tag) switch { Mod.TagKind.User => "user", Mod.TagKind.Mod => "from the mod", _ => "automatic" };
 
     public static int ChipWidth(Graphics g, string text, Font font, float s) =>
         TextRenderer.MeasureText(g, text, font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + (int)(12 * s);
@@ -575,6 +575,38 @@ static class Ui
             if (!c.ReadOnly && c is DataGridViewTextBoxColumn) { c.DefaultCellStyle.BackColor = Color.FromArgb(40, 40, 46); }   // editable cells stand out
         if (styledGrids.TryGetValue(g, out _)) return;
         styledGrids.Add(g, new object());
+        // Cell tooltips in the app's dark style (Kurt: the table's own were the white system box): a cell's own tip text, or
+        // its whole text when the cell cuts it off. The table's built-in tooltip is off.
+        g.ShowCellToolTips = false;
+        string? cellTip = null;
+        var cellTips = NewTips(() => cellTip);
+        var cellTimer = new System.Windows.Forms.Timer { Interval = 450 };
+        cellTimer.Tick += (_, _) =>
+        {
+            cellTimer.Stop();
+            if (cellTip == null || g.IsDisposed || !g.IsHandleCreated) return;
+            var p = g.PointToClient(Cursor.Position);
+            float s = g.DeviceDpi / 96f;
+            cellTips.Show(cellTip, g, p.X + (int)(14 * s), p.Y + (int)(20 * s), 20000);
+        };
+        g.CellMouseEnter += (_, e) =>
+        {
+            cellTimer.Stop(); cellTips.Hide(g); cellTip = null;
+            if (e.RowIndex < 0 || e.ColumnIndex < 0 || e.RowIndex >= g.Rows.Count) return;
+            var cell = g.Rows[e.RowIndex].Cells[e.ColumnIndex];
+            string? t = !string.IsNullOrEmpty(cell.ToolTipText) ? cell.ToolTipText : null;
+            if (t == null && cell.FormattedValue is string v && v.Length > 0)
+            {
+                var font = cell.InheritedStyle.Font ?? g.Font;
+                var pad = cell.InheritedStyle.Padding;
+                int room = g.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false).Width - pad.Horizontal - 4;
+                if (TextRenderer.MeasureText(v, font).Width > room) t = v;   // cut off: show it whole
+            }
+            cellTip = t;
+            if (t != null) cellTimer.Start();
+        };
+        g.CellMouseLeave += (_, _) => { cellTimer.Stop(); cellTip = null; cellTips.Hide(g); };
+        g.Disposed += (_, _) => { cellTimer.Dispose(); cellTips.Dispose(); };
         // Check boxes in cells drawn like the app's own (Modern.Toggle), not the system's.
         g.CellPainting += (_, e) =>
         {
@@ -781,6 +813,37 @@ sealed class ModListBox : ListBox
     Mod? dragMod; Point dragFrom; bool dragging, leftDown; int dropItem = -1; bool dropBelow;
     readonly System.Windows.Forms.Timer scrollTimer = new() { Interval = 60 };
     public event Action<Mod>? CheckClicked;
+    // Multi-select (a user, 2026-09-30: Shift to turn several on / off, drag them as a group, move them with the priority
+    // buttons). The ListBox's own SelectedIndex stays the one card whose details show; the marked cards are kept by folder
+    // name, so they survive the reload after a change (turn them on, then off again).
+    readonly HashSet<string> marked = new(StringComparer.OrdinalIgnoreCase);
+    int anchor = -1;
+    bool clearOnUp;
+    /// <summary>A checkbox of a marked card (or Space) with several marked: (the marked mods in list order, the new state).</summary>
+    public event Action<List<Mod>, bool>? CheckManyClicked;
+    /// <summary>Several marked cards dropped next to another: (the marked mods in list order, target, below the target).</summary>
+    public event Action<List<Mod>, Mod, bool>? DroppedMany;
+    /// <summary>The marking changed (how many are marked).</summary>
+    public event Action<int>? MarksChanged;
+    /// <summary>The marked mods shown in the list, in list order (empty unless more than one is marked).</summary>
+    public List<Mod> MarkedMods => marked.Count > 1 ? Items.OfType<Mod>().Where(m => marked.Contains(m.FolderName)).ToList() : [];
+    bool IsMarked(Mod m) => marked.Contains(m.FolderName);
+    /// <summary>Back to a single selection (the card whose details show).</summary>
+    public void ClearMarks()
+    {
+        int before = marked.Count;
+        marked.Clear();
+        if (SelectedItem is Mod m) marked.Add(m.FolderName);
+        if (before > 1) { Invalidate(); MarksChanged?.Invoke(marked.Count); }
+    }
+    void MarkRange(int from, int to)
+    {
+        marked.Clear();
+        for (int k = Math.Min(from, to); k <= Math.Max(from, to); k++)
+            if (k >= 0 && k < Items.Count && Items[k] is Mod mk) marked.Add(mk.FolderName);
+        Invalidate();
+        MarksChanged?.Invoke(marked.Count);
+    }
     /// <summary>Padlock clicked (a locked mod, or one that can be locked where it is).</summary>
     public event Action<Mod>? LockClicked;
     public event Action<ModGroup>? GroupClicked;
@@ -894,7 +957,7 @@ sealed class ModListBox : ListBox
             if (r.Height <= 0 || r.Top >= ClientSize.Height) break;   // past the view (the list gives an empty rectangle there)
             bottom = r.Bottom;
             if (!r.IntersectsWith(e.ClipRectangle)) continue;
-            var state = SelectedIndex == i ? DrawItemState.Selected : DrawItemState.None;
+            var state = SelectedIndex == i || marked.Count > 1 && Items[i] is Mod mk && IsMarked(mk) ? DrawItemState.Selected : DrawItemState.None;
             OnDrawItem(new DrawItemEventArgs(g, Font, r, i, state));
         }
         if (bottom < ClientSize.Height) Ui.PaintGradient(g, this, new Rectangle(0, bottom, ClientSize.Width, ClientSize.Height - bottom));
@@ -1202,7 +1265,11 @@ sealed class ModListBox : ListBox
             return;
         }
         if (e.Button != MouseButtons.Left) { base.OnMouseDown(e); return; }
-        if (CheckRect(b).Contains(e.Location)) { SelectedIndex = i; CheckClicked?.Invoke(m); return; }
+        if (CheckRect(b).Contains(e.Location))
+        {
+            if (marked.Count > 1 && IsMarked(m)) { CheckManyClicked?.Invoke(MarkedMods, !m.Enabled); return; }   // all marked follow this one
+            SelectedIndex = i; anchor = i; ClearMarks(); CheckClicked?.Invoke(m); return;
+        }
         if (LockRect(b).Contains(e.Location) && LockOffer(m) != ModLock.None) { SelectedIndex = i; LockClicked?.Invoke(m); return; }
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(e.Location) || np.Mark.Contains(e.Location)) && UpdateFor?.Invoke(m) != null)
         { SelectedIndex = i; UpdateClicked?.Invoke(m); return; }
@@ -1212,8 +1279,24 @@ sealed class ModListBox : ListBox
                 if (rect.Contains(e.Location)) { TagClicked?.Invoke(tag); return; }
 
         }
-        // A press on the card itself can become a drag (priority view, unlocked mods).
-        dragMod = CanReorder?.Invoke() == true && m.Lock == ModLock.None ? m : null;
+        // Shift: mark the range from the last plain click; Ctrl: add / remove this card. The clicked card's details show.
+        var keys = ModifierKeys;
+        if ((keys & Keys.Shift) != 0 && anchor >= 0 && anchor < Items.Count)
+        {
+            SelectedIndex = i; MarkRange(anchor, i); Focus(); return;
+        }
+        if ((keys & Keys.Control) != 0)
+        {
+            if (marked.Count == 0 && SelectedItem is Mod cur) marked.Add(cur.FolderName);
+            if (!marked.Remove(m.FolderName)) marked.Add(m.FolderName);
+            SelectedIndex = i; anchor = i; Invalidate(); MarksChanged?.Invoke(marked.Count); Focus(); return;
+        }
+        bool group = marked.Count > 1 && IsMarked(m);
+        clearOnUp = group;                       // a plain click inside the marking: kept in case this becomes a group drag
+        if (!group) { int was = marked.Count; marked.Clear(); marked.Add(m.FolderName); if (was > 1) { Invalidate(); MarksChanged?.Invoke(1); } }
+        anchor = i;
+        // A press on the card itself can become a drag (priority view, unlocked mods; a marked group when none is locked).
+        dragMod = CanReorder?.Invoke() == true && m.Lock == ModLock.None && (!group || MarkedMods.All(x => x.Lock == ModLock.None)) ? m : null;
         dragFrom = e.Location;
         leftDown = true;   // our own record: MouseEventArgs.Button on a move reflects the hardware state, not the message
         base.OnMouseDown(e);
@@ -1234,10 +1317,19 @@ sealed class ModListBox : ListBox
     {
         base.OnMouseUp(e);
         leftDown = false;
-        if (!dragging) { dragMod = null; return; }
+        if (!dragging)
+        {
+            dragMod = null;
+            if (clearOnUp) { clearOnUp = false; ClearMarks(); }   // a plain click on a marked card: just that one
+            return;
+        }
+        clearOnUp = false;
         var (m, i, below) = (dragMod, dropItem, dropBelow);
+        var group = MarkedMods;
         EndDrag();
-        if (m != null && i >= 0 && i < Items.Count && Items[i] is Mod target && target != m) Dropped?.Invoke(m, target, below);
+        if (m == null || i < 0 || i >= Items.Count || Items[i] is not Mod target) return;
+        if (group.Count > 1 && group.Contains(m)) { if (!group.Contains(target)) DroppedMany?.Invoke(group, target, below); }
+        else if (target != m) Dropped?.Invoke(m, target, below);
     }
 
     void EndDrag()
@@ -1249,6 +1341,7 @@ sealed class ModListBox : ListBox
     protected override void OnKeyUp(KeyEventArgs e)
     {
         if (e.KeyCode == Keys.Escape && dragging) { EndDrag(); e.Handled = true; return; }
+        if (e.KeyCode == Keys.Escape && marked.Count > 1) { ClearMarks(); e.Handled = true; return; }
         base.OnKeyUp(e);
     }
 
@@ -1276,7 +1369,24 @@ sealed class ModListBox : ListBox
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.KeyCode == Keys.Space && SelectedItem is Mod m) { CheckClicked?.Invoke(m); e.Handled = true; return; }
+        if (e.KeyCode == Keys.Space && SelectedItem is Mod m)
+        {
+            if (marked.Count > 1 && IsMarked(m)) CheckManyClicked?.Invoke(MarkedMods, !m.Enabled); else CheckClicked?.Invoke(m);
+            e.Handled = true; return;
+        }
+        // Shift+Up / Down extends the marking from the anchor; plain arrows go back to one card. (Ctrl+arrows are the
+        // window's priority keys, which move the whole marking.)
+        if (e.KeyCode is Keys.Up or Keys.Down && !e.Control)
+        {
+            int step = e.KeyCode == Keys.Up ? -1 : 1, to = SelectedIndex + step;
+            while (to >= 0 && to < Items.Count && Items[to] is not Mod) to += step;
+            if (to >= 0 && to < Items.Count)
+            {
+                if (e.Shift) { if (anchor < 0) anchor = SelectedIndex; SelectedIndex = to; MarkRange(anchor, to); }
+                else { SelectedIndex = to; anchor = to; ClearMarks(); }
+            }
+            e.Handled = true; return;
+        }
         base.OnKeyDown(e);
     }
 
@@ -1319,6 +1429,15 @@ sealed class StorePreview : Control
     Button? specBtn, reflBtn, glowBtn;   // shading toggles (Kurt): specular, reflections, glow
     LightSlider? lightSlider, lensSlider, frameSlider;
     bool settingFrame;   // the frame slider follows playback without scrubbing
+    // Full screen (Kurt, 2026-09-30): the whole preview moves into a borderless window covering the app's monitor, the 3D
+    // view filling it with the controls in a column on the right; Esc, F11 or the button bring it back.
+    Button? fullBtn;
+    Button? frameFullBtn, frameHeadBtn, frameBustBtn;   // framings (Kurt: as in Create from 3D)
+    Form? fullForm;
+    Control? homeParent;
+    int homeIndex;
+    /// <summary>The preview is in its full-screen window.</summary>
+    public bool IsFull => fullForm != null;
     bool paused = true;
     double playTime, lastTick;
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
@@ -1477,14 +1596,41 @@ sealed class StorePreview : Control
         TextRenderer.DrawText(g, "PREVIEW", titleFont, title, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
 
         // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
-        bool showStrip = Tiles > 1;
+        bool full = IsFull && show3D;
+        bool showStrip = Tiles > 1 && !full;
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
-        int captionH = (int)((show3D ? 186 : 40) * S);
-        int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
-        int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
-        if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
-        if (w <= 0 || h <= 0) return;
-        var card = new Rectangle((Width - w) / 2, title.Bottom + (int)(4 * S), w, h);
+        int captionH = (int)((show3D ? 216 : 40) * S);
+        int panelW = (int)(320 * S);
+        Rectangle card;
+        if (full)
+        {
+            // Full screen: the 3D view fills everything left of a controls column.
+            card = Rectangle.FromLTRB(pad, title.Bottom + (int)(4 * S), Width - panelW - 2 * pad, Height - pad - (int)(26 * S));   // the ⛶ button goes under it
+            if (card.Width <= 0 || card.Height <= 0) return;
+        }
+        else
+        {
+            int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
+            int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
+            if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
+            if (w <= 0 || h <= 0) return;
+            card = new Rectangle((Width - w) / 2, title.Bottom + (int)(4 * S), w, h);
+        }
+        // Where the caption and the 3D controls go: under the card, or the column on the right when full screen.
+        int ctlX = full ? card.Right + pad : card.X, ctlW = full ? panelW : card.Width;
+        int fbs = (int)(22 * S);
+        // The caption under the card leaves room on the right for the ⛶ button (Kurt: lower right, under the view).
+        int capX = full ? ctlX : pad + fbs + (int)(4 * S), capW = full ? panelW : Width - 2 * pad - 2 * (fbs + (int)(4 * S)), capY = full ? card.Top : card.Bottom + (int)(4 * S);
+        if (fullBtn != null)
+        {
+            int fb = fbs;
+            var fr = new Rectangle(card.Right - fb, card.Bottom + (int)(4 * S), fb, fb);
+            if (fullBtn.Bounds != fr) fullBtn.Bounds = fr;
+            bool want = show3D && viewer != null && mod != null;
+            if (fullBtn.Visible != want) fullBtn.Visible = want;
+            string label = full ? "✕" : "⛶";
+            if (fullBtn.Text != label) fullBtn.Text = label;
+        }
         if (show3D && viewer != null)
         {
             // The 3D view fills the card; the caption steps through the meshes.
@@ -1516,7 +1662,7 @@ sealed class StorePreview : Control
         if (mod != null && show3D && meshIndex >= 0 && meshIndex < meshes.Count)
         {
             var r = meshes[meshIndex];
-            var cap = new Rectangle(pad, card.Bottom + (int)(4 * S), Width - 2 * pad, (int)(18 * S));
+            var cap = new Rectangle(capX, capY, capW, (int)(18 * S));
             if (meshes.Count > 1)
             {
                 meshPrev = new Rectangle(cap.X, cap.Y, (int)(24 * S), cap.Height);
@@ -1526,14 +1672,14 @@ sealed class StorePreview : Control
             }
             var mid = Rectangle.FromLTRB(cap.X + (int)(26 * S), cap.Y, cap.Right - (int)(26 * S), cap.Bottom);
             TextRenderer.DrawText(g, meshes.Count > 1 ? $"{r.Name}  ({meshIndex + 1} of {meshes.Count})" : r.Name, smallFont, mid, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            string whose = mod.LocalPreview != null && MeshPart(mod.LocalPreview) == r.Key ? "Your Pick" : mod.Manifest.PreviewImage != null && MeshPart(mod.Manifest.PreviewImage) == r.Key ? "The Mod's Choice" : "3D View";
+            string whose = mod.LocalPreview != null && MeshPart(mod.LocalPreview) == r.Key ? "User Pick" : mod.Manifest.PreviewImage != null && MeshPart(mod.Manifest.PreviewImage) == r.Key ? "The Mod's Choice" : "3D View";
             cap.Offset(0, (int)(18 * S));
             TextRenderer.DrawText(g, $"3D  ·  {r.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}  ·  {whose}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             if (animBox != null && playBtn != null && loopBtn != null && restBtn != null)
             {
                 int bh = animBox.Height, gap = (int)(4 * S), wPlay = (int)(30 * S), wLoop = (int)(56 * S), wRest = (int)(72 * S);
                 int y = cap.Bottom + (int)(4 * S);
-                var ab = new Rectangle(card.X, y, card.Width - wPlay - wLoop - wRest - 3 * gap, bh);
+                var ab = new Rectangle(ctlX, y, ctlW - wPlay - wLoop - wRest - 3 * gap, bh);
                 if (animBox.Bounds != ab) animBox.Bounds = ab;
                 var pb = new Rectangle(ab.Right + gap, y, wPlay, bh); if (playBtn.Bounds != pb) playBtn.Bounds = pb;
                 var lb = new Rectangle(pb.Right + gap, y, wLoop, bh); if (loopBtn.Bounds != lb) loopBtn.Bounds = lb;
@@ -1542,28 +1688,36 @@ sealed class StorePreview : Control
                 int below = y + bh;
                 if (frameSlider != null)
                 {
-                    var fb = new Rectangle(card.X, below + (int)(4 * S), card.Width, (int)(22 * S));
+                    var fb = new Rectangle(ctlX, below + (int)(4 * S), ctlW, (int)(22 * S));
                     if (frameSlider.Bounds != fb) frameSlider.Bounds = fb;
                     if (!frameSlider.Visible) frameSlider.Visible = true;
                     below = fb.Bottom;
                 }
                 if (lightSlider != null)
                 {
-                    var sb = new Rectangle(card.X, below + (int)(4 * S), card.Width, (int)(22 * S));
+                    var sb = new Rectangle(ctlX, below + (int)(4 * S), ctlW, (int)(22 * S));
                     if (lightSlider.Bounds != sb) lightSlider.Bounds = sb;
                     if (!lightSlider.Visible) lightSlider.Visible = true;
                     if (lensSlider != null)
                     {
-                        var lb2 = new Rectangle(card.X, sb.Bottom + (int)(4 * S), card.Width, (int)(22 * S));
+                        var lb2 = new Rectangle(ctlX, sb.Bottom + (int)(4 * S), ctlW, (int)(22 * S));
                         if (lensSlider.Bounds != lb2) lensSlider.Bounds = lb2;
                         if (!lensSlider.Visible) lensSlider.Visible = true;
                         if (specBtn != null && reflBtn != null && glowBtn != null)
                         {
-                            int tw = (card.Width - 2 * gap) / 3, ty = lb2.Bottom + (int)(4 * S);
-                            var r1 = new Rectangle(card.X, ty, tw, bh); if (specBtn.Bounds != r1) specBtn.Bounds = r1;
+                            int tw = (ctlW - 2 * gap) / 3, ty = lb2.Bottom + (int)(4 * S);
+                            var r1 = new Rectangle(ctlX, ty, tw, bh); if (specBtn.Bounds != r1) specBtn.Bounds = r1;
                             var r2 = new Rectangle(r1.Right + gap, ty, tw, bh); if (reflBtn.Bounds != r2) reflBtn.Bounds = r2;
-                            var r3 = new Rectangle(r2.Right + gap, ty, card.Right - r2.Right - gap, bh); if (glowBtn.Bounds != r3) glowBtn.Bounds = r3;
+                            var r3 = new Rectangle(r2.Right + gap, ty, ctlX + ctlW - r2.Right - gap, bh); if (glowBtn.Bounds != r3) glowBtn.Bounds = r3;
                             foreach (var b in new[] { specBtn, reflBtn, glowBtn }) if (!b.Visible) b.Visible = true;
+                            if (frameFullBtn != null && frameHeadBtn != null && frameBustBtn != null)
+                            {
+                                int fy = r1.Bottom + (int)(4 * S);
+                                var f1 = new Rectangle(ctlX, fy, tw, bh); if (frameFullBtn.Bounds != f1) frameFullBtn.Bounds = f1;
+                                var f2 = new Rectangle(f1.Right + gap, fy, tw, bh); if (frameHeadBtn.Bounds != f2) frameHeadBtn.Bounds = f2;
+                                var f3 = new Rectangle(f2.Right + gap, fy, ctlX + ctlW - f2.Right - gap, bh); if (frameBustBtn.Bounds != f3) frameBustBtn.Bounds = f3;
+                                foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn }) if (!b.Visible) b.Visible = true;
+                            }
                         }
                     }
                 }
@@ -1575,7 +1729,7 @@ sealed class StorePreview : Control
             var c = items[index];
             var cap = new Rectangle(pad, card.Bottom + (int)(4 * S), Width - 2 * pad, (int)(18 * S));
             TextRenderer.DrawText(g, c.Texture, smallFont, cap, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            string whose = mod.LocalPreview == c.Key ? "Your Pick" : mod.Manifest.PreviewImage == c.Key ? "The Mod's Choice" : "Chosen Automatically";
+            string whose = mod.LocalPreview == c.Key ? "User Pick" : mod.Manifest.PreviewImage == c.Key ? "The Mod's Choice" : "Chosen Automatically";
             cap.Offset(0, (int)(18 * S));
             TextRenderer.DrawText(g, $"{c.Source}  ·  {whose}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
@@ -1756,6 +1910,12 @@ sealed class StorePreview : Control
             reflBtn = Ui.FlatButton("Reflect", () => { PreviewViews.Reflect = !PreviewViews.Reflect; ApplyShading(); }, "Show reflections of the materials' own environment images. Lit when on; remembered on this PC.");
             glowBtn = Ui.FlatButton("Glow", () => { PreviewViews.Glow = !PreviewViews.Glow; ApplyShading(); }, "Show glowing (emissive) parts. Lit when on; remembered on this PC.");
             foreach (var b in new[] { specBtn, reflBtn, glowBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+            frameFullBtn = Ui.FlatButton("Full Body", () => FrameShot(Framing.Shot.Full), "Frame the whole character (as Create from 3D does). Saved as this mesh's view.");
+            frameHeadBtn = Ui.FlatButton("Head", () => FrameShot(Framing.Shot.HeadShoulders), "Frame the head and shoulders. Saved as this mesh's view.");
+            frameBustBtn = Ui.FlatButton("Bust", () => FrameShot(Framing.Shot.Bust), "Frame head and chest. Saved as this mesh's view.");
+            foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+            fullBtn = Ui.FlatButton("⛶", ToggleFull, "Full screen: the 3D view fills the screen with its controls beside it (F11). Esc, F11 or ✕ come back.");
+            fullBtn.AutoSize = false; fullBtn.Padding = new Padding(0); fullBtn.Visible = false; Controls.Add(fullBtn);
             // Frame (Kurt: like the icon maker's): where the animation is; dragging it pauses and scrubs.
             frameSlider = new LightSlider { Visible = false, Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null, Enabled = false, Home = () => 0, Format = v => playing == null ? "—" : $"{v:0} / {playFrames:0}" };
             frameSlider.ValueChanged += ScrubTo;
@@ -2081,7 +2241,57 @@ sealed class StorePreview : Control
         PreviewViews.SetAnim(PreviewViews.Key(mod, shownMesh), i >= 0 && i < anims.Count ? anims[i].Name : null, t);
     }
 
-    void HideAnimControls() { foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider, specBtn, reflBtn, glowBtn }) if (c != null) c.Visible = false; }
+    void HideAnimControls()
+    {
+        foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider, specBtn, reflBtn, glowBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn }) if (c != null) c.Visible = false;
+        if (IsFull) ToggleFull();   // a picture (or another mod without 3D) shows: back from full screen
+    }
+
+    /// <summary>A framing button: aims the camera like Create from 3D, and keeps it as this mesh's view (as a drag does).</summary>
+    void FrameShot(Framing.Shot shot)
+    {
+        if (viewer == null || !MeshOk || mod == null) return;
+        if (animator != null) { Framing.Apply(viewer, animator, playing != null, shot); if (playing == null) { animator.Pose(null, 0); } }
+        else Framing.Apply(viewer, null, false, shot);
+        PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState);
+    }
+
+    /// <summary>Into or out of full screen: this control moves into a borderless window on the app's monitor and back.</summary>
+    public void ToggleFull()
+    {
+        if (fullForm != null)
+        {
+            var f = fullForm;
+            fullForm = null;
+            if (homeParent != null && !homeParent.IsDisposed)
+            {
+                Parent = homeParent;
+                homeParent.Controls.SetChildIndex(this, homeIndex);
+            }
+            f.Close();
+            f.Dispose();
+            Invalidate();
+            FindForm()?.Activate();
+            return;
+        }
+        if (!show3D || viewer == null || Parent == null) return;
+        var owner = FindForm();
+        homeParent = Parent;
+        homeIndex = homeParent.Controls.GetChildIndex(this);
+        var screen = Screen.FromControl(this).Bounds;
+        var form = new Form
+        {
+            FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = screen, ShowInTaskbar = false,
+            Text = mod == null ? "Preview" : $"Preview: {mod.Name}", BackColor = Ui.GradientTop, KeyPreview = true,
+        };
+        form.KeyDown += (_, e) => { if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; ToggleFull(); } };
+        form.FormClosing += (_, e) => { if (fullForm == form && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; ToggleFull(); } };   // Alt+F4: back, not closed
+        fullForm = form;
+        Parent = form;
+        form.Show(owner);
+        viewer.Focus();
+        Invalidate();
+    }
 
     void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); }
 
@@ -2189,6 +2399,10 @@ sealed class GradientSplit : SplitContainer
 /// <summary>A table whose empty area shows the window gradient (rows stay solid surfaces).</summary>
 sealed class GradientGrid : DataGridView
 {
+    // A tooltip still holding a disposed table asks for its handle when the window deactivates (ToolTip.HideAllToolTips),
+    // which threw ObjectDisposedException; a disposed table now has no handle to give instead.
+    protected override void CreateHandle() { if (IsDisposed || Disposing) return; base.CreateHandle(); }
+
     protected override void PaintBackground(Graphics graphics, Rectangle clipBounds, Rectangle gridBounds) =>
         Ui.PaintGradient(graphics, this, clipBounds);
 }
@@ -2249,8 +2463,11 @@ sealed class FlatTabs : UserControl
     public void Clear()
     {
         var old = strip.Controls.Cast<Control>().Concat(body.Controls.Cast<Control>()).ToList();
-        strip.Controls.Clear(); body.Controls.Clear(); tabs.Clear(); SelectedIndex = -1;
+        // Disposed while still in the window (a control removes itself as it goes): a table's own cell tooltip listens to
+        // the window's Deactivate, and one taken out of the window first was left behind there; switching windows then
+        // reached the disposed table ("Cannot access a disposed object: GradientGrid", a user, 2026-09-30).
         foreach (var c in old) c.Dispose();
+        strip.Controls.Clear(); body.Controls.Clear(); tabs.Clear(); SelectedIndex = -1;
     }
 
     public void Add(string title, Control page)

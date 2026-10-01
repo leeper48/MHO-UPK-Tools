@@ -49,6 +49,15 @@ static class LockTest
             lib.MoveTo(M("E"), 99); Expect("drag E past the end: stops above the bottom lock", "[A][B]FCDE{G}{H}");
             if (lib.MoveTo(M("G"), 2)) fails++; Expect("drag locked G: refused", "[A][B]FCDE{G}{H}");
             lib.MoveTo(M("E"), 2); lib.MoveTo(M("D"), 3); Expect("back as before", "[A][B]EDFC{G}{H}");
+            // Marked groups (Shift / Ctrl click): move together, keep their order, stop at the locks, locked members stay.
+            lib.MoveGroupBy([M("E"), M("F")], 1); Expect("group E,F down one (each past the next mod outside the group)", "[A][B]DECF{G}{H}");
+            lib.MoveGroupBy([M("E"), M("F")], -1); Expect("group E,F up one", "[A][B]EDFC{G}{H}");
+            lib.MoveGroupBy([M("E"), M("D")], -1); Expect("group E,D up: already under the lock", "[A][B]EDFC{G}{H}");
+            lib.MoveGroupToEnd([M("E"), M("F")], 1); Expect("group E,F to the bottom", "[A][B]DCEF{G}{H}");
+            lib.MoveGroupToEnd([M("C"), M("F"), M("G")], -1); Expect("group C,F,G to the top (G locked: stays)", "[A][B]CFDE{G}{H}");
+            lib.MoveGroup([M("C"), M("F")], M("E"), below: true); Expect("drag group C,F below E", "[A][B]DECF{G}{H}");
+            lib.MoveGroup([M("C"), M("F")], M("D"), below: false); Expect("drag group C,F above D", "[A][B]CFDE{G}{H}");
+            lib.MoveTo(M("E"), 2); lib.MoveTo(M("D"), 3); lib.MoveTo(M("F"), 4); Expect("back as before", "[A][B]EDFC{G}{H}");
             Lock("A"); Expect("unlock A (outer): goes under the locked B", "[B]AEDFC{G}{H}");
             // A new mod written at the top of ModOrder (as ModWriter / install do) lands under the top lock.
             Directory.CreateDirectory(Path.Combine(data, "mods", "N"));

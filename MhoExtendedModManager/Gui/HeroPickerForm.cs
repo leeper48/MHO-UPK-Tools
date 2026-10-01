@@ -131,7 +131,7 @@ sealed class HeroPickerForm : Form
     void ShowHero(string name, List<Costume> costumes)
     {
         costumeTitle.Text = $"{name}: Pick a Costume";
-        foreach (Control c in costumesPanel.Controls) c.Dispose();
+        foreach (var c in costumesPanel.Controls.Cast<Control>().ToList()) c.Dispose();   // (a dispose removes it from the collection)
         costumesPanel.Controls.Clear();
         foreach (var c in costumes)
         {

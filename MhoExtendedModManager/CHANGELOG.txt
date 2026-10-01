@@ -1,6 +1,48 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.35
+- Table cells show their tooltips in the app's dark style (they were white system boxes): a cell's own tip, or its whole text when the cell cuts it off.
+
+0.37.34
+- Fixed a crash when switching to another window ("Cannot access a disposed object: GradientGrid") after the mod details or the Editor had shown a table.
+
+0.37.33
+- Labels: "User Pick" (was "Your Pick") under the preview, "User" (was "Yours, on This PC") for a note you wrote, "User Tags" in Info, "Rename a User Tag" / "Delete a User Tag" in the tags menu, and "user" as a tag's source in tooltips.
+
+0.37.31
+- The 3D preview's full-screen button sits under the view, at its lower right.
+
+0.37.30
+- Select several mods: Shift+click (a range) or Ctrl+click (one more), then turn them all on or off (a checkbox or Space), drag them together, or move them with the priority buttons. Esc goes back to one.
+- Priority keys: Ctrl+Up / Ctrl+Down one step, Ctrl+Home / Ctrl+End to the top or bottom (for one mod or the selected ones).
+- 3D preview: Full Body, Head and Bust framing buttons, and a full-screen button (or F11) with all the controls beside the view.
+
+0.37.29
+- Move to Another Hero gives the moved model the source hero's animation tree when it uses a shared one. Doctor Strange's cape was pinned on heroes whose tree holds cape bones (Colossus, Daredevil, Punisher, Hulk, Spider-Man use one that does).
+
+0.37.28
+- Move to Another Hero always sets the source's physics weight, also when the target costume sets its own.
+
+0.37.27
+- Move to Another Hero also carries the costume's target physics weight (0 on every stock costume with a cloth cape but one), which cloth seems to need.
+
+0.37.26
+- Move to Another Hero also carries the source's physics weight over (Doctor Strange's is 1.0; Colossus's is 0), so a moved cape can be driven by its cloth simulation.
+
+0.37.25
+- Move to Another Hero now brings the model's own physics setup along (capes and coats need it to move). Costumes with their own physics setup, such as Scarlet Witch House of M, can now move too.
+
+0.37.24
+- Fixed a second crash when loading a caped costume moved to another hero (the model's link to its cape). Move such costumes again and Apply.
+
+0.37.23
+- Fixed: a caped costume moved to another hero crashed the game on load ("Bad Name Index", Doctor Strange on Colossus). Rebuild such a moved copy (move it again) and Apply.
+
+0.37.22
+- Move to Another Hero now takes costumes with capes and coats (APEX cloth) along: the cloth asset and its settings are copied with the model.
+- A maximized window moved to another monitor now starts there next time (it used to come back on the first monitor until it was un-maximized once).
+
 0.37.21
 - Settings → Download Counts: how often each release of the app was downloaded from GitHub, with the change since you last looked.
 

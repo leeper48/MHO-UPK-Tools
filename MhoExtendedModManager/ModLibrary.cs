@@ -201,6 +201,58 @@ sealed class ModLibrary
         return true;
     }
 
+    /// <summary>
+    /// Moves several mods (a marked group) next to a target, keeping their order, inside the unlocked range; locked mods
+    /// stay where they are. False when nothing moved.
+    /// </summary>
+    public bool MoveGroup(IEnumerable<Mod> group, Mod target, bool below)
+    {
+        var g = group.Where(m => m.Lock == ModLock.None && m != target).OrderBy(m => m.Priority).ToList();
+        if (g.Count == 0 || !Mods.Contains(target)) return false;
+        var before = Mods.ToList();
+        foreach (var m in g) Mods.Remove(m);
+        int at = Math.Clamp(Mods.IndexOf(target) + (below ? 1 : 0), TopLocked, Mods.Count - BottomLocked);
+        Mods.InsertRange(at, g);
+        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        return !before.SequenceEqual(Mods);
+    }
+
+    /// <summary>
+    /// Moves several mods one step up (-1) or down (+1) together (the priority buttons on a marked group): each moves past
+    /// the next mod outside the group, a run of marked mods moves as a block, and the group stops at the locks.
+    /// </summary>
+    public bool MoveGroupBy(IEnumerable<Mod> group, int delta)
+    {
+        var set = group.Where(m => m.Lock == ModLock.None).ToHashSet();
+        if (set.Count == 0) return false;
+        var before = Mods.ToList();
+        int lo = TopLocked, hi = Mods.Count - 1 - BottomLocked;
+        if (delta < 0)
+        {
+            for (int i = lo + 1; i <= hi; i++)
+                if (set.Contains(Mods[i]) && !set.Contains(Mods[i - 1])) (Mods[i], Mods[i - 1]) = (Mods[i - 1], Mods[i]);
+        }
+        else
+        {
+            for (int i = hi - 1; i >= lo; i--)
+                if (set.Contains(Mods[i]) && !set.Contains(Mods[i + 1])) (Mods[i], Mods[i + 1]) = (Mods[i + 1], Mods[i]);
+        }
+        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        return !before.SequenceEqual(Mods);
+    }
+
+    /// <summary>Moves several mods to the top (-1) or bottom (+1) of the unlocked range, keeping their order.</summary>
+    public bool MoveGroupToEnd(IEnumerable<Mod> group, int direction)
+    {
+        var g = group.Where(m => m.Lock == ModLock.None).OrderBy(m => m.Priority).ToList();
+        if (g.Count == 0) return false;
+        var before = Mods.ToList();
+        foreach (var m in g) Mods.Remove(m);
+        Mods.InsertRange(direction < 0 ? TopLocked : Mods.Count - BottomLocked, g);
+        for (int i = 0; i < Mods.Count; i++) Mods[i].Priority = i;
+        return !before.SequenceEqual(Mods);
+    }
+
     /// <summary>Every tag in use, sorted.</summary>
     public List<string> AllTags() => Mods.SelectMany(m => m.Tags).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
 

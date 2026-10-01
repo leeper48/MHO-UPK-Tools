@@ -100,11 +100,26 @@ sealed class MainForm : Form
         WindowState = FormWindowState.Maximized;
     }
 
+    /// <summary>The rectangle moved onto <paramref name="screen"/> (same offset from its working area, clamped) unless it's mostly there already.</summary>
+    internal static Rectangle OnScreenOf(Rectangle r, Screen screen)
+    {
+        var area = screen.WorkingArea;
+        var cut = Rectangle.Intersect(area, r);
+        if (cut.Width * (long)cut.Height * 2 >= r.Width * (long)r.Height) return r;
+        var from = (Screen.AllScreens.FirstOrDefault(s => s.WorkingArea.Contains(r.Location)) ?? Screen.PrimaryScreen!).WorkingArea;
+        int w = Math.Min(r.Width, area.Width), h = Math.Min(r.Height, area.Height);
+        return new Rectangle(Math.Clamp(area.Left + r.X - from.Left, area.Left, area.Right - w), Math.Clamp(area.Top + r.Y - from.Top, area.Top, area.Bottom - h), w, h);
+    }
+
     /// <summary>Keeps the window's place for the next start, only when it's on a monitor (test windows off-screen aren't kept).</summary>
     void SaveWindowPlace()
     {
         if (!settings.RememberWindow) return;
         var normal = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        // A maximized window moved to another monitor (dragged, Win+Shift+Arrow) keeps its restored rectangle on the old one
+        // (a user's report, 2026-09-30: always back on monitor 1 after the first, maximized start). Keep it on the monitor
+        // the window is maximized on, at the same place relative to that monitor.
+        if (WindowState == FormWindowState.Maximized) normal = OnScreenOf(normal, Screen.FromControl(this));
         if (normal.Width < 400 || normal.Height < 300 || !Screen.AllScreens.Any(s => Rectangle.Intersect(s.WorkingArea, normal) is { Width: >= 200, Height: >= 100 })) return;
         settings.WindowBounds = [normal.X, normal.Y, normal.Width, normal.Height];
         settings.WindowMaximized = WindowState == FormWindowState.Maximized || (WindowState == FormWindowState.Minimized && wasMaximized);
@@ -210,8 +225,10 @@ sealed class MainForm : Form
         var first = Ui.FlatButton("▲", () => MoveSelected(-1, toEnd: true)); var up = Ui.FlatButton("▲", () => MoveSelected(-1));
         var down = Ui.FlatButton("▼", () => MoveSelected(1)); var last = Ui.FlatButton("▼", () => MoveSelected(1, toEnd: true));
         Ui.AddEndBar(first, top: true); Ui.AddEndBar(last, top: false);   // ▲ with a bar over it = to the top; ▼ with one under it = to the bottom
-        tips.SetToolTip(first, "To the top (below any mods locked there)."); tips.SetToolTip(up, "Up one. Higher mods win where two change the same thing.");
-        tips.SetToolTip(down, "Down one."); tips.SetToolTip(last, "To the bottom (above any mods locked there).");
+        tips.SetToolTip(first, "To the top (below any mods locked there). Ctrl+Home. Moves all selected mods (Shift / Ctrl+click) together.");
+        tips.SetToolTip(up, "Up one (Ctrl+Up). Higher mods win where two change the same thing. Moves all selected mods together.");
+        tips.SetToolTip(down, "Down one (Ctrl+Down). Moves all selected mods together.");
+        tips.SetToolTip(last, "To the bottom (above any mods locked there). Ctrl+End. Moves all selected mods together.");
         first.Padding = up.Padding = down.Padding = last.Padding = new Padding(2, 0, 2, 0);
         lhead.Controls.Add(first, 5, 0); lhead.Controls.Add(up, 6, 0); lhead.Controls.Add(down, 7, 0); lhead.Controls.Add(last, 8, 0);
         priorityButtons.AddRange([first, up, down, last]);
@@ -277,6 +294,19 @@ sealed class MainForm : Form
         MhoPackageModifier.Gui.SearchBox.AddClear(filter);
         list.SelectedIndexChanged += (_, _) => ShowDetails();
         list.CheckClicked += m => Toggle(m);
+        // Several marked (Shift / Ctrl click): all to the clicked card's new state, one undo step.
+        list.CheckManyClicked += (mods, on) => Change($"turn {(on ? "on" : "off")} {mods.Count} mods",
+            () => { bool any = false; foreach (var m in mods) if (m.Enabled != on) { m.Enabled = on; any = true; } return any; });
+        list.DroppedMany += (mods, target, below) =>
+        {
+            if (lib == null) return;
+            var l = lib;
+            Change($"move {mods.Count} mods next to \"{target.Name}\"", () => l.MoveGroup(mods, target, below));
+        };
+        list.MarksChanged += n =>
+        {
+            if (n > 1) status.Text = $"{n} Mods Selected · Space or a Checkbox Turns Them On or Off · Drag or the Priority Buttons Move Them Together · Esc Clears";
+        };
         list.LockClicked += m => ToggleLock(m);
         list.CanLock = m => ReorderView ? lib?.CanLock(m) ?? ModLock.None : ModLock.None;
         list.DoubleClick += (_, _) => { if (Selected is Mod m) EditMod(m); };
@@ -829,6 +859,8 @@ sealed class MainForm : Form
     {
         // F1: the manual, at the section for the tab shown.
         if (keyData == Keys.F1) { HelpForm.Show(this, settings, pages.SelectedIndex switch { 1 => "editor", 2 => "extract", _ => "contents" }); return true; }
+        // F11: the 3D preview full screen (its window handles F11 / Esc to come back).
+        if (keyData == Keys.F11 && pages.SelectedIndex == 0) { storePreview.ToggleFull(); return true; }
         // Ctrl+Enter: Apply Changes (Kurt), anywhere on the Mods tab.
         if (keyData == (Keys.Control | Keys.Enter) && pages.SelectedIndex == 0 && applyButton.Enabled && applyButton.Visible)
         {
@@ -839,6 +871,11 @@ sealed class MainForm : Form
         {
             // Del: Remove Mod (Kurt), which asks first as the button does.
             if (keyData == Keys.Delete && Selected is Mod && !readOnly) { RemoveMod(); return true; }
+            // Ctrl+Up / Down: priority one step; Ctrl+Home / End: to the top / bottom (a marked group moves together).
+            if (keyData == (Keys.Control | Keys.Up)) { MoveSelected(-1); return true; }
+            if (keyData == (Keys.Control | Keys.Down)) { MoveSelected(1); return true; }
+            if (keyData == (Keys.Control | Keys.Home)) { MoveSelected(-1, toEnd: true); return true; }
+            if (keyData == (Keys.Control | Keys.End)) { MoveSelected(1, toEnd: true); return true; }
             if (keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
             if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z)) { Redo(); return true; }
         }
@@ -859,7 +896,7 @@ sealed class MainForm : Form
         noteMod = m;
         noteBox.Text = (m?.Note ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n");
         noteBox.ReadOnly = readOnly || m == null;
-        noteSource.Text = m == null ? "" : m.LocalNote != null ? (m.Manifest.Notes != null ? "Yours (Replaces the Mod's)" : "Yours, on This PC") : m.Manifest.Notes != null ? "From the Mod" : "None Yet: Type to Add One";
+        noteSource.Text = m == null ? "" : m.LocalNote != null ? (m.Manifest.Notes != null ? "User (Replaces the Mod's)" : "User") : m.Manifest.Notes != null ? "From the Mod" : "None Yet: Type to Add One";
         noteReset.Visible = m?.LocalNote != null && m.Manifest.Notes != null;
     }
 
@@ -1157,8 +1194,8 @@ sealed class MainForm : Form
         if (mine.Count > 0 && !readOnly)
         {
             menu.Items.Add(new ToolStripSeparator());
-            var rename = new ToolStripMenuItem("Rename One of Your Tags");
-            var delete = new ToolStripMenuItem("Delete One of Your Tags");
+            var rename = new ToolStripMenuItem("Rename a User Tag");
+            var delete = new ToolStripMenuItem("Delete a User Tag");
             foreach (string tag in mine)
             {
                 rename.DropDownItems.Add(tag, null, (_, _) =>
@@ -1216,6 +1253,14 @@ sealed class MainForm : Form
     void MoveSelected(int delta, bool toEnd = false)
     {
         if (readOnly || lib == null || Selected is not Mod m || !ReorderView) return;
+        // A marked group moves together (a user: arrow / fast-move the group).
+        if (list.MarkedMods is { Count: > 1 } group)
+        {
+            var lg = lib;
+            Change($"move {group.Count} mods {(toEnd ? (delta < 0 ? "to the top" : "to the bottom") : delta < 0 ? "up" : "down")}",
+                () => toEnd ? lg.MoveGroupToEnd(group, delta) : lg.MoveGroupBy(group, delta));
+            return;
+        }
         if (m.Lock != ModLock.None)
         {
             status.Text = Ui.TitleCase($"\"{m.Name}\" is locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: click its padlock to unlock it first");
@@ -1344,7 +1389,7 @@ sealed class MainForm : Form
         InfoRow("State", m.Enabled ? "Enabled" : "Disabled", m.Enabled ? Ui.Enabled : null);
         InfoRow("Automatic Tags", m.AutoTags.Count > 0 ? string.Join(", ", m.AutoTags) : "None (Nothing Recognized in the Content)");
         InfoRow("The Mod's Tags", m.ModTags.Count > 0 ? string.Join(", ", m.ModTags) : "None (Set Them in Edit Mod → Tags)");
-        InfoRow("Your Tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "None (Right-Click the Mod, or + Tag Above)");
+        InfoRow("User Tags", m.UserTags.Count > 0 ? string.Join(", ", m.UserTags) : "None (Right-Click the Mod, or + Tag Above)");
         if (m.HiddenTags.Count > 0) InfoRow("Hidden Here", string.Join(", ", m.HiddenTags));
         if (m.NexusModId is int nid)
         {
@@ -1922,8 +1967,8 @@ sealed class MainForm : Form
     void CloseEditor()
     {
         if (editor == null) return;
+        editor.Dispose();                  // while still in the window (see FlatTabs.Clear: tables' tooltips)
         editorHost.Controls.Clear();
-        editor.Dispose();
         editor = null;
         editorHost.Controls.Add(editorPlaceholder);
         pages.SetTitle(1, "Editor");
@@ -2191,7 +2236,7 @@ sealed class MainForm : Form
         }
         using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views, light, card); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with your tags / note / preview)" : ""); }
+        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views, light, card); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with the user tags / note / preview)" : ""); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 

@@ -47,6 +47,8 @@ static class Program
         ("--costume-move", "--costume-move <mod> [target costume] [--from <package>] [--build <folder>] [--create | --update-copy]", "Plan moving a costume mod onto another costume of the same hero: the package renames, icons and costume name that would move. Without a target, lists the hero's costumes. --build writes the moved package(s) to a folder (not the game's), verified; --create adds the moved costume as a new disabled mod; --update-copy rebuilds an existing moved copy in place. Changes nothing in the game."),
         ("--manual", "--manual <out.html>", "Save the manual (what Help / F1 shows) as one .html file."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
+        ("--foot-check", "--foot-check <mod> [animation name part...]", "How high a mod's mesh stands (lowest point, pelvis) at rest and over its animations: for feet below / above the ground after a move. Changes nothing."),
+        ("--cloth-notify", "--cloth-notify <source hero base.upk> <target hero base.upk> <out.upk>", "Test: the target hero's base package with the source hero's idle cloth event added (a caped costume moved to another hero). Writes only <out>."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
@@ -430,6 +432,9 @@ static class Program
                 st.WindowMaximized = true; st.Save();
                 using (var f = new Gui.MainForm())
                     WCheck("left maximized there: it opens maximized on that monitor", f.WindowState == FormWindowState.Maximized && Screen.FromRectangle(f.Bounds).DeviceName == second.DeviceName);
+                var p1 = Screen.PrimaryScreen!.WorkingArea;
+                var moved = Gui.MainForm.OnScreenOf(new System.Drawing.Rectangle(p1.X + 100, p1.Y + 80, 1400, 850), second);
+                WCheck($"maximized on {second.DeviceName} with its restored size still on the main monitor (the user's case): saved on {second.DeviceName}: {moved}", Rectangle.Intersect(a, moved) == moved);
             }
             else Console.WriteLine("(one monitor only: the second-monitor checks are skipped)");
             st.WindowBounds = [60000, 60000, 1200, 700]; st.Save();
@@ -874,6 +879,58 @@ static class Program
                     return 1;
                 }
             }
+            case "--props-under":
+            {
+                // Read-only: every export whose path starts with a prefix, with its simple properties (names, numbers, flags,
+                // object references by path). --props-under <package.upk> <path prefix>
+                if (rest.Count < 3) { Console.WriteLine("--props-under <package.upk> <path prefix>"); return 1; }
+                var pp = MhoPackageModifier.Package.Open(rest[1]);
+                for (int i = 0; i < pp.Exports.Length; i++)
+                {
+                    string path = pp.PathOf(pp.Exports[i]);
+                    if (!path.StartsWith(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    byte[] d = pp.ReadExportBytes(pp.Exports[i]).ToArray();
+                    string cls = pp.ClassOf(pp.Exports[i]);
+                    var tags = MhoPackageModifier.TagWalker.Walk(pp, d, 4) ?? MhoPackageModifier.TagWalker.Walk(pp, d, 16);
+                    var parts = new List<string>();
+                    foreach (var t in tags ?? [])
+                    {
+                        string v = t.Type.ToLowerInvariant() switch
+                        {
+                            "nameproperty" when t.Size == 8 => MhoPackageModifier.TagWalker.NameAt(pp, d, t.ValueAt),
+                            "floatproperty" => BitConverter.ToSingle(d, t.ValueAt).ToString("0.###"),
+                            "intproperty" => BitConverter.ToInt32(d, t.ValueAt).ToString(),
+                            "boolproperty" => d[t.ValueAt - 1] != 0 ? "true" : "false",
+                            "byteproperty" when t.Size == 8 => MhoPackageModifier.TagWalker.NameAt(pp, d, t.ValueAt),
+                            "objectproperty" => BitConverter.ToInt32(d, t.ValueAt) is int r && r != 0 ? (r > 0 ? pp.PathOf(pp.Exports[r - 1]) : pp.RefName(r)) : "none",
+                            "arrayproperty" when BitConverter.ToInt32(d, t.ValueAt) is int n && n > 0 && t.Size == 4 + 8 * n && t.Name.EndsWith("name", StringComparison.OrdinalIgnoreCase)
+                                => "[" + string.Join(", ", Enumerable.Range(0, n).Select(k => MhoPackageModifier.TagWalker.NameAt(pp, d, t.ValueAt + 4 + 8 * k))) + "]",
+                            _ => $"[{t.Type} {t.Size}]",
+                        };
+                        parts.Add($"{t.Name}={v}");
+                    }
+                    Console.WriteLine($"{path} ({cls}): {string.Join("; ", parts)}");
+                }
+                return 0;
+            }
+            case "--cloth-notify":
+            {
+                // Build (to a file, never the game folder): the target hero's base package with the source hero's idle cloth event.
+                // --cloth-notify <source hero base.upk> <target hero base.upk> <out.upk>
+                if (rest.Count < 4) { Console.WriteLine("--cloth-notify <source base.upk> <target base.upk> <out.upk>"); return 1; }
+                var clog = new List<string>();
+                try
+                {
+                    var built = ClothNotify.Build(rest[1], rest[2], clog);
+                    foreach (var l in clog) Console.WriteLine("  " + l);
+                    if (built == null) return 1;
+                    File.WriteAllBytes(rest[3], built);
+                    Console.WriteLine($"built and verified: {rest[3]} ({built.Length:N0} bytes)");
+                    return 0;
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
+                { foreach (var l in clog) Console.WriteLine("  " + l); Console.WriteLine("FAILED: " + ex.Message); return 1; }
+            }
             case "--mesh-copy-test":
             {
                 // Test (phase 1): copy a skeletal mesh into another package (renamed), write it to a scratch file, read it back.
@@ -1213,6 +1270,48 @@ static class Program
                     var d = ld.Positions.Select((p, i) => Vector3.Distance(p, anim8.Positions[i])).ToList();
                     Vector3 lo = anim8.Positions.Aggregate(Vector3.Min), hi = anim8.Positions.Aggregate(Vector3.Max);
                     Console.WriteLine($"  {a.Name}: {frames:0} frames, {secs:0.00} s, tracks for {covered} of {ld.Bones.Count} bones; mid-frame moves vertices avg {d.Average():0.0} / max {d.Max():0.0}; size {hi.X - lo.X:0} x {hi.Y - lo.Y:0} x {hi.Z - lo.Z:0}");
+                }
+                return 0;
+            }
+            case "--foot-check":
+            {
+                // Read-only: how high a mod's mesh stands: the lowest vertex and the pelvis, at rest and over animations (default idle, run).
+                // MHO_FOOT_MESH = part of a mesh name (a cross-hero move keeps the target's stock mesh first); MHO_FOOT_CHAIN=1 prints the pelvis's parents.
+                var fm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                if (fm == null) { Console.WriteLine("--foot-check <mod> [animation name part...]"); return 1; }
+                string? fgr = settings.ResolvedGameRoot(data);
+                string? fc = fgr != null && Settings.IsGameRoot(fgr) ? Settings.Cooked(fgr) : null;
+                var fr = (Environment.GetEnvironmentVariable("MHO_FOOT_MESH") is { Length: > 0 } fmn ? ModMeshes.List(fm).FirstOrDefault(r => r.Name.Contains(fmn, StringComparison.OrdinalIgnoreCase)) : null) ?? ModMeshes.List(fm).FirstOrDefault();
+                if (fr == null) { Console.WriteLine("no meshes"); return 1; }
+                var fl = ModMeshes.Load(fr, fc, out string fwhy);
+                if (fl == null) { Console.WriteLine("mesh: " + fwhy); return 1; }
+                var fa = new MeshAnimator(fl.Bones, fl.Positions, fl.Normals, fl.Influences);
+                int pelvis = fa.BoneIndex("g_pelvis"), froot = 0;
+                void Show(string what)
+                {
+                    float lo = fa.Positions.Min(p => p.Z), hi = fa.Positions.Max(p => p.Z);
+                    Console.WriteLine($"  {what,-34} lowest {lo,8:0.0}  top {hi,7:0.0}  pelvis z {(pelvis >= 0 ? fa.BonePosition(pelvis).Z : float.NaN),7:0.0}  root z {fa.BonePosition(froot).Z,6:0.0}");
+                }
+                Console.WriteLine($"{fr.Name} in {fr.Package}: {fl.Bones.Count} bones, root {fl.Bones[0].Name}");
+                fa.Pose(null, 0); Show("rest pose");
+                var fanims = ModAnimations.For(fr, fl.Bones, fm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(fm.Folder, f))), fc);
+                var fw = rest.Skip(2).ToList(); if (fw.Count == 0) fw = ["idle", "run"];
+                foreach (var a in fanims.Where(a => fw.Any(w => a.Name.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(6))
+                {
+                    var ba = ModAnimations.Load(a); if (ba == null) continue;
+                    var tb = ModAnimations.TranslationBones(ba);
+                    fa.Pose(ba, 0); Show($"{a.Name} f0 ({a.Package})");
+                    var (fN, _) = MeshAnimator.Span(ba); float minLo = float.MaxValue, maxLo = float.MinValue;
+                    for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); float lo = fa.Positions.Min(p => p.Z); minLo = Math.Min(minLo, lo); maxLo = Math.Max(maxLo, lo); }
+                    Console.WriteLine($"      over the animation the lowest point runs {minLo:0.0} .. {maxLo:0.0}");
+                    if (pelvis >= 0 && Environment.GetEnvironmentVariable("MHO_FOOT_CHAIN") == "1")
+                        for (int c = pelvis, guard = 0; c >= 0 && guard++ < 64; c = c == 0 ? -1 : fl.Bones[c].ParentIndex)
+                        {
+                            var cb = fl.Bones[c]; ba.Tracks.TryGetValue(cb.Name, out var ct);
+                            Console.WriteLine($"      chain {cb.Name,-20} rest pos {cb.Position}  track pos {(ct != null && ct.PositionKeys.Count > 0 ? ct.PositionKeys[0].Position.ToString() : "-")} ({ct?.PositionKeys.Count ?? 0} keys)  translation bone: {(tb == null || tb.Contains(cb.Name) ? "yes" : "no")}");
+                        }
+                    if (pelvis >= 0 && ba.Tracks.TryGetValue("g_pelvis", out var pt) && pt.PositionKeys.Count > 0)
+                        Console.WriteLine($"      g_pelvis track position {pt.PositionKeys[0].Position}  (mesh rest {fl.Bones[pelvis].Position}); positions applied: {(tb == null ? "all" : tb.Contains("g_pelvis") ? "yes" : "no")}");
                 }
                 return 0;
             }

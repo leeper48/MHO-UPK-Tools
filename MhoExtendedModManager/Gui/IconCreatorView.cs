@@ -646,44 +646,8 @@ sealed class IconCreatorView : UserControl
     /// </summary>
     void Preset(Kind k) { PresetCore(k); SyncTurn(); }
 
-    void PresetCore(Kind k)
-    {
-        const float yaw = 0f;   // facing the camera (was −0.25 rad, about 14°; a user: most want straight on)
-        if (animator != null && loaded != null && HeadBone() is int head)
-        {
-            if (playing == null) animator.Pose(null, 0);
-            var h = animator.BonePosition(head);
-            float feet = animator.Positions.Min(p => p.Z), top = animator.Positions.Max(p => p.Z), tall = Math.Max(1f, h.Z - feet);
-            // Only a standing character has its head near the top (a pet shark's "head" is low in its body: Jeff).
-            float lens = view.FocalLength / ModelView.ReferenceFocalLength;   // a longer lens stands further back for the same framing
-            if (tall >= 0.75f * (top - feet))
-                switch (k)
-                {
-                    case Kind.Portrait: view.Aim(h - new Vector3(0, 0, tall * 0.1f), tall * 0.5f * lens, yaw, 0.06f); return;
-                    case Kind.Costume: view.Aim(h - new Vector3(0, 0, tall * 0.12f), tall * 0.58f * lens, yaw, 0.06f); return;
-                    default: view.Aim(new Vector3(h.X, h.Y, feet + (top - feet) * 0.5f), (top - feet) * 1.42f * lens, yaw, 0.08f); return;
-                }
-        }
-        view.ViewState = k switch
-        {
-            Kind.Portrait => [yaw, 0.06f, 1.5f, 0f, 0f, 0.1f],   // not a standing character (a pet): the whole of it, a little closer
-            Kind.Costume => [yaw, 0.06f, 1.6f, 0f, 0f, 0.1f],
-            _ => [yaw, 0.1f, 2.3f, 0f, 0f, 0f],
-        };
-    }
-
-    /// <summary>The head bone ("head", not "headwear" / "hair"), else null.</summary>
-    int? HeadBone()
-    {
-        int i = 0;
-        foreach (string n in animator!.BoneNames)
-        {
-            string l = n.ToLowerInvariant();
-            if (l.Contains("head") && !l.Contains("wear") && !l.Contains("hair") && !l.Contains("nub") && !l.Contains("end")) return i;
-            i++;
-        }
-        return null;
-    }
+    void PresetCore(Kind k) => Framing.Apply(view, loaded != null ? animator : null, playing != null,
+        k switch { Kind.Portrait => Framing.Shot.HeadShoulders, Kind.Costume => Framing.Shot.Bust, _ => Framing.Shot.Full });
 
     void Snap()
     {
@@ -837,5 +801,56 @@ sealed class IconCreatorView : UserControl
     {
         if (disposing) { snapshot?.Dispose(); backdrop?.Dispose(); customBack?.Dispose(); original?.Dispose(); result.Image?.Dispose(); }
         base.Dispose(disposing);
+    }
+}
+
+/// <summary>
+/// The framings Create from 3D and the preview share (Kurt, 2026-09-30: the full / head / bust buttons in the 3D preview
+/// too). By the skeleton (wings, capes and weapons make the bounding box useless): the head bone, and the height from the
+/// feet (the lowest vertex) to it. Without a head bone, or for a model that doesn't stand (Jeff), by the bounding box. The
+/// camera sits on +X, where characters face.
+/// </summary>
+static class Framing
+{
+    public enum Shot { Full, HeadShoulders, Bust }
+
+    /// <param name="posed">An animation is showing (its pose is used); else the rest pose is made first.</param>
+    public static void Apply(ModelView view, MeshAnimator? animator, bool posed, Shot k)
+    {
+        const float yaw = 0f;   // facing the camera (was −0.25 rad, about 14°; a user: most want straight on)
+        if (animator != null && HeadBone(animator) is int head)
+        {
+            if (!posed) animator.Pose(null, 0);
+            var h = animator.BonePosition(head);
+            float feet = animator.Positions.Min(p => p.Z), top = animator.Positions.Max(p => p.Z), tall = Math.Max(1f, h.Z - feet);
+            // Only a standing character has its head near the top (a pet shark's "head" is low in its body: Jeff).
+            float lens = view.FocalLength / ModelView.ReferenceFocalLength;   // a longer lens stands further back for the same framing
+            if (tall >= 0.75f * (top - feet))
+                switch (k)
+                {
+                    case Shot.HeadShoulders: view.Aim(h - new Vector3(0, 0, tall * 0.1f), tall * 0.5f * lens, yaw, 0.06f); return;
+                    case Shot.Bust: view.Aim(h - new Vector3(0, 0, tall * 0.12f), tall * 0.58f * lens, yaw, 0.06f); return;
+                    default: view.Aim(new Vector3(h.X, h.Y, feet + (top - feet) * 0.5f), (top - feet) * 1.42f * lens, yaw, 0.08f); return;
+                }
+        }
+        view.ViewState = k switch
+        {
+            Shot.HeadShoulders => [yaw, 0.06f, 1.5f, 0f, 0f, 0.1f],   // not a standing character (a pet): the whole of it, a little closer
+            Shot.Bust => [yaw, 0.06f, 1.6f, 0f, 0f, 0.1f],
+            _ => [yaw, 0.1f, 2.3f, 0f, 0f, 0f],
+        };
+    }
+
+    /// <summary>The head bone ("head", not "headwear" / "hair"), else null.</summary>
+    static int? HeadBone(MeshAnimator animator)
+    {
+        int i = 0;
+        foreach (string n in animator.BoneNames)
+        {
+            string l = n.ToLowerInvariant();
+            if (l.Contains("head") && !l.Contains("wear") && !l.Contains("hair") && !l.Contains("nub") && !l.Contains("end")) return i;
+            i++;
+        }
+        return null;
     }
 }
