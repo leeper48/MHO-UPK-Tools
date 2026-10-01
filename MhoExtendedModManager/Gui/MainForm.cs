@@ -388,14 +388,16 @@ sealed class MainForm : Form
         tips.SetToolTip(noteReset, "Throw away your note and show the mod's own note again.");
         middle.Controls.Add(storePreview); middle.Controls.Add(notesPanel);
         middleAndRight.Controls.Add(right); middleAndRight.Controls.Add(middle);
-        // As large as the column's height allows (store images are 300×420), but at most 28% of the space beside the list (Kurt: between the first size and 40%).
+        // As large as the column's height allows (store images are 300×420), but at most 28% of the space beside the list (Kurt: between the first size and 40%);
+        // then the right column gives up a fifth of its width to it (Kurt, 2026-09-30: more room for the 3D view).
         middleAndRight.Resize += (_, _) =>
         {
             float sc = DeviceDpi / 96f;
             notesPanel.Height = (int)(170 * sc);
             int cardH = middleAndRight.Height - notesPanel.Height - (int)(80 * sc);
             int w = (int)(cardH * 300f / 420f) + (int)(12 * sc);
-            middle.Width = Math.Max((int)(200 * sc), Math.Min(w, (int)(middleAndRight.Width * 0.28f)));
+            int fit = Math.Max((int)(200 * sc), Math.Min(w, (int)(middleAndRight.Width * 0.28f)));
+            middle.Width = middleAndRight.Width - (int)((middleAndRight.Width - fit) * 0.8f);
         };
 
         var split = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterWidth = 5 };

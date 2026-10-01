@@ -1,6 +1,21 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.40
+- Preview: small images (costume icons) show at most 3× their size instead of stretched to fill the card.
+
+0.37.39
+- Sliders make room for their longest value: the 3D preview's frame count ("122 / 122") isn't cut off.
+
+0.37.38
+- The preview column is wider (the details column gives up a fifth of its width), and the 3D view uses the column's whole width.
+
+0.37.37
+- Fixed: a model with props but no remembered animation (most moved costumes: Unworthy Thor, Thor Infinity War on another costume) flashed and vanished in the 3D preview.
+
+0.37.36
+- 3D preview: props. The weapons the game attaches to a character (Thor's hammer, Magik's sword …) show in its hand and follow the animations; the Props button turns them off (remembered).
+
 0.37.35
 - Table cells show their tooltips in the app's dark style (they were white system boxes): a cell's own tip, or its whole text when the cell cuts it off.
 

@@ -38,8 +38,7 @@ sealed class IconCreatorView : UserControl
     // Props shown with the character (Kurt: a character holding a sword or hammer): each loaded mesh and the bone it's held on.
     readonly List<(MeshRef Ref, ModMeshes.Loaded Mesh, int Bone, string BoneName)> props = [];
     readonly List<(MeshRef Ref, string? Bone)> propChoices = [];
-    Vector3[] allPos = [], allNrm = [];
-    Vector4[] allTan = [];
+    readonly PropRig rig = new();   // the props' geometry, shared with the main preview
     readonly LightSlider frameSlider = new() { Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null };
     readonly LightSlider lightSlider = new();
     readonly LightSlider overlaySlider = new() { Label = "Original", Min = 0, Max = 1, Step = 0.05f, Mark = null };
@@ -534,21 +533,7 @@ sealed class IconCreatorView : UserControl
     {
         if (animator == null || loaded == null) return;
         animator.Pose(playing, playing != null ? frameSlider.Value : 0);
-        if (props.Count == 0) { view.UpdateGeometry(animator); return; }
-        int n = animator.Positions.Length;
-        Array.Copy(animator.Positions, allPos, n); Array.Copy(animator.Normals, allNrm, Math.Min(n, animator.Normals.Length)); Array.Copy(animator.Tangents, allTan, Math.Min(n, animator.Tangents.Length));
-        int at = n;
-        foreach (var (_, m, bone, _) in props)
-        {
-            var mat = animator.BoneMatrix(bone);
-            for (int v = 0; v < m.Positions.Length; v++, at++)
-            {
-                allPos[at] = Vector3.Transform(m.Positions[v], mat);
-                if (v < m.Normals.Length) allNrm[at] = Vector3.Normalize(Vector3.TransformNormal(m.Normals[v], mat));
-                if (v < m.Tangents.Length) { var t = m.Tangents[v]; var tt = Vector3.TransformNormal(new Vector3(t.X, t.Y, t.Z), mat); allTan[at] = new Vector4(tt.LengthSquared() > 0 ? Vector3.Normalize(tt) : tt, t.W); }
-            }
-        }
-        view.UpdateGeometry(allPos, allNrm, allTan);
+        rig.Update(view, animator);
     }
 
     /// <summary>
@@ -585,32 +570,15 @@ sealed class IconCreatorView : UserControl
             if (IsDisposed || req != request) return;
             if (m == null) continue;
             // The bone the game names, else the right hand (palm, hand or wrist, as the skeleton has it).
-            int b = bone != null ? animator.BoneIndex(bone) : -1;
-            if (b < 0) foreach (string guess in new[] { "g_r_palm", "g_r_hand", "g_r_wrist", "r_hand", "righthand" }) if ((b = animator.BoneIndex(guess)) >= 0) break;
-            props.Add((r, m, Math.Max(0, b), b >= 0 ? animator.BoneNames.ElementAt(b) : "root"));
+            int b = PropRig.BoneFor(animator, bone);
+            props.Add((r, m, b, animator.BoneNames.ElementAt(b)));
         }
+        rig.Clear();
+        foreach (var (_, m, b, _) in props) rig.Add(m, b);
         var keep = view.ViewState;
-        view.ShowMesh(Combined(), loaded.Positions.Length);
+        view.ShowMesh(rig.Combine(loaded), loaded.Positions.Length);
         view.ViewState = keep; SyncTurn();
-        int total = loaded.Positions.Length + props.Sum(p => p.Mesh.Positions.Length);
-        allPos = new Vector3[total]; allNrm = new Vector3[total]; allTan = new Vector4[total];
         PoseAll();
-    }
-
-    /// <summary>The character and its props as one mesh (props' sections after the character's).</summary>
-    ModMeshes.Loaded Combined()
-    {
-        var l = loaded!;
-        if (props.Count == 0) return l;
-        var pos = new List<Vector3>(l.Positions); var nrm = new List<Vector3>(l.Normals); var tan = new List<Vector4>(l.Tangents); var uvs = new List<Vector2>(l.Uv);
-        var idx = new List<int>(l.Indices); var tri = new List<int>(l.TriangleSection); var looks = new List<ModelView.Look?>(l.Looks);
-        foreach (var (_, m, _, _) in props)
-        {
-            int vbase = pos.Count, sbase = looks.Count;
-            pos.AddRange(m.Positions); nrm.AddRange(m.Normals); tan.AddRange(m.Tangents); uvs.AddRange(m.Uv);
-            idx.AddRange(m.Indices.Select(i => i + vbase)); tri.AddRange(m.TriangleSection.Select(t => t + sbase)); looks.AddRange(m.Looks);
-        }
-        return l with { Positions = [.. pos], Normals = [.. nrm], Tangents = [.. tan], Uv = [.. uvs], Indices = [.. idx], TriangleSection = [.. tri], Looks = [.. looks] };
     }
 
     /// <summary>This icon's setup, kept per mod and texture (preview_views.json).</summary>

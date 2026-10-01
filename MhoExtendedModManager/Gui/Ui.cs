@@ -1427,6 +1427,9 @@ sealed class StorePreview : Control
     // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
     Button? playBtn, loopBtn, restBtn;
     Button? specBtn, reflBtn, glowBtn;   // shading toggles (Kurt): specular, reflections, glow
+    Button? propsBtn;                    // props (Kurt, 2026-09-30: weapons in the preview too)
+    readonly PropRig rig = new();
+    ModMeshes.Loaded? shownLoaded;       // the character as loaded (without props)
     LightSlider? lightSlider, lensSlider, frameSlider;
     bool settingFrame;   // the frame slider follows playback without scrubbing
     // Full screen (Kurt, 2026-09-30): the whole preview moves into a borderless window covering the app's monitor, the 3D
@@ -1612,7 +1615,7 @@ sealed class StorePreview : Control
         {
             int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
             int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH;
-            if (h > maxH && maxH > 0) { h = maxH; w = (int)(h * 300f / 420f); }
+            if (h > maxH && maxH > 0) { h = maxH; if (!show3D) w = (int)(h * 300f / 420f); }   // the 3D view uses the column's whole width; pictures keep their shape
             if (w <= 0 || h <= 0) return;
             card = new Rectangle((Width - w) / 2, title.Bottom + (int)(4 * S), w, h);
         }
@@ -1647,6 +1650,7 @@ sealed class StorePreview : Control
                 var clip = g.Clip; g.SetClip(path, CombineMode.Intersect);
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 float k = Math.Min((float)card.Width / image.Width, (float)card.Height / image.Height);   // (pictures only; the 3D view is its own control)
+                k = Math.Min(k, 3f * S);   // small images (40×40 costume icons) at most 3× their size (Kurt: filling the card was far too blocky)
                 float iw = image.Width * k, ih = image.Height * k;
                 g.DrawImage(image, card.X + (card.Width - iw) / 2, card.Y + (card.Height - ih) / 2, iw, ih);
                 g.Clip = clip;
@@ -1705,11 +1709,16 @@ sealed class StorePreview : Control
                         if (!lensSlider.Visible) lensSlider.Visible = true;
                         if (specBtn != null && reflBtn != null && glowBtn != null)
                         {
-                            int tw = (ctlW - 2 * gap) / 3, ty = lb2.Bottom + (int)(4 * S);
-                            var r1 = new Rectangle(ctlX, ty, tw, bh); if (specBtn.Bounds != r1) specBtn.Bounds = r1;
-                            var r2 = new Rectangle(r1.Right + gap, ty, tw, bh); if (reflBtn.Bounds != r2) reflBtn.Bounds = r2;
-                            var r3 = new Rectangle(r2.Right + gap, ty, ctlX + ctlW - r2.Right - gap, bh); if (glowBtn.Bounds != r3) glowBtn.Bounds = r3;
+                            int tw4 = (ctlW - 3 * gap) / 4, ty = lb2.Bottom + (int)(4 * S), tw = (ctlW - 2 * gap) / 3;
+                            var r1 = new Rectangle(ctlX, ty, tw4, bh); if (specBtn.Bounds != r1) specBtn.Bounds = r1;
+                            var r2 = new Rectangle(r1.Right + gap, ty, tw4, bh); if (reflBtn.Bounds != r2) reflBtn.Bounds = r2;
+                            var r3 = new Rectangle(r2.Right + gap, ty, tw4, bh); if (glowBtn.Bounds != r3) glowBtn.Bounds = r3;
                             foreach (var b in new[] { specBtn, reflBtn, glowBtn }) if (!b.Visible) b.Visible = true;
+                            if (propsBtn != null)
+                            {
+                                var r4 = new Rectangle(r3.Right + gap, ty, ctlX + ctlW - r3.Right - gap, bh); if (propsBtn.Bounds != r4) propsBtn.Bounds = r4;
+                                if (!propsBtn.Visible) propsBtn.Visible = true;
+                            }
                             if (frameFullBtn != null && frameHeadBtn != null && frameBustBtn != null)
                             {
                                 int fy = r1.Bottom + (int)(4 * S);
@@ -1875,7 +1884,14 @@ sealed class StorePreview : Control
             viewer!.ShowMesh(l);
             if (mod != null && StartView(r) is { } saved) viewer.ViewState = saved;
             shownMesh = r.Key;
+            shownLoaded = l;
+            rig.Clear();
             animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents);
+            // Posed at once (rest): a new animator's positions and bone matrices are all zero until its first pose, and the
+            // props redraw "the last pose" when they arrive; with no animation restored (Unworthy Thor, Thor Infinity War)
+            // the whole model collapsed to a point and vanished.
+            animator.Pose(null, 0);
+            LoadProps();
             var m = mod; string? cooked2 = CookedFolder;
             var pkgs = m == null ? [] : m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))).ToList();
             int req2 = request;
@@ -1910,6 +1926,8 @@ sealed class StorePreview : Control
             reflBtn = Ui.FlatButton("Reflect", () => { PreviewViews.Reflect = !PreviewViews.Reflect; ApplyShading(); }, "Show reflections of the materials' own environment images. Lit when on; remembered on this PC.");
             glowBtn = Ui.FlatButton("Glow", () => { PreviewViews.Glow = !PreviewViews.Glow; ApplyShading(); }, "Show glowing (emissive) parts. Lit when on; remembered on this PC.");
             foreach (var b in new[] { specBtn, reflBtn, glowBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
+            propsBtn = Ui.FlatButton("Props", () => { PreviewViews.Props = !PreviewViews.Props; ApplyShading(); LoadProps(); }, "Show the weapons and props the game attaches to this character (Thor's hammer in his hand …), held on their bones. Lit when on; remembered on this PC.");
+            propsBtn.AutoSize = false; propsBtn.Padding = new Padding(0); propsBtn.Visible = false; Controls.Add(propsBtn);
             frameFullBtn = Ui.FlatButton("Full Body", () => FrameShot(Framing.Shot.Full), "Frame the whole character (as Create from 3D does). Saved as this mesh's view.");
             frameHeadBtn = Ui.FlatButton("Head", () => FrameShot(Framing.Shot.HeadShoulders), "Frame the head and shoulders. Saved as this mesh's view.");
             frameBustBtn = Ui.FlatButton("Bust", () => FrameShot(Framing.Shot.Bust), "Frame head and chest. Saved as this mesh's view.");
@@ -1966,7 +1984,7 @@ sealed class StorePreview : Control
     void ApplyShading()
     {
         if (viewer != null) { viewer.ShowSpec = PreviewViews.Spec; viewer.ShowReflections = PreviewViews.Reflect; viewer.ShowGlow = PreviewViews.Glow; }
-        foreach (var (b, on) in new[] { (specBtn, PreviewViews.Spec), (reflBtn, PreviewViews.Reflect), (glowBtn, PreviewViews.Glow) })
+        foreach (var (b, on) in new[] { (specBtn, PreviewViews.Spec), (reflBtn, PreviewViews.Reflect), (glowBtn, PreviewViews.Glow), (propsBtn, PreviewViews.Props) })
             if (b != null) Ui.Lit(b, on);
     }
 
@@ -2001,7 +2019,7 @@ sealed class StorePreview : Control
         StopAnimation();
         if (i < 0 || i >= anims.Count)
         {
-            animator.Pose(null, 0); viewer.UpdateGeometry(animator);
+            animator.Pose(null, 0); ShowPose();
             ShowFrame(0);
             if (!fillingAnims && MeshOk) { Picked?.Invoke(mod, meshes[meshIndex].Key); SaveAnim(); }
             return;
@@ -2017,7 +2035,7 @@ sealed class StorePreview : Control
             paused = true;
             bool restoring = restoreTime != null;
             playTime = Math.Clamp(restoreTime ?? 0, 0, playSeconds); restoreTime = null;
-            animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); viewer.UpdateGeometry(animator);
+            animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); ShowPose();
             ShowFrame(playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0);
             UpdateButtons();
             // A restored animation is shown as it was left, not a new pick (no undo step, the preview choice unchanged).
@@ -2033,7 +2051,7 @@ sealed class StorePreview : Control
         if (!paused) { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); }
         playTime = frameSlider.Value / playFrames * playSeconds;
         animator.Pose(playing, frameSlider.Value);
-        viewer.UpdateGeometry(animator);
+        ShowPose();
     }
 
     /// <summary>The frame slider follows the animation (set without scrubbing).</summary>
@@ -2061,7 +2079,7 @@ sealed class StorePreview : Control
         else if (playTime >= playSeconds) { playTime = playSeconds; frame = playFrames; paused = true; playTimer.Stop(); UpdateButtons(); }
         else frame = (float)(playTime / playSeconds * playFrames);
         animator.Pose(playing, frame);
-        viewer.UpdateGeometry(animator);
+        ShowPose();
         ShowFrame(frame);
     }
 
@@ -2155,7 +2173,7 @@ sealed class StorePreview : Control
             animBox.SelectedIndex = Math.Min(2, anims.Count);
             await Wait(() => playing != null && animBox.SelectedIndex - 1 < anims.Count);
             string animWas = animBox.SelectedItem?.ToString() ?? "";
-            playTime = playSeconds * 0.4; animator.Pose(playing, (float)(playTime / playSeconds * playFrames)); viewer.UpdateGeometry(animator);
+            playTime = playSeconds * 0.4; animator.Pose(playing, (float)(playTime / playSeconds * playFrames)); ShowPose();
             double frameWas = playTime;
             viewer.ViewState = [0.7f, 0.3f, 1.4f, 0.05f, 0f, 0f];
             PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState);   // as a drag saves it
@@ -2193,7 +2211,7 @@ sealed class StorePreview : Control
         animBox.SelectedIndex = 3;
         for (int t = 0; t < 10000 && playing == null; t += 50) { await Task.Delay(50); Application.DoEvents(); }
         if (playing == null) return null;
-        playTime = playSeconds * 0.55; animator.Pose(playing, (float)(playTime / playSeconds * playFrames)); viewer.UpdateGeometry(animator);
+        playTime = playSeconds * 0.55; animator.Pose(playing, (float)(playTime / playSeconds * playFrames)); ShowPose();
         Pause();   // as the pause button: saved
         viewer.ViewState = [0.9f, -0.2f, 1.3f, 0f, 0.04f, 0f];
         PreviewViews.Set(PreviewViews.Key(mod!, meshes[meshIndex]), viewer.ViewState);   // as a drag saves it
@@ -2243,8 +2261,39 @@ sealed class StorePreview : Control
 
     void HideAnimControls()
     {
-        foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider, specBtn, reflBtn, glowBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn }) if (c != null) c.Visible = false;
+        foreach (Control? c in new Control?[] { animBox, playBtn, loopBtn, restBtn, frameSlider, lightSlider, lensSlider, specBtn, reflBtn, glowBtn, propsBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn }) if (c != null) c.Visible = false;
         if (IsFull) ToggleFull();   // a picture (or another mod without 3D) shows: back from full screen
+    }
+
+    /// <summary>The pose last made by the animator, with the props on their bones.</summary>
+    void ShowPose() { if (viewer != null && animator != null) rig.Update(viewer, animator); }
+
+    /// <summary>
+    /// The props the game attaches to the shown character (PropRig.Attached: other meshes of the mod's packages that a
+    /// marvelattachment names), loaded in the background and shown with it; none when the Props toggle is off. The view
+    /// (camera) stays as it was; the character's framing isn't changed by a prop.
+    /// </summary>
+    void LoadProps()
+    {
+        if (viewer == null || animator == null || shownLoaded == null || !MeshOk) return;
+        var main = meshes[meshIndex];
+        var l = shownLoaded;
+        var a = animator;
+        int req = request;
+        var want = PreviewViews.Props ? PropRig.Attached(main, meshes) : [];
+        string? cooked = CookedFolder;
+        if (want.Count == 0 && rig.Count == 0) return;
+        Task.Run(() => want.Select(w => { try { return (w.Bone, Mesh: ModMeshes.Load(w.Ref, cooked, out _)); } catch { return (w.Bone, Mesh: (ModMeshes.Loaded?)null); } }).ToList())
+            .ContinueWith(t =>
+            {
+                if (IsDisposed || req != request || viewer == null || animator != a || shownLoaded != l) return;
+                rig.Clear();
+                foreach (var (bone, m) in t.Result) if (m != null) rig.Add(m, PropRig.BoneFor(a, bone));
+                var keep = viewer.ViewState;
+                viewer.ShowMesh(rig.Combine(l), l.Positions.Length);   // framed (and the saved view measured) by the character alone
+                viewer.ViewState = keep;
+                ShowPose();
+            }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     /// <summary>A framing button: aims the camera like Create from 3D, and keeps it as this mesh's view (as a drag does).</summary>
@@ -2694,8 +2743,11 @@ sealed class LightSlider : Control
     {
         get
         {
-            // Room for the label (measured: "Light", "Frame", "Original") and the value on the right.
-            int left = Math.Max((int)(44 * S), TextRenderer.MeasureText(Label, labelFont).Width + (int)(8 * S)), right = (int)(52 * S);
+            // Room for the label (measured: "Light", "Frame", "Original") and the value on the right, measured at the widest
+            // it gets (Kurt: the frame count "122 / 122" was cut off in the fixed 52 px).
+            int left = Math.Max((int)(44 * S), TextRenderer.MeasureText(Label, labelFont).Width + (int)(8 * S));
+            int widest = Math.Max(TextRenderer.MeasureText(Format(Max), labelFont).Width, TextRenderer.MeasureText(Format(value), labelFont).Width);
+            int right = Math.Max((int)(52 * S), widest + (int)(10 * S));
             return new Rectangle(left, Height / 2 - (int)(2 * S), Math.Max(10, Width - left - right), Math.Max(3, (int)(4 * S)));
         }
     }

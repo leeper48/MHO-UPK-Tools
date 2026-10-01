@@ -49,6 +49,10 @@ static class Program
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
         ("--foot-check", "--foot-check <mod> [animation name part...]", "How high a mod's mesh stands (lowest point, pelvis) at rest and over its animations: for feet below / above the ground after a move. Changes nothing."),
         ("--cloth-notify", "--cloth-notify <source hero base.upk> <target hero base.upk> <out.upk>", "Test: the target hero's base package with the source hero's idle cloth event added (a caped costume moved to another hero). Writes only <out>."),
+        ("--mod-props", "--mod-props <mod>", "For each of a mod's meshes, the props (weapons) the 3D preview shows with it and the bones they're held on. Changes nothing."),
+        ("--fx-dump", "--fx-dump <package.upk> [system name part]", "Every particle system's emitters (kind, material, alignment, sub-images, timing, spawn, modules with values). Changes nothing."),
+        ("--fx-sim", "--fx-sim <package.upk> <system name part> [seconds]", "Plays a particle system off screen and prints its live particles over time. Changes nothing."),
+        ("--power-anims", "--power-anims <hero> [animation name part]", "A hero's animations and the powers that play them (from the hero's power packages). Changes nothing."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
@@ -225,11 +229,20 @@ static class Program
             var shots = new List<Bitmap>();
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
-                v.ShowMesh(ld);
+                // MHO_RENDER_PROPS=1: with the props the preview shows (PropRig), as it shows them.
+                var rrig = new PropRig();
+                if (Environment.GetEnvironmentVariable("MHO_RENDER_PROPS") == "1")
+                {
+                    AppDomain.CurrentDomain.FirstChanceException += (_, e) => Console.WriteLine("  exception: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
+                    foreach (var (pr, bone) in PropRig.Attached(mr, ModMeshes.List(rm)))
+                        if (ModMeshes.Load(pr, rc, out _) is { } pm) { rrig.Add(pm, PropRig.BoneFor(anim8, bone)); Console.WriteLine($"  prop {pr.Name} on {bone}"); }
+                    v.ShowMesh(rrig.Combine(ld), ld.Positions.Length);
+                }
+                else v.ShowMesh(ld);
                 foreach (float at in new[] { 0f, 0.33f, 0.66f, 1f })
                 {
                     anim8.Pose(ba, frames * at);
-                    v.UpdateGeometry(anim8);
+                    rrig.Update(v, anim8);
                     await Task.Delay(200);
                     var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); shots.Add(b);
                     Console.WriteLine($"  frame at {at:0.00}: {v.LastFrameMs:0} ms");
@@ -878,6 +891,117 @@ static class Program
                     Console.WriteLine("FAILED: " + ex.Message);
                     return 1;
                 }
+            }
+            case "--mod-props":
+            {
+                // Read-only: for each of a mod's meshes, the props the 3D preview shows with it (PropRig.Attached) and their bones.
+                var pm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                if (pm == null) { Console.WriteLine("--mod-props <mod>"); return 1; }
+                var all = ModMeshes.List(pm);
+                foreach (var r in all)
+                {
+                    var props = PropRig.Attached(r, all);
+                    Console.WriteLine($"{r.Name} ({r.Package}): {(props.Count == 0 ? "no props" : string.Join(", ", props.Select(p => $"{p.Ref.Name} on {p.Bone ?? "the right hand"}")))}");
+                    if (props.Count == 0 || Environment.GetEnvironmentVariable("MHO_PROPS_CHECK") != "1") continue;
+                    // Check: load, combine and pose as the preview does; report sizes and anything not finite.
+                    string? pc = settings.ResolvedGameRoot(data) is string pgr && Settings.IsGameRoot(pgr) ? Settings.Cooked(pgr) : null;
+                    var main = ModMeshes.Load(r, pc, out string w1);
+                    if (main == null) { Console.WriteLine("   main: " + w1); continue; }
+                    var an = new MeshAnimator(main.Bones, main.Positions, main.Normals, main.Influences, main.Tangents);
+                    var rg = new PropRig();
+                    foreach (var (pr, bone) in props)
+                    {
+                        var pmsh = ModMeshes.Load(pr, pc, out string w2);
+                        if (pmsh == null) { Console.WriteLine($"   {pr.Name}: {w2}"); continue; }
+                        int bi = PropRig.BoneFor(an, bone);
+                        an.Pose(null, 0);
+                        var mat = an.BoneMatrix(bi);
+                        var lo = pmsh.Positions.Aggregate(Vector3.Min); var hi = pmsh.Positions.Aggregate(Vector3.Max);
+                        int badP = pmsh.Positions.Count(v => !float.IsFinite(v.X + v.Y + v.Z)), badN = pmsh.Normals.Count(v => !float.IsFinite(v.X + v.Y + v.Z) || v.LengthSquared() < 1e-12f);
+                        Console.WriteLine($"   {pr.Name}: {pmsh.Positions.Length} verts, {pmsh.Indices.Length / 3} tris, sections {pmsh.Looks.Length}, box {lo} .. {hi}; bone #{bi} at {mat.Translation}; bad positions {badP}, zero/bad normals {badN}; bones {pmsh.Bones.Count}");
+                        rg.Add(pmsh, bi);
+                    }
+                    var comb = rg.Combine(main);
+                    Console.WriteLine($"   character {main.Positions.Length} verts / {main.Looks.Length} sections; combined {comb.Positions.Length} verts, {comb.Looks.Length} sections, max index {comb.Indices.Max()}, max section {comb.TriangleSection.Max()}");
+
+                }
+                return 0;
+            }
+            case "--fx-dump":
+            {
+                // Read-only: every particle system's emitters (the MHO Hero Creator's --fx-dump, same output, so the two
+                // readers can be compared line for line). --fx-dump <package.upk> [system name part]
+                if (rest.Count < 2) { Console.WriteLine("--fx-dump <package.upk> [system name part]"); return 1; }
+                var pk = Fx.FxPkg.Open(rest[1]);
+                var rnd = new Random(1);
+                for (int i = 0; i < pk.T.Exports.Count; i++)
+                {
+                    if (!pk.T.ClassOf(pk.T.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (rest.Count > 2 && !pk.T.PathOf(i + 1).Contains(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    var ps = Fx.ParticleData.Read(pk, i)!;
+                    Console.WriteLine($"{ps.Name}: {ps.Emitters.Count} emitter(s)");
+                    foreach (var em in ps.Emitters)
+                    {
+                        var rq = em.Required;
+                        int mat = rq.Ref("Material");
+                        Console.WriteLine($"  {em.Name} [{em.Kind}] material {(mat == 0 ? "none" : pk.T.PathOf(mat))} · {rq.Enum("ScreenAlignment", "psa_square")} · sub-images {rq.Int("SubImages_Horizontal", 1)}×{rq.Int("SubImages_Vertical", 1)}"
+                            + $" · duration {rq.Float("EmitterDuration", 1)}s loops {rq.Int("EmitterLoops", 0)} delay {rq.Float("EmitterDelay", 0)} · local {rq.Bool("bUseLocalSpace", false)}");
+                        if (em.Spawn is { } sp)
+                        {
+                            var rate = sp.Dist("Rate", 1); var bursts = sp.Prop("BurstList");
+                            Console.WriteLine($"      spawn: rate {(rate?.IsSet == true ? rate.F(0, rnd).ToString("0.##") + " (" + rate.Describe() + ")" : "none")}{(bursts != null ? $", bursts {bursts.Size} bytes" : "")}");
+                        }
+                        foreach (var m in em.Modules)
+                        {
+                            var ds = m.Props.Where(x => x.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase) && x.Value.Contains("rawdistribution", StringComparison.OrdinalIgnoreCase)).ToList();
+                            var parts = ds.Select(x =>
+                            {
+                                int dim = x.Value.Contains("vector", StringComparison.OrdinalIgnoreCase) ? 3 : 1;
+                                var d = m.Dist(x.Name, dim)!;
+                                string V(float t) { var v = d.Eval(t, rnd); return dim == 1 ? v[0].ToString("0.##") : $"({v[0]:0.##},{v[1]:0.##},{v[2]:0.##})"; }
+                                return $"{x.Name} {V(0)} → {V(0.5f)} → {V(1)} [{d.Describe()}]";
+                            });
+                            Console.WriteLine($"      {m.Class}: {string.Join("; ", parts)}");
+                        }
+                    }
+                }
+                return 0;
+            }
+            case "--fx-sim":
+            {
+                // Read-only: plays a particle system off screen and prints the live particles per emitter every 8 frames (the
+                // MHO Hero Creator's --fx-sim, same output). --fx-sim <package.upk> <system name part> [seconds]
+                if (rest.Count < 3) { Console.WriteLine("--fx-sim <package.upk> <system name part> [seconds]"); return 1; }
+                var pk = Fx.FxPkg.Open(rest[1]);
+                int ex = Enumerable.Range(0, pk.T.Exports.Count).FirstOrDefault(i => pk.T.ClassOf(pk.T.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase) && pk.T.PathOf(i + 1).Contains(rest[2], StringComparison.OrdinalIgnoreCase), -1);
+                if (ex < 0) { Console.WriteLine("No particle system " + rest[2]); return 1; }
+                var sim = new Fx.ParticleSim(Fx.ParticleData.Read(pk, ex)!);
+                float secs = rest.Count > 3 ? float.Parse(rest[3], System.Globalization.CultureInfo.InvariantCulture) : 3;
+                Console.WriteLine(sim.Data.Name);
+                for (float t = 0; t < secs; t += 1f / 30)
+                {
+                    sim.Step(1f / 30);
+                    if ((int)(t * 30) % 8 != 0) continue;
+                    var sprites = sim.Sprites().ToList();
+                    string sample = sprites.Count == 0 ? "" : $"  e.g. {sprites[^1].Emitter.Name}: at ({sprites[^1].Sprite.Position.X:0},{sprites[^1].Sprite.Position.Y:0},{sprites[^1].Sprite.Position.Z:0}) size {sprites[^1].Sprite.Size.X:0}×{sprites[^1].Sprite.Size.Y:0} colour ({sprites[^1].Sprite.Color.X:0.#},{sprites[^1].Sprite.Color.Y:0.#},{sprites[^1].Sprite.Color.Z:0.#}) alpha {sprites[^1].Sprite.Color.W:0.##} image {sprites[^1].Sprite.Image}";
+                    Console.WriteLine($"  t={sim.Age:0.00}s  {string.Join(" ", sim.Counts().Select(c => c.Count))}  (total {sprites.Count}){sample}");
+                }
+                return 0;
+            }
+            case "--power-anims":
+            {
+                // Read-only: a hero's animations and the powers that play them (the power-effects index).
+                // --power-anims <hero, e.g. Thor or DoctorStrange> [animation name part]
+                if (rest.Count < 2) { Console.WriteLine("--power-anims <hero> [animation name part]"); return 1; }
+                string? pgr = settings.ResolvedGameRoot(data);
+                string? pcook = pgr != null && Settings.IsGameRoot(pgr) ? Settings.Cooked(pgr) : null;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var idx = Fx.PowerIndex.For(rest[1], pcook, []);
+                Console.WriteLine($"{idx.Count} animation(s) in {rest[1]}'s power packages ({sw.ElapsedMilliseconds} ms)");
+                foreach (var (anim, list) in idx.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+                    if (rest.Count < 3 || anim.Contains(rest[2], StringComparison.OrdinalIgnoreCase))
+                        Console.WriteLine($"  {anim}: {string.Join(", ", list.Select(x => $"{x.Class} ({Path.GetFileName(x.File)})"))}");
+                return 0;
             }
             case "--props-under":
             {
