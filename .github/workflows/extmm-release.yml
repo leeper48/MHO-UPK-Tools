@@ -44,13 +44,15 @@ jobs:
       # Inno Setup 6.7.3, pinned: the official installer (signed by Pyrsys B.V.), installed only if its SHA-256 matches.
       - name: Install Inno Setup
         shell: pwsh
+        timeout-minutes: 10
         run: |
           $url = 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe'
           $want = '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732'
           Invoke-WebRequest $url -OutFile innosetup.exe
           $got = (Get-FileHash innosetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($got -ne $want) { throw "Inno Setup installer SHA-256 is $got, expected $want" }
-          Start-Process innosetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+          # /ALLUSERS answers the installer's "all users or just me?" question (without it the silent install waits on it).
+          Start-Process innosetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/ALLUSERS' -Wait
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { throw 'Inno Setup did not install' }
 
       - name: Build the zip and the installer
