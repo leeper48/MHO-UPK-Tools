@@ -26,8 +26,13 @@ sealed class ModelView : UserControl
         public int W => ws[0];
         public int H => hs[0];
 
+        /// <summary>Whether the alpha channel carries anything (some texels differ): an additive effect texture whose
+        /// alpha is all 0 (Forked Lightning's tex_lightning_storm) adds its colour as it is (power effects).</summary>
+        public bool AlphaVaries { get; }
+
         public Map(byte[] bgra, int w, int h)
         {
+            for (int i = 7; i < bgra.Length && !AlphaVaries; i += 4) if (bgra[i] != bgra[3]) AlphaVaries = true;
             var l = new List<byte[]> { bgra }; var lw = new List<int> { w }; var lh = new List<int> { h };
             while (w > 1 || h > 1)
             {

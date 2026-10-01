@@ -53,6 +53,8 @@ static class Program
         ("--fx-dump", "--fx-dump <package.upk> [system name part]", "Every particle system's emitters (kind, material, alignment, sub-images, timing, spawn, modules with values). Changes nothing."),
         ("--fx-sim", "--fx-sim <package.upk> <system name part> [seconds]", "Plays a particle system off screen and prints its live particles over time. Changes nothing."),
         ("--power-anims", "--power-anims <hero> [animation name part]", "A hero's animations and the powers that play them (from the hero's power packages). Changes nothing."),
+        ("--power-fx", "--power-fx <power class> [hero] [mod]", "What the 3D preview plays for a power class: its particle effects, beams, decals, weapon slots, mesh emitters. Changes nothing."),
+        ("--anim-power", "--anim-power <hero> <animation>", "The power a hero's animation belongs to, and what the 3D preview would play for it. Changes nothing."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
@@ -1001,6 +1003,59 @@ static class Program
                 foreach (var (anim, list) in idx.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
                     if (rest.Count < 3 || anim.Contains(rest[2], StringComparison.OrdinalIgnoreCase))
                         Console.WriteLine($"  {anim}: {string.Join(", ", list.Select(x => $"{x.Class} ({Path.GetFileName(x.File)})"))}");
+                return 0;
+            }
+            case "--power-fx":
+            {
+                // Read-only: what the 3D preview plays for a power class (its own; the MHO Hero Creator's --power-fx summary).
+                // --power-fx <power class, e.g. powerthor_shockwave> [hero, e.g. Thor] [mod for its own package copies]
+                if (rest.Count < 2) { Console.WriteLine("--power-fx <power class> [hero] [mod]"); return 1; }
+                string? fgr = settings.ResolvedGameRoot(data);
+                string? fcook = fgr != null && Settings.IsGameRoot(fgr) ? Settings.Cooked(fgr) : null;
+                if (fcook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var fmod = rest.Count > 3 ? lib.Find(rest[3]) : null;
+                var game = new Fx.FxGame(fcook, fmod == null ? [] : fmod.Manifest.UpkReplacements.Select(f => Path.Combine(fmod.Folder, f)));
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                // A prototype path (Powers\...\X.prototype): the power with what it sets off (the game data); else a class.
+                Fx.PowerEffects fx;
+                if (rest[1].EndsWith(".prototype", StringComparison.OrdinalIgnoreCase))
+                {
+                    var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(fgr!, "Data", "Game", "Calligraphy.sip")));
+                    Console.WriteLine($"(game data read in {sw.ElapsedMilliseconds} ms)"); sw.Restart();
+                    fx = Fx.PowerEffects.For(game, db, rest[1], rest.Count > 2 ? rest[2] : null);
+                }
+                else fx = Fx.PowerEffects.ForClass(game, rest[1], rest.Count > 2 ? rest[2] : null);
+                Console.WriteLine($"{rest[1]}: particles {string.Join(", ", fx.Effects.Where(e => e.BeamTarget == null).GroupBy(e => e.Kind).Select(g => $"{g.Key} {g.Count()}"))}; beams {fx.Effects.Count(e => e.BeamTarget != null)}; decals {fx.Decals.Count} ({fx.Decals.Count(d => d.Tex != null)} with a texture); weapon slots {string.Join(" ", fx.Slots.Select(x => (x.Show != null ? "+" + x.Show : "") + (x.Hide != null ? " -" + x.Hide : "")))}; thrown {fx.ThrownSlot ?? "-"}; mesh emitters {fx.Meshes.Count}; contact {fx.ContactPercent:0.##}{(fx.Returning ? ", returning" : "")}  ({sw.ElapsedMilliseconds} ms)");
+                foreach (var e in fx.Effects)
+                    Console.WriteLine($"  {e.Kind,-10} {e.Name}: {e.System.Name} ({e.System.Emitters.Count} emitters, {e.System.Emitters.Count(em => fx.Looks.TryGetValue(em, out var lk) && lk.Tex != null)} textured) at {(e.AtTarget ? "the target" : string.Join("/", e.Sockets.DefaultIfEmpty("root")))}, {e.Point}+{e.Offset:0.##}{(e.BeamTarget != null ? " beam to " + e.BeamTarget : "")}");
+                foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
+                return 0;
+            }
+            case "--anim-power":
+            {
+                // Read-only: the power an animation of a hero belongs to, and what the 3D preview would play for it.
+                // --anim-power <hero, e.g. Thor> <animation name>
+                if (rest.Count < 3) { Console.WriteLine("--anim-power <hero> <animation>"); return 1; }
+                string? agr2 = settings.ResolvedGameRoot(data);
+                string? acook = agr2 != null && Settings.IsGameRoot(agr2) ? Settings.Cooked(agr2) : null;
+                if (acook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(agr2!, "Data", "Game", "Calligraphy.sip")));
+                var byClass = Fx.PowerIndex.PrototypesByClass(db);
+                Console.WriteLine($"game data and {byClass.Count} power classes in {sw.ElapsedMilliseconds} ms"); sw.Restart();
+                var idx = Fx.PowerIndex.For(rest[1], acook, []);
+                if (!idx.TryGetValue(rest[2], out var powers)) { Console.WriteLine($"{rest[2]}: no power of {rest[1]} plays it"); return 0; }
+                var game = new Fx.FxGame(acook, []);
+                foreach (var pw in powers)
+                {
+                    var protos = byClass.TryGetValue(pw.Class, out var l) ? l : [];
+                    Console.WriteLine($"{rest[2]} → {pw.Class} → {(protos.Count == 0 ? "no prototype" : string.Join(", ", protos))}");
+                    foreach (var proto in protos.Take(2))
+                    {
+                        var fx = Fx.PowerEffects.For(game, db, proto, rest[1]);
+                        Console.WriteLine($"  {Path.GetFileNameWithoutExtension(proto)}: {fx.Effects.Count} particle effects ({fx.Effects.Count(e => e.TriggeredBy != null)} triggered), {fx.Decals.Count} decals, {fx.Meshes.Count} mesh emitters, contact {fx.ContactPercent:0.##}  ({sw.ElapsedMilliseconds} ms)");
+                    }
+                }
                 return 0;
             }
             case "--props-under":

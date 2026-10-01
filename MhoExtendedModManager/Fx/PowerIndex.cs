@@ -55,6 +55,31 @@ static class PowerIndex
         return index;
     }
 
+    static readonly Dictionary<GameData, Dictionary<string, List<string>>> protoCache = [];
+
+    /// <summary>
+    /// Power prototypes by their Unreal class (powerthor_shockwave → Powers\Player\Thor\Rework\Shockwave.prototype),
+    /// over every player power (Powers\Player\…), read once per game data. An animation's power is found through its
+    /// class (the packages' PowerFxAnimation components), then its prototype: the effects need the prototype (what it
+    /// sets off, its contact time).
+    /// </summary>
+    public static Dictionary<string, List<string>> PrototypesByClass(GameData db)
+    {
+        lock (protoCache) if (protoCache.TryGetValue(db, out var hit)) return hit;
+        var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in db.Prototypes.Values)
+        {
+            if (!e.Path.StartsWith(@"Powers\Player\", StringComparison.OrdinalIgnoreCase)) continue;
+            string? cls;
+            try { cls = PowerEffects.UnrealClassOf(db, e.Path); } catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { continue; }
+            if (cls == null) continue;
+            if (!map.TryGetValue(cls, out var list)) map[cls] = list = [];
+            list.Add(e.Path);
+        }
+        lock (protoCache) protoCache[db] = map;
+        return map;
+    }
+
     /// <summary>The hero part of a costume / hero class name (MarvelPlayer_DoctorStrange_Classic → DoctorStrange), or null.</summary>
     public static string? HeroOf(string costumeClass)
     {
