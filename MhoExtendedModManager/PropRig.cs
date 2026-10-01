@@ -37,7 +37,7 @@ sealed class PropRig
     /// Punisher TV has none of its own, the base names his 17 guns). Each class's default is found in the costume package
     /// (a costume's own weapon, e.g. thorhammer_ageofultron), else in the base package (the mod's copy, else the game's in
     /// <paramref name="cooked"/>). Props marked visible_on_demand show only while a power switches their slot in
-    /// (SetSwitches). A package without a class list: its own attachments, all shown (Hercules Enhanced Costumes: never
+    /// (SetRules). A package without a class list: its own attachments, all shown (Hercules Enhanced Costumes: never
     /// another package's, one package's sword had landed on every Colossus costume of the mod and a pet).
     /// </summary>
     public static List<Prop> Attached(MeshRef main, IReadOnlyList<MeshRef> meshes, string? cooked = null)
@@ -148,9 +148,6 @@ sealed class PropRig
         At(lastSeconds);
     }
 
-    /// <summary>Some prop's showing depends on the power playing (on demand).</summary>
-    public bool Switchable => props.Any(p => p.OnDemand);
-
     List<ModMeshes.PropRule> rules = [];
     float contactSeconds, animSeconds;
 
@@ -161,10 +158,6 @@ sealed class PropRig
         rules = powerRules; contactSeconds = contact; animSeconds = seconds;
         At(0);
     }
-
-    /// <summary>Kept for --anim-render callers: rules without timing.</summary>
-    public void SetSwitches(IReadOnlyCollection<(string From, string To)> switches)
-        => SetRules([.. switches.SelectMany(w => new[] { new ModMeshes.PropRule(false, w.From, "power_on_start", 0, null, 0), new ModMeshes.PropRule(true, w.To, "power_on_start", 0, null, 0) }).Where(r => r.Target.Length > 0)], 0, 1);
 
     float PointTime(string point, float offset)
     {

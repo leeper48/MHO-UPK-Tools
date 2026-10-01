@@ -403,6 +403,8 @@ Released as extmm-v0.37.1 (Latest) 2026-09-29 (MPM 2.53.5 da02e7d).
 
 **Next:** optionally the clean download (needs Kurt's OK on the Google Drive links). Later: New features beyond the old manager.
 
+**Code layout (refactor 0.37.59, 2026-10-01; moves only, checked against a baseline: tests, --props-audit, Apply dry run, window snapshots and an --anim-render all identical):** Gui/Ui.cs (the Ui helpers only), Gui/ModListBox.cs (ModGroup, ModListBox), Gui/Controls.cs (GradientSplit, GradientGrid, NameList, FlatTabs, DetailsHeader, LightSlider), Gui/StorePreview.cs (fields, pictures, painting, mouse) + StorePreview.Playback.cs (3D view, animations, Look menu, framing, full screen) + StorePreview.Powers.cs (power effects, power buttons, props) + StorePreview.Tests.cs. Program.cs (Main, library commands) + Program.Windows.cs (the commands that open a window, in Main's old order) + Program.Preview.cs / Program.Costumes.cs / Program.Tests.cs (switch cases moved unchanged; each group is a method that returns null when the command isn't one of its). Removed: the preview's hidden Spec / Reflect / Glow / Props buttons, the hover timer (nothing used it after 0.37.47), PropRig.SetSwitches / Switchable, ClothNotify.cs and --cloth-notify. New commands go in the file of their group.
+
 Build: `MhoExtendedModManager\build.bat`. MPM's ZoneData/Help are kept out of this app's output by two targets in the csproj. `ValidateExecutableReferencesMatchSelfContained=false` is needed because MHO_UPK_Mod is an exe.
 
 ## Working style

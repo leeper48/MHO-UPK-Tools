@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.59
+- Internal clean-up (code reorganized, unused parts removed); nothing changes in use.
+
 0.37.58
 - Safety: the app only reads the game's data files, and nothing it does can add a new file to the game; it only ever changes files the game already has (the code it borrowed for power effects could also write game data; that part is removed).
 
