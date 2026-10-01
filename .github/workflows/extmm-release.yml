@@ -2,7 +2,9 @@
 # Push a tag extmm-v<version> (the version in MhoExtendedModManager.csproj) to run it:
 #   git tag -a extmm-v0.21.1 -m "What changed ..."   then   git push origin extmm-v0.21.1
 # Result: a DRAFT GitHub release with the zip, the Setup.exe and their .sha256 files, and the tag message as notes.
-# Check it, then press Publish (the app's updater ignores drafts until then).
+# Then sign it on Kurt's PC (the private key never goes to GitHub): download the zip, run
+#   MHO_Ext_ModManager.exe --sign-file <zip> <release key .pem>, upload the .zip.sig to the draft, and publish.
+# The app's updater ignores drafts, and offers only releases with a valid signature.
 # The builds are not code-signed (Kurt's decision, 2026-09-27); README.txt tells users how to check a download.
 name: MHO Extended Mod Manager release
 
@@ -25,18 +27,31 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      # The tag name reaches scripts through an environment variable, never pasted into the script text (script injection).
       - name: Version from the tag
         id: v
         shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          $tag = '${{ github.ref_name }}'
+          $tag = $env:TAG
+          if ($tag -notmatch '^extmm-v[0-9]+(\.[0-9]+){1,3}$') { throw "unexpected tag name $tag" }
           $ver = $tag -replace '^extmm-v', ''
           $csproj = ([xml](Get-Content MhoExtendedModManager/MhoExtendedModManager.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
           if ($ver -ne $csproj) { throw "tag $tag doesn't match the csproj version $csproj" }
           "version=$ver" >> $env:GITHUB_OUTPUT
 
+      # Inno Setup 6.7.3, pinned: the official installer (signed by Pyrsys B.V.), installed only if its SHA-256 matches.
       - name: Install Inno Setup
-        run: choco install innosetup -y --no-progress
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe'
+          $want = '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732'
+          Invoke-WebRequest $url -OutFile innosetup.exe
+          $got = (Get-FileHash innosetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($got -ne $want) { throw "Inno Setup installer SHA-256 is $got, expected $want" }
+          Start-Process innosetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { throw 'Inno Setup did not install' }
 
       - name: Build the zip and the installer
         shell: pwsh
@@ -46,7 +61,11 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
-          $v = '${{ steps.v.outputs.version }}'
+          $v = $env:VERSION
           $files = Get-ChildItem out/release -File | Where-Object { $_.Name -like "MHO_Ext_ModManager-$v*" } | ForEach-Object { $_.FullName }
-          gh release create '${{ github.ref_name }}' @files --draft --title "MHO Extended Mod Manager $v" --notes-from-tag
+          gh release create $env:TAG @files --draft --title "MHO Extended Mod Manager $v" --notes-from-tag
+          # Then, on Kurt's PC: download the zip, --sign-file it with the release key, upload the .sig, and publish.
+          # The app offers only releases with a valid .sig (ReleaseSigning.cs).

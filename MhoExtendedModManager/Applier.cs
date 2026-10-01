@@ -271,6 +271,17 @@ static class Applier
         return result;
     }
 
+    /// <summary>Is <paramref name="path"/> a file directly in CookedPCConsole (or, for strings, in a &lt;lang&gt;.all folder
+    /// directly under Loco)? Apply writes nowhere else.</summary>
+    public static bool InGameFolder(GameState game, string path, bool strings)
+    {
+        string full = Path.GetFullPath(path), dir = Path.GetDirectoryName(full) ?? "";
+        static string Norm(string p) => Path.GetFullPath(p).TrimEnd(Path.DirectorySeparatorChar);
+        if (!strings) return dir.Equals(Norm(game.Cooked), StringComparison.OrdinalIgnoreCase);
+        return Path.GetFileName(dir).EndsWith(".all", StringComparison.OrdinalIgnoreCase)
+            && (Path.GetDirectoryName(dir) ?? "").Equals(Norm(game.Loco), StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsSoundLine(string problem) => problem.Contains(": skipped (", StringComparison.Ordinal);
 
     public static void Print(Plan p)
@@ -312,6 +323,8 @@ static class Applier
         {
             Console.WriteLine($"{s.File}: {s.What}");
             string live = s.Strings ? Path.Combine(game.Loco, s.File) : Path.Combine(game.Cooked, s.File);
+            // Last line of defense (security audit): only files directly in CookedPCConsole, or in a <lang>.all folder for strings.
+            if (!InGameFolder(game, live, s.Strings)) { Console.WriteLine($"  refused: {s.File} isn't a file in the game's {(s.Strings ? "language" : "package")} folder; stopping."); return false; }
             if (s.Type == Kind.Tfc)
             {
                 if (originals.FindTfc(Path.GetFileNameWithoutExtension(s.File)) == null) { Console.WriteLine("  no original kept; stopping."); return false; }

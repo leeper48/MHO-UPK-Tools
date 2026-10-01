@@ -127,7 +127,9 @@ sealed partial class ModEditorView : UserControl
         tabs.Add("Strings", stringsPage);
         tabs.Add("Sound Packs", SoundsPage());
         tabs.Add("Voice", VoicePage());
-        tabs.Add("Powers", PowersPage());
+        // Not released yet (Kurt, 2026-10-01): only with "PreviewFeatures": true in settings.json. A mod's existing power colors
+        // are kept and rebuilt on save either way.
+        if (Settings.Load().PreviewFeatures) tabs.Add("Powers", PowersPage());
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 

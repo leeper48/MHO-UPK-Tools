@@ -189,6 +189,128 @@ static partial class Program
                         Console.WriteLine($"  {anim}: {string.Join(", ", list.Select(x => $"{x.Class} ({Path.GetFileName(x.File)})"))}");
                 return 0;
             }
+            case "--remove-property":
+            {
+                // Test: a copy of a package with one top-level property removed from one export (component: properties at 16,
+                // else at 4), written outside the game folder. --remove-property <in.upk> <export path end> <property> <out.upk>
+                if (rest.Count < 5) { Console.WriteLine("--remove-property <in.upk> <export path end> <property> <out.upk>"); return 1; }
+                string rgr2 = settings.ResolvedGameRoot(data) ?? "";
+                string rout2 = Path.GetFullPath(rest[4]);
+                if (rgr2.Length > 0 && rout2.StartsWith(Path.GetFullPath(rgr2), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                var rp = MhoPackageModifier.Package.Open(rest[1]);
+                int ri = Array.FindIndex(rp.Exports, e => rp.PathOf(e).EndsWith(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (ri < 0) { Console.WriteLine($"{rest[2]}: no such export"); return 1; }
+                byte[] rd = rp.ReadExportBytes(rp.Exports[ri]);
+                var tags = MhoPackageModifier.TagWalker.Walk(rp, rd, 16) ?? MhoPackageModifier.TagWalker.Walk(rp, rd, 4);
+                var tag = tags?.FirstOrDefault(t => t.Name.Equals(rest[3], StringComparison.OrdinalIgnoreCase));
+                if (tag == null) { Console.WriteLine($"{rest[3]}: not a property of {rp.PathOf(rp.Exports[ri])}"); return 1; }
+                byte[] nd = [.. rd.AsSpan(0, tag.Start), .. rd.AsSpan(tag.End)];
+                byte[] built = MhoPackageModifier.PackageRebuilder.Rebuild(rp, new Dictionary<int, Func<long, byte[]>> { [ri] = _ => nd }, [], out _);
+                var back = MhoPackageModifier.Package.FromBytes(built);
+                var btags = MhoPackageModifier.TagWalker.Walk(back, back.ReadExportBytes(back.Exports[ri]), tag.Start == 16 || (tags![0].Start == 16) ? 16 : 4);
+                if (btags == null || btags.Any(t => t.Name.Equals(rest[3], StringComparison.OrdinalIgnoreCase))) { Console.WriteLine("didn't read back right; nothing written"); return 1; }
+                File.WriteAllBytes(rout2, built);
+                Console.WriteLine($"{rp.PathOf(rp.Exports[ri])}: {rest[3]} removed ({rd.Length} → {nd.Length} bytes); written {rout2}, reads back ({btags.Count} properties left)");
+                return 0;
+            }
+            case "--mesh-namemap":
+            {
+                // Read-only: a skeletal mesh's bone list against its NameIndexMap (after the LODs: count, then name + index per
+                // bone), the table the game uses to find a bone (and so a socket) by name.
+                if (rest.Count < 3) { Console.WriteLine("--mesh-namemap <package.upk> <mesh name>"); return 1; }
+                var mp = MhoPackageModifier.Package.Open(rest[1]);
+                var ap = AnimExportCli.Packages.Package.Read(mp.RawFile);
+                int mi = ap.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).FirstOrDefault(i => ap.GetExportName(i).Equals(rest[2], StringComparison.OrdinalIgnoreCase), -1);
+                if (mi < 0) { Console.WriteLine($"{rest[2]}: no skeletal mesh by that name"); return 1; }
+                var mesh = AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, mi, e => Console.WriteLine("  " + e));
+                if (mesh == null) return 1;
+                byte[] md = ap.GetExportData(mi).ToArray();
+                int at = mesh.LodsEnd, count = BitConverter.ToInt32(md, at);
+                Console.WriteLine($"{mesh.Name}: {mesh.Bones.Count} bones, name map {count} entries");
+                int wrong = 0;
+                for (int k = 0; k < count; k++)
+                {
+                    int p = at + 4 + 12 * k, ni = BitConverter.ToInt32(md, p), nn = BitConverter.ToInt32(md, p + 4), ix = BitConverter.ToInt32(md, p + 8);
+                    string name = ni >= 0 && ni < mp.Names.Length ? (nn > 0 ? $"{mp.Names[ni]}_{nn - 1}" : mp.Names[ni]) : $"#{ni}";
+                    string atIx = ix >= 0 && ix < mesh.Bones.Count ? mesh.Bones[ix].Name : "(out of range)";
+                    bool ok = atIx.Equals(name, StringComparison.OrdinalIgnoreCase);
+                    if (!ok) wrong++;
+                    if (!ok || rest.Contains("--all")) Console.WriteLine($"  [{k}] {name} → bone {ix} {atIx}{(ok ? "" : "   MISMATCH")}");
+                }
+                var mapped = Enumerable.Range(0, count).Select(k => BitConverter.ToInt32(md, at + 12 + 12 * k)).ToHashSet();
+                var unmapped = Enumerable.Range(0, mesh.Bones.Count).Where(b => !mapped.Contains(b)).Select(b => mesh.Bones[b].Name).ToList();
+                Console.WriteLine($"{wrong} mismatch(es); bones not in the map: {(unmapped.Count == 0 ? "none" : string.Join(", ", unmapped))}");
+                return 0;
+            }
+            case "--set-ref":
+            {
+                // Test: a copy of a package with one object property of one export pointed at another export (by path end),
+                // written outside the game folder. --set-ref <in.upk> <export path end> <property> <target path end> <out.upk>
+                if (rest.Count < 6) { Console.WriteLine("--set-ref <in.upk> <export path end> <property> <target export path end> <out.upk>"); return 1; }
+                string sgr = settings.ResolvedGameRoot(data) ?? "";
+                string sout = Path.GetFullPath(rest[5]);
+                if (sgr.Length > 0 && sout.StartsWith(Path.GetFullPath(sgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                var sp = MhoPackageModifier.Package.Open(rest[1]);
+                int si = Array.FindIndex(sp.Exports, e => sp.PathOf(e).EndsWith(rest[2], StringComparison.OrdinalIgnoreCase));
+                int ti = Array.FindIndex(sp.Exports, e => sp.PathOf(e).EndsWith(rest[4], StringComparison.OrdinalIgnoreCase));
+                if (si < 0 || ti < 0) { Console.WriteLine($"{(si < 0 ? rest[2] : rest[4])}: no such export"); return 1; }
+                byte[] sd = sp.ReadExportBytes(sp.Exports[si]);
+                var stags = MhoPackageModifier.TagWalker.Walk(sp, sd, 16) ?? MhoPackageModifier.TagWalker.Walk(sp, sd, 4);
+                var stag = stags?.FirstOrDefault(t => t.Name.Equals(rest[3], StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ObjectProperty", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
+                if (stag == null) { Console.WriteLine($"{rest[3]}: not an object property of {sp.PathOf(sp.Exports[si])}"); return 1; }
+                int was = BitConverter.ToInt32(sd, stag.ValueAt);
+                BitConverter.GetBytes(ti + 1).CopyTo(sd, stag.ValueAt);
+                byte[] sbuilt = MhoPackageModifier.PackageRebuilder.Rebuild(sp, new Dictionary<int, Func<long, byte[]>> { [si] = _ => sd }, [], out _);
+                var sback = MhoPackageModifier.Package.FromBytes(sbuilt);
+                if (BitConverter.ToInt32(sback.ReadExportBytes(sback.Exports[si]), stag.ValueAt) != ti + 1) { Console.WriteLine("didn't read back right; nothing written"); return 1; }
+                File.WriteAllBytes(sout, sbuilt);
+                Console.WriteLine($"{sp.PathOf(sp.Exports[si])}.{rest[3]}: {(was > 0 ? sp.PathOf(sp.Exports[was - 1]) : was.ToString())} → {sp.PathOf(sp.Exports[ti])}; written {sout}");
+                return 0;
+            }
+            case "--mesh-sockets":
+            {
+                // Read-only: each skeletal mesh in a package with its sockets (name → bone): where powers attach effects.
+                if (rest.Count < 2) { Console.WriteLine("--mesh-sockets <package.upk>"); return 1; }
+                string sp = Path.GetFullPath(rest[1]);
+                foreach (var mr in ModMeshes.List([(Path.GetFileName(sp), sp)], anyPackage: true))
+                {
+                    var socks = Fx.FxSockets.Of(sp, mr.Name);
+                    Console.WriteLine($"{mr.Name}: {socks.Count} socket(s)");
+                    foreach (var (n, s) in socks.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)) Console.WriteLine($"  {n} on {s.Bone}");
+                }
+                return 0;
+            }
+            case "--export-diff":
+            {
+                // Read-only: the exports whose data differ between two packages (same export order), with where they differ.
+                if (rest.Count < 3) { Console.WriteLine("--export-diff <a.upk> <b.upk>"); return 1; }
+                var pa = MhoPackageModifier.Package.Open(rest[1]); var pb = MhoPackageModifier.Package.Open(rest[2]);
+                int n = Math.Min(pa.Exports.Length, pb.Exports.Length), diffs = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    byte[] a = pa.ReadExportBytes(pa.Exports[i]), b = pb.ReadExportBytes(pb.Exports[i]);
+                    string pathA = pa.PathOf(pa.Exports[i]), pathB = pb.PathOf(pb.Exports[i]);
+                    if (a.AsSpan().SequenceEqual(b) && pathA == pathB) continue;
+                    diffs++;
+                    var at = Enumerable.Range(0, Math.Min(a.Length, b.Length)).Where(k => a[k] != b[k]).ToList();
+                    Console.WriteLine($"#{i + 1} {pa.ClassOf(pa.Exports[i])} {pathA}{(pathA != pathB ? " → " + pathB : "")}: {a.Length} / {b.Length} bytes, {at.Count} differ" +
+                        (at.Count > 0 ? $" (0x{at[0]:X}…0x{at[^1]:X})" : ""));
+                }
+                if (pa.Exports.Length != pb.Exports.Length) Console.WriteLine($"export counts differ: {pa.Exports.Length} / {pb.Exports.Length}");
+                Console.WriteLine($"{diffs} export(s) differ of {n}.");
+                return 0;
+            }
+            case "--proto":
+            {
+                // Read-only: a prototype's fields as the game data has them (its own, parents not merged).
+                if (rest.Count < 2) { Console.WriteLine("--proto <prototype path, e.g. Powers\\Player\\Thor\\GroundSmash.prototype>"); return 1; }
+                string? pgr2 = settings.ResolvedGameRoot(data);
+                if (pgr2 == null || !Settings.IsGameRoot(pgr2)) { Console.WriteLine("game folder not found"); return 1; }
+                var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr2, "Data", "Game", "Calligraphy.sip")));
+                if (pdb.Find(rest[1]) is not { } pe) { Console.WriteLine($"{rest[1]}: not found"); return 1; }
+                foreach (string l in pdb.Dump(pdb.Prototype(pe.Id).Data, 200)) Console.WriteLine(l);
+                return 0;
+            }
             case "--power-fx":
             {
                 // Read-only: what the 3D preview plays for a power class (its own; the MHO Hero Creator's --power-fx summary).
@@ -364,7 +486,7 @@ static partial class Program
                 if (qgr == null || !Settings.IsGameRoot(qgr)) { Console.WriteLine("game folder not found"); return 1; }
                 string qcook = Settings.Cooked(qgr);
                 var qdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(qgr, "Data", "Game", "Calligraphy.sip")));
-                foreach (var pw in Fx.PowerList.For(qdb, rest[1], qcook, []).Where(x => rest.Count < 3 || x.Name.Contains(rest[2], StringComparison.OrdinalIgnoreCase)))
+                foreach (var pw in Fx.PowerList.For(qdb, rest[1], qcook, [], effectOnly: true).Where(x => rest.Count < 3 || x.Name.Contains(rest[2], StringComparison.OrdinalIgnoreCase)))
                 {
                     var used = PowerRecolor.PackagesOf(qdb, pw.Prototype, rest[1], qcook).ToHashSet(StringComparer.OrdinalIgnoreCase);
                     Console.WriteLine($"{pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): {used.Count} package(s)");
@@ -416,10 +538,10 @@ static partial class Program
                 string? hcook = hgr != null && Settings.IsGameRoot(hgr) ? Settings.Cooked(hgr) : null;
                 if (hcook == null) { Console.WriteLine("game folder not found"); return 1; }
                 var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(hgr!, "Data", "Game", "Calligraphy.sip")));
-                foreach (var pw in Fx.PowerList.For(db, rest[1], hcook, []))
+                foreach (var pw in Fx.PowerList.For(db, rest[1], hcook, [], effectOnly: true))
                 {
                     var ic = pw.Icon == null ? null : Fx.PowerList.Icon(pw.Icon, hcook);
-                    Console.WriteLine($"  {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): icon {pw.Icon ?? "none"}{(ic == null ? "" : $" {ic.Width}×{ic.Height}")}; {string.Join(", ", pw.Animations)}");
+                    Console.WriteLine($"  {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): icon {pw.Icon ?? "none"}{(ic == null ? "" : $" {ic.Width}×{ic.Height}")}; {(pw.Animations.Count == 0 ? "(no animation: effects only)" : string.Join(", ", pw.Animations))}");
                     // MHO_POWER_FIELDS=1: every asset (A) field of the power, to see which icons it names.
                     if (Environment.GetEnvironmentVariable("MHO_POWER_FIELDS") == "1" && db.Find(pw.Prototype) is { } pe)
                         foreach (var grp in db.Prototype(pe.Id).Data.Groups)

@@ -16,6 +16,8 @@ public sealed record PowerColor(float Hue, float Saturation = 1, float Brightnes
 
     public Vector3 Apply(Vector3 c)
     {
+        // MHO_RECOLOR_SWAPRB=1 (test only): red and blue swapped, so a table keeps its [min, max] exactly.
+        if (Environment.GetEnvironmentVariable("MHO_RECOLOR_SWAPRB") == "1") return new Vector3(c.Z, c.Y, c.X);
         float a = Hue * MathF.PI / 180, co = MathF.Cos(a), si = MathF.Sin(a);
         var r = new Vector3(
             (.299f + .701f * co + .168f * si) * c.X + (.587f - .587f * co + .330f * si) * c.Y + (.114f - .114f * co - .497f * si) * c.Z,
@@ -150,6 +152,14 @@ static class PowerRecolor
         }
         foreach (var e in db.Prototypes.Values)
             if (e.Path.Replace('\\', '/').Contains("/" + hero + "/", StringComparison.OrdinalIgnoreCase)) set.Add(e.Path.Replace('\\', '/'));
+        // The powers the hero's avatar names, with what they set off (Ms. Marvel's live in Powers/Player/CaptainMarvel/:
+        // they read as another owner, "Captain Marvel").
+        foreach (ulong id in PowerList.AvatarPowers(db, hero))
+            if (db.Prototypes.TryGetValue(id, out var ap) && ap.Path.Replace('\\', '/').StartsWith("Powers/", StringComparison.OrdinalIgnoreCase))
+            {
+                set.Add(ap.Path.Replace('\\', '/'));
+                foreach (var a in PowerClosure.Of(db, ap.Path)) set.Add(a.Prototype.Replace('\\', '/'));
+            }
         lock (heroProtos) heroProtos[hero] = set;
         return set;
     }
@@ -251,7 +261,10 @@ static class PowerRecolor
         materials.RemoveWhere(m => m < 0);
         var moved = recolored.Concat(materials).Concat(systems).Distinct().OrderBy(x => x).ToList();
         string top = cls + "_recolor_fx";
-        byte[] output = Move(Package.FromBytes(stage), moved, top, out var mp);
+        // MHO_RECOLOR_NOMOVE=1 (test only): leave everything at its stock path, to tell a path problem from a color one.
+        if (Environment.GetEnvironmentVariable("MHO_RECOLOR_NOMOVE") == "1") { log("test: nothing moved (MHO_RECOLOR_NOMOVE)"); moved.Clear(); }
+        List<string> mp = [];
+        byte[] output = moved.Count == 0 ? stage : Move(Package.FromBytes(stage), moved, top, out mp);
         if (mp.Count > 0) throw new InvalidDataException($"{file}: " + string.Join("; ", mp.Take(5)));
         log($"{moved.Count} object(s) under {top} ({recolored.Count} texture(s), {materials.Count} material(s), {systems.Count} particle system(s)): no path shared with the stock effects");
 

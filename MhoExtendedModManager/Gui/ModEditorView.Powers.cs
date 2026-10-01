@@ -101,9 +101,9 @@ sealed partial class ModEditorView
         string? keep = (powerList.SelectedItem as Fx.PowerList.Power)?.Prototype;
         powerList.BeginUpdate();
         powerList.Items.Clear();
-        foreach (var p in powerPreview.HeroPowers) powerList.Items.Add(p);
+        foreach (var p in powerPreview.AllHeroPowers) powerList.Items.Add(p);
         powerList.EndUpdate();
-        int at = keep == null ? -1 : powerPreview.HeroPowers.ToList().FindIndex(p => p.Prototype == keep);
+        int at = keep == null ? -1 : powerPreview.AllHeroPowers.ToList().FindIndex(p => p.Prototype == keep);
         if (powerList.Items.Count > 0) powerList.SelectedIndex = Math.Max(0, at);
         if (powerList.Items.Count == 0) powerCaption.Text = "No Powers Found for This Hero";
     }
@@ -138,13 +138,13 @@ sealed partial class ModEditorView
     {
         if (powerPreview == null || hueSlider == null || satSlider == null || brightSlider == null) return;
         var c = new PowerColor(hueSlider.Value, satSlider.Value, brightSlider.Value);
-        foreach (var p in powerPreview.HeroPowers)
+        foreach (var p in powerPreview.AllHeroPowers)
         {
             var e = EntryOf(p.Prototype);
             if (e == null) { if (c.IsNone) continue; draft.PowerColors.Add(e = new PowerColorEntry { Power = p.Prototype, Name = p.Name }); }
             e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness;
         }
-        powerCaption.Text = Ui.TitleCase(c.IsNone ? $"All {powerPreview.HeroPowers.Count} powers back to the game's colors" : $"Color applied to all {powerPreview.HeroPowers.Count} powers");
+        powerCaption.Text = Ui.TitleCase(c.IsNone ? $"All {powerPreview.AllHeroPowers.Count} powers back to the game's colors" : $"Color applied to all {powerPreview.AllHeroPowers.Count} powers");
         powerList.Invalidate();
         powerPreview.RefreshPowerColor();
     }
@@ -195,8 +195,10 @@ sealed partial class ModEditorView
         var e = EntryOf(p.Prototype);
         hueSlider.Value = e?.Hue ?? 0; satSlider.Value = e?.Saturation ?? 1; brightSlider.Value = e?.Brightness ?? 1;
         fillingPower = false;
-        powerCaption.Text = e == null ? "The Game's Colors" : "Recolored";
-        powerPreview?.PlayPower(p.Prototype);
+        powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored")
+            // (a proc, passive or talent: its effects play in the game during other powers, there's nothing to play here)
+            + (p.Animations.Count == 0 ? " · No Animation of Its Own: Its Effects Show During Other Powers" : "");
+        if (p.Animations.Count > 0) powerPreview?.PlayPower(p.Prototype);
         ShowShared(p);
     }
 

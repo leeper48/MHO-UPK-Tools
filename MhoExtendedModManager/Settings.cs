@@ -38,6 +38,9 @@ sealed class Settings
     public string ListGroup { get; set; } = "none";
     /// <summary>Updates: look for a new version at start and every hour while open; a version the user chose to skip.</summary>
     public bool CheckUpdates { get; set; } = true;
+    /// <summary>Features not released yet (Kurt, 2026-10-01: the editor's Powers tab). Off by default; set to true in
+    /// settings.json by hand to see them. No menu item on purpose.</summary>
+    public bool PreviewFeatures { get; set; }
     /// <summary>The manual's text size in percent (A− / A+ in the Help window).</summary>
     public int ManualTextSize { get; set; } = 100;
     /// <summary>The user was asked once whether the app may look for updates at start (nothing is sent without that).</summary>

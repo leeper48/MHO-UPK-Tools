@@ -55,6 +55,11 @@ static class ModInstaller
                 try { m = ModManifest.Load(manifestPath); }
                 catch (Exception ex) when (ex is JsonException or InvalidDataException) { log.Add($"{Path.GetRelativePath(root, manifestPath)}: invalid manifest ({ex.Message})"); continue; }
                 string name = Sanitise(string.IsNullOrWhiteSpace(m.Name) ? Path.GetFileName(dir) : m.Name);
+                if (ModSafety.Problems(m) is { Count: > 0 } unsafeNames)
+                {
+                    log.Add($"{name}: refused: its manifest names files outside the mod or game folder ({string.Join(", ", unsafeNames.Take(5))}).");
+                    continue;
+                }
                 var probe = new Mod { Folder = dir, FolderName = name, Manifest = m };
                 var missing = probe.MissingFiles().ToList();
                 if (missing.Count > 0) { log.Add($"{name}: files missing from the archive: {string.Join(", ", missing)}"); continue; }
@@ -101,17 +106,38 @@ static class ModInstaller
         return installed;
     }
 
+    const int MaxEntries = 100_000;
+    const long MaxUnpacked = 8L << 30;
+
     /// <summary>Unpacks an archive, refusing entries that would land outside the target folder.</summary>
     static void Extract(string archive, string to)
     {
         string full = Path.GetFullPath(to) + Path.DirectorySeparatorChar;
         using var a = ArchiveFactory.Open(archive);
-        foreach (var e in a.Entries.Where(e => !e.IsDirectory))
+        // A "zip bomb" (a small archive that unpacks to fill the disk) is refused before anything is written (security audit):
+        // at most 100,000 entries and 8 GB unpacked, by the sizes the archive states.
+        var files = a.Entries.Where(e => !e.IsDirectory).ToList();
+        if (files.Count > MaxEntries) throw new InvalidDataException($"the archive holds {files.Count:N0} files (at most {MaxEntries:N0})");
+        long total = files.Sum(e => Math.Max(0, e.Size));
+        if (total > MaxUnpacked) throw new InvalidDataException($"the archive unpacks to {total / 1073741824.0:0.0} GB (at most {MaxUnpacked / 1073741824} GB)");
+        long written = 0;
+        foreach (var e in files)
         {
             string dest = Path.GetFullPath(Path.Combine(to, e.Key!.Replace('/', Path.DirectorySeparatorChar)));
             if (!dest.StartsWith(full, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException($"archive entry '{e.Key}' points outside the folder");
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            e.WriteToFile(dest, new ExtractionOptions { Overwrite = true });
+            // Unpacked through a counting stream: an archive that states small sizes but unpacks bigger stops at the limit.
+            using (var src = e.OpenEntryStream())
+            using (var dst = File.Create(dest))
+            {
+                byte[] buf = new byte[1 << 20];
+                for (int n; (n = src.Read(buf, 0, buf.Length)) > 0;)
+                {
+                    written += n;
+                    if (written > MaxUnpacked) throw new InvalidDataException($"the archive unpacks to more than {MaxUnpacked / 1073741824} GB");
+                    dst.Write(buf, 0, n);
+                }
+            }
         }
     }
 

@@ -84,6 +84,16 @@ sealed class HelpForm : Form
             else if (e.KeyCode == Keys.Escape) Close();
         };
         browser.DocumentCompleted += (_, _) => { searched = ""; found.Text = ""; };
+        // The window shows only the manual (security audit): a web link opens in the default browser, anything else is ignored.
+        browser.Navigating += (_, e) =>
+        {
+            if (e.Url == null || e.Url.AbsoluteUri == "about:blank") return;
+            if (e.Url.IsFile && string.Equals(Path.GetFullPath(e.Url.LocalPath), Path.GetFullPath(page), StringComparison.OrdinalIgnoreCase)) return;
+            e.Cancel = true;
+            if (e.Url.Scheme == Uri.UriSchemeHttps || e.Url.Scheme == Uri.UriSchemeHttp)
+                Process.Start(new ProcessStartInfo(e.Url.AbsoluteUri) { UseShellExecute = true });
+        };
+        browser.NewWindow += (_, e) => e.Cancel = true;
         Controls.Add(browser);
         Controls.Add(bar);
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);

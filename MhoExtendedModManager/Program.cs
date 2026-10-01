@@ -40,6 +40,8 @@ static partial class Program
         ("--extract-texture", "--extract-texture <icons|achievements|store> <texture> <out.dds|out.png>", "Save a stock icon / achievement / store image (from the originals) as .dds, or as .png."),
         ("--extract-strings", "--extract-strings <lang> <out.json>", "Save every original string of a language (eng, deu, …) as .json in the mod format."),
         ("--compare-textures", "--compare-textures <a.upk> <b.upk> [<cache folder a> <cache folder b>]", "Every Texture2D in two packages: same size, format and best-mip pixels? (Checks a rebuild against another tool's.)"),
+        ("--make-signing-key", "--make-signing-key <private key .pem>", "Make the release signing key pair: the private key to a file (never overwritten), the public key printed (it goes into ReleaseSigning.cs)."),
+        ("--sign-file", "--sign-file <file> <private key .pem>", "Sign a release file: writes <file>.sig, checked against the key built into the app. Updates install only with a valid signature."),
         ("--check-update", "--check-update", "Look for a newer version (GitHub releases of leeper48/MHO-UPK-Tools, tag extmm-v<version>)."),
         ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
@@ -52,6 +54,9 @@ static partial class Program
         ("--fx-dump", "--fx-dump <package.upk> [system name part]", "Every particle system's emitters (kind, material, alignment, sub-images, timing, spawn, modules with values). Changes nothing."),
         ("--fx-sim", "--fx-sim <package.upk> <system name part> [seconds]", "Plays a particle system off screen and prints its live particles over time. Changes nothing."),
         ("--power-anims", "--power-anims <hero> [animation name part]", "A hero's animations and the powers that play them (from the hero's power packages). Changes nothing."),
+        ("--mesh-sockets", "--mesh-sockets <package.upk>", "Each skeletal mesh in a package with its sockets (where powers attach their effects). Changes nothing."),
+        ("--export-diff", "--export-diff <a.upk> <b.upk>", "The exports whose data or path differ between two packages (same export order), with where. Changes nothing."),
+        ("--proto", "--proto <prototype path>", "A prototype's own fields as the game data has them (parents not merged). Changes nothing."),
         ("--power-fx", "--power-fx <power class> [hero] [mod]", "What the 3D preview plays for a power class: its particle effects, beams, decals, weapon slots, mesh emitters. Changes nothing."),
         ("--anim-power", "--anim-power <hero> <animation>", "The power a hero's animation belongs to, and what the 3D preview would play for it. Changes nothing."),
         ("--attach-census", "--attach-census [package.upk ...]", "Every property the game's power and hero packages use to show, hide or swap a character's props, counted, with an example of each. Changes nothing."),
@@ -156,6 +161,19 @@ static partial class Program
         {
             int ci = rest.FindIndex(x => x.Equals("--compare", StringComparison.OrdinalIgnoreCase));
             return ChecksumMaker.Run(rest[1], rest[2], ci > 0 && ci + 1 < rest.Count ? rest[ci + 1] : null);
+        }
+        if (rest[0].Equals("--make-signing-key", StringComparison.OrdinalIgnoreCase) && rest.Count >= 2)
+        {
+            // The release key pair (ReleaseSigning): the private key to a file (never overwritten); the public key printed.
+            try { Console.WriteLine(ReleaseSigning.MakeKey(rest[1])); Console.WriteLine($"Private key written to {Path.GetFullPath(rest[1])}. Keep it safe and private; back it up."); return 0; }
+            catch (IOException ex) { Console.WriteLine(ex.Message); return 1; }
+        }
+        if (rest[0].Equals("--sign-file", StringComparison.OrdinalIgnoreCase) && rest.Count >= 3)
+        {
+            // Signs a release file with the private key: <file>.sig beside it (ReleaseSigning).
+            if (!File.Exists(rest[1]) || !File.Exists(rest[2])) { Console.WriteLine("--sign-file <file> <private key .pem>"); return 1; }
+            Console.WriteLine($"{Path.GetFileName(rest[1])}.sig: {ReleaseSigning.Sign(rest[1], rest[2])}");
+            return 0;
         }
         if (rest[0].Equals("--check-update", StringComparison.OrdinalIgnoreCase) || rest[0].Equals("--update", StringComparison.OrdinalIgnoreCase))
         {

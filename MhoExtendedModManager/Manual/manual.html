@@ -107,7 +107,7 @@ function mhoNext(dir) {
 <li><a href="#tags">Tags and notes</a></li>
 <li><a href="#editor">Making and editing mods</a></li>
 <li><a href="#voice">Voice lines</a></li>
-<li><a href="#powers">Power colors</a></li>
+<!-- POWER COLORS (unreleased, PreviewFeatures): <li><a href="#powers">Power colors</a></li> -->
 <li><a href="#icons">Icons and Create from 3D</a></li>
 <li><a href="#extract">Extract</a></li>
 <li><a href="#nexus">Nexus</a></li>
@@ -230,12 +230,15 @@ function mhoNext(dir) {
 </table>
 <p>When a mod is for one costume, the image tabs open filtered to that costume's images. <b>Create Post</b> writes a Nexus and a Discord post for the mod, with images, and keeps it with the mod.</p>
 
+<!-- POWER COLORS (unreleased: the editor's Powers tab is hidden unless "PreviewFeatures": true; remove these comment marks when it ships)
 <h2 id="powers">Power colors</h2>
 <p>The editor's <b>Powers</b> tab recolors the hero's powers. Pick a power on the right (its animation shows in the preview, paused: press ▶ to play it with its effects, Esc stops it) and turn <b>Hue</b> (around the color wheel), <b>Saturation</b> (0 % is grey) and <b>Brightness</b>; the preview shows the colors at once. <b>Game's Colors</b> takes a power back. <b>Apply to All Powers</b> gives every power of the hero the sliders' color (with the game's colors on the sliders, it takes them all back). The tab needs a saved mod (save a new mod once first).</p>
+<p>The list has every power the hero's avatar names: those with an animation, the travel power, and also procs, passives and talents that have effects of their own but no animation (Captain Marvel's Radiant Cascade glows during her other attacks). Those play nothing in the preview; their colors show in the game during the powers that set them off.</p>
 <p><b>Presets</b>: five swatches under the sliders. Right-click one to store the sliders there; click it to use it on the selected power. They're kept on this PC for every mod.</p>
 <p>On <b>Save Changes</b>, each colored power's own game files are recolored: its particles, effect textures and material colors, in the power's package and those of what it sets off (missiles, hotspots, conditions, pets and summons; Thor's Rolling Thunder: 6 packages). Effects many heroes share (knockdown, slow, taunt ...) are left as they are. When a few others use the same effects (Beta Ray Bill's team-up copy of Thor's), they change too: the tab names them under the presets. They become ordinary packages of the mod, so Apply Changes puts them in the game like any other, and MHModManager can install the mod too. Nothing on the server changes.</p>
 <div class="note">A color changes the power for <b>every costume</b> of that hero, for anyone using the mod: the files are the game's own power packages. Two mods that recolor the same power conflict like any two mods with the same package (the one higher in the list wins). A few effect textures stored uncompressed keep their colors.</div>
 
+-->
 <h2 id="voice">Voice lines</h2>
 <p>The Editor's <b>Voice</b> tab lists the voice set of the mod's costume packages: the <b>Situation</b> (Death, Level Up, Crit Hit Landed, Banter …), extra <b>Detail</b> (the enemy type or mission) and the <b>Sound Event</b> it plays. Only costumes with their own voice set have lines here: a voice mod, or a costume moved to another hero (which brings its voice along).</p>
 <ul>
@@ -265,10 +268,10 @@ function mhoNext(dir) {
 <li><b>Change Game Folder</b>, <b>Move Library</b>, <b>Open Library Folder</b>, <b>Migrate from MHModManager</b>, <b>Refresh</b>.</li>
 <li><b>Capture Icon Changes</b>: icons in the game that no mod accounts for (from other tools) are saved as a mod, so Apply keeps them.</li>
 <li><b>Download Counts</b>: how often each release of the app was downloaded from GitHub (the total, the change since you last looked, and each release's zip and Setup.exe). These count downloads, not people: the zip includes updates made from inside the app.</li>
-<li><b>Clean Game Files Folder</b>: a folder with a clean copy of the game's CookedPCConsole (for example one you kept before modding). It's only ever read. The app checks its files against the game's own checksums, and then reads the game's original packages from it whenever the game folder's copies are changed: the 3D preview, power effects and icons, power colors and Apply all use the originals, not a mod's version that was applied before.</li>
+<li><b>Clean Game Files Folder</b>: a folder with a clean copy of the game's CookedPCConsole (for example one you kept before modding). It's only ever read. The app checks its files against the game's own checksums, and then reads the game's original packages from it whenever the game folder's copies are changed: the 3D preview, power effects and icons and Apply all use the originals, not a mod's version that was applied before.</li>
 <li><b>Check Backups</b>: lists the game files that differ from the game's own, whether each one's <b>.bak</b> is truly the original (some tools made a .bak from an already changed file), and where a clean copy is (the app's kept originals, the clean folder). The app never trusts a .bak that isn't the original, and never overwrites one. If some .bak files are the original but carry a later date (so they look modified), it offers to give them the game's own date, 2024-03-14; only the date changes.</li>
 <li><b>Remember Window Position</b> (on by default): the app starts on the monitor, at the size and place you left it (maximized if it was). If that monitor isn't connected anymore, or with this off, it starts maximized on the main monitor.</li>
-<li><b>Check for Updates</b> / <b>Check for Updates at Start</b>: the app looks at its GitHub releases at start and every hour while open; <b>Update Available</b> appears in the top bar when there's a new version. Updating keeps your <code>data</code> folder.</li>
+<li><b>Check for Updates</b> / <b>Check for Updates at Start</b>: the app looks at its GitHub releases at start and every hour while open; <b>Update Available</b> appears in the top bar when there's a new version. Updating keeps your <code>data</code> folder. Every update is signed with the developer's own key; the app installs an update only when its signature matches the key built into the app, and only from GitHub.</li>
 <li><b>Changelog</b> (what's new) and <b>About</b>.</li>
 </ul>
 

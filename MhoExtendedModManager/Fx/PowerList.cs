@@ -54,7 +54,8 @@ static class PowerList
     }
 
     /// <summary>The hero's powers with their animations, by name.</summary>
-    public static List<Power> For(GameData db, string hero, string cooked, IEnumerable<string> modFiles)
+    /// <param name="effectOnly">Also powers with effects but no animation (procs, passives): for colors, not for playing.</param>
+    public static List<Power> For(GameData db, string hero, string cooked, IEnumerable<string> modFiles, bool effectOnly = false)
     {
         string gameRoot = Path.GetFullPath(Path.Combine(cooked, "..", "..", ".."));
         var idx = PowerIndex.For(hero, cooked, modFiles);
@@ -125,12 +126,75 @@ static class PowerList
                 result.Remove(other);
             }
         }
+        // Powers with effects but no animation of their own (Kurt: Radiant Cascade, a proc that fires during other attacks,
+        // had no color): powers the hero's avatar names (its power progression, passives …), with a name and an icon, not
+        // listed yet, with effect packages to recolor. Unused leftovers in the game data (Thor's pre-rework powers) aren't
+        // named by the avatar. They have no animations: the preview's power buttons leave them out (nothing to play); the
+        // editor's Powers tab lists them for colors.
+        if (effectOnly)
+        {
+            var names = result.Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var protos = result.Select(p => p.Prototype.Replace('/', '\\')).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (ulong id in AvatarPowers(db, hero))
+            {
+                if (!db.Prototypes.TryGetValue(id, out var e)) continue;
+                string path = e.Path.Replace('/', '\\');
+                if (!path.StartsWith("Powers\\", StringComparison.OrdinalIgnoreCase) || protos.Contains(path)) continue;
+                if (Field(db, e.Path, "DisplayName", 'S') is not { Found: true } dn || !strings.TryGetValue(dn.Raw, out var name) || name.Length == 0) continue;
+                name = System.Text.RegularExpressions.Regex.Replace(name, "#/?powerkeyword#", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+                if (names.Contains(name)) continue;
+                if (Field(db, e.Path, "IconPath", 'A') is not { Found: true } ip || !db.Assets.TryGetValue(ip.Raw, out var ia)) continue;
+                List<string> files;
+                try { files = PowerRecolor.PackagesOf(db, e.Path, hero, cooked); }
+                catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { continue; }
+                if (files.Count == 0) continue;
+                result.Add(new Power(e.Path, name, ia.Asset.Name, []) { HasName = true });
+                names.Add(name);
+            }
+        }
         return [.. result.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>A travel power's Unreal class, its own or its parents' (BeastSprint takes the shared sprint's).</summary>
     public static string? TravelClassOf(GameData db, string travel) =>
         db.Find(travel) is { } e && Field(db, e.Id, "PowerUnrealClass", 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a) ? a.Asset.Name : null;
+
+    /// <summary>The avatar's UnrealClass is the hero's base class or one of its costume classes (Ms. Marvel's avatar names
+    /// MarvelPlayer_MsMarvel_CaptainMarvelANAD).</summary>
+    static bool IsHeroClass(string name, string baseClass) =>
+        name.Equals(baseClass, StringComparison.OrdinalIgnoreCase) || name.StartsWith(baseClass + "_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Every prototype the hero's avatar names in a P field (nested structs and lists too: power progression,
+    /// passives, talents …). The avatar: the prototype under Entity\Characters\Avatars whose UnrealClass is
+    /// MarvelPlayer_&lt;hero&gt;.</summary>
+    public static HashSet<ulong> AvatarPowers(GameData db, string hero)
+    {
+        var set = new HashSet<ulong>();
+        string cls = "MarvelPlayer_" + hero;
+        foreach (var (id, e) in db.Prototypes)
+        {
+            if (!e.Path.Replace('/', '\\').StartsWith("Entity\\Characters\\Avatars", StringComparison.OrdinalIgnoreCase)) continue;
+            Calligraphy.Data d;
+            try { d = db.Prototype(id).Data; } catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { continue; }
+            bool mine = d.Groups.Any(g => g.Simple.Any(f => f.Type == 'A' && db.FieldName(g.Blueprint, f.Id) == "UnrealClass" && db.Assets.TryGetValue(f.Value.Raw, out var a) && IsHeroClass(a.Asset.Name, cls)));
+            if (mine) Collect(d, set);
+        }
+        return set;
+
+        static void Collect(Calligraphy.Data d, HashSet<ulong> set)
+        {
+            foreach (var g in d.Groups)
+            {
+                foreach (var f in g.Simple)
+                    if (f.Type == 'R') { if (f.Value.Struct != null) Collect(f.Value.Struct, set); }
+                    else if (f.Type == 'P' && f.Value.Raw != 0) set.Add(f.Value.Raw);
+                foreach (var f in g.Lists)
+                    foreach (var v in f.Values)
+                        if (f.Type == 'R') { if (v.Struct != null) Collect(v.Struct, set); }
+                        else if (f.Type == 'P' && v.Raw != 0) set.Add(v.Raw);
+            }
+        }
+    }
 
     /// <summary>The hero's travel power prototype (the avatar's TravelPower), or null. The avatar: a prototype whose
     /// UnrealClass is MarvelPlayer_&lt;hero&gt; and that has a TravelPower.</summary>
@@ -147,7 +211,7 @@ static class PowerList
                 foreach (var f in g.Simple)
                 {
                     string n = db.FieldName(g.Blueprint, f.Id);
-                    if (n == "UnrealClass" && f.Type == 'A' && db.Assets.TryGetValue(f.Value.Raw, out var a) && a.Asset.Name.Equals(cls, StringComparison.OrdinalIgnoreCase)) mine = true;
+                    if (n == "UnrealClass" && f.Type == 'A' && db.Assets.TryGetValue(f.Value.Raw, out var a) && IsHeroClass(a.Asset.Name, cls)) mine = true;
                     else if (n == "TravelPower" && f.Type == 'P') travel = f.Value.Raw;
                 }
             if (mine && travel != 0 && db.Prototypes.TryGetValue(travel, out var te)) return te.Path;

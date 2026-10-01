@@ -29,6 +29,12 @@ sealed class SoundPack
         var pack = new SoundPack { File = path, Name = S(r, "name") };
         foreach (var p in r.GetProperty("patches").EnumerateArray())
             pack.Patches.Add(new Patch(S(p, "type"), S(p, "original_event_name"), S(p, "event_name"), H(p, "event_hash"), H(p, "action_id"), H(p, "sound_id"), H(p, "source_id"), S(p, "wem_file"), S(p, "bank_name"), S(p, "pck_file")));
+        // The .pck a line patches is a game file: a bare name only (ModSafety; "..\x" would leave the game folder).
+        if (pack.Patches.FirstOrDefault(x => !ModSafety.GameFileName(x.PckFile) || !x.PckFile.EndsWith(".pck", StringComparison.OrdinalIgnoreCase)) is { } bad)
+            throw new InvalidDataException($"{Path.GetFileName(path)}: pck_file \"{bad.PckFile}\" isn't a game sound file name");
+        // Read into memory: at most 1 GB of audio per pack (a zip bomb would otherwise exhaust memory).
+        if (z.Entries.Where(e => e.FullName.EndsWith(".wem", StringComparison.OrdinalIgnoreCase)).Sum(e => e.Length) > 1L << 30)
+            throw new InvalidDataException($"{Path.GetFileName(path)}: more than 1 GB of sound");
         foreach (var e in z.Entries.Where(e => e.FullName.EndsWith(".wem", StringComparison.OrdinalIgnoreCase)))
         {
             using var ms = new MemoryStream(); e.Open().CopyTo(ms); pack.Wems[e.FullName] = ms.ToArray();

@@ -25,7 +25,7 @@ static class Updater
     public const string TagPrefix = "extmm-v";
     public const string ReleasesPage = "https://github.com/" + Repo + "/releases";
 
-    public sealed record Release(Version Version, string Tag, string Name, string Notes, string PageUrl, string ZipUrl, string ShaUrl, long ZipSize);
+    public sealed record Release(Version Version, string Tag, string Name, string Notes, string PageUrl, string ZipUrl, string ShaUrl, long ZipSize, string SigUrl = "");
 
     static string? Feed => Environment.GetEnvironmentVariable("MHO_EXTMM_UPDATE_FEED");
 
@@ -39,8 +39,19 @@ static class Updater
 
     public static Version Current => Version.TryParse(Program.Version, out var v) ? v : new Version(0, 0);
 
+    /// <summary>A link from the release data the app may use (security audit): https on github.com or GitHub's download hosts;
+    /// with a test feed (MHO_EXTMM_UPDATE_FEED) anything, local files included.</summary>
+    public static bool Trusted(string url)
+    {
+        if (Feed != null) return true;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps) return false;
+        string host = u.Host.ToLowerInvariant();
+        return host == "github.com" || host == "api.github.com" || host.EndsWith(".githubusercontent.com");
+    }
+
     static async Task<string> GetText(string url)
     {
+        if (!Trusted(url)) throw new IOException($"not a GitHub link: {url}");
         if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return await File.ReadAllTextAsync(url);
         using var h = Http();
         return await h.GetStringAsync(url);
@@ -57,17 +68,22 @@ static class Updater
             if (r.TryGetProperty("draft", out var d) && d.GetBoolean() || r.TryGetProperty("prerelease", out var p) && p.GetBoolean()) continue;
             string tag = r.GetProperty("tag_name").GetString() ?? "";
             if (!tag.StartsWith(TagPrefix, StringComparison.OrdinalIgnoreCase) || !Version.TryParse(tag[TagPrefix.Length..], out var ver)) continue;
-            string? zip = null, sha = null; long size = 0;
+            string? zip = null, sha = null, sig = null; long size = 0;
             foreach (var a in r.GetProperty("assets").EnumerateArray())
             {
                 string name = a.GetProperty("name").GetString() ?? "", url = a.GetProperty("browser_download_url").GetString() ?? "";
+                if (!Trusted(url)) continue;
                 if (name.EndsWith(".zip.sha256", StringComparison.OrdinalIgnoreCase)) sha = url;
+                else if (name.EndsWith(".zip.sig", StringComparison.OrdinalIgnoreCase)) sig = url;
                 else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { zip = url; size = a.TryGetProperty("size", out var s) ? s.GetInt64() : 0; }
             }
-            if (zip == null || sha == null) continue;
+            // Only signed releases are offered (ReleaseSigning): an unsigned one could be anybody's.
+            if (zip == null || sha == null || sig == null) continue;
+            string page = r.TryGetProperty("html_url", out var hu) ? hu.GetString() ?? "" : "";
+            if (!page.StartsWith("https://github.com/" + Repo + "/", StringComparison.OrdinalIgnoreCase)) page = ReleasesPage;
             if (best == null || ver > best.Version)
                 best = new Release(ver, tag, r.TryGetProperty("name", out var n) ? n.GetString() ?? tag : tag, r.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "",
-                                   r.TryGetProperty("html_url", out var h) ? h.GetString() ?? ReleasesPage : ReleasesPage, zip, sha, size);
+                                   page, zip, sha, size, sig);
         }
         return best;
     }
@@ -123,6 +139,7 @@ static class Updater
         string zip = Path.Combine(work, "release.zip"), files = Path.Combine(work, "files");
 
         progress($"Downloading version {r.Version}…");
+        if (!Trusted(r.ZipUrl) || !Trusted(r.ShaUrl) || !Trusted(r.SigUrl) || r.SigUrl.Length == 0) return "the release's download links aren't GitHub's or it isn't signed; nothing was changed.";
         if (r.ZipUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
         {
             using var h = Http();
@@ -136,6 +153,9 @@ static class Updater
         string actual;
         using (var fs = File.OpenRead(zip)) actual = Convert.ToHexString(await SHA256.HashDataAsync(fs)).ToLowerInvariant();
         if (expected.Length != 64 || actual != expected) return $"the download doesn't match its published SHA-256 (expected {expected}, got {actual}); nothing was changed.";
+        // The developer's signature (ReleaseSigning): the update installs only when it was signed with the release key.
+        if (!ReleaseSigning.Verify(await File.ReadAllBytesAsync(zip), await GetText(r.SigUrl), testFeed: Feed != null))
+            return "the download isn't signed by the developer (its signature doesn't match the app's release key); nothing was changed.";
 
         progress("Unpacking…");
         ZipFile.ExtractToDirectory(zip, files);

@@ -20,6 +20,9 @@ static class ModPictures
     {
         if (!IsFile(key)) return null;
         string rel = key![Prefix.Length..];
+        // Relative: the mod's own, inside its folder only (ModSafety). Absolute: a user's own pick on this PC (state.json;
+        // a manifest can't carry one: ModSafety.Problems refuses it).
+        if (!Path.IsPathRooted(rel) && !ModSafety.InModFolder(rel)) return null;
         string path = Path.IsPathRooted(rel) ? rel : Path.Combine(modFolder, rel.Replace('/', Path.DirectorySeparatorChar));
         return File.Exists(path) ? path : null;
     }

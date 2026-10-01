@@ -57,6 +57,9 @@ sealed class ModLibrary
         Mod mod;
         try { mod = new Mod { Folder = dir, FolderName = name, Manifest = ModManifest.Load(manifest) }; }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidDataException) { return new Mod { Folder = dir, FolderName = name, LoadError = "manifest.json: " + ex.Message }; }
+        // File names pointing outside the mod or game folder (ModSafety): the mod loads with nothing in it, so no path is used.
+        if (ModSafety.Problems(mod.Manifest) is { Count: > 0 } unsafeNames)
+            return new Mod { Folder = dir, FolderName = name, LoadError = "unsafe file names in manifest.json (outside the mod or game folder): " + string.Join(", ", unsafeNames.Take(5)) };
         foreach (string lang in mod.Manifest.Languages)
         {
             string f = Path.Combine(dir, lang + ".json");

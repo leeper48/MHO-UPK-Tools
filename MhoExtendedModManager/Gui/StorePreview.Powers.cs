@@ -104,6 +104,9 @@ sealed partial class StorePreview
 
     /// <summary>The hero's powers as the power buttons show them (empty until loaded).</summary>
     public IReadOnlyList<Fx.PowerList.Power> HeroPowers => heroPowers;
+    /// <summary>The hero's powers with those that have effects but no animation (procs, passives): the editor's colors.</summary>
+    public IReadOnlyList<Fx.PowerList.Power> AllHeroPowers => allHeroPowers;
+    List<Fx.PowerList.Power> allHeroPowers = [];
     public event Action? HeroPowersLoaded;
 
     static string SplitWords(string s) => System.Text.RegularExpressions.Regex.Replace(s, "(?<=[a-z])(?=[A-Z])", " ");
@@ -227,7 +230,7 @@ sealed partial class StorePreview
     /// <summary>The hero's powers for the power buttons (in the background; their icons decoded there too).</summary>
     void LoadHeroPowers()
     {
-        heroPowers = []; powerRects.Clear(); hoverPower = -1; powerFilter = null; powerScroll = 0; powersLoaded = false;
+        heroPowers = []; allHeroPowers = []; powerRects.Clear(); hoverPower = -1; powerFilter = null; powerScroll = 0; powersLoaded = false;
         int req = ++heroPowersRequest;
         if (mod == null || !MeshOk || CookedFolder is not string cooked) { powersLoaded = true; return; }
         string? hero = HeroOfMesh();
@@ -236,14 +239,16 @@ sealed partial class StorePreview
         var names = allAnims.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
-            if (dbt.Result is not { } db) return new List<Fx.PowerList.Power>();
-            var list = Fx.PowerList.For(db, hero, cooked, modFiles).Where(p => p.Animations.Any(names.Contains)).ToList();
-            foreach (var p in list) if (p.Icon != null) Fx.PowerList.Icon(p.Icon, cooked);   // decoded here, off the UI thread
-            return list;
+            if (dbt.Result is not { } db) return (Play: new List<Fx.PowerList.Power>(), All: new List<Fx.PowerList.Power>());
+            // All: with the powers that have effects but no animation (the editor's colors); Play: those the preview can play.
+            var all = Fx.PowerList.For(db, hero, cooked, modFiles, effectOnly: true);
+            foreach (var p in all) if (p.Icon != null) Fx.PowerList.Icon(p.Icon, cooked);   // decoded here, off the UI thread
+            return (Play: all.Where(p => p.Animations.Any(names.Contains)).ToList(), All: all.Where(p => p.Animations.Count == 0 || p.Animations.Any(names.Contains)).ToList());
         })).Unwrap().ContinueWith(t =>
         {
             if (IsDisposed || req != heroPowersRequest || t.Status != TaskStatus.RanToCompletion) return;
-            heroPowers = t.Result;
+            heroPowers = t.Result.Play;
+            allHeroPowers = t.Result.All;
             HeroPowersLoaded?.Invoke();
             powersLoaded = true;
             Invalidate();

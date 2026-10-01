@@ -19,7 +19,8 @@ Install
 
 Updates
   Settings -> Check for Updates. Updates come from https://github.com/leeper48/MHO-UPK-Tools/releases and are checked
-  (SHA-256) before anything is replaced; your data folder is never touched.
+  (SHA-256) before anything is replaced; your data folder is never touched. Since 0.37.78 every update is also signed
+  with the developer's own key, and the app installs only an update whose signature matches the key built into it.
 
 Close the game before applying changes. Every change to a game file is made from a verified original and can be undone.
 
