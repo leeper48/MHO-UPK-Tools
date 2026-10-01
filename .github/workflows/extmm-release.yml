@@ -51,9 +51,12 @@ jobs:
           Invoke-WebRequest $url -OutFile innosetup.exe
           $got = (Get-FileHash innosetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($got -ne $want) { throw "Inno Setup installer SHA-256 is $got, expected $want" }
-          # /ALLUSERS answers the installer's "all users or just me?" question (without it the silent install waits on it).
-          Start-Process innosetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/ALLUSERS' -Wait
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { throw 'Inno Setup did not install' }
+          # Per-user (no admin, no install-mode question) into the folder make_release.ps1 looks in. Waits for the installer
+          # itself only (Start-Process -Wait also waited for what it left running and never returned); the log on failure.
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6'; $log = Join-Path $PWD 'innosetup.log'
+          $p = Start-Process .\innosetup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/CURRENTUSER',"/DIR=`"$dir`"","/LOG=`"$log`"" -PassThru
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); Get-Content $log -Tail 30 -ErrorAction SilentlyContinue; throw 'Inno Setup install timed out' }
+          if (-not (Test-Path (Join-Path $dir 'ISCC.exe'))) { Get-Content $log -Tail 30 -ErrorAction SilentlyContinue; throw "Inno Setup did not install (exit $($p.ExitCode))" }
 
       - name: Build the zip and the installer
         shell: pwsh
