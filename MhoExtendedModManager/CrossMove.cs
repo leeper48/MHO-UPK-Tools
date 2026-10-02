@@ -138,6 +138,7 @@ static class CrossMove
         // appended to its Sockets list.
         var socketAdds = new List<NewExport>();
         byte[]? meshData = null;
+        var socketData = new Dictionary<int, byte[]>();
         {
             string cp = $"marvelgamecontent.default__{targetClass}.initialskeletalmesh";
             int ci = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(cp, StringComparison.OrdinalIgnoreCase));
@@ -147,7 +148,7 @@ static class CrossMove
                 stockMesh = BinaryPrimitives.ReadInt32LittleEndian(pkg.ReadExportBytes(pkg.Exports[ci]).AsSpan(st.ValueAt)) - 1;
             int moved = copy.RootRef - 1;
             if (stockMesh >= 0 && stockMesh != moved)
-                (meshData, socketAdds) = AddMissingSockets(pkg, stockMesh, moved, log);
+                (meshData, socketAdds, socketData) = AddMissingSockets(pkg, stockMesh, moved, log);
         }
 
         // (3) The costume's mesh component: SkeletalMesh → the copy, PhysicsAsset → the copied one (else none).
@@ -190,6 +191,7 @@ static class CrossMove
         log.Add($"component: SkeletalMesh {(oldMesh > 0 ? pkg.PathOf(pkg.Exports[oldMesh - 1]) : oldMesh.ToString())} → #{copy.RootRef}");
         var replaceData = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => d };
         if (meshData != null) { byte[] md = meshData; replaceData[copy.RootRef - 1] = _ => md; }
+        foreach (var (si, sd) in socketData) replaceData[si] = _ => sd;
         // The target hero's situations the moved voice has no line for: set to none, so the hero's own lines don't play there
         // (Kurt, 2026-10-02: Rescue on Iron Man still used Iron Man's "power on cooldown"). The hero's set: its base package's,
         // else its default voice package (Spider-Man's lives in UC__MarvelPlayerAudio_Spiderman_Default_SF).
@@ -371,9 +373,10 @@ static class CrossMove
     /// (its Sockets array lengthened) and the new socket objects (copies of the stock ones, owned by the moved mesh). Null
     /// data when nothing is missing.
     /// </summary>
-    static (byte[]? MeshData, List<NewExport> Adds) AddMissingSockets(Package pkg, int stockMesh, int moved, List<string> log)
+    static (byte[]? MeshData, List<NewExport> Adds, Dictionary<int, byte[]> SocketData) AddMissingSockets(Package pkg, int stockMesh, int moved, List<string> log)
     {
-        var none = ((byte[]?)null, new List<NewExport>());
+        var turned = new Dictionary<int, byte[]>();
+        var none = ((byte[]?)null, new List<NewExport>(), turned);
         List<(int Export, string Name, string Bone)> Sockets(int mesh, out TagWalker.Tag? tag, out byte[] data)
         {
             data = pkg.ReadExportBytes(pkg.Exports[mesh]).ToArray();
@@ -400,6 +403,36 @@ static class CrossMove
         var mesh = AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, moved);
         if (mesh == null) return none;
         var bones = mesh.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Sockets both meshes have, on the same bone: the target's turn (Kurt, 2026-10-02: Rescue on Iron Man fired the
+        // Unibeam 90° to the side). A power's effect is set up for its own hero's socket: Iron Man's body sockets face along
+        // the bone (X = model -Y at rest), Rescue's are yawed 90°. The animations drive the bones the same way on both
+        // skeletons, so the target's RelativeRotation goes into the moved socket; its place (RelativeLocation) stays the
+        // moved mesh's own, on its body.
+        (int[] Rot, bool Has, TagWalker.Tag? Tag, byte[] Data) RotOf(int export)
+        {
+            byte[] sd = pkg.ReadExportBytes(pkg.Exports[export]).ToArray();
+            var t = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("RelativeRotation", StringComparison.OrdinalIgnoreCase) && x.Size == 12);
+            int[] r = t == null ? [0, 0, 0] : [BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(t.ValueAt)), BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(t.ValueAt + 4)), BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(t.ValueAt + 8))];
+            return (r, t != null, t, sd);
+        }
+        var turnedNames = new List<string>(); var cantTurn = new List<string>();
+        foreach (var h in have)
+        {
+            var st = stock.FirstOrDefault(x => x.Name.Equals(h.Name, StringComparison.OrdinalIgnoreCase));
+            if (st.Name == null || !st.Bone.Equals(h.Bone, StringComparison.OrdinalIgnoreCase)) continue;
+            var want = RotOf(st.Export);
+            var mine = RotOf(h.Export);
+            if (want.Rot.SequenceEqual(mine.Rot)) continue;
+            if (mine.Tag == null) { cantTurn.Add(h.Name); continue; }   // no RelativeRotation to change (would need a new tag)
+            byte[] nd0 = mine.Data;
+            for (int c = 0; c < 3; c++) BinaryPrimitives.WriteInt32LittleEndian(nd0.AsSpan(mine.Tag.ValueAt + 4 * c), want.Rot[c]);
+            turned[h.Export] = nd0;
+            turnedNames.Add(h.Name);
+        }
+        if (turnedNames.Count > 0) log.Add($"sockets: {turnedNames.Count} turned to the target's ({string.Join(", ", turnedNames)})");
+        if (cantTurn.Count > 0) log.Add($"sockets: {string.Join(", ", cantTurn)} face another way than the target's but have no rotation to change");
+
         var missing = stock.Where(x => !have.Any(h => h.Name.Equals(x.Name, StringComparison.OrdinalIgnoreCase)) && bones.Contains(x.Bone)).ToList();
         var noBone = stock.Where(x => !have.Any(h => h.Name.Equals(x.Name, StringComparison.OrdinalIgnoreCase)) && !bones.Contains(x.Bone)).Select(x => $"{x.Name} ({x.Bone})").ToList();
         if (missing.Count == 0) { if (noBone.Count > 0) log.Add($"sockets: the target's {string.Join(", ", noBone)} not added (no such bone in the moved skeleton)"); return none; }
@@ -423,7 +456,7 @@ static class CrossMove
         BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(arr.Start + 16), arr.Size + 4 * missing.Count);
         log.Add($"sockets: the target's {string.Join(", ", missing.Select(x => x.Name))} added to the moved mesh" +
                 (noBone.Count > 0 ? $"; not {string.Join(", ", noBone)} (no such bone)" : ""));
-        return (nd, adds);
+        return (nd, adds, turned);
     }
 
     static float? SourceFloat(Package src, string? sourceClass, string? baseHero, string prop, string sub = ".initialskeletalmesh")

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.90
+- Moving to another hero turns the moved model's sockets (where powers attach their effects) to face the way the target hero's do, keeping their place on the model. Rescue on Iron Man fired the Unibeam 90° to the side: her chest socket faced another way than his.
+
 0.37.89
 - Rebuilding a moved costume in place (the --update-copy command) keeps everything added to the copy since: its own images, text, sound packs, pictures, tags and note. Only the moved package, the moved images and names, and the voice lines are replaced (before, the copy's own images were dropped).
 

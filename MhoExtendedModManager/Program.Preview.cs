@@ -272,11 +272,42 @@ static partial class Program
                 // Read-only: each skeletal mesh in a package with its sockets (name → bone): where powers attach effects.
                 if (rest.Count < 2) { Console.WriteLine("--mesh-sockets <package.upk>"); return 1; }
                 string sp = Path.GetFullPath(rest[1]);
+                // --detail: each socket's local place and its rest-pose direction in model space (+X of the socket).
+                bool detail = rest.Contains("--detail");
                 foreach (var mr in ModMeshes.List([(Path.GetFileName(sp), sp)], anyPackage: true))
                 {
                     var socks = Fx.FxSockets.Of(sp, mr.Name);
                     Console.WriteLine($"{mr.Name}: {socks.Count} socket(s)");
-                    foreach (var (n, s) in socks.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)) Console.WriteLine($"  {n} on {s.Bone}");
+                    var model = new Dictionary<string, System.Numerics.Matrix4x4>(StringComparer.OrdinalIgnoreCase);
+                    if (detail)
+                    {
+                        var mp = MhoPackageModifier.Package.Open(sp);
+                        var ap = AnimExportCli.Packages.Package.Read(mp.RawFile);
+                        int mi = Enumerable.Range(0, mp.Exports.Length).FirstOrDefault(i => mp.PathOf(mp.Exports[i]).Split('.')[^1].Equals(mr.Name, StringComparison.OrdinalIgnoreCase)
+                            && AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i) != null, -1);
+                        var sm = mi >= 0 ? AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, mi) : null;
+                        var mats = new System.Numerics.Matrix4x4[sm?.Bones.Count ?? 0];
+                        for (int i = 0; i < mats.Length; i++)
+                        {
+                            var b = sm!.Bones[i];
+                            var local = System.Numerics.Matrix4x4.CreateFromQuaternion(System.Numerics.Quaternion.Normalize(b.Orientation)) * System.Numerics.Matrix4x4.CreateTranslation(b.Position);
+                            mats[i] = b.ParentIndex >= 0 && b.ParentIndex < i ? local * mats[b.ParentIndex] : local;
+                            model[b.Name] = mats[i];
+                        }
+                    }
+                    static string V(System.Numerics.Vector3 v) => $"({v.X:0.00}, {v.Y:0.00}, {v.Z:0.00})";
+                    foreach (var (n, s) in socks.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        if (!detail) { Console.WriteLine($"  {n} on {s.Bone}"); continue; }
+                        string where = "";
+                        if (model.TryGetValue(s.Bone, out var bm))
+                        {
+                            var w = s.Local * bm;
+                            var bx = System.Numerics.Vector3.Normalize(new System.Numerics.Vector3(bm.M11, bm.M12, bm.M13));
+                            where = $" | bone X {V(bx)} | socket at {V(w.Translation)} X {V(System.Numerics.Vector3.Normalize(new(w.M11, w.M12, w.M13)))}";
+                        }
+                        Console.WriteLine($"  {n} on {s.Bone}: local {V(s.Local.Translation)} X {V(new(s.Local.M11, s.Local.M12, s.Local.M13))}{where}");
+                    }
                 }
                 return 0;
             }
