@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.37.100</Version>
+    <Version>0.37.107</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -19,6 +19,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Package reader/writer, the one game-folder write path (MeshImport.WriteLive), undo history, theme. -->
+    <PackageReference Include="OggVorbisEncoder" Version="1.2.2" />
     <ProjectReference Include="..\MhoPackageModifier\MhoPackageModifier.csproj" />
     <!-- Skeletal meshes (costumes) for the preview's 3D view: AnimExportCli's reader. -->
     <ProjectReference Include="..\AnimExportCli\AnimExportCli.csproj" />

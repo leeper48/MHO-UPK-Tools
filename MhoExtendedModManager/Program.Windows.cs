@@ -350,6 +350,16 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 6 && args[0].Equals("--voice-shift-tab-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.VoiceShiftTabTest(args[1], args[2], float.Parse(args[3], ci), float.Parse(args[4], ci), float.Parse(args[5], ci)); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--editor-save-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only

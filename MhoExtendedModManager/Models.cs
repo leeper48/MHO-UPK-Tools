@@ -71,6 +71,9 @@ sealed class ModManifest
     /// <summary>Extension: for a costume moved to another costume or hero, the prototype it came from ("TeamUps/Rescue",
     /// "Storm/Classic"): the Animations tab offers that character's animations first. Null when not moved.</summary>
     public string? MovedFrom { get; set; }
+    /// <summary>Extension: voice shifts (pitch, formant, warmth per costume package). The shifted lines themselves are an ordinary
+    /// sound pack (AudioPacks) and package edit, which MHModManager applies too; this only says how they were made. Null when none.</summary>
+    public List<VoiceShiftEntry>? VoiceShifts { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }

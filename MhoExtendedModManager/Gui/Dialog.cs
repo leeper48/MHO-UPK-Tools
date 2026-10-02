@@ -27,6 +27,18 @@ static class Dialog
     static DialogResult Show(IWin32Window? owner, string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon,
         MessageBoxDefaultButton defaultButton, Tone? tone, bool log = false)
     {
+        // Tests (MHO_EXTMM_TEST_DIALOGS = a file): written there instead of shown, answered with the default button, so a
+        // test never stops on a window (one blocked on Kurt's screen 2026-10-02).
+        if (Environment.GetEnvironmentVariable("MHO_EXTMM_TEST_DIALOGS") is { Length: > 0 } testLog)
+        {
+            File.AppendAllText(testLog, $"[{caption}] {text}{Environment.NewLine}");
+            return buttons switch
+            {
+                MessageBoxButtons.OK => DialogResult.OK,
+                MessageBoxButtons.YesNo or MessageBoxButtons.YesNoCancel => defaultButton == MessageBoxDefaultButton.Button1 ? DialogResult.Yes : DialogResult.No,
+                _ => defaultButton == MessageBoxDefaultButton.Button1 ? DialogResult.OK : DialogResult.Cancel,
+            };
+        }
         using var f = new DialogForm(text, caption, buttons, icon, defaultButton,
             tone ?? (icon is MessageBoxIcon.Error or MessageBoxIcon.Warning ? Tone.Bad : Tone.Normal), log);
         return owner != null ? f.ShowDialog(owner) : f.ShowDialog();

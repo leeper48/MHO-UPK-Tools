@@ -1,6 +1,14 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.107
+- Voice tab: entries that aren't sounds (a banter target names a character, an emote an animation) have no ▶ and aren't counted as lines.
+- Voice tab: when a mod's packages have no voice lines, it says where the hero's voice is in the game and offers to use it. Example: Carnage's voice comes from his Classic costume (it plays the Carnage voice package), so a mod on Carnage's base package gets the Classic costume's package with that voice, ready to shift.
+- Use Another Voice lists only voices with lines (Carnage's base package, which has none, is gone; his voice is listed as Carnage).
+
+0.37.106
+- Editor → SFX → Voice: Voice Shift. Pitch, Formant and Warmth sliders (with Female → Male and Male → Female starting points); ▶ previews a line at those settings. Shift This Voice puts the shifted voice into the mod (about 30 seconds) as a sound pack the old MHModManager installs too; Remove Shift brings the original lines back. Only the costume's voice lines change: its sound effects, other costumes and other characters keep their sounds.
+
 0.37.100
 - 3D preview: Iron Man's Unibeam shows. A power that plays one animation named …_end (its start and loop belong to another power) now shows all its effects; effects only for certain characters (the Hulkbuster versions) are left out; an effect that stays on its character takes the power's offset and turn.
 

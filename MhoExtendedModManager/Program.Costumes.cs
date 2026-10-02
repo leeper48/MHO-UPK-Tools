@@ -240,6 +240,346 @@ static partial class Program
                 }
                 return bad == 0 ? 0 : 1;
             }
+            case "--sound-codecs":
+            {
+                // Read-only: which codecs the game's sound banks use (Sound objects' plugin IDs), over every .pck.
+                string? cgr2 = settings.ResolvedGameRoot(data);
+                if (cgr2 == null) return 1;
+                var all = new Dictionary<uint, (int Count, HashSet<byte> St, HashSet<string> Files)>();
+                foreach (string pck in rest.Count > 1 && rest[1].EndsWith(".pck", StringComparison.OrdinalIgnoreCase) ? [rest[1]] : Directory.EnumerateFiles(Settings.Cooked(cgr2), "*.pck"))
+                    foreach (var (id, (n, st)) in Akpk.Codecs(pck))
+                    {
+                        if (!all.TryGetValue(id, out var v)) v = (0, [], []);
+                        v.St.UnionWith(st); v.Files.Add(Path.GetFileName(pck));
+                        all[id] = (v.Count + n, v.St, v.Files);
+                    }
+                foreach (var (id, v) in all.OrderByDescending(x => x.Value.Count))
+                    Console.WriteLine($"0x{id:X8}: {v.Count} sound(s), stream types {string.Join(",", v.St)}, in {v.Files.Count} file(s): {string.Join(", ", v.Files.Take(4))}");
+                return 0;
+            }
+            case "--voice-shift-pack":
+            {
+                // In-game test of shifted voice lines as PCM (Kurt, 2026-10-02): a new mod from <mod> whose voice set plays, for
+                // the lines whose event has one of <event parts>, copies of those events (named …_mhoshift) added by a sound
+                // pack with the shifted audio as PCM. --voice-shift-pack <mod> <part,part> <semitones> <formant> --create <name>
+                int cAt = rest.IndexOf("--create");
+                var vm = rest.Count > 4 ? lib.Find(rest[1]) : null;
+                string? vgr = settings.ResolvedGameRoot(data);
+                if (vm == null || vgr == null || cAt < 0 || cAt + 1 >= rest.Count) { Console.WriteLine("--voice-shift-pack <mod> <event part[,part]> <semitones> <formant> --create <name>"); return 1; }
+                string cooked2 = Settings.Cooked(vgr);
+                float st = float.Parse(rest[3], System.Globalization.CultureInfo.InvariantCulture), fm = float.Parse(rest[4], System.Globalization.CultureInfo.InvariantCulture);
+                // --legacy: what MHModManager 1.0.1 can apply too. Its patches clone the sound of a named event in a named bank,
+                // codec included, so the lines go into the bank of a stock PCM sound (Sentinel's death, wwisedefaultbank_
+                // sentinelsfx in SFX_InitialDownloadChunk_INT.pck) cloned from it, and the costume's new events require that
+                // bank (its AkBank copied into the package).
+                bool legacy = rest.Contains("--legacy");
+                // --vorbis: the lines as Wwise Vorbis (WwiseVorbisWrite, q0.4: the setup the game's own voice files use), cloned
+                // from the line's own event in its own bank (named by its AkBank): what MHModManager 1.0.1 applies as well.
+                bool vorbis = rest.Contains("--vorbis");
+                const string donorEvent = "play_sfx_pwr_sentinel_death", donorBank = "wwisedefaultbank_sentinelsfx", donorPck = "SFX_InitialDownloadChunk_INT.pck", donorPkg = "UC__MarvelAgent_Sentinel_SF.upk";
+                int wAt = rest.IndexOf("--warmth");
+                float wm = wAt >= 0 && wAt + 1 < rest.Count ? float.Parse(rest[wAt + 1], System.Globalization.CultureInfo.InvariantCulture) : 0;
+                string[] parts = rest[2].Split(',', StringSplitOptions.RemoveEmptyEntries);
+                string work = Path.Combine(lib.DataFolder, "voice-shift-" + Guid.NewGuid().ToString("N")[..8]);
+                Directory.CreateDirectory(work);
+                var draftV = ModDraft.From(vm);
+                var patches = new List<object>(); var wems = new Dictionary<string, byte[]>();
+                var packsV = vm.Manifest.AudioPacks.Select(p => Path.Combine(vm.Folder, p)).ToList();
+                foreach (string file in vm.Manifest.UpkReplacements)
+                {
+                    string src = Path.Combine(vm.Folder, file);
+                    var lines = VoiceSet.Read(file, src, vm.Manifest.VoiceOff ?? []).Where(l => !l.Off && parts.Any(pt => l.Event.Contains(pt, StringComparison.OrdinalIgnoreCase))).ToList();
+                    if (lines.Count == 0) continue;
+                    string cur = src;
+                    var changes = new List<(int, string?)>();
+                    int bankRef = 0;
+                    if (legacy)
+                    {
+                        // The donor bank's AkBank into the package (kept at its path: the same object as the Sentinel's).
+                        var spk = MhoPackageModifier.Package.Open(StockFiles.For(cooked2, donorPkg));
+                        int bi = Array.FindIndex(spk.Exports, e => e.ObjectName.Equals(donorBank, StringComparison.OrdinalIgnoreCase) && spk.ClassOf(e).Equals("AkBank", StringComparison.OrdinalIgnoreCase));
+                        var dst = MhoPackageModifier.Package.Open(cur);
+                        var bc = CrossMove.Quiet(() => MhoPackageModifier.ExportCopy.Copy(spk, bi, dst, []), out string bsaid) ?? throw new InvalidDataException("AkBank copy: " + bsaid);
+                        cur = Path.Combine(work, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+                        File.WriteAllBytes(cur, bc.Output);
+                        bankRef = bc.RootRef;
+                        Console.WriteLine($"AkBank {spk.PathOf(spk.Exports[bi])} copied in (#{bankRef})");
+                    }
+                    foreach (var l in lines)
+                    {
+                        string leaf = l.Event[(l.Event.LastIndexOf('.') + 1)..], group = l.Event[..l.Event.LastIndexOf('.')], nleaf = leaf + "_mhoshift";
+                        // The event's copy in the package, under the new name (its bank reference kept).
+                        var pkgV = MhoPackageModifier.Package.Open(cur);
+                        int ei = Array.FindIndex(pkgV.Exports, e => pkgV.PathOf(e).Equals(l.Event, StringComparison.OrdinalIgnoreCase));
+                        if (ei < 0) { Console.WriteLine($"no AkEvent {l.Event} in {file}"); return 1; }
+                        if (!pkgV.Exports.Any(e => e.ObjectName.Equals(nleaf, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            var cp = CrossMove.Quiet(() => MhoPackageModifier.ExportCopy.Copy(pkgV, ei, pkgV, [], nleaf), out string said) ?? throw new InvalidDataException("event copy: " + said);
+                            byte[] outBytes = cp.Output;
+                            if (legacy)
+                            {
+                                // The copy requires the donor bank instead of the voice's own.
+                                var np = MhoPackageModifier.Package.FromBytes(outBytes);
+                                byte[] ed = np.ReadExportBytes(np.Exports[cp.RootRef - 1]).ToArray();
+                                var rb = MhoPackageModifier.TagWalker.Walk(np, ed, 4)?.FirstOrDefault(t => t.Name.Equals("RequiredBank", StringComparison.OrdinalIgnoreCase) && t.Size == 4)
+                                         ?? throw new InvalidDataException("the event has no RequiredBank");
+                                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(ed.AsSpan(rb.ValueAt), bankRef);
+                                outBytes = MhoPackageModifier.PackageRebuilder.Rebuild(np, new Dictionary<int, Func<long, byte[]>> { [cp.RootRef - 1] = _ => ed }, [], out _);
+                            }
+                            cur = Path.Combine(work, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+                            File.WriteAllBytes(cur, outBytes);
+                        }
+                        changes.Add((l.Offset, group + "." + nleaf));
+                        // The shifted audio as PCM, and where the original event lives.
+                        byte[] wav = VoiceAudio.ToWav(VoiceAudio.Wem(l.Event, packsV, cooked2).Wem);
+                        byte[] shiftedWav = VoiceShift.Shift(wav, st, fm, VoiceShift.Mode.Natural, wm);
+                        byte[] wem = vorbis ? WwiseVorbisWrite.ToWem(VorbisEncode.Encode(shiftedWav, 0.4f), WavPcm.Read(shiftedWav).Channels[0].Length) : VoiceShift.PcmWem(shiftedWav);
+                        // The bank by its AkBank's name (its ID is the name's hash): what the old manager looks banks up by.
+                        string? bankName = null;
+                        if (vorbis)
+                        {
+                            byte[] ed = pkgV.ReadExportBytes(pkgV.Exports[ei]).ToArray();
+                            if (MhoPackageModifier.TagWalker.Walk(pkgV, ed, 4)?.FirstOrDefault(t => t.Name.Equals("RequiredBank", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } rbt)
+                                bankName = pkgV.RefName(BitConverter.ToInt32(ed, rbt.ValueAt));
+                        }
+                        var where = legacy ? (Pck: donorPck, Bank: SoundPack.Fnv(donorBank))
+                                    : Akpk.FindEvent(cooked2, SoundPack.Fnv(leaf), group.Replace("vo", "", StringComparison.OrdinalIgnoreCase))
+                                    ?? throw new InvalidDataException($"{leaf} isn't in the game's sound files");
+                        string wemName = nleaf + ".wem";
+                        wems[wemName] = wem;
+                        patches.Add(new Dictionary<string, string>
+                        {
+                            ["type"] = "new_event", ["original_event_name"] = legacy ? donorEvent : leaf, ["event_name"] = nleaf, ["event_hash"] = $"0x{SoundPack.Fnv(nleaf):X8}",
+                            ["action_id"] = $"0x{SoundPack.Fnv(nleaf + "_action"):X8}", ["sound_id"] = $"0x{SoundPack.Fnv(nleaf + "_sound"):X8}", ["source_id"] = $"0x{SoundPack.Fnv(nleaf + "_source"):X8}",
+                            ["wem_file"] = wemName, ["bank_name"] = legacy ? donorBank : bankName ?? $"0x{where.Bank:X8}", ["pck_file"] = where.Pck,
+                        });
+                        if (bankName != null && SoundPack.Fnv(bankName) != where.Bank) throw new InvalidDataException($"the event's bank {bankName} hashes to {SoundPack.Fnv(bankName):X8}, not the bank it's in ({where.Bank:X8})");
+                        Console.WriteLine($"{l.Situation} · {leaf} → {nleaf}: {wem.Length:N0} bytes {(vorbis ? "Wwise Vorbis" : "PCM")}; bank {bankName ?? $"0x{where.Bank:X8}"} in {where.Pck}");
+                    }
+                    string outPkg = Path.Combine(work, file);
+                    File.WriteAllBytes(outPkg, VoiceSet.Write(cur, changes) ?? throw new InvalidDataException("voice set not written"));
+                    int k = draftV.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+                    draftV.Packages[k] = (file, outPkg);
+                }
+                if (patches.Count == 0) { Console.WriteLine("no matching voice lines"); return 1; }
+                string packPath = Path.Combine(work, "VoiceShiftTest.mhsfx");
+                using (var z = System.IO.Compression.ZipFile.Open(packPath, System.IO.Compression.ZipArchiveMode.Create))
+                {
+                    using (var s2 = new StreamWriter(z.CreateEntry("mod.json").Open()))
+                        s2.Write(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object> { ["name"] = "Voice Shift Test", ["patches"] = patches }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                    foreach (var (n, b) in wems) using (var e = z.CreateEntry(n).Open()) e.Write(b);
+                }
+                draftV.SoundPacks.Add(packPath);
+                draftV.Name = rest[cAt + 1];
+                draftV.Notes = $"Voice shift test{(legacy ? " (legacy: Sentinel PCM donor)" : vorbis ? " (Wwise Vorbis)" : "")}: {string.Join(", ", parts)} at pitch {st:+0.#;-0.#;0}, formant {fm:+0.#;-0.#;0}, warmth {wm:+0.#;-0.#;0} dB (Natural), as PCM.";
+                string? made = ModWriter.Save(lib, draftV, null, out string? verr);
+                Console.WriteLine(made != null ? $"created mod '{draftV.Name}', at the top of the list, turned off" : "can't create: " + verr);
+                try { Directory.Delete(work, true); } catch (IOException) { }
+                return made != null ? 0 : 1;
+            }
+            case "--bank-names":
+            {
+                // Read-only: which names in the game's packages hash to the given bank IDs (wwisedefaultbank_… names).
+                // --bank-names <hex id> [hex id ...]
+                string? bgr = settings.ResolvedGameRoot(data);
+                if (bgr == null || rest.Count < 2) return 1;
+                var want = rest.Skip(1).Where(h => !h.StartsWith("--")).Select(h => Convert.ToUInt32(h.Replace("0x", ""), 16)).ToHashSet();
+                var found = new Dictionary<uint, HashSet<string>>();
+                foreach (string f in Directory.EnumerateFiles(Settings.Cooked(bgr), "*.upk"))
+                {
+                    if (Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    MhoPackageModifier.Package pk;
+                    try { pk = MhoPackageModifier.Package.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+                    foreach (string n in rest.Contains("--any") ? pk.Names : pk.Names.Where(n => n.StartsWith("wwisedefaultbank", StringComparison.OrdinalIgnoreCase)))
+                        if (want.Contains(SoundPack.Fnv(n))) { if (!found.TryGetValue(SoundPack.Fnv(n), out var set)) found[SoundPack.Fnv(n)] = set = []; if (set.Count < 6) set.Add($"{n} ({Path.GetFileName(f)})"); }
+                }
+                foreach (uint id in want) Console.WriteLine($"0x{id:X8}: {(found.TryGetValue(id, out var s2) ? string.Join("; ", s2) : "no name found")}");
+                return 0;
+            }
+            case "--vorbis-test":
+            {
+                // Read-only: a mod's voice line, shifted, Vorbis-encoded (OggVorbisEncoder) and decoded back (NVorbis): sizes,
+                // length and SNR. --vorbis-test <mod> <event part> <semitones> <formant> <warmth> [quality] [--out <dir>]
+                var vm = rest.Count > 5 ? lib.Find(rest[1]) : null;
+                string? vgr = settings.ResolvedGameRoot(data);
+                if (vm == null || vgr == null) { Console.WriteLine("--vorbis-test <mod> <event part> <semitones> <formant> <warmth> [quality] [--out <dir>]"); return 1; }
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                var line = vm.Manifest.UpkReplacements.SelectMany(f => VoiceSet.Read(f, Path.Combine(vm.Folder, f), vm.Manifest.VoiceOff ?? []))
+                    .FirstOrDefault(l => !l.Off && l.Event.Contains(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (line == null) { Console.WriteLine($"no voice line with '{rest[2]}'"); return 1; }
+                var (wem, from) = VoiceAudio.Wem(line.Event, vm.Manifest.AudioPacks.Select(p => Path.Combine(vm.Folder, p)).ToList(), Settings.Cooked(vgr));
+                byte[] wav = VoiceShift.Shift(VoiceAudio.ToWav(wem), float.Parse(rest[3], inv), float.Parse(rest[4], inv), VoiceShift.Mode.Natural, float.Parse(rest[5], inv));
+                float q = rest.Count > 6 && float.TryParse(rest[6], System.Globalization.NumberStyles.Float, inv, out float qq) ? qq : 0.5f;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var enc = VorbisEncode.Encode(wav, q);
+                long ms = sw.ElapsedMilliseconds;
+                var (dec, drate) = VorbisEncode.Decode(enc.Ogg);
+                var (src, srate) = WavPcm.Read(wav);
+                var (snr, shift) = VorbisEncode.Snr(src[0], dec[0]);
+                Console.WriteLine($"{line.Event} ({from}): game .wem {wem.Length:N0} bytes, shifted WAV {wav.Length:N0}");
+                Console.WriteLine($"encoded q{q}: {enc.Ogg.Length:N0} bytes Ogg ({enc.Ogg.Length * 8.0 / (enc.Samples / (double)enc.Rate) / 1000:0} kbit/s), {enc.Audio.Count} audio packets, setup {enc.Setup.Length:N0} bytes, in {ms} ms");
+                Console.WriteLine($"decoded: {dec[0].Length} samples at {drate} Hz (source {src[0].Length} at {srate} Hz), {dec.Length} channel(s); SNR {snr:0.0} dB (aligned at {shift})");
+                // Phase 2's first question: are the encoder's codebooks in Wwise's library (the game's runtime has only those)?
+                var (stripped, _) = WwiseVorbisWrite.StripSetup(enc.Setup, enc.Channels);
+                Console.WriteLine($"stripped setup {stripped.Length} bytes, hash {WwiseVorbisWrite.SetupHash(stripped):X8}; blocksizes {enc.Info[28] & 15}/{enc.Info[28] >> 4}");
+                // Phase 2: the .wem the game's way, read back by the ww2ogg port and decoded: the same samples as the Ogg?
+                try
+                {
+                    byte[] wemOut = WwiseVorbisWrite.ToWem(enc, src[0].Length);
+                    var (back, _) = VorbisEncode.Decode(WwiseVorbis.ToOgg(wemOut, positions: true));
+                    int same = Enumerable.Range(0, Math.Min(back[0].Length, dec[0].Length)).Count(i => back[0][i] == dec[0][i]);
+                    Console.WriteLine($"wem: {wemOut.Length:N0} bytes; read back {back[0].Length} samples, {same} identical to the Ogg's decode ({dec[0].Length})");
+                    if (rest.IndexOf("--out") is int oo && oo >= 0 && oo + 1 < rest.Count) File.WriteAllBytes(Path.Combine(rest[oo + 1], line.Event[(line.Event.LastIndexOf('.') + 1)..] + $"_q{q}.wem"), wemOut);
+                }
+                catch (InvalidDataException ex) { Console.WriteLine("wem: " + ex.Message); }
+                var books = WwiseVorbisWrite.MatchCodebooks(enc.Setup);
+                Console.WriteLine($"codebooks: {books.Count}, {books.Count(b => b.Id >= 0)} found in Wwise's library ({WwiseVorbisWrite.LibraryCount} entries): " + string.Join(" ", books.Select(b => b.Id >= 0 ? b.Id.ToString() : "MISSING")));
+                int oAt = rest.IndexOf("--out");
+                if (oAt >= 0 && oAt + 1 < rest.Count)
+                {
+                    Directory.CreateDirectory(rest[oAt + 1]);
+                    string stem = Path.Combine(rest[oAt + 1], line.Event[(line.Event.LastIndexOf('.') + 1)..] + $"_q{q}");
+                    File.WriteAllBytes(stem + ".ogg", enc.Ogg);
+                    File.WriteAllBytes(stem + "_shifted.wav", wav);
+                    Console.WriteLine($"wrote {stem}.ogg and _shifted.wav");
+                }
+                return 0;
+            }
+            case "--voice-shift-mod":
+            {
+                // A whole costume voice shifted (VoiceShiftBuild), as a new mod made from <mod> (top of the list, turned off).
+                // --voice-shift-mod <mod> <pitch> <formant> <warmth> --create <name>
+                int cAt = rest.IndexOf("--create");
+                var vm = rest.Count > 4 ? lib.Find(rest[1]) : null;
+                string? vgr = settings.ResolvedGameRoot(data);
+                if (vm == null || vgr == null || cAt < 0 || cAt + 1 >= rest.Count) { Console.WriteLine("--voice-shift-mod <mod> <pitch> <formant> <warmth> --create <name>"); return 1; }
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                var draftS = ModDraft.From(vm);
+                string work = Path.Combine(lib.DataFolder, "voice-shift-" + Guid.NewGuid().ToString("N")[..8]);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                int shiftedPkgs = 0;
+                foreach (string file in vm.Manifest.UpkReplacements)
+                {
+                    string src = Path.Combine(vm.Folder, file);
+                    if (VoiceSet.Read(file, src, vm.Manifest.VoiceOff ?? []).Count == 0) continue;
+                    var entry = new VoiceShiftEntry { Package = file, Pitch = float.Parse(rest[2], inv), Formant = float.Parse(rest[3], inv), Warmth = float.Parse(rest[4], inv) };
+                    var packs = draftS.SoundPacks.Where(p => !Path.GetFileName(p).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase)).ToList();
+                    var (pkgOut, pack, log) = VoiceShiftBuild.Build(src, file, vm.Manifest.VoiceOff ?? [], packs, Settings.Cooked(vgr), entry, Path.Combine(work, file));
+                    foreach (string l in log.Take(8)) Console.WriteLine("  " + l);
+                    if (log.Count > 8) Console.WriteLine($"  … {log.Count - 8} more");
+                    int k = draftS.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+                    draftS.Packages[k] = (file, pkgOut);
+                    draftS.SoundPacks.RemoveAll(p => Path.GetFileName(p).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase));
+                    draftS.SoundPacks.Add(pack);
+                    draftS.VoiceShifts.RemoveAll(v => v.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
+                    draftS.VoiceShifts.Add(entry);
+                    shiftedPkgs++;
+                }
+                if (shiftedPkgs == 0) { Console.WriteLine("no package with a voice set"); return 1; }
+                draftS.Name = rest[cAt + 1];
+                string? made = ModWriter.Save(lib, draftS, null, out string? err);
+                Console.WriteLine(made != null ? $"created '{draftS.Name}' in {sw.Elapsed.TotalSeconds:0.0} s" : "can't create: " + err);
+                try { Directory.Delete(work, true); } catch (IOException) { }
+                return made != null ? 0 : 1;
+            }
+            case "--wem-setups":
+            {
+                // Read-only: every Wwise Vorbis stream / embedded file in the game's .pck files, grouped by setup hash, sample
+                // rate, channels and block sizes, with the decoder allocation sizes each declares (are they one per setup?).
+                string? wgr = settings.ResolvedGameRoot(data);
+                if (wgr == null) return 1;
+                var groups = new Dictionary<(uint Hash, int Rate, int Ch, int Bs, uint A, uint A64), (int N, HashSet<string> Files)>();
+                foreach (string pck in Directory.EnumerateFiles(Settings.Cooked(wgr), "*.pck"))
+                {
+                    using var f = File.OpenRead(pck);
+                    Akpk a;
+                    try { a = Akpk.Read(f); } catch (InvalidDataException) { continue; }
+                    foreach (var e in a.Streams)
+                    {
+                        if (e.Size < 0x60) continue;
+                        byte[] w = Akpk.ReadData(f, e);
+                        if (BitConverter.ToUInt16(w, 0x14) != 0xFFFF || BitConverter.ToUInt32(w, 0x10) != 0x42) continue;
+                        var key = (BitConverter.ToUInt32(w, 0x2C + 0x24), (int)BitConverter.ToUInt32(w, 0x18), (int)BitConverter.ToUInt16(w, 0x16), w[0x2C + 0x28] * 16 + w[0x2C + 0x29], BitConverter.ToUInt32(w, 0x2C + 0x1C), BitConverter.ToUInt32(w, 0x2C + 0x20));
+                        if (!groups.TryGetValue(key, out var g)) g = (0, []);
+                        g.Files.Add(Path.GetFileName(pck));
+                        groups[key] = (g.N + 1, g.Files);
+                    }
+                }
+                foreach (var (k, g) in groups.OrderByDescending(x => x.Value.N).Take(40))
+                    Console.WriteLine($"{k.Hash:X8} {k.Rate,6} Hz {k.Ch}ch bs {k.Bs >> 4}/{k.Bs & 15} alloc {k.A:X}/{k.A64:X}: {g.N} streams in {g.Files.Count} file(s), e.g. {string.Join(", ", g.Files.Take(3))}");
+                Console.WriteLine($"{groups.Count} distinct; setups with more than one alloc pair: {groups.GroupBy(x => (x.Key.Hash, x.Key.Rate, x.Key.Ch)).Count(x => x.Select(y => (y.Key.A, y.Key.A64)).Distinct().Count() > 1)}");
+                return 0;
+            }
+            case "--wem-fields":
+            {
+                // Read-only: the vorb fields of a .pck's Wwise Vorbis streams next to what can be measured (data size, packets,
+                // largest / average packet, setup size, samples), to work out the undocumented ones. --wem-fields <pck> [count]
+                if (rest.Count < 2) return 1;
+                int want = rest.Count > 2 ? int.Parse(rest[2]) : 12, shown = 0;
+                using var f = File.OpenRead(rest[1]);
+                var pk = Akpk.Read(f);
+                Console.WriteLine("samples  sig  @08      @0C        @18        @1C      @20      uid       bs  | data  setup pkts max  avg  sum(pkt+2)");
+                foreach (var e in pk.Streams)
+                {
+                    byte[] w = Akpk.ReadData(f, e);
+                    if (w.Length < 0x60 || BitConverter.ToUInt16(w, 0x14) != 0xFFFF || BitConverter.ToUInt32(w, 0x10) != 0x42) continue;
+                    int v = 0x2C;
+                    uint U(int o) => BitConverter.ToUInt32(w, v + o);
+                    int dataAt = 0x5E; uint dataSize = BitConverter.ToUInt32(w, 0x5A);
+                    if (System.Text.Encoding.ASCII.GetString(w, 0x56, 4) != "data") continue;
+                    uint setupOff = U(0x10), audioOff = U(0x14);
+                    int setupSize = BitConverter.ToUInt16(w, dataAt + (int)setupOff);
+                    int at = dataAt + (int)audioOff, end = dataAt + (int)dataSize, n = 0, max = 0; long sum = 0;
+                    while (at + 2 <= end) { int sz = BitConverter.ToUInt16(w, at); n++; max = Math.Max(max, sz); sum += sz + 2; at += 2 + sz; }
+                    if (rest.Contains("--hash") && shown == 0)
+                    {
+                        byte[] setup = w.AsSpan(dataAt + (int)setupOff + 2, setupSize).ToArray();
+                        uint Fnv1(byte[] b) { uint h = 2166136261; foreach (byte c in b) { h *= 16777619; h ^= c; } return h; }
+                        uint Fnv1a(byte[] b) { uint h = 2166136261; foreach (byte c in b) { h ^= c; h *= 16777619; } return h; }
+                        uint Crc(byte[] b) => System.IO.Hashing.Crc32.HashToUInt32(b);
+                        byte[] withSize = w.AsSpan(dataAt + (int)setupOff, setupSize + 2).ToArray();
+                        Console.WriteLine($"uid {U(0x24):X8}: fnv1 {Fnv1(setup):X8} fnv1a {Fnv1a(setup):X8} crc {Crc(setup):X8}; with size: fnv1 {Fnv1(withSize):X8} fnv1a {Fnv1a(withSize):X8} crc {Crc(withSize):X8}");
+                        // Codebook ids only (10 bits each after the 8-bit count)
+                        var bi = new WwiseVorbis.BitIn(setup, 0); int nb = (int)bi.Read(8) + 1; var ids = new List<byte>();
+                        for (int k = 0; k < nb; k++) { uint id = bi.Read(10); ids.AddRange(BitConverter.GetBytes((ushort)id)); }
+                        Console.WriteLine($"  codebook ids ({nb}): fnv1 {Fnv1(ids.ToArray()):X8} fnv1a {Fnv1a(ids.ToArray()):X8} crc {Crc(ids.ToArray()):X8}");
+                    }
+                    WwiseVorbis.ToOgg(w, positions: true);
+                    long blocks = WwiseVorbis.LastBlockTotal;
+                    Console.Write($"[blocks {blocks}, -samples {blocks - U(0)}, extra {U(0x18) >> 16}] ");
+                    Console.WriteLine($"{U(0),7} {U(4),4:X} {U(8),8:X} {U(0x0C),10:X} {U(0x18),10:X} {U(0x1C),8:X} {U(0x20),8:X} {U(0x24):X8} {w[v + 0x28]}/{w[v + 0x29]} | {dataSize,5} {setupSize,5} {n,4} {max,4:X} {(n > 0 ? (sum - 2L * n) / n : 0),4:X} {sum,5}");
+                    if (++shown >= want) break;
+                }
+                return 0;
+            }
+            case "--voice-shift-test":
+            {
+                // Self-test of the pitch shifter on a synthetic tone (no files).
+                var res = VoiceShift.Test();
+                foreach (string l in res) Console.WriteLine(l);
+                return res.All(l => l.StartsWith("ok")) ? 0 : 1;
+            }
+            case "--voice-shift":
+            {
+                // Read-only: a mod's voice line (event name part), shifted, as a WAV to listen to.
+                // --voice-shift <mod> <event part> <semitones> <formant semitones> <tape|natural> <out.wav>
+                var vm = rest.Count > 6 ? lib.Find(rest[1]) : null;
+                string? vgr = settings.ResolvedGameRoot(data);
+                if (vm == null || vgr == null) { Console.WriteLine("--voice-shift <mod> <event part> <semitones> <formant semitones> <tape|natural> <out.wav>"); return 1; }
+                var line = vm.Manifest.UpkReplacements.SelectMany(f => VoiceSet.Read(f, Path.Combine(vm.Folder, f), vm.Manifest.VoiceOff ?? []))
+                    .FirstOrDefault(l => !l.Off && l.Event.Contains(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (line == null) { Console.WriteLine($"no voice line with '{rest[2]}'"); return 1; }
+                var packs = vm.Manifest.AudioPacks.Select(p => Path.Combine(vm.Folder, p)).ToList();
+                byte[] wav = VoiceAudio.ToWav(VoiceAudio.Wem(line.Event, packs, Settings.Cooked(vgr)).Wem);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                int wAt2 = rest.IndexOf("--warmth");
+                byte[] outWav = VoiceShift.Shift(wav, float.Parse(rest[3], System.Globalization.CultureInfo.InvariantCulture), float.Parse(rest[4], System.Globalization.CultureInfo.InvariantCulture),
+                    rest[5].StartsWith("t", StringComparison.OrdinalIgnoreCase) ? VoiceShift.Mode.Tape : VoiceShift.Mode.Natural,
+                    wAt2 >= 0 && wAt2 + 1 < rest.Count ? float.Parse(rest[wAt2 + 1], System.Globalization.CultureInfo.InvariantCulture) : 0);
+                File.WriteAllBytes(rest[6], outWav);
+                Console.WriteLine($"{line.Event}: {wav.Length:N0} → {outWav.Length:N0} bytes in {sw.ElapsedMilliseconds} ms → {rest[6]}");
+                return 0;
+            }
             case "--voice-lines":
             {
                 // Read-only: a mod's voice lines as the editor's Voice tab lists them (with its manifest's turned-off lines).
@@ -288,6 +628,10 @@ static partial class Program
                 {
                     foreach (var s in srcs) Console.WriteLine($"{s.Title,-36} {Path.GetFileName(s.File)}");
                     Console.WriteLine($"{srcs.Count} voice sets ({sw2.ElapsedMilliseconds} ms)");
+                    // --voice-sources <hero>…: where each hero's voice comes from in the game (the Voice tab's hint).
+                    StockFiles.Init(new GameState(vgr, lib.DataFolder), vst.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                    foreach (string h in rest.Skip(1))
+                        Console.WriteLine(VoiceSet.HeroVoice(vgr, Settings.Cooked(vgr), h) is { } hv ? $"{h}: {hv.CostumeName} ({hv.CostumeFile}) plays {hv.Voice.Title} ({Path.GetFileName(hv.Voice.File)})" : $"{h}: none found");
                     return 0;
                 }
                 if (rest.Count < 4) { Console.WriteLine("--voice-copy <costume.upk> <voice title or file> <out.upk>"); return 1; }

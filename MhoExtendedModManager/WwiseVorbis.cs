@@ -10,8 +10,14 @@ namespace MhoExtendedModManager;
 /// </summary>
 static class WwiseVorbis
 {
+    /// <summary>The samples the packets of the last ToOgg(positions: true) decode to, from their block sizes (analysis).</summary>
+    [ThreadStatic] internal static long LastBlockTotal;
+
     static byte[]? codebooks;
     static int[]? codebookOffsets;
+
+    /// <summary>The packed codebook library: (bytes, offsets; entry i = offsets[i] .. offsets[i + 1]).</summary>
+    internal static (byte[] Bytes, int[] Offsets) Library() { LoadCodebooks(); return (codebooks!, codebookOffsets!); }
 
     static void LoadCodebooks()
     {
@@ -26,7 +32,7 @@ static class WwiseVorbis
         codebooks = b;
     }
 
-    sealed class BitIn(byte[] data, int start)
+    internal sealed class BitIn(byte[] data, int start)
     {
         int pos = start, bitsLeft;
         byte buffer;
@@ -124,19 +130,19 @@ static class WwiseVorbis
     }
 
     /// <summary>Rebuilds one packed codebook (4-bit dimensions, 14-bit entries …) as a full Vorbis codebook.</summary>
-    static void Rebuild(BitIn bis, long cbSize, OggOut bos)
+    internal static void Rebuild(BitIn bis, long cbSize, Action<uint, int> bos)
     {
         uint dimensions = bis.Read(4), entries = bis.Read(14);
-        bos.Write(0x564342, 24); bos.Write(dimensions, 16); bos.Write(entries, 24);
-        uint ordered = bis.Read(1); bos.Write(ordered, 1);
+        bos(0x564342, 24); bos(dimensions, 16); bos(entries, 24);
+        uint ordered = bis.Read(1); bos(ordered, 1);
         if (ordered != 0)
         {
-            bos.Write(bis.Read(5), 5);
+            bos(bis.Read(5), 5);
             uint current = 0;
             while (current < entries)
             {
                 int n = ILog(entries - current);
-                uint number = bis.Read(n); bos.Write(number, n);
+                uint number = bis.Read(n); bos(number, n);
                 current += number;
             }
             if (current > entries) throw new InvalidDataException("current_entry out of range");
@@ -146,59 +152,59 @@ static class WwiseVorbis
             int lengthLength = (int)bis.Read(3);
             uint sparse = bis.Read(1);
             if (lengthLength == 0 || lengthLength > 5) throw new InvalidDataException("nonsense codeword length");
-            bos.Write(sparse, 1);
+            bos(sparse, 1);
             for (uint i = 0; i < entries; i++)
             {
                 bool present = true;
-                if (sparse != 0) { uint p = bis.Read(1); bos.Write(p, 1); present = p != 0; }
-                if (present) bos.Write(bis.Read(lengthLength), 5);
+                if (sparse != 0) { uint p = bis.Read(1); bos(p, 1); present = p != 0; }
+                if (present) bos(bis.Read(lengthLength), 5);
             }
         }
         uint lookup = bis.Read(1);
-        bos.Write(lookup, 4);
+        bos(lookup, 4);
         if (lookup == 1) CopyLookup(bis, bos, entries, dimensions);
         if (cbSize != 0 && bis.TotalBits / 8 + 1 != cbSize) throw new InvalidDataException("codebook size mismatch");
     }
 
-    static void CopyLookup(BitIn bis, OggOut bos, uint entries, uint dimensions)
+    static void CopyLookup(BitIn bis, Action<uint, int> bos, uint entries, uint dimensions)
     {
-        bos.Write(bis.Read(32), 32); bos.Write(bis.Read(32), 32);
-        uint valueLength = bis.Read(4); bos.Write(valueLength, 4);
-        bos.Write(bis.Read(1), 1);
+        bos(bis.Read(32), 32); bos(bis.Read(32), 32);
+        uint valueLength = bis.Read(4); bos(valueLength, 4);
+        bos(bis.Read(1), 1);
         uint q = QuantVals(entries, dimensions);
-        for (uint i = 0; i < q; i++) bos.Write(bis.Read((int)valueLength + 1), (int)valueLength + 1);
+        for (uint i = 0; i < q; i++) bos(bis.Read((int)valueLength + 1), (int)valueLength + 1);
     }
 
     /// <summary>Copies a full (inline) Vorbis codebook.</summary>
-    static void Copy(BitIn bis, OggOut bos)
+    internal static void Copy(BitIn bis, Action<uint, int> bos)
     {
         uint id = bis.Read(24), dimensions = bis.Read(16), entries = bis.Read(24);
         if (id != 0x564342) throw new InvalidDataException("invalid codebook identifier");
-        bos.Write(id, 24); bos.Write(dimensions, 16); bos.Write(entries, 24);
-        uint ordered = bis.Read(1); bos.Write(ordered, 1);
+        bos(id, 24); bos(dimensions, 16); bos(entries, 24);
+        uint ordered = bis.Read(1); bos(ordered, 1);
         if (ordered != 0)
         {
-            bos.Write(bis.Read(5), 5);
+            bos(bis.Read(5), 5);
             uint current = 0;
             while (current < entries)
             {
                 int n = ILog(entries - current);
-                uint number = bis.Read(n); bos.Write(number, n);
+                uint number = bis.Read(n); bos(number, n);
                 current += number;
             }
             if (current > entries) throw new InvalidDataException("current_entry out of range");
         }
         else
         {
-            uint sparse = bis.Read(1); bos.Write(sparse, 1);
+            uint sparse = bis.Read(1); bos(sparse, 1);
             for (uint i = 0; i < entries; i++)
             {
                 bool present = true;
-                if (sparse != 0) { uint p = bis.Read(1); bos.Write(p, 1); present = p != 0; }
-                if (present) bos.Write(bis.Read(5), 5);
+                if (sparse != 0) { uint p = bis.Read(1); bos(p, 1); present = p != 0; }
+                if (present) bos(bis.Read(5), 5);
             }
         }
-        uint lookup = bis.Read(4); bos.Write(lookup, 4);
+        uint lookup = bis.Read(4); bos(lookup, 4);
         if (lookup == 1) CopyLookup(bis, bos, entries, dimensions);
         else if (lookup != 0) throw new InvalidDataException("invalid lookup type");
     }
@@ -373,6 +379,7 @@ static class WwiseVorbis
             os.FlushPage(false, offset == end);
         }
         if (offset > end) throw new InvalidDataException("page truncated");
+        LastBlockTotal = total;
         return os.ToArray();
     }
 
@@ -387,7 +394,7 @@ static class WwiseVorbis
             int id = (int)ss.Read(10);
             if (id < 0 || id >= codebookOffsets!.Length - 1) throw new InvalidDataException($"invalid codebook id {id}");
             int start = codebookOffsets[id], size = codebookOffsets[id + 1] - start;
-            Rebuild(new BitIn(codebooks![..(start + size)], start), size, os);
+            Rebuild(new BitIn(codebooks![..(start + size)], start), size, os.Write);
         }
         os.Write(0, 6); os.Write(0, 16);   // time domain placeholders
 
@@ -528,7 +535,7 @@ static class WwiseVorbis
         os.Write(c, 8);
         for (int i = 0; i < 6; i++) os.Write(ss.Read(8), 8);
         uint cbLess1 = ss.Read(8); os.Write(cbLess1, 8);
-        for (uint i = 0; i <= cbLess1; i++) Copy(ss, os);
+        for (uint i = 0; i <= cbLess1; i++) Copy(ss, os.Write);
         while (ss.TotalBits < setupSize * 8L) os.Write(ss.Read(1), 1);
         os.FlushPage();
         if (offset + 8 + setupSize != firstAudio) throw new InvalidDataException("first audio packet doesn't follow setup packet");

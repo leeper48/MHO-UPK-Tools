@@ -2265,6 +2265,60 @@ sealed class MainForm : Form
     }
 
     /// <summary>
+    /// --voice-shift-tab-test (scratch libraries only): Shift This Voice through the Editor, saved and checked on disk (the
+    /// manifest's VoiceShifts, the pack, the voice set at …_mhoshift events), then Remove Shift, saved, and the costume package
+    /// compared with the one before. Results in &lt;dir&gt;\result.txt.
+    /// </summary>
+    public async Task VoiceShiftTabTest(string dir, string modName, float pitch, float formant, float warmth)
+    {
+        Directory.CreateDirectory(dir);
+        var lines = new List<string>();
+        void Check(bool ok, string what) => Note((ok ? "PASS " : "FAIL ") + what);
+        void Note(string l) { lines.Add(l); File.AppendAllText(Path.Combine(dir, "progress.txt"), l + Environment.NewLine); }
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            var before = m.Manifest.UpkReplacements.Where(f => f.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(f => f, f => File.ReadAllBytes(Path.Combine(m.Folder, f)));
+            OpenEditor(m); pages.Select(1);
+            if (await editor!.HeroVoiceForTest() is { } hint) Note("hint: " + hint);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await editor!.ShiftForTest(pitch, formant, warmth);
+            Note($"shift: {sw.Elapsed.TotalSeconds:F1} s, note \"{editor.ShiftNote}\"");
+            string? saved = await editor.SaveForTest();
+            Check(saved != null, "saved after the shift");
+            m = lib!.Find(saved ?? modName)!;
+            var vs = m.Manifest.VoiceShifts ?? [];
+            Check(vs.Count > 0 && vs.All(v => Math.Abs(v.Pitch - pitch) < 0.01f), $"manifest VoiceShifts ({vs.Count})");
+            foreach (var v in vs)
+            {
+                string pack = VoiceShiftBuild.PackName(v.Package);
+                Check(m.Manifest.AudioPacks.Any(a => a.Equals(pack, StringComparison.OrdinalIgnoreCase)) && File.Exists(Path.Combine(m.Folder, pack)), "pack " + pack);
+                var set = VoiceSet.Read(v.Package, Path.Combine(m.Folder, v.Package), m.Manifest.VoiceOff ?? []);
+                int shifted = set.Count(l => l.Event.EndsWith(VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase));
+                Check(shifted > 0, $"{v.Package}: {shifted} of {set.Count} voice set entries shifted");
+            }
+            Note("reopening");
+            OpenEditor(m); pages.Select(1);
+            Note("remove shift");
+            editor!.RemoveShiftForTest();
+            saved = await editor.SaveForTest();
+            Check(saved != null, "saved after Remove Shift");
+            m = lib!.Find(saved ?? modName)!;
+            Check((m.Manifest.VoiceShifts?.Count ?? 0) == 0, "no VoiceShifts left");
+            Check(!m.Manifest.AudioPacks.Any(a => a.StartsWith("VoiceShift_", StringComparison.OrdinalIgnoreCase)), "no shift pack left");
+            foreach (var (f, b) in before)
+            {
+                var set = VoiceSet.Read(f, Path.Combine(m.Folder, f), m.Manifest.VoiceOff ?? []);
+                Check(!set.Any(l => l.Event.EndsWith(VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase)), f + ": voice set back at the original events");
+                lines.Add($"{f}: {(File.ReadAllBytes(Path.Combine(m.Folder, f)).AsSpan().SequenceEqual(b) ? "identical to before" : "differs from before (the shifted copies' events stay in the package)")}");
+            }
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+    }
+
+    /// <summary>
     /// --anim-tab-test (scratch libraries only): the Animations tab on a mod: the picker as PNG, a change through the tab
     /// (as Use This Animation), saved and checked on disk (the slot from a swapped-in set, the manifest's AnimSwaps), then
     /// Back to the Original, saved and checked again. Results in &lt;dir&gt;\result.txt.

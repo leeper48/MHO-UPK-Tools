@@ -14,6 +14,12 @@ NVorbis (decoding voice lines for playback in the Editor)
   License: MIT
   Copyright (c) 2020 Andrew Ward
 
+OggVorbisEncoder (encoding shifted voice lines as Vorbis; a managed port of libvorbis's encoder)
+  https://github.com/SteveLillis/.NET-Ogg-Vorbis-Encoder
+  License: MIT
+  Copyright (c) Steve Lillis
+  Derived from libvorbis, https://xiph.org/vorbis/ (BSD-style license, Copyright (c) Xiph.Org Foundation)
+
 ww2ogg (Wwise Vorbis to Ogg Vorbis conversion, ported to C#; its packed_codebooks_aoTuV_603.bin is shipped in Assets)
   https://github.com/hcs64/ww2ogg
   License: BSD 3-Clause

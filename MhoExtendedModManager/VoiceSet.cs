@@ -35,7 +35,9 @@ sealed class VoiceOffEntry
 }
 
 /// <summary>One line of a voice set: the situation, extra detail (banter target, mission …), the event, whether it's off.</summary>
-sealed record VoiceLine(string Package, int Offset, string Situation, string Detail, string Event, bool Off, bool Missing = false);
+/// <remarks>Sound is false for an entry that names something other than a sound event: banter targets name a character class
+/// (Carnage's only entry is marvelplayer_carnage), Storm's emotes an animation. Nothing to play or shift there.</remarks>
+sealed record VoiceLine(string Package, int Offset, string Situation, string Detail, string Event, bool Off, bool Missing = false, bool Sound = true);
 
 /// <summary>
 /// A costume's voice set (Kurt, 2026-09-29: turn lines off, e.g. a donor voice naming its own team): the class default's
@@ -75,7 +77,8 @@ static class VoiceSet
         void Add(int at, string situation, string detail)
         {
             int r = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at));
-            if (r > 0 && r <= pkg.Exports.Length) lines.Add(new VoiceLine(packageFile, at, situation, detail, pkg.PathOf(pkg.Exports[r - 1]), false));
+            if (r > 0 && r <= pkg.Exports.Length)
+                lines.Add(new VoiceLine(packageFile, at, situation, detail, pkg.PathOf(pkg.Exports[r - 1]), false, Sound: pkg.ClassOf(pkg.Exports[r - 1]).Equals("AkEvent", StringComparison.OrdinalIgnoreCase)));
             else if (r == 0 && offAt.TryGetValue(at, out var o)) lines.Add(new VoiceLine(packageFile, at, situation, detail, o.Event, true, o.Missing == true));
         }
         if (TagWalker.Walk(pkg, d, 16) is not { } tags) return lines;
@@ -175,7 +178,9 @@ static class VoiceSet
                 string name = Path.GetFileName(f);
                 var mb = baseRx.Match(name); var ma = audioRx.Match(name);
                 if (!mb.Success && !ma.Success) continue;
-                try { if (Find(Package.Open(f)) < 0) continue; }
+                // Only sets with sound lines (Carnage's base package holds just a banter target: his voice is the
+                // MarvelPlayerAudio_Carnage_Default class his Classic costume extends).
+                try { if (Find(Package.Open(f)) < 0 || !Read(name, f, []).Any(l => l.Sound)) continue; }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { continue; }
                 if (mb.Success) list.Add(new Source(HeroName(mb.Groups[1].Value), mb.Groups[1].Value, f, false));
                 else
@@ -209,6 +214,36 @@ static class VoiceSet
 
     static string SplitWords(string s) => Regex.Replace(s, "(?<=[a-z])(?=[A-Z])", " ");
     static string HeroName(string token) => AutoTags.DisplayName(token) ?? SplitWords(token);
+
+    /// <summary>
+    /// Where a hero's voice comes from in the game when a mod's packages have none (Kurt, 2026-10-02: Scream on Carnage's
+    /// base package showed one entry). The hero's default costume (its avatar's StartingCostume) and the voice set it plays:
+    /// a costume class extending a MarvelPlayerAudio_&lt;Hero&gt;_&lt;Voice&gt; class plays that voice package's set (Carnage Classic →
+    /// Carnage · Default), else the hero's base package's. Null when the default costume has no package of its own (its class
+    /// is the hero's base class) or no voice is found.
+    /// </summary>
+    public static (string CostumeFile, string CostumeName, Source Voice)? HeroVoice(string gameRoot, string cooked, string hero)
+    {
+        var costume = (Costume.All(gameRoot) ?? []).FirstOrDefault(c => c.IsDefault && c.Hero != null
+            && Path.GetFileNameWithoutExtension(c.Hero).Equals(hero, StringComparison.OrdinalIgnoreCase));
+        if (costume == null) return null;
+        string file = "UC__" + costume.Class + "_SF.upk";
+        if (file.Equals($"UC__MarvelPlayer_{hero}_SF.upk", StringComparison.OrdinalIgnoreCase) || !File.Exists(Path.Combine(cooked, file))) return null;
+        var all = Sources(cooked);
+        Source? voice = null;
+        try
+        {
+            var pkg = Package.Open(StockFiles.For(cooked, file));
+            string? audio = pkg.Names.FirstOrDefault(n => n.StartsWith("marvelplayeraudio_", StringComparison.OrdinalIgnoreCase));
+            if (audio != null) voice = all.FirstOrDefault(v => Path.GetFileName(v.File).Equals("UC__" + audio + "_SF.upk", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
+        voice ??= all.FirstOrDefault(v => Path.GetFileName(v.File).Equals($"UC__MarvelPlayer_{hero}_SF.upk", StringComparison.OrdinalIgnoreCase));
+        if (voice == null) return null;
+        string name = costume.Prototype.Split('\\', '/')[^1];
+        if (name.EndsWith(".prototype", StringComparison.OrdinalIgnoreCase)) name = name[..^10];
+        return (file, Regex.Replace(name, "(?<=[a-z])(?=[A-Z])", " "), voice);
+    }
 
     /// <summary>The hero a costume package is for ("UC__MarvelPlayer_Storm_Modern_SF.upk" → Storm), or null.</summary>
     public static string? HeroOf(string packageFile)

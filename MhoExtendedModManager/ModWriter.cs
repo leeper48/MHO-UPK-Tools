@@ -44,6 +44,7 @@ sealed class ModDraft
     public List<VoiceOffEntry> VoiceOff = [];
     public List<AnimSwapEntry> AnimSwaps = [];
     public string? MovedFrom;
+    public List<VoiceShiftEntry> VoiceShifts = [];
     public List<PowerColorEntry> PowerColors = [];
     public List<string> PostImages = [];
 
@@ -94,6 +95,7 @@ sealed class ModDraft
         d.VoiceOff = m.Manifest.VoiceOff?.ToList() ?? [];
         d.AnimSwaps = m.Manifest.AnimSwaps?.ToList() ?? [];
         d.MovedFrom = m.Manifest.MovedFrom;
+        d.VoiceShifts = m.Manifest.VoiceShifts?.ToList() ?? [];
         d.PowerColors = m.Manifest.PowerColors?.ToList() ?? [];
         var log = m.Manifest.Changelog ?? [];
         d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
@@ -170,6 +172,7 @@ static class ModWriter
             manifest.VoiceOff = d.VoiceOff.Count > 0 ? d.VoiceOff : null;
             manifest.AnimSwaps = d.AnimSwaps.Count > 0 ? d.AnimSwaps : null;
             manifest.MovedFrom = string.IsNullOrEmpty(d.MovedFrom) ? null : d.MovedFrom;
+            manifest.VoiceShifts = d.VoiceShifts.Count > 0 ? d.VoiceShifts : null;
             manifest.PowerColors = d.PowerColors.Count > 0 ? d.PowerColors : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };

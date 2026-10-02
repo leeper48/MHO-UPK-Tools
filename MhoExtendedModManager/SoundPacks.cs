@@ -125,7 +125,9 @@ sealed class Akpk
         var patches = packs.SelectMany(p => p.Patches.Where(x => x.PckFile.Equals(pckName, StringComparison.OrdinalIgnoreCase)).Select(x => (Pack: p, Patch: x))).ToList();
         var bankData = new Dictionary<uint, byte[]>();
         var newStreams = new List<(uint Id, uint Lang, byte[] Data)>();
-        foreach (var group in patches.GroupBy(x => SoundPack.Fnv(x.Patch.Bank)))
+        // A bank by name (its ID = the name's hash) or, "0x…", by ID (some banks' IDs aren't their AkBank's name's hash).
+        static uint BankId(string b) => b.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && uint.TryParse(b[2..], System.Globalization.NumberStyles.HexNumber, null, out uint v) ? v : SoundPack.Fnv(b);
+        foreach (var group in patches.GroupBy(x => BankId(x.Patch.Bank)))
         {
             var entry = pk.Banks.FirstOrDefault(b => b.Id == group.Key);
             if (entry == null) { problems.Add($"{pckName}: no bank '{group.First().Patch.Bank}'"); continue; }
@@ -242,6 +244,54 @@ sealed class Akpk
     /// <summary>Voice playback: what an event in one of this .pck's banks plays (see Bank.Media).</summary>
     public static (uint SourceId, byte[]? Embedded)? EventMedia(Stream f, Entry bank, uint eventId) => new Bank(ReadData(f, bank)).Media(eventId);
 
+    static Dictionary<uint, (string Pck, uint Bank)>? eventIndex;
+    static string? eventIndexFolder;
+
+    /// <summary>Every event in the game's .pck files → the .pck and bank it's in (English _INT files win over the other
+    /// languages; built once, a few seconds).</summary>
+    public static Dictionary<uint, (string Pck, uint Bank)> EventIndex(string cooked)
+    {
+        lock (typeof(Akpk))
+        {
+            if (eventIndex != null && eventIndexFolder == cooked) return eventIndex;
+            var d = new Dictionary<uint, (string, uint)>();
+            foreach (string pck in Directory.EnumerateFiles(cooked, "*.pck").OrderBy(p => Path.GetFileName(p).Contains("_INT", StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                using var f = File.OpenRead(pck);
+                Akpk a;
+                try { a = Read(f); } catch (InvalidDataException) { continue; }
+                foreach (var e in a.Banks)
+                {
+                    Bank b;
+                    try { b = new Bank(ReadData(f, e)); } catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException) { continue; }
+                    foreach (var o in b.Objects.Where(o => o.Type == 4)) d.TryAdd(o.Id, (Path.GetFileName(pck), e.Id));
+                }
+            }
+            eventIndexFolder = cooked;
+            return eventIndex = d;
+        }
+    }
+
+    /// <summary>The .pck and bank holding an event (by its name's hash), the .pck files whose names have <paramref name="prefer"/>
+    /// searched first; null when none.</summary>
+    public static (string Pck, uint Bank)? FindEvent(string cooked, uint eventId, string prefer)
+    {
+        // The hero's English (_INT) file first, then any _INT, then the other languages (SFX_Cyclops_DEU came first by name).
+        static int Rank(string n, string pre) => (n.Contains(pre, StringComparison.OrdinalIgnoreCase) ? 0 : 2) + (n.Contains("_INT", StringComparison.OrdinalIgnoreCase) ? 0 : 1) + (n.Contains("_INT", StringComparison.OrdinalIgnoreCase) || !n.Contains(pre, StringComparison.OrdinalIgnoreCase) ? 0 : 2);
+        foreach (string pck in Directory.EnumerateFiles(cooked, "*.pck").OrderBy(p => Rank(Path.GetFileName(p), prefer)).ThenBy(p => p, StringComparer.OrdinalIgnoreCase))
+        {
+            using var f = File.OpenRead(pck);
+            Akpk a;
+            try { a = Read(f); } catch (InvalidDataException) { continue; }
+            foreach (var b in a.Banks)
+            {
+                try { if (EventMedia(f, b, eventId) != null) return (Path.GetFileName(pck), b.Id); }
+                catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
+            }
+        }
+        return null;
+    }
+
     static int WriteTable(Span<byte> w, int at, List<Entry> t)
     {
         BinaryPrimitives.WriteUInt32LittleEndian(w[at..], (uint)t.Count); at += 4;
@@ -256,8 +306,50 @@ sealed class Akpk
     }
 
     /// <summary>One bank's chunks, with the HIRC objects and embedded media editable.</summary>
+    /// <summary>Read-only census: the codec plugin IDs of every Sound object in a .pck's banks (ID → count), with the stream
+    /// types seen for each.</summary>
+    public static Dictionary<uint, (int Count, HashSet<byte> StreamTypes)> Codecs(string pck)
+    {
+        var d = new Dictionary<uint, (int, HashSet<byte>)>();
+        using var f = File.OpenRead(pck);
+        var a = Read(f);
+        foreach (var e in a.Banks)
+        {
+            Bank b;
+            try { b = new Bank(ReadData(f, e)); } catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException) { continue; }
+            foreach (var o in b.Objects.Where(o => o.Type == 2 && o.Body.Length >= 5))
+            {
+                uint id = BinaryPrimitives.ReadUInt32LittleEndian(o.Body);
+                // MHO_SOUND_DUMP=<dir>: save the embedded media of sounds not in Vorbis (to see their file layout).
+                if (id != 0x00040001 && Environment.GetEnvironmentVariable("MHO_SOUND_LIST") == "1")
+                    Console.WriteLine($"  {Path.GetFileName(pck)}: bank 0x{e.Id:X8}, sound 0x{o.Id:X8}, codec 0x{id:X8}, stream type {o.Body[4]}, events {string.Join(", ", b.EventsPlaying(o.Id).Select(x => $"0x{x:X8}"))}");
+                if (id != 0x00040001 && o.Body[4] == 0 && Environment.GetEnvironmentVariable("MHO_SOUND_DUMP") is { Length: > 0 } dump
+                    && b.EmbeddedMedia(BinaryPrimitives.ReadUInt32LittleEndian(o.Body.AsSpan(5))) is { } media)
+                    File.WriteAllBytes(Path.Combine(dump, $"{Path.GetFileNameWithoutExtension(pck)}_{id:X8}_{o.Id:X8}.wem"), media);
+                if (!d.TryGetValue(id, out var v)) v = (0, []);
+                v.Item2.Add(o.Body[4]);
+                d[id] = (v.Item1 + 1, v.Item2);
+            }
+        }
+        return d;
+    }
+
     sealed class Bank
     {
+        public IReadOnlyList<(byte Type, uint Id, byte[] Body)> Objects => objects;
+        /// <summary>The events whose (first) action targets this sound, directly or through a container that lists it.</summary>
+        public IEnumerable<uint> EventsPlaying(uint sound)
+        {
+            byte[] key = BitConverter.GetBytes(sound);
+            var holders = new HashSet<uint> { sound };
+            foreach (var o in objects.Where(o => o.Type != 2 && o.Type != 3 && o.Type != 4 && o.Body.AsSpan().IndexOf(key) >= 0)) holders.Add(o.Id);
+            var actions = objects.Where(o => o.Type == 3 && o.Body.Length >= 6 && holders.Contains(BinaryPrimitives.ReadUInt32LittleEndian(o.Body.AsSpan(2)))).Select(o => o.Id).ToHashSet();
+            foreach (var ev in objects.Where(o => o.Type == 4))
+                for (int i = 4; i + 4 <= ev.Body.Length; i += 4)
+                    if (actions.Contains(BinaryPrimitives.ReadUInt32LittleEndian(ev.Body.AsSpan(i)))) { yield return ev.Id; break; }
+        }
+        /// <summary>An embedded media file (DIDX / DATA) by source ID, or null.</summary>
+        public byte[]? EmbeddedMedia(uint source) { var d = didx.FirstOrDefault(x => x.Id == source); return d.Size == 0 || d.Offset + d.Size > data.Length ? null : data.GetBuffer().AsSpan((int)d.Offset, (int)d.Size).ToArray(); }
         readonly List<(string Tag, byte[] Data)> chunks = [];
         readonly List<(byte Type, uint Id, byte[] Body)> objects = [];
         readonly Dictionary<uint, int> index = [];
@@ -380,7 +472,15 @@ sealed class Akpk
             byte[] body = (byte[])sound.Body.Clone();
             if (body.Length < 13) return "sound object too short";
             byte streamType = body[4];
+            // Prefetch (1: the start in the bank, the rest streamed): the new line goes in the bank whole, embedded, its sound
+            // still marked prefetch with the whole size in the bank, as MHModManager 1.0.1 does it (checked byte for byte on a
+            // whole shifted voice, 2026-10-02).
+            if (streamType == 1) streamType = 0;
             if (streamType is not (0 or 2)) return $"stream type {streamType} not supported";
+            // PCM audio (a RIFF whose format is PCM, not Vorbis's 0xFFFF): the sound's codec plugin set to PCM (0x00010001),
+            // as the game's own few PCM sounds have it (voice pitch test, 2026-10-02).
+            if (wem.Length > 22 && wem[0] == 'R' && wem[1] == 'I' && wem[2] == 'F' && wem[3] == 'F' && BinaryPrimitives.ReadUInt16LittleEndian(wem.AsSpan(20)) is 1 or 0xFFFE)
+                BinaryPrimitives.WriteUInt32LittleEndian(body, 0x00010001);
             BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(5), p.SourceId);
             if (streamType == 0)
             {
