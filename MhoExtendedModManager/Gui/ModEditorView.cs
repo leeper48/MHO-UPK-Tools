@@ -540,7 +540,7 @@ sealed partial class ModEditorView : UserControl
             VoiceAudio.Play(wav);
             voiceStatus.Text = "Playing " + leaf + (asIs ? " (Shifted, as Saved)" : shiftNow ? $" (Preview: Pitch {set.Pitch:+0.#;-0.#;0}, Formant {set.Formant:+0.#;-0.#;0}, Warmth {set.Warmth:+0.#;-0.#;0} dB)" : "");
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException or UnauthorizedAccessException or ArgumentException or IndexOutOfRangeException)
         {
             if (id != voicePlayId || IsDisposed) return;
             voiceStatus.ForeColor = Ui.Packages;

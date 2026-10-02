@@ -64,14 +64,18 @@ static class VoiceAudio
         }
     }
 
-    /// <summary>Stream tables of every .pck (headers only; once per game folder). English (_INT) and language-free files win.</summary>
+    /// <summary>Stream tables of every .pck (headers only). English (_INT) and language-free files win. Read again when any
+    /// .pck changes: Apply rebuilds them, and a stale index read banks at their old offsets (a crash on ▶ after applying a
+    /// voice shift, 2026-10-02).</summary>
     static void Index(string cooked)
     {
         lock (gate)
         {
-            if (indexed == cooked) return;
+            var files = Directory.EnumerateFiles(cooked, "*.pck").OrderBy(Rank).ThenBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
+            string stamp = cooked + "|" + string.Join("|", files.Select(f => { var i = new FileInfo(f); return $"{i.Name}:{i.Length}:{i.LastWriteTimeUtc.Ticks}"; }));
+            if (indexed == stamp) return;
             var s = new Dictionary<uint, Where>();
-            pcks = [.. Directory.EnumerateFiles(cooked, "*.pck").OrderBy(Rank).ThenBy(f => f, StringComparer.OrdinalIgnoreCase)];
+            pcks = files;
             foreach (string pck in pcks)
             {
                 try
@@ -81,7 +85,7 @@ static class VoiceAudio
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException) { }
             }
-            streams = s; events.Clear(); scanned.Clear(); indexed = cooked;
+            streams = s; events.Clear(); scanned.Clear(); indexed = stamp;
         }
     }
 

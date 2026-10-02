@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.108
+- Voice tab: ▶ crashed after Apply Changes rebuilt a sound file while the app was open (it read the file's old layout). Fixed; a sound that can't be read now shows a message instead.
+
 0.37.107
 - Voice tab: entries that aren't sounds (a banter target names a character, an emote an animation) have no ▶ and aren't counted as lines.
 - Voice tab: when a mod's packages have no voice lines, it says where the hero's voice is in the game and offers to use it. Example: Carnage's voice comes from his Classic costume (it plays the Carnage voice package), so a mod on Carnage's base package gets the Classic costume's package with that voice, ready to shift.

@@ -308,6 +308,25 @@ sealed class Akpk
     /// <summary>One bank's chunks, with the HIRC objects and embedded media editable.</summary>
     /// <summary>Read-only census: the codec plugin IDs of every Sound object in a .pck's banks (ID → count), with the stream
     /// types seen for each.</summary>
+    /// <summary>--bank-check: every bank of a .pck parsed; the ones that fail, with the reason and their last bytes.</summary>
+    public static List<string> CheckBanks(string pck)
+    {
+        var bad = new List<string>();
+        using var f = File.OpenRead(pck);
+        foreach (var e in Read(f).Banks)
+        {
+            byte[] b = ReadData(f, e);
+            try { _ = new Bank(b); }
+            catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or InvalidDataException)
+            {
+                var tags = new List<string>(); int p = 0;
+                while (p + 8 <= b.Length) { int n = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4)); tags.Add($"{System.Text.Encoding.ASCII.GetString(b, p, 4)}@{p}+{n}"); if (n < 0 || p + 8 + n > b.Length) break; p += 8 + n; }
+                bad.Add($"bank {e.Id:X8} ({b.Length} bytes): {ex.GetType().Name}; chunks {string.Join(" ", tags)}");
+            }
+        }
+        return bad;
+    }
+
     public static Dictionary<uint, (int Count, HashSet<byte> StreamTypes)> Codecs(string pck)
     {
         var d = new Dictionary<uint, (int, HashSet<byte>)>();
@@ -359,10 +378,11 @@ sealed class Akpk
         public Bank(byte[] b)
         {
             int p = 0;
-            while (p < b.Length)
+            while (p + 8 <= b.Length)
             {
                 string tag = System.Text.Encoding.ASCII.GetString(b, p, 4);
                 int n = (int)BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(p + 4));
+                if (n < 0 || p + 8 + n > b.Length) throw new InvalidDataException($"the sound bank's {tag} chunk runs past its end");
                 chunks.Add((tag, b.AsSpan(p + 8, n).ToArray()));
                 p += 8 + n;
             }

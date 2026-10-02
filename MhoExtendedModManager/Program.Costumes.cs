@@ -240,6 +240,15 @@ static partial class Program
                 }
                 return bad == 0 ? 0 : 1;
             }
+            case "--bank-check":
+            {
+                // Read-only: every bank of every .pck (or one) parsed; prints the ones that fail.
+                string? bgr = settings.ResolvedGameRoot(data);
+                if (bgr == null) return 1;
+                foreach (string pck in rest.Count > 1 ? [rest[1]] : Directory.EnumerateFiles(Settings.Cooked(bgr), "*.pck"))
+                    foreach (string l in Akpk.CheckBanks(pck)) Console.WriteLine($"{Path.GetFileName(pck)}: {l}");
+                return 0;
+            }
             case "--sound-codecs":
             {
                 // Read-only: which codecs the game's sound banks use (Sound objects' plugin IDs), over every .pck.
