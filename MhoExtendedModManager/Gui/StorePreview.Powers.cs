@@ -77,6 +77,8 @@ sealed partial class StorePreview
     public bool PowerStrip { get; set; } = true;
     /// <summary>The editor's Powers tab: effects play even with Power FXs off in the main preview (they're what's being coloured).</summary>
     public bool ForceEffects { get; set; }
+    /// <summary>Show the 3D model whatever the mod's preview choice is (the editor's Powers page).</summary>
+    public bool Always3D { get; set; }
     /// <summary>The editor's Powers tab: the mod's packages the preview leaves out (the recoloured ones it built before, so a
     /// colour being changed isn't shown on top of the old one).</summary>
     public Func<string, bool>? SkipModFile { get; set; }

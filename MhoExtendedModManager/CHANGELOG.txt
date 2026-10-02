@@ -1,6 +1,19 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.85
+- Apply puts a game file back to the original only when it's still what this app last wrote or last saw there. A file another program changed since (a freecam installer writing zone packages, or the same files copied in by hand) is left as it is and listed under "Left as they are", even when a mod in your list that's turned off names it. Turning a mod off still restores the files this app put in for it.
+
+0.37.83
+- Moving a costume to another hero adds the target hero's sockets the moved model lacks (where its powers attach their effects: Captain Marvel's Photonic Devastation beam starts at socket_beam), so those effects show on the moved costume.
+- Updating a moved costume keeps the copy's own changes made after the move instead of rebuilding it without them.
+
+0.37.80
+- A mod without its own pictures shows the game's own picture for its costume, team-up or hero (the portrait and store image the game itself names), instead of one guessed from the package name; the guess remains for packages the game doesn't name (Black Widow Avengers VU now shows its VU portrait).
+
+0.37.79
+- Starting the app again (its icon, shortcut or the exe) brings the open window to the front, restored if it was minimized, instead of opening a second copy. A copy in another folder still runs on its own.
+
 0.37.78
 - Security: a mod whose files are named to point outside its own folder or the game folder (for example "..\..\file" or "C:\...") is refused when installed, and shows as broken in the list. Apply writes only to files directly in the game's package and language folders.
 - Security: updates are signed. The app installs an update only when its signature matches the developer's key built into the app, and only from GitHub links. An unsigned release isn't offered.

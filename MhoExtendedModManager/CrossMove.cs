@@ -131,6 +131,25 @@ static class CrossMove
             else log.Add("physics asset: not copied (" + string.Join(" ", psaid.Split(Environment.NewLine).Where(l => l.Contains("can't")).Select(l => l.Trim())) + "); the component gets none");
         }
 
+        // (2d) The target hero's sockets the moved mesh lacks (Kurt, 2026-10-01: Photonic Devastation's beam was invisible on
+        // Spider-Noir moved onto Captain Marvel). Powers spawn effects at sockets by name (her beam at socket_beam), and a
+        // moved mesh only has its own hero's. Each socket of the target's stock mesh that the copy doesn't have, on a bone the
+        // copy's skeleton has, is added: a copy of the stock socket object (names and numbers only) owned by the moved mesh,
+        // appended to its Sockets list.
+        var socketAdds = new List<NewExport>();
+        byte[]? meshData = null;
+        {
+            string cp = $"marvelgamecontent.default__{targetClass}.initialskeletalmesh";
+            int ci = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(cp, StringComparison.OrdinalIgnoreCase));
+            int stockMesh = -1;
+            if (ci >= 0 && TagWalker.Walk(pkg, pkg.ReadExportBytes(pkg.Exports[ci]).ToArray(), 16) is { } ct
+                && ct.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } st)
+                stockMesh = BinaryPrimitives.ReadInt32LittleEndian(pkg.ReadExportBytes(pkg.Exports[ci]).AsSpan(st.ValueAt)) - 1;
+            int moved = copy.RootRef - 1;
+            if (stockMesh >= 0 && stockMesh != moved)
+                (meshData, socketAdds) = AddMissingSockets(pkg, stockMesh, moved, log);
+        }
+
         // (3) The costume's mesh component: SkeletalMesh → the copy, PhysicsAsset → the copied one (else none).
         string compPath = $"marvelgamecontent.default__{targetClass}.initialskeletalmesh";
         int comp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
@@ -170,6 +189,7 @@ static class CrossMove
         }
         log.Add($"component: SkeletalMesh {(oldMesh > 0 ? pkg.PathOf(pkg.Exports[oldMesh - 1]) : oldMesh.ToString())} → #{copy.RootRef}");
         var replaceData = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => d };
+        if (meshData != null) { byte[] md = meshData; replaceData[copy.RootRef - 1] = _ => md; }
         if (voiceComp >= 0 && voiceData != null) replaceData[voiceComp] = _ => voiceData;   // the target costume's voice set = the source's
         // The animation tree (Kurt, 2026-09-30: Doctor Strange's cape stayed pinned on Colossus and Daredevil, moved on his own
         // Fear Itself and Punisher S2's coat moved on Daredevil). Heroes use shared trees in Startup.upk: pc_at_v2 (Colossus,
@@ -289,8 +309,8 @@ static class CrossMove
                 log.Add($"costume default: TargetPhysicsWeight {target} (as the source's)");
             }
         }
-        byte[] output = PackageRebuilder.Rebuild(pkg, replaceData, [], out var written, addNames, addImports);
-        var problems = PackageRebuilder.Verify(pkg, output, replaceData.Keys.ToList(), [], written, addNames, addImports);
+        byte[] output = PackageRebuilder.Rebuild(pkg, replaceData, socketAdds, out var written, addNames, addImports);
+        var problems = PackageRebuilder.Verify(pkg, output, replaceData.Keys.ToList(), socketAdds, written, addNames, addImports);
         if (problems.Count > 0) throw new InvalidDataException(string.Join("; ", problems));
         // The GUID stays the target's (the game checks it): the target stock package's summary is kept as it was.
         var t0 = Package.Open(targetStock);
@@ -325,6 +345,66 @@ static class CrossMove
     }
 
     /// <summary>A float property of the source's mesh component: its costume component, else its hero's base component.</summary>
+    /// <summary>
+    /// The stock mesh's sockets the moved mesh lacks (by SocketName), on bones the moved mesh has: the moved mesh's new data
+    /// (its Sockets array lengthened) and the new socket objects (copies of the stock ones, owned by the moved mesh). Null
+    /// data when nothing is missing.
+    /// </summary>
+    static (byte[]? MeshData, List<NewExport> Adds) AddMissingSockets(Package pkg, int stockMesh, int moved, List<string> log)
+    {
+        var none = ((byte[]?)null, new List<NewExport>());
+        List<(int Export, string Name, string Bone)> Sockets(int mesh, out TagWalker.Tag? tag, out byte[] data)
+        {
+            data = pkg.ReadExportBytes(pkg.Exports[mesh]).ToArray();
+            var list = new List<(int, string, string)>();
+            tag = TagWalker.Walk(pkg, data, 4)?.FirstOrDefault(t => t.Name.Equals("Sockets", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase));
+            if (tag == null) return list;
+            int n = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(tag.ValueAt));
+            for (int k = 0; k < n; k++)
+            {
+                int r = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(tag.ValueAt + 4 + 4 * k));
+                if (r <= 0) continue;
+                byte[] sd = pkg.ReadExportBytes(pkg.Exports[r - 1]).ToArray();
+                var props = TagWalker.Walk(pkg, sd, 4);
+                string? Nm(string p) => props?.FirstOrDefault(t => t.Name.Equals(p, StringComparison.OrdinalIgnoreCase)) is { } t ? TagWalker.NameAt(pkg, sd, t.ValueAt) : null;
+                if (Nm("SocketName") is string sn && Nm("BoneName") is string bn) list.Add((r - 1, sn, bn));
+            }
+            return list;
+        }
+        var stock = Sockets(stockMesh, out _, out _);
+        var have = Sockets(moved, out var arr, out byte[] meshBytes);
+        if (arr == null || stock.Count == 0) return none;
+        // The moved mesh's bones (its skeleton, read by AnimExportCli's mesh reader).
+        var ap = AnimExportCli.Packages.Package.Read(pkg.RawFile);
+        var mesh = AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, moved);
+        if (mesh == null) return none;
+        var bones = mesh.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = stock.Where(x => !have.Any(h => h.Name.Equals(x.Name, StringComparison.OrdinalIgnoreCase)) && bones.Contains(x.Bone)).ToList();
+        var noBone = stock.Where(x => !have.Any(h => h.Name.Equals(x.Name, StringComparison.OrdinalIgnoreCase)) && !bones.Contains(x.Bone)).Select(x => $"{x.Name} ({x.Bone})").ToList();
+        if (missing.Count == 0) { if (noBone.Count > 0) log.Add($"sockets: the target's {string.Join(", ", noBone)} not added (no such bone in the moved skeleton)"); return none; }
+        var adds = new List<NewExport>();
+        int count = BinaryPrimitives.ReadInt32LittleEndian(meshBytes.AsSpan(arr.ValueAt));
+        var refs = new List<byte>();
+        for (int k = 0; k < missing.Count; k++)
+        {
+            int src = missing[k].Export;
+            byte[] entry = pkg.Body.AsSpan(pkg.ExportEntryStart[src], pkg.ExportEntryEnd[src] - pkg.ExportEntryStart[src]).ToArray();
+            BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(8), moved + 1);         // owner: the moved mesh
+            BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 20000 + k);        // a name number no socket of it uses
+            byte[] data = pkg.ReadExportBytes(pkg.Exports[src]).ToArray();              // names and numbers only: copied as is
+            adds.Add(new NewExport(src, 0, _ => data) { Entry = entry });
+            refs.AddRange(BitConverter.GetBytes(pkg.Exports.Length + k + 1));
+        }
+        // The Sockets array: the new references after the old ones; count and the tag's size grow.
+        int end = arr.ValueAt + 4 + 4 * count;
+        byte[] nd = [.. meshBytes.AsSpan(0, end), .. refs, .. meshBytes.AsSpan(end)];
+        BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(arr.ValueAt), count + missing.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(arr.Start + 16), arr.Size + 4 * missing.Count);
+        log.Add($"sockets: the target's {string.Join(", ", missing.Select(x => x.Name))} added to the moved mesh" +
+                (noBone.Count > 0 ? $"; not {string.Join(", ", noBone)} (no such bone)" : ""));
+        return (nd, adds);
+    }
+
     static float? SourceFloat(Package src, string? sourceClass, string? baseHero, string prop, string sub = ".initialskeletalmesh")
     {
         if (sourceClass == null) return null;
@@ -436,6 +516,8 @@ static class CrossMove
             d.NexusModId = null; d.Changes = ""; d.Changelog = [];
             if (replace != null) { d.Tags = [.. replace.ModTags]; d.Notes = replace.Manifest.Notes ?? ""; }
             else d.Notes = (d.Notes.Length > 0 ? d.Notes.TrimEnd() + Environment.NewLine : "") + $"Moved from {mod.Name} ({source.Short.Replace(".prototype", "")} → {target.Short.Replace(".prototype", "")}).";
+            CostumeMove.KeepPowerColors(d, mod, replace, sameHero: false);
+            if (d.PowerColors.Count > 0) log.Add($"power colors kept: {d.PowerColors.Count}");
             log.Add($"icons: {plan.Icons.Count}; text: {plan.Strings.Count}; sound packs: {d.SoundPacks.Count}");
             return ModWriter.Save(lib, d, replace, out error);
         }

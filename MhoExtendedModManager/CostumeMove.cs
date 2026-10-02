@@ -308,6 +308,22 @@ static class CostumeMove
     /// packages and icons, sound packs, the preview pick and 3D views, the saved post, the Nexus link and the changelog.
     /// Returns the new mod's folder name, or null with the reason.
     /// </summary>
+
+    /// <summary>
+    /// A moved copy's power colors (Kurt, 2026-10-01: rebuilding a moved copy dropped its 35 recolored power packages): an
+    /// update keeps the copy's own colors and their packages; a new copy on the same hero takes the original's (the same
+    /// hero's powers); a copy on another hero starts without (the original hero's colors don't apply).
+    /// </summary>
+    public static void KeepPowerColors(ModDraft d, Mod original, Mod? replace, bool sameHero)
+    {
+        var from = replace ?? (sameHero ? original : null);
+        d.PowerColors = from?.Manifest.PowerColors?.ToList() ?? [];
+        if (from == null) return;
+        foreach (string f in d.PowerColors.SelectMany(e => e.Packages).Distinct(StringComparer.OrdinalIgnoreCase))
+            if (!d.Packages.Any(p => p.Item1.Equals(f, StringComparison.OrdinalIgnoreCase)) && File.Exists(Path.Combine(from.Folder, f)))
+                d.Packages.Add((f, Path.Combine(from.Folder, f)));
+    }
+
     public static string? CreateMod(ModLibrary lib, Mod mod, Plan plan, Originals originals, out string? error, Mod? replace = null,
         StockCatalog? catalog = null, List<string>? resized = null)
     {
@@ -337,6 +353,7 @@ static class CostumeMove
             d.Notes = (d.Notes.Length > 0 ? d.Notes.TrimEnd() + Environment.NewLine : "") + $"Moved from {mod.Name} ({plan.Source.Short.Replace(".prototype", "")} → {plan.Target.Short.Replace(".prototype", "")}).";
             // replace: rebuild an existing moved copy in place (same folder, place, on/off; e.g. after the original was updated).
             if (replace != null) { d.Tags = [.. replace.ModTags]; d.Notes = replace.Manifest.Notes ?? d.Notes; }
+            KeepPowerColors(d, mod, replace, sameHero: true);
             return ModWriter.Save(lib, d, replace, out error);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or UnauthorizedAccessException) { error = ex.Message; return null; }

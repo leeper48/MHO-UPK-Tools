@@ -46,6 +46,7 @@ static class Applier
         var steps = new List<Step>(); var problems = new List<string>(); int upToDate = 0;
         string legacy = Path.Combine(lib.DataFolder, "legacy");
         var winners = lib.PackageWinners();
+        var ledger = Ledger.Load(lib.DataFolder, game);
         var icons = IconPackages.Select(p => p.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
         // Also every package this app wrote before (its undo history) that no mod names now: a mod that dropped a package in
         // an edit or update, or a mod folder deleted by hand. It goes back to the original like a mod turned off; before
@@ -67,7 +68,17 @@ static class Applier
                 continue;
             }
             uint want = game.Crc(source);
-            if (game.Crc(live) == want) { upToDate++; continue; }
+            // In step with the list: recorded as the state this app saw it in (Ledger).
+            if (game.Crc(live) == want) { upToDate++; ledger.Set(file, want); continue; }
+            // Putting the original back only over a file that's ours (Kurt, 2026-10-02: other programs install files too, e.g. a
+            // freecam installer writing the zone packages Free Cam with Walls / Freecam Falloff Helper also name): the live file
+            // is a library mod's copy of it, or what this app last wrote there (its undo history). Anything else was changed by
+            // another program since: left as it is. Turning a mod off still restores its files (they are its copy).
+            if (mod == null && !Ours(lib, game, ledger, file, live))
+            {
+                problems.Add($"{file}: changed since this app last wrote or checked it (another program, or files copied in by hand), so it isn't put back to the original");
+                continue;
+            }
             // Installing needs a clean original too, or the mod could never be taken off again.
             if (original == null) { problems.Add($"{file} ({mod!.Name}): no clean original available, so it isn't installed"); continue; }
             steps.Add(new Step(file, mod != null ? $"install from {mod.Name}" : leftOver.Contains(file) ? "restore stock original (written by this app before; no mod names it now)" : "restore stock original", source, null, want));
@@ -230,6 +241,7 @@ static class Applier
         }
 
         var notHandled = new List<string>();
+        ledger.Save();
         return new Plan(steps, problems, upToDate, notHandled);
     }
 
@@ -269,6 +281,24 @@ static class Applier
             if (h.Equals(name[(us + 1)..], StringComparison.OrdinalIgnoreCase) && File.Exists(live)) result.Add(file);
         }
         return result;
+    }
+
+    /// <summary>Is the live game file one this app may put back to the original? Recorded in the ledger: only while it's
+    /// still what was recorded (or what the undo history says this app wrote). Never recorded (e.g. a mod migrated from
+    /// MHModManager, installed before this app saw it): a copy of it from a mod in the library, or this app's last write.</summary>
+    public static bool Ours(ModLibrary lib, GameState game, Ledger ledger, string file, string live)
+    {
+        uint crc = game.Crc(live);
+        // What this app last wrote or last saw in step with the list (Kurt, 2026-10-02: a reinstall of a mod's own files
+        // by hand, or by another program, matched "a mod's copy" and was undone). A recorded file is ours only while it is
+        // still that; the undo history covers a write the ledger missed.
+        if (ledger.Get(file) is uint seen) return seen == crc || History.IsLastWritten(live);
+        // Written by this app before (its undo history has the file): ours only if it's still what this app wrote.
+        if (History.Counts(live) is var (u, r) && u + r > 0) return History.IsLastWritten(live);
+        foreach (var m in lib.Mods)
+            if (m.Manifest.UpkReplacements.Contains(file, StringComparer.OrdinalIgnoreCase) && Path.Combine(m.Folder, file) is var copy && File.Exists(copy) && game.Crc(copy) == crc)
+                return true;
+        return History.IsLastWritten(live);
     }
 
     /// <summary>Is <paramref name="path"/> a file directly in CookedPCConsole (or, for strings, in a &lt;lang&gt;.all folder
@@ -318,6 +348,7 @@ static class Applier
     {
         if (ZoneBuilds.GameRunning()) { Console.WriteLine("The game is running; close it first. Nothing written."); return false; }
         string legacy = Path.Combine(libraryData, "legacy");
+        var ledger = Ledger.Load(libraryData, game);
         int done = 0;
         foreach (var s in p.Steps)
         {
@@ -354,9 +385,62 @@ static class Applier
             if (!ok) { Console.WriteLine($"Stopped after {done} of {p.Steps.Count}."); return false; }
             // A package put back to the game's own (CRC is the stock one): the stock date again, so it doesn't look modified.
             if (s.Type == Kind.Package && game.MatchesStock(s.File, live)) MeshImport.SetStockDate(live);
+            if (s.Type == Kind.Package) { ledger.Set(s.File, s.Crc); ledger.Save(); }   // what this app put there
             done++;
         }
         Console.WriteLine($"Applied: {done} file(s) written and verified.");
         return true;
+    }
+}
+
+/// <summary>
+/// The state this app last left or saw each managed game package in (CRC-32), per game folder: data\library\game_files.json.
+/// Updated when Apply writes a package and whenever a package is found in step with the list. A package that no longer
+/// matches its record was changed by something else (another program, a reinstall by hand), and Apply doesn't put it back.
+/// </summary>
+sealed class Ledger
+{
+    readonly string path;
+    readonly Dictionary<string, uint> files;
+    bool dirty;
+
+    Ledger(string path, Dictionary<string, uint> files) { this.path = path; this.files = files; }
+
+    public static Ledger Load(string libraryData, GameState game)
+    {
+        string p = Path.Combine(libraryData, "game_files.json");
+        var all = new Dictionary<string, Dictionary<string, uint>>(StringComparer.OrdinalIgnoreCase);
+        try { if (File.Exists(p)) all = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, uint>>>(File.ReadAllText(p)) ?? all; }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { }
+        all = new Dictionary<string, Dictionary<string, uint>>(all, StringComparer.OrdinalIgnoreCase);
+        string key = Path.GetFullPath(game.Cooked).TrimEnd('\\').ToLowerInvariant();
+        if (!all.TryGetValue(key, out var mine)) all[key] = mine = [];
+        var ledger = new Ledger(p, new Dictionary<string, uint>(mine, StringComparer.OrdinalIgnoreCase)) { all = all, key = key };
+        return ledger;
+    }
+
+    Dictionary<string, Dictionary<string, uint>> all = [];
+    string key = "";
+
+    public uint? Get(string file) => files.TryGetValue(file, out uint c) ? c : null;
+
+    public void Set(string file, uint crc)
+    {
+        if (files.TryGetValue(file, out uint c) && c == crc) return;
+        files[file] = crc; dirty = true;
+    }
+
+    public void Save()
+    {
+        if (!dirty) return;
+        all[key] = files;
+        try
+        {
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            File.Move(tmp, path, overwrite: true);
+            dirty = false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 }

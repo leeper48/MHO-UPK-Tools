@@ -214,5 +214,11 @@ static class Updater
     }
 
     /// <summary>Starts the (new) exe and lets this process end.</summary>
-    public static void Restart() => Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "MHO_Ext_ModManager.exe")) { UseShellExecute = false });
+    public static void Restart()
+    {
+        // The new copy waits for this one to close (SingleInstance) instead of bringing this closing window forward.
+        var psi = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "MHO_Ext_ModManager.exe")) { UseShellExecute = false };
+        psi.Environment["MHO_EXTMM_RESTART"] = "1";
+        Process.Start(psi);
+    }
 }

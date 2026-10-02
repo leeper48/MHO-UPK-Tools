@@ -42,7 +42,7 @@ sealed partial class ModEditorView
         host.VisibleChanged += (_, _) =>
         {
             if (!host.Visible || powerPreview != null || editing == null || game == null) return;
-            powerPreview = new StorePreview { Dock = DockStyle.Fill, CookedFolder = game.Cooked, Catalog = catalog, ForceEffects = true, PowerStrip = false };
+            powerPreview = new StorePreview { Dock = DockStyle.Fill, CookedFolder = game.Cooked, Catalog = catalog, ForceEffects = true, PowerStrip = false, Always3D = true };
             powerPreview.ColorFor = proto => draft.PowerColors.FirstOrDefault(e => e.Power.Equals(proto, StringComparison.OrdinalIgnoreCase)) is { } e ? e.Color : null;
             // Packages built for colors before are left out of the preview: the color shown is the one being set, on the stock files.
             var built = editing.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];

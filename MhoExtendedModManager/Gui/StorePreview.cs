@@ -238,7 +238,7 @@ sealed partial class StorePreview : Control
         // The pictures strip is always there; the power block (Powers toggle + two rows of power buttons) sits at the bottom
         // (Kurt, 2026-09-30), kept while the hero's powers load and dropped when the hero has none.
         bool powerBlock = PowerStrip && show3D && HeroOfMesh() != null && (!powersLoaded || heroPowers.Count > 0);
-        bool showStrip = Tiles > 1 && !full;
+        bool showStrip = Tiles > 1 && !full && !Always3D;   // (the Powers page: the 3D view only, Kurt)
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
         int pbh = animBox?.Height ?? (int)(26 * S), pgap = (int)(6 * S);
         int powersH = powerBlock && !full ? pbh + pgap + 2 * ThumbSize + pgap + (int)(4 * S) : 0;
@@ -502,6 +502,10 @@ sealed partial class StorePreview : Control
             ? (meshes.Any(x => x.Key.Equals(MeshPart(k), StringComparison.OrdinalIgnoreCase)) ? k : null)
             : (items.Any(x => x.Key.Equals(k, StringComparison.OrdinalIgnoreCase)) ? k : null);
         string? key = Offered(mod.LocalPreview) ?? Offered(mod.Manifest.PreviewImage) ?? PreviewImages.Automatic(items) ?? meshes.FirstOrDefault()?.Key;
+        // Always3D (the editor's Powers page: the power list comes from the 3D model's hero): the model even when the choice
+        // is a picture; the mod's own mesh choice if it has one, else the costume's model (listed first).
+        if (Always3D && meshes.Count > 0 && (key == null || !key.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase)))
+            key = new[] { Offered(mod.LocalPreview), Offered(mod.Manifest.PreviewImage) }.FirstOrDefault(k => k != null && k.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase)) ?? meshes[0].Key;
         if (key != null && key.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase))
         {
             int mi = meshes.FindIndex(x => x.Key.Equals(MeshPart(key), StringComparison.OrdinalIgnoreCase));

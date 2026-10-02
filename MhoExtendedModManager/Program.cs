@@ -83,6 +83,8 @@ static partial class Program
     {
         // Undo snapshots of the files Apply writes go to data\history next to the exe, not AppData.
         MhoPackageModifier.History.RootOverride = Settings.HistoryFolder;
+        // Starting the window again brings the open one forward instead (SingleInstance).
+        if (args.Length == 0 && !SingleInstance.Claim()) return 0;
         bool gui = args.Length == 0 || args[0].StartsWith("--gui", StringComparison.OrdinalIgnoreCase) || args[0].StartsWith("--editor", StringComparison.OrdinalIgnoreCase) || args[0].StartsWith("--first-run", StringComparison.OrdinalIgnoreCase);
         if (Settings.CheckWritable() is string notWritable)
         {

@@ -100,6 +100,11 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
         foreach (string file in m.Manifest.UpkReplacements)
         {
             string n = Path.GetFileNameWithoutExtension(file);
+            // The game's own choice first (GamePictures: the costume's / team-up's / hero's portrait or store image), when
+            // that texture is in this package; else the guesses from the package name below.
+            if (GamePictures.For(game.Root, file) is { } gp)
+                foreach (string? asset in heroPrefix == "store_" ? new[] { gp.Store } : new[] { gp.Portrait, gp.Icon })
+                    if (GamePictures.Split(asset) is { } at && at.Package.Equals(package, StringComparison.OrdinalIgnoreCase) && Has(at.Texture)) return at.Texture;
             if (Gui.ModEditorView.CostumeFilter.FromPackage(file) is { } cf)
             {
                 if (cf.Costume.Length > 0)
