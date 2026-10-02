@@ -185,6 +185,7 @@ sealed class MainForm : Form
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
+        menu.Items.Add("What's New", null, (_, _) => ShowNotice(0)).ToolTipText = "The notices of new features shown when a version starts the first time, newest first, with a link to the manual.";
         menu.Items.Add("Changelog", null, (_, _) => ShowChangelog());
         menu.Items.Add("Download Counts", null, (_, _) => { using var f = new DownloadsForm(settings); f.ShowDialog(this); }).ToolTipText = "How often each release of the app was downloaded from GitHub (downloads, not people).";
         menu.Items.Add("About", null, (_, _) => About());
@@ -494,6 +495,7 @@ sealed class MainForm : Form
                 settings.UpdateCheckAsked = true;
                 settings.Save();
             }
+            ShowWhatsNew();
             ShowUpdateAlert();   // from the last check (a check under an hour ago isn't repeated)
             if (settings.CheckUpdates && (settings.LastUpdateCheck == null || DateTime.Now - settings.LastUpdateCheck > TimeSpan.FromHours(1)))
                 CheckForUpdates(manual: false);
@@ -2247,6 +2249,38 @@ sealed class MainForm : Form
             b.Save(Path.Combine(dir, $"editor_{i}_{editor.TabTitle(i).Replace(' ', '_')}.png"));
         }
         CloseEditor();
+    }
+
+    /// <summary>Set by a normal start when setup was already done before (not for a new user, not in tests).</summary>
+    public bool ShowsWhatsNew { get; init; }
+
+    /// <summary>
+    /// The newest notice of new features (WhatsNew.Notices), shown once at start to people who used an earlier version
+    /// (Kurt, 2026-10-02: point them at the Editor's new tools and the manual); a new user just has it marked as seen.
+    /// Settings → What's New shows it again, and the older ones.
+    /// </summary>
+    void ShowWhatsNew()
+    {
+        var latest = WhatsNew.Notices[0];
+        if (settings.WhatsNewSeen == latest.Id) return;
+        settings.WhatsNewSeen = latest.Id;
+        settings.Save();
+        if (ShowsWhatsNew) ShowNotice(0);
+    }
+
+    /// <summary>A notice with Open the Manual, Older (to the one before it, when there is one) and Close.</summary>
+    void ShowNotice(int i)
+    {
+        while (i < WhatsNew.Notices.Count)
+        {
+            var n = WhatsNew.Notices[i];
+            bool older = i + 1 < WhatsNew.Notices.Count;
+            string[] labels = older ? ["Open the Manual", "Older", "Close"] : ["Open the Manual", "Close"];
+            int pick = Dialog.Choose(this, n.Text, $"What's New in Version {n.Version}", labels);
+            if (pick == 0) { HelpForm.Show(this, settings, n.Anchor); return; }
+            if (older && pick == 1) { i++; continue; }
+            return;
+        }
     }
 
     /// <summary>--editor-save-test: opens a mod in the Editor, changes nothing, saves (use with MHO_EXTMM_HOME on a scratch library).</summary>

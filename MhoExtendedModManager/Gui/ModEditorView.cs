@@ -120,18 +120,19 @@ sealed partial class ModEditorView : UserControl
             : "Separate tags with commas; they go with the mod. Characters, teams, costume, powers … are added automatically from the content.";
 
         // Grouped (Kurt, 2026-10-02: a UI pass): Overview (description, packages), Icons (the icon packages nested),
-        // Strings, SFX (sound packs, voice), then Powers and Animations on their own.
+        // Strings, Audio (voice first, then sound packs; Kurt 2026-10-02), then Powers and Animations on their own.
         texturePages = Enumerable.Range(0, 4).Select(k => new TexturePage(this, k)).ToArray();
         AddGroup("Overview", ("Description", DescriptionPage()), ("Packages", PackagesPage()));
         AddGroup("Icons", ("Icons", texturePages[0]), ("Store Images", texturePages[2]), ("Achievements", texturePages[1]), ("Other Packages", texturePages[3]));
         stringsPage = new StringsPage(this);
         AddGroup("Strings", ("Strings", stringsPage));
-        AddGroup("SFX", ("Sound Packs", SoundsPage()), ("Voice", VoicePage()));
+        var soundsPage = SoundsPage();   // built before the voice page, as before (the voice page refreshes the sound packs' list)
+        AddGroup("Audio", ("Voice", VoicePage()), ("Sound Packs", soundsPage));
         // Not released yet (Kurt, 2026-10-01): only with "PreviewFeatures": true in settings.json. A mod's existing power colors
         // are kept and rebuilt on save either way.
-        if (Settings.Load().PreviewFeatures) AddGroup("Powers", ("Powers", PowersPage()));
+        if (WhatsNew.PowersAndAnimations) AddGroup("Powers", ("Powers", PowersPage()));
         // In development (Kurt, 2026-10-02): the Animations tab, also only with "PreviewFeatures": true.
-        if (Settings.Load().PreviewFeatures) AddGroup("Animations", ("Animations", AnimationsPage()));
+        if (WhatsNew.PowersAndAnimations) AddGroup("Animations", ("Animations", AnimationsPage()));
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 

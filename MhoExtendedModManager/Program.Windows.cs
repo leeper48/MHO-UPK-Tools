@@ -423,12 +423,13 @@ static partial class Program
             }
             // First run (no game folder or library yet): the setup window, then the mod list.
             var s = Settings.Load();
+            bool wasSetUp = s.IsSetUp;
             if (!s.IsSetUp && args.Length == 0)
             {
                 using var setup = new Gui.FirstRunForm(s);
                 if (setup.ShowDialog() != DialogResult.OK) return 0;
             }
-            var form = new Gui.MainForm();
+            var form = new Gui.MainForm { ShowsWhatsNew = wasSetUp && args.Length == 0 };
             if (args.Length >= 2) form.Shown += (_, _) => form.BeginInvoke(async () => { await form.Snapshot(args[1], args.Length == 3 ? args[2] : null); form.Close(); });
             Application.Run(form);
             return 0;

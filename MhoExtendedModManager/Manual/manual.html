@@ -106,8 +106,9 @@ function mhoNext(dir) {
 <li><a href="#costume">Move to Another Costume</a></li>
 <li><a href="#tags">Tags and notes</a></li>
 <li><a href="#editor">Making and editing mods</a></li>
+<li><a href="#powers">Power colors</a></li>
+<li><a href="#animations">Animations</a></li>
 <li><a href="#voice">Voice lines</a></li>
-<!-- POWER COLORS (unreleased, PreviewFeatures): <li><a href="#powers">Power colors</a></li> -->
 <li><a href="#icons">Icons and Create from 3D</a></li>
 <li><a href="#extract">Extract</a></li>
 <li><a href="#nexus">Nexus</a></li>
@@ -210,7 +211,7 @@ function mhoNext(dir) {
 <p>The costume icon, portrait and store image must be the game's sizes (40×40, 180×136, 300×420). An image of another size is resized for the move: scaled to fill the frame and centred, so it isn't stretched (what doesn't fit is trimmed), and a message lists what was resized and from which size.</p>
 <h3>To another hero</h3>
 <p>At the bottom of the costume list, <b>Another Hero</b> opens a picker: the heroes with their portraits (type in <b>Filter</b> to narrow them), then the chosen hero's costumes with their store images (the default in green). The Move window then shows what moves: the <b>model</b> with its materials and textures goes into that costume's package, and the costume icon, portrait, store image and name follow. The <b>voice</b> moves too: the costume's voice set (death, level up, hits, banter, mission lines …) is copied with its sound events, so the target hero's powers play the source's lines: the mod's own voice lines (with its sound pack) if it has them, otherwise the source hero's stock voice. What stays the target hero's: the animations and powers; parts of the model the target's skeleton doesn't move (hair, a cape) stay still. The new mod is "Name <span style="color:#f2aa3c">(on Storm Modern)</span>": amber for another hero, teal for another costume of the same hero.</p>
-<p>The voice moves too. Where the moved voice has no line for a situation the target hero has (a team-up's voice has no "can't do that yet", no death line …), that situation is turned off, so the target hero's own line doesn't play there. The Editor's SFX → Voice tab lists those lines as <b>Not in This Voice</b>; they can't be turned on, since their sounds aren't in the mod.</p>
+<p>The voice moves too. Where the moved voice has no line for a situation the target hero has (a team-up's voice has no "can't do that yet", no death line …), that situation is turned off, so the target hero's own line doesn't play there. The Editor's Audio → Voice tab lists those lines as <b>Not in This Voice</b>; they can't be turned on, since their sounds aren't in the mod.</p>
 <p><b>Team-ups</b> work the same way, in both directions: a team-up mod (Rescue, say) can move onto a hero's costume or another team-up, and a costume mod can move onto a team-up. In the picker, all team-ups are under the <b>Team-Ups</b> tile. The moved model gets the target's sockets it lacks (where effects attach), and the sockets both have are turned to face the target's way (so a beam fires straight ahead); its animations and powers stay the target's.</p>
 <p>Capes and coats simulated with APEX cloth move along with the model, together with the model's own physics setup (the cloth needs it). A few models can't move to another hero yet, for example ones with an animated material. The Move window says so.</p>
 <p><b>Sound packs</b> come along when every sound they play belongs to the costume (as with Miles Morales' voice pack). If the original and its moved copy are both on, the pack is only added once.</p>
@@ -228,12 +229,13 @@ function mhoNext(dir) {
 <tr><td>Overview → Packages</td><td>the .upk files the mod replaces</td></tr>
 <tr><td>Icons → Icons, Store Images, Achievements, Other Packages</td><td>images the mod replaces; search the game's names, see the original and your replacement side by side. A PNG, JPG or BMP is converted to the right size and format. To change an existing replacement, select it in the table (or double-click it) and load the new file.</td></tr>
 <tr><td>Strings</td><td>text changes: search the game's strings (the <b>Used By</b> column says what each belongs to), add or edit rows, or import a language .json</td></tr>
-<tr><td>SFX → Sound Packs</td><td>.mhsfx voice or sound packs</td></tr>
-<tr><td>SFX → Voice</td><td>the costume's voice set: every line the hero says and when (death, level up, hits, banter, mission lines …); play a line, or untick it to turn it off</td></tr>
+<tr><td>Audio → Voice</td><td>the costume's voice set: every line the hero says and when (death, level up, hits, banter, mission lines …); play a line, untick it to turn it off, give the costume another voice, or make the whole voice higher or lower with <b>Voice Shift</b> (see <a href="#voice">Voice lines</a>)</td></tr>
+<tr><td>Audio → Sound Packs</td><td>.mhsfx voice or sound packs</td></tr>
+<tr><td>Powers</td><td>recolor the hero's powers: pick a power, set Hue, Saturation and Brightness, and watch it in the 3D preview (see <a href="#powers">Power colors</a>)</td></tr>
+<tr><td>Animations</td><td>every animation the costume plays; swap any for another character's or mod's, one by one or many at once (see <a href="#animations">Animations</a>)</td></tr>
 </table>
 <p>When a mod is for one costume, the image tabs open filtered to that costume's images. <b>Create Post</b> writes a Nexus and a Discord post for the mod, with images, and keeps it with the mod.</p>
 
-<!-- POWER COLORS (unreleased: the editor's Powers tab is hidden unless "PreviewFeatures": true; remove these comment marks when it ships)
 <h2 id="powers">Power colors</h2>
 <p>The editor's <b>Powers</b> tab recolors the hero's powers. Pick a power on the right (its animation shows in the preview, paused: press ▶ to play it with its effects, Esc stops it) and turn <b>Hue</b> (around the color wheel), <b>Saturation</b> (0 % is grey) and <b>Brightness</b>; the preview shows the colors at once. <b>Game's Colors</b> takes a power back. <b>Apply to All Powers</b> gives every power of the hero the sliders' color (with the game's colors on the sliders, it takes them all back). The tab needs a saved mod (save a new mod once first).</p>
 <p>The list has every power the hero's avatar names: those with an animation, the travel power, and also procs, passives and talents that have effects of their own but no animation (Captain Marvel's Radiant Cascade glows during her other attacks). Those play nothing in the preview; their colors show in the game during the powers that set them off.</p>
@@ -241,14 +243,18 @@ function mhoNext(dir) {
 <p>On <b>Save Changes</b>, each colored power's own game files are recolored: its particles, effect textures and material colors, in the power's package and those of what it sets off (missiles, hotspots, conditions, pets and summons; Thor's Rolling Thunder: 6 packages). Effects many heroes share (knockdown, slow, taunt ...) are left as they are. When a few others use the same effects (Beta Ray Bill's team-up copy of Thor's), they change too: the tab names them under the presets. They become ordinary packages of the mod, so Apply Changes puts them in the game like any other, and MHModManager can install the mod too. Nothing on the server changes.</p>
 <div class="note">A color changes the power for <b>every costume</b> of that hero, for anyone using the mod: the files are the game's own power packages. Two mods that recolor the same power conflict like any two mods with the same package (the one higher in the list wins). A few effect textures stored uncompressed keep their colors.</div>
 
--->
-<!-- ANIMATIONS (unreleased: the editor's Animations tab is hidden unless "PreviewFeatures": true; remove these comment marks when it ships)
 <h2 id="animations">Animations</h2>
 <p>The Editor's <b>Animations</b> tab lists every animation a costume plays (idle, run, emotes, attacks, power animations …), the power each belongs to, and where it comes from: the hero's own set, the costume's own, or shared ones. A costume's model lists animation sets, and a name in a later set replaces the same name in an earlier one; that's how some stock costumes have their own idle or emotes. Click a row to play it in the 3D view.</p>
-<p><b>Change Animation</b> (or double-click a row) plays another animation in its place. For a costume moved from another character, the window offers the <b>Source</b> (the character the model came from) and the <b>Target</b> (this costume as the game has it) first, each at the animation of the same name; any hero, team-up or other mod follows, with the same name first and every other animation below. Picking one plays it on the costume's model before you use it. Only the costume's own package changes: the hero and his other costumes keep their animations. Changed rows are amber; <b>Back to the Original</b> undoes one. <b>Copy From a Character</b> does many at once: pick a character and every one of its animations with the same name as one of the costume's is listed, ticked (Find narrows them by name or kind, such as Emote or Movement; Tick All / Tick None act on what's shown); <b>Use Ticked</b> puts them all in. Picking the Target there undoes the ticked ones. Changes are saved with the mod.</p>
--->
+<p><b>Change Animation</b> (or double-click a row) plays another animation in its place. For a costume moved from another character, the window offers the <b>Source</b> (the character the model came from) and the <b>Target</b> (this costume as the game has it) first, each at the animation of the same name; any hero, team-up or other mod follows, with the same name first and every other animation below. Picking one plays it on the costume's model before you use it. Only the costume's own package changes: the hero and the hero's other costumes keep their animations. Changed rows are amber; <b>Back to the Original</b> undoes one. <b>Copy From a Character</b> does many at once: pick a character and every one of its animations with the same name as one of the costume's is listed, ticked (Find narrows them by name or kind, such as Emote or Movement; Tick All / Tick None act on what's shown); <b>Use Ticked</b> puts them all in. Picking the Target there undoes the ticked ones. Changes are saved with the mod.</p>
 <h2 id="voice">Voice lines</h2>
-<p>The Editor's <b>SFX → Voice</b> tab lists the voice set of the mod's costume packages: the <b>Situation</b> (Death, Level Up, Crit Hit Landed, Banter …), extra <b>Detail</b> (the enemy type or mission) and the <b>Sound Event</b> it plays. Only costumes with their own voice set have lines here: a voice mod, or a costume moved to another hero (which brings its voice along).</p>
+<p>The Editor's <b>Audio → Voice</b> tab lists the voice set of the mod's costume packages: the <b>Situation</b> (Death, Level Up, Crit Hit Landed, Banter …), extra <b>Detail</b> (the enemy type or mission) and the <b>Sound Event</b> it plays. Only costumes with their own voice set have lines here: a voice mod, or a costume moved to another hero (which brings its voice along). For any other costume, <b>Use Another Voice</b> (or the hero's-voice button the tab offers) puts a voice in first.</p>
+<p><b>To shift a voice</b> (for example a female voice to male):</p>
+<ol>
+<li>Open the mod in the Editor and go to <b>Audio → Voice</b>. If no lines show, use the button above the list (or <b>Use Another Voice</b>) to put the hero's voice in.</li>
+<li>Click <b>Female → Male</b> or <b>Male → Female</b> as a start, then adjust <b>Pitch</b>, <b>Formant</b> and <b>Warmth</b>. Press <b>▶</b> on a few lines to hear the result; nothing changes in the mod yet.</li>
+<li>Click <b>Shift This Voice</b> (about 30 seconds), then <b>Save Changes</b>.</li>
+<li>Turn the mod on and <b>Apply Changes</b>; the costume speaks with the shifted voice in game.</li>
+</ol>
 <ul>
 <li><b>▶</b> plays a line: from the mod's own sound pack if it has that line, otherwise from the game's sound files. <b>Stop</b> stops it. If a line has no sound anywhere, it says so; it's silent in the game too.</li>
 <li><b>Untick</b> a line to turn it off, for example when a voice borrowed from another hero names its own team. <b>Save Changes</b> writes it into the mod's package; the mod remembers what was turned off, so it can be ticked again later (or <b>Turn All On</b>).</li>
@@ -284,7 +290,8 @@ function mhoNext(dir) {
 <li><b>Check Backups</b>: lists the game files that differ from the game's own, whether each one's <b>.bak</b> is truly the original (some tools made a .bak from an already changed file), and where a clean copy is (the app's kept originals, the clean folder). The app never trusts a .bak that isn't the original, and never overwrites one. If some .bak files are the original but carry a later date (so they look modified), it offers to give them the game's own date, 2024-03-14; only the date changes.</li>
 <li><b>Remember Window Position</b> (on by default): the app starts on the monitor, at the size and place you left it (maximized if it was). If that monitor isn't connected anymore, or with this off, it starts maximized on the main monitor. Starting the app again (its icon or shortcut) brings the open window to the front instead of opening a second copy.</li>
 <li><b>Check for Updates</b> / <b>Check for Updates at Start</b>: the app looks at its GitHub releases at start and every hour while open; <b>Update Available</b> appears in the top bar when there's a new version. Updating keeps your <code>data</code> folder. Every update is signed with the developer's own key; the app installs an update only when its signature matches the key built into the app, and only from GitHub.</li>
-<li><b>Changelog</b> (what's new) and <b>About</b>.</li>
+<li><b>What's New</b>: the notice of new features shown once when a new version first starts, with a link to the part of this manual that explains them. <b>Older</b> steps back to earlier notices.</li>
+<li><b>Changelog</b> (every change, version by version) and <b>About</b>.</li>
 </ul>
 
 <h2 id="keys">Keyboard shortcuts</h2>
@@ -312,6 +319,7 @@ function mhoNext(dir) {
 <tr><td>A red conflict stripe</td><td>Part of the mod loses to a higher one. Open the Conflicts tab and drag the mod you want higher.</td></tr>
 <tr><td>Antivirus or SmartScreen warning</td><td>The app isn't code-signed. Compare the download with its <code>.sha256</code> file; false positives can be reported at microsoft.com/wdsi/filesubmission.</td></tr>
 <tr><td>A costume looks like the original in game</td><td>Check which costume you're wearing: some heroes have two costumes with the same model (Thor's Age of Ultron and its Armored Variant). The costume's name in game tells them apart.</td></tr>
+<tr><td>Something doesn't work (a bug)</td><td>Please report it on Discord: <a href="https://discord.com/channels/1130836076332863580/1553841408471867442">MHServerEmu Development</a> or <a href="https://discord.com/channels/1142968916205903942/1553842238969352263">TAHITI</a>: what you did, what happened, and the version (in the window's title). The newest Editor features (Voice Shift, power colors, animation swaps) are experimental.</td></tr>
 </table>
 
 <h2 id="commands">Command line</h2>

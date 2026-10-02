@@ -20,6 +20,24 @@ static class Dialog
     public static DialogResult Show(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon = MessageBoxIcon.None) =>
         Show(null, text, caption, buttons, icon);
 
+    /// <summary>A question with buttons of its own (first = the main one, Enter; last = Esc). Returns the index clicked.</summary>
+    public static int Choose(IWin32Window? owner, string text, string caption, params string[] labels)
+    {
+        if (Environment.GetEnvironmentVariable("MHO_EXTMM_TEST_DIALOGS") is { Length: > 0 } testLog)
+        {
+            File.AppendAllText(testLog, $"[{caption}] {text} ({string.Join(" / ", labels)}){Environment.NewLine}");
+            return labels.Length - 1;
+        }
+        // Form.DialogResult accepts only the enum's own values: the buttons take these in order, the last one is Cancel (Esc).
+        DialogResult[] results = [DialogResult.OK, DialogResult.Yes, DialogResult.Retry, DialogResult.Ignore, DialogResult.Abort];   // (not No: the dialog makes No the Esc button)
+        if (labels.Length - 1 > results.Length) throw new ArgumentException("too many buttons", nameof(labels));
+        var choices = labels.Select((l, i) => (l, i == labels.Length - 1 ? DialogResult.Cancel : results[i])).ToArray();
+        using var f = new DialogForm(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, false, choices);
+        var r = owner != null ? f.ShowDialog(owner) : f.ShowDialog();
+        int at = Array.IndexOf(results, r);
+        return at >= 0 && at < labels.Length - 1 ? at : labels.Length - 1;
+    }
+
     /// <summary>A log or report (install, capture, migrate): a heading, the text in a scrolling box, Close.</summary>
     public static void ShowLog(IWin32Window? owner, string heading, string text, Tone tone = Tone.Normal) =>
         Show(owner, text, heading, MessageBoxButtons.OK, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, tone, log: true);
@@ -54,6 +72,8 @@ static class Dialog
                 "Update Mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1, Tone.Normal, false)),
             ("dialog_log", () => new DialogForm("Storm Classic.zip:\nInstalled 'Storm Classic Costume Visual Update' by Wlzzer, version 5 (disabled, top of the list).\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes.",
                 "Installed", MessageBoxButtons.OK, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Good, true)),
+            ("dialog_whatsnew", () => new DialogForm(WhatsNew.Notices[0].Text, "What's New in Version " + WhatsNew.Notices[0].Version, MessageBoxButtons.OKCancel, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, false,
+                [("Open the Manual", DialogResult.OK), ("Close", DialogResult.Cancel)])),
             ("dialog_error", () => new DialogForm("The folder is in use by another program.", "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error, MessageBoxDefaultButton.Button1, Tone.Bad, false)),
             ("dialog_changelog", () => new DialogForm(File.Exists(Path.Combine(AppContext.BaseDirectory, "CHANGELOG.txt")) ? File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "CHANGELOG.txt")) : "(no CHANGELOG.txt)",
                 "Changelog (You Have " + Program.Version + ")", MessageBoxButtons.OK, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, true)),
@@ -88,14 +108,88 @@ static class Dialog
             });
             f.ShowDialog();
         }
+        // Each button of a Choose notice clicked for real (a crash 2026-10-02: results outside DialogResult's values).
+        var report = new List<string>();
+        string[] labels = ["Open the Manual", "Older", "Close"];
+        for (int k = 0; k < labels.Length; k++)
+        {
+            DialogResult[] results = [DialogResult.OK, DialogResult.Yes];
+            var choices = labels.Select((l, i) => (l, i == labels.Length - 1 ? DialogResult.Cancel : results[i])).ToArray();
+            using var f = new DialogForm("Click test.", "Choose", MessageBoxButtons.OKCancel, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, false, choices);
+            int want = k;
+            f.Shown += (_, _) => f.BeginInvoke(() =>
+            {
+                var buttons = All(f).OfType<Button>().Where(x => labels.Contains(x.Text)).ToList();
+                var b = buttons.FirstOrDefault(x => x.Text == labels[want]);
+                if (b == null) { report.Add($"{labels[want]}: button not found"); f.Close(); return; }
+                try { b.PerformClick(); } catch (Exception ex) { report.Add($"{labels[want]}: {ex.GetType().Name}"); f.Close(); }
+            });
+            var r = f.ShowDialog();
+            report.Add($"{labels[k]} → {r}");
+        }
+        File.WriteAllLines(Path.Combine(dir, "choose_clicks.txt"), report);
+        static IEnumerable<Control> All(Control c) => c.Controls.Cast<Control>().SelectMany(x => All(x).Prepend(x));
     }
 
     sealed class DialogForm : Form
     {
-        public DialogForm(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultButton, Tone tone, bool log)
+        /// <summary>
+        /// Text with [link text](https://…) links, as a LinkLabel that opens them in the browser (only for the app's own
+        /// notices, Dialog.Choose: never for text that may hold a mod's names). Only https links to discord.com, github.com or
+        /// nexusmods.com open.
+        /// </summary>
+        static readonly Color NoticeYellow = Color.FromArgb(250, 210, 60);
+
+        /// <summary>A notice's paragraphs (split at blank lines), top to bottom: a paragraph starting with [!] is a bold yellow
+        /// warning (Kurt: "experimental" in yellow); the others may hold [text](https://…) links (LinkText).</summary>
+        static Control Paragraphs(string text, float s)
+        {
+            var f = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
+            var paras = text.Split("\n\n");
+            for (int i = 0; i < paras.Length; i++)
+            {
+                string para = paras[i].Trim('\n');
+                Control c = para.StartsWith("[!]")
+                    ? new Label { Text = para[3..].Trim(), AutoSize = true, MaximumSize = new Size((int)(470 * s), 0), ForeColor = NoticeYellow, Font = Ui.Bold(9.5f), Tag = "notice-yellow" }
+                    : LinkText(para, s);
+                c.Margin = new Padding(0, 0, 0, i < paras.Length - 1 ? (int)(12 * s) : 0);
+                f.Controls.Add(c);
+            }
+            return f;
+        }
+
+        static LinkLabel LinkText(string text, float s)
+        {
+            var plain = new System.Text.StringBuilder();
+            var links = new List<(int Start, int Length, string Url)>();
+            int p = 0;
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, @"\[([^\]]+)\]\((https://[^)\s]+)\)"))
+            {
+                plain.Append(text, p, m.Index - p);
+                links.Add((plain.Length, m.Groups[1].Length, m.Groups[2].Value));
+                plain.Append(m.Groups[1].Value);
+                p = m.Index + m.Length;
+            }
+            plain.Append(text, p, text.Length - p);
+            var l = new LinkLabel { Text = plain.ToString(), AutoSize = true, MaximumSize = new Size((int)(470 * s), 0), Margin = new Padding(0, 0, 0, 4),
+                LinkColor = Ui.Accent, ActiveLinkColor = Ui.Accent, VisitedLinkColor = Ui.Accent, LinkBehavior = LinkBehavior.HoverUnderline };
+            l.Links.Clear();
+            foreach (var (start, length, url) in links) l.Links.Add(start, length, url);
+            l.LinkClicked += (_, e) =>
+            {
+                if (e.Link?.LinkData is string url && Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps
+                    && (u.Host is "discord.com" or "github.com" or "www.nexusmods.com" or "nexusmods.com"))
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); }
+                    catch (System.ComponentModel.Win32Exception) { }
+            };
+            return l;
+        }
+
+        public DialogForm(string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultButton, Tone tone, bool log, (string Label, DialogResult Result)[]? custom = null)
         {
             text = text.Replace("\r\n", "\n").Trim();
-            bool longText = log || text.Length > 420 || text.Count(c => c == '\n') > 7;
+            // A notice with its own buttons (Choose) stays compact up to a longer text: it's written to fit.
+            bool longText = log || (custom == null ? text.Length > 420 || text.Count(c => c == '\n') > 7 : text.Length > 1400);
             Text = caption;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             Ui.DarkFrame(this);
@@ -117,11 +211,13 @@ static class Dialog
             float s = DeviceDpi / 96f;
             if (longText)
                 t.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = text.Replace("\n", "\r\n") }, 0, 1);
+            else if (custom != null && (text.Contains("](https://") || text.Contains("[!]")))
+                t.Controls.Add(Paragraphs(text, s), 0, 1);
             else
                 t.Controls.Add(new Label { Text = text, AutoSize = true, MaximumSize = new Size((int)(470 * s), 0), Margin = new Padding(0, 0, 0, 4), Anchor = single ? AnchorStyles.None : AnchorStyles.Left | AnchorStyles.Top, TextAlign = single ? ContentAlignment.TopCenter : ContentAlignment.TopLeft }, 0, 1);
 
             var bar = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 12, 0, 0) };
-            (string Label, DialogResult Result)[] choices = buttons switch
+            (string Label, DialogResult Result)[] choices = custom ?? buttons switch
             {
                 MessageBoxButtons.OKCancel => [("OK", DialogResult.OK), ("Cancel", DialogResult.Cancel)],
                 MessageBoxButtons.YesNo => [("Yes", DialogResult.Yes), ("No", DialogResult.No)],
@@ -150,6 +246,9 @@ static class Dialog
             CancelButton = made[cancelAt >= 0 ? cancelAt : 0];
             Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
             Ui.RestyleButtons(this);
+            // The theme sets every label's colour: a notice's warning gets its yellow back.
+            static IEnumerable<Control> All(Control c) => c.Controls.Cast<Control>().SelectMany(x => All(x).Prepend(x));
+            foreach (var w in All(this).Where(c => c.Tag is "notice-yellow")) w.ForeColor = NoticeYellow;
             if (single) { var hb = (Button)heading; hb.BackColor = toneColor; hb.ForeColor = toneColor == Ui.Accent ? Color.White : Ui.OnColor; hb.FlatAppearance.BorderColor = toneColor; }
             else heading.ForeColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Text };
             if (longText) Ui.FitToScreen(this, 640, 460);

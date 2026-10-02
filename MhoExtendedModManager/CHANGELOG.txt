@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.109
+- The Editor's SFX tab is now Audio, with Voice first and Sound Packs second.
+- Editor → Powers (experimental): recolor a hero's powers. Pick a power, set Hue, Saturation and Brightness (or a preset), and watch it play with its effects in the 3D preview; Save puts the recolored power packages into the mod.
+- Editor → Animations (experimental): every animation a costume plays, with its power and where it comes from. Change Animation swaps one for another hero's, team-up's or mod's; Copy From a Character swaps many at once. Only the costume's own package changes.
+- New features are announced once when a new version first starts (this time: the Editor's Powers, Animations, Voice Shift and voice hint, and the grouped tabs), with a button to the part of the manual that explains them. The notice says the new Editor features are experimental and links the Discord channels for bug reports (also in the manual's Troubleshooting). Settings → What's New shows the notices again.
+- Manual: step-by-step for shifting a voice; the Editor table mentions Voice Shift.
+
 0.37.108
 - Voice tab: ▶ crashed after Apply Changes rebuilt a sound file while the app was open (it read the file's old layout). Fixed; a sound that can't be read now shows a message instead.
 
@@ -10,7 +17,7 @@ MHO Extended Mod Manager: what's new
 - Use Another Voice lists only voices with lines (Carnage's base package, which has none, is gone; his voice is listed as Carnage).
 
 0.37.106
-- Editor → SFX → Voice: Voice Shift. Pitch, Formant and Warmth sliders (with Female → Male and Male → Female starting points); ▶ previews a line at those settings. Shift This Voice puts the shifted voice into the mod (about 30 seconds) as a sound pack the old MHModManager installs too; Remove Shift brings the original lines back. Only the costume's voice lines change: its sound effects, other costumes and other characters keep their sounds.
+- Editor → Audio → Voice: Voice Shift. Pitch, Formant and Warmth sliders (with Female → Male and Male → Female starting points); ▶ previews a line at those settings. Shift This Voice puts the shifted voice into the mod (about 30 seconds) as a sound pack the old MHModManager installs too; Remove Shift brings the original lines back. Only the costume's voice lines change: its sound effects, other costumes and other characters keep their sounds.
 
 0.37.100
 - 3D preview: Iron Man's Unibeam shows. A power that plays one animation named …_end (its start and loop belong to another power) now shows all its effects; effects only for certain characters (the Hulkbuster versions) are left out; an effect that stays on its character takes the power's offset and turn.

@@ -41,6 +41,8 @@ sealed class Settings
     /// <summary>Features not released yet (Kurt, 2026-10-01: the editor's Powers tab). Off by default; set to true in
     /// settings.json by hand to see them. No menu item on purpose.</summary>
     public bool PreviewFeatures { get; set; }
+    /// <summary>The last "what's new" notice shown at start (MainForm.WhatsNew), so each is shown once.</summary>
+    public string? WhatsNewSeen { get; set; }
     /// <summary>The manual's text size in percent (A− / A+ in the Help window).</summary>
     public int ManualTextSize { get; set; } = 100;
     /// <summary>The user was asked once whether the app may look for updates at start (nothing is sent without that).</summary>
