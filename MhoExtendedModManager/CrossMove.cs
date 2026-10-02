@@ -49,7 +49,7 @@ static class CrossMove
     /// mod's copy, else the game's) for step 1, or null. Returns the verified package bytes; throws with the reason.
     /// </summary>
     public static byte[] Build(string modPackage, string meshName, string targetStock, string targetClass, string? baseHero, List<string> log, bool sounds = true,
-        string? sourceClass = null)
+        string? sourceClass = null, string? cooked = null, List<VoiceOffEntry>? autoOff = null)
     {
         MeshCopy.Register();
         var src = Package.Open(modPackage);
@@ -190,6 +190,27 @@ static class CrossMove
         log.Add($"component: SkeletalMesh {(oldMesh > 0 ? pkg.PathOf(pkg.Exports[oldMesh - 1]) : oldMesh.ToString())} → #{copy.RootRef}");
         var replaceData = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => d };
         if (meshData != null) { byte[] md = meshData; replaceData[copy.RootRef - 1] = _ => md; }
+        // The target hero's situations the moved voice has no line for: set to none, so the hero's own lines don't play there
+        // (Kurt, 2026-10-02: Rescue on Iron Man still used Iron Man's "power on cooldown"). The hero's set: its base package's,
+        // else its default voice package (Spider-Man's lives in UC__MarvelPlayerAudio_Spiderman_Default_SF).
+        if (voiceComp >= 0 && voiceData != null && cooked != null && targetClass.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase))
+        {
+            string hero = targetClass.Split('_')[1];
+            string? heroVoice = new[] { $"UC__MarvelPlayer_{hero}_SF.upk", $"UC__MarvelPlayerAudio_{hero}_Default_SF.upk" }
+                .Select(f => StockFiles.For(cooked, f)).FirstOrDefault(f => File.Exists(f) && VoiceSet.Find(Package.Open(f)) >= 0);
+            if (heroVoice != null)
+            {
+                int NameIdxV(string n)
+                {
+                    int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                    if (i >= 0) return i;
+                    int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                    if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+                    return pkg.Names.Length + j;
+                }
+                voiceData = VoiceSet.AddMissing(pkg, voiceData, heroVoice, Path.GetFileName(targetStock), NameIdxV, autoOff ?? [], log);
+            }
+        }
         if (voiceComp >= 0 && voiceData != null) replaceData[voiceComp] = _ => voiceData;   // the target costume's voice set = the source's
         // The animation tree (Kurt, 2026-09-30: Doctor Strange's cape stayed pinned on Colossus and Daredevil, moved on his own
         // Fear Itself and Punisher S2's coat moved on Daredevil). Heroes use shared trees in Startup.upk: pc_at_v2 (Colossus,
@@ -467,7 +488,7 @@ static class CrossMove
     }
 
     /// <summary>"She-Hulk (on Storm Modern)": a move to another hero names the hero too.</summary>
-    public static string NewName(Mod mod, Costume target) => $"{mod.Name} (on {target.Short.Split('/')[0]} {target.Title})";
+    public static string NewName(Mod mod, Costume target) => target.IsTeamUp ? $"{mod.Name} (on Team-Up {target.Title})" : $"{mod.Name} (on {target.Short.Split('/')[0]} {target.Title})";
 
     /// <summary>
     /// The moved costume as a new mod (at the top, disabled; the original untouched): the target package with the mod's mesh
@@ -492,7 +513,8 @@ static class CrossMove
             Directory.CreateDirectory(work);
             // No sounds across heroes (Kurt, option 1): a pack's events are played by its own hero's powers and animations
             // (MHSFXEditor renames the costume package's own AkEvents), which another hero doesn't have.
-            byte[] built = Build(modPkg, meshName, stock, target.Class, baseHero, log, sounds: false, sourceClass: source.Class);
+            var autoOff = new List<VoiceOffEntry>();
+            byte[] built = Build(modPkg, meshName, stock, target.Class, baseHero, log, sounds: false, sourceClass: source.Class, cooked: game.Cooked, autoOff: autoOff);
             string file = Path.Combine(work, target.Package);
             File.WriteAllBytes(file, built);
             var d = ModDraft.From(mod);
@@ -517,8 +539,12 @@ static class CrossMove
             if (replace != null) { d.Tags = [.. replace.ModTags]; d.Notes = replace.Manifest.Notes ?? ""; }
             else d.Notes = (d.Notes.Length > 0 ? d.Notes.TrimEnd() + Environment.NewLine : "") + $"Moved from {mod.Name} ({source.Short.Replace(".prototype", "")} → {target.Short.Replace(".prototype", "")}).";
             CostumeMove.KeepPowerColors(d, mod, replace, sameHero: false);
+            // Voice lines: the original's turned-off lines don't apply to the new package; the hero's lines the moved voice
+            // has no entry for are listed as off (Missing), for the Voice tab.
+            d.VoiceOff = [.. autoOff.Select(o => { o.Package = target.Package; return o; })];
             if (d.PowerColors.Count > 0) log.Add($"power colors kept: {d.PowerColors.Count}");
             log.Add($"icons: {plan.Icons.Count}; text: {plan.Strings.Count}; sound packs: {d.SoundPacks.Count}");
+            if (replace != null) d = CostumeMove.UpdateDraft(d, replace, [target.Package], d.VoiceOff);
             return ModWriter.Save(lib, d, replace, out error);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or UnauthorizedAccessException) { error = Friendly(ex.Message); return null; }

@@ -1,6 +1,18 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.89
+- Rebuilding a moved costume in place (the --update-copy command) keeps everything added to the copy since: its own images, text, sound packs, pictures, tags and note. Only the moved package, the moved images and names, and the voice lines are replaced (before, the copy's own images were dropped).
+
+0.37.88
+- Moving a costume or team-up to another hero: situations the moved voice has no line for (a team-up has far fewer: no "can't do that yet", death, inventory full …) are turned off, so the target hero's own lines don't play there. The Voice tab lists them as "Not in This Voice".
+
+0.37.87
+- A power button plays the power's loop when it has start, loop and end animations (Photonic Devastation's beam, a ride, a flight), instead of the start.
+
+0.37.86
+- Moving to another hero works with team-ups too: a team-up mod (Rescue) moves onto a hero's costume or another team-up, and a costume mod onto a team-up. In the picker, the team-ups are under one Team-Ups tile.
+
 0.37.85
 - Apply puts a game file back to the original only when it's still what this app last wrote or last saw there. A file another program changed since (a freecam installer writing zone packages, or the same files copied in by hand) is left as it is and listed under "Left as they are", even when a mod in your list that's turned off names it. Turning a mod off still restores the files this app put in for it.
 

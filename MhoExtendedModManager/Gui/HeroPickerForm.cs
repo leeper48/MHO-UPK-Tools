@@ -56,16 +56,18 @@ sealed class HeroPickerForm : Form
         CancelButton = cancel;
 
         // Heroes with a costume a model can move to (its own package in the game), other than the mod's own hero.
+        // Team-ups (Kurt, 2026-10-02) are one tile, "Team-Ups", listing them all (several share a hero's name: Magik, Gamora).
+        const string teamUpsKey = "\u0001teamups";
         foreach (var g in all.Where(c => c.Hero != null && c.Hero != source.Hero && !CostumeMove.IsBase(c) && File.Exists(Path.Combine(cooked, c.Package)))
-                             .GroupBy(c => c.Hero!, StringComparer.OrdinalIgnoreCase))
+                             .GroupBy(c => c.IsTeamUp ? teamUpsKey : c.Hero!, StringComparer.OrdinalIgnoreCase))
         {
             string id = Path.GetFileNameWithoutExtension(g.Key.Replace('\\', '/').Split('/')[^1]);
-            string name = AutoTags.DisplayName(id) ?? id;
+            string name = g.Key == teamUpsKey ? "Team-Ups" : AutoTags.DisplayName(id) ?? id;
             var costumes = g.GroupBy(c => c.Class, StringComparer.OrdinalIgnoreCase).Select(x => x.OrderByDescending(c => c.IsDefault).First())
                             .OrderByDescending(c => c.IsDefault).ThenBy(c => c.Title, StringComparer.OrdinalIgnoreCase).ToList();
             var tile = Tile(name, (int)(96 * s), (int)(92 * s));
             tile.Click += (_, _) => ShowHero(name, costumes);
-            Ui.Tip(tile, $"{name}: {costumes.Count} costume(s) a model can move to.");
+            Ui.Tip(tile, g.Key == teamUpsKey ? $"Team-ups: {costumes.Count} a model can move to." : $"{name}: {costumes.Count} costume(s) a model can move to.");
             list.Add((name, costumes, tile));
         }
         list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));

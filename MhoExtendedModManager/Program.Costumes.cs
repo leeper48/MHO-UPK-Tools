@@ -98,7 +98,7 @@ static partial class Program
                 var xlog = new List<string>();
                 try
                 {
-                    byte[] built = CrossMove.Build(modPkg, meshName, xstock, xt.Class, baseHero, xlog, sounds: false, sourceClass: one.Costume.Class);
+                    byte[] built = CrossMove.Build(modPkg, meshName, xstock, xt.Class, baseHero, xlog, sounds: false, sourceClass: one.Costume.Class, cooked: xgame.Cooked);
                     foreach (var l in xlog) Console.WriteLine("  " + l);
                     Directory.CreateDirectory(xout);
                     string f = Path.Combine(xout, xt.Package);
@@ -122,6 +122,18 @@ static partial class Program
                     Console.WriteLine("FAILED: " + ex.Message);
                     return 1;
                 }
+            }
+            case "--voice-lines":
+            {
+                // Read-only: a mod's voice lines as the editor's Voice tab lists them (with its manifest's turned-off lines).
+                var vm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                if (vm == null) { Console.WriteLine("--voice-lines <mod>"); return 1; }
+                var off = vm.Manifest.VoiceOff ?? [];
+                var all = vm.Manifest.UpkReplacements.SelectMany(f => VoiceSet.Read(f, Path.Combine(vm.Folder, f), off)).ToList();
+                foreach (var l in all.Where(l => rest.Contains("--all") || l.Off))
+                    Console.WriteLine($"  {(l.Missing ? "missing" : l.Off ? "off    " : "on     ")}  {l.Situation}{(l.Detail.Length > 0 ? " · " + l.Detail : "")}  {l.Event}");
+                Console.WriteLine($"{all.Count} line(s): {all.Count(l => !l.Off)} on, {all.Count(l => l.Off && !l.Missing)} turned off, {all.Count(l => l.Missing)} not in the moved voice (off)");
+                return 0;
             }
             case "--voice-test":
             {

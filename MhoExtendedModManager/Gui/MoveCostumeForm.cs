@@ -92,6 +92,7 @@ sealed class MoveCostumeForm : Form
     /// <summary>"Storm" from Entity/Characters/Avatars/Shipping/Storm.prototype.</summary>
     static string HeroOf(Costume c)
     {
+        if (c.IsTeamUp) return "Team-Up";
         string id = Path.GetFileNameWithoutExtension((c.Hero ?? c.Short).Replace('\\', '/').Split('/')[^1]);
         return AutoTags.DisplayName(id) ?? id;
     }

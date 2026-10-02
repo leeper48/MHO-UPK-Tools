@@ -69,7 +69,7 @@ static class CostumeMove
     /// Classic, Punisher Original: 22 of 536 costumes, checked 2026-09-29). That package also holds the hero's animations,
     /// so it is never moved or replaced; test prototypes (zTesting) aren't offered either.
     /// </summary>
-    public static bool IsBase(Costume c) => c.Class.Count(ch => ch == '_') < 2 || c.Prototype.Replace('\\', '/').Contains("/zTesting/", StringComparison.OrdinalIgnoreCase);
+    public static bool IsBase(Costume c) => !c.IsTeamUp && c.Class.Count(ch => ch == '_') < 2 || c.Prototype.Replace('\\', '/').Contains("/zTesting/", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>"MarvelPlayer_Thor_" for MarvelPlayer_Thor_AgeOfUltron: costumes can only move within one hero's classes.</summary>
     static string HeroPrefix(Costume c) => c.Class[..(c.Class.IndexOf('_', c.Class.IndexOf('_') + 1) + 1)];
@@ -324,6 +324,40 @@ static class CostumeMove
                 d.Packages.Add((f, Path.Combine(from.Folder, f)));
     }
 
+
+    /// <summary>
+    /// Updating a moved copy (Kurt, 2026-10-02: an update lost the copy's own 5 images, after its power colors): the copy as it
+    /// is, with only what the move makes swapped in: the moved package(s), and the move's icons and strings over the same
+    /// textures / IDs. Everything added to the copy since (images, strings, sound packs, power colors, description,
+    /// pictures, tags, note) stays. <paramref name="voiceOff"/>: the voice entries for the rebuilt package (null: keep the copy's).
+    /// </summary>
+    public static ModDraft UpdateDraft(ModDraft fresh, Mod copy, IEnumerable<string> movedPackages, List<VoiceOffEntry>? voiceOff)
+    {
+        var d = ModDraft.From(copy);
+        var moved = movedPackages.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        d.Packages = [.. d.Packages.Where(p => !moved.Contains(p.File)), .. fresh.Packages.Where(p => moved.Contains(p.File))];
+        for (int k = 0; k < d.Textures.Length && k < fresh.Textures.Length; k++)
+            foreach (var t in fresh.Textures[k])
+            {
+                d.Textures[k].RemoveAll(x => x.Texture.Equals(t.Texture, StringComparison.OrdinalIgnoreCase));
+                d.Textures[k].Add(t);
+            }
+        foreach (var x in fresh.Extra)
+        {
+            d.Extra.RemoveAll(e => e.Package.Equals(x.Package, StringComparison.OrdinalIgnoreCase) && e.Texture.Equals(x.Texture, StringComparison.OrdinalIgnoreCase));
+            d.Extra.Add(x);
+        }
+        foreach (var s in fresh.Strings)
+        {
+            d.Strings.RemoveAll(e => e.Id == s.Id && e.Language.Equals(s.Language, StringComparison.OrdinalIgnoreCase));
+            d.Strings.Add(s);
+        }
+        foreach (string sp in fresh.SoundPacks)
+            if (!d.SoundPacks.Any(x => Path.GetFileName(x).Equals(Path.GetFileName(sp), StringComparison.OrdinalIgnoreCase))) d.SoundPacks.Add(sp);
+        if (voiceOff != null) d.VoiceOff = voiceOff;
+        return d;
+    }
+
     public static string? CreateMod(ModLibrary lib, Mod mod, Plan plan, Originals originals, out string? error, Mod? replace = null,
         StockCatalog? catalog = null, List<string>? resized = null)
     {
@@ -354,6 +388,7 @@ static class CostumeMove
             // replace: rebuild an existing moved copy in place (same folder, place, on/off; e.g. after the original was updated).
             if (replace != null) { d.Tags = [.. replace.ModTags]; d.Notes = replace.Manifest.Notes ?? d.Notes; }
             KeepPowerColors(d, mod, replace, sameHero: true);
+            if (replace != null) d = UpdateDraft(d, replace, built.Select(f => Path.GetFileName(f)), null);
             return ModWriter.Save(lib, d, replace, out error);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or UnauthorizedAccessException) { error = ex.Message; return null; }

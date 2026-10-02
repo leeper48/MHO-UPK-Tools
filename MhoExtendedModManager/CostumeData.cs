@@ -38,6 +38,10 @@ sealed record Costume(string Prototype, string Class, string? Icon, string? Port
         }
     }
 
+    /// <summary>A team-up (Kurt, 2026-10-02: moves to and from team-ups): its prototype under Entity/Characters/TeamUps, as a
+    /// "costume" of its own (Hero = the team-up's prototype, so each groups alone); class MarvelTeamUp_&lt;X&gt;.</summary>
+    public bool IsTeamUp => Class.StartsWith("MarvelTeamUp_", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The package that holds the class: UC__&lt;Class&gt;_SF.upk.</summary>
     public string Package => $"UC__{Class}_SF.upk";
 
@@ -79,6 +83,7 @@ sealed record Costume(string Prototype, string Class, string? Icon, string? Port
         var protoNames = new Dictionary<ulong, string>();
         var costumes = new List<string>();
         var avatars = new List<string>();
+        var teamUps = new List<string>();
         r = new StringUsage.Reader(Dir("Prototype"), 4);
         for (int n = r.I32(), i = 0; i < n; i++)
         {
@@ -86,6 +91,7 @@ sealed record Costume(string Prototype, string Class, string? Icon, string? Port
             protoNames[id] = path;
             if (path.Replace('\\', '/').StartsWith("Entity/Items/Costumes/Prototypes/", StringComparison.OrdinalIgnoreCase)) costumes.Add(path);
             else if (path.Replace('\\', '/').StartsWith("Entity/Characters/Avatars/", StringComparison.OrdinalIgnoreCase)) avatars.Add(path);
+            else if (path.Replace('\\', '/').StartsWith("Entity/Characters/TeamUps/", StringComparison.OrdinalIgnoreCase) && path.EndsWith(".prototype", StringComparison.OrdinalIgnoreCase)) teamUps.Add(path);
         }
         var assets = new Dictionary<ulong, string>();
         foreach (string type in new[] { "Entity/Types/UnrealClass.type", "Entity/Types/EntityIconPathType.type" })
@@ -154,8 +160,9 @@ sealed record Costume(string Prototype, string Class, string? Icon, string? Port
         }
 
         var result = new List<Costume>();
-        foreach (string proto in costumes)
+        foreach (string proto in costumes.Concat(teamUps))
         {
+            bool teamUp = teamUps.Contains(proto);
             // Only the costume's own top-level fields (nested structs such as Icons are skipped over).
             var values = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
             var texts = new Dictionary<string, ulong>(StringComparer.OrdinalIgnoreCase);
@@ -184,6 +191,15 @@ sealed record Costume(string Prototype, string Class, string? Icon, string? Port
             try { Walk(new StringUsage.Reader(sip.Read("Calligraphy/" + proto), 4), true); }
             catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or KeyNotFoundException) { continue; }
             string? Asset(string field) => values.TryGetValue(field, out ulong v) && assets.TryGetValue(v, out var s) ? s : null;
+            if (teamUp)
+            {
+                // A team-up: UnrealClass, PortraitPath, IconPath, UnlockDialogImage (its store image), its own name.
+                string? tcls = Asset("UnrealClass");
+                if (tcls == null || !tcls.StartsWith("MarvelTeamUp_", StringComparison.OrdinalIgnoreCase)) continue;
+                result.Add(new Costume(proto, tcls, Asset("IconPath"), Asset("PortraitPath"), Asset("UnlockDialogImage"), null,
+                    values.TryGetValue("DisplayName", out ulong tdn) ? tdn : 0, proto) { IsDefault = true, Texts = texts });
+                continue;
+            }
             string? cls = Asset("CostumeUnrealClass");
             if (cls == null) continue;
             string? hero = values.TryGetValue("UsableBy", out ulong h) && protoNames.TryGetValue(h, out var hp) ? hp : null;

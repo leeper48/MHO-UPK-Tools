@@ -265,7 +265,21 @@ sealed partial class StorePreview
         return parts.Length >= 3 && parts[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && parts[1].StartsWith("MarvelPlayer", StringComparison.OrdinalIgnoreCase) ? parts[2] : null;
     }
 
-    /// <summary>A power button clicked: its animations only (its first plays), or all again when it was filtering.</summary>
+    /// <summary>
+    /// The animation a power button plays (Kurt, 2026-10-02: the loop of a start / loop / end power, not its start): one
+    /// ending in "_loop" (absattack_channeledbeam_loop, movement_ridebike_loop); else the plain one beside a "_start"
+    /// (movement_run_flying beside movement_run_flying_start); else the first.
+    /// </summary>
+    public static int PreferredAnim(IReadOnlyList<string> names)
+    {
+        int loop = names.ToList().FindIndex(n => n.EndsWith("_loop", StringComparison.OrdinalIgnoreCase));
+        if (loop >= 0) return loop;
+        for (int i = 0; i < names.Count; i++)
+            if (names.Any(n => n.Equals(names[i] + "_start", StringComparison.OrdinalIgnoreCase))) return i;
+        return 0;
+    }
+
+    /// <summary>A power button clicked: its animations only (the loop of a start / loop / end power plays, else its first), or all again when it was filtering.</summary>
     void PowerClicked(int k)
     {
         if (animBox == null || k < 0 || k >= heroPowers.Count) return;
@@ -284,7 +298,7 @@ sealed partial class StorePreview
             powerFilter = pw.Prototype;
             anims = [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))];
             FillAnims();
-            if (anims.Count > 0) { autoPlay = true; animBox.SelectedIndex = 1; }
+            if (anims.Count > 0) { autoPlay = true; animBox.SelectedIndex = PreferredAnim(anims.Select(a => a.Name).ToList()) + 1; }
         }
         Invalidate();
     }

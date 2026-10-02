@@ -205,6 +205,7 @@ sealed partial class ModEditorView : UserControl
         {
             if (e.RowIndex >= 0 && voice.Columns[e.ColumnIndex].Name == "play" && voice.Rows[e.RowIndex].Tag is VoiceLine pl) { PlayVoice(pl); return; }
             if (e.RowIndex < 0 || voice.Columns[e.ColumnIndex].Name != "on" || voice.Rows[e.RowIndex].Tag is not VoiceLine l) return;
+            if (l.Missing) return;   // the moved voice has no line here; the hero's own isn't in the package to turn on
             bool on = !IsOn(l);
             voiceWanted[(l.Package, l.Offset)] = on;
             voice.Rows[e.RowIndex].Cells["on"].Value = on;
@@ -365,9 +366,15 @@ sealed partial class ModEditorView : UserControl
             string text = $"{l.Situation} {l.Detail} {l.Event}";
             if (!words.All(w => text.Contains(w, StringComparison.OrdinalIgnoreCase))) continue;
             bool on = IsOn(l);
-            int i = voice.Rows.Add(on, "▶", l.Situation, l.Detail, l.Event, l.Package);
+            int i = voice.Rows.Add(on, "▶", l.Situation, l.Missing ? (l.Detail.Length > 0 ? l.Detail + " · " : "") + "Not in This Voice" : l.Detail, l.Event, l.Package);
             voice.Rows[i].Tag = l;
-            voice.Rows[i].Cells["play"].ToolTipText = "Play this line";
+            voice.Rows[i].Cells["play"].ToolTipText = l.Missing ? "Play the hero's own line (the one turned off here)" : "Play this line";
+            if (l.Missing)
+            {
+                voice.Rows[i].Cells["on"].ReadOnly = true;
+                foreach (DataGridViewCell c in voice.Rows[i].Cells)
+                    c.ToolTipText = "The moved voice has no line for this situation, so it's off: otherwise the hero's own line would play here. (It can't be turned on: that sound isn't in this mod.)";
+            }
             if (!on) voice.Rows[i].DefaultCellStyle.ForeColor = Ui.Subtle;
         }
         voice.ClearSelection();

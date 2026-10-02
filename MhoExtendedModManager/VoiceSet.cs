@@ -26,10 +26,16 @@ sealed class VoiceOffEntry
     public int Offset { get; set; }
     /// <summary>The sound event (AkEvent) it played, by path, e.g. spidermanvo.EthanTheHuman_4013.</summary>
     public string Event { get; set; } = "";
+    /// <summary>A situation the costume's voice (moved from another hero or a team-up) has no line for, set to none so the
+    /// target hero's own line doesn't play (Kurt, 2026-10-02: Rescue on Iron Man still said Iron Man's "on cooldown"). Event
+    /// is the hero's line it replaces; it can't be turned on (that event isn't in the package). Null when not such a line.</summary>
+    public bool? Missing { get; set; }
+    public string? Situation { get; set; }
+    public string? Detail { get; set; }
 }
 
 /// <summary>One line of a voice set: the situation, extra detail (banter target, mission …), the event, whether it's off.</summary>
-sealed record VoiceLine(string Package, int Offset, string Situation, string Detail, string Event, bool Off);
+sealed record VoiceLine(string Package, int Offset, string Situation, string Detail, string Event, bool Off, bool Missing = false);
 
 /// <summary>
 /// A costume's voice set (Kurt, 2026-09-29: turn lines off, e.g. a donor voice naming its own team): the class default's
@@ -65,12 +71,12 @@ static class VoiceSet
         int vs = Find(pkg);
         if (vs < 0) return lines;
         byte[] d = pkg.ReadExportBytes(pkg.Exports[vs]).ToArray();
-        var offAt = off.Where(o => o.Package.Equals(packageFile, StringComparison.OrdinalIgnoreCase)).ToDictionary(o => o.Offset, o => o.Event);
+        var offAt = off.Where(o => o.Package.Equals(packageFile, StringComparison.OrdinalIgnoreCase)).GroupBy(o => o.Offset).ToDictionary(g => g.Key, g => g.First());
         void Add(int at, string situation, string detail)
         {
             int r = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at));
             if (r > 0 && r <= pkg.Exports.Length) lines.Add(new VoiceLine(packageFile, at, situation, detail, pkg.PathOf(pkg.Exports[r - 1]), false));
-            else if (r == 0 && offAt.TryGetValue(at, out var ev)) lines.Add(new VoiceLine(packageFile, at, situation, detail, ev, true));
+            else if (r == 0 && offAt.TryGetValue(at, out var o)) lines.Add(new VoiceLine(packageFile, at, situation, detail, o.Event, true, o.Missing == true));
         }
         if (TagWalker.Walk(pkg, d, 16) is not { } tags) return lines;
         foreach (var t in tags)
@@ -110,6 +116,9 @@ static class VoiceSet
             if (t.Size == 4 + n * 4)
                 for (int k = 0; k < n; k++) Add(t.ValueAt + 4 + 4 * k, Situation(t.Name), $"#{k + 1}");
         }
+        // Lines the moved voice has no entry for, in a list it left empty (not a reference here: listed from the manifest).
+        foreach (var o in offAt.Values.Where(o => o.Missing == true && !lines.Any(l => l.Offset == o.Offset)))
+            lines.Add(new VoiceLine(packageFile, o.Offset, o.Situation ?? "", o.Detail ?? "", o.Event, true, true));
         return lines;
     }
 
@@ -278,6 +287,50 @@ static class VoiceSet
         if (problems.Count > 0) throw new InvalidDataException(string.Join("; ", problems));
         log.Add($"voice: {vp.PathOf(vp.Exports[vc])} from {Path.GetFileName(sourcePackage)} ({vp.Exports[vc].SerialSize:N0} bytes) → {compPath}");
         return output;
+    }
+
+    /// <summary>
+    /// The situations the target hero's own voice set has that a copied set doesn't (top-level properties by name), added
+    /// to the copied data as none (a single line) or an empty list, so the hero's lines don't come through for them (an
+    /// absent property inherits the hero's). Returns the new data; <paramref name="autoOff"/> gets one entry per hero line
+    /// silenced (Missing), for the Voice tab. <paramref name="nameIdx"/> gives (or adds) a name's index in the package.
+    /// </summary>
+    public static byte[] AddMissing(Package pkg, byte[] data, string heroVoicePackage, string packageFile, Func<string, int> nameIdx,
+        List<VoiceOffEntry> autoOff, List<string> log)
+    {
+        Package hp;
+        try { hp = Package.Open(heroVoicePackage); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return data; }
+        int hv = Find(hp);
+        if (hv < 0) return data;
+        byte[] hd = hp.ReadExportBytes(hp.Exports[hv]).ToArray();
+        var heroTags = TagWalker.Walk(hp, hd, 16);
+        var mine = TagWalker.Walk(pkg, data, 16);
+        if (heroTags == null || mine == null) return data;
+        var have = mine.Select(t => t.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var heroLines = Read(Path.GetFileName(heroVoicePackage), heroVoicePackage, []);
+        var add = new List<byte>();
+        int at = mine.NoneAt, pseudo = -1;
+        var missingNames = new List<string>();
+        foreach (var t in heroTags)
+        {
+            if (have.Contains(t.Name)) continue;
+            string type = t.Type.ToLowerInvariant();
+            bool single = type == "objectproperty" && t.Size == 4;
+            if (!single && type != "arrayproperty") continue;
+            var tag = new byte[28];
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), nameIdx(t.Name));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), nameIdx(single ? "ObjectProperty" : "ArrayProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);      // size; then index 0, then the value: none / count 0
+            int valueAt = at + add.Count + 24;
+            add.AddRange(tag);
+            string sit = Situation(t.Name);
+            foreach (var l in heroLines.Where(l => l.Situation == sit))
+                autoOff.Add(new VoiceOffEntry { Package = packageFile, Offset = single ? valueAt : pseudo--, Event = l.Event, Missing = true, Situation = l.Situation, Detail = l.Detail });
+            missingNames.Add(sit);
+        }
+        if (add.Count == 0) return data;
+        log.Add($"voice: {missingNames.Count} situation(s) the moved voice has no line for, set to none so {Path.GetFileNameWithoutExtension(heroVoicePackage)}'s don't play: {string.Join(", ", missingNames)}");
+        return [.. data.AsSpan(0, at), .. add, .. data.AsSpan(at)];
     }
 
     /// <summary>"deathvo" → "Death", "lowhealthentervofirst" → "Low Health Enter (first time)" …</summary>
