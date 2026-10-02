@@ -575,6 +575,8 @@ static class CrossMove
             // Voice lines: the original's turned-off lines don't apply to the new package; the hero's lines the moved voice
             // has no entry for are listed as off (Missing), for the Voice tab.
             d.VoiceOff = [.. autoOff.Select(o => { o.Package = target.Package; return o; })];
+            d.AnimSwaps = [];   // the model goes into the target's stock package: the target hero's animations
+            d.MovedFrom = source.Short.Replace(".prototype", "");
             if (d.PowerColors.Count > 0) log.Add($"power colors kept: {d.PowerColors.Count}");
             log.Add($"icons: {plan.Icons.Count}; text: {plan.Strings.Count}; sound packs: {d.SoundPacks.Count}");
             if (replace != null) d = CostumeMove.UpdateDraft(d, replace, [target.Package], d.VoiceOff);

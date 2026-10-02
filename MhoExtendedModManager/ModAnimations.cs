@@ -64,12 +64,38 @@ static class ModAnimations
         var boneNames = bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var result = new List<AnimRef>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (file, path) in Sources(mesh, modPackages.ToList(), cooked))
+        var mods = modPackages.ToList();
+        // The game's order first (Kurt, 2026-10-02): a character's component lists its AnimSets and the last set with a name
+        // wins (Storm's rework set replaces three combo animations of her first set; a costume's own set its idle, emotes …).
+        // Then the sets of the packages below that the list doesn't name (a prop's own skeleton).
+        var listed = new HashSet<(string, int)>();
+        Func<string, (string Path, bool FromMod)?> fileFor = name =>
+        {
+            string f = name.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? name : name + ".upk";
+            var mine = mods.FirstOrDefault(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase));
+            if (mine.Path != null && File.Exists(mine.Path)) return (mine.Path, true);
+            if (cooked == null) return null;
+            string stock = StockFiles.For(cooked, f);
+            return File.Exists(stock) ? (stock, false) : null;
+        };
+        if (mesh.Package.StartsWith("UC__", StringComparison.OrdinalIgnoreCase) && CostumeAnims.Read(mesh.File, mesh.Package, fileFor) is { } ca)
+            foreach (var set in ca.Sets.Reverse().Where(s => s.Found))
+            {
+                listed.Add((set.File!, set.Export));
+                // The game matches tracks to bones by name whatever their number: a set it lists counts when half of the
+                // smaller skeleton matches (Storm's 161-bone set swapped onto Rescue's 83 bones matches 79).
+                int match = set.TrackBoneNames.Count(boneNames.Contains);
+                if (match < Math.Max(minBones, Math.Min(set.TrackBoneNames.Count, boneNames.Count) / 2)) continue;
+                foreach (var (name, ex) in set.Sequences)
+                    if (seen.Add(name)) result.Add(new AnimRef(set.PackageName + ".upk", set.File!, name, ex, set.TrackBoneNames) { TranslationBones = set.TranslationBones });
+            }
+        foreach (var (file, path) in Sources(mesh, mods, cooked))
         {
             AnimPackage pkg;
             try { pkg = Open(path); } catch (Exception ex) when (ex is IOException or InvalidDataException or AnimExportCli.Packages.InvalidPackageException) { continue; }
             foreach (var set in AnimObjectReader.FindAnimSets(pkg))
             {
+                if (listed.Contains((path, set.ExportIndex))) continue;
                 int match = set.TrackBoneNames.Count(boneNames.Contains);
                 if (match < Math.Max(minBones, set.TrackBoneNames.Count / 2)) continue;   // another skeleton (a prop's own skeleton can be small: minBones)
                 foreach (var seq in set.Sequences.Where(s => s.IsExport))

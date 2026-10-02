@@ -66,6 +66,11 @@ sealed class ModManifest
     public List<VoiceOffEntry>? VoiceOff { get; set; }
     /// <summary>Extension: power colours set in the editor (the packages they built are ordinary package replacements). Null when none.</summary>
     public List<PowerColorEntry>? PowerColors { get; set; }
+    /// <summary>Extension: animations swapped in the editor (the swaps are in the packages; this says where they came from). Null when none.</summary>
+    public List<AnimSwapEntry>? AnimSwaps { get; set; }
+    /// <summary>Extension: for a costume moved to another costume or hero, the prototype it came from ("TeamUps/Rescue",
+    /// "Storm/Classic"): the Animations tab offers that character's animations first. Null when not moved.</summary>
+    public string? MovedFrom { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }

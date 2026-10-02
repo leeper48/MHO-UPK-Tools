@@ -253,7 +253,9 @@ static class ModMeshes
                 if (look.Spec.Map == null && ch[0] >= 0) look.Spec = new(pm, ch[0]);
                 if (look.SpecPow.Map == null && ch[1] >= 0) look.SpecPow = new(pm, ch[1]);
                 if (look.RimMaskAt.Map == null && ch[2] >= 0) look.RimMaskAt = new(pm, ch[2]);
-                if (look.Emissive.Map == null && ch[4] >= 0) look.Emissive = new(pm, ch[4]);
+                // (A glow channel in an alpha that never varies is no mask: a DXT1 map has none and reads 255 everywhere,
+                // which lit Rescue's whole model, Kurt 2026-10-02.)
+                if (look.Emissive.Map == null && ch[4] >= 0 && !(ch[4] == 3 && !pm.AlphaVaries)) look.Emissive = new(pm, ch[4]);
                 if (look.ReflectAt.Map == null && ch[3] >= 0) look.ReflectAt = new(pm, ch[3]);
             }
         // Reflections and a separate glow texture (see ModelView.Look).
@@ -265,6 +267,8 @@ static class ModMeshes
         look.ReflectByDiffuse = mi.Switch("multiplyreflectionbydiffuse");
         foreach (var (k, v) in mi.Textures)
             if (k.Contains("emissive", StringComparison.OrdinalIgnoreCase) && !IsPacked(k)) { look.EmissiveTex = Map(v); if (mi.Switch("use_emissivergb") || mi.Switch("useemissive")) look.UseEmissive = true; break; }
+        // A full-colour glow texture is the glow (use_emissivergb); the packed map's glow channel isn't added on top.
+        if (look.EmissiveTex != null) look.Emissive = default;
         int sc = mi.Texture("speccolortex");
         if (sc >= 0) look.SpecColor = Map(sc);
         if (mi.Switch("useemissivespecpow")) look.UseEmissive = true;

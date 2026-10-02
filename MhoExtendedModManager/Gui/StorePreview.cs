@@ -48,7 +48,7 @@ sealed partial class StorePreview : Control
     static Task<Fx.GameData?>? fxDb;
     readonly PropRig rig = new();
     ModMeshes.Loaded? shownLoaded;       // the character as loaded (without props)
-    LightSlider? lightSlider, lensSlider, frameSlider;
+    LightSlider? lightSlider, lensSlider, glowSlider, frameSlider;
     bool settingFrame;   // the frame slider follows playback without scrubbing
     // Full screen (Kurt, 2026-09-30): the whole preview moves into a borderless window covering the app's monitor, the 3D
     // view filling it with the controls in a column on the right; Esc, F11 or the button bring it back.
@@ -629,7 +629,7 @@ sealed partial class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); frameSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
         base.Dispose(disposing);
     }
 }

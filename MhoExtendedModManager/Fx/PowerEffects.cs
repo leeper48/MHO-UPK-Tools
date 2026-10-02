@@ -21,6 +21,10 @@ sealed class PowerEffects
         public string Kind { get; init; } = "power";
         /// <summary>A beam's far end (PowerFxBeam TargetSocket), else null.</summary>
         public string? BeamTarget { get; init; }
+        /// <summary>The component's OffsetVector and OffsetRotation (pitch, yaw, roll in UE3 units: 65536 a turn), applied to the
+        /// effect's place (Iron Man's Unibeam: its beam mesh points back along -X and the component turns it round).</summary>
+        public Vector3 Shift { get; init; }
+        public (int Pitch, int Yaw, int Roll) Turn { get; init; }
     }
 
     /// <summary>A decal (ground cracks, scorch marks): its material's texture, size and offset, laid flat at the target.</summary>
@@ -54,7 +58,7 @@ sealed class PowerEffects
         if (db.Find(powerPath) is not { } pe) return 0.4f;
         foreach (var gr in db.Prototype(pe.Id).Data.Groups)
             foreach (var f in gr.Simple)
-                if (f.Type == 'D' && db.FieldName(gr.Blueprint, f.Id) == "AnimationContactTimePercent") { float v = (float)BitConverter.Int64BitsToDouble((long)f.Value.Raw); if (v > 0 && v <= 1) return v; }
+                if (f.Type == 'D' && db.FieldName(gr.Blueprint, f.Id) == "AnimationContactTimePercent") { float v = (float)BitConverter.Int64BitsToDouble((long)f.Value.Raw); if (v >= 0 && v <= 1) return v; }   // (0 = at the start: Iron Man's Signature)
         return 0.4f;
     }
 
@@ -105,7 +109,7 @@ sealed class PowerEffects
             var d = db.Prototype(pe.Id).Data;
             foreach (var gr in d.Groups)
                 foreach (var f in gr.Simple)
-                    if (f.Type == 'D' && db.FieldName(gr.Blueprint, f.Id) == "AnimationContactTimePercent") { float v = (float)BitConverter.Int64BitsToDouble((long)f.Value.Raw); if (v > 0 && v <= 1) fx.ContactPercent = v; }
+                    if (f.Type == 'D' && db.FieldName(gr.Blueprint, f.Id) == "AnimationContactTimePercent") { float v = (float)BitConverter.Int64BitsToDouble((long)f.Value.Raw); if (v >= 0 && v <= 1) fx.ContactPercent = v; }   // (0 = contact at the start: Iron Man's Signature lasers, Kurt 2026-10-02)
             fx.Returning = Contains(db, d, "IsReturningMissile");
         }
         else fx.Notes.Add("no power " + powerPath);
@@ -288,6 +292,9 @@ sealed class PowerEffects
                 string kindName = kindOf switch { "ConditionFxParticle" => "condition", "EntityFxParticle" => "entity", "ProjectileFxParticle" => "projectile", _ => "power" };
                 var props = FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props ?? [];
                 FxProps.Prop? P(string n) => props.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+                // Only for some entities (EntityRequired: Unibeam's Hulkbuster variants): the preview can't tell, so left out
+                // (as the props' rules are); the plain version plays.
+                if (P("EntityRequired") is { Size: > 4 } er && BitConverter.ToInt32(p.Bytes, er.ValueAt) > 0) { fx.Notes.Add($"{p.T.Exports[i].ObjectName}: only for certain characters (left out)"); continue; }
                 int sysRef = P("ParticleSystemTemplate") is { Size: 4 } sp ? BitConverter.ToInt32(p.Bytes, sp.ValueAt) : 0;
                 if (Resolve(p, sysRef, look, g) is not { } sysAt) { if (sysRef != 0) fx.Notes.Add($"{p.T.Exports[i].ObjectName}: its particle system {p.T.PathOf(sysRef)} isn't in a package the view reads"); continue; }
                 ParticleData? data;
@@ -309,7 +316,11 @@ sealed class PowerEffects
                 bool atTarget = P("SpawnOn")?.Value?.EndsWith("loc_worldposition", StringComparison.OrdinalIgnoreCase) == true || kindName == "entity";
                 bool stop = P("StopEmittingOnEnd") is { } se && p.Bytes[se.ValueAt] != 0;
                 bool attached = P("AttachToSubject") is not { } at || p.Bytes[at.ValueAt] != 0;
-                fx.Effects.Add(new Effect(p.T.Exports[i].ObjectName, data, sockets, offset, point, atTarget, stop, attached) { Kind = kindName });
+                var shiftV = P("OffsetVector") is { Size: 12 } ovp ? new Vector3(BitConverter.ToSingle(p.Bytes, ovp.ValueAt), BitConverter.ToSingle(p.Bytes, ovp.ValueAt + 4), BitConverter.ToSingle(p.Bytes, ovp.ValueAt + 8)) : Vector3.Zero;
+                var turnR = P("OffsetRotation") is { Size: 12 } orp ? (BitConverter.ToInt32(p.Bytes, orp.ValueAt), BitConverter.ToInt32(p.Bytes, orp.ValueAt + 4), BitConverter.ToInt32(p.Bytes, orp.ValueAt + 8)) : (0, 0, 0);
+                if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1" && (shiftV != Vector3.Zero || turnR != (0, 0, 0)))
+                    Console.WriteLine($"    {p.T.Exports[i].ObjectName}: offset {shiftV}, rotation pitch {turnR.Item1} yaw {turnR.Item2} roll {turnR.Item3}; local-space mesh {data.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false))}");
+                fx.Effects.Add(new Effect(p.T.Exports[i].ObjectName, data, sockets, offset, point, atTarget, stop, attached) { Kind = kindName, Shift = shiftV, Turn = turnR });
                 foreach (var em in data.Emitters.Where(x => x.Kind == "mesh"))
                 {
                     int emr = em.Required.Ref("Material");
@@ -353,7 +364,16 @@ sealed class PowerEffects
 
         /// <summary>An effect's place at its socket: facing the hero's way (Facing), except a mesh laid over what holds the socket
         /// (a local-space mesh emitter: the Odinforce lightning layer, the hammer's own shape), which takes the socket's turn too.</summary>
-        static Matrix4x4 Place(Effect e, Matrix4x4 m) => e.System.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false)) ? m : Facing(m);
+        static Matrix4x4 Place(Effect e, Matrix4x4 m)
+        {
+            var at = e.System.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false)) ? m : Facing(m);
+            if (e.Turn == (0, 0, 0) && e.Shift == Vector3.Zero || !e.Attached) return at;
+            // The component's offset and turn, in the frame it's placed in, for an effect that stays on its subject. (A
+            // hypothesis from Iron Man's Unibeam: its unattached laser has offset 0,0,73 and its system starts 73 up already;
+            // both together put the beam above the head, the system's alone at the chest, where the game fires it.)
+            var turn = e.Turn == (0, 0, 0) ? Matrix4x4.Identity : FxSockets.RotationMatrix(e.Turn.Pitch, e.Turn.Yaw, e.Turn.Roll);
+            return turn * Matrix4x4.CreateTranslation(e.Shift) * at;
+        }
         readonly HashSet<Effect> started = new();
         float time;
 
@@ -504,17 +524,29 @@ sealed class PowerEffects
                 {
                     if (em.Kind == "beam")
                     {
-                        // A beam from its socket to the target (chest high), in TextureTile pieces along its length.
+                        // A beam from its socket to the power's TargetSocket on the model, posed this frame (Iron Man's
+                        // Microlaser Sweep: socket_l_laser_tgt, 450 units along the forearm, sweeping level; Kurt 2026-10-02:
+                        // aimed at the point ahead, the beams ran at the camera and showed as tall vertical bars), else to
+                        // the target point (chest high); in TextureTile pieces along its length.
                         var (btex, badd) = fx.Looks.TryGetValue(em, out var bl) ? bl : (null, true);
                         if (btex == null) continue;
-                        var from = sim.Origin.Translation; var to = target + new Vector3(0, 0, 60);
+                        var from = sim.Origin.Translation;
+                        var to = re.BeamTarget is { Length: > 0 } bt && !bt.Equals("target", StringComparison.OrdinalIgnoreCase) && socket(bt) is { } tm
+                            ? tm.Translation : target + new Vector3(0, 0, 60);
                         var dir = to - from; float len = dir.Length();
+                        if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
+                            Console.WriteLine($"    {Gui.ModelView.BeamStats()} (before); beam {re.Name}/{em.Name}: from {from} to {to} (target socket {re.BeamTarget}: {(re.BeamTarget != null && socket(re.BeamTarget) != null ? "found" : "not found")})");
                         if (len < 1) continue;
                         int tiles = Math.Clamp(em.TypeData?.Int("TextureTile", 1) ?? 1, 1, 12);
                         float width = sp.Size.X > 1 ? sp.Size.X : 10;
                         var bcol = Col(sp.Color);
-                        for (int k = 0; k < tiles; k++)
-                            list.Add(new Gui.ModelView.FxQuad(from + dir * ((k + 0.5f) / tiles), new Vector2(width, len / tiles), 0, bcol, Tex(btex), 1, 1, 0, 2, false, badd, dir) { SwapUV = true });
+                        // In short pieces (8 per texture repeat), each sized at its own depth: one long piece per repeat
+                        // ballooned when the beam ran toward the camera (Microlaser Sweep) and missed the hand. A piece samples
+                        // its slice of the texture (as a sub-image column).
+                        const int per = 8;
+                        int pieces = tiles * per;
+                        for (int k = 0; k < pieces; k++)
+                            list.Add(new Gui.ModelView.FxQuad(from + dir * ((k + 0.5f) / pieces), new Vector2(width, len / pieces), 0, bcol, Tex(btex), per, 1, k % per, 2, false, badd, dir) { SwapUV = true });
                         continue;
                     }
                     if (em.Kind is not ("sprite" or "physx")) continue;   // meshes: Tris()
@@ -555,6 +587,7 @@ sealed class PowerEffects
                 foreach (var (em, sp) in sim.Sprites())
                 {
                     if (em.Kind != "mesh" || !fx.Meshes.TryGetValue(em, out var mm) || tris.Count > Max) continue;
+                    if (Environment.GetEnvironmentVariable("MHO_FXONLY") is { Length: > 0 } only && !only.Split(',').Contains(em.Name)) continue;   // debug: these emitters only
                     if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
                     {
                         var lo = mm.Mesh.Positions.Aggregate(Vector3.Min); var hi = mm.Mesh.Positions.Aggregate(Vector3.Max);
@@ -563,10 +596,18 @@ sealed class PowerEffects
                     var rot = sp.MeshRotation * MathF.PI * 2;
                     // The type data's own turn of the mesh (Pitch / Yaw / Roll in degrees: Ant-Man's whirlwind cylinder -90), then the particle's.
                     var td = em.TypeData;
-                    var pre = td == null ? Matrix4x4.Identity : Matrix4x4.CreateFromYawPitchRoll(td.Float("Yaw", 0) * MathF.PI / 180, td.Float("Pitch", 0) * MathF.PI / 180, td.Float("Roll", 0) * MathF.PI / 180);
-                    var m = pre * Matrix4x4.CreateScale(sp.Size3) * Matrix4x4.CreateFromYawPitchRoll(rot.Z, rot.Y, rot.X) * Matrix4x4.CreateTranslation(sp.Position);
+                    // UE3 is Z-up: yaw turns around Z, pitch around Y, roll around X (FRotator). .NET's CreateFromYawPitchRoll is
+                    // Y-up (its yaw turns around Y): Iron Man's Microlaser Sweep ring, a flat disc spun around Z (rotation rate
+                    // 0, 0, -10), tumbled on its edge and showed as two tall bars (Kurt, 2026-10-02).
+                    var pre = td == null ? Matrix4x4.Identity : UeRotation(td.Float("Pitch", 0) * MathF.PI / 180, td.Float("Yaw", 0) * MathF.PI / 180, td.Float("Roll", 0) * MathF.PI / 180);
+                    var m = pre * Matrix4x4.CreateScale(sp.Size3) * UeRotation(rot.Y, rot.Z, rot.X) * Matrix4x4.CreateTranslation(sp.Position);
                     var col = Col(sp.Color);
                     var mesh = mm.Mesh;
+                    if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
+                    {
+                        var wp = mesh.Positions.Select(x => Vector3.Transform(x, m)).ToList();
+                        Console.WriteLine($"      world bounds {wp.Aggregate(Vector3.Min)}…{wp.Aggregate(Vector3.Max)}; rot {sp.MeshRotation}; type data pitch {td?.Float("Pitch", 0)} yaw {td?.Float("Yaw", 0)} roll {td?.Float("Roll", 0)}; axis lock {td?.Enum("AxisLockOption", "-")}; alignment {td?.Enum("MeshAlignment", "-")}; camera facing {td?.Bool("bCameraFacing", false)}");
+                    }
                     for (int si = 0; si < mesh.Sections.Count && si < mm.Sections.Length; si++)
                     {
                         var (stex, sadd) = mm.Sections[si];
@@ -586,6 +627,17 @@ sealed class PowerEffects
             return tris;
         }
 
+        /// <summary>UE3's FRotationMatrix for pitch / yaw / roll in radians (rows = the turned X, Y, Z axes; Z up).</summary>
+        static Matrix4x4 UeRotation(float pitch, float yaw, float roll)
+        {
+            float SP = MathF.Sin(pitch), CP = MathF.Cos(pitch), SY = MathF.Sin(yaw), CY = MathF.Cos(yaw), SR = MathF.Sin(roll), CR = MathF.Cos(roll);
+            return new Matrix4x4(
+                CP * CY, CP * SY, SP, 0,
+                SR * SP * CY - CR * SY, SR * SP * SY + CR * CY, -SR * CP, 0,
+                -(CR * SP * CY + SR * SY), CY * SR - CR * SP * SY, CR * CP, 0,
+                0, 0, 0, 1);
+        }
+
         public int Live => running.Sum(r => r.Sim.Sprites().Count());
 
         /// <summary>
@@ -593,6 +645,20 @@ sealed class PowerEffects
         /// "…_start" animation plays the effects of the power's start, "…_loop" those of its loop, "…_end" those of its
         /// end; any other animation the start's.
         /// </summary>
+        /// <summary>
+        /// The phase filter for <paramref name="animation"/> when the power plays it among <paramref name="powerAnimations"/>
+        /// (every animation the power class uses): only a power with more than one of start / loop / end plays its effects by
+        /// phase. Iron Man's Unibeam uses absattack_unibeam_end alone (the _start and _loop are the boss's): as an "end" it
+        /// showed no beam (Kurt, 2026-10-02).
+        /// </summary>
+        public static Func<Effect, bool> PhaseFor(string animation, IEnumerable<string> powerAnimations)
+        {
+            static string Stem(string n) => n.EndsWith("_start") ? n[..^6] : n.EndsWith("_loop") ? n[..^5] : n.EndsWith("_end") ? n[..^4] : n;
+            string a = animation.ToLowerInvariant(), stem = Stem(a);
+            int phases = powerAnimations.Select(x => x.ToLowerInvariant()).Where(x => x != stem && Stem(x) == stem).Distinct().Count();
+            return phases > 1 ? PhaseOf(animation) : _ => true;
+        }
+
         public static Func<Effect, bool> PhaseOf(string animation)
         {
             string a = animation.ToLowerInvariant();

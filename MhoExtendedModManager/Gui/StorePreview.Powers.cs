@@ -42,21 +42,22 @@ sealed partial class StorePreview
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
             var db = dbt.Result;
-            if (db == null) return ((Fx.PowerEffects?)null, "", (Dictionary<string, (string, System.Numerics.Matrix4x4)>?)null, "");
+            if (db == null) return ((Fx.PowerEffects?)null, "", (Dictionary<string, (string, System.Numerics.Matrix4x4)>?)null, "", (Func<Fx.PowerEffects.Effect, bool>?)null);
             var idx = Fx.PowerIndex.For(hero, cooked, modFiles, db);
-            if (!idx.TryGetValue(anim, out var powers) || powers.Count == 0) return (null, "", null, "");
+            if (!idx.TryGetValue(anim, out var powers) || powers.Count == 0) return (null, "", null, "", null);
             var byClass = Fx.PowerIndex.PrototypesByClass(db);
-            var proto = powers.SelectMany(p => byClass.TryGetValue(p.Class, out var list) ? list : []).FirstOrDefault();
-            if (proto == null) return (null, "", null, "");
-            var fx = Fx.PowerEffects.For(new Fx.FxGame(cooked, modFiles), db, proto, hero);
-            return (fx, Path.GetFileNameWithoutExtension(proto), Fx.FxSockets.Of(meshFile, meshName), proto);
+            var hit = powers.Select(p => (p.Class, Proto: byClass.TryGetValue(p.Class, out var list) ? list.FirstOrDefault() : null)).FirstOrDefault(x => x.Proto != null);
+            if (hit.Proto == null) return (null, "", null, "", null);
+            var fx = Fx.PowerEffects.For(new Fx.FxGame(cooked, modFiles), db, hit.Proto, hero);
+            var phaseFn = Fx.PowerEffects.Player.PhaseFor(anim, idx.Where(kv => kv.Value.Any(p => p.Class == hit.Class)).Select(kv => kv.Key));
+            return (fx, Path.GetFileNameWithoutExtension(hit.Proto), Fx.FxSockets.Of(meshFile, meshName), hit.Proto, phaseFn);
         })).Unwrap().ContinueWith(t =>
         {
             if (IsDisposed || req != fxRequest || animator != a || playing == null || viewer == null) return;
-            var (fx, power, sockets, proto) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, "", null, "");
+            var (fx, power, sockets, proto, phaseFn) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, "", null, "", null);
             if (fx == null) { fxNote = ""; Invalidate(); return; }
             fxSockets = sockets ?? new();
-            var phase = Fx.PowerEffects.Player.PhaseOf(anim);
+            var phase = phaseFn ?? Fx.PowerEffects.Player.PhaseOf(anim);
             // The target of effects at the world position: the ground 250 units in front (characters face +X).
             float ground = l == null || l.Positions.Length == 0 ? 0 : l.Positions.Min(v => v.Z);
             fxPlayer = new Fx.PowerEffects.Player(fx, Socket, new System.Numerics.Vector3(250, 0, ground), phase) { AnimSeconds = Math.Max(0.1f, playSeconds), Color = ColorFor?.Invoke(proto) };

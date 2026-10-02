@@ -2241,7 +2241,7 @@ sealed class MainForm : Form
         for (int i = 0; i < editor!.TabCount; i++)
         {
             editor.SelectTab(i);
-            await Task.Delay(i is 1 or 3 ? 6000 : 1500);   // icon names / previews load in the background
+            await Task.Delay(editor.TabTitle(i) is "Packages" or "Store Images" ? 6000 : editor.TabTitle(i) is "Animations" or "Powers" ? 9000 : 1500);   // icon names / previews / 3D models load in the background
             using var b = new Bitmap(Width, Height);
             DrawToBitmap(b, new Rectangle(0, 0, Width, Height));
             b.Save(Path.Combine(dir, $"editor_{i}_{editor.TabTitle(i).Replace(' ', '_')}.png"));
@@ -2262,6 +2262,75 @@ sealed class MainForm : Form
         using (var b = new Bitmap(Width, Height)) { DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_strings.png")); }
         string? saved = await ed.SaveForTest();
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), (saved ?? "not saved") + Environment.NewLine + check);
+    }
+
+    /// <summary>
+    /// --anim-tab-test (scratch libraries only): the Animations tab on a mod: the picker as PNG, a change through the tab
+    /// (as Use This Animation), saved and checked on disk (the slot from a swapped-in set, the manifest's AnimSwaps), then
+    /// Back to the Original, saved and checked again. Results in &lt;dir&gt;\result.txt.
+    /// </summary>
+    public async Task AnimTabTest(string dir, string modName, string slot, string donor, string anim)
+    {
+        Directory.CreateDirectory(dir);
+        var lines = new List<string>();
+        void Shot(string name) { using var b = new Bitmap(Width, Height); DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(dir, name)); }
+        async Task<ModEditorView?> Open(string name)
+        {
+            var m = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(name);
+            if (m == null) return null;
+            OpenEditor(m);
+            pages.Select(1);
+            var ed = editor!;
+            for (int i = 0; i < ed.TabCount; i++) if (ed.TabTitle(i) == "Animations") ed.SelectTab(i);
+            await Task.Delay(4000);
+            return ed;
+        }
+        (bool Swapped, int Entries, string From) Check(string name)
+        {
+            var m = ModLibrary.Load(lib!.DataFolder).Find(name);
+            if (m == null) return (false, -1, "no mod");
+            string file = m.Manifest.UpkReplacements.First(f => f.StartsWith("UC__", StringComparison.OrdinalIgnoreCase));
+            var ca = CostumeAnims.Read(Path.Combine(m.Folder, file), file, CostumeAnims.FilesFor(m, settings.ResolvedGameRoot(lib.DataFolder) is string r ? Settings.Cooked(r) : null));
+            var a = ca?.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
+            return (a != null && a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase), m.Manifest.AnimSwaps?.Count ?? 0, a?.From.Path ?? "none");
+        }
+        var ed = await Open(modName);
+        if (ed == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), "no such mod"); return; }
+        await ed.AnimPickerSnapshot(slot, donor, Path.Combine(dir, "picker.png"));
+        lines.Add("change: " + await ed.AnimTestChange(slot, donor, anim));
+        await Task.Delay(2500);
+        Shot("tab_changed.png");
+        string? saved = await ed.SaveForTest();
+        await Task.Delay(1500);
+        var c1 = Check(saved ?? modName);
+        lines.Add($"saved '{saved}': {slot} swapped={c1.Swapped} from {c1.From}; AnimSwaps entries {c1.Entries}");
+        var ed2 = await Open(saved ?? modName);
+        if (ed2 == null) { lines.Add("can't reopen"); File.WriteAllLines(Path.Combine(dir, "result.txt"), lines); return; }
+        Shot("tab_reopened.png");
+        lines.Add("back: " + await ed2.AnimTestBack(slot));
+        string? saved2 = await ed2.SaveForTest();
+        await Task.Delay(1500);
+        var c2 = Check(saved2 ?? modName);
+        lines.Add($"saved '{saved2}': {slot} swapped={c2.Swapped} from {c2.From}; AnimSwaps entries {c2.Entries}");
+        bool ok = c1.Swapped && c1.Entries == 1 && !c2.Swapped && c2.Entries == 0;
+        // Copy From a Character: Storm's emotes of the same names at once.
+        var ed3 = await Open(saved2 ?? modName);
+        if (ed3 != null)
+        {
+            await ed3.AnimPickerSnapshot("*", "Storm", Path.Combine(dir, "picker_many.png"));
+            lines.Add("copy many: " + await ed3.AnimTestCopyMany("Storm", "Emote"));
+            Shot("tab_many.png");
+            string? saved3 = await ed3.SaveForTest();
+            await Task.Delay(1500);
+            var m3 = ModLibrary.Load(lib!.DataFolder).Find(saved3 ?? modName);
+            string file3 = m3!.Manifest.UpkReplacements.First(f => f.StartsWith("UC__", StringComparison.OrdinalIgnoreCase));
+            var ca3 = CostumeAnims.Read(Path.Combine(m3.Folder, file3), file3, CostumeAnims.FilesFor(m3, settings.ResolvedGameRoot(lib.DataFolder) is string r3 ? Settings.Cooked(r3) : null));
+            int swapped = ca3?.Anims.Count(a => a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase)) ?? 0, entries = m3.Manifest.AnimSwaps?.Count ?? 0;
+            lines.Add($"saved: {swapped} animations from a swapped-in set; AnimSwaps entries {entries}");
+            ok &= swapped > 1 && swapped == entries;
+        }
+        lines.Add(ok ? "PASS" : "FAIL");
+        File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
     }
 
     /// <summary>--extract-snapshot: the Extract tab on the store images, with one selected (layout check).</summary>

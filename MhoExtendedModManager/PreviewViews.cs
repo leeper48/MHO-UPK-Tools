@@ -19,6 +19,7 @@ static class PreviewViews
         public bool Spec { get; set; } = true;
         public bool Reflect { get; set; } = true;
         public bool Glow { get; set; } = true;
+        public bool Bloom { get; set; } = true;
         /// <summary>Props (weapons the game attaches) shown with the character in the preview.</summary>
         public bool Props { get; set; } = true;
         /// <summary>Power effects played with a power's animation in the preview.</summary>
@@ -26,6 +27,7 @@ static class PreviewViews
         public Dictionary<string, float> Lights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>The 3D preview's lens (35 mm-equivalent focal length) per mod on this PC (Kurt, from a user).</summary>
         public Dictionary<string, float> Lenses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, float> Glows { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, IconSetup> Icons { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>The power colors' five preset slots (hue, saturation, brightness; null = empty), for every mod on this PC.</summary>
         public float[]?[] PowerPresets { get; set; } = new float[]?[5];
@@ -42,6 +44,7 @@ static class PreviewViews
             var d = File.Exists(FilePath) ? JsonSerializer.Deserialize<Data>(File.ReadAllText(FilePath)) ?? new() : new();
             d.Lights = new(d.Lights ?? [], StringComparer.OrdinalIgnoreCase);
             d.Lenses = new(d.Lenses ?? [], StringComparer.OrdinalIgnoreCase);
+            d.Glows = new(d.Glows ?? [], StringComparer.OrdinalIgnoreCase);
             d.Icons = new(d.Icons ?? [], StringComparer.OrdinalIgnoreCase);
             return d;
         }
@@ -96,13 +99,25 @@ static class PreviewViews
     public static float Light(Mod m) => LocalLight(m) ?? AuthorLight(m);
 
     /// <summary>The value set on this PC, or null.</summary>
-    public static float? LocalLight(Mod m) => D.Lights.TryGetValue(m.FolderName, out float v) ? Math.Clamp(v, 0.5f, 2f) : null;
+    public static float? LocalLight(Mod m) => D.Lights.TryGetValue(m.FolderName, out float v) ? Math.Clamp(v, 0f, 2f) : null;
 
     /// <summary>The mod author's value, else 1 (what the slider's double-click goes back to).</summary>
-    public static float AuthorLight(Mod m) => m.Manifest.PreviewLight is float a ? Math.Clamp(a, 0.5f, 2f) : 1f;
+    public static float AuthorLight(Mod m) => m.Manifest.PreviewLight is float a ? Math.Clamp(a, 0f, 2f) : 1f;
 
     /// <summary>The 3D preview's lens for a mod (the view's default when none is kept).</summary>
     public static float Lens(Mod m) => D.Lenses.TryGetValue(m.FolderName, out float v) ? Math.Clamp(v, 15f, 200f) : Gui.ModelView.DefaultFocalLength;
+
+    /// <summary>The 3D preview's glow strength for a mod on this PC (1 = the materials' own).</summary>
+    public static float GlowStrength(Mod m) => D.Glows.TryGetValue(m.FolderName, out float v) ? Math.Clamp(v, 0f, 2f) : 1f;
+
+    public static void SetGlowStrength(Mod m, float value)
+    {
+        value = Math.Clamp(value, 0f, 2f);
+        if (Math.Abs(value - 1f) < 1e-3) { if (!D.Glows.Remove(m.FolderName)) return; }
+        else if (D.Glows.TryGetValue(m.FolderName, out float old) && Math.Abs(old - value) < 1e-3) return;
+        else D.Glows[m.FolderName] = value;
+        Save();
+    }
 
     public static void SetLens(Mod m, float value)
     {
@@ -116,7 +131,7 @@ static class PreviewViews
     /// <summary>Sets this PC's value; the same as the mod's own forgets it (so a later author change comes through).</summary>
     public static void SetLight(Mod m, float value)
     {
-        value = Math.Clamp(value, 0.5f, 2f);
+        value = Math.Clamp(value, 0f, 2f);
         bool isAuthor = Math.Abs(value - AuthorLight(m)) < 1e-4;
         if (isAuthor ? !D.Lights.ContainsKey(m.FolderName) : D.Lights.TryGetValue(m.FolderName, out float old) && Math.Abs(old - value) < 1e-4) return;
         if (isAuthor) D.Lights.Remove(m.FolderName); else D.Lights[m.FolderName] = value;
@@ -161,6 +176,7 @@ static class PreviewViews
     public static bool Spec { get => D.Spec; set { if (D.Spec == value) return; D.Spec = value; Save(); } }
     public static bool Reflect { get => D.Reflect; set { if (D.Reflect == value) return; D.Reflect = value; Save(); } }
     public static bool Glow { get => D.Glow; set { if (D.Glow == value) return; D.Glow = value; Save(); } }
+    public static bool Bloom { get => D.Bloom; set { if (D.Bloom == value) return; D.Bloom = value; Save(); } }
     public static bool Props { get => D.Props; set { if (D.Props == value) return; D.Props = value; Save(); } }
     public static bool Powers { get => D.Powers; set { if (D.Powers == value) return; D.Powers = value; Save(); } }
 

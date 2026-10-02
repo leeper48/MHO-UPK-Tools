@@ -1,6 +1,18 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.100
+- 3D preview: Iron Man's Unibeam shows. A power that plays one animation named …_end (its start and loop belong to another power) now shows all its effects; effects only for certain characters (the Hulkbuster versions) are left out; an effect that stays on its character takes the power's offset and turn.
+
+0.37.99
+- Power effects in the 3D preview start on time for powers whose contact is at the start of their animation (contact time 0 was read as 40 %: Iron Man's Microlaser Sweep lasers came in only at the end).
+- Power effects in the 3D preview, closer to the game: beams go to the socket the power aims them at (Iron Man's Microlaser Sweep sweeps level from the hands), streak-shaped sprites that don't move no longer stand up as tall bars (Microlaser Sweep, Thor's Forked Lightning), particles that live as long as their effect (a lifetime of 0) show for that long, and a beam texture's empty alpha no longer hides the beam.
+- 3D preview: Bloom (Look menu, on by default): the brightest parts, the glow and the hottest highlights, get a soft halo, as in the game. It follows the Glow and Light sliders, and Create from 3D snapshots use it too (onto the model only, when the background is see-through).
+- 3D preview: a Glow slider in the Look menu (how strong the glowing parts are, 0–200 %, remembered per mod), and the Light slider now goes down to 0 % (also in Create from 3D).
+- 3D preview: glow comes only from a model's glow maps. A packed map without an alpha channel (DXT1) read as full glow, and a separate glow texture was added on top of it, which lit models such as Rescue all over.
+- The Editor's tabs are grouped: Overview (Description, Packages), Icons (Icons, Store Images, Achievements, Other Packages), Strings, and SFX (Sound Packs, Voice).
+- The 3D preview plays the same version of an animation as the game when a hero has it in more than one set (the last set listed wins: Storm's and Iron Man's reworked attacks, a costume's own idle and emotes).
+
 0.37.90
 - Moving to another hero turns the moved model's sockets (where powers attach their effects) to face the way the target hero's do, keeping their place on the model. Rescue on Iron Man fired the Unibeam 90° to the side: her chest socket faced another way than his.
 

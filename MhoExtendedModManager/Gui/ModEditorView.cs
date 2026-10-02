@@ -119,17 +119,19 @@ sealed partial class ModEditorView : UserControl
             ? "Separate tags with commas; they go with the mod. Added automatically from the content: " + string.Join(", ", editing.AutoTags)
             : "Separate tags with commas; they go with the mod. Characters, teams, costume, powers … are added automatically from the content.";
 
-        tabs.Add("Description", DescriptionPage());
-        tabs.Add("Packages", PackagesPage());
+        // Grouped (Kurt, 2026-10-02: a UI pass): Overview (description, packages), Icons (the icon packages nested),
+        // Strings, SFX (sound packs, voice), then Powers and Animations on their own.
         texturePages = Enumerable.Range(0, 4).Select(k => new TexturePage(this, k)).ToArray();
-        foreach (var (tp, title) in texturePages.Zip(new[] { "Icons", "Achievement Icons", "Store Images", "More Icon Packages" })) tabs.Add(title, tp);
+        AddGroup("Overview", ("Description", DescriptionPage()), ("Packages", PackagesPage()));
+        AddGroup("Icons", ("Icons", texturePages[0]), ("Store Images", texturePages[2]), ("Achievements", texturePages[1]), ("Other Packages", texturePages[3]));
         stringsPage = new StringsPage(this);
-        tabs.Add("Strings", stringsPage);
-        tabs.Add("Sound Packs", SoundsPage());
-        tabs.Add("Voice", VoicePage());
+        AddGroup("Strings", ("Strings", stringsPage));
+        AddGroup("SFX", ("Sound Packs", SoundsPage()), ("Voice", VoicePage()));
         // Not released yet (Kurt, 2026-10-01): only with "PreviewFeatures": true in settings.json. A mod's existing power colors
         // are kept and rebuilt on save either way.
-        if (Settings.Load().PreviewFeatures) tabs.Add("Powers", PowersPage());
+        if (Settings.Load().PreviewFeatures) AddGroup("Powers", ("Powers", PowersPage()));
+        // In development (Kurt, 2026-10-02): the Animations tab, also only with "PreviewFeatures": true.
+        if (Settings.Load().PreviewFeatures) AddGroup("Animations", ("Animations", AnimationsPage()));
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 
@@ -445,9 +447,28 @@ sealed partial class ModEditorView : UserControl
         sounds.ClearSelection();
     }
 
-    /// <summary>Test / snapshot hooks: the tab count, selecting a tab, its title.</summary>
-    public int TabCount => tabs.Count;
-    public void SelectTab(int i) => tabs.Select(i);
+    /// <summary>Every page (a top tab's, or a sub-tab's under it) and how to show it: the test and snapshot hooks walk these.</summary>
+    readonly List<(string Title, Action Show)> pages = [];
+
+    /// <summary>A top-level tab: one page, or several under sub-tabs.</summary>
+    void AddGroup(string title, params (string Title, Control Page)[] items)
+    {
+        int top = tabs.Count;
+        if (items.Length == 1)
+        {
+            tabs.Add(title, items[0].Page);
+            pages.Add((items[0].Title, () => tabs.Select(top)));
+            return;
+        }
+        var inner = new FlatTabs { Dock = DockStyle.Fill, TabPoints = 9f };
+        foreach (var (t, p) in items) inner.Add(t, p);
+        tabs.Add(title, inner);
+        for (int k = 0; k < items.Length; k++) { int kk = k; pages.Add((items[k].Title, () => { tabs.Select(top); inner.Select(kk); })); }
+    }
+
+    /// <summary>Test / snapshot hooks: the page count, showing a page, its title (sub-tabs included).</summary>
+    public int TabCount => pages.Count;
+    public void SelectTab(int i) { if (i >= 0 && i < pages.Count) pages[i].Show(); }
 
     /// <summary>A costume the icon tabs can filter to (Kurt): from UC__MarvelPlayer_&lt;Hero&gt;[_&lt;Costume&gt;]_SF.</summary>
     public sealed record CostumeFilter(string Label, List<string> Heroes, string Costume)
@@ -489,12 +510,12 @@ sealed partial class ModEditorView : UserControl
         if (file == null || !file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) file = costumes.Count == 1 ? costumes[0] : null;
         return file == null ? null : CostumeFilter.FromPackage(file);
     }
-    public string TabTitle(int i) => tabs.TitleAt(i);
+    public string TabTitle(int i) => i >= 0 && i < pages.Count ? pages[i].Title : "";
 
     /// <summary>Test hook (--editor-save-test): visits every tab so each page loads, then saves as the Save button does.</summary>
     public async Task<string?> SaveForTest()
     {
-        for (int i = 0; i < tabs.Count; i++) { tabs.Select(i); await Task.Delay(i is 1 or 3 or 4 ? 5000 : 500); }
+        for (int i = 0; i < pages.Count; i++) { pages[i].Show(); await Task.Delay(pages[i].Title is "Packages" or "Icons" or "Store Images" ? 5000 : 500); }
         Save();
         return SavedName;
     }
@@ -505,7 +526,7 @@ sealed partial class ModEditorView : UserControl
     /// <summary>Test hook: search the Strings tab and wait for the results and the Used By column.</summary>
     public async Task SearchStringsForTest(string text)
     {
-        tabs.Select(tabs.Count - 2);   // Strings
+        SelectTab(pages.FindIndex(p => p.Title == "Strings"));
         await Task.Delay(4000);
         stringsPage.SearchForTest(text);
         await Task.Delay(3000);
@@ -530,6 +551,7 @@ sealed partial class ModEditorView : UserControl
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
         if (saved != null && voiceWork != null) try { Directory.Delete(voiceWork, true); voiceWork = null; } catch (IOException) { }
+        if (saved != null && animWork != null) try { Directory.Delete(animWork, true); animWork = null; } catch (IOException) { }
         if (saved == null) { Dialog.Show(this, error ?? "", "Can't Save Yet"); return; }
         SavedName = saved;
         Saved?.Invoke(saved);

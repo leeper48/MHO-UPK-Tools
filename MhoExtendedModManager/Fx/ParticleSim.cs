@@ -133,7 +133,10 @@ sealed class ParticleSim
         var e = m.E;
         var p = new P { Seed = rng.Next() };
         var r = new Random(p.Seed);
-        p.Life = Math.Max(0.02f, e.Module("ParticleModuleLifetime")?.Dist("Lifetime", 1)?.F(t, r) ?? 1);
+        // A lifetime of 0 is UE3's "never ages" (its relative time stays 0, the particle lasts as long as its emitter): Iron
+        // Man's Microlaser beams are such particles (Kurt 2026-10-02: with 0.02 s they never showed).
+        float life = e.Module("ParticleModuleLifetime")?.Dist("Lifetime", 1)?.F(t, r) ?? 1;
+        p.Life = life <= 0 ? 1e6f : Math.Max(0.02f, life);
         p.Size = e.Module("ParticleModuleSize")?.Dist("StartSize", 3)?.V(t, r) ?? new Vector3(1);
         foreach (var mod in e.Modules)
         {

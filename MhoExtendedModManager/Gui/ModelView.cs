@@ -30,6 +30,14 @@ sealed class ModelView : UserControl
         /// alpha is all 0 (Forked Lightning's tex_lightning_storm) adds its colour as it is (power effects).</summary>
         public bool AlphaVaries { get; }
 
+        /// <summary>Whether the alpha is no mask for an additive effect: zero where most of the bright colour is (Iron Man's
+        /// Microlaser beam texture: the laser in RGB, alpha 0 on it; multiplied by it, the beam was black). An additive
+        /// material adds its colour; such an alpha isn't what it uses.</summary>
+        public bool AlphaUnused { get; }
+
+        /// <summary>For additive drawing: the alpha to use (1 when the texture's alpha is constant or unused).</summary>
+        public bool AdditiveIgnoresAlpha => !AlphaVaries || AlphaUnused;
+
         /// <summary>A copy with every pixel's colour through <paramref name="f"/> (the power customizer's preview).</summary>
         public Map Recolored(Func<Vector3, Vector3> f)
         {
@@ -47,6 +55,13 @@ sealed class ModelView : UserControl
         public Map(byte[] bgra, int w, int h)
         {
             for (int i = 7; i < bgra.Length && !AlphaVaries; i += 4) if (bgra[i] != bgra[3]) AlphaVaries = true;
+            if (AlphaVaries)
+            {
+                int bright = 0, hidden = 0;
+                for (int i = 0; i + 3 < bgra.Length; i += 4 * 7)
+                    if (Math.Max(bgra[i], Math.Max(bgra[i + 1], bgra[i + 2])) > 128) { bright++; if (bgra[i + 3] < 26) hidden++; }
+                AlphaUnused = bright > 20 && hidden * 2 > bright;
+            }
             var l = new List<byte[]> { bgra }; var lw = new List<int> { w }; var lh = new List<int> { h };
             while (w > 1 || h > 1)
             {
@@ -152,15 +167,22 @@ sealed class ModelView : UserControl
     public float Brightness
     {
         get => brightness;
-        set { value = Math.Clamp(value, 0.5f, 2f); if (Math.Abs(brightness - value) < 1e-4) return; brightness = value; Redraw(); }
+        set { value = Math.Clamp(value, 0f, 2f); if (Math.Abs(brightness - value) < 1e-4) return; brightness = value; Redraw(); }
     }
     float brightness = 1;
 
     /// <summary>Shading parts shown (the preview's Spec / Reflect / Glow toggles). Each redraws.</summary>
     public bool ShowSpec { get => showSpec; set { if (showSpec == value) return; showSpec = value; Redraw(); } }
     public bool ShowReflections { get => showRefl; set { if (showRefl == value) return; showRefl = value; Redraw(); } }
+    /// <summary>How strong the glow (emissive) parts are, 0–2 (Kurt, 2026-10-02: the game's values, added after the light
+    /// and clipped at white here, can look stronger than in game). Redraws.</summary>
+    public float GlowStrength { get => glowStrength; set { value = Math.Clamp(value, 0f, 2f); if (Math.Abs(glowStrength - value) < 1e-4) return; glowStrength = value; Redraw(); } }
+    float glowStrength = 1;
     public bool ShowGlow { get => showGlow; set { if (showGlow == value) return; showGlow = value; Redraw(); } }
-    bool showSpec = true, showRefl = true, showGlow = true;
+    /// <summary>Bloom (Kurt, 2026-10-02: as in the game): light past white (glow, the hottest highlights) blurred into a soft
+    /// halo over the frame. Redraws.</summary>
+    public bool ShowBloom { get => showBloom; set { if (showBloom == value) return; showBloom = value; Redraw(); } }
+    bool showSpec = true, showRefl = true, showGlow = true, showBloom = true;
 
     /// <summary>A picture behind the mesh, stretched over the view (the icon creator's portrait backdrop), or null.</summary>
     public Image? Backdrop { get => backdrop; set { backdrop = value; Redraw(); } }
@@ -374,6 +396,8 @@ sealed class ModelView : UserControl
     float[] gB0 = [], gB1 = [];              // perspective-correct barycentrics of vertices a and b
     float[] sx = [], sy = [], iz = [];
     float[] triRatio = [];                   // UV area / screen area per triangle (for the mip level)
+    float[] over = [];                       // per pixel, the light past white (R, G, B): what blooms
+    volatile bool anyOver;
 
     /// <summary>
     /// A particle to draw over the model (power effects; ported from the MHO Hero Creator's ModelView, which descends from this one). Engine-space
@@ -412,6 +436,11 @@ sealed class ModelView : UserControl
             float izq = 1f / z, px = cx + Vector3.Dot(d, r) * focal * izq, py = cy - Vector3.Dot(d, u) * focal * izq;
             float halfW = q.Size.X * 0.5f * focal * izq, halfH = (q.Align == 0 ? q.Size.X : q.Size.Y) * 0.5f * focal * izq;
             if (halfW < 0.3f && halfH < 0.3f) continue;
+            // Velocity-aligned with no velocity: UE3 takes the direction from the velocity, so the quad collapses and nothing
+            // shows (Iron Man's Microlaser Sweep charge: 900-unit flares with none stood up as tall bars, Kurt 2026-10-02).
+            if (q.Align == 2 && q.Velocity.LengthSquared() <= 1e-6f) continue;
+            // A beam piece right by the camera (a beam aimed past the viewer) would cover the view: left out.
+            if (q.SwapUV && halfW > W / 6f) continue;
             // The quad's axes on screen: turned by its rotation, or its long side along the velocity / the world's up.
             Vector2 ax, ay;
             if (q.Align == 2 && q.Velocity.LengthSquared() > 1e-6f)
@@ -445,7 +474,8 @@ sealed class ModelView : UserControl
                     if (lx < -0.5f || lx > 0.5f || ly < -0.5f || ly > 0.5f) continue;
                     if (q.Texture == null) continue;
                     Vector4 t = q.SwapUV ? q.Texture.Sample(cu + (0.5f - ly) / cols, cv + (lx + 0.5f) / rows, lod) : q.Texture.Sample(cu + (lx + 0.5f) / cols, cv + (ly + 0.5f) / rows, lod);
-                    if (q.Additive && !q.Texture.AlphaVaries) t.W = 1;
+                    if (q.Additive && q.Texture.AdditiveIgnoresAlpha) t.W = 1;
+                    if (q.SwapUV && beamDebug) lock (beamStats) { beamStats[0]++; beamStats[1] += t.X * t.W; beamStats[2] = Math.Max(beamStats[2], t.X * t.W); }
                     Blend(p, t, tint, q.Additive);
                 }
             });
@@ -455,6 +485,9 @@ sealed class ModelView : UserControl
     /// <summary>Blends a particle's texel into the frame: additive (glow: texture × HDR colour × alpha, added) or translucent.</summary>
     /// <summary>Effects' strength (their opacity / glow; 1 = the game's values; the 3D View's Effects slider).</summary>
     public float EffectStrength { get; set; } = 1.25f;
+    static readonly bool beamDebug = Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1";
+    static readonly double[] beamStats = new double[3];
+    public static string BeamStats() { lock (beamStats) { string r = $"beam pixels {beamStats[0]}, mean red×alpha {(beamStats[0] > 0 ? beamStats[1] / beamStats[0] : 0):0.000}, max {beamStats[2]:0.000}"; Array.Clear(beamStats); return r; } }
 
     void Blend(int p, Vector4 t, Vector4 tint, bool additive)
     {
@@ -536,7 +569,7 @@ sealed class ModelView : UserControl
                 float lx = Vector3.Dot(o, R) / rr2 * 0.5f, ly = -Vector3.Dot(o, U) / uu2 * 0.5f;
                 if (lx < -0.5f || lx > 0.5f || ly < -0.5f || ly > 0.5f) continue;
                 var tx = tex.Sample(cu + (lx + 0.5f) / cols, cv + (ly + 0.5f) / rows, lod);
-                if (q.Additive && !tex.AlphaVaries) tx.W = 1;
+                if (q.Additive && tex.AdditiveIgnoresAlpha) tx.W = 1;
                 Blend(p, tx, tint, q.Additive);
             }
         });
@@ -600,7 +633,7 @@ sealed class ModelView : UserControl
                     }
                     else
                     {
-                        if (t.Additive && tex != null && !tex.AlphaVaries) tx.W = 1;
+                        if (t.Additive && tex != null && tex.AdditiveIgnoresAlpha) tx.W = 1;
                         Blend(p, tx, tint, t.Additive);
                     }
                 }
@@ -641,6 +674,8 @@ sealed class ModelView : UserControl
         float scale = snap ? 1 : fast ? 2 : moving ? Math.Max(1f, MathF.Sqrt((float)cw * ch / movingBudget)) : 1;
         W = snap ? width : Math.Max(8, (int)(cw / scale)); H = snap ? height : Math.Max(8, (int)(ch / scale));
         if (color.Length != W * H) { color = new int[W * H]; depth = new float[W * H]; gTri = new int[W * H]; gB0 = new float[W * H]; gB1 = new float[W * H]; }
+        if (showBloom) { if (over.Length != W * H * 3) over = new float[W * H * 3]; else Array.Clear(over); }
+        anyOver = false;
         int bg = backdrop != null && !snap ? 0 : Background.ToArgb();   // with a backdrop, empty pixels stay see-through
         Array.Fill(color, bg);
         Array.Clear(depth);
@@ -688,13 +723,15 @@ sealed class ModelView : UserControl
             {
                 int p = y * W + x, g = gTri[p];
                 if (g < 0) continue;
-                color[p] = Shade(g & 0x3FFFFFFF, (g & 0x40000000) != 0, gB0[p], gB1[p], eye, key, fill);
+                color[p] = Shade(g & 0x3FFFFFFF, (g & 0x40000000) != 0, gB0[p], gB1[p], eye, key, fill, p);
             }
         });
+        if (showBloom && anyOver) Bloom(bg >>> 24 == 0);
         // Pass 3 (power effects): opaque effect triangles, the particles, then the blended triangles, depth-tested against the model.
         if (EffectTris.Count > 0) DrawTris(true, r, u, f, eye, focal, cx, cy, near);
         if (Effects.Count > 0) DrawEffects(r, u, f, eye, focal, cx, cy, near);
         if (EffectTris.Count > 0) DrawTris(false, r, u, f, eye, focal, cx, cy, near);
+        if (beamDebug && beamStats[0] + beamStats[1] >= 0 && Effects.Any(e => e.SwapUV)) Console.WriteLine("      drawn: " + BeamStats() + $", {Effects.Count(e => e.SwapUV)} beam pieces");
 
         if (snap) return;
         if (frame == null || frame.Width != W || frame.Height != H) { frame?.Dispose(); frame = new Bitmap(W, H, PixelFormat.Format32bppArgb); }
@@ -746,7 +783,7 @@ sealed class ModelView : UserControl
         }
     }
 
-    int Shade(int tri, bool back, float b0, float b1, Vector3 eye, Vector3 key, Vector3 fillDir)
+    int Shade(int tri, bool back, float b0, float b1, Vector3 eye, Vector3 key, Vector3 fillDir, int p = -1)
     {
         int t = tri * 3, a = idx[t], b = idx[t + 1], c = idx[t + 2];
         float b2 = 1 - b0 - b1;
@@ -835,13 +872,19 @@ sealed class ModelView : UserControl
         }
         outc *= brightness;
         if (showGlow && look.UseEmissive && look.Emissive.Map != null)
-            outc += rgb * (look.Emissive.At(tuv, ratio, 0f) * look.EmissiveMult);
+            outc += rgb * (look.Emissive.At(tuv, ratio, 0f) * look.EmissiveMult * glowStrength);
         if (showGlow && look.UseEmissive && look.EmissiveTex is { } em)
         {
             var ev = em.Sample(tuv.X, tuv.Y, Lod(ratio, em));
-            outc += new Vector3(ev.X, ev.Y, ev.Z) * look.EmissiveMult;
+            outc += new Vector3(ev.X, ev.Y, ev.Z) * (look.EmissiveMult * glowStrength);
         }
 
+        // What goes past white is kept for the bloom (clipped here, as the screen would).
+        if (showBloom && p >= 0 && (outc.X > 1 || outc.Y > 1 || outc.Z > 1))
+        {
+            over[p * 3] = Math.Max(0, outc.X - 1); over[p * 3 + 1] = Math.Max(0, outc.Y - 1); over[p * 3 + 2] = Math.Max(0, outc.Z - 1);
+            anyOver = true;
+        }
         int R = (int)(Math.Clamp(outc.X, 0, 1) * 255 + 0.5f), G = (int)(Math.Clamp(outc.Y, 0, 1) * 255 + 0.5f), Bc = (int)(Math.Clamp(outc.Z, 0, 1) * 255 + 0.5f);
         return unchecked((int)0xFF000000) | (R << 16) | (G << 8) | Bc;
     }
@@ -890,6 +933,83 @@ sealed class ModelView : UserControl
             return bmp;
         }
         finally { fast = wasFast; Redraw(); }   // back to the view's own size
+    }
+
+    /// <summary>Bloom strength and spread (by eye; UE3 blooms the scene colour past a threshold, blurred, added back).</summary>
+    const float BloomStrength = 0.9f;
+    const int BloomRadius = 7;   // in quarter-size pixels (about 28 frame pixels)
+
+    /// <summary>
+    /// The light past white, shrunk to a quarter (each cell the average of 4 × 4 pixels), blurred (Gaussian, two passes) and
+    /// added back over the frame. <paramref name="modelOnly"/>: only onto the model's pixels (a see-through background: an
+    /// icon snapshot's empty pixels stay empty).
+    /// </summary>
+    void Bloom(bool modelOnly)
+    {
+        int qw = (W + 3) / 4, qh = (H + 3) / 4;
+        var q = new float[qw * qh * 3];
+        Parallel.For(0, qh, qy =>
+        {
+            for (int qx = 0; qx < qw; qx++)
+            {
+                float r = 0, g = 0, b = 0; int n = 0;
+                for (int y = qy * 4; y < Math.Min(H, qy * 4 + 4); y++)
+                    for (int x = qx * 4; x < Math.Min(W, qx * 4 + 4); x++) { int i = (y * W + x) * 3; r += over[i]; g += over[i + 1]; b += over[i + 2]; n++; }
+                int o = (qy * qw + qx) * 3;
+                if (n > 0) { q[o] = r / n; q[o + 1] = g / n; q[o + 2] = b / n; }
+            }
+        });
+        var kernel = new float[BloomRadius * 2 + 1];
+        float sigma = BloomRadius / 2.5f, sum = 0;
+        for (int k = -BloomRadius; k <= BloomRadius; k++) sum += kernel[k + BloomRadius] = MathF.Exp(-k * k / (2 * sigma * sigma));
+        for (int k = 0; k < kernel.Length; k++) kernel[k] /= sum;
+        var t = new float[q.Length];
+        Parallel.For(0, qh, y =>
+        {
+            for (int x = 0; x < qw; x++)
+            {
+                float r = 0, g = 0, b = 0;
+                for (int k = -BloomRadius; k <= BloomRadius; k++)
+                {
+                    int xx = Math.Clamp(x + k, 0, qw - 1), i = (y * qw + xx) * 3; float w = kernel[k + BloomRadius];
+                    r += q[i] * w; g += q[i + 1] * w; b += q[i + 2] * w;
+                }
+                int o = (y * qw + x) * 3; t[o] = r; t[o + 1] = g; t[o + 2] = b;
+            }
+        });
+        Parallel.For(0, qh, y =>
+        {
+            for (int x = 0; x < qw; x++)
+            {
+                float r = 0, g = 0, b = 0;
+                for (int k = -BloomRadius; k <= BloomRadius; k++)
+                {
+                    int yy = Math.Clamp(y + k, 0, qh - 1), i = (yy * qw + x) * 3; float w = kernel[k + BloomRadius];
+                    r += t[i] * w; g += t[i + 1] * w; b += t[i + 2] * w;
+                }
+                int o = (y * qw + x) * 3; q[o] = r; q[o + 1] = g; q[o + 2] = b;
+            }
+        });
+        // Back up to full size (bilinear) and added.
+        Parallel.For(0, H, y =>
+        {
+            float fy = Math.Clamp((y + 0.5f) / 4 - 0.5f, 0, qh - 1); int y0 = (int)fy, y1 = Math.Min(qh - 1, y0 + 1); float ty = fy - y0;
+            for (int x = 0; x < W; x++)
+            {
+                int p = y * W + x;
+                if (modelOnly && gTri[p] < 0) continue;
+                float fx = Math.Clamp((x + 0.5f) / 4 - 0.5f, 0, qw - 1); int x0 = (int)fx, x1 = Math.Min(qw - 1, x0 + 1); float tx = fx - x0;
+                int a = (y0 * qw + x0) * 3, b = (y0 * qw + x1) * 3, c = (y1 * qw + x0) * 3, d = (y1 * qw + x1) * 3;
+                float w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+                float br = (q[a] * w00 + q[b] * w10 + q[c] * w01 + q[d] * w11) * BloomStrength;
+                float bgc = (q[a + 1] * w00 + q[b + 1] * w10 + q[c + 1] * w01 + q[d + 1] * w11) * BloomStrength;
+                float bb = (q[a + 2] * w00 + q[b + 2] * w10 + q[c + 2] * w01 + q[d + 2] * w11) * BloomStrength;
+                if (br < 0.002f && bgc < 0.002f && bb < 0.002f) continue;
+                int col = color[p];
+                int R = Math.Min(255, ((col >> 16) & 255) + (int)(br * 255)), G = Math.Min(255, ((col >> 8) & 255) + (int)(bgc * 255)), B = Math.Min(255, (col & 255) + (int)(bb * 255));
+                color[p] = (col & unchecked((int)0xFF000000)) | (R << 16) | (G << 8) | B;
+            }
+        });
     }
 
     protected override void Dispose(bool disposing) { if (disposing) frame?.Dispose(); base.Dispose(disposing); }

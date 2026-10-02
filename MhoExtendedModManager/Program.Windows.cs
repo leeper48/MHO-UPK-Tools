@@ -228,10 +228,11 @@ static partial class Program
                     var idx = Fx.PowerIndex.For(hero, rc, modFiles, db);
                     if (idx.TryGetValue(ar.Name, out var pw) && pw.SelectMany(p => Fx.PowerIndex.PrototypesByClass(db).TryGetValue(p.Class, out var l) ? l : []).FirstOrDefault() is string proto)
                     {
+                        string pcls = pw.First(p => Fx.PowerIndex.PrototypesByClass(db).TryGetValue(p.Class, out var l2) && l2.Contains(proto)).Class;
                         var pfx = Fx.PowerEffects.For(new Fx.FxGame(rc, modFiles), db, proto, hero);
                         var socks = Fx.FxSockets.Of(mr.File, mr.Name);
                         System.Numerics.Matrix4x4? Sock(string n) => socks.TryGetValue(n, out var sk) && anim8.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * anim8.BoneMatrix(b) : anim8.BoneIndex(n) is int bi && bi >= 0 ? anim8.BoneMatrix(bi) : null;
-                        fxp = new Fx.PowerEffects.Player(pfx, Sock, new System.Numerics.Vector3(250, 0, ld.Positions.Min(q => q.Z)), Fx.PowerEffects.Player.PhaseOf(ar.Name)) { AnimSeconds = Math.Max(0.1f, secs) };
+                        fxp = new Fx.PowerEffects.Player(pfx, Sock, new System.Numerics.Vector3(250, 0, ld.Positions.Min(q => q.Z)), Fx.PowerEffects.Player.PhaseFor(ar.Name, idx.Where(kv => kv.Value.Any(p => p.Class == pcls)).Select(kv => kv.Key))) { AnimSeconds = Math.Max(0.1f, secs) };
                         Console.WriteLine($"  power {Path.GetFileNameWithoutExtension(proto)}: {pfx.Effects.Count} effects, {pfx.Decals.Count} decals, {pfx.Meshes.Count} mesh emitters");
                         v.ZoomOut(1.6f);
                         v.EffectStrength = PreviewViews.FxPower;
@@ -337,6 +338,16 @@ static partial class Program
             var f = new Gui.FirstRunForm(Settings.Load());
             f.Shown += async (_, _) => { await Task.Delay(5000); Directory.CreateDirectory(args[1]); using var b = new Bitmap(f.Width, f.Height); f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height)); b.Save(Path.Combine(args[1], "first_run.png")); f.Close(); };
             Application.Run(f);
+            return 0;
+        }
+        if (args.Length == 6 && args[0].Equals("--anim-tab-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --anim-tab-test <dir> <mod> <slot> <donor title> <animation>  (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.AnimTabTest(args[1], args[2], args[3], args[4], args[5]); main.Close(); });
+            Application.Run(main);
             return 0;
         }
         if (args.Length == 2 && args[0].Equals("--editor-save-test", StringComparison.OrdinalIgnoreCase))

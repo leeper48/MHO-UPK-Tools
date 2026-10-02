@@ -190,10 +190,10 @@ static class ModInstaller
             if (light is float lv) m.PreviewLight = Math.Abs(lv - 1f) < 1e-4 ? null : MathF.Round(lv, 2);
             manifest = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, ModManifest.Json));
         }
-        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null || mod.Manifest.PreviewLight != null || mod.Manifest.VoiceOff != null || mod.Manifest.PowerColors != null || mod.Manifest.CardPicture != null))
+        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null || mod.Manifest.PreviewLight != null || mod.Manifest.VoiceOff != null || mod.Manifest.AnimSwaps != null || mod.Manifest.MovedFrom != null || mod.Manifest.PowerColors != null || mod.Manifest.CardPicture != null))
         {
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
-            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null; m.PreviewLight = null; m.VoiceOff = null; m.PowerColors = null; m.CardPicture = null;   // extensions: a legacy copy is MHModManager's format only
+            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null; m.PreviewLight = null; m.VoiceOff = null; m.AnimSwaps = null; m.MovedFrom = null; m.PowerColors = null; m.CardPicture = null;   // extensions: a legacy copy is MHModManager's format only
             var keep = m.Replacements.Concat(m.AchievementReplacements).Concat(m.StoreReplacements).Select(r => r.DdsFileName).Concat(m.UpkReplacements).Concat(m.AudioPacks).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var dropOnly = m.Extra.Select(r => r.DdsFileName).Where(f => !keep.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             files.RemoveAll(f => dropOnly.Contains(Path.GetRelativePath(mod.Folder, f)));

@@ -584,6 +584,86 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--socket-track":
+            {
+                // Read-only: a mesh posed by an animation at a few frames, with sockets' places (and the direction from the
+                // first to each other, as a power's beam would go). --socket-track <mod | package.upk> <animation> <socket> [socket ...]
+                if (rest.Count < 4) { Console.WriteLine("--socket-track <mod | package.upk> <animation> <socket> [socket ...]"); return 1; }
+                string? tgr = settings.ResolvedGameRoot(data);
+                string? tcooked = tgr != null && Settings.IsGameRoot(tgr) ? Settings.Cooked(tgr) : null;
+                var tm = rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? null : lib.Find(rest[1]);
+                var refs = tm != null ? ModMeshes.List(tm) : ModMeshes.List([(Path.GetFileName(rest[1]), rest[1])], anyPackage: true);
+                var mr = refs.FirstOrDefault();
+                if (mr == null) { Console.WriteLine("no mesh"); return 1; }
+                var loaded = ModMeshes.Load(mr, tcooked, out string why);
+                if (loaded == null) { Console.WriteLine("can't load: " + why); return 1; }
+                var pk = tm != null ? tm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(tm.Folder, f))).ToList() : [(Path.GetFileName(rest[1]), rest[1])];
+                var anim = ModAnimations.For(mr, loaded.Bones, pk, tcooked).FirstOrDefault(a => a.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                var ba = anim == null ? null : ModAnimations.Load(anim);
+                if (ba == null) { Console.WriteLine($"no animation {rest[2]}"); return 1; }
+                var socks = Fx.FxSockets.Of(mr.File, mr.Name);
+                var animr = new MeshAnimator(loaded.Bones, loaded.Positions, loaded.Normals, loaded.Influences);
+                var (frames, secs) = MeshAnimator.Span(ba);
+                Console.WriteLine($"{mr.Name} ({mr.Package}): {rest[2]} from {anim!.Package}, {frames:0} frames");
+                static string V(System.Numerics.Vector3 v) => $"({v.X,7:0.0}, {v.Y,7:0.0}, {v.Z,7:0.0})";
+                foreach (float t in new[] { 0f, 0.25f, 0.5f, 0.75f })
+                {
+                    animr.Pose(ba, t * frames);
+                    var places = new List<(string, System.Numerics.Vector3)>();
+                    foreach (string sn in rest.Skip(3).Where(x => !x.StartsWith("--")))
+                    {
+                        if (!socks.TryGetValue(sn, out var so)) { Console.WriteLine($"  no socket {sn}"); continue; }
+                        int bi = animr.BoneIndex(so.Bone);
+                        var w = so.Local * animr.BoneMatrix(bi);
+                        places.Add((sn, w.Translation));
+                        if (rest.Contains("--axes")) Console.WriteLine($"    {sn}: X {V(System.Numerics.Vector3.Normalize(new(w.M11, w.M12, w.M13)))} Y {V(System.Numerics.Vector3.Normalize(new(w.M21, w.M22, w.M23)))} Z {V(System.Numerics.Vector3.Normalize(new(w.M31, w.M32, w.M33)))}");
+                    }
+                    if (places.Count == 0) break;
+                    var from = places[0].Item2;
+                    Console.WriteLine($"  frame {t * frames,5:0}: {places[0].Item1} at {V(from)}" + string.Concat(places.Skip(1).Select(p => $"; {p.Item1} dir {V(System.Numerics.Vector3.Normalize(p.Item2 - from))}")));
+                }
+                return 0;
+            }
+            case "--anim-census":
+            {
+                // Read-only: for every UC__MarvelPlayer_* package in a folder (no bak / copy), its AnimSet exports and each
+                // class default's initialskeletalmesh AnimSets list in order. --anim-census <CookedPCConsole> [name part]
+                if (rest.Count < 2) { Console.WriteLine("--anim-census <CookedPCConsole> [name part]"); return 1; }
+                string part = rest.Count > 2 ? rest[2] : "";
+                int withSets = 0, withList = 0, total = 0;
+                foreach (string f in Directory.EnumerateFiles(rest[1], "UC__MarvelPlayer_*.upk").OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (part.Length > 0 && !fn.Contains(part, StringComparison.OrdinalIgnoreCase)) continue;
+                    MhoPackageModifier.Package pp;
+                    try { pp = MhoPackageModifier.Package.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+                    total++;
+                    var sets = Enumerable.Range(0, pp.Exports.Length).Where(i => pp.ClassOf(pp.Exports[i]).Equals("AnimSet", StringComparison.OrdinalIgnoreCase))
+                        .Select(i => $"{pp.PathOf(pp.Exports[i])} ({Enumerable.Range(0, pp.Exports.Length).Count(j => pp.Exports[j].OuterIndex == i + 1 && pp.ClassOf(pp.Exports[j]).Equals("AnimSequence", StringComparison.OrdinalIgnoreCase))} seq)").ToList();
+                    var lists = new List<string>();
+                    for (int i = 0; i < pp.Exports.Length; i++)
+                    {
+                        string path = pp.PathOf(pp.Exports[i]);
+                        if (!path.StartsWith("marvelgamecontent.default__", StringComparison.OrdinalIgnoreCase) || !path.EndsWith(".initialskeletalmesh", StringComparison.OrdinalIgnoreCase)) continue;
+                        byte[] d = pp.ReadExportBytes(pp.Exports[i]).ToArray();
+                        var t = MhoPackageModifier.TagWalker.Walk(pp, d, 16)?.FirstOrDefault(x => x.Name.Equals("AnimSets", StringComparison.OrdinalIgnoreCase));
+                        if (t == null) continue;
+                        int n = BitConverter.ToInt32(d, t.ValueAt);
+                        var refs = Enumerable.Range(0, Math.Max(0, n)).Select(k => BitConverter.ToInt32(d, t.ValueAt + 4 + 4 * k))
+                            .Select(r => r > 0 ? pp.PathOf(pp.Exports[r - 1]) + " (export)" : r < 0 ? pp.RefName(r) : "none");
+                        lists.Add($"{path.Split('.')[1]}: [{string.Join(", ", refs)}]");
+                    }
+                    if (sets.Count > 0) withSets++;
+                    if (lists.Count > 0) withList++;
+                    if (sets.Count == 0 && lists.Count == 0) continue;
+                    Console.WriteLine(fn);
+                    foreach (string s in sets) Console.WriteLine($"  set   {s}");
+                    foreach (string l in lists) Console.WriteLine($"  list  {l}");
+                }
+                Console.WriteLine($"{total} packages; {withSets} with AnimSets; {withList} with an AnimSets list on a mesh component");
+                return 0;
+            }
             case "--props-under":
             {
                 // Read-only: every export whose path starts with a prefix, with its simple properties (names, numbers, flags,
@@ -666,7 +746,7 @@ static partial class Program
                             var mip = MhoPackageModifier.TextureExport.ReadBestMip(mpk, ti, out string note, pc);
                             Console.WriteLine($"    texture {k} = {mpk.Exports[ti].ObjectName}  {(mip == null ? note : $"{mip.Format} {mip.Width}x{mip.Height}")}");
                             if (outDir == null || mip == null || MhoPackageModifier.TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _) is not byte[] px) continue;
-                            string stem = Path.Combine(outDir, $"s{sec}_{k}");
+                            string stem = Path.Combine(outDir, $"{mr.Name}_s{sec}_{k}");   // (per mesh: a mod with two meshes overwrote the first's maps)
                             SavePng(px, mip.Width, mip.Height, stem + ".png", -1);
                             if (k.Contains("spec", StringComparison.OrdinalIgnoreCase) || k.Contains("mask", StringComparison.OrdinalIgnoreCase))
                                 foreach (var (ch, off) in new[] { ("R", 2), ("G", 1), ("B", 0), ("A", 3) }) SavePng(px, mip.Width, mip.Height, $"{stem}_{ch}.png", off);

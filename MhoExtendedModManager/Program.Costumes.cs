@@ -123,6 +123,123 @@ static partial class Program
                     return 1;
                 }
             }
+            case "--costume-anims":
+            {
+                // Read-only: the animations a costume plays, as the game finds them (the mesh component's AnimSets list, the
+                // last set with a name wins). --costume-anims <mod | package.upk> [--all]  (--all lists every animation)
+                string? agr = settings.ResolvedGameRoot(data);
+                string? acooked = agr != null && Settings.IsGameRoot(agr) ? Settings.Cooked(agr) : null;
+                var targets = new List<(string Path, string File, Mod? Mod)>();
+                bool folder = rest.Count > 1 && Directory.Exists(rest[1]);
+                if (folder) targets.AddRange(Directory.EnumerateFiles(rest[1], "UC__MarvelPlayer_*.upk").Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).Select(f => (f, Path.GetFileName(f), (Mod?)null)));
+                else if (rest.Count > 1 && rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) && File.Exists(rest[1])) targets.Add((rest[1], Path.GetFileName(rest[1]), null));
+                else if (rest.Count > 1 && lib.Find(rest[1]) is { } am)
+                    targets.AddRange(am.Manifest.UpkReplacements.Where(f => f.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)).Select(f => (Path.Combine(am.Folder, f), f, (Mod?)am)));
+                if (targets.Count == 0) { Console.WriteLine("--costume-anims <mod | package.upk> [--all]"); return 1; }
+                int read = 0, none = 0, setsAll = 0, missingSets = 0, overriding = 0;
+                foreach (var (tp, tf, tm) in targets)
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var ca = CostumeAnims.Read(tp, tf, CostumeAnims.FilesFor(tm, acooked));
+                    if (folder)
+                    {
+                        // A summary per folder: only packages with a set that can't be found are named.
+                        if (ca == null) { none++; continue; }
+                        read++; setsAll += ca.Sets.Count; overriding += ca.Anims.Count(a => a.Overrides.Count > 0 && a.From.Kind == CostumeAnims.Source.Costume) > 0 ? 1 : 0;
+                        foreach (var s in ca.Sets.Where(s => !s.Found)) { missingSets++; Console.WriteLine($"  {tf}: set {s.Order + 1} {s.Path} not found"); }
+                        continue;
+                    }
+                    if (ca == null) { Console.WriteLine($"{tf}: no character mesh component with an AnimSets list"); continue; }
+                    Console.WriteLine($"{tf} ({ca.Class}): {ca.Sets.Count} set(s), {ca.Anims.Count} animation(s) ({sw.ElapsedMilliseconds} ms)");
+                    foreach (var s in ca.Sets)
+                        Console.WriteLine($"  {s.Order + 1}. {s.PackageName}: {s.Path} [{s.Label}{(s.FromMod ? ", this mod's copy" : "")}] " +
+                            (s.Found ? $"{s.Sequences.Count} sequence(s), {s.TrackBoneNames.Count} bones, {(s.TranslationBones == null ? "positions for all bones" : $"rotation only ({s.TranslationBones.Count} bones with positions)")}" : "NOT FOUND"));
+                    foreach (var a in ca.Anims.Where(a => rest.Contains("--all") || a.Overrides.Count > 0))
+                        Console.WriteLine($"    {a.Name}: set {a.From.Order + 1}{(a.Overrides.Count > 0 ? $", overrides set {string.Join(", ", a.Overrides.Select(o => o.Order + 1))}" : "")}");
+                }
+                if (folder) Console.WriteLine($"{read} package(s) read ({none} without a character component list); {setsAll} sets, {missingSets} not found; {overriding} with their own set overriding animations");
+                return 0;
+            }
+            case "--anim-swap":
+            {
+                // Builds (never into the mod or the game) a costume package with other characters' animations in place of
+                // its own, then reads it back: each slot must come from the new set and decode to the donor's keys exactly.
+                // --anim-swap <mod | package.upk> <slot>=<donor package or mod>:<donor animation> [...] --build <dir> [--package <file>]
+                string? sgr2 = settings.ResolvedGameRoot(data);
+                string? scooked = sgr2 != null && Settings.IsGameRoot(sgr2) ? Settings.Cooked(sgr2) : null;
+                int bAt = rest.IndexOf("--build"), pAt = rest.IndexOf("--package");
+                string? outDir = bAt >= 0 && bAt + 1 < rest.Count ? rest[bAt + 1] : null;
+                if (rest.Count < 3 || outDir == null || scooked == null) { Console.WriteLine("--anim-swap <mod | package.upk> <slot>=<donor package>:<animation> [...] --build <dir> [--package <file>]  (needs the game folder)"); return 1; }
+                Mod? sm = rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? null : lib.Find(rest[1]);
+                string spath, sfile;
+                if (sm == null) { spath = rest[1]; sfile = Path.GetFileName(rest[1]); }
+                else
+                {
+                    sfile = pAt >= 0 && pAt + 1 < rest.Count ? rest[pAt + 1] : sm.Manifest.UpkReplacements.FirstOrDefault(f => f.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) ?? "";
+                    spath = Path.Combine(sm.Folder, sfile);
+                }
+                if (!File.Exists(spath)) { Console.WriteLine($"no package {spath}"); return 1; }
+                var files = CostumeAnims.FilesFor(sm, scooked);
+                var mine = CostumeAnims.Read(spath, sfile, files);
+                if (mine == null) { Console.WriteLine($"{sfile}: no character mesh component"); return 1; }
+                var swaps = new List<AnimSwap.Swap>();
+                var donorAnims = new Dictionary<string, CostumeAnims.Anim>(StringComparer.OrdinalIgnoreCase);
+                foreach (string arg in rest.Skip(2).Where(a => a.Contains('=') && a.Contains(':')))
+                {
+                    string slot = arg[..arg.IndexOf('=')], donor = arg[(arg.IndexOf('=') + 1)..arg.LastIndexOf(':')], dname = arg[(arg.LastIndexOf(':') + 1)..];
+                    if (!mine.Anims.Any(a => a.Name.Equals(slot, StringComparison.OrdinalIgnoreCase))) Console.WriteLine($"  note: {sfile} has no animation '{slot}' yet; it's added");
+                    // The donor: a mod (its first character package) or a game package by file name.
+                    Mod? dm = lib.Find(donor);
+                    string dfile = dm?.Manifest.UpkReplacements.FirstOrDefault(f => f.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) ?? (donor.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? donor : donor + ".upk");
+                    string? dpath = dm != null ? Path.Combine(dm.Folder, dfile) : files(dfile)?.Path;
+                    if (dpath == null || !File.Exists(dpath)) { Console.WriteLine($"no donor package {donor}"); return 1; }
+                    var da = CostumeAnims.Read(dpath, dfile, CostumeAnims.FilesFor(dm, scooked))?.Anims.FirstOrDefault(a => a.Name.Equals(dname, StringComparison.OrdinalIgnoreCase));
+                    if (da == null || da.From.File == null) { Console.WriteLine($"{dfile} has no animation '{dname}'"); return 1; }
+                    swaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export));
+                    donorAnims[slot] = da;
+                    Console.WriteLine($"{slot} ← {da.From.PackageName}.upk · {da.From.Path} · {da.Name}");
+                }
+                if (swaps.Count == 0) { Console.WriteLine("no swaps given (slot=donor:animation)"); return 1; }
+                var slog = new List<string>();
+                byte[] built;
+                try { built = AnimSwap.Build(spath, mine.Class, swaps, slog, mine.Inherited ? [.. mine.Sets.Select(s => s.Path)] : null); }
+                catch (InvalidDataException ex) { foreach (string l in slog) Console.WriteLine("  " + l); Console.WriteLine("can't: " + ex.Message); return 1; }
+                foreach (string l in slog) Console.WriteLine("  " + l);
+                Directory.CreateDirectory(outDir);
+                string outPath = Path.Combine(outDir, sfile);
+                if (Path.GetFullPath(outPath).Equals(Path.GetFullPath(spath), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("the build folder can't be the package's own"); return 1; }
+                File.WriteAllBytes(outPath, built);
+                Console.WriteLine($"built: {outPath} ({built.Length:N0} bytes)");
+                // Read back as the game would find the animations.
+                var after = CostumeAnims.Read(outPath, sfile, name => name.Equals(Path.GetFileNameWithoutExtension(sfile), StringComparison.OrdinalIgnoreCase) ? (outPath, true) : files(name));
+                int bad = 0;
+                foreach (var (slot, da) in donorAnims)
+                {
+                    var a = after?.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
+                    if (a == null || a.From.Kind != CostumeAnims.Source.Costume || !a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase)) { bad++; Console.WriteLine($"  FAIL {slot}: comes from {(a == null ? "nowhere" : a.From.Path)}"); continue; }
+                    var x = ModAnimations.Load(da.Ref); var y = ModAnimations.Load(a.Ref);
+                    bool same = x != null && y != null && x.Tracks.Count == y.Tracks.Count && x.Tracks.All(kv => y.Tracks.TryGetValue(kv.Key, out var t)
+                        && t.PositionKeys.SequenceEqual(kv.Value.PositionKeys) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys));
+                    if (!same) bad++;
+                    Console.WriteLine($"  {(same ? "ok  " : "FAIL")} {slot}: from {a.From.Path} (set {a.From.Order + 1} of {after!.Sets.Count}), {y?.Tracks.Count ?? 0} tracks {(same ? "identical to the donor's" : "differ from the donor's")}");
+                }
+                Console.WriteLine(bad == 0 ? "PASS" : $"{bad} problem(s)");
+                // --create <name>: a new mod (top of the list, turned off) made from the costume's mod with this package in;
+                // the mod itself isn't changed. For testing in game before the editor does it.
+                int cAt = rest.IndexOf("--create");
+                if (bad == 0 && cAt >= 0 && cAt + 1 < rest.Count && sm != null)
+                {
+                    var d = ModDraft.From(sm);
+                    d.Name = rest[cAt + 1];
+                    d.Packages = [.. d.Packages.Select(x => x.File.Equals(sfile, StringComparison.OrdinalIgnoreCase) ? (x.File, outPath) : x)];
+                    d.Notes = (d.Notes.Length > 0 ? d.Notes + " " : "") + "Animations: " + string.Join(", ", donorAnims.Select(kv => $"{kv.Key} from {kv.Value.From.PackageName}")) + ".";
+                    string? made = ModWriter.Save(lib, d, null, out string? cerr);
+                    Console.WriteLine(made != null ? $"created mod '{d.Name}' ({made}), at the top of the list, turned off" : "can't create the mod: " + cerr);
+                    if (made == null) return 1;
+                }
+                return bad == 0 ? 0 : 1;
+            }
             case "--voice-lines":
             {
                 // Read-only: a mod's voice lines as the editor's Voice tab lists them (with its manifest's turned-off lines).

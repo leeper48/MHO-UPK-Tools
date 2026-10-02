@@ -355,6 +355,10 @@ static class CostumeMove
         foreach (string sp in fresh.SoundPacks)
             if (!d.SoundPacks.Any(x => Path.GetFileName(x).Equals(Path.GetFileName(sp), StringComparison.OrdinalIgnoreCase))) d.SoundPacks.Add(sp);
         if (voiceOff != null) d.VoiceOff = voiceOff;
+        // The moved packages' swapped animations: as the fresh build has them (a same-hero move keeps them, another hero's doesn't).
+        d.AnimSwaps.RemoveAll(a => moved.Contains(a.Package));
+        d.AnimSwaps.AddRange(fresh.AnimSwaps.Where(a => moved.Contains(a.Package)));
+        d.MovedFrom = fresh.MovedFrom ?? d.MovedFrom;
         return d;
     }
 
@@ -388,6 +392,9 @@ static class CostumeMove
             // replace: rebuild an existing moved copy in place (same folder, place, on/off; e.g. after the original was updated).
             if (replace != null) { d.Tags = [.. replace.ModTags]; d.Notes = replace.Manifest.Notes ?? d.Notes; }
             KeepPowerColors(d, mod, replace, sameHero: true);
+            // Swapped animations are inside the package, which moves whole (renamed): the entries follow it.
+            d.MovedFrom = plan.Source.Short.Replace(".prototype", "");
+            d.AnimSwaps = built.Count == 1 ? [.. d.AnimSwaps.Select(a => new AnimSwapEntry { Package = Path.GetFileName(built[0]), Slot = a.Slot, Donor = a.Donor, Animation = a.Animation, Title = a.Title })] : [];
             if (replace != null) d = UpdateDraft(d, replace, built.Select(f => Path.GetFileName(f)), null);
             return ModWriter.Save(lib, d, replace, out error);
         }

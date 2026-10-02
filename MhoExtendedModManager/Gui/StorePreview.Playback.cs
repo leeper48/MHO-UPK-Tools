@@ -24,6 +24,7 @@ sealed partial class StorePreview
         StopAnimation(); ClearEffects(); anims = []; animator = null; FillAnims();
         if (mod != null) { float lv = PreviewViews.Light(mod); viewer.Brightness = lv; if (lightSlider != null) lightSlider.Value = lv; }   // this mod's light
         if (mod != null) { float fl = PreviewViews.Lens(mod); viewer.FocalLength = fl; if (lensSlider != null) lensSlider.Value = fl; }    // and lens
+        if (mod != null) { float gl = PreviewViews.GlowStrength(mod); viewer.GlowStrength = gl; if (glowSlider != null) glowSlider.Value = gl; }    // and glow
         Invalidate();
         if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File), out var hit) && hit != null) { Show(hit); return; }
         viewer.ShowMessage("Loading the 3D view…");
@@ -61,6 +62,7 @@ sealed partial class StorePreview
                 if (IsDisposed || req2 != request || mod?.FolderName != m?.FolderName) return;   // (a reload of the same mod is a new object)
                 anims = allAnims = t.Result;
                 FillAnims();
+                AnimationsLoaded?.Invoke();
                 LoadHeroPowers();
                 // This PC's last animation and frame for the mesh, else the pick's "@animation".
                 var saved = mod == null ? null : PreviewViews.GetAnim(PreviewViews.Key(mod, r));
@@ -102,7 +104,7 @@ sealed partial class StorePreview
             frameSlider.Committed += SaveAnim;
             Ui.Tip(frameSlider, "The animation's frame: drag to scrub through it (it pauses), or use the arrow keys (Shift: 5 frames, Home / End: first / last). ▶ plays on from there.");
             Controls.Add(frameSlider);
-            lightSlider = new LightSlider { Visible = false, Home = () => mod == null ? 1f : PreviewViews.AuthorLight(mod) };
+            lightSlider = new LightSlider { Visible = false, Min = 0f, Home = () => mod == null ? 1f : PreviewViews.AuthorLight(mod) };
             lightSlider.ValueChanged += () => { if (viewer != null) viewer.Brightness = lightSlider.Value; };
             lightSlider.Committed += () => { if (mod != null) PreviewViews.SetLight(mod, lightSlider.Value); };
             Ui.Tip(lightSlider, "Light brightness in the 3D view for this mod (drag, or the mouse wheel; double-click: back to the mod's own level, else 100%). Remembered per mod on this PC; Export can put it into the mod.");
@@ -111,7 +113,12 @@ sealed partial class StorePreview
             lensSlider.ValueChanged += () => { if (viewer != null) viewer.FocalLength = lensSlider.Value; };
             lensSlider.Committed += () => { if (mod != null) PreviewViews.SetLens(mod, lensSlider.Value); };
             Ui.Tip(lensSlider, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter; the model stays the same size (double-click: 50 mm). Remembered per mod on this PC.");
-            Controls.Remove(lightSlider);   // both live in the Look ▾ menu
+            glowSlider = new LightSlider { Visible = false, Label = "Glow", Min = 0f, Max = 2f, Home = () => 1f };
+            glowSlider.Value = mod == null ? 1f : PreviewViews.GlowStrength(mod);
+            glowSlider.ValueChanged += () => { if (viewer != null) viewer.GlowStrength = glowSlider.Value; };
+            glowSlider.Committed += () => { if (mod != null) PreviewViews.SetGlowStrength(mod, glowSlider.Value); };
+            Ui.Tip(glowSlider, "How strong the glowing (emissive) parts are in the 3D view: 100 % is the materials' own (double-click: back to 100 %). Remembered per mod on this PC.");
+            Controls.Remove(lightSlider);   // all three live in the Look ▾ menu
             // The playback bar over the view's bottom (shown while the mouse is over the view).
             playBar = new Panel { Visible = false, BackColor = Color.FromArgb(24, 26, 34) };
             foreach (Control c in new Control[] { frameSlider, animBox, playBtn, loopBtn }) { playBar.Controls.Add(c); c.Visible = true; }
@@ -154,7 +161,7 @@ sealed partial class StorePreview
     /// <summary>The Spec / Reflect / Glow toggles into the 3D view, and their look (accent when on, like Loop).</summary>
     void ApplyShading()
     {
-        if (viewer != null) { viewer.ShowSpec = PreviewViews.Spec; viewer.ShowReflections = PreviewViews.Reflect; viewer.ShowGlow = PreviewViews.Glow; }
+        if (viewer != null) { viewer.ShowSpec = PreviewViews.Spec; viewer.ShowReflections = PreviewViews.Reflect; viewer.ShowGlow = PreviewViews.Glow; viewer.ShowBloom = PreviewViews.Bloom; }
         if (lookMenu != null)
             foreach (ToolStripItem it in lookMenu.Items)
                 if (it is ToolStripMenuItem mi)
@@ -221,6 +228,38 @@ sealed partial class StorePreview
             if (mod != null && MeshOk && !restoring) Picked?.Invoke(mod, CurrentMeshKey());
             SaveAnim();
         }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>The shown mesh's animations (all of them, also while a power button filters the drop-down).</summary>
+    public IReadOnlyList<AnimRef> AllAnimations => allAnims;
+    /// <summary>The shown mesh's animations are loaded (AllAnimations).</summary>
+    public event Action? AnimationsLoaded;
+
+    /// <summary>Picks an animation by name (the editor's Animations tab): every animation back in the drop-down, that one
+    /// selected and, with <paramref name="play"/>, playing. False when the shown mesh has no animation of that name.</summary>
+    public bool PlayAnimation(string name, bool play = true)
+    {
+        if (animBox == null) return false;
+        if (powerFilter != null || anims.Count != allAnims.Count) { powerFilter = null; anims = allAnims; FillAnims(); }
+        int i = anims.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (i < 0) return false;
+        autoPlay = play;
+        if (animBox.SelectedIndex == i + 1) PlaySelected();   // (the same one again: from the start)
+        else animBox.SelectedIndex = i + 1;
+        return true;
+    }
+
+    /// <summary>Plays an animation from anywhere on the shown model (the Animations tab's picker: try another character's
+    /// before using it). It shows at the top of the drop-down until the mesh's own list is shown again.</summary>
+    public bool PlayRef(AnimRef a, bool play = true)
+    {
+        if (animBox == null) return false;
+        powerFilter = null;
+        anims = [a, .. allAnims.Where(x => !ReferenceEquals(x, a))];
+        FillAnims();
+        autoPlay = play;
+        if (animBox.SelectedIndex == 1) PlaySelected(); else animBox.SelectedIndex = 1;
+        return true;
     }
 
     /// <summary>The frame slider moved by the user: pause and show that frame.</summary>
@@ -310,7 +349,7 @@ sealed partial class StorePreview
     {
         // (Not the playback bar's own controls: hiding the bar hides them, and nothing showed them again: Kurt's
         // "animation filter and scrub bar keep disappearing".)
-        foreach (Control? c in new Control?[] { restBtn, lightSlider, lensSlider, powersBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn, playBar, lookBtn }) if (c != null) c.Visible = false;
+        foreach (Control? c in new Control?[] { restBtn, lightSlider, lensSlider, glowSlider, powersBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn, playBar, lookBtn }) if (c != null) c.Visible = false;
         if (IsFull) ToggleFull();   // a picture (or another mod without 3D) shows: back from full screen
     }
 
@@ -386,7 +425,7 @@ sealed partial class StorePreview
     /// <summary>Look ▾: the look toggles and the Light / Lens sliders; stays open while toggling.</summary>
     void ShowLookMenu()
     {
-        if (lookBtn == null || lightSlider == null || lensSlider == null) return;
+        if (lookBtn == null || lightSlider == null || lensSlider == null || glowSlider == null) return;
         if (lookMenu == null)
         {
             lookMenu = new ContextMenuStrip { ShowCheckMargin = true, ShowImageMargin = false };
@@ -400,9 +439,10 @@ sealed partial class StorePreview
             lookMenu.Items.Add(Item("Spec", "Specular highlights (shine) the materials set.", () => PreviewViews.Spec, () => PreviewViews.Spec = !PreviewViews.Spec));
             lookMenu.Items.Add(Item("Reflect", "Reflections of the materials' own environment images.", () => PreviewViews.Reflect, () => PreviewViews.Reflect = !PreviewViews.Reflect));
             lookMenu.Items.Add(Item("Glow", "Glowing (emissive) parts.", () => PreviewViews.Glow, () => PreviewViews.Glow = !PreviewViews.Glow));
+            lookMenu.Items.Add(Item("Bloom", "A soft halo around the brightest parts (glow, the hottest highlights), as the game draws it.", () => PreviewViews.Bloom, () => PreviewViews.Bloom = !PreviewViews.Bloom));
             lookMenu.Items.Add(Item("Props", "The weapons and props the game attaches to the character, held on their bones.", () => PreviewViews.Props, () => { PreviewViews.Props = !PreviewViews.Props; LoadProps(); }));
             lookMenu.Items.Add(new ToolStripSeparator());
-            foreach (var sl in new Control[] { lightSlider, lensSlider })
+            foreach (var sl in new Control[] { lightSlider, glowSlider, lensSlider })
             {
                 sl.Visible = true;
                 var host = new ToolStripControlHost(sl) { AutoSize = false, Size = new Size((int)(260 * S), (int)(26 * S)), Margin = new Padding((int)(6 * S), 2, (int)(6 * S), 2) };
@@ -411,7 +451,7 @@ sealed partial class StorePreview
             // Clicking a toggle keeps the menu open (several at once); a click outside closes it.
             lookMenu.Closing += (_, e) => { if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true; };
         }
-        lightSlider.Visible = lensSlider.Visible = true;   // (hidden with the other 3D controls while a picture shows)
+        lightSlider.Visible = lensSlider.Visible = glowSlider.Visible = true;   // (hidden with the other 3D controls while a picture shows)
         Ui.ShowUnder(lookMenu, lookBtn);
     }
 

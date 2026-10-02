@@ -40,7 +40,7 @@ sealed class IconCreatorView : UserControl
     readonly List<(MeshRef Ref, string? Bone)> propChoices = [];
     readonly PropRig rig = new();   // the props' geometry, shared with the main preview
     readonly LightSlider frameSlider = new() { Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null };
-    readonly LightSlider lightSlider = new();
+    readonly LightSlider lightSlider = new() { Min = 0f };
     readonly LightSlider overlaySlider = new() { Label = "Original", Min = 0, Max = 1, Step = 0.05f, Mark = null };
     // The overlay on / off (Kurt: a toggle button and a shortcut, O); the slider keeps its opacity while it's off.
     Button overlayBtn = null!;
@@ -55,7 +55,7 @@ sealed class IconCreatorView : UserControl
     /// <summary>The Spec / Reflect / Glow toggles (shared with the main preview) into the view, and their look.</summary>
     void ApplyShading()
     {
-        view.ShowSpec = PreviewViews.Spec; view.ShowReflections = PreviewViews.Reflect; view.ShowGlow = PreviewViews.Glow;
+        view.ShowSpec = PreviewViews.Spec; view.ShowReflections = PreviewViews.Reflect; view.ShowGlow = PreviewViews.Glow; view.ShowBloom = PreviewViews.Bloom;
         Ui.Lit(specBtn, PreviewViews.Spec); Ui.Lit(reflBtn, PreviewViews.Reflect); Ui.Lit(glowBtn, PreviewViews.Glow);
     }
     readonly Panel stage = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
