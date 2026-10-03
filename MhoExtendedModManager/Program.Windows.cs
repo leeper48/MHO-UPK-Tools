@@ -340,6 +340,15 @@ static partial class Program
             Application.Run(f);
             return 0;
         }
+        if (args.Length == 4 && args[0].Equals("--anim-find-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.AnimFindTest(args[1], args[2], args[3]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 6 && args[0].Equals("--anim-tab-test", StringComparison.OrdinalIgnoreCase))
         {
             // --anim-tab-test <dir> <mod> <slot> <donor title> <animation>  (scratch libraries only)

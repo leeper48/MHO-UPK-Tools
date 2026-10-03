@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.110
+- Settings → Your Author Name: your name is filled in as the author of every new mod. New mods no longer take the author of the last mod changed in the library (often someone else's); the first time you save a new mod with an author, the app offers to remember it.
+- The travel power is always the first power button (in the 3D preview and the Editor's Powers tab), the same place for every hero; the others follow by name.
+- Editor → Animations: after typing in Find, the first animation in the list couldn't be selected, and a pick could be lost when the list refreshed a moment later. Both fixed; the selected animation also stays selected when Find changes.
+- README and manual (Troubleshooting): Malwarebytes may flag the app as "Malware.AI…", its AI guess for new, unsigned programs. What to check and how to restore it.
+
 0.37.109
 - The Editor's SFX tab is now Audio, with Voice first and Sound Packs second.
 - Editor → Powers (experimental): recolor a hero's powers. Pick a power, set Hue, Saturation and Brightness (or a preset), and watch it play with its effects in the 3D preview; Save puts the recolored power packages into the mod.

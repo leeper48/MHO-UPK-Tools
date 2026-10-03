@@ -181,6 +181,7 @@ sealed class MainForm : Form
         autoCheck.CheckedChanged += (_, _) => { if (settings.CheckUpdates != autoCheck.Checked) { settings.CheckUpdates = autoCheck.Checked; settings.Save(); } };
         menu.Opening += (_, _) => autoCheck.Checked = settings.CheckUpdates;
         menu.Items.Add(autoCheck);
+        menu.Items.Add("Your Author Name", null, (_, _) => EditAuthorName()).ToolTipText = "Your name as a mod author: filled in on every new mod you make.";
         var rememberWindow = new ToolStripMenuItem("Remember Window Position") { CheckOnClick = true, ToolTipText = "Start on the monitor, at the size and place you left the window (maximized if it was). Off: always start maximized on the main monitor." };
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
@@ -2251,6 +2252,15 @@ sealed class MainForm : Form
         CloseEditor();
     }
 
+    /// <summary>Settings → Your Author Name: the name every new mod starts with (empty: none).</summary>
+    void EditAuthorName()
+    {
+        var authors = (lib?.Mods ?? []).Select(m => m.Manifest?.Author).Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(a => a);
+        if (Ui.Prompt(this, "Your Author Name", "Filled in as the author of every new mod you make (leave empty for none):", settings.AuthorName ?? "", authors) is not string name) return;
+        settings.AuthorName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        settings.Save();
+    }
+
     /// <summary>Set by a normal start when setup was already done before (not for a new user, not in tests).</summary>
     public bool ShowsWhatsNew { get; init; }
 
@@ -2296,6 +2306,21 @@ sealed class MainForm : Form
         using (var b = new Bitmap(Width, Height)) { DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_strings.png")); }
         string? saved = await ed.SaveForTest();
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), (saved ?? "not saved") + Environment.NewLine + check);
+    }
+
+    /// <summary>--anim-find-test (scratch libraries only): the Animations tab's Find, then a real click on the first match.</summary>
+    public async Task AnimFindTest(string dir, string modName, string find)
+    {
+        Directory.CreateDirectory(dir);
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            lines.AddRange(await editor!.FindClickForTest(find));
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
     }
 
     /// <summary>

@@ -152,7 +152,10 @@ static class PowerList
                 names.Add(name);
             }
         }
-        return [.. result.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)];
+        // The travel power is always the first button (Kurt, 2026-10-02: the same place for every hero), then by name.
+        string? travelPath = TravelPowerOf(db, hero)?.Replace('/', '\\');
+        return [.. result.OrderBy(p => travelPath != null && p.Prototype.Replace('/', '\\').Equals(travelPath, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>A travel power's Unreal class, its own or its parents' (BeastSprint takes the shared sprint's).</summary>

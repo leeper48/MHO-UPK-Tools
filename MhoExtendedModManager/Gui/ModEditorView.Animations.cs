@@ -59,6 +59,7 @@ sealed partial class ModEditorView
         animGrid.MultiSelect = false;
         animGrid.SelectionChanged += (_, _) =>
         {
+            if (animRefilling) return;
             var a = SelectedAnim;
             if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
             if (animChange != null) animChange.Enabled = a != null;
@@ -128,10 +129,26 @@ sealed partial class ModEditorView
         return "Other";
     }
 
+    /// <summary>True while the grid is refilled: selection changes then aren't the user's (no preview, no buttons).</summary>
+    bool animRefilling;
+
     void FillAnimGrid()
     {
         if (animGrid == null) return;
-        animGrid.Rows.Clear();
+        // The selected animation is kept across a refill (Find typed, the list read again): a refill that arrived after a
+        // click used to wipe the pick (Kurt, 2026-10-02).
+        string? keep = SelectedAnim?.Name;
+        animRefilling = true;
+        try { FillAnimRows(keep); }
+        finally { animRefilling = false; }
+        var a = SelectedAnim;
+        if (animChange != null) animChange.Enabled = a != null;
+        if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
+    }
+
+    void FillAnimRows(string? keep)
+    {
+        animGrid!.Rows.Clear();
         if (animData == null) { animCount.Text = animPackages.Count == 0 ? "No Character Package in This Mod" : "No Animation List in This Package"; return; }
         // The power each animation belongs to (from the hero's powers, once the 3D view has loaded them).
         var powerOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -159,6 +176,12 @@ sealed partial class ModEditorView
             if (a.Overrides.Count > 0) replaced++;
             shown++;
         }
+        // The grid makes the first row it adds current and selected (before its Tag is set), and a click on the current cell
+        // doesn't select it, so the first match of a Find couldn't be picked (Kurt, 2026-10-02; --anim-find-test). After a
+        // refill: the kept animation selected again if it's shown, else nothing selected and no current cell.
+        var again = keep == null ? null : animGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is CostumeAnims.Anim ka && ka.Name.Equals(keep, StringComparison.OrdinalIgnoreCase));
+        if (again != null) { animGrid.CurrentCell = again.Cells[0]; animGrid.ClearSelection(); again.Selected = true; }
+        else { animGrid.CurrentCell = null; animGrid.ClearSelection(); }
         int changed = animData.Anims.Count(IsSwapped);
         bool unsaved = editing != null && file != null && DraftPath(file) is string dp && !dp.StartsWith(editing.Folder, StringComparison.OrdinalIgnoreCase);
         animCount.Text = $"{shown} of {animData.Anims.Count} Animations · {animData.Sets.Count} Sets" + (animData.Inherited ? " · The Hero's List (This Costume Sets None of Its Own)" : "")
@@ -277,6 +300,47 @@ sealed partial class ModEditorView
         await ApplyMany(d, picks);
         await Task.WhenAny(tcs.Task, Task.Delay(30000));
         return $"{picks.Count} picked from {d.Title} | {animCount.Text}";
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
+
+    /// <summary>
+    /// For --anim-find-test: Find set to <paramref name="find"/>, then a real click (window messages) on the first match.
+    /// Lines: before the click (selected rows, Change on), after it (the selected animation, Change on).
+    /// </summary>
+    internal async Task<List<string>> FindClickForTest(string find)
+    {
+        var lines = new List<string>();
+        if (!await WaitAnims() || animGrid == null) { lines.Add("FAIL no animations"); return lines; }
+        SelectTab(pages.FindIndex(p => p.Title == "Animations"));
+        await Task.Delay(500);
+        animFind.Text = find;
+        await Task.Delay(500);
+        if (animGrid.Rows.Count == 0) { lines.Add($"FAIL no rows for \"{find}\""); return lines; }
+        string first = ((CostumeAnims.Anim)animGrid.Rows[0].Tag!).Name;
+        lines.Add($"after Find \"{find}\": {animGrid.Rows.Count} rows, first {first}, selected {animGrid.SelectedRows.Count}, Change {(animChange!.Enabled ? "on" : "off")}");
+        var r = animGrid.GetCellDisplayRectangle(0, 0, false);
+        IntPtr lp = (IntPtr)(((r.Top + r.Height / 2) << 16) | (r.Left + r.Width / 2));
+        SendMessage(animGrid.Handle, 0x0201, (IntPtr)1, lp);   // WM_LBUTTONDOWN
+        SendMessage(animGrid.Handle, 0x0202, IntPtr.Zero, lp); // WM_LBUTTONUP
+        await Task.Delay(300);
+        bool ok = SelectedAnim?.Name == first && animChange.Enabled;
+        lines.Add($"{(ok ? "PASS" : "FAIL")} click on the first match: selected {SelectedAnim?.Name ?? "nothing"}, Change {(animChange.Enabled ? "on" : "off")}");
+        if (animGrid.Rows.Count > 1)
+        {
+            string second = ((CostumeAnims.Anim)animGrid.Rows[1].Tag!).Name;
+            var r2 = animGrid.GetCellDisplayRectangle(0, 1, false);
+            IntPtr lp2 = (IntPtr)(((r2.Top + r2.Height / 2) << 16) | (r2.Left + r2.Width / 2));
+            SendMessage(animGrid.Handle, 0x0201, (IntPtr)1, lp2); SendMessage(animGrid.Handle, 0x0202, IntPtr.Zero, lp2);
+            await Task.Delay(300);
+            lines.Add($"{(SelectedAnim?.Name == second ? "PASS" : "FAIL")} click on the second row: selected {SelectedAnim?.Name ?? "nothing"} (wanted {second})");
+            await Task.Delay(4000);
+            lines.Add($"{(SelectedAnim?.Name == second && animChange.Enabled ? "PASS" : "FAIL")} 4 s later (after any late refill): selected {SelectedAnim?.Name ?? "nothing"}, Change {(animChange.Enabled ? "on" : "off")}");
+            animFind.Text = "";
+            await Task.Delay(300);
+            lines.Add($"{(SelectedAnim?.Name == second ? "PASS" : "FAIL")} Find cleared: still selected {SelectedAnim?.Name ?? "nothing"} ({animGrid.Rows.Count} rows)");
+        }
+        return lines;
     }
 
     /// <summary>The selected animation back to the costume's own (AnimSwap.Unswap into a work copy).</summary>

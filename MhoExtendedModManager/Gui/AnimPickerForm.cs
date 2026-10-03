@@ -108,12 +108,7 @@ sealed class AnimPickerForm : Form
         whoFind.TextChanged += (_, _) => FillWho();
         whatFind.TextChanged += (_, _) => FillWhat();
         who.SelectionChanged += (_, _) => { if (who.SelectedRows.Count > 0 && who.SelectedRows[0].Tag is Donor d) ShowDonor(d); };
-        what.SelectionChanged += (_, _) =>
-        {
-            if (what.SelectedRows.Count == 0 || what.SelectedRows[0].Tag is not CostumeAnims.Anim a) { if (!Multi) use.Enabled = false; return; }
-            if (!Multi) use.Enabled = true;
-            Try?.Invoke(a.Ref);
-        };
+        what.SelectionChanged += (_, _) => WhatSelected();
         what.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && !Multi) Use(); };
 
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
@@ -121,6 +116,14 @@ sealed class AnimPickerForm : Form
         Ui.FitToScreen(this, 1000, 680);
         FillWho();
         Shown += (_, _) => { if (who.Rows.Count > 0) { who.ClearSelection(); who.Rows[0].Selected = true; } };
+    }
+
+    /// <summary>The selected animation: Use on and a try in the preview (also called after a refill, see FillWhat).</summary>
+    void WhatSelected()
+    {
+        if (what.SelectedRows.Count == 0 || what.SelectedRows[0].Tag is not CostumeAnims.Anim a) { if (!Multi) use.Enabled = false; return; }
+        if (!Multi) use.Enabled = true;
+        Try?.Invoke(a.Ref);
     }
 
     static FlowLayoutPanel Bar(params Control[] c) { var f = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 4) }; f.Controls.AddRange(c); return f; }
@@ -185,7 +188,10 @@ sealed class AnimPickerForm : Form
             }
             row.Cells["anim"].ToolTipText = $"{a.From.PackageName}.upk · {a.From.Path}";
         }
-        if (what.Rows.Count > 0) { if (!Multi) { what.ClearSelection(); what.Rows[0].Selected = true; } }
+        // The grid selects a row the moment it's added, before its Tag is set: that selection read as "nothing" (Use off), and
+        // selecting the same row again changes nothing, so the first match of a Find couldn't be used (Kurt, 2026-10-02).
+        // The selection is made again now that every row has its animation.
+        if (what.Rows.Count > 0) { if (!Multi) { what.ClearSelection(); what.Rows[0].Selected = true; WhatSelected(); } }
         else status.Text = Multi ? (f.Length > 0 ? $"No \"{f}\" Animations of the Same Names" : "No Animations of the Same Names") : $"No \"{f}\" Animations";
         UpdateUse();
         // Length per row in the background (a decode each).

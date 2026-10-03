@@ -90,7 +90,7 @@ sealed partial class ModEditorView : UserControl
     {
         this.lib = lib; this.game = game; this.editing = editing;
         catalog = game == null ? null : new StockCatalog(lib, game);
-        draft = editing == null ? new ModDraft { Author = LastAuthor() } : ModDraft.From(editing);
+        draft = editing == null ? new ModDraft { Author = Settings.Load().AuthorName?.Trim() ?? "" } : ModDraft.From(editing);
         Title = editing == null ? "New Mod" : $"Edit: {editing.Name}";
         Dock = DockStyle.Fill;
         Font = Ui.Regular(9.5f);
@@ -106,6 +106,8 @@ sealed partial class ModEditorView : UserControl
         info.Controls.Add(Caption("Author"), 2, 0); info.Controls.Add(authorBox, 3, 0);
         info.Controls.Add(Caption("Version"), 4, 0); info.Controls.Add(versionBox, 5, 0);
         nameBox.Text = draft.Name; authorBox.Text = draft.Author; versionBox.Text = draft.Version;
+        if (editing == null) authorBox.PlaceholderText = "Your name (Settings → Your Author Name fills it in)";
+        Ui.Tip(authorBox, "Who made the mod. New mods start with the name in Settings → Your Author Name.");
         info.Controls.Add(Caption("Tags"), 0, 1); info.Controls.Add(tagsBox, 1, 1); info.SetColumnSpan(tagsBox, 5);
         info.Controls.Add(autoLabel, 1, 2); info.SetColumnSpan(autoLabel, 5);
         info.Controls.Add(Caption("Note"), 0, 3); info.Controls.Add(notesBox, 1, 3); info.SetColumnSpan(notesBox, 5);
@@ -152,7 +154,6 @@ sealed partial class ModEditorView : UserControl
     }
 
     // Null-safe: the tooltip audit opens an editor on an empty library (crashed 0.35.22 test run).
-    string LastAuthor() => (lib?.Mods ?? []).Where(m => m?.Folder != null).OrderByDescending(m => Directory.GetLastWriteTimeUtc(m.Folder)).Select(m => m.Manifest?.Author).FirstOrDefault(a => !string.IsNullOrWhiteSpace(a)) ?? "";
 
     static Label Caption(string t) => new() { Text = t, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(10, 0, 6, 0), Tag = "subtle" };
     static FlowLayoutPanel Toolbar(params Control[] c) { var f = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(0, 6, 0, 6) }; f.Controls.AddRange(c); return f; }
@@ -750,7 +751,7 @@ sealed partial class ModEditorView : UserControl
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
         {
             if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
-            Dialog.Show(this, "The power colours couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+            Dialog.Show(this, "The power colors couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
@@ -759,7 +760,21 @@ sealed partial class ModEditorView : UserControl
         if (saved != null && animWork != null) try { Directory.Delete(animWork, true); animWork = null; } catch (IOException) { }
         if (saved == null) { Dialog.Show(this, error ?? "", "Can't Save Yet"); return; }
         SavedName = saved;
+        OfferAuthorName();
         Saved?.Invoke(saved);
+    }
+
+    /// <summary>A new mod saved with an author while no author name is set: offers to keep it for new mods (once per name).</summary>
+    void OfferAuthorName()
+    {
+        string author = draft.Author.Trim();
+        if (editing != null || author.Length == 0) return;
+        var settings = Settings.Load();
+        if (!string.IsNullOrWhiteSpace(settings.AuthorName)) return;
+        if (Dialog.Show(this, $"Fill in \"{author}\" as the author of every new mod you make?\n\nYou can change it any time in Settings → Your Author Name.",
+                "Your Author Name", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        settings.AuthorName = author;
+        settings.Save();
     }
 
     /// <summary>The Preview Image choices from the draft's images now (they may have changed on the texture tabs).</summary>
