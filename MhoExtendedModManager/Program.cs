@@ -212,6 +212,7 @@ static partial class Program
         if (PreviewCommand(cmd, rest, settings, data, lib) is int previewResult) return previewResult;
         if (CostumeCommand(cmd, rest, settings, data, lib) is int costumeResult) return costumeResult;
         if (TestCommand(cmd, rest, settings, data, lib) is int testResult) return testResult;
+        if (ModelCommand(cmd, rest) is int modelResult) return modelResult;
         switch (rest[0].ToLowerInvariant())
         {
             case "--stock-path":

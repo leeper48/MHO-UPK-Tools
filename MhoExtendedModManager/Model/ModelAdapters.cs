@@ -1,0 +1,108 @@
+using MhoExtendedModManager;
+using MemmSettings = MhoExtendedModManager.Settings;
+
+namespace MhoMffImporter;
+
+// The MFF model importer's engine (Model\Mff, Retarget, Mho, Build, App), moved into the Mod Manager from the MHO MFF
+// Importer (Kurt, 2026-10-03: the editor's Model tab). The engine's files keep their namespace and stay as in the importer;
+// what it asked of the importer's own app (its settings, the stock package lookup, the folders it must not write into, the
+// version) comes from the Mod Manager here.
+
+/// <summary>The engine's settings, from the Mod Manager's: the game, the clean stock folder, the MFF folder, Blender.</summary>
+sealed class Settings
+{
+    static Settings? current;
+    public static Settings Current => current ??= Load();
+    /// <summary>Settings changed in the Mod Manager (the MFF folder, the game): read again on next use.</summary>
+    public static void Reset() => current = null;
+
+    public string? MffSource { get; init; }
+    public string? GameFolder { get; init; }
+    /// <summary>The clean stock packages folder (read only).</summary>
+    public string? StockFolder { get; init; }
+    public string? CookedFolder => GameFolder != null ? MemmSettings.Cooked(GameFolder) : null;
+    public string? BlenderPath { get; set; }
+    public bool SkipAddonOffer { get; set; }
+
+    /// <summary>The engine's own work folder (thumbnails, command-line outputs): Model under the Mod Manager's data.</summary>
+    public static string Home => Path.Combine(MemmSettings.Home, "model");
+
+    static Settings Load()
+    {
+        var s = MemmSettings.Load();
+        string? root = s.ResolvedGameRoot(MemmSettings.LibraryData(s.LibraryPath));
+        return new Settings
+        {
+            MffSource = s.MffFolder is { Length: > 0 } m ? m : null, GameFolder = root,
+            StockFolder = StockFiles.Clean ?? (s.CleanGameFiles is { Length: > 0 } c && Directory.Exists(c) ? c : null),
+            BlenderPath = s.BlenderPath, SkipAddonOffer = s.SkipBlenderAddonOffer,
+        };
+    }
+
+    /// <summary>The Blender choices go back into the Mod Manager's settings.</summary>
+    public void Save()
+    {
+        var s = MemmSettings.Load();
+        s.BlenderPath = BlenderPath; s.SkipBlenderAddonOffer = SkipAddonOffer;
+        s.Save();
+    }
+}
+
+/// <summary>Base packages: the game's stock copy, as the Mod Manager reads stock files everywhere (StockFiles: the kept
+/// originals, the clean folder, the live file, its .bak, whichever matches the stock checksums).</summary>
+static class BasePackage
+{
+    static MhoExtendedModManager.GameState? game;
+
+    public static string Resolve(string nameOrPath, bool allowModded = false)
+    {
+        string? path = File.Exists(nameOrPath) ? Path.GetFullPath(nameOrPath) : null;
+        string? cooked = Settings.Current.CookedFolder;
+        if (path == null && !nameOrPath.Contains('\\') && !nameOrPath.Contains('/') && cooked != null)
+        {
+            string file = nameOrPath.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? nameOrPath : nameOrPath + ".upk";
+            string found = StockFiles.For(cooked, file);
+            if (File.Exists(found)) path = found;
+        }
+        if (path == null) throw new FileNotFoundException($"no package {nameOrPath} (looked for the game's stock copy in {cooked ?? "(game not found)"}).");
+        if (!allowModded && Settings.Current.GameFolder is string root)
+        {
+            game ??= new MhoExtendedModManager.GameState(root, MemmSettings.LibraryData(MemmSettings.Load().LibraryPath));
+            string name = Path.GetFileName(path);
+            if (!game.MatchesStock(name, path))
+                throw new InvalidDataException($"{path} isn't the stock {name}: it has been modded. Set a clean stock folder (Settings), or turn its mod off and Apply.");
+        }
+        return path;
+    }
+}
+
+/// <summary>Folders the engine never writes into: the game, the clean stock folder, the kept originals and the MFF source.
+/// Every file it writes goes through <see cref="CheckWrite"/> (the Mod Manager itself writes the game only through Apply).</summary>
+static class Protected
+{
+    static IEnumerable<string> Roots()
+    {
+        var st = Settings.Current;
+        foreach (var r in new[] { st.MffSource, st.StockFolder, st.GameFolder, StockFiles.Clean })
+            if (!string.IsNullOrEmpty(r)) yield return r;
+    }
+
+    public static void CheckWrite(string path)
+    {
+        string full = Path.GetFullPath(path);
+        foreach (var root in Roots())
+        {
+            string r = Path.GetFullPath(root).TrimEnd('\\') + "\\";
+            if (full.StartsWith(r, StringComparison.OrdinalIgnoreCase) || string.Equals(full.TrimEnd('\\') + "\\", r, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Refused: {full} is inside {root.TrimEnd('\\')}, which the model engine never writes to.");
+        }
+    }
+}
+
+/// <summary>What the engine asks of its app: the version (in mod notes and logs) and a package's name lookup for tagged
+/// properties.</summary>
+static class Program
+{
+    public static string Version => MhoExtendedModManager.Program.Version;
+    internal static Func<long, string> Names(AnimExportCli.Packages.Package pkg) => r => pkg.Names.Resolve((int)(r & 0xFFFFFFFF), (int)(r >> 32));
+}

@@ -32,7 +32,7 @@
       "is this actually the build I think it is" never has to be guessed
       at from whether specific numbers changed.
     -->
-    <Version>1.4.5</Version>
+    <Version>1.4.6</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -48,4 +48,8 @@
     </None>
   </ItemGroup>
 
+  <!-- The Mod Manager's Model tab (the MFF model engine) uses the FBX helpers (axis conversion, key sampling) as the importer does. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="MHO_Ext_ModManager" />
+  </ItemGroup>
 </Project>

@@ -20,6 +20,11 @@ sealed class Settings
     /// <summary>A folder holding the game's stock packages (a clean CookedPCConsole copy, Kurt's H:\\CookedPCConsole - Original
     /// Backup): read only, each file checked against the stock checksums before use. Null when not set.</summary>
     public string? CleanGameFiles { get; set; }
+    /// <summary>The Model tab (MFF models onto a mod's package): the MFF rip folder (Models\Models, Texture2D; read only), the
+    /// Blender it opens exports in (null = found), and whether its add-on offer was turned off.</summary>
+    public string? MffFolder { get; set; }
+    public string? BlenderPath { get; set; }
+    public bool SkipBlenderAddonOffer { get; set; }
     /// <summary>Null = the default location. May also be MHModManager's folder (read-only there until migrated).</summary>
     public string? Library { get; set; }
     /// <summary>The mod list's sort (priority, name, author, tag, enabled) and grouping (none, tag, author).</summary>
