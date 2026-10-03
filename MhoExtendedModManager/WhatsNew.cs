@@ -14,6 +14,8 @@ static class WhatsNew
     public const bool PowersAndAnimationsReleased = true;
 
     public static bool PowersAndAnimations => PowersAndAnimationsReleased || Settings.Load().PreviewFeatures;
+    /// <summary>The editor's Model tab (MFF models onto a mod's package): in development, only with "PreviewFeatures": true.</summary>
+    public static bool ModelTab => Settings.Load().PreviewFeatures;
 
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
 

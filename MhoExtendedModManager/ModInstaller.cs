@@ -159,7 +159,8 @@ static class ModInstaller
         string temp = zipPath + ".tmp";
         if (File.Exists(temp)) File.Delete(temp);
         var files = Directory.GetFiles(mod.Folder, "*", SearchOption.AllDirectories)
-            .Where(f => !Path.GetRelativePath(mod.Folder, f).StartsWith(ModPost.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();   // the post goes beside the zip
+            .Where(f => !Path.GetRelativePath(mod.Folder, f).StartsWith(ModPost.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))   // the post goes beside the zip
+            .Where(f => !legacy || !Path.GetRelativePath(mod.Folder, f).StartsWith(ModelWork.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();   // the Model tab's work: not in a legacy copy
         byte[]? manifest = null;
         // A user's own custom picture (kept on their PC) goes into the zip as one of the mod's pictures (Pictures/).
         var carried = new List<(string Name, string Source)>();

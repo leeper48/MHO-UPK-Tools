@@ -45,6 +45,8 @@ sealed record ImportOptions
     public int Cape { get; init; }
     /// <summary>FBX edits (0.16.0): animation name → an FBX whose clip replaces it in the built mod (<see cref="AnimEdits"/>).</summary>
     public IReadOnlyDictionary<string, string>? AnimFbx { get; init; }
+    /// <summary>Only the package (the Mod Manager's Model tab puts it into its draft): no mod folder or .zip.</summary>
+    public bool NoMod { get; init; }
 
     public static ImportOptions FromEnvironment(string? parts, string? mapFile, string? checkAnimation)
     {

@@ -1,0 +1,114 @@
+using System.Text.Json;
+using MhoExtendedModManager.Gui;
+
+namespace MhoMffImporter.Gui;
+
+/// <summary>
+/// The importer's half of the Blender roundtrip (0.16.3, Kurt: Ctrl+S in Blender sends the work back). Open in Blender links
+/// the work (this model on this base hero) to its export folder (blender.txt in the edits folder: the folder and the last
+/// sync applied; not part of undo). The scene Blender opens writes what changed on every save into from_blender\ and counts
+/// up from_blender\sync.json (<see cref="BlenderLaunch"/>); a watcher on that file applies each new sync here as FBX edits
+/// (the mesh, the replaced animations: the same as Single Animation ▾ → Import, one undo step), also when the work is opened again
+/// after Blender saved while the app was closed or on another model.
+/// </summary>
+sealed partial class ModelPage
+{
+    FileSystemWatcher? blenderWatch;
+    string? blenderWatchKey;
+    readonly System.Windows.Forms.Timer blenderDelay = new() { Interval = 700 };
+    bool blenderDelayHooked;
+
+    (string? Folder, int Applied) BlenderLink()
+    {
+        if (EditsFolder() is not string f || !File.Exists(Path.Combine(f, "blender.txt"))) return (null, 0);
+        var lines = File.ReadAllLines(Path.Combine(f, "blender.txt"));
+        return (lines.Length > 0 && lines[0].Length > 0 ? lines[0] : null, lines.Length > 1 && int.TryParse(lines[1], out int n) ? n : 0);
+    }
+
+    void SaveBlenderLink(string folder, int applied)
+    {
+        if (EditsFolder() is not string f) return;
+        Protected.CheckWrite(f);
+        Directory.CreateDirectory(f);
+        File.WriteAllLines(Path.Combine(f, "blender.txt"), [folder, applied.ToString()]);
+    }
+
+    /// <summary>Open in Blender made <paramref name="folder"/>: this work now listens to it (syncs counted from 0).</summary>
+    void LinkBlender(string folder)
+    {
+        SaveBlenderLink(folder, 0);
+        blenderWatchKey = null;
+        WatchBlender();
+    }
+
+    /// <summary>Watches the shown work's Blender folder (call when the work may have changed); applies a sync that came while
+    /// it wasn't shown.</summary>
+    void WatchBlender()
+    {
+        string? key = EditsFolder();
+        if (key == blenderWatchKey) return;
+        blenderWatchKey = key;
+        blenderWatch?.Dispose(); blenderWatch = null;
+        if (!blenderDelayHooked) { blenderDelay.Tick += (_, _) => { blenderDelay.Stop(); ApplyBlenderSync(); }; blenderDelayHooked = true; }
+        var (folder, _) = BlenderLink();
+        if (folder == null) return;
+        string from = Path.Combine(folder, "from_blender");
+        try
+        {
+            Directory.CreateDirectory(from);
+            blenderWatch = new FileSystemWatcher(from, "sync.json") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
+            FileSystemEventHandler on = (_, _) => BeginInvoke(() => { blenderDelay.Stop(); blenderDelay.Start(); });
+            blenderWatch.Changed += on; blenderWatch.Created += on;
+            blenderWatch.Renamed += (_, _) => BeginInvoke(() => { blenderDelay.Stop(); blenderDelay.Start(); });
+            blenderWatch.EnableRaisingEvents = true;
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { Log($"Blender: can't watch {from}: {ex.Message}"); return; }
+        ApplyBlenderSync();
+    }
+
+    sealed record SyncFile(int Version, string? Model, Dictionary<string, string> Anims, List<string>? Last, string? Time);
+
+    /// <summary>A new sync from Blender (a higher version than the last applied) into the FBX edits.</summary>
+    void ApplyBlenderSync()
+    {
+        if (model == null || ChosenPackage == null || EditsFolder() is not string editsFolder) return;
+        var (folder, applied) = BlenderLink();
+        if (folder == null) return;
+        string from = Path.Combine(folder, "from_blender"), file = Path.Combine(from, "sync.json");
+        if (!File.Exists(file)) return;
+        SyncFile? sync = null;
+        for (int i = 0; i < 5 && sync == null; i++)
+        {
+            try { sync = JsonSerializer.Deserialize<SyncFile>(File.ReadAllText(file), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
+            catch (Exception ex) when (ex is IOException or JsonException) { Thread.Sleep(150); }
+        }
+        if (sync == null || sync.Version <= applied) return;
+        EnsureEdits();
+        var notes = new List<string>(); var problems = new List<string>();
+        var names = preview.AnimationNames;
+        foreach (var (name, rel) in sync.Anims ?? new())
+        {
+            string path = Path.Combine(from, rel.Replace('/', Path.DirectorySeparatorChar));
+            // the NLA track is the export's file name: the game's name, or one Export FBX made safe for a file
+            string? anim = names.FirstOrDefault(n => n.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? names.FirstOrDefault(n => FbxExport.SafeName(n).Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (anim == null) { problems.Add($"{name}: no animation of that name"); continue; }
+            if (!File.Exists(path)) { problems.Add($"{name}: {rel} isn't there"); continue; }
+            var clip = AnimExportCli.Fbx.FbxAnimationImporter.Read(path);
+            int known = clip.Tracks.Keys.Count(k => mhoBones.Contains(k, StringComparer.OrdinalIgnoreCase));
+            if (known < Math.Max(4, clip.Tracks.Count / 2)) { problems.Add($"{name}: only {known} of {clip.Tracks.Count} bones are the skeleton's"); continue; }
+            string kept = AnimEdits.Keep(path, editsFolder, anim);
+            if (edits.Anims.TryGetValue(anim, out var was) && was == kept) continue;
+            edits.Anims[anim] = kept;
+            notes.Add(anim);
+        }
+        if (sync.Model is string m && File.Exists(Path.Combine(from, m)))
+        {
+            string kept = AnimEdits.Keep(Path.Combine(from, m), editsFolder, "blender_model");
+            if (edits.ModelFbx != kept) { edits.ModelFbx = kept; notes.Insert(0, "the mesh"); }
+        }
+        SaveBlenderLink(folder, sync.Version);
+        foreach (var p in problems) Log("Blender: " + p);
+        if (notes.Count > 0) EditsChanged($"Blender sent {string.Join(", ", notes)} (save {sync.Version}{(sync.Time != null ? ", " + sync.Time : "")})");
+        else if (problems.Count == 0) Log($"Blender: save {sync.Version} had nothing new.");
+    }
+}

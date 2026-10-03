@@ -2252,6 +2252,43 @@ sealed class MainForm : Form
         CloseEditor();
     }
 
+    /// <summary>
+    /// --model-tab-test (scratch library only): the editor on <paramref name="modName"/>, its Model tab, an MFF character built
+    /// onto one of the mod's packages, Save Changes; then the saved mod must have that package changed and a Model folder.
+    /// </summary>
+    public async Task<int> ModelTabTest(string modName, string mff, string package, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        string pkgFile = Path.Combine(m.Folder, package);
+        OpenEditor(m);
+        pages.Select(1);
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+        if (tab < 0) { say("no Model tab (PreviewFeatures off?)"); return 1; }
+        editor.SelectTab(tab);
+        for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+        if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
+        string? builtFile = await page.TestBuild(mff, package, say);
+        say("built into the draft: " + (builtFile != null));
+        if (builtFile == null) { CloseEditor(); return 1; }
+        byte[] builtBytes = File.ReadAllBytes(builtFile);   // the work folder goes with the editor
+        await editor.SaveForTest();
+        await Task.Delay(500);
+        var saved = lib?.Find(modName);
+        int fails = 0;
+        void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+        Check(saved != null, "the mod is still in the library");
+        if (saved != null)
+        {
+            string after = Path.Combine(saved.Folder, package);
+            Check(File.Exists(after) && File.ReadAllBytes(after).AsSpan().SequenceEqual(builtBytes), "its package is the build, byte for byte");
+            Check(File.Exists(Path.Combine(saved.Folder, ModelWork.Folder, "state.json")), "Model/state.json is kept with the mod");
+            Check(!Directory.Exists(Path.Combine(saved.Folder, ModelWork.Folder, "builds")), "no builds folder in the mod");
+            Check(saved.Manifest.UpkReplacements.Contains(package, StringComparer.OrdinalIgnoreCase), "the manifest still lists the package");
+        }
+        Check(!Directory.EnumerateDirectories(lib!.DataFolder, "model-work-*").Any(), "the editor's work folder is gone");
+        return fails == 0 ? 0 : 1;
+    }
+
     /// <summary>Settings → Your Author Name: the name every new mod starts with (empty: none).</summary>
     void EditAuthorName()
     {

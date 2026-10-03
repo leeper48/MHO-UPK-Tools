@@ -135,6 +135,8 @@ sealed partial class ModEditorView : UserControl
         if (WhatsNew.PowersAndAnimations) AddGroup("Powers", ("Powers", PowersPage()));
         // In development (Kurt, 2026-10-02): the Animations tab, also only with "PreviewFeatures": true.
         if (WhatsNew.PowersAndAnimations) AddGroup("Animations", ("Animations", AnimationsPage()));
+        // In development (Kurt, 2026-10-03): the Model tab, the MFF model importer inside the editor.
+        if (WhatsNew.ModelTab) AddGroup("Model", ("Model", ModelTabPage()));
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 

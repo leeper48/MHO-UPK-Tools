@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.37.112</Version>
+    <Version>0.37.113</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -43,6 +43,11 @@
     <None Include="Assets\herohor_bluebackdrop.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- Wwise Vorbis codebooks for WwiseVorbis.cs (from ww2ogg, BSD; voice playback in the Editor). -->
     <None Include="Assets\packed_codebooks_aoTuV_603.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- The Model tab (MFF importer engine, 2026-10-03): MFF folder → character name and the folders without a character rig,
+         embedded under the importer's resource names; the optional Blender add-on next to the exe (Assets\Blender). -->
+    <EmbeddedResource Include="Model\StockData\mff_names.json" LogicalName="MhoMffImporter.StockData.mff_names.json" />
+    <EmbeddedResource Include="Model\StockData\mff_rigs.json" LogicalName="MhoMffImporter.StockData.mff_rigs.json" />
+    <None Include="Model\Assets\Blender\*.zip" Link="Assets\Blender\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- MPM's zone recipe inputs and manual would otherwise be copied here too (27 MB); this app doesn't use them. -->
   <Target Name="DropMpmContent" BeforeTargets="_CopyOutOfDateSourceItemsToOutputDirectory;_CopyOutOfDateSourceItemsToOutputDirectoryAlways">

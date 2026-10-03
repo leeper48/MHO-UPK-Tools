@@ -35,6 +35,19 @@ sealed class AnimEdits
         return e;
     }
 
+    /// <summary>The same edits with files inside <paramref name="folder"/> named relative to it (kept with a mod, which moves).</summary>
+    public AnimEdits Relative(string folder) => Map(f => Path.IsPathRooted(f) && Path.GetFullPath(f).StartsWith(Path.GetFullPath(folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? Path.GetRelativePath(folder, f) : f);
+
+    /// <summary>Relative file names made full again, from <paramref name="folder"/>.</summary>
+    public AnimEdits Resolved(string folder) => Map(f => Path.IsPathRooted(f) ? f : Path.GetFullPath(Path.Combine(folder, f)));
+
+    AnimEdits Map(Func<string, string> f)
+    {
+        var e = new AnimEdits { ModelFbx = ModelFbx != null ? f(ModelFbx) : null };
+        foreach (var (k, v) in Anims) e.Anims[k] = f(v);
+        return e;
+    }
+
     /// <summary>What an FBX holds: its clips (name, frames) and how many of its meshes are skinned.</summary>
     public sealed record Contents(List<(string Name, double Frames)> Clips, int SkinnedMeshes, int Meshes);
 

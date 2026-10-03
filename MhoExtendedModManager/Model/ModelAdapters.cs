@@ -23,8 +23,30 @@ sealed class Settings
     public string? CookedFolder => GameFolder != null ? MemmSettings.Cooked(GameFolder) : null;
     public string? BlenderPath { get; set; }
     public bool SkipAddonOffer { get; set; }
+    /// <summary>The Model tab's own remembered choices (model\settings.json): the preview's look and playback, FBX files picked.</summary>
+    public PreviewPrefs Preview { get; set; } = new();
+    public List<string> RecentFbx { get; set; } = new();
+    public bool RememberWindow { get; set; }
 
-    /// <summary>The engine's own work folder (thumbnails, command-line outputs): Model under the Mod Manager's data.</summary>
+    public sealed class PreviewPrefs
+    {
+        public bool Loop { get; set; } = true;
+        public bool Spec { get; set; } = true;
+        public bool Reflect { get; set; } = true;
+        public bool Glow { get; set; } = true;
+        public bool Bloom { get; set; } = true;
+        public bool Props { get; set; } = true;
+        public bool Powers { get; set; } = true;
+        public bool Bones { get; set; }
+        public float Light { get; set; } = 1;
+        public float Lens { get; set; } = 50;
+        public float GlowStrength { get; set; } = 1;
+    }
+
+    sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); }
+    static string OwnFile => Path.Combine(Home, "settings.json");
+
+    /// <summary>The engine's own work folder (thumbnails, exports, command-line outputs): model\ in the Mod Manager's data.</summary>
     public static string Home => Path.Combine(MemmSettings.Home, "model");
 
     static Settings Load()
@@ -36,15 +58,26 @@ sealed class Settings
             MffSource = s.MffFolder is { Length: > 0 } m ? m : null, GameFolder = root,
             StockFolder = StockFiles.Clean ?? (s.CleanGameFiles is { Length: > 0 } c && Directory.Exists(c) ? c : null),
             BlenderPath = s.BlenderPath, SkipAddonOffer = s.SkipBlenderAddonOffer,
-        };
+        }.WithOwn();
+    }
+
+    Settings WithOwn()
+    {
+        try
+        {
+            if (File.Exists(OwnFile) && System.Text.Json.JsonSerializer.Deserialize<Own>(File.ReadAllText(OwnFile)) is { } o) { Preview = o.Preview; RecentFbx = o.RecentFbx; }
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { }
+        return this;
     }
 
     /// <summary>The Blender choices go back into the Mod Manager's settings.</summary>
     public void Save()
     {
         var s = MemmSettings.Load();
-        s.BlenderPath = BlenderPath; s.SkipBlenderAddonOffer = SkipAddonOffer;
-        s.Save();
+        if (s.BlenderPath != BlenderPath || s.SkipBlenderAddonOffer != SkipAddonOffer) { s.BlenderPath = BlenderPath; s.SkipBlenderAddonOffer = SkipAddonOffer; s.Save(); }
+        Directory.CreateDirectory(Home);
+        File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
 }
 

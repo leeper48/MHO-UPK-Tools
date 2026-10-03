@@ -47,6 +47,9 @@ sealed class ModDraft
     public List<VoiceShiftEntry> VoiceShifts = [];
     public List<PowerColorEntry> PowerColors = [];
     public List<string> PostImages = [];
+    /// <summary>The Model tab's work (bone maps, FBX edits, its choices, the package before the model): a folder copied into
+    /// the mod as Model\ on Save (null: the mod's own Model folder stays as it is).</summary>
+    public string? ModelFolder;
 
     /// <summary>The changelog as it will be saved: this version's changes (if any) on top of the earlier entries.</summary>
     public List<ChangelogEntry> FullChangelog()
@@ -217,6 +220,9 @@ static class ModWriter
             manifest.Type = kinds.Count == 1 ? kinds[0] : ModType.Mixed;
             File.WriteAllText(Path.Combine(temp, "manifest.json"), JsonSerializer.Serialize(manifest, ModManifest.Json));
             ModPost.Write(temp, d.PostNexus, d.PostDiscord, d.PostImages);   // copied before the old folder goes away
+            // The Model tab's work (Model\): the editor's work folder, else the mod's own (both before the old folder goes)
+            string? modelFrom = d.ModelFolder ?? (editing != null ? Path.Combine(editing.Folder, ModelWork.Folder) : null);
+            if (modelFrom != null && Directory.Exists(modelFrom)) ModelWork.CopyInto(modelFrom, Path.Combine(temp, ModelWork.Folder));
             // Custom pictures the preview or card uses (Pictures\), copied before the old folder goes away too.
             foreach (var (file, source) in d.Pictures)
                 if ((ModPictures.Prefix + file).Equals(d.PreviewImage, StringComparison.OrdinalIgnoreCase) || (ModPictures.Prefix + file).Equals(d.CardPicture, StringComparison.OrdinalIgnoreCase))
@@ -332,3 +338,26 @@ static class ModPost
         return dir;
     }
 }
+
+/// <summary>
+/// The Model tab's work kept in a mod (2026-10-03): Model\ holds the bone maps, the FBX edits, the tab's choices and the
+/// package as it was before the model (Model\base). Not in the manifest; a legacy export leaves it out. Build outputs
+/// (builds\) aren't kept: the built package is the mod's own package.
+/// </summary>
+static class ModelWork
+{
+    public const string Folder = "Model";
+
+    public static void CopyInto(string from, string to)
+    {
+        foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+        {
+            string rel = Path.GetRelativePath(from, f);
+            if (rel.StartsWith("builds" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            string dest = Path.Combine(to, rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            File.Copy(f, dest, overwrite: true);
+        }
+    }
+}
+

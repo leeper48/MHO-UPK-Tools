@@ -57,7 +57,7 @@ sealed class ImportBuild
         string? pkgOut = WritePackage(basePackage, export);
         if (pkgOut == null) return null;
         if ((rigs.Count > 0 || o.AnimFbx is { Count: > 0 }) && !HairAnimation(pkgOut)) return null;
-        var result = WriteMod(pkgOut);
+        var result = o.NoMod ? new Result(pkgOut, "", "", "") : WriteMod(pkgOut);
         CheckReadBack(native);
         return result;
     }
