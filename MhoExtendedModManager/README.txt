@@ -32,6 +32,10 @@ Why Windows may warn you (the program is not code-signed)
     - Compare its SHA-256 with the .sha256 file published next to it. In PowerShell:
         Get-FileHash .\MHO_Ext_ModManager-<version>-Setup.exe -Algorithm SHA256
     - The full source code is public, and every release is built from it on GitHub.
+  Malwarebytes may flag it as "Malware.AI.<number>". That is its AI guess for new programs it hasn't seen before and
+  that aren't code-signed, not a match with any known malware. Check the SHA-256 as above, then restore the file from
+  Malwarebytes' Quarantine and add the program's folder to its Allow List. Each new version can be flagged again until
+  Malwarebytes has seen it; reporting it as a false positive (in Malwarebytes or on its forums) helps everyone.
   If your antivirus flags it, you can report a false positive to Microsoft at https://www.microsoft.com/wdsi/filesubmission
 
 Privacy
