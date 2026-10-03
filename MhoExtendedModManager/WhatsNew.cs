@@ -23,7 +23,19 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => [Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.112 (Kurt, 2026-10-03): single power colors with the color wheel and eyedropper.</summary>
+    static Notice SingleColors() => new(
+        "0.37.112-single-colors", "0.37.112",
+        "New in the Editor's Powers tab:" + nl + nl +
+        "• Change single colors: Colors in This Power shows the colors a power really uses. Click one to replace just that color (for example only the blue of Thor's lightning), keeping the rest of the power as it is. Range sets how close shades change with it." + nl + nl +
+        "• Pick the new color as a hex code, on a color wheel, or with the Eyedropper: press it and drag onto any color on the screen, even in another window. Your five most recent colors are kept, and Reset goes back to the power's own color." + nl + nl +
+        "• Switching powers keeps the frame slider's place, to compare powers at the same moment." + nl + nl +
+        "[!] These features are experimental." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
+        "The manual explains each step (Help, or F1); Settings → What's New shows this notice and the earlier ones.",
+        "singlecolors");
 
     static Notice Editor(bool powers) => new(
         "0.37.109-editor" + (powers ? "-powers-animations" : ""), "0.37.109",

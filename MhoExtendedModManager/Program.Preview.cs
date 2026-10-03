@@ -598,6 +598,188 @@ static partial class Program
                     Console.WriteLine($"  {ColorMap.Hex(c.Tint)}  {c.Share * 100,5:0.0} %  hue {PowerRecolor.Hue(c.Tint),3:0}  {c.Sources}");
                 return 0;
             }
+            case "--actor-props":
+            {
+                // Read-only: every animated actor (PowerFxAnimatedActor / EntityFxAnimatedActor) in the UC__ packages: which
+                // properties they set, how often, with example values. --actor-props [package name part]
+                string? agr = settings.ResolvedGameRoot(data);
+                string? acook2 = agr != null && Settings.IsGameRoot(agr) ? Settings.Cooked(agr) : null;
+                if (acook2 == null) { Console.WriteLine("game folder not found"); return 1; }
+                var counts = new SortedDictionary<string, (int N, List<string> Ex)>(StringComparer.OrdinalIgnoreCase);
+                int actorsSeen = 0;
+                foreach (string f in Directory.EnumerateFiles(acook2, "UC__*_SF.upk"))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (rest.Count > 1 && !fn.Contains(rest[1], StringComparison.OrdinalIgnoreCase)) continue;
+                    MhoPackageModifier.Package pk;
+                    try { pk = MhoPackageModifier.Package.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+                    var t = new Fx.FxTables(pk);
+                    for (int i = 0; i < pk.Exports.Length; i++)
+                    {
+                        string c = pk.ClassOf(pk.Exports[i]);
+                        if (!(c.StartsWith("PowerFxAnimatedActor", StringComparison.OrdinalIgnoreCase) || c.StartsWith("EntityFxAnimatedActor", StringComparison.OrdinalIgnoreCase)) || c.EndsWith("MaterialParameter", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!pk.PathOf(pk.Exports[i]).Contains("default__", StringComparison.OrdinalIgnoreCase)) continue;
+                        actorsSeen++;
+                        foreach (var pr in Fx.FxProps.Find(pk.Body, t, t.Exports[i])?.Props ?? [])
+                        {
+                            counts.TryGetValue(pr.Name, out var v);
+                            var ex = v.Ex ?? [];
+                            string val = pr.Value ?? (pr.Size == 4 && pr.Type.Equals("FloatProperty", StringComparison.OrdinalIgnoreCase) ? BitConverter.ToSingle(pk.Body, pr.ValueAt).ToString("0.##") : pr.Type);
+                            if (ex.Count < 4 && !ex.Contains(val)) ex.Add(val);
+                            counts[pr.Name] = (v.N + 1, ex);
+                        }
+                    }
+                }
+                Console.WriteLine($"{actorsSeen} animated actor defaults");
+                foreach (var (n, (k, ex)) in counts.OrderByDescending(x => x.Value.N)) Console.WriteLine($"  {n,-34} {k,4}  e.g. {string.Join(" | ", ex)}");
+                return 0;
+            }
+            case "--singlekey-census":
+            {
+                // Read-only: in the given packages' AnimSets, the single-key rotation tracks of posed bones (not the root or
+                // a *_offset bone) where "closer to the bind pose" picks the mirrored (conjugate) reading over the stored one,
+                // and by how much (degrees between them). --singlekey-census <file.upk> …
+                int tracks = 0, flipped = 0, storedWins = 0, mirroredWins = 0;
+                var byBone = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var examples = new List<string>();
+                foreach (string path in rest.Skip(1))
+                {
+                    var ap = AnimExportCli.Packages.Package.Open(path);
+                    var meshIdx = ap.FindExportsOfClass("skeletalmesh").ToList();
+                    foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap))
+                    {
+                        // The rest pose: the package's first mesh with these bones.
+                        var mesh = meshIdx.Select(mi => { try { return AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, mi, _ => { }); } catch { return null; } })
+                            .FirstOrDefault(m => m != null && set.TrackBoneNames.Count(n => m.Bones.Any(b => b.Name.Equals(n, StringComparison.OrdinalIgnoreCase))) > set.TrackBoneNames.Count / 2);
+                        if (mesh == null) continue;
+                        // Every multi-key rotation of each bone in the set (not ambiguous): what the bone's poses look like.
+                        var poses = new Dictionary<string, List<System.Numerics.Quaternion>>(StringComparer.OrdinalIgnoreCase);
+                        var decodedSeqs = set.Sequences.Where(q => q.IsExport).Select(q => (q, A: AnimExportCli.Animation.AnimObjectReader.TryRead(ap, q.ExportIndex, set.TrackBoneNames))).ToList();
+                        foreach (var (_, A) in decodedSeqs)
+                            if (A != null)
+                                foreach (var (bn, tr) in A.Tracks)
+                                    if (tr.RotationKeys.Count > 1)
+                                    {
+                                        if (!poses.TryGetValue(bn, out var pl)) poses[bn] = pl = [];
+                                        for (int k = 0; k < tr.RotationKeys.Count; k += 4) pl.Add(System.Numerics.Quaternion.Normalize(tr.RotationKeys[k].Rotation));
+                                    }
+                        foreach (var seq in set.Sequences.Where(q => q.IsExport))
+                        {
+                            var anim = AnimExportCli.Animation.AnimObjectReader.TryRead(ap, seq.ExportIndex, set.TrackBoneNames);
+                            if (anim == null) continue;
+                            string an = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex);
+                            foreach (var (bone, t) in anim.Tracks)
+                            {
+                                if (t.RotationKeys.Count != 1 || bone.EndsWith("_offset", StringComparison.OrdinalIgnoreCase)) continue;
+                                var mb = mesh.Bones.FirstOrDefault(b => b.Name.Equals(bone, StringComparison.OrdinalIgnoreCase));
+                                if (mb == null || mb.ParentIndex < 0 || bone.Equals("root", StringComparison.OrdinalIgnoreCase) || ReferenceEquals(mesh.Bones[0], mb)) continue;
+                                tracks++;
+                                var d = t.RotationKeys[0].Rotation; var rest0 = System.Numerics.Quaternion.Normalize(mb.Orientation);
+                                var c = new System.Numerics.Quaternion(-d.X, -d.Y, -d.Z, d.W);
+                                if (MathF.Abs(System.Numerics.Quaternion.Dot(c, rest0)) <= MathF.Abs(System.Numerics.Quaternion.Dot(d, rest0))) continue;
+                                float deg = 2 * MathF.Acos(Math.Clamp(MathF.Abs(System.Numerics.Quaternion.Dot(System.Numerics.Quaternion.Normalize(d), System.Numerics.Quaternion.Normalize(c))), 0, 1)) * 180 / MathF.PI;
+                                if (deg < 2) continue;   // the two readings are the same rotation, near enough
+                                flipped++;
+                                // Which reading looks like the bone's multi-key poses (smallest angle to any of them)?
+                                if (poses.TryGetValue(bone, out var known) && known.Count > 0)
+                                {
+                                    float Near(System.Numerics.Quaternion q) => known.Min(k => 2 * MathF.Acos(Math.Clamp(MathF.Abs(System.Numerics.Quaternion.Dot(System.Numerics.Quaternion.Normalize(q), k)), 0, 1)));
+                                    float nd = Near(d), nc = Near(c);
+                                    if (nd < nc) storedWins++; else if (nc < nd) mirroredWins++;
+                                }
+                                byBone[bone] = byBone.GetValueOrDefault(bone) + 1;
+                                if (examples.Count < 12) examples.Add($"{Path.GetFileName(path)} {an} {bone}: {deg:0}° apart");
+                            }
+                        }
+                    }
+                }
+                Console.WriteLine($"{tracks} single-key tracks of posed bones; the bind-pose rule picks the mirrored reading (2°+ apart) on {flipped}");
+                Console.WriteLine($"  of those, closer to the same bone's multi-key poses: the stored reading {storedWins}, the mirrored one {mirroredWins}");
+                foreach (var (b, n) in byBone.OrderByDescending(x => x.Value).Take(15)) Console.WriteLine($"  {b}: {n}");
+                foreach (var e in examples) Console.WriteLine("  e.g. " + e);
+                return 0;
+            }
+            case "--attach-offsets":
+            {
+                // Read-only: every attachment class default (marvelattachment*) in the UC__ packages that sets an offset
+                // property (OffsetRotation, OffsetTranslation …): class, package, values; and which classes extend it.
+                // --attach-offsets [package name part]
+                string? ogr = settings.ResolvedGameRoot(data);
+                string? ocook = ogr != null && Settings.IsGameRoot(ogr) ? Settings.Cooked(ogr) : null;
+                if (ocook == null) { Console.WriteLine("game folder not found"); return 1; }
+                int seen = 0;
+                foreach (string f in Directory.EnumerateFiles(ocook, rest.Count > 1 && !rest[1].StartsWith("UC__", StringComparison.OrdinalIgnoreCase) ? "*" + rest[1] + "*.upk" : "UC__*_SF.upk"))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (rest.Count > 1 && !fn.Contains(rest[1], StringComparison.OrdinalIgnoreCase)) continue;
+                    MhoPackageModifier.Package pk;
+                    try { pk = MhoPackageModifier.Package.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+                    for (int i = 0; i < pk.Exports.Length; i++)
+                    {
+                        var e = pk.Exports[i];
+                        if (!e.ObjectName.StartsWith("default__marvelattachment", StringComparison.OrdinalIgnoreCase)) continue;
+                        seen++;
+                        byte[] d = pk.ReadExportBytes(e);
+                        if (MhoPackageModifier.TagWalker.Walk(pk, d, 4) is not { } tags) continue;
+                        var offs = tags.Where(t => t.Name.Contains("offset", StringComparison.OrdinalIgnoreCase) || t.Name.Contains("rotation", StringComparison.OrdinalIgnoreCase) || t.Name.Contains("scale", StringComparison.OrdinalIgnoreCase)).ToList();
+                        if (offs.Count == 0) continue;
+                        string vals = string.Join("; ", offs.Select(t => t.Size == 12 && t.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase)
+                            ? (t.Name.Contains("rotation", StringComparison.OrdinalIgnoreCase)
+                                ? $"{t.Name} pitch {BitConverter.ToInt32(d, t.ValueAt)} yaw {BitConverter.ToInt32(d, t.ValueAt + 4)} roll {BitConverter.ToInt32(d, t.ValueAt + 8)}"
+                                : $"{t.Name} {BitConverter.ToSingle(d, t.ValueAt):0.##},{BitConverter.ToSingle(d, t.ValueAt + 4):0.##},{BitConverter.ToSingle(d, t.ValueAt + 8):0.##}")
+                            : t.Size == 4 && t.Type.Equals("FloatProperty", StringComparison.OrdinalIgnoreCase) ? $"{t.Name} {BitConverter.ToSingle(d, t.ValueAt):0.##}" : $"{t.Name} ({t.Type} {t.Size})"));
+                        Console.WriteLine($"{fn}: {e.ObjectName[9..]}: {vals}");
+                    }
+                }
+                Console.WriteLine($"{seen} attachment defaults read");
+                return 0;
+            }
+            case "--mesh-origin":
+            {
+                // Read-only: each skeletal mesh's Origin and RotOrigin (native data) in the given packages.
+                foreach (string path in rest.Skip(1))
+                {
+                    var ap = AnimExportCli.Packages.Package.Open(path);
+                    foreach (int i in ap.FindExportsOfClass("skeletalmesh"))
+                        if (AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i, _ => { }) is { } sm)
+                            Console.WriteLine($"{Path.GetFileName(path)} | {sm.Name}: origin {sm.Origin.X:0.##},{sm.Origin.Y:0.##},{sm.Origin.Z:0.##}; rot origin pitch {sm.RotOrigin.Pitch} yaw {sm.RotOrigin.Yaw} roll {sm.RotOrigin.Roll}; root bone {sm.Bones[0].Name}");
+                }
+                return 0;
+            }
+            case "--fx-census":
+            {
+                // Read-only: per hero, the powers whose effects include summoned entities' models or animated actors (the
+                // parts the 3D preview doesn't show yet). --fx-census [hero …] (none: every hero)
+                string? cgr = settings.ResolvedGameRoot(data);
+                string? ccook = cgr != null && Settings.IsGameRoot(cgr) ? Settings.Cooked(cgr) : null;
+                if (ccook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var cdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(cgr!, "Data", "Game", "Calligraphy.sip")));
+                var cgame = new Fx.FxGame(ccook, []);
+                var heroes = rest.Count > 1 ? rest.Skip(1).ToList()
+                    : Directory.EnumerateFiles(ccook, "UC__MarvelPlayer_*_SF.upk").Select(f => System.Text.RegularExpressions.Regex.Match(Path.GetFileName(f), @"^UC__MarvelPlayer_([A-Za-z0-9]+)_SF\.upk$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                        .Where(m => m.Success).Select(m => m.Groups[1].Value).ToList();
+                int summons = 0, actors = 0, powersWith = 0;
+                foreach (string h in heroes)
+                {
+                    List<Fx.PowerList.Power> list;
+                    try { list = Fx.PowerList.For(cdb, h, ccook, []); } catch (Exception ex) when (ex is IOException or InvalidDataException or KeyNotFoundException) { continue; }
+                    foreach (var pw in list)
+                    {
+                        Fx.PowerEffects pfx;
+                        try { pfx = Fx.PowerEffects.For(cgame, cdb, pw.Prototype, h); }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or KeyNotFoundException or ArgumentException or IndexOutOfRangeException) { continue; }
+                        var notes = pfx.Notes.Distinct().Where(n => n.Contains("summoned") || n.Contains("animated actor")).ToList();
+                        if (notes.Count == 0 && pfx.Actors.Count == 0) continue;
+                        powersWith++;
+                        summons += notes.Count(n => n.Contains("summoned")); actors += pfx.Actors.Count;
+                        Console.WriteLine($"{h} · {pw.Name}: " + string.Join("; ", pfx.Actors.Take(6).Select(x => $"actor {x.Name}{(x.TriggeredBy != null ? " BY " + x.TriggeredBy : "")} ({Path.GetFileName(x.MeshFile)} #{x.MeshExport}, {x.AnimName ?? "no anim"}{(x.SetFile == null ? ", no AnimSet" : "")}, {x.Point}+{x.Offset:0.##}{(x.AtTarget ? ", at target" : "")}{(x.Shift != System.Numerics.Vector3.Zero ? $", shift {x.Shift.X:0},{x.Shift.Y:0},{x.Shift.Z:0}" : "")}{(x.Scale != 1 ? $", scale {x.Scale:0.##}" : "")})").Concat(notes.Take(3))));
+                    }
+                }
+                Console.WriteLine($"{powersWith} power(s) of {heroes.Count} hero(es): {summons} summoned model(s), {actors} animated actor(s)");
+                return 0;
+            }
             case "--hero-powers":
             {
                 // Read-only: a hero's powers as the 3D preview's power buttons list them (name, icon, animations).
@@ -889,7 +1071,7 @@ static partial class Program
                         var ap = AnimExportCli.Packages.Package.Open(path);
                         var sets = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).ToList();
                         Console.WriteLine($"{Path.GetFileName(path)}: {sets.Count} AnimSet(s), {ap.FindExportsOfClass("skeletalmesh").Count()} skeletal mesh(es)");
-                        foreach (var s in sets.Take(8)) Console.WriteLine($"  {ap.GetExportName(s.ExportIndex)}: {s.Sequences.Count} sequences, {s.TrackBoneNames.Count} bones");
+                        foreach (var s in sets.Take(8)) Console.WriteLine($"  {ap.GetExportName(s.ExportIndex)}: {s.Sequences.Count} sequences, {s.TrackBoneNames.Count} bones; " + (s.RotationOnly ? $"rotation-only, positions for {s.TranslationBones?.Count ?? 0}: {string.Join(" ", s.TranslationBones ?? [])}" : "positions for every bone"));
                     }
                     catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(path)}: {ex.GetType().Name}: {ex.Message}"); }
                 }

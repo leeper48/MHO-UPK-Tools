@@ -23,6 +23,11 @@ sealed class MaterialInfo
     public float Scalar(string name, float fallback) => Scalars.TryGetValue(name, out float v) ? v : fallback;
     public bool Masked => Parent.Contains("masked", StringComparison.OrdinalIgnoreCase);
     public bool Translucent => Parent.Contains("translucent", StringComparison.OrdinalIgnoreCase);
+    /// <summary>The base material's BlendMode and LightingModel when it's in the package (blend_translucent, mlm_unlit …).</summary>
+    public string BlendMode = "", LightingModel = "";
+    /// <summary>An effect material: unlit and see-through (translucent or additive): an animated actor's silhouette.</summary>
+    public bool Ghost => LightingModel.Contains("unlit", StringComparison.OrdinalIgnoreCase)
+        && (BlendMode.Contains("translucent", StringComparison.OrdinalIgnoreCase) || BlendMode.Contains("additive", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The texture parameter whose name contains one of the parts (first match), or -1.</summary>
     public int Texture(params string[] parts)
@@ -46,7 +51,21 @@ static class ModMaterials
             if (reference < 0) { info.Parent = pkg.RefName(reference); break; }
             var e = pkg.Exports[reference - 1];
             string cls = pkg.ClassOf(e);
-            if (!cls.Equals("MaterialInstanceConstant", StringComparison.OrdinalIgnoreCase)) { info.Parent = e.ObjectName; break; }
+            if (!cls.Equals("MaterialInstanceConstant", StringComparison.OrdinalIgnoreCase) && !cls.Equals("MaterialInstanceTimeVarying", StringComparison.OrdinalIgnoreCase))
+            {
+                info.Parent = e.ObjectName;
+                if (cls.Equals("Material", StringComparison.OrdinalIgnoreCase) && TagWalker.Walk(pkg, pkg.ReadExportBytes(e), 4) is { } mt)
+                {
+                    byte[] md = pkg.ReadExportBytes(e);
+                    foreach (var t in mt)
+                        if (t.Size == 8 && (t.Name.Equals("BlendMode", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("LightingModel", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            string v = TagWalker.NameAt(pkg, md, t.ValueAt);
+                            if (t.Name.Equals("BlendMode", StringComparison.OrdinalIgnoreCase)) info.BlendMode = v; else info.LightingModel = v;
+                        }
+                }
+                break;
+            }
             byte[] d = pkg.ReadExportBytes(e);
             int parent = 0;
             if (TagWalker.Walk(pkg, d, 4) is { } tags)

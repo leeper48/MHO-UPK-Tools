@@ -13,8 +13,7 @@ static class PowerColorBuild
         var before = editing?.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var wanted = draft.PowerColors.Where(e => !e.Color.IsNone).ToList();
         if (wanted.Count == 0 && before.Count == 0) { draft.PowerColors.Clear(); return null; }
-        string? hero = draft.Packages.Select(p => p.File.Split('_', StringSplitOptions.RemoveEmptyEntries))
-            .Where(x => x.Length >= 4 && x[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && x[1].Equals("MarvelPlayer", StringComparison.OrdinalIgnoreCase)).Select(x => x[2]).FirstOrDefault();
+        string? hero = draft.Packages.Select(p => HeroOf.Package(p.File, game.Cooked)).FirstOrDefault(h => h != null);
         if (wanted.Count > 0 && hero == null) throw new InvalidDataException("the mod has no hero package (UC__MarvelPlayer_…) to tell whose powers these are");
         powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(game.Root, "Data", "Game", "Calligraphy.sip")));
         string work = Path.Combine(lib.DataFolder, "power-colors-" + Guid.NewGuid().ToString("N")[..8]);

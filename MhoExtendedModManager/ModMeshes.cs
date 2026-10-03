@@ -89,7 +89,16 @@ static class ModMeshes
     public static List<MeshRef> List(Mod m) => List(m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))));
 
     public sealed record Loaded(string Name, Vector3[] Positions, Vector3[] Normals, Vector4[] Tangents, Vector2[] Uv, int[] Indices, int[] TriangleSection,
-        Gui.ModelView.Look?[] Looks, string Info, IReadOnlyList<MeshBone> Bones, IReadOnlyList<VertexInfluence> Influences);
+        Gui.ModelView.Look?[] Looks, string Info, IReadOnlyList<MeshBone> Bones, IReadOnlyList<VertexInfluence> Influences)
+    {
+        /// <summary>The mesh's RotOrigin then Origin (native data; UE3 draws the mesh turned and moved by them): Blade's
+        /// motorcycle turns 90° (yaw 16384), Ghost Rider's chains too. Identity for nearly every mesh (Kurt, 2026-10-03).</summary>
+        public System.Numerics.Matrix4x4 MeshTransform { get; init; } = System.Numerics.Matrix4x4.Identity;
+    }
+
+    /// <summary>A UE3 rotator (pitch, yaw, roll; 65536 = a full turn) as a matrix (UE3's FRotationMatrix, Z up).</summary>
+    public static System.Numerics.Matrix4x4 Rotator(int pitch, int yaw, int roll) => Fx.PowerEffects.Player.UeRotation(
+        pitch * MathF.PI * 2 / 65536, yaw * MathF.PI * 2 / 65536, roll * MathF.PI * 2 / 65536);
 
     /// <summary>Reads a mesh (highest detail, bind pose) and its section textures; null with a reason when it can't be read.</summary>
     public static Loaded? Load(MeshRef r, string? cacheFolder, out string why)
@@ -134,7 +143,11 @@ static class ModMeshes
         int[] indices = [.. lod.Indices];
         return new Loaded(r.Name, positions, normals, Tangents(positions, normals, uvs, indices), uvs, indices, tri, looks,
             $"{lod.Positions.Count:N0} vertices, {lod.TriangleCount:N0} triangles, textures {shown} of {looks.Length}" + (notes.Count > 0 ? "; " + string.Join("; ", notes.Distinct().Take(3)) : ""),
-            mesh.Bones, lod.Influences);
+            mesh.Bones, lod.Influences)
+        {
+            MeshTransform = mesh.RotOrigin == (0, 0, 0) && mesh.Origin == Vector3.Zero ? System.Numerics.Matrix4x4.Identity
+                : Rotator(mesh.RotOrigin.Pitch, mesh.RotOrigin.Yaw, mesh.RotOrigin.Roll) * System.Numerics.Matrix4x4.CreateTranslation(mesh.Origin),
+        };
     }
 
     /// <summary>
@@ -187,6 +200,13 @@ static class ModMeshes
         MaterialInfo? mi = null;
         try { mi = ModMaterials.Read(pkg, mat); } catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
         Gui.ModelView.Map? Map(int export) => export < 0 ? null : LoadMap(pkg, export, cacheFolder, cache, notes, s);
+        if (mi is { Ghost: true })
+        {
+            // An effect material: its colour parameter (a name with "color", else the first), glowing when additive.
+            var col = mi.Vectors.FirstOrDefault(v => v.Key.Contains("color", StringComparison.OrdinalIgnoreCase)).Value is var cv && cv != default ? cv
+                : mi.Vectors.Values.FirstOrDefault(new System.Numerics.Vector4(0.6f, 0.75f, 1f, 1));
+            return new Gui.ModelView.Look { Ghost = true, GhostAdditive = mi.BlendMode.Contains("additive", StringComparison.OrdinalIgnoreCase), GhostColor = new System.Numerics.Vector3(col.X, col.Y, col.Z) };
+        }
         int diffuseAt = -1;
         if (mi != null)
             foreach (var (k, v) in mi.Textures)
@@ -307,6 +327,9 @@ static class ModMeshes
         /// <summary>bAttachUseParentAnim: rigged to the character's skeleton and moved by the character's animation (Taskmaster's
         /// bow, Punisher's flamethrower): no bone of its own.</summary>
         public bool UseParentAnim { get; init; }
+        /// <summary>OffsetRotation (pitch, yaw, roll): the prop turned on its bone. Every vehicle that sets one turns 90°
+        /// (Hawkeye's and Kate Bishop's Sky-Cycle, Ghost Rider's bikes, Doom's throne, Lockheed …; Kurt 2026-10-03).</summary>
+        public (int Pitch, int Yaw, int Roll) OffsetRotation { get; init; }
     }
 
     /// <summary>
@@ -348,7 +371,7 @@ static class ModMeshes
             // (the mesh too: a default that sets only its slots has its parent class's)
             var meshes = From(a, x => x.Meshes.Count > 0 ? x.Meshes : null) ?? (a.GuessMesh != null ? [a.GuessMesh] : []);
             foreach (string m in meshes)
-                result.Add(new Attachment(m, From(a, x => x.Bone), slots.FirstOrDefault()) { OnDemand = OnDemandOf(a), Class = a.Class, Slots = slots, UseParentAnim = ParentAnimOf(a) });
+                result.Add(new Attachment(m, From(a, x => x.Bone), slots.FirstOrDefault()) { OnDemand = OnDemandOf(a), Class = a.Class, Slots = slots, UseParentAnim = ParentAnimOf(a), OffsetRotation = Inherited(a, x => x.OffsetRotation) ?? (0, 0, 0) });
         }
         return result;
     }
@@ -356,6 +379,7 @@ static class ModMeshes
     sealed record RawAttachment(string Class, List<string> Meshes, string? Bone, List<string>? Slots, bool? OnDemand, string? Super)
     {
         public bool? UseParentAnim { get; init; }
+        public (int Pitch, int Yaw, int Roll)? OffsetRotation { get; init; }
         /// <summary>A skeletal mesh of the package whose name ends the class name (marvelattachment_kittypryde_katana →
         /// katana): used only when the class sets no mesh and none is inherited (a guess: Kitty's katana names none, its
         /// parent class isn't in the package, and the package has a mesh "katana").</summary>
@@ -384,7 +408,7 @@ static class ModMeshes
                 if (!cls.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase)) continue;
                 var d = pkg.ReadExportBytes(e);
                 if (TagWalker.Walk(pkg, d, 4) is not { } tags) continue;
-                var meshes = new List<string>(); string? bone = null; List<string>? slots = null; bool? onDemand = null, parentAnim = null;
+                var meshes = new List<string>(); string? bone = null; List<string>? slots = null; bool? onDemand = null, parentAnim = null; (int, int, int)? offsetRot = null;
                 foreach (var t in tags)
                 {
                     int count = t.Size >= 4 ? BitConverter.ToInt32(d, t.ValueAt) : 0;
@@ -406,12 +430,15 @@ static class ModMeshes
                         for (int k = 0; k < count && t.ValueAt + 4 + 8 * (k + 1) <= t.End; k++) slots.Add(TagWalker.NameAt(pkg, d, t.ValueAt + 4 + 8 * k));
                     }
                     else if (t.Name.Equals("bAttachUseParentAnim", StringComparison.OrdinalIgnoreCase)) parentAnim = d[t.ValueAt - 1] != 0;
+                    else if (t.Name.Equals("OffsetRotation", StringComparison.OrdinalIgnoreCase) && t.Size == 12)
+                        offsetRot = (BitConverter.ToInt32(d, t.ValueAt), BitConverter.ToInt32(d, t.ValueAt + 4), BitConverter.ToInt32(d, t.ValueAt + 8));
                     else if (t.Name.Equals("VisibilityPoint", StringComparison.OrdinalIgnoreCase))
                         onDemand = TagWalker.NameAt(pkg, d, t.ValueAt).Contains("on_demand", StringComparison.OrdinalIgnoreCase);
                 }
                 raw.Add(new RawAttachment(cls, meshes, bone, slots, onDemand, SuperOf(pkg, cls))
                 {
                     UseParentAnim = parentAnim,
+                    OffsetRotation = offsetRot,
                     GuessMesh = skeletal.Where(m => cls.EndsWith("_" + m, StringComparison.OrdinalIgnoreCase)).OrderByDescending(m => m.Length).FirstOrDefault(),
                 });
             }

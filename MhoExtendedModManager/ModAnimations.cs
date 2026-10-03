@@ -110,6 +110,33 @@ static class ModAnimations
         return result.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// An animation by name in an AnimSet (an animated actor's Animations, by package file and export), else in any AnimSet
+    /// of that package, else of <paramref name="fallbackFile"/> (the actor mesh's package); null when none has it.
+    /// </summary>
+    public static AnimRef? Named(string? setFile, int setExport, string? fallbackFile, string name)
+    {
+        foreach (var (file, exp) in new[] { (setFile, setExport), (setFile, -1), (fallbackFile, -1) })
+        {
+            if (file == null || !File.Exists(file)) continue;
+            AnimPackage pkg;
+            try { pkg = Open(file); } catch (Exception ex) when (ex is IOException or InvalidDataException or AnimExportCli.Packages.InvalidPackageException) { continue; }
+            foreach (var set in AnimObjectReader.FindAnimSets(pkg))
+            {
+                if (exp >= 0 && set.ExportIndex != exp) continue;
+                foreach (var seq in set.Sequences.Where(s => s.IsExport))
+                {
+                    string n;
+                    try { n = AnimObjectReader.GetSequenceDisplayName(pkg, seq.ExportIndex); } catch { continue; }
+                    if (n.Equals(name, StringComparison.OrdinalIgnoreCase))
+                        return new AnimRef(Path.GetFileName(file), file, n, seq.ExportIndex, set.TrackBoneNames)
+                            { TranslationBones = set.RotationOnly ? new HashSet<string>(set.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null };
+                }
+            }
+        }
+        return null;
+    }
+
     /// <summary>Decodes an animation; null if it can't be read.</summary>
     public static BoneAnimation? Load(AnimRef a)
     {
@@ -140,6 +167,9 @@ sealed class MeshAnimator
     public Vector3[] Normals { get; }
     /// <summary>Tangents (xyz) turned with the mesh; w, the bitangent's sign, is kept.</summary>
     public Vector4[] Tangents { get; }
+
+    /// <summary>False: the root's X / Y moves with the animation (an animated actor leaping in); true (the hero): in place.</summary>
+    public bool InPlace { get; set; } = true;
 
     public MeshAnimator(IReadOnlyList<MeshBone> bones, Vector3[] positions, Vector3[] normals, IReadOnlyList<VertexInfluence> influences, Vector4[]? tangents = null)
     {
@@ -191,9 +221,13 @@ sealed class MeshAnimator
                 var tb = ModAnimations.TranslationBones(a);
                 if (tb == null || i == 0 || b.ParentIndex < 0 || tb.Contains(b.Name)) p = Sample(t.PositionKeys, frame, p);
                 var keys = t.RotationKeys;
-                if (keys.Count == 1) r = SingleKey(keys[0].Rotation, r);
+                // A single rotation key: the bind-pose rule (SingleKey) only for the root and *_offset bones, where it was
+                // confirmed; a posed bone keeps its stored rotation. Checked 2026-10-03 (--singlekey-census): where the two
+                // differ, the stored one is the closer to that bone's multi-key poses in 1,057 of 1,102 tracks (Cyclops,
+                // Storm, Thor, Punisher), and on Cyclops's bike it puts his hands on the grips (2.6 units, was 13).
+                if (keys.Count == 1) r = singleKeyTest != "auto" && !(i == 0 || b.ParentIndex < 0 || b.Name.EndsWith("_offset", StringComparison.OrdinalIgnoreCase)) ? keys[0].Rotation : SingleKey(keys[0].Rotation, r);
                 else r = Sample(keys, frame, r);
-                if (i == 0 || b.ParentIndex < 0) p = new Vector3(b.Position.X, b.Position.Y, p.Z);   // play in place
+                if (InPlace && (i == 0 || b.ParentIndex < 0)) p = new Vector3(b.Position.X, b.Position.Y, p.Z);   // play in place
             }
             var local = Matrix4x4.CreateFromQuaternion(Unit(r)) * Matrix4x4.CreateTranslation(p);
             posed[i] = b.ParentIndex >= 0 && b.ParentIndex < i ? local * posed[b.ParentIndex] : local;
@@ -241,9 +275,13 @@ sealed class MeshAnimator
     }
 
     /// <summary>A single rotation key: as decoded or its conjugate, whichever is nearer the rest pose (FbxExporter.ResolveSingleKeyRotation).</summary>
+    static readonly string? singleKeyTest = Environment.GetEnvironmentVariable("MHO_SINGLEKEY");   // test: auto (the old rule everywhere) | decoded | conj
+
     static Quaternion SingleKey(Quaternion decoded, Quaternion rest)
     {
         var conj = new Quaternion(-decoded.X, -decoded.Y, -decoded.Z, decoded.W);
+        if (singleKeyTest == "decoded") return decoded;
+        if (singleKeyTest == "conj") return conj;
         return MathF.Abs(Quaternion.Dot(conj, rest)) > MathF.Abs(Quaternion.Dot(decoded, rest)) ? conj : decoded;
     }
 }

@@ -79,6 +79,10 @@ public sealed record SkeletalMesh
     public required IReadOnlyList<SkeletalMeshLod> Lods { get; init; }
     /// <summary>Byte offset in the export data where the last level of detail ends (what follows is the mesh's tail).</summary>
     public int LodsEnd { get; init; }
+    /// <summary>The mesh's Origin (a translation) and RotOrigin (pitch, yaw, roll; 65536 = a full turn): UE3 applies them
+    /// to the whole mesh when it's drawn (USkeletalMesh native data, after the materials).</summary>
+    public System.Numerics.Vector3 Origin { get; init; }
+    public (int Pitch, int Yaw, int Roll) RotOrigin { get; init; }
 
     public SkeletalMeshLod? HighestDetail => Lods.Count > 0 ? Lods[0] : null;
 
@@ -143,8 +147,8 @@ public static class SkeletalMeshReader
 
         SkipObjectArray(ref cursor); // materials — this tool doesn't need them
 
-        cursor.Skip(4 * 3); // origin
-        cursor.Skip(4 * 3); // rotation origin
+        var origin = new System.Numerics.Vector3(cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
+        var rotOrigin = (cursor.ReadInt32("rot origin pitch"), cursor.ReadInt32("rot origin yaw"), cursor.ReadInt32("rot origin roll"));
 
         IReadOnlyList<MeshBone> bones = ReadBones(ref cursor, package.Names);
 
@@ -161,7 +165,7 @@ public static class SkeletalMeshReader
         var lods = new List<SkeletalMeshLod>(lodCount);
         for (int i = 0; i < lodCount; i++) lods.Add(ReadLod(ref cursor, i, hasVertexColours));
 
-        return new SkeletalMesh { Name = package.GetExportName(exportIndex), Bones = bones, Lods = lods, LodsEnd = cursor.Position };
+        return new SkeletalMesh { Name = package.GetExportName(exportIndex), Bones = bones, Lods = lods, LodsEnd = cursor.Position, Origin = origin, RotOrigin = rotOrigin };
     }
 
     private static void SkipObjectArray(ref PackageCursor cursor)

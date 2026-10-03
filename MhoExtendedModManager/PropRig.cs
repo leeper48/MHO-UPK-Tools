@@ -29,6 +29,8 @@ sealed class PropRig
         public bool OnDemand { get; init; }
         public string Class { get; init; } = "";
         public bool UseParentAnim { get; init; }
+        /// <summary>The attachment's OffsetRotation as a matrix (identity when none).</summary>
+        public Matrix4x4 Offset { get; init; } = Matrix4x4.Identity;
     }
 
     /// <summary>
@@ -58,7 +60,8 @@ sealed class PropRig
                 if (atts.Count == 0) atts = [.. baseAtt.Where(a => a.Class.Equals(cls, cmp))];
                 foreach (var a in atts)
                     if (candidates.FirstOrDefault(m => m.Name.Equals(a.Mesh, cmp)) is { } mr)
-                        list.Add(new Prop(mr, a.Bone) { Slots = a.Slots, OnDemand = a.OnDemand, Class = a.Class, UseParentAnim = a.UseParentAnim });
+                        list.Add(new Prop(mr, a.Bone) { Slots = a.Slots, OnDemand = a.OnDemand, Class = a.Class, UseParentAnim = a.UseParentAnim,
+                            Offset = ModMeshes.Rotator(a.OffsetRotation.Pitch, a.OffsetRotation.Yaw, a.OffsetRotation.Roll) });
             }
             if (list.Count > 0) return list;
         }
@@ -88,11 +91,38 @@ sealed class PropRig
         return Math.Max(0, b);
     }
 
-    public void Clear() { props.Clear(); motion.Clear(); visible = []; }
+    public void Clear() { props.Clear(); motion.Clear(); offsets.Clear(); visible = []; actors.Clear(); }
+    readonly List<Matrix4x4> offsets = [];
+
+    /// <summary>
+    /// An animated actor of the playing power (PowerEffects.Actor; Kurt, 2026-10-03): its own mesh and skeleton, placed in
+    /// the hero's frame (<see cref="Place"/>: scale, turn, offset, at the hero or at the target), shown from
+    /// <see cref="Start"/> to <see cref="End"/> seconds into the animation and playing its own animation from its start.
+    /// </summary>
+    sealed class ActorItem
+    {
+        public ModMeshes.Loaded Mesh = null!;
+        public MeshAnimator Anim = null!;
+        public BoneAnimation? Seq;
+        public float Frames, Seconds, Start, End;
+        public Matrix4x4 Place;
+    }
+    readonly List<ActorItem> actors = [];
+
+    /// <summary>The playing power's colour change (the Powers tab's colour, PowerColor.Apply), for the actors' glowing
+    /// sections; null: the game's colours.</summary>
+    public Func<Vector3, Vector3>? Recolor { get; set; }
+
+    public void AddActor(ModMeshes.Loaded mesh, MeshAnimator anim, BoneAnimation? seq, float start, float end, Matrix4x4 place)
+    {
+        var (frames, seconds) = seq == null ? (0f, 0f) : MeshAnimator.Span(seq);
+        actors.Add(new ActorItem { Mesh = mesh, Anim = anim, Seq = seq, Frames = frames, Seconds = seconds, Start = start, End = end, Place = mesh.MeshTransform * place });
+    }
     public void Add(ModMeshes.Loaded mesh, int bone) => Add(mesh, bone, [], false, "");
-    public void Add(ModMeshes.Loaded mesh, int bone, IReadOnlyList<string> slots, bool onDemand, string cls, MeshAnimator? anim = null, List<AnimRef>? anims = null, bool parentAnim = false)
+    public void Add(ModMeshes.Loaded mesh, int bone, IReadOnlyList<string> slots, bool onDemand, string cls, MeshAnimator? anim = null, List<AnimRef>? anims = null, bool parentAnim = false, Matrix4x4? offset = null)
     {
         props.Add((mesh, bone, slots, onDemand, cls));
+        offsets.Add(offset ?? Matrix4x4.Identity);
         motion.Add(anim != null ? new Motion { Anim = anim, Anims = anims ?? [], ParentAnim = parentAnim, Seq = parentAnim ? parentSeq : null, Frames = parentAnim && parentSeq != null ? MeshAnimator.Span(parentSeq).Frames : 0 } : null);
         At(0);
     }
@@ -200,12 +230,12 @@ sealed class PropRig
     /// <summary>The character and the props as one mesh (props' sections after the character's); sizes the pose buffers.</summary>
     public ModMeshes.Loaded Combine(ModMeshes.Loaded l)
     {
-        int total = l.Positions.Length + props.Sum(p => p.Mesh.Positions.Length);
+        int total = l.Positions.Length + props.Sum(p => p.Mesh.Positions.Length) + actors.Sum(a => a.Mesh.Positions.Length);
         pos = new Vector3[total]; nrm = new Vector3[total]; tan = new Vector4[total];
-        if (props.Count == 0) return l;
+        if (props.Count == 0 && actors.Count == 0) return l;
         var p = new List<Vector3>(l.Positions); var n = new List<Vector3>(l.Normals); var t = new List<Vector4>(l.Tangents); var uvs = new List<Vector2>(l.Uv);
         var idx = new List<int>(l.Indices); var tri = new List<int>(l.TriangleSection); var looks = new List<Gui.ModelView.Look?>(l.Looks);
-        foreach (var (m, _, _, _, _) in props)
+        foreach (var m in props.Select(x => x.Mesh).Concat(actors.Select(a => a.Mesh)))
         {
             int vbase = p.Count, sbase = looks.Count;
             p.AddRange(m.Positions); n.AddRange(m.Normals); t.AddRange(m.Tangents); uvs.AddRange(m.Uv);
@@ -217,16 +247,18 @@ sealed class PropRig
     /// <summary>Shows the pose the animator was last posed in: the character skinned, each prop moved by its bone.</summary>
     public void Update(Gui.ModelView view, MeshAnimator animator)
     {
-        if (props.Count == 0) { view.UpdateGeometry(animator); return; }
+        if (props.Count == 0 && actors.Count == 0) { view.UpdateGeometry(animator); return; }
         int count = animator.Positions.Length;
-        if (pos.Length < count + props.Sum(x => x.Mesh.Positions.Length)) { view.UpdateGeometry(animator); return; }   // Combine not called yet
+        if (pos.Length < count + props.Sum(x => x.Mesh.Positions.Length) + actors.Sum(a => a.Mesh.Positions.Length)) { view.UpdateGeometry(animator); return; }   // Combine not called yet
         Array.Copy(animator.Positions, pos, count); Array.Copy(animator.Normals, nrm, Math.Min(count, animator.Normals.Length)); Array.Copy(animator.Tangents, tan, Math.Min(count, animator.Tangents.Length));
         int at = count, pi = 0;
+        var ghost = new List<Gui.ModelView.FxTri>();
         foreach (var (m, bone, _, _, _) in props)
         {
             // (bone -1: rigged to the character's skeleton and posed in its model space already; the root bone's matrix
             // turned Taskmaster's bow a second time, onto the wrong side)
-            var mat = bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone);
+            // The mesh's own RotOrigin, the attachment's OffsetRotation, then the bone (UE3's order).
+            var mat = m.MeshTransform * (pi < offsets.Count ? offsets[pi] : Matrix4x4.Identity) * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone));
             var mo = pi < motion.Count ? motion[pi] : null;
             if (pi < visible.Length && !visible[pi++])
             {
@@ -249,6 +281,48 @@ sealed class PropRig
                 if (v < st.Length) { var tv = st[v]; var tt = Vector3.TransformNormal(new Vector3(tv.X, tv.Y, tv.Z), mat); tan[at] = new Vector4(tt.LengthSquared() > 0 ? Vector3.Normalize(tt) : tt, tv.W); }
             }
         }
+        foreach (var a in actors)
+        {
+            var m = a.Mesh;
+            if (lastSeconds < a.Start || lastSeconds > a.End)
+            {
+                var c = a.Place.Translation;
+                for (int v = 0; v < m.Positions.Length; v++, at++) pos[at] = c;
+                continue;
+            }
+            int baseAt = at;
+            float t = (float)(lastSeconds - a.Start);
+            a.Anim.Pose(a.Seq, a.Seq != null && a.Seconds > 0 ? Math.Clamp(t / a.Seconds, 0, 1) * a.Frames : 0);
+            Vector3[] sp = a.Anim.Positions, sn = a.Anim.Normals; Vector4[] st = a.Anim.Tangents;
+            for (int v = 0; v < m.Positions.Length; v++, at++)
+            {
+                pos[at] = Vector3.Transform(sp[v], a.Place);
+                if (v < sn.Length) nrm[at] = Vector3.Normalize(Vector3.TransformNormal(sn[v], a.Place));
+                if (v < st.Length) { var tv = st[v]; var tt = Vector3.TransformNormal(new Vector3(tv.X, tv.Y, tv.Z), a.Place); tan[at] = new Vector4(tt.LengthSquared() > 0 ? Vector3.Normalize(tt) : tt, tv.W); }
+            }
+            // Its effect-material sections (silhouettes) as glowing triangles: the view skips them as surfaces. Their opacity
+            // is divided by the preview's effect strength, which the view multiplies every effect by (10 %).
+            // (an HDR colour scaled into range; an afterimage fading out over its life, from 35 % opacity)
+            float life = Math.Max(0.05f, a.End - a.Start), fade = 0.35f * (1 - Math.Clamp(t / life, 0, 1) * 0.85f);
+            Vector3 tint = Vector3.Zero;
+            float bright = 1;
+            for (int k = 0; k + 2 < m.Indices.Length; k += 3)
+            {
+                int sec = k / 3 < m.TriangleSection.Length ? m.TriangleSection[k / 3] : 0;
+                if (sec >= m.Looks.Length || m.Looks[sec] is not { Ghost: true } gl) continue;
+                // Through the power's colour change, as its particles: a glow shows as bright as its colour is, so a darker
+                // colour makes it fainter and black hides it (Kurt, 2026-10-03).
+                var orig = gl.GhostColor;
+                var col = Recolor?.Invoke(orig) ?? orig;
+                float mo = MathF.Max(orig.X, MathF.Max(orig.Y, orig.Z)), mx = MathF.Max(col.X, MathF.Max(col.Y, col.Z));
+                bright = mo > 1e-6f ? Math.Clamp(mx / mo, 0, 1) : 1;
+                tint = mx > 1 ? col / mx : col;
+                int i0 = baseAt + m.Indices[k], i1 = baseAt + m.Indices[k + 1], i2 = baseAt + m.Indices[k + 2];
+                ghost.Add(new Gui.ModelView.FxTri(pos[i0], pos[i1], pos[i2], default, default, default,
+                    new Vector4(tint, fade * bright / Math.Max(0.01f, PreviewViews.FxPower)), null, gl.GhostAdditive, false));
+            }
+        }
+        if (ghost.Count > 0) view.EffectTris = [.. view.EffectTris, .. ghost];
         view.UpdateGeometry(pos, nrm, tan);
     }
 }

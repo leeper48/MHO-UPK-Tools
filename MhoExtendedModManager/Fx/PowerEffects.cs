@@ -46,6 +46,20 @@ sealed class PowerEffects
     }
 
     public readonly List<MeshScale> Scales = new();
+
+    /// <summary>
+    /// An animated actor (Kurt, 2026-10-03; 305 in the game: Captain America's Avengers Assemble, the Fantastic Four, Jean
+    /// Grey's Phoenix, slash silhouettes): a skeletal mesh that plays its own animation during the power. Its mesh and
+    /// AnimSet as package files and export indices (0-based); when it starts and stops; where (SpawnOn: by the hero, or at
+    /// the target; offset and turn in the hero's frame, characters face +X); its scale.
+    /// </summary>
+    public sealed record Actor(string Name, string MeshFile, int MeshExport, string? SetFile, int SetExport, string? AnimName,
+        string Point, float Offset, string? EndPoint, float EndOffset, bool DeactivatesOnEnd, float DestroyDelay,
+        bool AtTarget, Vector3 Shift, Vector3 Turn, float Scale, string Kind)
+    {
+        public string? TriggeredBy { get; init; }
+    }
+    public readonly List<Actor> Actors = new();
     public readonly List<Decal> Decals = new();
     public readonly List<SlotChange> Slots = new();
     /// <summary>The weapon slot a missile carries away (the projectile class's OwnerWeaponSlotToDetach), or null.</summary>
@@ -130,6 +144,12 @@ sealed class PowerEffects
             foreach (var dc in more.Decals) fx.Decals.Add(dc with { TriggeredBy = by });
             foreach (var sc in more.Slots) fx.Slots.Add(sc with { TriggeredBy = by });
             foreach (var sc in more.Scales) fx.Scales.Add(sc with { TriggeredBy = by });
+            // Actors of a later moment the power sets off (Call Beast's CallBeastDismount: Beast leaving; AngelDFAEnd,
+            // LockheedChargeEnd) would play on top of the arrival: left out (a guess from the name, as the phases are).
+            bool later = System.Text.RegularExpressions.Regex.IsMatch(by, "(End|Dismount|Exit|Cancel)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            foreach (var ac in more.Actors)
+                if (later) fx.Notes.Add($"{ac.Name} (in {by}): an animated actor of a later moment, left out");
+                else fx.Actors.Add(ac with { TriggeredBy = by });
             fx.ThrownSlot ??= more.ThrownSlot;
             fx.Notes.AddRange(more.Notes);
         }
@@ -238,7 +258,26 @@ sealed class PowerEffects
         if ((cname.StartsWith("PowerFxAnimatedActor", StringComparison.OrdinalIgnoreCase) || cname.StartsWith("EntityFxAnimatedActor", StringComparison.OrdinalIgnoreCase))
             && !cname.EndsWith("MaterialParameter", StringComparison.OrdinalIgnoreCase))
         {
-            if (seen.Add(p.Name + "|" + epath) && P("EntityRequired") == null) fx.Notes.Add($"{name}: an animated actor (not shown yet)");
+            if (!seen.Add(p.Name + "|" + epath)) return true;
+            // Left out like other effects: one for another character (EntityRequired) or another costume's set (FxSetIndex,
+            // Angela's 1602 silhouettes beside the default ones).
+            if (P("EntityRequired") != null) return true;
+            if (P("FxSetIndex") is { Size: 4 } fsi && BitConverter.ToInt32(p.Bytes, fsi.ValueAt) != 0) return true;
+            int meshRef = P("AnimatedActorSkeletalMesh") is { Size: 4 } mp ? BitConverter.ToInt32(p.Bytes, mp.ValueAt) : 0;
+            if (Resolve(p, meshRef, pkgs, g) is not { } mesh || g.FileFor(mesh.P.Name) is not string meshFile) { fx.Notes.Add($"{name}: an animated actor whose model isn't found"); return true; }
+            int setRef = P("Animations") is { Size: 4 } ap ? BitConverter.ToInt32(p.Bytes, ap.ValueAt) : 0;
+            var set = Resolve(p, setRef, pkgs, g);
+            string? setFile = set is { } st ? g.FileFor(st.P.Name) : null;
+            Vector3 V(string n) => P(n) is { Size: 12 } v ? new Vector3(BitConverter.ToSingle(p.Bytes, v.ValueAt), BitConverter.ToSingle(p.Bytes, v.ValueAt + 4), BitConverter.ToSingle(p.Bytes, v.ValueAt + 8)) : Vector3.Zero;
+            // A rotator: pitch, yaw, roll as ints (65536 = a full turn), kept here in radians.
+            Vector3 R(string n) => P(n) is { Size: 12 } v ? new Vector3(BitConverter.ToInt32(p.Bytes, v.ValueAt), BitConverter.ToInt32(p.Bytes, v.ValueAt + 4), BitConverter.ToInt32(p.Bytes, v.ValueAt + 8)) * (MathF.PI * 2 / 65536) : Vector3.Zero;
+            string? anim = P("AnimName")?.Value is { } an && !an.Equals("None", StringComparison.OrdinalIgnoreCase) ? an : null;
+            fx.Actors.Add(new Actor(name, meshFile, mesh.Export, setFile, set?.Export ?? -1, anim,
+                Pt("ActivationPoint", "power_on_start"), Fl("ActivationOffset", 0),
+                P("DeactivationPoint") != null ? Pt("DeactivationPoint", "") : null, Fl("DeactivationOffset", 0),
+                P("DeactivatesOnEnd") is not { } de2 || p.Bytes[de2.ValueAt] != 0, Fl("DestroyOnAnimEndDelaySeconds", 0),
+                Pt("SpawnOn", "").Contains("target", StringComparison.OrdinalIgnoreCase), V("SpawnOffsetVector"), R("SpawnOffsetRotation"), Fl("Scale", 1),
+                cname.StartsWith("Entity", StringComparison.OrdinalIgnoreCase) ? "entity" : "power"));
             return true;
         }
         if (cname.StartsWith("ConditionFxMeshScale", StringComparison.OrdinalIgnoreCase) || cname.StartsWith("PowerFxMeshScale", StringComparison.OrdinalIgnoreCase))
@@ -407,6 +446,19 @@ sealed class PowerEffects
         /// missiles' components) plus its offset.</summary>
         float StartOf(string point, float offset, string kind) => (point.Contains("contact", StringComparison.OrdinalIgnoreCase) || kind is "entity" or "projectile" ? ContactTime : 0) + offset;
         bool Shown(string? by) => by == null || ShowTriggered;
+
+        /// <summary>When an animated actor shows: from its activation point to its deactivation point, else (DeactivatesOnEnd)
+        /// to the animation's end, else to its own animation's end plus its DestroyOnAnimEndDelaySeconds. Null when it
+        /// doesn't show (a triggered part with Triggered off).</summary>
+        public (float Start, float End)? ActorWindow(Actor a, float ownSeconds)
+        {
+            if (!Shown(a.TriggeredBy)) return null;
+            float start = StartOf(a.Point, a.Offset, a.Kind);
+            float end = a.EndPoint is { Length: > 0 } ep && !ep.Contains("end", StringComparison.OrdinalIgnoreCase) ? StartOf(ep, a.EndOffset, a.Kind)
+                : ownSeconds > 0 ? start + ownSeconds + a.DestroyDelay
+                : a.DeactivatesOnEnd ? AnimSeconds : start + 2;
+            return (start, Math.Max(end, start + 0.05f));
+        }
 
         /// <summary>Whether a weapon slot is shown / hidden by the power now (PowerFxMeshAttachment: from its activation point to its
         /// deactivation point, else to the animation's end).</summary>
@@ -628,7 +680,7 @@ sealed class PowerEffects
         }
 
         /// <summary>UE3's FRotationMatrix for pitch / yaw / roll in radians (rows = the turned X, Y, Z axes; Z up).</summary>
-        static Matrix4x4 UeRotation(float pitch, float yaw, float roll)
+        public static Matrix4x4 UeRotation(float pitch, float yaw, float roll)
         {
             float SP = MathF.Sin(pitch), CP = MathF.Cos(pitch), SY = MathF.Sin(yaw), CY = MathF.Cos(yaw), SR = MathF.Sin(roll), CR = MathF.Cos(roll);
             return new Matrix4x4(

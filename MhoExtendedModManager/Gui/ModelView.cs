@@ -141,6 +141,10 @@ sealed class ModelView : UserControl
         public bool UseReflection, ReflectByDiffuse;
         public float ReflectMult = 1, FresnelPower;
         public Vector3 Rim = new(0.5f, 0.55f, 0.65f), FillColor = new(0.8f, 0.6f, 0.5f);
+        /// <summary>An unlit see-through effect material (an animated actor's silhouette: Angela's, Taskmaster's slashes): not
+        /// drawn as a surface; PropRig draws it as effect triangles of <see cref="GhostColor"/> (additive: glowing).</summary>
+        public bool Ghost, GhostAdditive;
+        public Vector3 GhostColor = Vector3.One;
         /// <summary>A plain look: just a colour texture (a material that couldn't be read), cut out at alpha 64 as before.</summary>
         public static Look Plain(Map? diffuse) => new() { Diffuse = diffuse, Cutout = true, UseRim = true, Rim = new(0.35f, 0.38f, 0.45f) };
     }
@@ -706,6 +710,7 @@ sealed class ModelView : UserControl
             bool front = Vector3.Dot(nOut, eye - pos[a]) > 0;
             int s = t / 3 < triSection.Length ? triSection[t / 3] : 0;
             var look = s < looks.Length ? looks[s] : null;
+            if (look?.Ghost == true) continue;   // drawn as effect triangles (PropRig)
             if (!front && look?.TwoSided != true) continue;
             float sArea = MathF.Abs((sx[b] - sx[a]) * (sy[c] - sy[a]) - (sx[c] - sx[a]) * (sy[b] - sy[a]));
             Vector2 ua = uv.Length > a ? uv[a] : default, ub = uv.Length > b ? uv[b] : default, uc = uv.Length > c ? uv[c] : default;

@@ -115,8 +115,7 @@ sealed partial class ModEditorView
     {
         if (game == null) return;
         int req = ++sharedRequest;
-        string? hero = draft.Packages.Select(x => x.File.Split('_', StringSplitOptions.RemoveEmptyEntries))
-            .Where(x => x.Length >= 4 && x[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && x[1].Equals("MarvelPlayer", StringComparison.OrdinalIgnoreCase)).Select(x => x[2]).FirstOrDefault();
+        string? hero = draft.Packages.Select(x => HeroOf.Package(x.File, game?.Cooked)).FirstOrDefault(h => h != null);
         if (hero == null) { powerShared.Text = ""; return; }
         powerShared.Text = "";
         var g = game;

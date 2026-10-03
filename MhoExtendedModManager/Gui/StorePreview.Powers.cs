@@ -7,7 +7,47 @@ namespace MhoExtendedModManager.Gui;
 /// <summary>The preview's power effects, power buttons and props (what the character holds, and what each power shows).</summary>
 sealed partial class StorePreview
 {
-    void ClearEffects() { fxRequest++; fxPlayer = null; fxNote = ""; if (viewer != null) { viewer.Effects = []; viewer.EffectTris = []; } }
+    void ClearEffects()
+    {
+        fxRequest++; fxPlayer = null; fxNote = "";
+        if (viewer != null) { viewer.Effects = []; viewer.EffectTris = []; }
+        if (fxActors.Count > 0) { fxActors = []; RebuildRig(); }
+    }
+
+    /// <summary>The playing power's animated actors, loaded (LoadActors), and where effects at the target go.</summary>
+    List<(Fx.PowerEffects.Actor Spec, ModMeshes.Loaded Mesh, MeshAnimator Anim, AnimExportCli.Animation.BoneAnimation? Seq)> fxActors = [];
+    System.Numerics.Vector3 fxTarget;
+
+    /// <summary>
+    /// The power's animated actors (Kurt, 2026-10-03: Avengers Assemble's Hulk, Iron Man and Thor, the Fantastic Four,
+    /// Jean Grey's Phoenix …): each one's model and its own animation read in the background, then shown in the rig.
+    /// </summary>
+    void LoadActors(Fx.PowerEffects fx, int req)
+    {
+        if (fx.Actors.Count == 0) return;
+        string? cooked = CookedFolder;
+        var specs = fx.Actors.ToList();
+        Task.Run(() =>
+        {
+            var list = new List<(Fx.PowerEffects.Actor, ModMeshes.Loaded, MeshAnimator, AnimExportCli.Animation.BoneAnimation?)>();
+            foreach (var s in specs)
+                try
+                {
+                    var lm = ModMeshes.Load(new MeshRef(Path.GetFileName(s.MeshFile), s.MeshFile, s.Name, s.MeshExport), cooked, out _);
+                    if (lm == null) continue;
+                    var an = new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false };
+                    var seq = s.AnimName != null && ModAnimations.Named(s.SetFile, s.SetExport, s.MeshFile, s.AnimName) is { } ar ? ModAnimations.Load(ar) : null;
+                    list.Add((s, lm, an, seq));
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
+            return list;
+        }).ContinueWith(t =>
+        {
+            if (IsDisposed || req != fxRequest || t.Status != TaskStatus.RanToCompletion || t.Result.Count == 0) return;
+            fxActors = t.Result;
+            RebuildRig();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
 
     /// <summary>The game data (Calligraphy.sip), read once in the background for every power lookup.</summary>
     Task<Fx.GameData?> GameDb(string cooked)
@@ -31,8 +71,7 @@ sealed partial class StorePreview
         string anim = anims[ai].Name;
         var r = meshes[meshIndex];
         // The hero whose animations these are: UC__MarvelPlayer_<Hero>_… (a moved costume plays its target hero's).
-        var parts = r.Package.Split('_', StringSplitOptions.RemoveEmptyEntries);
-        string? hero = parts.Length >= 2 && parts[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && parts[1].StartsWith("MarvelPlayer", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3 ? parts[2] : null;
+        string? hero = HeroOf.Package(r.Package, cooked);
         if (hero == null) return;
         var modFiles = mod.Manifest.UpkReplacements.Where(f => SkipModFile?.Invoke(f) != true).Select(f => Path.Combine(mod.Folder, f)).ToList();
         int req = fxRequest;
@@ -60,7 +99,10 @@ sealed partial class StorePreview
             var phase = phaseFn ?? Fx.PowerEffects.Player.PhaseOf(anim);
             // The target of effects at the world position: the ground 250 units in front (characters face +X).
             float ground = l == null || l.Positions.Length == 0 ? 0 : l.Positions.Min(v => v.Z);
-            fxPlayer = new Fx.PowerEffects.Player(fx, Socket, new System.Numerics.Vector3(250, 0, ground), phase) { AnimSeconds = Math.Max(0.1f, playSeconds), Color = ColorFor?.Invoke(proto) };
+            fxTarget = new System.Numerics.Vector3(250, 0, ground);
+            fxPlayer = new Fx.PowerEffects.Player(fx, Socket, fxTarget, phase) { AnimSeconds = Math.Max(0.1f, playSeconds), Color = ColorFor?.Invoke(proto) };
+            rig.Recolor = fxPlayer.Color is { IsNone: false } pc ? pc.Apply : null;
+            LoadActors(fx, req);
             fxPower = proto;
             viewer.EffectStrength = PreviewViews.FxPower;   // the effects' opacity / glow (default 15 %)
             int n = fx.Effects.Count(e => phase(e));
@@ -90,6 +132,7 @@ sealed partial class StorePreview
     {
         if (fxPlayer == null) return;
         fxPlayer.Color = ColorFor?.Invoke(fxPower);
+        rig.Recolor = fxPlayer.Color is { IsNone: false } c ? c.Apply : null;
         ShowPose();
     }
 
@@ -177,7 +220,9 @@ sealed partial class StorePreview
                 if (lm != null && w.UseParentAnim)
                     return (W: w, Mesh: lm, A: new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents), R: (List<AnimRef>?)null);
                 if (lm != null && w.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase))
-                    return (W: w, Mesh: lm, A: new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents), R: ModAnimations.For(w.Ref, lm.Bones, modPkgs, cooked, minBones: 1));
+                    // (its root where its animation puts it: Cyclops's bike rests 24 units back and 11.5 up, its ride
+                    // animation moves it onto the attach point; played in place it sat behind and below him, Kurt 2026-10-03)
+                    return (W: w, Mesh: lm, A: new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false }, R: ModAnimations.For(w.Ref, lm.Bones, modPkgs, cooked, minBones: 1));
                 return (W: w, Mesh: lm, A: (MeshAnimator?)null, R: (List<AnimRef>?)null);
             }
             catch { return (W: w, Mesh: (ModMeshes.Loaded?)null, A: (MeshAnimator?)null, R: (List<AnimRef>?)null); }
@@ -187,6 +232,10 @@ sealed partial class StorePreview
                 if (IsDisposed || req != request || viewer == null || animator != a || shownLoaded != l) return;
                 baseProps = [.. t.Result.Where(x => x.Mesh != null).Select(x => (x.W, x.Mesh!, x.A, x.R))];
                 RebuildRig();
+                // The playing animation's rules and the props' own animations again, now that the props are here: read
+                // before them, the animated props found none (Blade's bike showed without its ride animation, turned 90°,
+                // or not at all; Kurt, 2026-10-03).
+                if (playing != null) LoadPropSwitches();
             }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
@@ -203,8 +252,18 @@ sealed partial class StorePreview
         rig.Clear();
         // (a prop rigged to the character's skeleton is held at the root: its bind pose is already in place)
         rig.SetParentAnimation(playing);
-        foreach (var (w, m, an, refs) in baseProps) rig.Add(m, w.UseParentAnim ? -1 : PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, an, refs, w.UseParentAnim);
-        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class);
+        foreach (var (w, m, an, refs) in baseProps) rig.Add(m, w.UseParentAnim ? -1 : PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, an, refs, w.UseParentAnim, w.Offset);
+        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, offset: w.Offset);
+        // The power's animated actors: scale, turn (UE3 rotator), offset, then at the hero or the target; when they show.
+        if (fxPlayer != null)
+            foreach (var (s, m, an, seq) in fxActors)
+            {
+                float own = seq == null ? 0 : MeshAnimator.Span(seq).Seconds;
+                if (fxPlayer.ActorWindow(s, own) is not { } win) continue;
+                var place = System.Numerics.Matrix4x4.CreateScale(s.Scale) * Fx.PowerEffects.Player.UeRotation(s.Turn.X, s.Turn.Y, s.Turn.Z)
+                    * System.Numerics.Matrix4x4.CreateTranslation(s.Shift + (s.AtTarget ? fxTarget : System.Numerics.Vector3.Zero));
+                rig.AddActor(m, an, seq, win.Start, win.End, place);
+            }
         rig.SetRules(propRules, propContact, playSeconds);
         rig.SetMotions(propSeqs);
         var keep = viewer.ViewState;
@@ -266,8 +325,7 @@ sealed partial class StorePreview
     string? HeroOfMesh()
     {
         if (!MeshOk) return null;
-        var parts = meshes[meshIndex].Package.Split('_', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length >= 3 && parts[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && parts[1].StartsWith("MarvelPlayer", StringComparison.OrdinalIgnoreCase) ? parts[2] : null;
+        return HeroOf.Package(meshes[meshIndex].Package, CookedFolder);
     }
 
     /// <summary>
@@ -352,7 +410,7 @@ sealed partial class StorePreview
                         var inPkg = ModMeshes.List([(Path.GetFileName(f), f)], anyPackage: true);
                         foreach (var x in found)
                             if (!extra.Any(e => e.Item1.Class.Equals(x.Class, StringComparison.OrdinalIgnoreCase)) && inPkg.FirstOrDefault(m => m.Name.Equals(x.Mesh, StringComparison.OrdinalIgnoreCase)) is { } mr)
-                                try { if (ModMeshes.Load(mr, cooked, out _) is { } lm) extra.Add((new PropRig.Prop(mr, x.Bone) { Slots = x.Slots, OnDemand = true, Class = x.Class }, lm)); }
+                                try { if (ModMeshes.Load(mr, cooked, out _) is { } lm) extra.Add((new PropRig.Prop(mr, x.Bone) { Slots = x.Slots, OnDemand = true, Class = x.Class, Offset = ModMeshes.Rotator(x.OffsetRotation.Pitch, x.OffsetRotation.Yaw, x.OffsetRotation.Roll) }, lm)); }
                                 catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
                         break;
                     }

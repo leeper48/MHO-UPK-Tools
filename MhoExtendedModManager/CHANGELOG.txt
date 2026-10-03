@@ -2,8 +2,16 @@ MHO Extended Mod Manager: what's new
 ====================================
 
 0.37.112
+- Powers for costumes named differently from their hero: the hero now comes from the game's costume data, so Kate Bishop (a Hawkeye costume) lists Hawkeye's powers in the Powers tab and the 3D preview, and her mod can recolor them (the power packages go into the mod on Save).
+- 3D preview: vehicles and props face the right way. A prop's own turn (its attachment's OffsetRotation: Hawkeye's and Kate Bishop's Sky-Cycle, Ghost Rider's bikes, Doom's throne, Lockheed, Rocket's rides, Venom's arms) and a model's built-in turn (its RotOrigin: Blade's motorcycle, Ghost Rider's chains) are applied; both were left out, so those riders sat 90° across their vehicles.
+- 3D preview: poses held for a whole animation are no longer mirrored on some bones (hands, thumbs, capes, a leaning torso): Cyclops leans into his handlebars on the bike, Taskmaster holds her shield flat in idle.
+- 3D preview: a ride's vehicle always gets its ride animation (it could load before the character's props and show turned 90° or not at all: Blade's bike).
+- 3D preview: riders sit on their bikes. A prop with its own animation (Cyclops's, Wolverine's and Blade's bikes) now goes where its animation puts it; it was kept in place like the hero, which left Cyclops floating behind and above the seat.
+- 3D preview: slash afterimages follow the power's color change (black hides them).
+- 3D preview (and the Powers tab): powers that bring in other characters show them. Animated actors (305 in the game: Captain America's Avengers Assemble, the Fantastic Four, Beast leaping in for Cyclops, Magneto's Sentinels, Black Panther's panthers…) appear at their moment and play their own animation, by the hero or at the target; slash afterimages (Angela, Taskmaster, Black Cat, Nightcrawler) are glowing see-through copies that fade out. Actors of a later moment (a dismount) and of other costumes are left out. Summoned pets, walls and turrets come later.
 - Editor → Animations: animations whose notifies play particle effects (trails, sparks: Carnage, Daredevil, Punisher, Thor and many more) are copied with their notifies and effects. Before, such a copy left out all its notifies, including contact frames and footsteps.
 - (Already in 0.37.111, not listed there:) animations that were refused because of their morph curves (Carnage's arm blades) or extra data (Daredevil, Thor) can be copied.
+- What's New: a notice for the Powers tab's single colors, color wheel and eyedropper (Settings → What's New shows it again, and Older the earlier one).
 
 0.37.111
 - Editor → Powers: switching powers keeps the Frame slider's place (the next power opens at the same point of its animation) instead of going back to the start.

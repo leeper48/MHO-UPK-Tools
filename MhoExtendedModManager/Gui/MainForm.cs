@@ -2308,6 +2308,19 @@ sealed class MainForm : Form
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), (saved ?? "not saved") + Environment.NewLine + check);
     }
 
+    /// <summary>--powers-shot (scratch libraries only): the Powers tab's preview on a power at a frame, as a PNG.</summary>
+    public async Task PowersShot(string png, string modName, string power, double fraction)
+    {
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            if (await editor!.PowersShot(power, fraction) is { } c)
+                using (var b = new Bitmap(c.Width, c.Height)) { c.DrawToBitmap(b, new Rectangle(0, 0, c.Width, c.Height)); b.Save(png); }
+        }
+        catch (Exception ex) { File.WriteAllText(png + ".txt", ex.ToString()); }
+    }
+
     /// <summary>--keep-frame-test (scratch libraries only): the Powers tab keeps the frame slider's place across powers.</summary>
     public async Task KeepFrameTest(string dir, string modName, string a, string b)
     {

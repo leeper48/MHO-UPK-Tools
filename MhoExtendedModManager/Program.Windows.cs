@@ -177,8 +177,9 @@ static partial class Program
                             bool animated = !w.UseParentAnim && w.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase);
                             var pa = animated ? ModAnimations.For(w.Ref, pm.Bones, rpk, rc, minBones: 1) : null;
                             if (w.UseParentAnim) rrig.SetParentAnimation(ba);
-                            rrig.Add(pm, w.UseParentAnim ? -1 : PropRig.BoneFor(anim8, w.Bone), w.Slots, w.OnDemand, w.Class, animated || w.UseParentAnim ? new MeshAnimator(pm.Bones, pm.Positions, pm.Normals, pm.Influences, pm.Tangents) : null, pa, w.UseParentAnim);
+                            rrig.Add(pm, w.UseParentAnim ? -1 : PropRig.BoneFor(anim8, w.Bone), w.Slots, w.OnDemand && Environment.GetEnvironmentVariable("MHO_RENDER_ALLPROPS") != "1", w.Class, animated || w.UseParentAnim ? new MeshAnimator(pm.Bones, pm.Positions, pm.Normals, pm.Influences, pm.Tangents) { InPlace = !animated } : null, pa, w.UseParentAnim, w.Offset);
                             Console.WriteLine($"  prop {w.Ref.Name} on {w.Bone}{(w.OnDemand ? " (on demand)" : "")}{(animated ? $", animated ({pa!.Count} animations)" : "")}");
+                            if (Environment.GetEnvironmentVariable("MHO_PROP_ROOT") == "1" && pm.Bones.Count > 0) Console.WriteLine($"    rest root {pm.Bones[0].Name} {pm.Bones[0].Position}");
                             if (Environment.GetEnvironmentVariable("MHO_PROP_BONES") == "1" && w.UseParentAnim && ba != null)
                             {
                                 var pt = new MeshAnimator(pm.Bones, pm.Positions, pm.Normals, pm.Influences, pm.Tangents);
@@ -197,21 +198,59 @@ static partial class Program
                     if (ar != null)
                     {
                         var seqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var (cls, pref) in rrig.MotionRefs(ar.Name)) if (ModAnimations.Load(pref) is { } pba) seqs[cls] = pba;
+                        foreach (var (cls, pref) in rrig.MotionRefs(ar.Name)) if (ModAnimations.Load(pref) is { } pba)
+                        {
+                            seqs[cls] = pba;
+                            // MHO_PROP_ROOT=1: the prop skeleton's root, rest position vs its animation's (what playing in place drops).
+                            if (Environment.GetEnvironmentVariable("MHO_PROP_ROOT") == "1" && pba.Tracks.FirstOrDefault() is var (rn, rt) && rt != null && rt.PositionKeys.Count > 0)
+                                Console.WriteLine($"  {cls}: root track {rn}: first key {rt.PositionKeys[0].Position}, {rt.PositionKeys.Count} key(s); rotation {(rt.RotationKeys.Count > 0 ? rt.RotationKeys[0].Rotation.ToString() : "-")} ({rt.RotationKeys.Count} key(s)); tracks: {string.Join(" ", pba.Tracks.Keys.Take(3))}");
+                        }
                         rrig.SetMotions(seqs);
                         Console.WriteLine("  prop animations: " + (seqs.Count == 0 ? "none" : string.Join(", ", seqs.Keys)));
                     }
                     // The playing power's weapon-slot switches, as the preview applies them.
+                    // (with the game data, as the preview: travel powers' animations are found through it)
+                    Fx.GameData? rdb = null;
+                    try { rdb = new Fx.GameData(Fx.SipArchive.Load(Path.GetFullPath(Path.Combine(rc ?? ".", "..", "..", "..", "Data", "Game", "Calligraphy.sip")))); } catch (Exception ex) when (ex is IOException or InvalidDataException) { }
                     if (ar != null && rc != null && mr.Package.Split('_', StringSplitOptions.RemoveEmptyEntries) is [_, _, var rhero, ..]
-                        && Fx.PowerIndex.For(rhero, rc, rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f))).TryGetValue(ar.Name, out var prefs))
+                        && (rdb != null ? Fx.PowerIndex.For(rhero, rc, rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f)), rdb) : Fx.PowerIndex.For(rhero, rc, rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f)))).TryGetValue(ar.Name, out var prefs))
                     {
                         var sw = prefs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).SelectMany(ModMeshes.PropRules).Distinct().ToList();
+                        // As the preview (LoadPropSwitches): a rule's target the character's props don't fill brings the power
+                        // package's own attachment, added as a plain prop.
+                        var have = PropRig.Attached(mr, ModMeshes.List(rm), rc);
+                        foreach (var r in sw.Where(r => r.Show && !have.Any(h => PropRig.Fills(h, r.Target))))
+                            foreach (string pf in prefs.Select(x => x.File).Distinct(StringComparer.OrdinalIgnoreCase))
+                                foreach (var x in ModMeshes.Attachments(pf).Where(x => PropRig.Fills(new PropRig.Prop(null!, x.Bone) { Slots = x.Slots, Class = x.Class }, r.Target)))
+                                    Console.WriteLine($"  rule {r.Target}: not on the character; the power's own {x.Class} ({x.Mesh} on {x.Bone}) from {Path.GetFileName(pf)}");
                         float rsecs = ba == null ? 0 : MeshAnimator.Span(ba).Seconds;
                         rrig.SetRules(sw, 0.4f * rsecs, rsecs);
                         renderRig = rrig;
                         Console.WriteLine("  prop rules: " + (sw.Count == 0 ? "none" : string.Join(", ", sw.Select(x => $"{(x.Show ? "show" : "hide")} {x.Target} @{x.StartPoint}+{x.StartOffset:0.##}{(x.EndPoint != null ? $" to {x.EndPoint}+{x.EndOffset:0.##}" : "")}"))));
                     }
                     v.ShowMesh(rrig.Combine(ld), ld.Positions.Length);
+                    // MHO_GRIP=1: how far each hand is from the bike's grip on that side (the ride's handlebars), mid-animation.
+                    if (Environment.GetEnvironmentVariable("MHO_GRIP") == "1" && ba != null)
+                        foreach (var w in PropRig.Attached(mr, ModMeshes.List(rm), rc).Where(x => System.Text.RegularExpressions.Regex.IsMatch(x.Class, "bike|motorcycle|cycle", System.Text.RegularExpressions.RegexOptions.IgnoreCase)))
+                            if (ModMeshes.Load(w.Ref, rc, out _) is { } bm)
+                            {
+                                var bseq = ModAnimations.For(w.Ref, bm.Bones, rm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(rm.Folder, f))), rc, minBones: 1).FirstOrDefault(x => x.Name.Equals(ar!.Name, StringComparison.OrdinalIgnoreCase)) is { } br ? ModAnimations.Load(br) : null;
+                                var bb = new MeshAnimator(bm.Bones, bm.Positions, bm.Normals, bm.Influences, bm.Tangents) { InPlace = false };
+                                float mid = frames / 2;
+                                anim8.Pose(ba, mid); bb.Pose(bseq, bseq == null ? 0 : MeshAnimator.Span(bseq).Frames / 2);
+                                var hold = bm.MeshTransform * w.Offset * anim8.BoneMatrix(PropRig.BoneFor(anim8, w.Bone));
+                                // MHO_GRIP_YAW=<degrees>: the vehicle turned by that much on its bone (testing an attachment's OffsetRotation).
+                                if (float.TryParse(Environment.GetEnvironmentVariable("MHO_GRIP_YAW"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float gyaw))
+                                    hold = Fx.PowerEffects.Player.UeRotation(0, gyaw * MathF.PI / 180, 0) * hold;
+                                Console.WriteLine($"  vehicle {w.Ref.Name} ({w.Class}) on {w.Bone}: bones " + string.Join(" ", bm.Bones.Select(x => x.Name)));
+                                string? G(string side) => bm.Bones.Select(x => x.Name).FirstOrDefault(n => System.Text.RegularExpressions.Regex.IsMatch(n, $"(^|_){side}_(grip|handle|handlebar)", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+                                foreach (var (hand, grip) in new[] { ("g_l_palm", G("l") ?? "g_chopper_l_grip"), ("g_r_palm", G("r") ?? "g_chopper_r_grip") })
+                                {
+                                    var hp = anim8.BonePosition(anim8.BoneIndex(hand));
+                                    var gp = System.Numerics.Vector3.Transform(bb.BonePosition(bb.BoneIndex(grip)), hold);
+                                    Console.WriteLine($"  grip ({Environment.GetEnvironmentVariable("MHO_SINGLEKEY") ?? "auto"}): {hand} {hp.X:0.0},{hp.Y:0.0},{hp.Z:0.0}  {grip} {gp.X:0.0},{gp.Y:0.0},{gp.Z:0.0}  distance {System.Numerics.Vector3.Distance(hp, gp):0.0}");
+                                }
+                            }
                 }
                 else v.ShowMesh(ld);
                 // MHO_RENDER_POWERS=1: the power's effects too (as the preview plays them), stepped at 30 fps to each frame shown.
@@ -234,6 +273,22 @@ static partial class Program
                         System.Numerics.Matrix4x4? Sock(string n) => socks.TryGetValue(n, out var sk) && anim8.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * anim8.BoneMatrix(b) : anim8.BoneIndex(n) is int bi && bi >= 0 ? anim8.BoneMatrix(bi) : null;
                         fxp = new Fx.PowerEffects.Player(pfx, Sock, new System.Numerics.Vector3(250, 0, ld.Positions.Min(q => q.Z)), Fx.PowerEffects.Player.PhaseFor(ar.Name, idx.Where(kv => kv.Value.Any(p => p.Class == pcls)).Select(kv => kv.Key))) { AnimSeconds = Math.Max(0.1f, secs) };
                         Console.WriteLine($"  power {Path.GetFileNameWithoutExtension(proto)}: {pfx.Effects.Count} effects, {pfx.Decals.Count} decals, {pfx.Meshes.Count} mesh emitters");
+                        // Its animated actors, as the preview adds them to its rig.
+                        var tgt = new System.Numerics.Vector3(250, 0, ld.Positions.Min(q => q.Z));
+                        foreach (var sa in pfx.Actors)
+                        {
+                            var am = ModMeshes.Load(new MeshRef(Path.GetFileName(sa.MeshFile), sa.MeshFile, sa.Name, sa.MeshExport), rc, out string why);
+                            if (am == null) { Console.WriteLine($"  actor {sa.Name}: no model ({why})"); continue; }
+                            var aseq = sa.AnimName != null && ModAnimations.Named(sa.SetFile, sa.SetExport, sa.MeshFile, sa.AnimName) is { } aref ? ModAnimations.Load(aref) : null;
+                            float own = aseq == null ? 0 : MeshAnimator.Span(aseq).Seconds;
+                            if (fxp.ActorWindow(sa, own) is not { } win) continue;
+                            var place = System.Numerics.Matrix4x4.CreateScale(sa.Scale) * Fx.PowerEffects.Player.UeRotation(sa.Turn.X, sa.Turn.Y, sa.Turn.Z)
+                                * System.Numerics.Matrix4x4.CreateTranslation(sa.Shift + (sa.AtTarget ? tgt : System.Numerics.Vector3.Zero));
+                            rrig.AddActor(am, new MeshAnimator(am.Bones, am.Positions, am.Normals, am.Influences, am.Tangents) { InPlace = false }, aseq, win.Start, win.End, place);
+                            renderRig = rrig;
+                            Console.WriteLine($"  actor {sa.Name}{(sa.TriggeredBy != null ? " (by " + sa.TriggeredBy + ")" : "")} [{sa.Point}+{sa.Offset:0.##}{(sa.EndPoint != null ? " to " + sa.EndPoint + "+" + sa.EndOffset.ToString("0.##") : "")}, {sa.Kind}]: {am.Positions.Length} vertices, {(aseq == null ? "no animation" : $"{sa.AnimName} {own:0.00} s")}, shown {win.Start:0.00}–{win.End:0.00} s");
+                        }
+                        if (pfx.Actors.Count > 0) v.ShowMesh(rrig.Combine(ld), ld.Positions.Length);
                         v.ZoomOut(1.6f);
                         v.EffectStrength = PreviewViews.FxPower;
                     }
@@ -348,6 +403,16 @@ static partial class Program
             var c = args.Length > 2 && ColorMap.FromHex(args[2]) is { } v ? Color.FromArgb((int)(v.X * 255), (int)(v.Y * 255), (int)(v.Z * 255)) : Color.FromArgb(32, 255, 64);
             Gui.ColorPickerPopup.Snapshot(args[1], c);
             Console.WriteLine($"eyedropper read under the mouse: {(Gui.Eyedropper.UnderCursor() is { } u ? $"#{u.R:X2}{u.G:X2}{u.B:X2} at {Cursor.Position}" : "nothing")}");
+            return 0;
+        }
+        if (args.Length == 5 && args[0].Equals("--powers-shot", StringComparison.OrdinalIgnoreCase))
+        {
+            // --powers-shot <out.png> <mod> <power name> <frame fraction 0-1> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.PowersShot(args[1], args[2], args[3], double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture)); main.Close(); });
+            Application.Run(main);
             return 0;
         }
         if (args.Length == 5 && args[0].Equals("--keep-frame-test", StringComparison.OrdinalIgnoreCase))

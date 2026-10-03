@@ -43,8 +43,7 @@ sealed partial class ModEditorView
         paletteStrip.Controls.Clear();
         if (paletteCache.TryGetValue(p.Prototype, out var hit)) { ShowPalette(hit); return; }
         if (game == null) return;
-        string? hero = draft.Packages.Select(x => x.File.Split('_', StringSplitOptions.RemoveEmptyEntries))
-            .Where(x => x.Length >= 4 && x[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && x[1].Equals("MarvelPlayer", StringComparison.OrdinalIgnoreCase)).Select(x => x[2]).FirstOrDefault();
+        string? hero = draft.Packages.Select(x => HeroOf.Package(x.File, game?.Cooked)).FirstOrDefault(h => h != null);
         if (hero == null) { paletteNote.Text = ""; return; }
         paletteNote.Text = "Reading…";
         var g = game;
@@ -172,6 +171,22 @@ sealed partial class ModEditorView
         bool ok = e?.Maps is { Count: 1 } m && m[0].From == ColorMap.Hex(pal[0].Tint) && m[0].To.Equals(toHex, StringComparison.OrdinalIgnoreCase) && !e.Color.IsNone;
         lines.Add($"{(ok ? "PASS" : "FAIL")} row {e?.Maps?.FirstOrDefault()?.From} → {e?.Maps?.FirstOrDefault()?.To} (range {e?.Maps?.FirstOrDefault()?.Tolerance:0.00}); caption \"{powerCaption.Text}\"");
         return lines;
+    }
+
+    /// <summary>For --powers-shot: the Powers tab on power <paramref name="power"/> (name), the frame slider at
+    /// <paramref name="fraction"/>; the preview control to draw.</summary>
+    internal async Task<Control?> PowersShot(string power, double fraction)
+    {
+        SelectTab(pages.FindIndex(x => x.Title == "Powers"));
+        for (int i = 0; i < 600 && powerList.Items.Count == 0; i++) await Task.Delay(100);
+        int at = powerList.Items.Cast<Fx.PowerList.Power>().ToList().FindIndex(x => x.Name.Equals(power, StringComparison.OrdinalIgnoreCase));
+        if (at < 0 || powerPreview == null) return null;
+        powerList.SelectedIndex = at;
+        for (int i = 0; i < 300 && powerPreview.FrameForTest() == null; i++) await Task.Delay(100);
+        await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("MHO_SHOT_WAIT"), out int sw) ? sw : 3000);   // props, rules and their animations load in the background
+        powerPreview.ScrubForTest(fraction);
+        await Task.Delay(1500);
+        return powerPreview;
     }
 
     /// <summary>For --keep-frame-test: power <paramref name="a"/>, the slider to the middle, then power <paramref name="b"/>;
