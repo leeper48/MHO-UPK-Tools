@@ -32,7 +32,7 @@ sealed partial class ModEditorView : IModelHost
     }
 
     /// <summary>Test (--model-tab-test): the Model tab's page once it has shown.</summary>
-    internal ModelPage? ModelPageForTest => modelPage;
+    internal ModelPage? ModelPageForTest => modelPage;   // also Settings ▾ → Model (reload after a change)
 
     public string WorkFolder
     {

@@ -25,9 +25,18 @@ static class MhoAnim
         string file = Path.GetFileName(package);
         if (!file.StartsWith(player, StringComparison.OrdinalIgnoreCase)) return package;
         string hero = Path.GetFileNameWithoutExtension(file)[player.Length..].Split('_')[0];
-        string b = Path.Combine(Path.GetDirectoryName(package)!, $"{player}{hero}_SF.upk");
-        return File.Exists(b) ? b : package;
+        string name = $"{player}{hero}_SF.upk";
+        string b = Path.Combine(Path.GetDirectoryName(package)!, name);
+        if (File.Exists(b)) return b;
+        // not beside it (the Mod Manager's Model tab starts from a kept copy in the mod's Modelase): the mod's own copy of
+        // the base package, else the game's stock one
+        if (BaseLookup?.Invoke(name) is string mine && File.Exists(mine)) return mine;
+        try { return MhoMffImporter.BasePackage.Resolve(name, true); }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or IOException) { return package; }
     }
+
+    /// <summary>Where a hero's base package is when it isn't beside the package (the Model tab: the mod's copy), else null.</summary>
+    public static Func<string, string?>? BaseLookup { get; set; }
 
     /// <summary>The bones the hero's animations place (UseTranslationBoneNames of its rotation-only AnimSets, all sets that fit
     /// the skeleton together); empty when none, or when a fitting set isn't rotation-only.</summary>

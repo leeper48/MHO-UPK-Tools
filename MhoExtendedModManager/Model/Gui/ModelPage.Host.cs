@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using MhoExtendedModManager;
 using MhoExtendedModManager.Gui;
@@ -119,29 +120,57 @@ sealed partial class ModelPage
         return BasePackage.Resolve(file);
     }
 
+    /// <summary>The hero's base package (its animations) from the mod when it has one: the draft's copy.</summary>
+    string? ModCopy(string file) => host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Path;
+
     string StartLabel(string file) => FromStock ? "the game's stock copy" : File.Exists(Path.Combine(host.WorkFolder, "base", file)) ? "the mod's package before the model" : "the game's stock copy (the mod had none of its own)";
 
-    // --- the tab's settings ---------------------------------------------------------------------------------------------------------
-    void ShowSettingsMenu()
+    // --- the tab's settings: in the main window's Settings menu (Kurt, 2026-10-03: one Settings button) --------------------------
+    /// <summary>Settings ▾ → Model: the MFF folder, the Blender the exports open in, its add-on, the exports folder.
+    /// <paramref name="changed"/> runs after a change (the open Model tab reloads).</summary>
+    internal static ToolStripMenuItem SettingsMenu(Control owner, Action changed)
     {
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("Change MFF Folder", null, (_, _) =>
+        var model = new ToolStripMenuItem("Model") { ToolTipText = "The Editor's Model tab: your MFF folder, the Blender its exports open in, and Blender's MHO Actions add-on." };
+        model.DropDownItems.Add(new ToolStripMenuItem("(filled when it opens)"));
+        model.DropDownOpening += (_, _) =>
         {
-            using var d = new FolderBrowserDialog { Description = "Your MFF rip folder (it holds Models\\Models and Texture2D); read only", UseDescriptionForTitle = true };
-            if (d.ShowDialog(this) != DialogResult.OK) return;
-            var s = MhoExtendedModManager.Settings.Load(); s.MffFolder = d.SelectedPath; s.Save();
-            Settings.Reset(); Reload();
-        });
-        menu.Items.Add($"Choose Blender ({(BlenderLaunch.Find() is string bx ? BlenderLaunch.Describe(bx).Split(" (")[0].Replace("with the MHO Actions add-on", "with the Add-On").Replace("without the MHO Actions add-on", "without the Add-On") : "None Found")})", null, (_, _) =>
-        {
-            using var d = new OpenFileDialog { Title = "blender.exe", Filter = "Blender (blender.exe)|blender.exe", InitialDirectory = Path.GetDirectoryName(BlenderLaunch.Find() ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)) };
-            if (d.ShowDialog(this) == DialogResult.OK) { Settings.Current.BlenderPath = d.FileName; Settings.Current.Save(); Log("Blender: " + d.FileName); }
-        });
-        if (BlenderLaunch.Find() is string addonExe && BlenderLaunch.CanOfferAddon(addonExe))
-            menu.Items.Add(new ToolStripMenuItem("Install the MHO Actions Add-On", null, async (_, _) => await InstallAddon(addonExe)) { ToolTipText = "Into " + addonExe + " (optional: Open in Blender works without it). Your Blender preferences are kept." });
-        menu.Items.Add("Open the Exports Folder", null, (_, _) => { string dd = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(dd); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{dd}\"") { UseShellExecute = false }); });
-        Ui.ShowUnder(menu, settingsButton);
+            model.DropDownItems.Clear();
+            string? mff = MhoExtendedModManager.Settings.Load().MffFolder;
+            model.DropDownItems.Add(new ToolStripMenuItem("Change MFF Folder", null, (_, _) =>
+            {
+                using var d = new FolderBrowserDialog { Description = "Your MFF rip folder (it holds Models\\Models and Texture2D); read only", UseDescriptionForTitle = true, InitialDirectory = mff ?? "" };
+                if (d.ShowDialog(owner) != DialogResult.OK) return;
+                var s = MhoExtendedModManager.Settings.Load(); s.MffFolder = d.SelectedPath; s.Save();
+                Settings.Reset();
+                changed();
+            }) { ToolTipText = "Now: " + (mff ?? "not set") + ". Only read, never changed." });
+            string? exe = BlenderLaunch.Find();
+            model.DropDownItems.Add(new ToolStripMenuItem($"Choose Blender ({(exe != null ? BlenderLaunch.Describe(exe).Split(" (")[0].Replace("with the MHO Actions add-on", "with the Add-On").Replace("without the MHO Actions add-on", "without the Add-On") : "None Found")})", null, (_, _) =>
+            {
+                using var d = new OpenFileDialog { Title = "blender.exe", Filter = "Blender (blender.exe)|blender.exe", InitialDirectory = Path.GetDirectoryName(exe ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)) };
+                if (d.ShowDialog(owner) != DialogResult.OK) return;
+                Settings.Current.BlenderPath = d.FileName; Settings.Current.Save();
+                changed();
+            }) { ToolTipText = "The Blender that Open in Blender starts (the newest with the MHO Actions add-on unless you pick one)." });
+            if (exe != null && BlenderLaunch.CanOfferAddon(exe))
+                model.DropDownItems.Add(new ToolStripMenuItem("Install the MHO Actions Add-On", null, async (_, _) =>
+                {
+                    string? failed = await Task.Run(() => BlenderLaunch.InstallAddon(exe));
+                    if (failed == null) Dialog.Show(owner, "The MHO Actions add-on is installed and enabled in " + exe + ".", "Add-On Installed");
+                    else Dialog.Show(owner, $"The MHO Actions add-on wasn't installed: {failed}\n\nYou can install it by hand: Blender → Edit → Preferences → Get Extensions → Install from Disk, the file {BlenderLaunch.BundledAddon()}.", "Add-On Not Installed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    changed();
+                }) { ToolTipText = "Into " + exe + " (optional: Open in Blender works without it). Your Blender preferences are kept." });
+            model.DropDownItems.Add(new ToolStripMenuItem("Open the Exports Folder", null, (_, _) =>
+            {
+                string dd = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(dd);
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dd}\"") { UseShellExecute = false });
+            }) { ToolTipText = "Where Export FBX and Open in Blender put their files (data\\model\\fbx)." });
+        };
+        return model;
     }
+
+    /// <summary>After Settings ▾ → Model changed something: the MFF list and the top line again.</summary>
+    internal void SettingsChanged() { Settings.Reset(); Reload(); UpdateStatus(); }
 
     // --- the tab's choices, kept with the mod (Model\state.json) ---------------------------------------------------------------------
     sealed class State

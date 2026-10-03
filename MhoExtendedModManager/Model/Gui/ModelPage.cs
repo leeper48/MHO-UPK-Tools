@@ -18,7 +18,6 @@ sealed partial class ModelPage : UserControl
 {
     readonly IModelHost host;
     readonly Label foldersLabel = new() { AutoSize = true, Margin = new Padding(0, 7, 0, 0) };
-    readonly Button settingsButton;
 
     readonly TextBox characterFilter = new() { PlaceholderText = "Filter Characters" };
     readonly CheckBox heroesOnly = new() { Text = "Characters Only", Checked = true, AutoSize = true };
@@ -106,7 +105,6 @@ sealed partial class ModelPage : UserControl
         DoubleBuffered = true;
         BackColor = Color.Transparent;
 
-        settingsButton = Ui.FlatButton("Model Settings ▾", ShowSettingsMenu, "The MFF folder (your MFF rip: Models\\Models and Texture2D), the Blender the exports open in, and its MHO Actions add-on.");
         buildButton = Ui.AccentButton("Build into Mod", Build, "Builds the model onto the picked package and puts it into this mod (Save Changes keeps it; Apply Changes puts it into the game). Starts from the package as it was before the model, or from the game's stock copy (Build From).");
         openButton = Ui.FlatButton("Open Folder", OpenFolder, "Shows the last export in Explorer (model.fbx).");
         openButton.Enabled = false;
@@ -126,7 +124,7 @@ sealed partial class ModelPage : UserControl
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var topRight = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        foreach (var b in new[] { undoButton, redoButton, settingsButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
+        foreach (var b in new[] { undoButton, redoButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
         top.Controls.Add(foldersLabel, 0, 0); top.Controls.Add(topRight, 1, 0);
         foldersLabel.AutoEllipsis = true; foldersLabel.AutoSize = false; foldersLabel.Dock = DockStyle.Fill; foldersLabel.TextAlign = ContentAlignment.MiddleLeft;
         root.Controls.Add(top, 0, 0);
@@ -251,7 +249,8 @@ sealed partial class ModelPage : UserControl
             if (e.KeyCode is Keys.Enter or Keys.Space && packages.SelectedItem is CharacterList.Item { Header: true } h) { ToggleHero(h); e.Handled = true; }
         };
         Thumbs.Ready += OnThumbReady;
-        Disposed += (_, _) => Thumbs.Ready -= OnThumbReady;
+        MhoAnim.BaseLookup = ModCopy;   // the export's animations: the hero's base package from the mod first
+        Disposed += (_, _) => { Thumbs.Ready -= OnThumbReady; StopBlenderWatch(); if (MhoAnim.BaseLookup == ModCopy) MhoAnim.BaseLookup = null; };
         packages.SelectedIndexChanged += (_, _) => UpdateStatus();
 
         Ui.Lit(mapBones, preview.ShowBones); Ui.Lit(mapWeights, preview.ShowWeights);
@@ -692,8 +691,8 @@ sealed partial class ModelPage : UserControl
     void ShowFullExportMenu()
     {
         var m = new ContextMenuStrip();
-        m.Items.Add(new ToolStripMenuItem("Export FBX", null, (_, _) => ExportFbx(false, null)) { ToolTipText = "The model and every animation, one FBX each, into data\fbx; the folder opens." });
-        m.Items.Add(new ToolStripMenuItem("Open in Blender", null, (_, _) => ExportFbx(true, null)) { Enabled = sourceFbx == null, ToolTipText = "The same, then a new Blender scene with every animation an Action on the NLA (saved as model.blend); Ctrl+S there sends your changes back. Settings ▾ → Choose Blender picks which Blender." });
+        m.Items.Add(new ToolStripMenuItem("Export FBX", null, (_, _) => ExportFbx(false, null)) { ToolTipText = "The model and every animation, one FBX each, into data\\model\\fbx; the folder opens." });
+        m.Items.Add(new ToolStripMenuItem("Open in Blender", null, (_, _) => ExportFbx(true, null)) { Enabled = sourceFbx == null, ToolTipText = "The same, then a new Blender scene with every animation an Action on the NLA (saved as model.blend); Ctrl+S there sends your changes back. Settings ▾ → Model → Choose Blender picks which Blender." });
         Ui.ShowUnder(m, fbxButton);
     }
 
@@ -724,7 +723,7 @@ sealed partial class ModelPage : UserControl
                 "With it you also get the action library (anims\\anim.blend), a Root pose track, and its tools (Batch Export Animations, Offset, the weight tools and more).\n\nInstall it into this Blender now? Your Blender preferences are kept.",
                 "MHO Actions Add-On (Optional)", "Install and Continue", "Continue Without", "Don't Ask Again", "Cancel");
             if (pick == 3) return;
-            if (pick == 2) { Settings.Current.SkipAddonOffer = true; Settings.Current.Save(); Log("Blender: the add-on won't be offered again (Settings ▾ → Install the MHO Actions Add-On does it any time)."); }
+            if (pick == 2) { Settings.Current.SkipAddonOffer = true; Settings.Current.Save(); Log("Blender: the add-on won't be offered again (Settings ▾ → Model → Install the MHO Actions Add-On does it any time)."); }
             if (pick == 0) await InstallAddon(bexe);
         }
         // what this one does, before it starts (Kurt: so the user knows the difference)
@@ -732,7 +731,7 @@ sealed partial class ModelPage : UserControl
         string what = onlyAnim == null
             ? $"Exports the model and all {count} of the base hero's own animations, one FBX each{(shared > 0 ? $" (not the {shared} shared ones every hero plays: blink, interactions)" : "")}{(openInBlender ? ", then opens them in a new Blender scene with every animation as an Action on the NLA (with the MHO Actions add-on, a background Blender turns each FBX into an Action first: this takes a while for all of them)" : "")}.\n\nFor work on a single animation, the Single Animation ▾ menu under the preview exports just the one that's picked, much faster."
             : $"Exports the model and only \"{onlyAnim}\", the animation picked in the preview{(openInBlender ? ", then opens it in a new Blender scene with that one Action on the NLA" : "")}.\n\nThe hero's other animations aren't in it. For all of them, use Full Export ▾ → {(openInBlender ? "Open in Blender" : "Export FBX")} on the right.";
-        what += openInBlender ? $"\n\nBlender: {BlenderLaunch.Describe(BlenderLaunch.Find()!)} (Settings ▾ → Choose Blender to change it).\n\nIn that Blender scene, every Ctrl+S sends what you changed (the mesh, the animations whose keys changed) back here as FBX edits." : "\n\nThe export folder opens when it's done; bring edits back with Single Animation ▾ → Import FBX.";
+        what += openInBlender ? $"\n\nBlender: {BlenderLaunch.Describe(BlenderLaunch.Find()!)} (Settings ▾ → Model → Choose Blender to change it).\n\nIn that Blender scene, every Ctrl+S sends what you changed (the mesh, the animations whose keys changed) back here as FBX edits." : "\n\nThe export folder opens when it's done; bring edits back with Single Animation ▾ → Import FBX.";
         if (Environment.GetEnvironmentVariable("MFF_GUI_NOASK") != "1" &&
             Dialog.Choose(this, what, onlyAnim == null ? (openInBlender ? "Open All Animations in Blender" : "Export All Animations") : (openInBlender ? $"Open \"{onlyAnim}\" in Blender" : $"Export \"{onlyAnim}\" Only"),
                 openInBlender ? "Open in Blender" : "Export", "Cancel") != 0) return;
@@ -764,7 +763,7 @@ sealed partial class ModelPage : UserControl
                 Log($"Blender: opening {outDir} in {BlenderLaunch.Find()} (model.fbx, every animation as an Action on the NLA; saved as model.blend there). Each Ctrl+S in Blender sends what you changed back here.");
                 LinkBlender(outDir);
             }
-            else Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{lastZip}\"") { UseShellExecute = false });
+            else if (Environment.GetEnvironmentVariable("MFF_GUI_NOASK") != "1") Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{lastZip}\"") { UseShellExecute = false });   // (tests: no window)
         }
         catch (Exception ex) { Log("ERROR: " + ex.Message); }
         building = false; openButton.Enabled = lastZip != null; UpdateStatus();

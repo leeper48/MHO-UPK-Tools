@@ -164,6 +164,8 @@ sealed class MainForm : Form
         menu.Items.Add("Check Backups", null, (_, _) => CheckBackups()).ToolTipText = "Lists the game files that differ from the game's own, whether each one's .bak is truly the original, and where a clean copy is.";
         menu.Items.Add("Move Library", null, (_, _) => MoveLibrary());
         menu.Items.Add("Open Library Folder", null, (_, _) => { if (Settings.LibraryData(settings.LibraryPath) is string d) Process.Start("explorer.exe", $"\"{d}\""); });
+        // The Editor's Model tab (in development): its settings here, grouped (Kurt: one Settings button)
+        if (WhatsNew.ModelTab) menu.Items.Add(MhoMffImporter.Gui.ModelPage.SettingsMenu(this, () => editor?.ModelPageForTest?.SettingsChanged()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Capture Icon Changes", null, (_, _) => CaptureIcons());
         menu.Items.Add("Migrate from MHModManager", null, (_, _) => Migrate());
@@ -201,7 +203,7 @@ sealed class MainForm : Form
         tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
         tips.SetToolTip(extractButton, "Save original game icons, store images or strings, to make replacements from.");
         tips.SetToolTip(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");
-        tips.SetToolTip(settingsButton, "Game folder, library folder, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
+        tips.SetToolTip(settingsButton, "Game folder, library folder, the Model tab's MFF folder and Blender, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
         tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
         top.Controls.Add(topButtons, 0, 0);
         top.Controls.Add(rightButtons, 4, 0);
@@ -2286,6 +2288,41 @@ sealed class MainForm : Form
             Check(saved.Manifest.UpkReplacements.Contains(package, StringComparer.OrdinalIgnoreCase), "the manifest still lists the package");
         }
         Check(!Directory.EnumerateDirectories(lib!.DataFolder, "model-work-*").Any(), "the editor's work folder is gone");
+        return fails == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// --model-blender-test (scratch library only): the Model tab's Blender round trip (see ModelPage.TestBlender), then Save
+    /// Changes: the edit must be in the mod's Model folder with a relative path.
+    /// </summary>
+    public async Task<int> ModelBlenderTest(string modName, string mff, string package, string anim, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m);
+        pages.Select(1);
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+        if (tab < 0) { say("no Model tab (PreviewFeatures off?)"); return 1; }
+        editor.SelectTab(tab);
+        for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+        if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
+        string? rel = await page.TestBlender(mff, package, anim, say);
+        int fails = 0;
+        void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+        Check(rel != null, "the save in Blender came back as an FBX edit of " + anim);
+        if (rel == null) { CloseEditor(); return 1; }
+        await editor.SaveForTest();
+        await Task.Delay(500);
+        var saved = lib?.Find(modName);
+        string? editsTxt = saved == null ? null : Directory.EnumerateFiles(Path.Combine(saved.Folder, ModelWork.Folder, "edits"), "edits.txt", SearchOption.AllDirectories).FirstOrDefault();
+        Check(editsTxt != null, "the mod's Model folder has the edits");
+        if (editsTxt != null)
+        {
+            string text = File.ReadAllText(editsTxt);
+            say("edits.txt: " + text.Replace("\n", " | "));
+            Check(text.Contains($"anim:{anim}=", StringComparison.OrdinalIgnoreCase) && !text.Contains(':' + "\\"), "the edit names its FBX relative to the edits folder");
+            Check(File.Exists(Path.Combine(Path.GetDirectoryName(editsTxt)!, rel)), "the edited FBX is in the mod");
+            Check(File.Exists(Path.Combine(Path.GetDirectoryName(editsTxt)!, "blender.txt")), "the Blender link is kept (blender.txt)");
+        }
         return fails == 0 ? 0 : 1;
     }
 

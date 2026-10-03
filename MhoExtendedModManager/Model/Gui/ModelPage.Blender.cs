@@ -52,18 +52,35 @@ sealed partial class ModelPage
         if (!blenderDelayHooked) { blenderDelay.Tick += (_, _) => { blenderDelay.Stop(); ApplyBlenderSync(); }; blenderDelayHooked = true; }
         var (folder, _) = BlenderLink();
         if (folder == null) return;
+        // the link travels with the mod (Model\edits): on another PC, or after the export folder was deleted, there's nothing to watch
+        if (!Directory.Exists(folder)) { Log($"Blender: the linked export folder isn't here any more ({folder}); Open in Blender again to work in Blender."); return; }
         string from = Path.Combine(folder, "from_blender");
         try
         {
             Directory.CreateDirectory(from);
             blenderWatch = new FileSystemWatcher(from, "sync.json") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
-            FileSystemEventHandler on = (_, _) => BeginInvoke(() => { blenderDelay.Stop(); blenderDelay.Start(); });
+            FileSystemEventHandler on = (_, _) => Later(() => { blenderDelay.Stop(); blenderDelay.Start(); });
             blenderWatch.Changed += on; blenderWatch.Created += on;
-            blenderWatch.Renamed += (_, _) => BeginInvoke(() => { blenderDelay.Stop(); blenderDelay.Start(); });
+            blenderWatch.Renamed += (_, _) => Later(() => { blenderDelay.Stop(); blenderDelay.Start(); });
             blenderWatch.EnableRaisingEvents = true;
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { Log($"Blender: can't watch {from}: {ex.Message}"); return; }
         ApplyBlenderSync();
+    }
+
+    /// <summary>On the UI thread, unless the tab has gone (the editor closed while Blender kept saving).</summary>
+    void Later(Action a)
+    {
+        try { if (IsHandleCreated && !IsDisposed) BeginInvoke(a); }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException) { }
+    }
+
+    /// <summary>The watcher stops with the tab (the editor closes); a later save in Blender is applied when the mod's Model tab
+    /// opens again (its last applied sync is in the mod's Model folder).</summary>
+    void StopBlenderWatch()
+    {
+        blenderWatch?.Dispose(); blenderWatch = null;
+        blenderDelay.Stop(); blenderDelay.Dispose();
     }
 
     sealed record SyncFile(int Version, string? Model, Dictionary<string, string> Anims, List<string>? Last, string? Time);

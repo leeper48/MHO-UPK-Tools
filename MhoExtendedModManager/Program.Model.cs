@@ -46,6 +46,27 @@ static partial class Program
                 Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
                 return code;
             }
+            case "--model-blender-test":
+            {
+                // --model-blender-test <mod> <mff model> <package file> <animation> (scratch MHO_EXTMM_HOME only; Blender runs
+                // headless): the Model tab's Single Animation export, the scene its Open in Blender script builds, an edit
+                // saved in Blender, the sync taken in, Save Changes; exit 0 when every check passes.
+                if (rest.Count < 5) { Console.WriteLine("--model-blender-test <mod> <mff model> <package file> <animation>"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library): this test saves the mod"); return 1; }
+                Environment.SetEnvironmentVariable("MFF_GUI_NOASK", "1");   // no questions, no Explorer window
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    try { code = await main.ModelBlenderTest(rest[1], rest[2], rest[3], rest[4], Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
+                return code;
+            }
             default: return null;
         }
     }

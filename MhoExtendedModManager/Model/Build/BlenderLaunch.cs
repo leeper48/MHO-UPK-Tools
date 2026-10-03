@@ -104,7 +104,7 @@ static class BlenderLaunch
     public static string? Open(string folder)
     {
         string? exe = Find();
-        if (exe == null) return "Blender isn't installed (no Blender Foundation folder in Program Files): pick blender.exe in Settings ▾ → Blender.";
+        if (exe == null) return "Blender isn't installed (no Blender Foundation folder in Program Files): pick blender.exe in Settings ▾ → Model → Choose Blender.";
         string script = WriteScript(folder);
         Process.Start(new ProcessStartInfo(exe, $"--python \"{script}\"") { UseShellExecute = false, WorkingDirectory = folder });
         return null;
