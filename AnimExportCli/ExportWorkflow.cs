@@ -125,6 +125,13 @@ public static class ExportWorkflow
 
         Directory.CreateDirectory(outputDirectory);
 
+        // The mesh's RotOrigin / Origin (native data) are what the game draws it turned and moved by; the export writes the
+        // mesh as stored, without them (baked in, a re-import would turn it twice), so say so when they're set.
+        if (mesh.RotOrigin != (0, 0, 0) || mesh.Origin != System.Numerics.Vector3.Zero)
+            log($"note: '{mesh.Name}' is drawn in game turned by RotOrigin (pitch {mesh.RotOrigin.Pitch * 360.0 / 65536:0.#}°, yaw {mesh.RotOrigin.Yaw * 360.0 / 65536:0.#}°, roll {mesh.RotOrigin.Roll * 360.0 / 65536:0.#}°)"
+                + (mesh.Origin != System.Numerics.Vector3.Zero ? $" and moved by Origin ({mesh.Origin.X:0.##}, {mesh.Origin.Y:0.##}, {mesh.Origin.Z:0.##})" : "")
+                + "; the FBX has the mesh as stored, without that.");
+
         // Always write a plain, unanimated export alongside whatever animations
         // are found — useful on its own, and it's the file to compare against a
         // known-good export when something about a pose looks wrong, since it

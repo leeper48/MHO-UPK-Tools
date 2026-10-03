@@ -54,8 +54,10 @@ public static class RoundTripVerifier
     /// <summary>Mirrors the single-key rotation correction <see cref="FbxExporter.BuildAnimation"/> applies, so the comparison is apples to apples.</summary>
     private static BoneAnimation ApplyExportCorrections(SkeletalMesh mesh, BoneAnimation original)
     {
+        // (only the bones the exporter applies it to: FbxExporter.UsesBindPoseRule)
         var restRotationByBone = new Dictionary<string, Quaternion>(StringComparer.OrdinalIgnoreCase);
-        foreach (MeshBone bone in mesh.Bones) restRotationByBone.TryAdd(bone.Name, FbxExporter.NormalisedOrIdentity(bone.Orientation));
+        for (int i = 0; i < mesh.Bones.Count; i++)
+            if (FbxExporter.UsesBindPoseRule(mesh, i)) restRotationByBone.TryAdd(mesh.Bones[i].Name, FbxExporter.NormalisedOrIdentity(mesh.Bones[i].Orientation));
 
         var tracks = new Dictionary<string, BoneTrack>(StringComparer.OrdinalIgnoreCase);
 

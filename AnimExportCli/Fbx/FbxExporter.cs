@@ -233,8 +233,10 @@ public static class FbxExporter
             // A single rotation key is usually a structural, near-constant
             // bone (root, the various "_offset" bones) rather than genuine
             // per-frame animation — see the remarks on ResolveSingleKeyRotation.
+            // Only for the root and the "_offset" bones, where it was confirmed (see UsesBindPoseRule): a posed bone keeps
+            // its stored rotation.
             IReadOnlyList<BoneRotationKey> rotationKeys = track.RotationKeys;
-            if (rotationKeys.Count == 1)
+            if (rotationKeys.Count == 1 && UsesBindPoseRule(mesh, b))
                 rotationKeys = [new BoneRotationKey(rotationKeys[0].TimeFrame, ResolveSingleKeyRotation(rotationKeys[0].Rotation, restRotation))];
 
             var frames = new SortedSet<float>();
@@ -326,6 +328,20 @@ public static class FbxExporter
     /// "drifted", when the round trip is doing precisely what it's meant to.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Whether a bone's single-key rotation gets <see cref="ResolveSingleKeyRotation"/>: the root and the "_offset" bones
+    /// only. Checked 2026-10-03 (MHO Extended Mod Manager --singlekey-census over Cyclops, Storm, Thor and Punisher): for
+    /// every other bone, where the bind-pose pick and the stored rotation differ, the stored one is closer to that bone's
+    /// multi-key poses in the same AnimSet in 1,057 of 1,102 tracks; the bind-pose pick mirrored fixed poses (palms,
+    /// thumbs, capes, Punisher's hose, Cyclops's spine on his bike: hands 13 units off the grips instead of 2.6).
+    /// </summary>
+    internal static bool UsesBindPoseRule(SkeletalMesh mesh, int boneIndex)
+    {
+        if (boneIndex <= 0 || boneIndex >= mesh.Bones.Count) return true;
+        MeshBone bone = mesh.Bones[boneIndex];
+        return bone.ParentIndex < 0 || bone.Name.EndsWith("_offset", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static Quaternion ResolveSingleKeyRotation(Quaternion decoded, Quaternion restRotation)
     {
         var conjugated = new Quaternion(-decoded.X, -decoded.Y, -decoded.Z, decoded.W);
