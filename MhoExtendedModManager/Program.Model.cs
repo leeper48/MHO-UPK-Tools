@@ -46,6 +46,43 @@ static partial class Program
                 Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
                 return code;
             }
+            case "--model-tab-timing":
+            {
+                if (rest.Count < 2 || Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("--model-tab-timing <mod> (scratch MHO_EXTMM_HOME)"); return 1; }
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Application.EnableVisualStyles();   // as the app itself
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () => { try { code = await main.ModelTabTiming(rest[1], Console.WriteLine); } catch (Exception ex) { Console.WriteLine("ERROR: " + ex); } main.Close(); });
+                Application.Run(main);
+                return code;
+            }
+            case "--model-settings-test":
+            {
+                // --model-settings-test (scratch MHO_EXTMM_HOME): Settings → Model changes the main window's settings object, so
+                // the window saving its copy on exit keeps them (Kurt: the MFF folder was forgotten after a restart).
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library)"); return 1; }
+                var before = Settings.Load();
+                string? keep = before.MffFolder, keepBlender = before.BlenderPath;
+                using var main = new Gui.MainForm();   // not shown: it only has to hold its settings
+                string probe = @"C:\MffFolderTest_" + Environment.TickCount64;
+                MhoMffImporter.Settings.Change(s => s.MffFolder = probe);
+                MhoMffImporter.Settings.Reset();
+                MhoMffImporter.Settings.Current.BlenderPath = @"C:\BlenderTest\blender.exe"; MhoMffImporter.Settings.Current.Save();
+                MhoMffImporter.Settings.App!.Save();   // the window's copy saved, as on exit
+                var after = Settings.Load();
+                bool ok1 = after.MffFolder == probe, ok2 = after.BlenderPath == @"C:\BlenderTest\blender.exe";
+                Console.WriteLine((ok1 ? "PASS" : "FAIL") + " the MFF folder survives the window's save on exit: " + after.MffFolder);
+                Console.WriteLine((ok2 ? "PASS" : "FAIL") + " the Blender choice survives it too: " + after.BlenderPath);
+                // the old way (0.37.113–0.37.115): the file written on its own, then the window's copy saved on exit
+                var window = MhoMffImporter.Settings.App!;
+                var fresh = Settings.Load(); fresh.MffFolder = probe + "_old"; fresh.Save();
+                window.Save();
+                bool lost = Settings.Load().MffFolder != probe + "_old";
+                Console.WriteLine((lost ? "PASS" : "FAIL") + " (the old way loses it, as Kurt saw: " + Settings.Load().MffFolder + ")");
+                MhoMffImporter.Settings.Change(s => { s.MffFolder = keep; s.BlenderPath = keepBlender; });   // back as it was
+                return ok1 && ok2 && lost ? 0 : 1;
+            }
             case "--model-blender-test":
             {
                 // --model-blender-test <mod> <mff model> <package file> <animation> (scratch MHO_EXTMM_HOME only; Blender runs

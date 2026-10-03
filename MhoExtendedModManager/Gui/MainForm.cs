@@ -128,6 +128,7 @@ sealed class MainForm : Form
 
     public MainForm()
     {
+        MhoMffImporter.Settings.App = settings;   // the Model tab's settings are changed on this copy (it's saved again on exit)
         current = this;
         Text = $"MHO Extended Mod Manager v{Program.Version}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -2288,6 +2289,39 @@ sealed class MainForm : Form
             Check(saved.Manifest.UpkReplacements.Contains(package, StringComparer.OrdinalIgnoreCase), "the manifest still lists the package");
         }
         Check(!Directory.EnumerateDirectories(lib!.DataFolder, "model-work-*").Any(), "the editor's work folder is gone");
+        return fails == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// --model-tab-timing (scratch library only): the editor's tab named by MHO_TIMING_TAB (default Model) shown for a few
+    /// seconds, then how often the UI thread got a turn (a 10 ms timer). An idle window gets about 64 a second; the Model tab
+    /// got 5 while an empty filter box showed .NET's placeholder text (0.37.116 fix: Field.UseCueBanner). Fails under 40.
+    /// </summary>
+    public async Task<int> ModelTabTiming(string modName, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m);
+        pages.Select(1);
+        string want = Environment.GetEnvironmentVariable("MHO_TIMING_TAB") ?? "Model";
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == want, -1);
+        if (tab < 0) { say("no tab " + want); return 1; }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        long last = 0, worst = 0, ticks = 0;
+        using var probe = new System.Windows.Forms.Timer { Interval = 10 };
+        probe.Tick += (_, _) => { long now = sw.ElapsedMilliseconds; worst = Math.Max(worst, now - last); last = now; ticks++; };
+        probe.Start();
+        editor.SelectTab(tab);
+        await Task.Delay(4000);   // loading, thumbnails
+        int fails = 0;
+        for (int s = 1; s <= 3; s++)
+        {
+            worst = 0; ticks = 0;
+            await Task.Delay(1000);
+            say($"{want}, idle second {s}: {ticks} turns, longest gap {worst} ms");
+            if (ticks < 40) fails++;
+        }
+        CloseEditor();
+        say(fails == 0 ? "PASS the window stays responsive" : "FAIL the window is busy while idle");
         return fails == 0 ? 0 : 1;
     }
 

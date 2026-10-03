@@ -28,6 +28,10 @@ static class Thumbs
     /// <summary>Thumbnails still being made (checks wait for them).</summary>
     public static int Pending => work.Count + busy;
 
+    /// <summary>Thumbnails made since the app started (timing checks).</summary>
+    public static int Made => made;
+    static int made;
+
     /// <summary>A thumbnail was made (its key); repaint the row.</summary>
     public static event Action<string>? Ready;
 
@@ -83,7 +87,7 @@ static class Thumbs
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch (Exception) { }
             Image? made = null;
             if (ok) try { made = LoadCopy(png); } catch (Exception) { ok = false; }
-            if (ok) memory[key] = made;
+            if (ok) { memory[key] = made; Interlocked.Increment(ref Thumbs.made); }
             else if (!File.Exists(png)) { memory[key] = null; try { File.WriteAllText(Path.Combine(Dir, key + ".none"), ""); } catch (Exception) { } }
             Interlocked.Decrement(ref busy);
             try { Ready?.Invoke(key); } catch (Exception) { }   // a window closing meanwhile

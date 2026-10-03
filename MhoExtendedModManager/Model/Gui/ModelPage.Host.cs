@@ -135,12 +135,12 @@ sealed partial class ModelPage
         model.DropDownOpening += (_, _) =>
         {
             model.DropDownItems.Clear();
-            string? mff = MhoExtendedModManager.Settings.Load().MffFolder;
+            string? mff = (Settings.App ?? MhoExtendedModManager.Settings.Load()).MffFolder;
             model.DropDownItems.Add(new ToolStripMenuItem("Change MFF Folder", null, (_, _) =>
             {
                 using var d = new FolderBrowserDialog { Description = "Your MFF rip folder (it holds Models\\Models and Texture2D); read only", UseDescriptionForTitle = true, InitialDirectory = mff ?? "" };
                 if (d.ShowDialog(owner) != DialogResult.OK) return;
-                var s = MhoExtendedModManager.Settings.Load(); s.MffFolder = d.SelectedPath; s.Save();
+                Settings.Change(s => s.MffFolder = d.SelectedPath);
                 Settings.Reset();
                 changed();
             }) { ToolTipText = "Now: " + (mff ?? "not set") + ". Only read, never changed." });

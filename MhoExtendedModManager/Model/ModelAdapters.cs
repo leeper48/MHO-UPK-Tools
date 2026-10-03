@@ -49,9 +49,22 @@ sealed class Settings
     /// <summary>The engine's own work folder (thumbnails, exports, command-line outputs): model\ in the Mod Manager's data.</summary>
     public static string Home => Path.Combine(MemmSettings.Home, "model");
 
+    /// <summary>The main window's settings object, when one is open. It keeps its own copy and saves it (the window's place
+    /// on exit), so the Model tab's choices are made on that copy: a change written only to the file was overwritten on exit
+    /// (Kurt: the MFF folder was forgotten after a restart).</summary>
+    public static MemmSettings? App { get; set; }
+
+    /// <summary>Changes the Mod Manager's settings and saves them, on the main window's copy when there is one.</summary>
+    public static void Change(Action<MemmSettings> change)
+    {
+        var s = App ?? MemmSettings.Load();
+        change(s);
+        s.Save();
+    }
+
     static Settings Load()
     {
-        var s = MemmSettings.Load();
+        var s = App ?? MemmSettings.Load();
         string? root = s.ResolvedGameRoot(MemmSettings.LibraryData(s.LibraryPath));
         return new Settings
         {
@@ -74,8 +87,8 @@ sealed class Settings
     /// <summary>The Blender choices go back into the Mod Manager's settings.</summary>
     public void Save()
     {
-        var s = MemmSettings.Load();
-        if (s.BlenderPath != BlenderPath || s.SkipBlenderAddonOffer != SkipAddonOffer) { s.BlenderPath = BlenderPath; s.SkipBlenderAddonOffer = SkipAddonOffer; s.Save(); }
+        var s = App ?? MemmSettings.Load();
+        if (s.BlenderPath != BlenderPath || s.SkipBlenderAddonOffer != SkipAddonOffer) Change(m => { m.BlenderPath = BlenderPath; m.SkipBlenderAddonOffer = SkipAddonOffer; });
         Directory.CreateDirectory(Home);
         File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }

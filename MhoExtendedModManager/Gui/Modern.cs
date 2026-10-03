@@ -139,7 +139,28 @@ sealed class Field : Panel
         tb.BorderStyleChanged += (_, _) => { if (tb.BorderStyle != BorderStyle.None) BeginInvoke(() => tb.BorderStyle = BorderStyle.None); };
         MouseDown += (_, _) => tb.Focus();
         Cursor = Cursors.IBeam;
+        UseCueBanner(tb);
     }
+
+    /// <summary>
+    /// The box's hint drawn by Windows itself (EM_SETCUEBANNER) instead of .NET's PlaceholderText (2026-10-03, Kurt: the Model
+    /// tab was slow before anything was loaded). Measured: an empty box showing a PlaceholderText kept the whole window
+    /// repainting, about 3 times a second at ~220 ms each (the main window draws composited); with text in the box, or with
+    /// the box hidden, it was idle. .NET draws that hint after the box's own paint; Windows' hint is part of it. Single-line
+    /// boxes only (Windows has no hint for multi-line ones).
+    /// </summary>
+    static void UseCueBanner(TextBox tb)
+    {
+        if (tb.Multiline || string.IsNullOrEmpty(tb.PlaceholderText)) return;
+        string cue = tb.PlaceholderText;
+        tb.PlaceholderText = "";
+        void Set() => SendMessage(tb.Handle, 0x1501, 1, cue);   // EM_SETCUEBANNER, shown while focused too (as before)
+        if (tb.IsHandleCreated) Set();
+        tb.HandleCreated += (_, _) => Set();
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, string lParam);
 
     /// <summary>Puts <paramref name="tb"/> in a frame at its place (same parent position / table cell, dock, anchor, margin, size).</summary>
     public static void Wrap(TextBox tb)
