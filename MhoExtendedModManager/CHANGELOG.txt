@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.112
+- Editor → Animations: animations whose notifies play particle effects (trails, sparks: Carnage, Daredevil, Punisher, Thor and many more) are copied with their notifies and effects. Before, such a copy left out all its notifies, including contact frames and footsteps.
+- (Already in 0.37.111, not listed there:) animations that were refused because of their morph curves (Carnage's arm blades) or extra data (Daredevil, Thor) can be copied.
+
 0.37.111
 - Editor → Powers: switching powers keeps the Frame slider's place (the next power opens at the same point of its animation) instead of going back to the start.
 - Editor → Powers: change single colors. "Colors in This Power" shows the colors a power uses (from its particles, materials and effect textures); click one to replace only that color with a hex color, with a Range for how close shades change too. Each part keeps its brightness. Works with the sliders, in the 3D preview and on Save.
