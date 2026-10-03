@@ -15,7 +15,9 @@ static class WhatsNew
 
     public static bool PowersAndAnimations => PowersAndAnimationsReleased || Settings.Load().PreviewFeatures;
     /// <summary>The editor's Model tab (MFF models onto a mod's package): in development, only with "PreviewFeatures": true.</summary>
-    public static bool ModelTab => Settings.Load().PreviewFeatures;
+    public static bool ModelTab => ModelTabReleased || Settings.Load().PreviewFeatures;
+    /// <summary>The Model tab is out for everyone (Kurt decides; then also uncomment its manual section and add a notice).</summary>
+    public const bool ModelTabReleased = false;
 
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
 
