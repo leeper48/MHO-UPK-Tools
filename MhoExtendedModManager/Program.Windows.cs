@@ -340,6 +340,34 @@ static partial class Program
             Application.Run(f);
             return 0;
         }
+        if (args.Length >= 2 && args[0].Equals("--color-picker-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // --color-picker-snapshot <out.png> [#RRGGBB]: the Powers tab's color picker drawn off-screen.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            var c = args.Length > 2 && ColorMap.FromHex(args[2]) is { } v ? Color.FromArgb((int)(v.X * 255), (int)(v.Y * 255), (int)(v.Z * 255)) : Color.FromArgb(32, 255, 64);
+            Gui.ColorPickerPopup.Snapshot(args[1], c);
+            Console.WriteLine($"eyedropper read under the mouse: {(Gui.Eyedropper.UnderCursor() is { } u ? $"#{u.R:X2}{u.G:X2}{u.B:X2} at {Cursor.Position}" : "nothing")}");
+            return 0;
+        }
+        if (args.Length == 5 && args[0].Equals("--keep-frame-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.KeepFrameTest(args[1], args[2], args[3], args[4]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 5 && args[0].Equals("--power-map-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.PowerMapTest(args[1], args[2], args[3], args[4]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 4 && args[0].Equals("--anim-find-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only

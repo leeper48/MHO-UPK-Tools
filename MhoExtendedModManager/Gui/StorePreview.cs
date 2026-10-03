@@ -26,6 +26,7 @@ sealed partial class StorePreview : Control
     // Animation (Kurt: pick one for the 3D view): the mesh's animations, the one playing, and the drop-down.
     List<AnimRef> anims = [];
     string? wantedAnim;                           // from the pick's "@animation" part
+    double? keepFraction;                         // Powers tab: the next animation opens at this fraction of its length (PlayPower)
     double? restoreTime;                          // the saved frame (seconds) to show when the animation being restored has loaded
     string? shownMesh;                            // the mesh the 3D view holds (kept while a picture shows, so going back keeps pose and camera)
     AnimExportCli.Animation.BoneAnimation? playing;

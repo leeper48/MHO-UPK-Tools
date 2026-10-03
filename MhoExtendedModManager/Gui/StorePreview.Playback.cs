@@ -216,7 +216,7 @@ sealed partial class StorePreview
             if (mod != null && MeshOk && StartView(meshes[meshIndex]) == null) viewer.ZoomOut(1.25f);   // room for reaching and lunging
             paused = true;
             bool restoring = restoreTime != null;
-            playTime = Math.Clamp(restoreTime ?? 0, 0, playSeconds); restoreTime = null;
+            playTime = Math.Clamp(restoreTime ?? (keepFraction is double kf ? kf * playSeconds : 0), 0, playSeconds); restoreTime = null; keepFraction = null;
             rig.SetParentAnimation(playing);
             animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); ShowPose();
             ShowFrame(playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0);

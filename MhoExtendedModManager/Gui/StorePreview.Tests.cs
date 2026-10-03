@@ -143,6 +143,13 @@ sealed partial class StorePreview
     }
 
     /// <summary>--preview-selftest: the 3D view's light now, or null.</summary>
+    /// <summary>For --keep-frame-test: the animation shown and where the frame slider is (0–1), or null while none plays.</summary>
+    internal (string Anim, double Fraction, float Slider, float Frames)? FrameForTest() =>
+        playing == null || playSeconds <= 0 || frameSlider == null ? null : (animBox?.SelectedItem?.ToString() ?? "", playTime / playSeconds, frameSlider.Value, playFrames);
+
+    /// <summary>For --keep-frame-test: the frame slider moved to <paramref name="fraction"/> of the animation (as a drag).</summary>
+    internal void ScrubForTest(double fraction) { if (frameSlider != null && playing != null) frameSlider.Value = (float)Math.Round(fraction * playFrames); }
+
     internal float? ShownLight => show3D && viewer != null ? viewer.Brightness : null;
 
     /// <summary>--preview-selftest: what the 3D view shows now (animation, time, camera), or null when it isn't showing.</summary>

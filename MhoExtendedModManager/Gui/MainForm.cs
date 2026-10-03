@@ -2308,6 +2308,51 @@ sealed class MainForm : Form
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), (saved ?? "not saved") + Environment.NewLine + check);
     }
 
+    /// <summary>--keep-frame-test (scratch libraries only): the Powers tab keeps the frame slider's place across powers.</summary>
+    public async Task KeepFrameTest(string dir, string modName, string a, string b)
+    {
+        Directory.CreateDirectory(dir);
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            lines.AddRange(await editor!.KeepFrameTest(a, b));
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+    }
+
+    /// <summary>--power-map-test (scratch libraries only): a color replaced through the Powers tab, saved, and checked on
+    /// disk (the manifest's PowerColors.Maps, the built packages and their colors).</summary>
+    public async Task PowerMapTest(string dir, string modName, string power, string toHex)
+    {
+        Directory.CreateDirectory(dir);
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            lines.AddRange(await editor!.PowerMapTest(power, toHex));
+            await Task.Delay(1500);
+            using (var b = new Bitmap(Width, Height)) { DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(dir, "powers_tab.png")); }
+            string? saved = await editor.SaveForTest();
+            lines.Add($"{(saved != null ? "PASS" : "FAIL")} saved");
+            m = lib!.Find(saved ?? modName)!;
+            var pc = m.Manifest.PowerColors ?? [];
+            var entry = pc.FirstOrDefault(x => x.Maps is { Count: > 0 });
+            lines.Add($"{(entry != null && entry.Packages.Count > 0 ? "PASS" : "FAIL")} manifest: {entry?.Name}: maps {string.Join(", ", entry?.Maps?.Select(x => x.From + "→" + x.To) ?? [])}; packages {string.Join(", ", entry?.Packages ?? [])}");
+            if (entry != null && game != null)
+                foreach (string f in entry.Packages)
+                {
+                    var pal = PowerRecolor.Palette([Path.Combine(m.Folder, f)], game.Cooked);
+                    lines.Add($"  {f}: {string.Join(" ", pal.Take(8).Select(x => ColorMap.Hex(x.Tint) + $" {x.Share * 100:0}%"))}");
+                }
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+    }
+
     /// <summary>--anim-find-test (scratch libraries only): the Animations tab's Find, then a real click on the first match.</summary>
     public async Task AnimFindTest(string dir, string modName, string find)
     {

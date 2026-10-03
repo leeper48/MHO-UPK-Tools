@@ -12,12 +12,26 @@ namespace MhoExtendedModManager;
 /// </summary>
 public sealed record PowerColor(float Hue, float Saturation = 1, float Brightness = 1)
 {
-    public bool IsNone => Math.Abs(Hue) < 0.5f && Math.Abs(Saturation - 1) < 0.005f && Math.Abs(Brightness - 1) < 0.005f;
+    /// <summary>Single colors replaced (Kurt, 2026-10-03: change one color of a power, not all of them), applied before
+    /// the hue / saturation / brightness change. Empty: none.</summary>
+    public IReadOnlyList<ColorMap> Maps { get; init; } = [];
+
+    public bool IsNone => Maps.Count == 0 && Math.Abs(Hue) < 0.5f && Math.Abs(Saturation - 1) < 0.005f && Math.Abs(Brightness - 1) < 0.005f;
+    bool Shifts => Math.Abs(Hue) >= 0.5f || Math.Abs(Saturation - 1) >= 0.005f || Math.Abs(Brightness - 1) >= 0.005f;
+
+    public bool Equals(PowerColor? o) => o != null && Hue == o.Hue && Saturation == o.Saturation && Brightness == o.Brightness && Maps.SequenceEqual(o.Maps);
+    public override int GetHashCode() => HashCode.Combine(Hue, Saturation, Brightness, Maps.Count);
 
     public Vector3 Apply(Vector3 c)
     {
         // MHO_RECOLOR_SWAPRB=1 (test only): red and blue swapped, so a table keeps its [min, max] exactly.
         if (Environment.GetEnvironmentVariable("MHO_RECOLOR_SWAPRB") == "1") return new Vector3(c.Z, c.Y, c.X);
+        if (Maps.Count > 0) c = ColorMap.Apply(Maps, c);
+        return Shifts ? Shift(c) : c;
+    }
+
+    Vector3 Shift(Vector3 c)
+    {
         float a = Hue * MathF.PI / 180, co = MathF.Cos(a), si = MathF.Sin(a);
         var r = new Vector3(
             (.299f + .701f * co + .168f * si) * c.X + (.587f - .587f * co + .330f * si) * c.Y + (.114f - .114f * co - .497f * si) * c.Z,
@@ -26,6 +40,51 @@ public sealed record PowerColor(float Hue, float Saturation = 1, float Brightnes
         float luma = .299f * r.X + .587f * r.Y + .114f * r.Z;
         r = new Vector3(luma) + (r - new Vector3(luma)) * Saturation;
         return Vector3.Max(Vector3.Zero, r * Brightness);
+    }
+}
+
+/// <summary>
+/// One color of a power replaced by another (Kurt, 2026-10-03). Colors are compared by their tint: a color divided by its
+/// largest channel (so the dim and the HDR-bright versions of a blue, 0.1 or 50, are the same blue), and the replacement
+/// keeps each value's own intensity: <see cref="To"/> at full brightness (#FF8000) swaps the tint; a darker
+/// <see cref="To"/> (#804000) also dims it by that much. <see cref="Tolerance"/> (0–1, distance between tints with their
+/// largest channel at 1) says how close a color must be to count: full replacement up to half of it, fading to none at it.
+/// A color near several maps takes the closest one's.
+/// </summary>
+public sealed record ColorMap(Vector3 From, Vector3 To, float Tolerance)
+{
+    public static Vector3 Tint(Vector3 v) { float m = MathF.Max(v.X, MathF.Max(v.Y, v.Z)); return m > 1e-6f ? v / m : Vector3.Zero; }
+
+    /// <summary>How much of the replacement a tint gets (1 = all).</summary>
+    public float Weight(Vector3 tint)
+    {
+        float d = Vector3.Distance(tint, Tint(From)), t = MathF.Max(Tolerance, 0.001f);
+        if (d >= t) return 0;
+        if (d <= t * 0.5f) return 1;
+        float x = (t - d) / (t * 0.5f);
+        return x * x * (3 - 2 * x);
+    }
+
+    public static Vector3 Apply(IReadOnlyList<ColorMap> maps, Vector3 v)
+    {
+        float i = MathF.Max(v.X, MathF.Max(v.Y, v.Z));
+        if (i <= 1e-6f) return v;
+        var tint = v / i;
+        ColorMap? best = null; float bw = 0;
+        foreach (var m in maps) { float w = m.Weight(tint); if (w > bw) { bw = w; best = m; } }
+        if (best == null) return v;
+        float to = MathF.Max(best.To.X, MathF.Max(best.To.Y, best.To.Z));
+        var toTint = to > 1e-6f ? best.To / to : Vector3.Zero;
+        return Vector3.Lerp(tint, toTint, bw) * i * (1 + (to - 1) * bw);
+    }
+
+    public static string Hex(Vector3 c) => $"#{(int)Math.Clamp(MathF.Round(c.X * 255), 0, 255):X2}{(int)Math.Clamp(MathF.Round(c.Y * 255), 0, 255):X2}{(int)Math.Clamp(MathF.Round(c.Z * 255), 0, 255):X2}";
+
+    public static Vector3? FromHex(string? s)
+    {
+        s = s?.Trim().TrimStart('#');
+        if (s == null || s.Length != 6 || !int.TryParse(s, System.Globalization.NumberStyles.HexNumber, null, out int n)) return null;
+        return new Vector3((n >> 16 & 255) / 255f, (n >> 8 & 255) / 255f, (n & 255) / 255f);
     }
 }
 
@@ -178,7 +237,7 @@ static class PowerRecolor
         // 1 + 2. Color tables, distribution vectors and material color parameters: in a copy of the body, sizes unchanged.
         byte[] body = pkg.Body.ToArray();
         var t = new FxTables(pkg);
-        var (tables, objects, left) = RecolorTables(body, t, color);
+        var (tables, objects, left) = RecolorTables(body, t, color.Apply);
         var tinted = new SortedSet<int>();
         for (int i = 0; i < t.Exports.Count; i++)
         {
@@ -210,20 +269,7 @@ static class PowerRecolor
         // 3. The drawn textures (the preview's pick for each emitter's material), recolored.
         var fx = new FxPkg(file, pkg.Body, t);
         var tex = new FxTextures([fx], cooked);
-        var picked = new SortedSet<int>(); var materials = new SortedSet<int>(); var systems = new SortedSet<int>();
-        for (int i = 0; i < t.Exports.Count; i++)
-        {
-            if (!t.ClassOf(t.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
-            systems.Add(i);
-            var data = ParticleData.Read(fx, i);
-            if (data == null) continue;
-            foreach (var em in data.Emitters)
-            {
-                int mat = em.Required.Ref("Material");
-                bool sub = em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1;
-                if (tex.ParticleTexture(fx, mat, sub, out _) is { } pk && ReferenceEquals(pk.P, fx)) { picked.Add(pk.Export); MaterialChain(t, pkg.Body, mat, materials); }
-            }
-        }
+        var (picked, materials, systems) = PickTextures(pkg, t, fx, tex);
         var items = new List<TextureImport.Replacement>();
         var recolored = new SortedSet<int>();
         string temp = Path.Combine(Path.GetTempPath(), "mhoextmm_recolor_" + Guid.NewGuid().ToString("N")[..8]);
@@ -278,6 +324,100 @@ static class PowerRecolor
             throw new InvalidDataException($"{file}: the export table changed");
         log($"{file}: reads back ({back.Exports.Length} exports, {systems.Count} particle system(s))");
         return output;
+    }
+
+    /// <summary>The effect textures the package's particle systems draw (FxTextures' pick, those in this package), the
+    /// materials showing them (with their parents) and the particle systems.</summary>
+    static (SortedSet<int> Picked, SortedSet<int> Materials, SortedSet<int> Systems) PickTextures(Package pkg, FxTables t, FxPkg fx, FxTextures tex)
+    {
+        var picked = new SortedSet<int>(); var materials = new SortedSet<int>(); var systems = new SortedSet<int>();
+        for (int i = 0; i < t.Exports.Count; i++)
+        {
+            if (!t.ClassOf(t.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
+            systems.Add(i);
+            var data = ParticleData.Read(fx, i);
+            if (data == null) continue;
+            foreach (var em in data.Emitters)
+            {
+                int mat = em.Required.Ref("Material");
+                bool sub = em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1;
+                if (tex.ParticleTexture(fx, mat, sub, out _) is { } pk && ReferenceEquals(pk.P, fx)) { picked.Add(pk.Export); MaterialChain(t, pkg.Body, mat, materials); }
+            }
+        }
+        return (picked, materials, systems);
+    }
+
+    /// <summary>One color a power uses (its tint: largest channel 1), how much of it there is, and where it's from.</summary>
+    public sealed record Swatch(Vector3 Tint, float Weight, string Sources, float Share);
+
+    /// <summary>
+    /// The colors a power's packages use (Kurt, 2026-10-03: pick one to replace): every particle color table sample and
+    /// color value, material color parameters, and the pixels of the effect textures it draws (each texture weighs as much
+    /// as 24 color values, spread over its pixels by alpha). Near-black is left out. Grouped by tint: greys (low saturation)
+    /// together, else by 15 degrees of hue and three saturation steps; each group shows its weighted mean tint. Groups under
+    /// 1 % are dropped; the largest first, at most <paramref name="max"/>.
+    /// </summary>
+    public static List<Swatch> Palette(IEnumerable<string> files, string cooked, int max = 16)
+    {
+        var groups = new Dictionary<int, (Vector3 Sum, float W, HashSet<string> From)>();
+        void Add(Vector3 v, float w, string from)
+        {
+            float i = MathF.Max(v.X, MathF.Max(v.Y, v.Z));
+            if (i < 0.02f || w <= 0) return;
+            var tint = v / i;
+            float sat = 1 - MathF.Min(tint.X, MathF.Min(tint.Y, tint.Z));
+            int key = sat < 0.12f ? -1 : (int)(Hue(tint) / 15) % 24 * 3 + (sat < 0.4f ? 0 : sat < 0.75f ? 1 : 2);
+            groups.TryGetValue(key, out var g);
+            var set = g.From ?? new HashSet<string>();
+            set.Add(from);
+            groups[key] = (g.Sum + tint * w, g.W + w, set);
+        }
+        foreach (string f in files)
+        {
+            var pkg = Package.Open(f);
+            byte[] body = pkg.Body.ToArray();
+            var t = new FxTables(pkg);
+            RecolorTables(body, t, v => { Add(v, 1, "particles"); return v; });
+            for (int i = 0; i < t.Exports.Count; i++)
+            {
+                if (!t.ClassOf(t.Exports[i]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)) continue;
+                foreach (var (_, at) in VectorParameters(body, t, i)) Add(new Vector3(F(body, at), F(body, at + 4), F(body, at + 8)), 1, "materials");
+            }
+            var fx = new FxPkg(Path.GetFileName(f), pkg.Body, t);
+            var tex = new FxTextures([fx], cooked);
+            foreach (int i in PickTextures(pkg, t, fx, tex).Picked)
+            {
+                if (tex.Decoded(fx, i) is not { } d) continue;
+                byte[] p = d.Bgra;
+                bool alphaVaries = false;
+                for (int k = 7; k < p.Length && !alphaVaries; k += 4) if (p[k] != p[3]) alphaVaries = true;
+                int step = Math.Max(1, d.W * d.H / 16384);
+                var px = new List<(Vector3, float)>();
+                float total = 0;
+                for (int k = 0; k < d.W * d.H; k += step)
+                {
+                    int o = k * 4;
+                    float a = alphaVaries ? p[o + 3] / 255f : 1;
+                    var v = new Vector3(p[o + 2], p[o + 1], p[o]) / 255f;
+                    if (a <= 0.02f || MathF.Max(v.X, MathF.Max(v.Y, v.Z)) < 0.02f) continue;
+                    px.Add((v, a)); total += a;
+                }
+                foreach (var (v, a) in px) Add(v, a / total * 24, "textures");
+            }
+        }
+        float all = groups.Values.Sum(g => g.W);
+        return [.. groups.Values.Where(g => g.W >= all * 0.01f).OrderByDescending(g => g.W).Take(max)
+            .Select(g => new Swatch(ColorMap.Tint(g.Sum / g.W), g.W, string.Join(", ", g.From.Order()), g.W / all))];
+    }
+
+    /// <summary>A tint's hue, 0 to 360 degrees.</summary>
+    public static float Hue(Vector3 c)
+    {
+        float mx = MathF.Max(c.X, MathF.Max(c.Y, c.Z)), mn = MathF.Min(c.X, MathF.Min(c.Y, c.Z)), d = mx - mn;
+        if (d < 1e-6f) return 0;
+        float h = mx == c.X ? (c.Y - c.Z) / d % 6 : mx == c.Y ? (c.Z - c.X) / d + 2 : (c.X - c.Y) / d + 4;
+        h *= 60;
+        return h < 0 ? h + 360 : h;
     }
 
     /// <summary>A material instance's color parameters: each VectorParameterValues element's ParameterName and where its
@@ -336,7 +476,7 @@ static class PowerRecolor
 
     /// <summary>Every color module's RGB distributions recolored in place (sizes unchanged). Returns the lookup tables and
     /// distribution-object vectors changed, and the curves left (not baked: rare).</summary>
-    public static (int Tables, int Objects, int Left) RecolorTables(byte[] b, FxTables t, PowerColor c)
+    public static (int Tables, int Objects, int Left) RecolorTables(byte[] b, FxTables t, Func<Vector3, Vector3> apply)
     {
         int tables = 0, objects = 0, left = 0;
         var doneObjects = new HashSet<int>();
@@ -366,7 +506,7 @@ static class PowerRecolor
                     float lo = float.MaxValue, hi = float.MinValue;
                     for (int k = 2; k + 3 <= count; k += 3)
                     {
-                        var v = c.Apply(new Vector3(F(b, at + 4 * k), F(b, at + 4 * k + 4), F(b, at + 4 * k + 8)));
+                        var v = apply(new Vector3(F(b, at + 4 * k), F(b, at + 4 * k + 4), F(b, at + 4 * k + 8)));
                         W(b, at + 4 * k, v.X); W(b, at + 4 * k + 4, v.Y); W(b, at + 4 * k + 8, v.Z);
                         lo = MathF.Min(lo, MathF.Min(v.X, MathF.Min(v.Y, v.Z))); hi = MathF.Max(hi, MathF.Max(v.X, MathF.Max(v.Y, v.Z)));
                     }
@@ -381,7 +521,7 @@ static class PowerRecolor
                     foreach (var v in FxProps.Find(b, t, de)?.Props ?? [])
                         if (v.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase) && v.Size == 12 && v.Name.ToLowerInvariant() is "constant" or "min" or "max" or "minlow" or "minhigh" or "maxlow" or "maxhigh")
                         {
-                            var r = c.Apply(new Vector3(F(b, v.ValueAt), F(b, v.ValueAt + 4), F(b, v.ValueAt + 8)));
+                            var r = apply(new Vector3(F(b, v.ValueAt), F(b, v.ValueAt + 4), F(b, v.ValueAt + 8)));
                             W(b, v.ValueAt, r.X); W(b, v.ValueAt + 4, r.Y); W(b, v.ValueAt + 8, r.Z);
                             objects++;
                         }

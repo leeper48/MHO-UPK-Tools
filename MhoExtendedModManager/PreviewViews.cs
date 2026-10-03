@@ -31,6 +31,8 @@ static class PreviewViews
         public Dictionary<string, IconSetup> Icons { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>The power colors' five preset slots (hue, saturation, brightness; null = empty), for every mod on this PC.</summary>
         public float[]?[] PowerPresets { get; set; } = new float[]?[5];
+        /// <summary>The color picker's recent colors, newest first ("#RRGGBB", at most 5).</summary>
+        public List<string>? RecentColors { get; set; }
     }
 
     static Data? data;
@@ -179,6 +181,17 @@ static class PreviewViews
     public static bool Bloom { get => D.Bloom; set { if (D.Bloom == value) return; D.Bloom = value; Save(); } }
     public static bool Props { get => D.Props; set { if (D.Props == value) return; D.Props = value; Save(); } }
     public static bool Powers { get => D.Powers; set { if (D.Powers == value) return; D.Powers = value; Save(); } }
+
+    /// <summary>The color picker's five most recent colors (Kurt, 2026-10-03), newest first; kept on this PC for every mod.</summary>
+    public static IReadOnlyList<string> RecentColors => D.RecentColors ?? [];
+
+    public static void AddRecentColor(string hex)
+    {
+        var l = (D.RecentColors ?? []).Where(x => !x.Equals(hex, StringComparison.OrdinalIgnoreCase)).Prepend(hex.ToUpperInvariant()).Take(5).ToList();
+        if (D.RecentColors != null && l.SequenceEqual(D.RecentColors)) return;
+        D.RecentColors = l;
+        Save();
+    }
 
     /// <summary>A power color preset slot (0–4; the editor's Powers tab): null when empty.</summary>
     public static PowerColor? PowerPreset(int k) =>

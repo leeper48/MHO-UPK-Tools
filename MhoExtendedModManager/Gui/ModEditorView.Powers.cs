@@ -56,10 +56,10 @@ sealed partial class ModEditorView
         };
         page.Controls.Add(host, 0, 0);
 
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(8, 0, 0, 0) };
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 9, Padding = new Padding(8, 0, 0, 0) };
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        for (int k = 0; k < 6; k++) right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int k = 0; k < 7; k++) right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.Controls.Add(new Label { Text = "POWERS", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 4) }, 0, 0);
         powerList.ItemHeight = (int)(40 * S);
         powerList.BackColor = Ui.Card; powerList.ForeColor = Ui.Text;
@@ -89,7 +89,8 @@ sealed partial class ModEditorView
         }
         ShowPresets();
         right.Controls.Add(presets, 0, 6);
-        right.Controls.Add(powerShared, 0, 7);
+        right.Controls.Add(PaletteSection(), 0, 7);
+        right.Controls.Add(powerShared, 0, 8);
         page.Controls.Add(right, 1, 0);
         Disposed += (_, _) => powerPreview?.Dispose();
         return Page(page, Toolbar(), "A color recolors the power's own game files (its particles, effect textures and material colors): every costume of the hero shows it, for anyone using this mod. Save writes them into the mod's packages.");
@@ -200,6 +201,8 @@ sealed partial class ModEditorView
             + (p.Animations.Count == 0 ? " · No Animation of Its Own: Its Effects Show During Other Powers" : "");
         if (p.Animations.Count > 0) powerPreview?.PlayPower(p.Prototype);
         ShowShared(p);
+        LoadPalette(p);
+        ShowMapRows();
     }
 
     void SliderChanged()
@@ -215,7 +218,7 @@ sealed partial class ModEditorView
         var e = EntryOf(p.Prototype);
         if (c == null || c.IsNone)
         {
-            if (e != null) { e.Hue = 0; e.Saturation = 1; e.Brightness = 1; }   // kept until Save, so its old packages are dropped then
+            if (e != null) { e.Hue = 0; e.Saturation = 1; e.Brightness = 1; if (c == null) e.Maps = null; }   // kept until Save, so its old packages are dropped then
             if (c == null && hueSlider != null && satSlider != null && brightSlider != null) { fillingPower = true; hueSlider.Value = 0; satSlider.Value = 1; brightSlider.Value = 1; fillingPower = false; }
         }
         else
@@ -226,6 +229,7 @@ sealed partial class ModEditorView
         powerCaption.Text = EntryOf(p.Prototype) is { } now && !now.Color.IsNone ? "Recolored" : "The Game's Colors";
         powerList.Invalidate();
         powerPreview?.RefreshPowerColor();
+        if (c == null) ShowMapRows();
     }
 
     void DrawPowerItem(object? sender, DrawItemEventArgs e)
@@ -240,7 +244,8 @@ sealed partial class ModEditorView
         // A swatch of the color change (the hue turned on a neutral blue), when there is one.
         if (entry != null && !entry.Color.IsNone)
         {
-            using var sw = new SolidBrush(SwatchColor(entry.Color));
+            // (a power with replaced colors shows its first replacement's new color)
+            using var sw = new SolidBrush(entry.Maps is { Count: > 0 } ms && ColorMap.FromHex(ms[0].To) is { } tc ? ToColor(tc) : SwatchColor(entry.Color));
             int s = (int)(14 * S);
             e.Graphics.FillEllipse(sw, e.Bounds.Right - s - 2 * pad, e.Bounds.Y + (e.Bounds.Height - s) / 2, s, s);
         }

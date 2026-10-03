@@ -32,7 +32,7 @@ sealed class ColorSwatch : Control
         if (swatch is { } c) using (var b = new SolidBrush(c)) g.FillPath(b, path);
         using (var pen = new Pen(hover ? Color.FromArgb(220, 255, 255, 255) : swatch == null ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(60, 0, 0, 0), (hover ? 2f : 1f) * s)) g.DrawPath(pen, path);
         bool light = swatch is { } sc && sc.R * 0.299 + sc.G * 0.587 + sc.B * 0.114 > 140;
-        TextRenderer.DrawText(g, Number.ToString(), Ui.Heavy(8.5f), Rectangle.Round(r), swatch == null ? Ui.Subtle : light ? Color.Black : Color.White,
+        if (Number > 0) TextRenderer.DrawText(g, Number.ToString(), Ui.Heavy(8.5f), Rectangle.Round(r), swatch == null ? Ui.Subtle : light ? Color.Black : Color.White,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
     }
 }

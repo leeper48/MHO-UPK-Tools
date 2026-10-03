@@ -15,7 +15,21 @@ sealed class PowerColorEntry
     public float Saturation { get; set; } = 1;
     public float Brightness { get; set; } = 1;
     public List<string> Packages { get; set; } = [];
-    [System.Text.Json.Serialization.JsonIgnore] public PowerColor Color => new(Hue, Saturation, Brightness);
+    /// <summary>Single colors replaced (hex "#RRGGBB" → "#RRGGBB", tolerance 0–1); null when none (Kurt, 2026-10-03).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<ColorMapEntry>? Maps { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore] public PowerColor Color => new(Hue, Saturation, Brightness)
+    {
+        Maps = Maps?.Select(m => ColorMap.FromHex(m.From) is { } f && ColorMap.FromHex(m.To) is { } t ? new ColorMap(f, t, m.Tolerance) : null).OfType<ColorMap>().ToList() ?? [],
+    };
+}
+
+/// <summary>A single color replaced in a power (PowerColorEntry.Maps).</summary>
+sealed class ColorMapEntry
+{
+    public string From { get; set; } = "";
+    public string To { get; set; } = "";
+    public float Tolerance { get; set; } = 0.3f;
 }
 
 /// <summary>A voice line turned off in the editor, kept in the manifest (VoiceOff) so it can be turned on again.</summary>

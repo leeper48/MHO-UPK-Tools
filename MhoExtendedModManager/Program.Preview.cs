@@ -549,7 +549,13 @@ static partial class Program
                 string pkgFile = Path.GetFileName(rest[1]).EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? Path.GetFileName(rest[1]) : Path.GetFileName(rest[1]) + ".upk";
                 string? stock = new Originals(lib.DataFolder, rgame).Find(pkgFile);
                 if (stock == null) { Console.WriteLine($"no verified stock copy of {pkgFile}"); return 1; }
-                var color = new PowerColor(float.Parse(rest[2], System.Globalization.CultureInfo.InvariantCulture), float.Parse(rest[3], System.Globalization.CultureInfo.InvariantCulture), float.Parse(rest[4], System.Globalization.CultureInfo.InvariantCulture));
+                var color = new PowerColor(float.Parse(rest[2], System.Globalization.CultureInfo.InvariantCulture), float.Parse(rest[3], System.Globalization.CultureInfo.InvariantCulture), float.Parse(rest[4], System.Globalization.CultureInfo.InvariantCulture))
+                {
+                    // --map FROM=TO[@tolerance] (repeatable): single colors replaced, hex.
+                    Maps = [.. rest.Select((x, k) => (x, k)).Where(x => x.x == "--map" && x.k + 1 < rest.Count).Select(x => rest[x.k + 1].Split('=', '@'))
+                        .Select(m => ColorMap.FromHex(m[0]) is { } f && m.Length > 1 && ColorMap.FromHex(m[1]) is { } t
+                            ? new ColorMap(f, t, m.Length > 2 ? float.Parse(m[2], System.Globalization.CultureInfo.InvariantCulture) : 0.3f) : throw new ArgumentException("--map FROM=TO[@tolerance], hex colors"))],
+                };
                 try
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -560,6 +566,37 @@ static partial class Program
                     return 0;
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException) { Console.WriteLine("not built: " + ex.Message); return 1; }
+            }
+            case "--power-palette":
+            {
+                // Read-only: the colors a power uses (PowerRecolor.Palette over its stock packages), for the Powers tab's
+                // single-color replacement. --power-palette <hero> <power name or prototype part>
+                if (rest.Count < 2 || rest.Count < 3 && !rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("--power-palette <hero> <power name or prototype part>"); return 1; }
+                string? pgr = settings.ResolvedGameRoot(data);
+                if (pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string pcook = Settings.Cooked(pgr);
+                var pgame = new GameState(pgr, data);
+                StockFiles.Init(pgame, settings.CleanGameFiles, Path.Combine(data, "originals"));
+                if (rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase))
+                {
+                    // --power-palette <file.upk> … : the colors of these package files (a built recolor, to check it).
+                    foreach (var c in PowerRecolor.Palette(rest.Skip(1).Where(x => x.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)), pcook))
+                        Console.WriteLine($"  {ColorMap.Hex(c.Tint)}  {c.Share * 100,5:0.0} %  hue {PowerRecolor.Hue(c.Tint),3:0}  {c.Sources}");
+                    return 0;
+                }
+                var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
+                var powers = Fx.PowerList.For(pdb, rest[1], pcook, [], effectOnly: true);
+                var pw = powers.FirstOrDefault(x => x.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase))
+                         ?? powers.FirstOrDefault(x => x.Name.Contains(rest[2], StringComparison.OrdinalIgnoreCase) || x.Prototype.Contains(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (pw == null) { Console.WriteLine($"no power like \"{rest[2]}\"; {rest[1]}'s: {string.Join(", ", powers.Select(x => x.Name))}"); return 1; }
+                var originals = new Originals(data, pgame);
+                var files = PowerRecolor.PackagesOf(pdb, pw.Prototype, rest[1], pcook).Select(f => originals.Find(f) ?? StockFiles.For(pcook, f)).ToList();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var pal = PowerRecolor.Palette(files, pcook);
+                Console.WriteLine($"{pw.Name} ({pw.Prototype}): {files.Count} package(s), {pal.Count} color(s), {sw.ElapsedMilliseconds} ms");
+                foreach (var c in pal)
+                    Console.WriteLine($"  {ColorMap.Hex(c.Tint)}  {c.Share * 100,5:0.0} %  hue {PowerRecolor.Hue(c.Tint),3:0}  {c.Sources}");
+                return 0;
             }
             case "--hero-powers":
             {

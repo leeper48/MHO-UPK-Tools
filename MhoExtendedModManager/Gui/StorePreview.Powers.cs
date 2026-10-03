@@ -99,6 +99,10 @@ sealed partial class StorePreview
     {
         int k = heroPowers.FindIndex(p => p.Prototype.Equals(prototype, StringComparison.OrdinalIgnoreCase));
         if (k < 0) return false;
+        // The frame slider keeps its place (Kurt, 2026-10-03: compare powers at the same moment): the next power's
+        // animation opens at the same fraction of its length.
+        if (playing != null && playSeconds > 0)
+            keepFraction = Math.Clamp((PreviewViews.Loop ? playTime % playSeconds : Math.Min(playTime, playSeconds)) / playSeconds, 0, 1);
         if (powerFilter == heroPowers[k].Prototype) PowerClicked(k);   // (filtering already: back to all, then again)
         PowerClicked(k);
         if (!play) autoPlay = false;

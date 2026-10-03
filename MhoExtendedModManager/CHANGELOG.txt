@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.111
+- Editor → Powers: switching powers keeps the Frame slider's place (the next power opens at the same point of its animation) instead of going back to the start.
+- Editor → Powers: change single colors. "Colors in This Power" shows the colors a power uses (from its particles, materials and effect textures); click one to replace only that color with a hex color, with a Range for how close shades change too. Each part keeps its brightness. Works with the sliders, in the 3D preview and on Save.
+- Click a replacement's new color for a color wheel with a Brightness slider and an Eyedropper (press and drag onto any color on screen, on any monitor). Every change updates the hex and the 3D preview at once. Under the wheel: your five most recent colors (kept on this PC) and Reset (back to the power's own color).
+
 0.37.110
 - Settings → Your Author Name: your name is filled in as the author of every new mod. New mods no longer take the author of the last mod changed in the library (often someone else's); the first time you save a new mod with an author, the app offers to remember it.
 - The travel power is always the first power button (in the 3D preview and the Editor's Powers tab), the same place for every hero; the others follow by name.
