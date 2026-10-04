@@ -101,16 +101,21 @@ sealed class MaterialMaps
         string outPng = Path.Combine(workDir, name + ".png");
         Protected.CheckWrite(outPng);
         using var col = new Bitmap(colour);
-        using var spb = sp != null ? new Bitmap(new Bitmap(sp), col.Width, col.Height) : null;
-        using var b = new Bitmap(col.Width, col.Height, PixelFormat.Format32bppArgb);
-        for (int y = 0; y < col.Height; y++)
-            for (int x = 0; x < col.Width; x++)
+        int w = col.Width, h = col.Height;
+        var cpx = Pixels(col);
+        int[]? spx = null;
+        if (sp != null) { using var raw = new Bitmap(sp); using var spb = new Bitmap(raw, w, h); spx = Pixels(spb); }
+        var o = new int[w * h];
+        Parallel.For(0, h, y =>
+        {
+            for (int i = y * w; i < (y + 1) * w; i++)
             {
-                var c = col.GetPixel(x, y);
-                float k = matte ? 0 : 0.85f + 0.4f * (spb != null ? Metal(spb.GetPixel(x, y)) : 0);
-                b.SetPixel(x, y, Color.FromArgb(255, Math.Min(255, (int)(c.R * k)), Math.Min(255, (int)(c.G * k)), Math.Min(255, (int)(c.B * k))));
+                var c = Color.FromArgb(cpx[i]);
+                float k = matte ? 0 : 0.85f + 0.4f * (spx != null ? Metal(Color.FromArgb(spx[i])) : 0);
+                o[i] = Color.FromArgb(255, Math.Min(255, (int)(c.R * k)), Math.Min(255, (int)(c.G * k)), Math.Min(255, (int)(c.B * k))).ToArgb();
             }
-        b.Save(outPng, ImageFormat.Png);
+        });
+        SavePixels(w, h, o, outPng);
         return outPng;
     }
 
@@ -127,15 +132,15 @@ sealed class MaterialMaps
         string outPng = Path.Combine(workDir, name + ".png");
         Protected.CheckWrite(outPng);
         using var col = new Bitmap(colour);
-        using var b = new Bitmap(col.Width, col.Height, PixelFormat.Format32bppArgb);
+        var cpx = Pixels(col);
+        var o = new int[cpx.Length];
         int lit = 0;
-        for (int y = 0; y < col.Height; y++)
-            for (int x = 0; x < col.Width; x++)
-            {
-                var c = col.GetPixel(x, y); bool g = !matte && Glows(c); if (g) lit++;
-                b.SetPixel(x, y, g ? Color.FromArgb(255, c.R, c.G, c.B) : Color.Black);
-            }
-        b.Save(outPng, ImageFormat.Png);
+        for (int i = 0; i < cpx.Length; i++)
+        {
+            var c = Color.FromArgb(cpx[i]); bool g = !matte && Glows(c); if (g) lit++;
+            o[i] = g ? Color.FromArgb(255, c.R, c.G, c.B).ToArgb() : Color.Black.ToArgb();
+        }
+        SavePixels(col.Width, col.Height, o, outPng);
         notes.Add($"{name}: glow on {(float)lit / (col.Width * col.Height):P2} of the colour map");
         return outPng;
     }
@@ -146,11 +151,34 @@ sealed class MaterialMaps
         string outPng = Path.Combine(workDir, name + ".png");
         Protected.CheckWrite(outPng);
         using var src = new Bitmap(sp);
-        using var b = new Bitmap(src.Width, src.Height, PixelFormat.Format32bppArgb);
-        for (int y = 0; y < src.Height; y++)
-            for (int x = 0; x < src.Width; x++)
-                b.SetPixel(x, y, f(src.GetPixel(x, y)));
-        b.Save(outPng, ImageFormat.Png);
+        int w = src.Width, h = src.Height;
+        var px = Pixels(src);
+        var o = new int[w * h];
+        Parallel.For(0, h, y => { for (int i = y * w; i < (y + 1) * w; i++) o[i] = f(Color.FromArgb(px[i])).ToArgb(); });
+        SavePixels(w, h, o, outPng);
         return outPng;
+    }
+
+    /// <summary>A bitmap's pixels as ARGB ints (what GetPixel gives, read at once: the performance pass, 2026-10-04: GetPixel /
+    /// SetPixel per texel took a second per 1024² map).</summary>
+    static int[] Pixels(Bitmap b)
+    {
+        var rect = new Rectangle(0, 0, b.Width, b.Height);
+        using var c = b.Clone(rect, PixelFormat.Format32bppArgb);
+        var d = c.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        var px = new int[b.Width * b.Height];
+        for (int y = 0; y < b.Height; y++) System.Runtime.InteropServices.Marshal.Copy(d.Scan0 + y * d.Stride, px, y * b.Width, b.Width);
+        c.UnlockBits(d);
+        return px;
+    }
+
+    /// <summary>ARGB ints as a PNG (as SetPixel into a 32-bit bitmap, then Save).</summary>
+    static void SavePixels(int w, int h, int[] px, string file)
+    {
+        using var b = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        var d = b.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        for (int y = 0; y < h; y++) System.Runtime.InteropServices.Marshal.Copy(px, y * w, d.Scan0 + y * d.Stride, w);
+        b.UnlockBits(d);
+        b.Save(file, ImageFormat.Png);
     }
 }

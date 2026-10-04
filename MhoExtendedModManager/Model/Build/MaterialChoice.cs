@@ -37,11 +37,43 @@ static class MaterialChoice
         long all = 0, metal = 0;
         foreach (var f in spMaps)
         {
-            using var b = new System.Drawing.Bitmap(f);
-            bool old = OldLayout(b);
-            for (int y = 0; y < b.Height; y++) for (int x = 0; x < b.Width; x++) { all++; if (!old && b.GetPixel(x, y).B > 85) metal++; }
+            var (n, m) = Counted(f, "metal", b =>
+            {
+                bool old = OldLayout(b);
+                var px = Pixels(b); long k = 0;
+                if (!old) foreach (int c in px) if ((c & 0xFF) > 85) k++;
+                return (px.Length, k);
+            });
+            all += n; metal += m;
         }
         return all > 0 ? (float)metal / all : 0;
+    }
+
+    // per-file counts, kept while the file is the same (the performance pass, 2026-10-04: every preview rebuild read every map
+    // pixel by pixel)
+    static readonly Dictionary<string, (long All, long Hit)> counted = new();
+
+    static (long All, long Hit) Counted(string file, string what, Func<System.Drawing.Bitmap, (long, long)> count)
+    {
+        var fi = new FileInfo(file);
+        string key = $"{what}|{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
+        lock (counted) if (counted.TryGetValue(key, out var hit)) return hit;
+        using var b = new System.Drawing.Bitmap(file);
+        var r = count(b);
+        lock (counted) { if (counted.Count > 256) counted.Clear(); counted[key] = r; }
+        return r;
+    }
+
+    /// <summary>A bitmap's pixels as ARGB ints, read at once (GetPixel's values).</summary>
+    static int[] Pixels(System.Drawing.Bitmap b)
+    {
+        var rect = new System.Drawing.Rectangle(0, 0, b.Width, b.Height);
+        using var c = b.Clone(rect, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var d = c.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var px = new int[b.Width * b.Height];
+        for (int y = 0; y < b.Height; y++) System.Runtime.InteropServices.Marshal.Copy(d.Scan0 + y * d.Stride, px, y * b.Width, b.Width);
+        c.UnlockBits(d);
+        return px;
     }
 
     /// <summary>The older _sp layout: blue's low end (5th percentile, sampled) above 140 (old maps: 160-180; metal-mask maps: 0).</summary>
@@ -60,13 +92,17 @@ static class MaterialChoice
         long all = 0, lit = 0;
         foreach (var f in colourMaps)
         {
-            using var b = new System.Drawing.Bitmap(f);
-            for (int y = 0; y < b.Height; y++)
-                for (int x = 0; x < b.Width; x++)
+            var (n, g) = Counted(f, "glow", b =>
+            {
+                var px = Pixels(b); long k = 0;
+                foreach (int v in px)
                 {
-                    var c = b.GetPixel(x, y); all++;
-                    if ((c.R + c.G + c.B) / 3f > 200 || (c.B > 180 && c.G > 170 && c.R < 160)) lit++;
+                    int r = (v >> 16) & 0xFF, gg = (v >> 8) & 0xFF, bb = v & 0xFF;
+                    if ((r + gg + bb) / 3f > 200 || (bb > 180 && gg > 170 && r < 160)) k++;
                 }
+                return (px.Length, k);
+            });
+            all += n; lit += g;
         }
         return all > 0 ? (float)lit / all : 0;
     }

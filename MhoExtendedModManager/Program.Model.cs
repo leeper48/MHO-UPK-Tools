@@ -303,6 +303,52 @@ static partial class Program
                 Console.WriteLine("snapshot: " + rest[1]);
                 return 0;
             }
+            case "--model-perf":
+            {
+                // --model-perf <mff model | fbx file> <package> [runs] (read only): the preview's preparation stage by stage, a few
+                // times (the first run pays for loading), then a build into a temp folder; the performance pass's numbers
+                if (rest.Count < 3) { Console.WriteLine("--model-perf <mff model | fbx file> <package> [runs]"); return 1; }
+                int runs = rest.Count > 3 ? int.Parse(rest[3]) : 3;
+                MhoMffImporter.Settings.Reset();
+                string pkg = MhoMffImporter.BasePackage.Resolve(rest[2], true);
+                bool fbx = rest[1].EndsWith(".fbx", StringComparison.OrdinalIgnoreCase);
+                var total = System.Diagnostics.Stopwatch.StartNew();
+                MhoMffImporter.MffModel? model = null;
+                if (!fbx) { model = MhoMffImporter.MffModel.Load(MhoMffImporter.Source.ResolveModelFile(rest[1])); Console.WriteLine($"MFF model loaded: {total.ElapsedMilliseconds} ms"); }
+                for (int r = 1; r <= runs; r++)
+                {
+                    total.Restart();
+                    _ = fbx ? MhoMffImporter.Gui.PreviewPanel.PrepareFbx(rest[1], null, pkg, null) : MhoMffImporter.Gui.PreviewPanel.Prepare(model!, null, pkg, null);
+                    Console.WriteLine($"preview run {r}: {total.ElapsedMilliseconds} ms  ({string.Join(", ", MhoMffImporter.Gui.PreviewPanel.Timings.Select(t => $"{t.Stage} {t.Ms:0}"))})");
+                }
+                string outDir = Path.Combine(Path.GetTempPath(), "MHO_ExtMM_perf_build");
+                if (Directory.Exists(outDir)) Directory.Delete(outDir, true);
+                total.Restart();
+                var opts = MhoMffImporter.ImportOptions.FromEnvironment(null, null, null) with { SourceFbx = fbx ? rest[1] : null };
+                var lines = new List<(long Ms, string Line)>();
+                var built = MhoMffImporter.ImportBuild.Run(fbx ? "x" : rest[1], pkg, outDir, opts, l => lines.Add((total.ElapsedMilliseconds, l)));
+                Console.WriteLine($"build: {total.ElapsedMilliseconds} ms ({(built == null ? "failed" : "ok")})");
+                // where the build's time goes: the log lines with the longest gaps before them
+                long prev = 0;
+                foreach (var (ms, line) in lines.Select(x => x).ToList().Select(x => { var gap = x.Ms - prev; prev = x.Ms; return (gap, x.Line); }).OrderByDescending(x => x.gap).Take(8))
+                    Console.WriteLine($"  {ms,6} ms before: {line[..Math.Min(110, line.Length)]}");
+                try { Directory.Delete(outDir, true); } catch (IOException) { }
+                return built == null ? 1 : 0;
+            }
+            case "--fbx-thumb":
+            {
+                // --fbx-thumb <fbx> <out.png> (scratch MHO_EXTMM_HOME): the source list's thumbnail of an FBX (its color map)
+                if (rest.Count < 3) { Console.WriteLine("--fbx-thumb <fbx> <out.png>"); return 1; }
+                MhoMffImporter.Settings.Reset();
+                Console.WriteLine("color map: " + (MhoMffImporter.FbxReimport.FirstColorMap(rest[1]) ?? "none"));
+                Image? img = null;
+                for (int i = 0; i < 200 && (img = MhoMffImporter.Thumbs.Fbx(rest[1])) == null && MhoMffImporter.Thumbs.Pending > 0; i++) Thread.Sleep(50);
+                img ??= MhoMffImporter.Thumbs.Fbx(rest[1]);
+                if (img == null) { Console.WriteLine("no thumbnail"); return 1; }
+                img.Save(rest[2]);
+                Console.WriteLine($"thumbnail {img.Width}x{img.Height}: {rest[2]}");
+                return 0;
+            }
             case "--color-tags-split-test":
             {
                 // --color-tags-split-test <color.png> <x> <y>: the Tag Colors window (off screen) double-clicked on texel (x, y):

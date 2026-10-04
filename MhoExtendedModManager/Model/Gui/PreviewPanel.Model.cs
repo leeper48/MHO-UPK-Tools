@@ -35,10 +35,18 @@ sealed partial class PreviewPanel
     }
 
     /// <summary>Retargets <paramref name="model"/>'s parts onto the base package's skeleton and prepares the preview (worker thread).</summary>
+    /// <summary>The last preparation's stages and their milliseconds (the performance pass: --model-perf).</summary>
+    internal static readonly List<(string Stage, double Ms)> Timings = [];
+    static System.Diagnostics.Stopwatch stageClock = new();
+    static void Stage(string name) { Timings.Add((name, stageClock.Elapsed.TotalMilliseconds)); stageClock.Restart(); }
+    static void StartStages() { Timings.Clear(); stageClock.Restart(); }
+
     public static Prepared Prepare(MffModel model, string? parts, string packagePath, string? materialDonor, bool subdivide = false, string? modelFbx = null, string? mapFile = null,
         int cape = 0, int hair = 0, string? overrides = null)
     {
+        StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
+        Stage("skeleton");
         var rigs = new List<BorrowedRig>(); var notes = new List<string>();
         foreach (var (kind, n) in new[] { (BorrowedRig.Kind.Cape, cape), (BorrowedRig.Kind.Hair, hair) })
         {
@@ -52,6 +60,7 @@ sealed partial class PreviewPanel
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
         var r = Retarget.Run(model, picked, sk, file);
         if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });
+        Stage("retarget");
         MaterialOverrides.Apply(r, overrides);
         var p = FromRetarget(r, sk, packagePath, materialDonor);
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;   // the map shown keeps the file's smoothing
@@ -67,9 +76,12 @@ sealed partial class PreviewPanel
     /// <summary>An FBX as the source (0.11.3): its skeleton proportions, meshes (<paramref name="meshes"/>, null = all) and textures.</summary>
     public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null)
     {
+        StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
+        Stage("skeleton");
         var r = FbxReimport.Load(fbx, sk, meshes, _ => { });
         if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });   // the mesh edited in Blender (Ctrl+S)
+        Stage("fbx load");
         MaterialOverrides.Apply(r, overrides);
         // the Bone Map's smoothing (an FBX source's map holds only that)
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
@@ -123,6 +135,38 @@ sealed partial class PreviewPanel
         };
     }
 
+    // --- per package: the hero's animation list and own mesh don't change with the model or its materials (the performance
+    // pass, 2026-10-04: ~250 ms of every preview rebuild); kept while the package file is the same (size and date) ----------
+    static readonly object cacheLock = new();
+    static readonly Dictionary<string, List<AnimRef>> animCache = new();
+    static readonly Dictionary<string, (List<MeshRef> Meshes, MeshRef? Main, ModMeshes.Loaded? Stock)> stockCache = new();
+
+    static string Stamp(string packagePath)
+    {
+        var fi = new FileInfo(packagePath);
+        return $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{Settings.Current.CookedFolder ?? Settings.Current.StockFolder}";
+    }
+
+    static List<AnimRef> AnimationsCached(string file, string packagePath, string mesh, List<MeshBone> bones)
+    {
+        string key = Stamp(packagePath) + "|" + mesh + "|" + string.Join(",", bones.Select(b => b.Name));   // (added cape / hair bones change the list)
+        lock (cacheLock) if (animCache.TryGetValue(key, out var hit)) return hit;
+        var list = ModAnimations.For(new MeshRef(file, packagePath, mesh, 0), bones, [], Settings.Current.CookedFolder ?? Settings.Current.StockFolder);
+        lock (cacheLock) { if (animCache.Count > 32) animCache.Clear(); animCache[key] = list; }
+        return list;
+    }
+
+    static (List<MeshRef> Meshes, MeshRef? Main, ModMeshes.Loaded? Stock) StockCached(string file, string packagePath, string mesh)
+    {
+        string key = Stamp(packagePath) + "|" + mesh;
+        lock (cacheLock) if (stockCache.TryGetValue(key, out var hit)) return hit;
+        var meshes = ModMeshes.List([(file, packagePath)], anyPackage: true);
+        var mr = meshes.FirstOrDefault(x => x.Name.Equals(mesh, StringComparison.OrdinalIgnoreCase));
+        var stock = mr != null ? ModMeshes.Load(mr, Settings.Current.CookedFolder ?? Settings.Current.StockFolder, out _) : null;
+        lock (cacheLock) { if (stockCache.Count > 8) stockCache.Clear(); stockCache[key] = (meshes, mr, stock); }
+        return (meshes, mr, stock);
+    }
+
     static Prepared FromRetarget(Retargeted r, MhoSkeleton sk, string packagePath, string? materialDonor)
     {
         var bones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
@@ -137,6 +181,7 @@ sealed partial class PreviewPanel
         string? donor = materialDonor == null && ownGlow ? MaterialChoice.Glow : MaterialChoice.Donor(materialDonor, metal, glowShare);
         bool metalStyle = donor is MaterialChoice.Metal or MaterialChoice.Glow, glowOn = donor == MaterialChoice.Glow && !ownGlow;
         var lookCache = new Dictionary<string, ModelView.Look>(StringComparer.OrdinalIgnoreCase);
+        Stage("material choice");
         for (int si = 0; si < r.Sections.Count; si++)
         {
             var s = r.Sections[si];
@@ -150,23 +195,22 @@ sealed partial class PreviewPanel
             if (!lookCache.TryGetValue(key, out var look)) lookCache[key] = look = LookFor(s.Tex, metalStyle, glowOn);
             looks.Add(look);
         }
+        Stage("sections + materials (looks)");
         var p = pos.ToArray(); var n = nrm.ToArray(); var u2 = uv.ToArray(); var i2 = idx.ToArray();
         var tan = ModMeshes.Tangents(p, n, u2, i2);
+        Stage("tangents");
         var mesh = new ModMeshes.Loaded(sk.Name, p, n, tan, u2, i2, triSec.ToArray(), looks.ToArray(), "", bones, infl);
         string file = Path.GetFileName(packagePath);
-        var list = ModAnimations.For(new MeshRef(file, packagePath, sk.Name, 0), bones, [], Settings.Current.CookedFolder ?? Settings.Current.StockFolder);
+        var list = AnimationsCached(file, packagePath, sk.Name, bones);
+        Stage("animation list");
         string material = donor == null ? "the base mesh's own" : donor == MaterialChoice.Glow ? "metal + glow" : donor == MaterialChoice.Metal ? "metal" : donor == MaterialChoice.Default ? "cloth" : donor.Split(':').Last();
         // the base hero's own mesh, for Compare
         ModMeshes.Loaded? stock = null;
         List<MeshRef> pkgMeshes = [];
         MeshRef? mr = null;
-        try
-        {
-            pkgMeshes = ModMeshes.List([(file, packagePath)], anyPackage: true);
-            mr = pkgMeshes.FirstOrDefault(x => x.Name.Equals(sk.Name, StringComparison.OrdinalIgnoreCase));
-            if (mr != null) stock = ModMeshes.Load(mr, Settings.Current.CookedFolder ?? Settings.Current.StockFolder, out _);
-        }
+        try { (pkgMeshes, mr, stock) = StockCached(file, packagePath, sk.Name); }
         catch (Exception) { }
+        Stage("hero's own mesh (Compare)");
         return new Prepared(mesh, bones, list, $"{p.Length:N0} vertices on {sk.Name} · material: {material} · {list.Count} animations", stock,
             donor == null ? "Base Mesh's Own" : donor == MaterialChoice.Glow ? "Metal + Glow" : donor == MaterialChoice.Metal ? "Metal" : donor == MaterialChoice.Default ? "Cloth" : donor.Split(':').Last())
         {

@@ -244,7 +244,9 @@ sealed partial class ModelPage : UserControl
         {
             if (e.KeyCode is Keys.Enter or Keys.Space && characters.SelectedItem is CharacterList.Item { Header: true } h) { ToggleGroup(h); e.Handled = true; }
         };
-        characters.Thumb = it => it.Key.StartsWith("fbx:") || it.Key.StartsWith("browse:") ? null : Thumbs.Model(it.ThumbKey ?? it.Key);
+        characters.Thumb = it => it.Key.StartsWith("browse:") ? null
+            : it.Key.StartsWith("fbx:") ? (File.Exists(it.Key[4..]) ? Thumbs.Fbx(it.Key[4..]) : null)   // (its color map: Kurt, 2026-10-04)
+            : Thumbs.Model(it.ThumbKey ?? it.Key);
         packages.Thumb = it => Thumbs.BaseHero(it.ThumbKey ?? it.Key);
         packages.MouseUp += (_, e) =>
         {

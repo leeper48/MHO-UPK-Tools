@@ -43,6 +43,35 @@ static class Thumbs
     public static Image? Model(string folder) => Get(ModelKey(folder), png => MakeModel(folder, png));
     public static Image? BaseHero(string file) => Get(PackageKey(file), png => MakePortrait(file, png));
 
+    /// <summary>An FBX source's thumbnail: its first material's color map (Kurt, 2026-10-04), made again when the FBX or its folder changes.</summary>
+    public static Image? Fbx(string file)
+    {
+        var fi = new FileInfo(file);
+        // (the folder's date too: a color map put beside the FBX later makes a new thumbnail, not the old "none")
+        long dir = fi.Directory?.LastWriteTimeUtc.Ticks ?? 0;
+        string id = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{dir}")))[..16];
+        return Get("fbx_" + id, png => MakeColorMap(file, png));
+    }
+
+    // --- an FBX: its color map, shrunk to the row ----------------------------------------------------------------------------
+    static bool MakeColorMap(string fbx, string png)
+    {
+        if (MhoMffImporter.FbxReimport.FirstColorMap(fbx) is not string map) return false;
+        using var src = LoadCopy(map);
+        using var thumb = new Bitmap(128, 128);
+        using (var g = Graphics.FromImage(thumb))
+        {
+            // the whole sheet, fitted (its shape kept) on the row's dark
+            g.Clear(Color.FromArgb(30, 32, 40));
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            float k = Math.Min(128f / src.Width, 128f / src.Height);
+            float w = src.Width * k, h = src.Height * k;
+            g.DrawImage(src, (128 - w) / 2, (128 - h) / 2, w, h);
+        }
+        thumb.Save(png, ImageFormat.Png);
+        return true;
+    }
+
     static Image? Get(string key, Func<string, bool> make)
     {
         if (memory.TryGetValue(key, out var img)) return img;

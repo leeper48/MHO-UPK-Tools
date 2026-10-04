@@ -1,6 +1,14 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.153
+- Buttons are icons now, almost everywhere (tabs keep their words, and so do Apply Changes, Update Available, Sort, Group and the answers in message windows). Point at one for its name, in bold, and what it does.
+- Tooltips: they show for grayed-out buttons too, and in pop-up windows (they didn't before). They open by the mouse; long ones could open at the far left of the screen.
+- 3D views: the animation list is half as wide, and Look (an eye), Reset View, the framing buttons and full screen sit on its row; the row under the caption is gone, so the view is taller.
+- 3D views: P plays and pauses the animation (not while typing), in the Mods tab, the Editor's Powers and Animations tabs and full screen; Esc now pauses the Animations tab's preview too.
+- One Extract: the top bar's Extract button is gone (the Extract tab stays).
+- The Nexus strip's Check for Updates, Find My Mods and Browse Nexus are icons; on a narrow list they still fold into its ▾ menu, by name.
+
 0.37.112
 - Powers for costumes named differently from their hero: the hero now comes from the game's costume data, so Kate Bishop (a Hawkeye costume) lists Hawkeye's powers in the Powers tab and the 3D preview, and her mod can recolor them (the power packages go into the mod on Save).
 - 3D preview: vehicles and props face the right way. A prop's own turn (its attachment's OffsetRotation: Hawkeye's and Kate Bishop's Sky-Cycle, Ghost Rider's bikes, Doom's throne, Lockheed, Rocket's rides, Venom's arms) and a model's built-in turn (its RotOrigin: Blade's motorcycle, Ghost Rider's chains) are applied; both were left out, so those riders sat 90° across their vehicles.

@@ -144,6 +144,21 @@ static class FbxReimport
     static bool IsImage(string f) => Path.GetExtension(f).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".bmp";
 
     /// <summary>Textures beside the FBX for a material: name.png (+ _sp, _alpha, _n), else the file's diffuse / normal paths.</summary>
+    /// <summary>The color map of the FBX's first material that has one (the source list's thumbnail, Kurt 2026-10-04); null = none.
+    /// Reads only the materials (no geometry processing).</summary>
+    public static string? FirstColorMap(string fbx)
+    {
+        using var ctx = new AssimpContext();
+        var scene = ctx.ImportFile(fbx, PostProcessSteps.None);
+        foreach (var m in scene.Materials)
+            if (FileTextures(fbx, m.Name, m)?.Diffuse is string d && File.Exists(d)) return d;
+        // else the importer's looser search (rips from other games: the map in a subfolder, under another name)
+        var index = new TextureIndex(Path.GetDirectoryName(Path.GetFullPath(fbx))!);
+        foreach (var m in scene.Materials)
+            if (index.Find(m.Name, m).Diffuse is string d && File.Exists(d)) return d;
+        return null;
+    }
+
     static Textures? FileTextures(string fbx, string name, Material? m)
     {
         string dir = Path.GetDirectoryName(Path.GetFullPath(fbx))!;

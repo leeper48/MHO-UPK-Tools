@@ -27,7 +27,21 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>The Model tab's release (written 2026-10-04 for 0.37.153; shown once ModelTabReleased is true: give it the
+    /// release's version then).</summary>
+    static Notice ModelNotice() => new(
+        "model-tab-release", "0.37.153",
+        "New in the Editor: the Model tab." + nl + nl +
+        "• Put a model of your own on a costume: a Marvel Future Fight character from your own MFF rip, or an FBX file. It's fitted to the hero's skeleton, so the hero's animations, powers and props play on it." + nl + nl +
+        "• FBX files can come rigged (with MHO bone names, Mixamo names or other skeletons) or as a plain mesh: a mesh is stood up, scaled to the hero and rigged in Blender for you." + nl + nl +
+        "• Materials: each map and where it comes from, your own files, the game's own packed spec maps, Tag Colors (say what each color is made of: metal, skin, leather, cloth or glow), glow maps, and Export Maps." + nl + nl +
+        "• Full Export opens the model and its animations in Blender; every Ctrl+S there sends your changes back." + nl + nl +
+        "[!] This is experimental. Test your builds in game before sharing them." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
+        "The manual explains each step (Help, or F1); Settings → What's New shows this notice and the earlier ones.",
+        "model");
 
     /// <summary>0.37.112 (Kurt, 2026-10-03): single power colors with the color wheel and eyedropper.</summary>
     static Notice SingleColors() => new(

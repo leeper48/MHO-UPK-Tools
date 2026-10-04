@@ -153,11 +153,15 @@ static class MaterialOut
         var stand = MakeStandIns(maps, stock);
         var kind = KindOf(slots);
         if (kind.MetalStyle) notes.Add("metal style (template with its own reflection image and spec colour): A = MFF metal mask (_sp blue) → ~130, R = _sp red × 3.5, G 45 → 115 on metal, B 0, spec colour = colour map × 0.85 → 1.25 on metal");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var plan = Plan(slots, mats, maps, stand, kind, notes, out var shared);
+        long tPlan = clock.ElapsedMilliseconds; clock.Restart();
         byte[] withTextures = AddTextures(pkg, plan);
+        long tAdd = clock.ElapsedMilliseconds; clock.Restart();
         notes.Add($"{plan.Count} textures added ({plan.Count(p => p.Material == null)} shared neutral), verified; package {packageBytes.Length:N0} → {withTextures.Length:N0} bytes");
         var (current, refs) = CopyInstances(pkg, mic, templateMic, slots, mats, shared, kind, withTextures);
         notes.Add($"{mats.Count} material instance(s) copied from {templateMic}, verified");
+        notes.Add($"timing: maps {tPlan} ms, textures encoded and added {tAdd} ms, instances {clock.ElapsedMilliseconds} ms");
         return new Result(current, refs, notes);
     }
 
@@ -214,11 +218,19 @@ static class MaterialOut
     {
         var addNames = new List<string>();
         void Need(string n) { if (!pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase)) && !addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n); }
-        var images = new List<TextureImport.DdsImage>();
-        foreach (var p in plan)
+        // the encoding (most of a build's time: Angela's 12 textures took 8 s one after another) runs in parallel; each texture
+        // depends only on its own image, and the results keep the plan's order
+        var encoded = new TextureImport.DdsImage[plan.Count];
+        var po = new ParallelOptions { MaxDegreeOfParallelism = Environment.GetEnvironmentVariable("MHO_SERIAL_ENCODE") == "1" ? 1 : -1 };   // (1: one at a time, to compare)
+        Parallel.For(0, plan.Count, po, i =>
         {
+            var p = plan[i];
             var enc = TextureEncode.FromImage(p.Image, p.Dxt5 ? "dxt5" : "dxt1", 85, 1f, false, 0, refine: !p.AlphaIsData);
-            var img = TextureImport.ParseDds(TextureImport.WriteDds(enc), out string? err) ?? throw new InvalidDataException($"{p.Image}: {err}");
+            encoded[i] = TextureImport.ParseDds(TextureImport.WriteDds(enc), out string? err) ?? throw new InvalidDataException($"{p.Image}: {err}");
+        });
+        var images = new List<TextureImport.DdsImage>();
+        foreach (var (p, img) in plan.Zip(encoded))
+        {
             images.Add(img);
             Need(p.NewName);
             foreach (var n in new[] { "NeverStream", "BoolProperty", "IntProperty", "ByteProperty", "EPixelFormat", img.Format }) Need(n);
