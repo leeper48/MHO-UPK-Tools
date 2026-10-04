@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 namespace MhoExtendedModManager;
 
 static partial class Program
@@ -103,6 +104,60 @@ static partial class Program
                 Application.Run(main);
                 Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
                 return code;
+            }
+            case "--skeleton-guess":
+            {
+                // --skeleton-guess <fbx | mff model> … [--mff-sample N] (read only): the shape guess (SkeletonProfile.Guess) forced
+                // on rigs whose names are known (Mixamo, MFF Biped), each pick scored against the name: right, wrong, missed.
+                MhoMffImporter.Settings.Reset();
+                var items = rest.Skip(1).Where(a => !a.StartsWith("--")).ToList();
+                int si = rest.IndexOf("--mff-sample");
+                if (si > 0 && si + 1 < rest.Count && int.TryParse(rest[si + 1], out int sample))
+                {
+                    items.Remove(rest[si + 1]);
+                    var all = MhoMffImporter.Source.AllModelFolders().ToList();
+                    for (int k = 0; k < sample && all.Count > 0; k++) items.Add(all[(int)((long)k * all.Count / sample)]);
+                }
+                if (items.Count == 0) { Console.WriteLine("--skeleton-guess <fbx | mff model> … [--mff-sample N]"); return 1; }
+                var biped = new HashSet<string>(MhoMffImporter.Retarget.DefaultMap().Select(x => x.Mff), StringComparer.OrdinalIgnoreCase);
+                int files = 0, guessed = 0, right = 0, wrong = 0, missed = 0;
+                foreach (var item in items)
+                {
+                    string file;
+                    try { file = MhoMffImporter.Source.ResolveModelFile(item); }
+                    catch (Exception ex) when (ex is IOException or InvalidOperationException) { Console.WriteLine($"{item}: {ex.Message}"); continue; }
+                    files++;
+                    Assimp.Scene? scene;
+                    try { scene = MhoMffImporter.SkeletonProfile.Open(file); }
+                    catch (Assimp.AssimpException ex) { Console.WriteLine($"{Path.GetFileName(file)}: {ex.Message}"); continue; }
+                    if (scene == null) continue;
+                    // a renamed test copy names its bones' real names beside it (<file>.names.txt: new name, tab, old name)
+                    var realName = File.Exists(file + ".names.txt")
+                        ? File.ReadAllLines(file + ".names.txt").Select(l => l.Split('\t')).Where(x => x.Length == 2).ToDictionary(x => x[0], x => x[1], StringComparer.OrdinalIgnoreCase)
+                        : new Dictionary<string, string>();
+                    string? Truth(string n) { n = realName.GetValueOrDefault(n, n); return MhoMffImporter.SkeletonProfile.MixamoName(n) ?? (biped.Contains(n) ? n : null); }
+                    var known = MhoMffImporter.SkeletonProfile.Names(scene).Distinct().Where(n => Truth(n) != null).ToList();
+                    Console.WriteLine($"{Path.GetFileName(file)}: found as {MhoMffImporter.SkeletonProfile.Find(MhoMffImporter.SkeletonProfile.Open(file)!, out _)?.Family ?? "(MFF / MHO / none)"}");
+                    var r = MhoMffImporter.SkeletonProfile.Guess(scene, out string? why);
+                    if (r == null) { Console.WriteLine($"{Path.GetFileName(file)}: NOT GUESSED: {why}"); continue; }
+                    guessed++;
+                    int ok = 0; var bad = new List<string>();
+                    foreach (var (from, to) in r.Rename)
+                    {
+                        string? t = Truth(from);
+                        if (t == null) continue;   // a bone the names don't pair (twists, extras): not scored
+                        if (t.Equals(to, StringComparison.OrdinalIgnoreCase)) ok++; else bad.Add($"{from} → {to}");
+                    }
+                    // the scored set: the names the retarget pairs (Biped twists are left out of the guess on purpose)
+                    var miss = known.Where(n => !r.Rename.ContainsKey(n) && !Regex.IsMatch(Truth(n)!, "Twist")).ToList();
+                    right += ok; wrong += bad.Count; missed += miss.Count;
+                    Console.WriteLine($"{Path.GetFileName(file)}: {ok} right, {bad.Count} wrong, {miss.Count} missed");
+                    foreach (var b in bad) Console.WriteLine("    wrong: " + b);
+                    if (miss.Count > 0) Console.WriteLine("    missed: " + string.Join(", ", miss));
+                    foreach (var n in r.Notes.Skip(1)) Console.WriteLine("    " + n);
+                }
+                Console.WriteLine($"total: {files} file(s), {guessed} guessed; pairs {right} right, {wrong} wrong, {missed} missed");
+                return wrong == 0 ? 0 : 1;
             }
             default: return null;
         }

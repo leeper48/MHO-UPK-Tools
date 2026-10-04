@@ -40,6 +40,9 @@ sealed class BoneMapFile
         public string Mff { get; set; } = "";
         public string? Mho { get; set; }
         public string How { get; set; } = "";
+        /// <summary>The bone's own name in the FBX when a skeleton profile renamed it (Mixamo, or guessed from the shape): shown
+        /// in the Bone Map instead of the Biped name; not read back.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Was { get; set; }
     }
 
     public sealed class ChainEntry
@@ -82,14 +85,15 @@ sealed class BoneMapFile
             bool mapped = r.Map.TryGetValue(b.Name, out var mho);
             if (!mapped && !b.Deforms) continue;
             string how;
-            if (mapped) how = chainBones.Contains(b.Name) ? "chain" : r.FromFile ? "map file" : "name";
+            if (mapped) how = chainBones.Contains(b.Name) ? "chain" : r.FromFile ? "map file"
+                : b.Original != null ? (m.Profile == "Guessed" ? "guessed from the shape: check" : $"{m.Profile} name") : "name";
             else
             {
                 string? parent = null;
                 for (int j = b.Parent; j >= 0 && parent == null; j = m.Bones[j].Parent) r.Map.TryGetValue(m.Bones[j].Name, out parent);
                 how = "parent → " + (parent ?? "g_pelvis");
             }
-            f.Bones.Add(new BoneEntry { Mff = b.Name, Mho = mapped ? mho : null, How = how });
+            f.Bones.Add(new BoneEntry { Mff = b.Name, Mho = mapped ? mho : null, How = how, Was = b.Original });
         }
         foreach (var c in r.ChainPairs) f.Chains.Add(new ChainEntry { Mff = c.MffRoot, Mho = c.MhoRoot, Fit = $"off by {c.Fit:0.0} units" });
         foreach (var root in r.UnpairedChains) f.Chains.Add(new ChainEntry { Mff = root, Mho = null, Fit = r.FromFile ? "not paired (map file)" : "no MHO chain near enough" });

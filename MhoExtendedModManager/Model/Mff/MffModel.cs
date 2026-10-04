@@ -51,6 +51,8 @@ sealed class Bone
     /// <summary>Rest pose, normalized frame (row-vector convention: p' = p * Global).</summary>
     public Matrix4x4 Global;
     public bool Deforms;
+    /// <summary>The bone's own name in the file when a <see cref="SkeletonProfile"/> renamed it to a Biped name.</summary>
+    public string? Original;
     public Vector3 Position => Global.Translation;
 }
 
@@ -96,6 +98,9 @@ sealed class MffModel
     double bindConflictFile;
     readonly List<double> movedFile = new();
     public List<string> Warnings { get; } = new();
+    /// <summary>The skeleton family whose bones were renamed to Biped names (<see cref="SkeletonProfile"/>: "Mixamo"); null
+    /// for an MFF (Biped) model; "Guessed" when the pairs come from the skeleton's shape (<see cref="SkeletonProfile.Guess"/>).</summary>
+    public string? Profile;
 
     public IEnumerable<Part> Selected(string? spec)
     {
@@ -125,6 +130,10 @@ sealed class MffModel
         catch (AssimpException ex) { throw new InvalidDataException($"Assimp could not read {file}: {ex.Message}"); }
 
         var model = new MffModel { File = file };
+        // another skeleton family (Mixamo …): its bones take the Biped names, so it goes through the same retarget
+        var profile = SkeletonProfile.Apply(scene, model.Warnings);
+        model.Profile = profile?.Family;
+        var originalOf = profile?.Rename.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.Ordinal) ?? [];
         texIndex ??= new TextureIndex(Path.GetDirectoryName(file)!);
 
         // Node world transforms (row-vector System.Numerics = transpose of Assimp's column-vector matrices).
@@ -180,7 +189,7 @@ sealed class MffModel
                 var g = global[n];
                 if (bind.TryGetValue(n.Name, out var bg) && (bg.Translation - g.Translation).Length() > 1e-6) model.movedFile.Add((bg.Translation - g.Translation).Length());
                 boneIndex[n.Name] = model.Bones.Count;
-                model.Bones.Add(new Bone { Name = n.Name, Global = g, Deforms = deform.Contains(n.Name), Parent = parent });
+                model.Bones.Add(new Bone { Name = n.Name, Global = g, Deforms = deform.Contains(n.Name), Parent = parent, Original = originalOf.GetValueOrDefault(n.Name) });
             }
             foreach (var c in n.Children) AddBones(c);
         }
@@ -536,21 +545,30 @@ sealed class TextureIndex
 
     public TextureIndex(string modelFolder)
     {
-        local = Directory.EnumerateFiles(modelFolder, "*.png").ToDictionary(p => Path.GetFileName(p).ToLowerInvariant(), p => p);
+        // the folder and two levels below it (rips from elsewhere keep their textures in subfolders: Captain Carter's
+        // "Marvel Strike Force Captain Carter\Captain Carter\Char_CaptainCarter_D.png"); the folder's own file first
+        local = Directory.EnumerateFiles(modelFolder, "*.png", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true })
+            .GroupBy(p => Path.GetFileName(p).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Length).First());
+        bool mff;
+        try { mff = Directory.Exists(Source.Textures); } catch (InvalidOperationException) { mff = false; }   // no MFF folder set: this folder only
+        if (!mff) { sharedHere = new(); nearHere = new(); return; }
         lock (gate)
-            shared ??= Directory.Exists(Source.Textures)
-                ? Directory.EnumerateFiles(Source.Textures, "*.png").GroupBy(p => Path.GetFileName(p).ToLowerInvariant()).ToDictionary(g => g.Key, g => g.First())
-                : new();
+            shared ??= Directory.EnumerateFiles(Source.Textures, "*.png").GroupBy(p => Path.GetFileName(p).ToLowerInvariant()).ToDictionary(g => g.Key, g => g.First());
         lock (gate)
             near ??= shared!.Keys.Where(k => !Regex.IsMatch(k, @"_(sp|alpha)\.png$")).Select(k => k[..^4])
                 .GroupBy(Near).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First());
     }
 
     static Dictionary<string, string>? near;
+    /// <summary>Without an MFF folder: empty (not cached, so setting the folder later still finds its textures).</summary>
+    Dictionary<string, string>? sharedHere, nearHere;
+    Dictionary<string, string> Shared => sharedHere ?? shared!;
+    Dictionary<string, string> NearNames => nearHere ?? near!;
     /// <summary>Name without the model number after the character name: hero_squirrelgirl01_s02_01 becomes hero_squirrelgirl_s02_01.</summary>
     static string Near(string name) => Regex.Replace(name.ToLowerInvariant(), @"(?<=[a-z])0?1(?=_|$)", "");
 
-    string? Get(string file) => local.GetValueOrDefault(file.ToLowerInvariant()) ?? shared!.GetValueOrDefault(file.ToLowerInvariant());
+    string? Get(string file) => local.GetValueOrDefault(file.ToLowerInvariant()) ?? Shared.GetValueOrDefault(file.ToLowerInvariant());
 
     /// <summary>The character's own sheets for a model folder (hero_blackpanther01[_S02] → blackpanther, blackpanther01,
     /// hero_blackpanther01, then numbered _02, _03 …): (diffuse, spec, alpha), in that order.</summary>
@@ -565,7 +583,7 @@ sealed class TextureIndex
             // a costume (…01_S02): only that costume's sheets; no guess from the base costume's
             string nn = mt.Groups[2].Value;
             var pre = new[] { $"hero_{h}01_s{nn}", $"hero_{h}_s{nn}", $"{h}_s{nn}", $"{h}01_s{nn}" };
-            foreach (var k in local.Keys.Concat(shared!.Keys).Distinct().OrderBy(k => k))
+            foreach (var k in local.Keys.Concat(Shared.Keys).Distinct().OrderBy(k => k))
                 if (pre.Any(k.StartsWith) && !Regex.IsMatch(k, @"_(sp|alpha|a|eff|fx|mask)\.png$") && Get(k) is string d && !list.Any(x => x.Item1 == d))
                     list.Add((d, Get(k[..^4] + "_sp.png"), Get(k[..^4] + "_alpha.png")));
             return list;
@@ -578,19 +596,40 @@ sealed class TextureIndex
         return list;
     }
 
+    /// <summary>A name for loose matching: lower case, '-' and ' ' as '_', no leading "7_" or trailing "_0.1_16_16" numbers.</summary>
+    static string Simple(string name)
+    {
+        string s = Regex.Replace(name.ToLowerInvariant(), @"[- ]", "_");
+        s = Regex.Replace(s, @"^(\d+_)+", "");
+        s = Regex.Replace(s, @"(_[\d.]+)+$", "");
+        return s;
+    }
+
     public Textures Find(string material, Material? mat)
     {
         var t = new Textures { Diffuse = Get(material + ".png"), Spec = Get(material + "_sp.png"), Alpha = Get(material + "_alpha.png") };
         if (t.Diffuse == null && mat is { HasTextureDiffuse: true })
             t.Diffuse = Get(Path.GetFileName(mat.TextureDiffuse.FilePath ?? ""));
-        if (t.Diffuse == null && material.Length > 0 && near!.TryGetValue(Near(material), out var nearName))
+        if (t.Diffuse == null && material.Length > 0 && NearNames.TryGetValue(Near(material), out var nearName))
         {
             t.Guessed = true;
             t.Diffuse = Get(nearName + ".png"); t.Spec ??= Get(nearName + "_sp.png"); t.Alpha ??= Get(nearName + "_alpha.png");
         }
+        // Rips from other games (Kurt's Captain Carter, Marvel Strike Force: material "7_Char-CaptainCarter_0.1_16_16", colour
+        // map "Char_CaptainCarter_D.png" in a subfolder): the material's name without its number prefix / suffix against the
+        // folder's own colour maps (name without _D / _Diffuse / _Albedo / _BaseColor / _Col); the same name, else the longest one it holds.
+        if (t.Diffuse == null && material.Length > 0)
+        {
+            string want = Simple(material);
+            var colour = new Regex(@"_(d|diff|diffuse|albedo|basecolor|base_color|col|color|colour)$");
+            var hits = local.Keys.Select(k => k[..^4]).Where(k => colour.IsMatch(k))
+                .Select(k => (File: k, Stem: Simple(colour.Replace(k, "")))).Where(x => x.Stem.Length >= 4 && want.Contains(x.Stem))
+                .OrderByDescending(x => x.Stem == want).ThenByDescending(x => x.Stem.Length).ToList();
+            if (hits.Count > 0) { t.Diffuse = Get(hits[0].File + ".png"); t.Guessed = hits[0].Stem != want; }
+        }
         // Other maps of this material: <material>_<word>.png (e.g. _mask, _fx), not other models' files that share the prefix.
         var extra = new Regex("^" + Regex.Escape(material.ToLowerInvariant()) + "_(?!sp\\.|alpha\\.)[a-z]+\\.png$");
-        foreach (var k in local.Keys.Concat(shared!.Keys))
+        foreach (var k in local.Keys.Concat(Shared.Keys))
             if (extra.IsMatch(k) && Get(k) is string p && !t.Extra.Contains(p)) t.Extra.Add(p);
         return t;
     }

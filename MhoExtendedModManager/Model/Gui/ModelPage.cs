@@ -545,6 +545,29 @@ sealed partial class ModelPage : UserControl
         status.Text = "Loading…";
         try
         {
+            // another skeleton family (Mixamo …): read like an MFF model, so its bones are paired with the hero's by the
+            // retarget (Bone Map, proportions, scale) instead of needing MHO bone names
+            string? whyNot = null;
+            string? family = await Task.Run(() => SkeletonProfile.DetectFile(file, out whyNot));
+            if (chosenKey != key) return;
+            if (family != null)
+            {
+                var m = await Task.Run(() => MffModel.Load(file));
+                if (chosenKey != key) return;
+                model = m;
+                foreach (var p in m.Parts)
+                {
+                    string kind = p.IsProp ? "Prop" : p.IsAlternate ? "Swap" : !p.Weighted ? "Unrigged" : "Body";
+                    parts.Rows.Add(p.DefaultOn, p.Name, kind, p.Verts.ToString("N0"));
+                }
+                SchedulePreview();
+                Log($"FBX source: {file} ({(family == "Guessed" ? "skeleton guessed from its shape" : family + " skeleton")}, paired with the hero's bones like an MFF model: see the Bone Map tab{(family == "Guessed" ? ", where the guessed pairs are in amber" : "")}; {m.Parts.Count} part(s), {m.Parts.Count(p => p.DefaultOn)} ticked).");
+                foreach (var w in m.Warnings) Log("  " + w);
+                RestoreState();
+                UpdateStatus();
+                return;
+            }
+            if (whyNot != null) Log($"{Path.GetFileName(file)}: {whyNot}; it's read as an FBX with MHO bone names (g_...).");
             var meshes = await Task.Run(() => FbxReimport.Meshes(file));
             if (chosenKey != key) return;
             sourceFbx = file;
@@ -654,6 +677,7 @@ sealed partial class ModelPage : UserControl
             AnimFbx = sourceFbx == null ? new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase) : null,
             NoMod = true };
         string mff = model?.Folder ?? ImportBuild.SourceName(sourceFbx!);
+        string mffSource = model?.Profile != null ? model.File : mff;   // a Mixamo … FBX: its file (not an MFF folder name)
         string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{mff} on {Path.GetFileNameWithoutExtension(pkg.Key)}"));
         building = true; UpdateStatus();
         log.Clear();
@@ -661,7 +685,7 @@ sealed partial class ModelPage : UserControl
         Log($"Building {mff} on {pkg.Key} (from {StartLabel(pkg.Key)}) → {outDir}");
         try
         {
-            var result = await Task.Run(() => ImportBuild.Run(mff, start, outDir, options, line => BeginInvoke(() => Log(line))));
+            var result = await Task.Run(() => ImportBuild.Run(mffSource, start, outDir, options, line => BeginInvoke(() => Log(line))));
             if (result != null)
             {
                 host.SetPackage(pkg.Key, result.Package);
@@ -789,11 +813,13 @@ sealed partial class ModelPage : UserControl
         foreach (var c in shownMap.Chains)
             if (Show(c.Mff, c.Mho)) { int i = mapGrid.Rows.Add("Chain", c.Mff, c.Mho ?? "(not paired)", (c.Fit ?? "") + SmoothNote(c.Mho)); mapGrid.Rows[i].Tag = c; }
         foreach (var b in shownMap.Bones)
-            if (Show(b.Mff, b.Mho))
+            if (Show(b.Was ?? b.Mff, b.Mho) || (b.Was != null && Show(b.Mff, null)))
             {
-                int i = mapGrid.Rows.Add("Bone", b.Mff, b.Mho ?? "(nearest mapped parent)", b.How + SmoothNote(RowTarget(b)));
+                // a renamed bone (Mixamo, or a skeleton guessed from its shape) shows its own name from the FBX
+                int i = mapGrid.Rows.Add("Bone", b.Was ?? b.Mff, b.Mho ?? "(nearest mapped parent)", b.How + SmoothNote(RowTarget(b)));
                 mapGrid.Rows[i].Tag = b;
                 if (b.How == "chain") mapGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.Subtle;
+                else if (b.How.StartsWith("guessed", StringComparison.Ordinal)) mapGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.OverrideAmber;
             }
         if (keepRow >= 0 && keepRow < mapGrid.Rows.Count) mapGrid.CurrentCell = mapGrid.Rows[keepRow].Cells["mff"];
         MapSelectionChanged();

@@ -18,8 +18,22 @@ sealed partial class ModelPage
     async Task<bool> TestPick(string mff, string package, Action<string> say)
     {
         for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
-        if (chosenKey != mff || model == null)
+        if (mff.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) && File.Exists(mff))
         {
+            // an FBX with another skeleton family (Mixamo …): Source → FBX Files, then the file, as a pick from the list
+            string key = "fbx:" + Path.GetFullPath(mff);
+            if (chosenKey != key || model == null)
+            {
+                if (!FbxMode) { sourceKind.SelectedIndex = 1; await Task.Delay(300); }
+                FbxChosen(key);
+                for (int i = 0; i < 1200 && !(chosenKey == key && model != null); i++) await Task.Delay(100);
+            }
+            if (model == null) { say("the FBX didn't load as a model (no known skeleton family?): " + mff + "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
+            say($"FBX {Path.GetFileName(mff)}: {model.Profile} skeleton, {parts.Rows.Count} parts");
+        }
+        else if (chosenKey != mff || model == null)
+        {
+            if (FbxMode) { sourceKind.SelectedIndex = 0; await Task.Delay(300); }   // back to MFF characters (an FBX test left it on FBX)
             characterFilter.Text = mff;
             await Task.Delay(500);
             Reselect(characters, mff);
