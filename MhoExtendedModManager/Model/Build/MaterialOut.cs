@@ -125,7 +125,9 @@ static class MaterialOut
 
     /// <summary>One new texture: the slot it fills, its material (null = shared), its name, the stock texture it's built
     /// from (the template's, for format details), the image, and DXT5 (alpha) or DXT1.</summary>
-    sealed record PlannedTexture(string Slot, string? Material, string NewName, int Template, string Image, bool Dxt5);
+    /// <param name="AlphaIsData">The alpha is a value, not transparency (a packed spec map's reflectivity): encoded plain, since
+    /// refine fits DXT5 colors only where the alpha isn't 0 (measured on Angela's map: color error 1.3 refined, 0.2 plain).</param>
+    sealed record PlannedTexture(string Slot, string? Material, string NewName, int Template, string Image, bool Dxt5, bool AlphaIsData = false);
 
     /// <summary>Builds the materials into <paramref name="packageBytes"/> (a stock base package). Returns the new package
     /// and each MFF material's instance reference (export index + 1). <paramref name="spec"/> / <paramref name="reflect"/>:
@@ -185,7 +187,7 @@ static class MaterialOut
             if (slots.TryGetValue("specmult_specpow_skinmask_reflectivity", out int sv))
                 plan.Add(new("specmult_specpow_skinmask_reflectivity", m.Name, b + "_spec", sv,
                     m.SpecMho ?? (m.Spec != null ? (kind.MetalStyle ? maps.PackedMetal(m.Spec, b + "_spec_packed") : maps.PackedV2(m.Spec, b + "_spec_packed", stand.NoSpec, 15, 0)) : stand.NoSpec),
-                    kind.MetalStyle || m.SpecMho != null));   // (an MHO map as it is: DXT5 keeps its reflectivity alpha)
+                    kind.MetalStyle || m.SpecMho != null, AlphaIsData: true));   // (an MHO map as it is: DXT5 keeps its reflectivity alpha)
             if (kind.GlowSlot)
                 plan.Add(new("emissive", m.Name, b + "_glow", kind.GlowTex, m.Colour != null ? maps.GlowMap(m.Colour, b + "_glow") : maps.Flat("mff_neutral_black", Color.Black), false));
             if (kind.MetalStyle && slots.TryGetValue("speccolortex", out int scv))
@@ -210,7 +212,7 @@ static class MaterialOut
         var images = new List<TextureImport.DdsImage>();
         foreach (var p in plan)
         {
-            var enc = TextureEncode.FromImage(p.Image, p.Dxt5 ? "dxt5" : "dxt1", 85, 1f, false, 0, refine: true);
+            var enc = TextureEncode.FromImage(p.Image, p.Dxt5 ? "dxt5" : "dxt1", 85, 1f, false, 0, refine: !p.AlphaIsData);
             var img = TextureImport.ParseDds(TextureImport.WriteDds(enc), out string? err) ?? throw new InvalidDataException($"{p.Image}: {err}");
             images.Add(img);
             Need(p.NewName);

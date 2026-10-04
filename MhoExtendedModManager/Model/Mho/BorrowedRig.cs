@@ -173,6 +173,8 @@ sealed class BorrowedRig
                 if (donorDrop > 0.005f) stretch = Math.Clamp(modelHairDrop / donorDrop, 1, 8);
             }
         }
+        // a hero with its own cape / hair bones keeps them (and their hand-animated motion); nothing is added
+        if (sk.Bones.Any(b => rigPattern.IsMatch(b.Name))) { note = $"{label}: not added, {sk.Name} has its own {(part == Kind.Cape ? "cape" : "hair")} bones (kept, with their own motion)"; return (sk, null); }
         var grafted = sk.WithRig(donor, rigPattern, out var corrections, stretch);
         if (grafted == null) { note = $"{label} couldn't be added to {sk.Name}"; return (sk, null); }
         CapeMatch lib;

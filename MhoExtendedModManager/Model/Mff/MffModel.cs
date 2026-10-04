@@ -72,6 +72,12 @@ sealed class Textures
     /// a stock character's specmult_specpow_skinmask_reflectivity): used as it is, in place of Spec (Kurt, 2026-10-04, Angela:
     /// her shine is set by what each part is, metal / skin / cloth, which no map made from the colors can know).</summary>
     public string? SpecMho;
+    /// <summary>The layout SpecMho is packed in (SpecLayouts id; null = from its file name, else Angela's skin-mask layout).</summary>
+    public string? SpecLayout;
+    /// <summary>The layout SpecMho is read with.</summary>
+    public SpecLayouts.Layout SpecLayoutUsed => SpecLayouts.ById(SpecLayout) ?? (SpecMho != null ? SpecLayouts.FromName(SpecMho) : null) ?? SpecLayouts.All[0];
+    /// <summary>SpecMho in Angela's layout (what the preview, Build and Export use): the file, or a converted copy.</summary>
+    public string? SpecMhoAngela => SpecMho == null ? null : SpecLayouts.ToAngela(SpecMho, SpecLayoutUsed);
     /// <summary>A spec color map (MHO's speccolortex: the highlight's tint, gold on gold armor).</summary>
     public string? SpecColor;
     /// <summary>The user's color group tags (group color hex → metal / skin / leather / cloth; ColorTags): an MHO spec map is
@@ -665,7 +671,7 @@ sealed class TextureIndex
         t.Normal = GetStem(material + "_n") ?? GetStem(material + "_normal") ?? GetStem(material + "_nrm");
         if (t.Normal == null && mat is { HasTextureNormal: true } && Path.GetFileNameWithoutExtension(mat.TextureNormal.FilePath ?? "") is { Length: > 0 } ns) t.Normal = GetStem(ns);
         if (t.Normal == null && material.Length > 0) t.Normal = Loose(material, NormalSuffix, out _);
-        t.SpecMho = GetStem(material + "_mhospec");
+        t.SpecMho = SpecChannels.Find(sfx => GetStem(material + "_mhospec" + sfx));
         t.SpecColor = GetStem(material + "_speccolor");
         // Other maps of this material: <material>_<word>.png (e.g. _mask, _fx), not other models' files that share the prefix.
         var extra = new Regex("^" + Regex.Escape(material.ToLowerInvariant()) + "_(?!sp\\.|alpha\\.)[a-z]+\\.png$");

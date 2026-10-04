@@ -165,7 +165,8 @@ static class FbxReimport
         return diffuse == null && normal == null ? null : new Textures
         {
             Diffuse = diffuse, Spec = Beside("_sp"), Alpha = Beside("_alpha"), Normal = normal,
-            SpecMho = Beside("_mhospec"), SpecColor = Beside("_speccolor"),   // MHO's own packed spec map and spec color (as-is)
+            // MHO's own packed spec map (or its gray channel files _mhospec_R … _A, when newer: SpecChannels) and spec color, as-is
+            SpecMho = SpecChannels.Find(sfx => Beside("_mhospec" + sfx)), SpecColor = Beside("_speccolor"),
         };
     }
 

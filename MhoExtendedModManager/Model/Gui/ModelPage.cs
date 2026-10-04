@@ -204,15 +204,15 @@ sealed partial class ModelPage : UserControl
         Ui.Tip(heroesOnly, "List only characters: heroes, villains, bosses, enemies, NPCs and person-like summons (anything with a character rig); props such as cocoons, drones and boxes are left out.");
         Ui.Tip(smooth, "One level of smooth subdivision on the ticked parts: every triangle becomes four and the surface rounds off. For the older low-poly models; about 4x the triangles.");
         smooth.CheckedChanged += (_, _) => SchedulePreview();
-        capeBox.Items.Add("No Cape Motion"); hairBox.Items.Add("No Hair Motion");
-        for (int k = 1; k <= BorrowedRig.CapeDonors.Length; k++) capeBox.Items.Add($"Cape {k}");
-        for (int k = 1; k <= BorrowedRig.HairDonors.Length; k++) hairBox.Items.Add($"Hair {k}");
-        hairBox.Items.Add("Mega Hair");
+        capeBox.Items.Add("No Added Cape"); hairBox.Items.Add("No Added Hair");   // (Kurt: "No Cape Motion" read as removing one)
+        for (int k = 1; k <= BorrowedRig.CapeDonors.Length; k++) capeBox.Items.Add($"Add Cape {k}");
+        for (int k = 1; k <= BorrowedRig.HairDonors.Length; k++) hairBox.Items.Add($"Add Hair {k}");
+        hairBox.Items.Add("Add Mega Hair");
         capeBox.SelectedIndex = 0; hairBox.SelectedIndex = 0;
         capeBox.SelectedIndexChanged += (_, _) => SchedulePreview();
         hairBox.SelectedIndexChanged += (_, _) => SchedulePreview();
-        Ui.Tip(capeBox, "Cape motion for a base hero without cape bones: cape bones are added so the model's cape strips ride them, and every animation gets cape motion matched from an MHO hero's hand-animated cape (for each frame, the one whose body moves most alike). Cape 1-3 are Thor's, Doctor Strange's and Vision's. Build includes it when the base hero is a base package (its animation sets are copied into the mod with the cape's motion added), and so do Full Export and Open in Blender.");
-        Ui.Tip(hairBox, "Long-hair motion for a base hero without hair bones hair bones are added so the model's hair strands ride them, and every animation gets hair motion matched from an MHO hero's hand-animated hair. Hair 1 is short, Hair 3 the longest; Mega Hair stretches Hair 3's strands to the model's own hair length (for manes such as Scream's or Medusa's). Build includes it when the base hero is a base package (its animation sets are copied into the mod with the hair's motion added).");
+        Ui.Tip(capeBox, "Adds a moving cape to a base hero that has none; a hero with its own cape bones (Angela, Doctor Strange, Thor) always keeps them and their motion, and this does nothing for them. No Added Cape adds nothing (it removes nothing either). The added cape: cape bones are added so the model's cape strips ride them, and every animation gets cape motion matched from an MHO hero's hand-animated cape (for each frame, the one whose body moves most alike). Cape 1-3 are Thor's, Doctor Strange's and Vision's. Build includes it when the base hero is a base package (its animation sets are copied into the mod with the cape's motion added), and so do Full Export and Open in Blender.");
+        Ui.Tip(hairBox, "Adds moving long hair to a base hero that has none; a hero with its own hair bones (Angela, Psylocke, Black Widow) always keeps them and their motion, and this does nothing for them. No Added Hair adds nothing (it removes nothing either). The added hair: hair bones are added so the model's hair strands ride them, and every animation gets hair motion matched from an MHO hero's hand-animated hair. Hair 1 is short, Hair 3 the longest; Mega Hair stretches Hair 3's strands to the model's own hair length (for manes such as Scream's or Medusa's). Build includes it when the base hero is a base package (its animation sets are copied into the mod with the hair's motion added).");
 
         SearchBox.AddClear(characterFilter);
         SearchBox.AddClear(packageFilter);

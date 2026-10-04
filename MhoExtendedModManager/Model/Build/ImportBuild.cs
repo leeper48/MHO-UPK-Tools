@@ -198,7 +198,9 @@ sealed class ImportBuild
             generated = true;
             log($"material: {name}: no spec map of its own: generated from the color map, {SpecMapGen.Label(tex.SpecRecipe)}");
         }
-        string? specMho = tex.SpecMho;
+        string? specMho = tex.SpecMhoAngela;
+        if (tex.SpecMho != null && tex.SpecLayoutUsed.Id != "v2skin")
+            log($"material: {name}: MHO spec map in the {tex.SpecLayoutUsed.Label} layout, {SpecLayouts.Change(tex.SpecLayoutUsed)}");
         if (specMho == null && tex.ColorTags is { Count: > 0 } tags && tex.Diffuse != null)
         {
             // the user's color group tags: an MHO packed map made from them (ColorTags)

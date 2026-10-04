@@ -60,6 +60,7 @@ static class Ui
         static (int Pad, int Max) Metrics(Control? c) { float s = (c?.DeviceDpi ?? 96) / 96f; return ((int)(7 * s), (int)(380 * s)); }
         tip.Popup += (_, e) =>
         {
+            LimitTipWidth(tip);   // (for tips made elsewhere than Tip: from their second showing)
             string t = text?.Invoke() ?? (e.AssociatedControl != null ? tip.GetToolTip(e.AssociatedControl) ?? "" : "");
             var (pad, max) = Metrics(e.AssociatedControl);
             var size = TextRenderer.MeasureText(t, TipFont, new Size(max, 0), flags);
@@ -75,6 +76,70 @@ static class Ui
         return tip;
     }
     static readonly Font TipFont = Regular(9f);
+
+    /// <summary>
+    /// Keeps a tooltip by the mouse (Kurt, 0.37.138: tips far left of the mouse). Measured with --tip-place-test on Kurt's
+    /// three monitors: the second tip shown landed at x = 0 with the right y (cursor + 26), whichever control it was for, so
+    /// something in the show path resets x. The tip's window is watched (TipPlacer) and a tip about to show on the cursor's
+    /// line but not under it is moved to the cursor, kept on the cursor's monitor. The native tip also gets our wrap width.
+    /// Done on the UI thread only (reading Handle makes the window on the calling thread).
+    /// </summary>
+    static void LimitTipWidth(ToolTip tip)
+    {
+        if (!Application.MessageLoop || !limited.Add(tip)) return;
+        try
+        {
+            var prop = typeof(ToolTip).GetProperty("Handle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (prop?.GetValue(tip) is IntPtr h && h != IntPtr.Zero)
+            {
+                using var g = Graphics.FromHwnd(IntPtr.Zero);
+                SendMessage(h, 0x418 /* TTM_SETMAXTIPWIDTH */, IntPtr.Zero, (IntPtr)(int)(380 * g.DpiX / 96f));
+                new TipPlacer().AssignHandle(h);
+            }
+        }
+        catch (Exception ex) when (ex is System.Reflection.TargetInvocationException or InvalidOperationException) { }
+    }
+
+    sealed class TipPlacer : NativeWindow
+    {
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct WINDOWPOS { public IntPtr Hwnd, After; public int X, Y, Cx, Cy; public uint Flags; }
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);   // (WinForms' own placement first)
+            if (m.Msg != 0x46 /* WM_WINDOWPOSCHANGING */ || m.LParam == IntPtr.Zero) return;
+            var wp = System.Runtime.InteropServices.Marshal.PtrToStructure<WINDOWPOS>(m.LParam);
+            const uint NoMove = 0x2, NoSize = 0x1, Show = 0x40;
+            if ((wp.Flags & Show) == 0 && !IsWindowVisible(Handle)) return;
+            GetWindowRect(Handle, out var r);
+            int x = (wp.Flags & NoMove) != 0 ? r.Left : wp.X, y = (wp.Flags & NoMove) != 0 ? r.Top : wp.Y;
+            int cx = (wp.Flags & NoSize) != 0 ? r.Right - r.Left : wp.Cx;
+            var cur = Cursor.Position;
+            if (cx <= 0 || (cur.X >= x - 8 && cur.X <= x + cx + 8) || Math.Abs(y - cur.Y) > 120) return;   // under the mouse, or placed elsewhere on purpose
+            var wa = Screen.FromPoint(cur).WorkingArea;
+            wp.X = Math.Max(wa.Left, Math.Min(cur.X, wa.Right - cx));
+            wp.Y = y;
+            wp.Flags &= ~NoMove;
+            System.Runtime.InteropServices.Marshal.StructureToPtr(wp, m.LParam, false);
+        }
+    }
+
+    static readonly HashSet<ToolTip> limited = new();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>Test: the native max width of the app's tooltip (TTM_GETMAXTIPWIDTH), 0 when it can't be read.</summary>
+    internal static int TipMaxWidthForTest()
+    {
+        var prop = typeof(ToolTip).GetProperty("Handle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        return prop?.GetValue(Tips) is IntPtr h && h != IntPtr.Zero ? (int)SendMessage(h, 0x419, IntPtr.Zero, IntPtr.Zero) : 0;
+    }
 
     // Tag colours by category (Kurt: all teams one colour, all characters another). Chosen apart from the badge
     // colours (orange packages, blue-violet textures, green strings, pink audio).
@@ -375,7 +440,7 @@ static class Ui
     public static readonly ToolTip Tips = NewTips();
     /// <summary>Stock images (the original icon packages) are decoded one at a time (the list's and the preview's pictures).</summary>
     public static readonly object StockLock = new();
-    public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) Tips.SetToolTip(c, text); return c; }
+    public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) { LimitTipWidth(Tips); Tips.SetToolTip(c, text); } return c; }
 
     /// <summary>Buttons under a control that have no tooltip (on the shared tooltip or <paramref name="other"/>).</summary>
     public static List<string> MissingTips(Control root, params ToolTip[] other)

@@ -196,7 +196,7 @@ sealed class ModelView : UserControl
     /// grey. Redraws.</summary>
     /// <remarks>Spec (shine), SpecPower, Reflectivity and SkinMask are the packed spec map's channels (R, G, A / B on v1
     /// maps, B); SpecColor the highlight's tint (white where a material has no map of its own).</remarks>
-    public enum MapView { All, Colour, Normal, Spec, Alpha, SpecPower, Reflectivity, SkinMask, SpecColor }
+    public enum MapView { All, Colour, Normal, Spec, Alpha, SpecPower, Reflectivity, SkinMask, SpecColor, SpecPacked }
     public MapView ShowMap { get => showMap; set { if (showMap == value) return; showMap = value; Redraw(); } }
     MapView showMap = MapView.All;
 
@@ -800,6 +800,12 @@ sealed class ModelView : UserControl
         }
     }
 
+    static Vector3 Packed(Vector4 c, Vector2 uv)
+    {
+        float chk = (((int)MathF.Floor(uv.X * 48) + (int)MathF.Floor(uv.Y * 48)) & 1) == 0 ? 0.42f : 0.28f;
+        return new Vector3(c.X, c.Y, c.Z) * c.W + new Vector3(chk) * (1 - c.W);
+    }
+
     int Shade(int tri, bool back, float b0, float b1, Vector3 eye, Vector3 key, Vector3 fillDir, int p = -1)
     {
         int t = tri * 3, a = idx[t], b = idx[t + 1], c = idx[t + 2];
@@ -826,6 +832,8 @@ sealed class ModelView : UserControl
                 MapView.SpecPower => new Vector3(look.UseSpec && (look.SpecPow.Map != null ? look.SpecPow : look.PowerShown) is { Map: not null } pw ? Math.Clamp(pw.At(tuv, ratio, 0f), 0, 1) : 0f),
                 MapView.Reflectivity => new Vector3(look.UseReflection && look.ReflectAt.Map != null ? Math.Clamp(look.ReflectAt.At(tuv, ratio, 0f), 0, 1) : 0f),
                 MapView.SkinMask => new Vector3(look.SkinMask.Map != null ? Math.Clamp(look.SkinMask.At(tuv, ratio, 0f), 0, 1) : 0f),
+                // the packed map as an image editor shows it (Kurt): R, G, B as colors, A (reflectivity) as see-through over a checkerboard
+                MapView.SpecPacked => look.UseSpec && look.Spec.Map is { } pk ? Packed(pk.Sample(tuv.X, tuv.Y, Lod(ratio, pk)), tuv) : Vector3.Zero,
                 MapView.SpecColor => !look.UseSpec ? Vector3.Zero : look.SpecColor is { } scv ? new Vector3(scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).X, scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).Y, scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).Z) : Vector3.One,
                 _ => new Vector3(look.Diffuse != null ? diff.W : 1f),
             };

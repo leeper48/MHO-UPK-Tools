@@ -269,6 +269,68 @@ static partial class Program
                 Console.WriteLine(fails == 0 ? "PASS" : $"{fails} FAILED");
                 return fails == 0 ? 0 : 1;
             }
+            case "--tip-width-test":
+            {
+                // Test: the app's tooltip tells Windows its wrap width (long tips were placed by a one-line measure, far left)
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), ShowInTaskbar = false };
+                var l = new Label { Text = "x" };
+                f.Controls.Add(l);
+                int w = 0;
+                f.Shown += (_, _) => { Gui.Ui.Tip(l, new string('w', 2000)); w = Gui.Ui.TipMaxWidthForTest(); f.Close(); };   // (on the UI thread, in its message loop, as the app)
+                Application.Run(f);
+                Console.WriteLine($"{(w > 0 && w < 1000 ? "PASS" : "FAIL")} native max tip width {w} px");
+                return w > 0 && w < 1000 ? 0 : 1;
+            }
+            case "--tip-place-test":
+            {
+                // ON SCREEN, a few seconds, moves the mouse: a window with a drop-down and a button (long tips); the mouse is put
+                // on each and the shown tooltip window's rectangle is printed against the cursor (Kurt: tips far left of the mouse)
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Application.EnableVisualStyles();
+                Gui.Ui.UseDarkTheme();
+                foreach (var sc in Screen.AllScreens) Console.WriteLine($"screen {sc.DeviceName} bounds {sc.Bounds} work {sc.WorkingArea}{(sc.Primary ? " primary" : "")}");
+                var back = Cursor.Position;
+                var f = new Form { StartPosition = FormStartPosition.Manual, Size = new Size(900, 300), ShowInTaskbar = false, TopMost = true };
+                var area = Screen.FromPoint(back).WorkingArea;
+                f.Location = new Point(area.Left + area.Width / 2 - 100, area.Top + area.Height / 2);
+                var dd = new Gui.DropDown { Location = new Point(500, 40), Width = 200 };
+                dd.Items.Add("No Added Cape"); dd.SelectedIndex = 0;
+                var bt = new Button { Text = "Button", Location = new Point(500, 120), Size = new Size(150, 40) };
+                f.Controls.Add(dd); f.Controls.Add(bt);
+                string longTip = string.Join(" ", Enumerable.Repeat("A long tooltip text to wrap.", 20));
+                f.Shown += async (_, _) =>
+                {
+                    Gui.Ui.Tip(dd, longTip); Gui.Ui.Tip(bt, longTip);
+                    foreach (var c in new Control[] { dd, bt })
+                    {
+                        var p = c.PointToScreen(new Point(c.Width / 2, c.Height / 2));
+                        Cursor.Position = new Point(p.X - 3, p.Y); await Task.Delay(100); Cursor.Position = p;
+                        for (int k = 0; k < 3; k++) { TipNative.mouse_event(1, 0, 0, 0, IntPtr.Zero); await Task.Delay(50); }   // real input (MOUSEEVENTF_MOVE)
+                        Rectangle tipRect = Rectangle.Empty;
+                        for (int i = 0; i < 40 && tipRect.IsEmpty; i++) { await Task.Delay(100); tipRect = TipWindowRect(); }
+                        Console.WriteLine($"{c.GetType().Name}: cursor {Cursor.Position}, tip {tipRect}, form at {f.Bounds}, dpi {f.DeviceDpi}");
+                        Cursor.Position = new Point(f.Left + 20, f.Bottom - 20); await Task.Delay(600);
+                    }
+                    Cursor.Position = back;
+                    f.Close();
+                };
+                static Rectangle TipWindowRect()
+                {
+                    Rectangle found = Rectangle.Empty;
+                    TipNative.EnumThreadWindows(TipNative.GetCurrentThreadId(), (h, _) =>
+                    {
+                        var cls = new System.Text.StringBuilder(64);
+                        TipNative.GetClassName(h, cls, 64);
+                        if (cls.ToString().Contains("tooltips_class32") && TipNative.IsWindowVisible(h) && TipNative.GetWindowRect(h, out var r) && r.Right - r.Left > 50)
+                        { found = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom); return false; }
+                        return true;
+                    }, IntPtr.Zero);
+                    return found;
+                }
+                Application.Run(f);
+                return 0;
+            }
             case "--searchbox-test":
             {
                 // Test: the clear button (×) on a filter box, in an off-screen window: shown only with text, a click and Esc
@@ -383,4 +445,16 @@ static partial class Program
         }
         return null;
     }
+}
+
+static class TipNative
+{
+    public struct RECT { public int Left, Top, Right, Bottom; }
+    public delegate bool EnumProc(IntPtr h, IntPtr l);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool EnumThreadWindows(uint thread, EnumProc proc, IntPtr l);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void mouse_event(int flags, int dx, int dy, int data, IntPtr extra);
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] public static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
 }

@@ -162,6 +162,84 @@ static partial class Program
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException) { Console.WriteLine("ERROR: " + ex.Message); return 1; }
             }
+            case "--spec-channels-test":
+            {
+                // --spec-channels-test <rgba spec.png> <scratch folder> [window.png]: split into gray channels and combine back
+                // (identical), then an edited (newer) channel file is what's found; optionally the From Channels window rendered
+                if (rest.Count < 3) { Console.WriteLine("--spec-channels-test <rgba spec.png> <scratch folder> [window.png]"); return 1; }
+                string dir = Path.GetFullPath(rest[2]);
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                Directory.CreateDirectory(dir);
+                int fails = 0;
+                void Check(bool c, string what) { Console.WriteLine((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+                string src = Path.Combine(dir, "m_mhospec.png");
+                File.Copy(rest[1], src);
+                MhoMffImporter.SpecChannels.Split(src, dir, "m_mhospec");
+                Check(MhoMffImporter.SpecChannels.Suffix.All(x => File.Exists(Path.Combine(dir, "m_mhospec" + x + ".png"))) && File.Exists(Path.Combine(dir, "MHO spec maps - read me.txt")), "split: four gray channel files and the read-me");
+                string back = MhoMffImporter.SpecChannels.Combine(MhoMffImporter.SpecChannels.Suffix.Select(x => (string?)Path.Combine(dir, "m_mhospec" + x + ".png")).ToList(), null, null, Path.Combine(dir, "back.png"));
+                bool same;
+                using (var a0 = new Bitmap(src)) using (var b0 = new Bitmap(back))
+                {
+                    same = a0.Width == b0.Width && a0.Height == b0.Height;
+                    for (int y = 0; same && y < a0.Height; y += 3) for (int x = 0; same && x < a0.Width; x += 3) same = a0.GetPixel(x, y).ToArgb() == b0.GetPixel(x, y).ToArgb();
+                }
+                Check(same, "combined back: identical to the original (R, G, B and A)");
+                File.SetLastWriteTimeUtc(src, DateTime.UtcNow.AddMinutes(-5));
+                Check(MhoMffImporter.SpecChannels.Find(sfx => File.Exists(Path.Combine(dir, "m_mhospec" + sfx + ".png")) ? Path.Combine(dir, "m_mhospec" + sfx + ".png") : null) != src, "channel files newer than the combined map: they are what's used");
+                File.SetLastWriteTimeUtc(src, DateTime.UtcNow.AddMinutes(5));
+                Check(MhoMffImporter.SpecChannels.Find(sfx => File.Exists(Path.Combine(dir, "m_mhospec" + sfx + ".png")) ? Path.Combine(dir, "m_mhospec" + sfx + ".png") : null) == src, "the combined map newer: it is what's used");
+                // layouts: a pixel R 10, G 20, B 30, A 40 read in each layout lands in Angela's channels (or the defaults)
+                string px = Path.Combine(dir, "px.png");
+                using (var pb = new Bitmap(2, 2, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                {
+                    for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) pb.SetPixel(x, y, Color.FromArgb(40, 10, 20, 30));
+                    pb.Save(px, System.Drawing.Imaging.ImageFormat.Png);
+                }
+                byte[] given = [10, 20, 30, 40];
+                foreach (var l in MhoMffImporter.SpecLayouts.All)
+                {
+                    string conv = MhoMffImporter.SpecLayouts.ToAngela(px, l);
+                    using var cb = new Bitmap(conv);
+                    using var cc = cb.Clone(new Rectangle(0, 0, 2, 2), System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    var d = cc.LockBits(new Rectangle(0, 0, 2, 2), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    var raw = new byte[4]; System.Runtime.InteropServices.Marshal.Copy(d.Scan0, raw, 0, 4); cc.UnlockBits(d);
+                    byte[] got = [raw[2], raw[1], raw[0], raw[3]];
+                    byte[] want = [.. Enumerable.Range(0, 4).Select(c => l.FromChannel[c] >= 0 ? given[l.FromChannel[c]] : MhoMffImporter.SpecChannels.Default[c])];
+                    Check(got.SequenceEqual(want), $"layout {l.Id}: R G B A {string.Join(" ", got)} (want {string.Join(" ", want)}) · {MhoMffImporter.SpecLayouts.Change(l)}");
+                }
+                Check(MhoMffImporter.SpecLayouts.FromName(@"x\hero_specmultrimmaskreflection.png")?.Id == "v1" && MhoMffImporter.SpecLayouts.FromName(@"x\m_specmult_specpow_reflectivity_emissive.png")?.Id == "v2emissive"
+                    && MhoMffImporter.SpecLayouts.FromName(@"x\m_emissivespecpowambient.png")?.Id == "v1ambient" && MhoMffImporter.SpecLayouts.FromName(@"x\m_mhospec.png") == null, "layout from the file name");
+                // DXT5 with refine fits colors only where alpha isn't 0: wrong for a packed spec map, whose alpha is reflectivity
+                foreach (bool refine in new[] { true, false })
+                {
+                    var enc = MhoPackageModifier.TextureEncode.FromImage(src, "dxt5", 85, 1f, true, 0, refine);
+                    var top = enc.Levels[0];
+                    var dec = MhoPackageModifier.TextureDecode.ToBgra("PF_DXT5", top.W, top.H, top.Data, out _)!;
+                    using var o = new Bitmap(src);
+                    double err0 = 0, errAll = 0; int n0 = 0, n = 0;
+                    for (int y = 0; y < top.H; y += 2)
+                        for (int x = 0; x < top.W; x += 2)
+                        {
+                            var c = o.GetPixel(x, y); int i = (y * top.W + x) * 4;
+                            double e = (Math.Abs(dec[i + 2] - c.R) + Math.Abs(dec[i + 1] - c.G) + Math.Abs(dec[i] - c.B)) / 3.0;
+                            errAll += e; n++;
+                            if (c.A == 0) { err0 += e; n0++; }
+                        }
+                    Console.WriteLine($"  DXT5 {(refine ? "refine" : "plain ")}: color error {errAll / n:0.0} overall, {err0 / Math.Max(1, n0):0.0} where reflectivity is 0");
+                }
+                if (rest.Count > 3)
+                {
+                    Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                    using var f = new MhoMffImporter.Gui.SpecChannelsForm("material1", src);
+                    f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000);
+                    f.Show(); Application.DoEvents();
+                    using var bmp = new Bitmap(f.Width, f.Height);
+                    f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+                    bmp.Save(rest[3]);
+                    Console.WriteLine("window: " + rest[3]);
+                }
+                return fails == 0 ? 0 : 1;
+            }
             case "--color-tags-snapshot":
             {
                 // --color-tags-snapshot <color.png> <out.png>: the Tag Colors window rendered off screen

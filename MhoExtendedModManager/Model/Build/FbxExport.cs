@@ -48,7 +48,16 @@ static class FbxExport
             // the other maps beside it, so the FBX can be a source again (material choice, alpha)
             if (sec.Tex.Spec != null) File.Copy(sec.Tex.Spec, Path.Combine(outDir, SafeName(sec.Material) + "_sp.png"), true);
             if (sec.Tex.Alpha != null) File.Copy(sec.Tex.Alpha, Path.Combine(outDir, SafeName(sec.Material) + "_alpha.png"), true);
-            if (sec.Tex.SpecMho != null) File.Copy(sec.Tex.SpecMho, Path.Combine(outDir, SafeName(sec.Material) + "_mhospec" + Path.GetExtension(sec.Tex.SpecMho).ToLowerInvariant()), true);
+            if (sec.Tex.SpecMho != null)
+            {
+                // in Angela's layout (another layout is converted: the copy is read back as hers)
+                string mhoSrc = sec.Tex.SpecMhoAngela!;
+                string mho = Path.Combine(outDir, SafeName(sec.Material) + "_mhospec" + Path.GetExtension(mhoSrc).ToLowerInvariant());
+                File.Copy(mhoSrc, mho, true);
+                // and as four gray channel images (image editors show a PNG's alpha as transparency: SpecChannels)
+                SpecChannels.Split(mho, outDir, SafeName(sec.Material) + "_mhospec");
+                File.SetLastWriteTimeUtc(mho, DateTime.UtcNow.AddSeconds(1));   // the combined map counts as newer until a channel is edited
+            }
             if (sec.Tex.SpecColor != null) File.Copy(sec.Tex.SpecColor, Path.Combine(outDir, SafeName(sec.Material) + "_speccolor" + Path.GetExtension(sec.Tex.SpecColor).ToLowerInvariant()), true);
             if (sec.Tex.Normal != null)
             {

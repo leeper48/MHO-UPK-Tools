@@ -202,7 +202,7 @@ sealed partial class PreviewPanel
             look.Normal = new ModelView.Map(nb, cc.W, cc.H); look.UseNormal = true; look.NormalStrength = 1;
         }
         bool mhoSpec = false;
-        var mhoMap = tex.SpecMho != null ? LoadBgra(tex.SpecMho) : null;
+        var mhoMap = tex.SpecMho != null ? LoadBgra(tex.SpecMhoAngela!) : null;
         if (mhoMap == null && tex.ColorTags is { Count: > 0 } ctags && colour is { } ccol)
             mhoMap = (ColorTags.MakePacked(ccol.W, ccol.H, ccol.Px, ctags), ccol.W, ccol.H);   // from the user's color tags, as the build
         if (mhoMap is { } mho)

@@ -94,6 +94,31 @@ sealed partial class ModelPage
         await Task.Delay(1500);
         if (!(tagged && untagged)) return false;
 
+        // an MHO spec map in another layout (by its file name: v1), then Layout ▾ → Angela's; Undo twice → none
+        string v1File = Path.Combine(Path.GetDirectoryName(unrigged!)!, "layout_test_specmultrimmaskreflection.png");
+        File.Copy(ttex.Diffuse!, v1File, true);
+        string? Mho() => TestMaterialRows().FirstOrDefault(r => r.StartsWith(tm + " | MHO Spec | "));
+        async Task Step(Action a) { int s0 = preview.ShowCount; a(); for (int i = 0; i < 300 && preview.ShowCount == s0; i++) await Task.Delay(100); for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100); }
+        int mhoIdx = matGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[1].Value == "MHO Spec");
+        matGrid.CurrentCell = matGrid.Rows[mhoIdx].Cells[0];
+        await Step(() => UseMapFile(v1File));
+        string? v1Row = Mho();
+        bool v1 = v1Row?.Contains("(v1), converted to Angela's") == true;
+        MatSelectionChanged();
+        bool layoutOn = matLayout.Enabled;
+        await Step(() => TestSetSpecLayout(tm, "v2skin"));
+        string? v2Row = Mho();
+        bool v2 = v2Row?.Contains("Your file: ") == true && v2Row.Contains("converted") == false;
+        await Step(Undo);
+        bool backV1 = Mho()?.Contains("(v1), converted") == true;
+        int su3 = preview.ShowCount;
+        Undo();
+        for (int i = 0; i < 300 && preview.ShowCount == su3; i++) await Task.Delay(100);
+        bool none = Mho()?.Contains("None") == true;
+        say($"{(v1 && layoutOn && v2 && backV1 && none ? "PASS" : "FAIL")} MHO spec layouts: \"{v1Row}\" (Layout ▾ on: {layoutOn}), set to Angela's → \"{v2Row}\", Undo → v1 again: {backV1}, Undo → none: {none}");
+        await Task.Delay(1500);
+        if (!(v1 && layoutOn && v2 && backV1 && none)) return false;
+
         // Smooth Weights on an FBX source (its map holds only smoothing), then Undo and Redo
         int elbow = mapGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[1].Value == "g_l_elbow");
         if (elbow < 0) { say("FAIL no g_l_elbow row"); return false; }
@@ -147,7 +172,7 @@ sealed partial class ModelPage
             // source has finished: it loads in the background)
             for (int i = 0; i < 300 && preview.ShowCount == 0; i++) await Task.Delay(100);
             for (int last = -1, i = 0; i < 60 && last != preview.ShowCount; i++) { last = preview.ShowCount; await Task.Delay(1500); }
-            chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
+            chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); characters.ClearSelected();   // (a source still selected wouldn't fire again)
             int sc = preview.ShowCount;
             Reselect(packages, package);
             SchedulePreview();
@@ -179,7 +204,7 @@ sealed partial class ModelPage
             Reselect(characters, mff);
             for (int i = 0; i < 1200 && !(chosenKey == mff && model != null); i++) await Task.Delay(100);
         }
-        if (!HasSource) { say("the source didn't load: " + mff); return false; }
+        if (!HasSource) { say($"the source didn't load: {mff} (picked: {chosenKey ?? "nothing"}, {characters.Items.Count} rows in the list)\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
         say($"source {mff}: {parts.Rows.Count} parts");
         Reselect(packages, package);
         for (int i = 0; i < 1800 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);   // (an unrigged source is rigged in Blender first)
