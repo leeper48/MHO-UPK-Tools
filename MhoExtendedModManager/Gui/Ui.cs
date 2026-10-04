@@ -141,6 +141,8 @@ static class Ui
     /// disabled control no mouse messages (they go to its parent), so its ToolTip never fires: this filter watches mouse moves,
     /// finds the control under the cursor (disabled ones included) and shows its tip after the usual delay.
     /// </summary>
+    internal static List<string> TipDebugLog => DisabledTips.DebugLog;
+
     sealed class DisabledTips : IMessageFilter
     {
         readonly System.Windows.Forms.Timer timer = new() { Interval = 450 };
@@ -151,7 +153,13 @@ static class Ui
         {
             if (m.Msg is 0x200 or 0x2A3)   // WM_MOUSEMOVE, WM_MOUSELEAVE
             {
+                // over a modal window, the main window's shared tooltip is put away (Kurt: the 3D view's tip showed through
+                // the Tag Colors window); back when the cursor leaves it
+                var formUnder = Control.FromChildHandle(WindowFromPoint(Cursor.Position))?.FindForm();
+                bool overModal = formUnder?.Modal == true;
+                if (overModal == Tips.Active) Tips.Active = !overModal;
                 var c = Under();
+                if (Debug) DebugLog.Add($"{Environment.TickCount64 % 100000} msg {m.Msg:X} under {c?.AccessibleName ?? "-"} over {over?.AccessibleName ?? "-"}");
                 if (c != over) { Hide(); over = c; timer.Stop(); if (c != null) timer.Start(); }
             }
             else if (m.Msg is 0x201 or 0x204 or 0x20A) Hide();   // a click or the wheel
@@ -161,29 +169,53 @@ static class Ui
         static Control? Under()
         {
             var pos = Cursor.Position;
-            var form = Form.ActiveForm;
+            // the window under the cursor (not the active one: a window can be shown without being activated)
+            var form = Control.FromChildHandle(WindowFromPoint(pos))?.FindForm() ?? Form.ActiveForm;
             if (form == null || !form.Bounds.Contains(pos)) return null;
             Control at = form;
             while (at.GetChildAtPoint(at.PointToClient(pos), GetChildAtPointSkip.Invisible) is Control child) at = child;
-            return !at.Enabled && at.Parent != null && !string.IsNullOrEmpty(Tips.GetToolTip(at)) ? at : null;
+            // a disabled control, or any control of a modal window: the shared tooltip belongs to the main window, which a
+            // modal window disables, so it never shows there (measured: --tip-dialog-test; Kurt: Tag Colors had no tooltips)
+            return (!at.Enabled || form.Modal) && at.Parent != null && !string.IsNullOrEmpty(Tips.GetToolTip(at)) ? at : null;
         }
+
+        // a modal window's own tooltip (the shared one, owned by the main window, stays hidden over it), freed with the window
+        readonly Dictionary<Form, ToolTip> modalTips = new();
+        ToolTip? shownBy;
+
+        ToolTip TipsFor(Control c)
+        {
+            if (c.FindForm() is not { Modal: true } f) return Tips;
+            if (!modalTips.TryGetValue(f, out var t))
+            {
+                modalTips[f] = t = NewTips(() => shownText);
+                f.FormClosed += (_, _) => { if (modalTips.Remove(f, out var old)) old.Dispose(); };
+            }
+            return t;
+        }
+
+        static readonly bool Debug = Environment.GetEnvironmentVariable("MHO_TIPDEBUG") == "1";
+        public static readonly List<string> DebugLog = [];
 
         void Show()
         {
-            if (over == null || over.Enabled || over.Parent == null || Under() != over) return;
+            if (Debug) DebugLog.Add($"{Environment.TickCount64 % 100000} show over {over?.AccessibleName}, under now {Under()?.AccessibleName}");
+            if (over == null || over.Parent == null || Under() != over) return;
             var parent = over.Parent;
             shownText = Tips.GetToolTip(over);
+            shownBy = TipsFor(over);
             // (measured: Show's point is taken from the window's outer corner, not its client area: a form's title bar put the
             // tip over the cursor)
             var outer = parent.Parent == null ? parent.Bounds : parent.Parent.RectangleToScreen(parent.Bounds);
             var cur = Cursor.Position;
-            Tips.Show(shownText, parent, cur.X - outer.X, cur.Y - outer.Y + (int)(22 * parent.DeviceDpi / 96f), Tips.AutoPopDelay);
+            shownBy.Show(shownText, parent, cur.X - outer.X, cur.Y - outer.Y + (int)(22 * parent.DeviceDpi / 96f), Tips.AutoPopDelay);
             shownOn = parent;
         }
 
         void Hide()
         {
-            if (shownOn != null) { Tips.Hide(shownOn); shownOn = null; }
+            if (Debug && shownOn != null) DebugLog.Add($"{Environment.TickCount64 % 100000} hide ({new System.Diagnostics.StackTrace(1, false).GetFrame(0)?.GetMethod()?.Name})");
+            if (shownOn != null) { (shownBy ?? Tips).Hide(shownOn); shownOn = null; }
             shownText = null;
         }
     }
@@ -241,6 +273,9 @@ static class Ui
     }
 
     static readonly HashSet<ToolTip> limited = new();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern IntPtr WindowFromPoint(Point p);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -376,6 +411,7 @@ static class Ui
         t.Controls.Add(box);
         var buttons = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0) };
         var ok = AccentButton("OK", () => f.DialogResult = DialogResult.OK, "OK (Enter)"); var cancel = FlatButton("Cancel", () => f.DialogResult = DialogResult.Cancel, "Cancel (Esc)");
+        ok.AccessibleDescription = cancel.AccessibleDescription = Icons.KeepText;   // (a prompt's answers keep their words)
         buttons.Controls.AddRange([cancel, ok]);
         t.Controls.Add(buttons);
         f.Controls.Add(t);
@@ -834,6 +870,7 @@ static class Ui
         Walk(root);
         foreach (var b in bars) { b.BackColor = BarOverlay; foreach (Control c in b.Controls) if (c is not Button and not TextBox) { c.BackColor = Color.Transparent; foreach (Control k in c.Controls) if (k is not Button and not TextBox) k.BackColor = Color.Transparent; } }
         RestyleButtons(root);
+        Icons.Apply(root);   // (Kurt, 2026-10-04: almost every button an icon with a titled tooltip)
         Modern.Modernize(root);
         foreach (var t in All<FlatTabs>(root)) t.Select(Math.Max(0, t.SelectedIndex));
     }

@@ -11,7 +11,7 @@ namespace MhoMffImporter.Gui;
 sealed partial class ModelPage
 {
     readonly DataGridView matGrid = new() { Dock = DockStyle.Fill };
-    Button matUse = null!, matAuto = null!, matFlip = null!, matRecipe = null!, matTags = null!, matChannels = null!, matLayout = null!, matNoGlow = null!;
+    Button matUse = null!, matAuto = null!, matFlip = null!, matRecipe = null!, matTags = null!, matChannels = null!, matLayout = null!, matNoGlow = null!, matExport = null!;
     List<(string Material, Textures Tex)> shownMaterials = [];
     /// <summary>The table is being refilled: the buttons wait (Kurt, 0.37.139 crash on Next Recipe: clearing the rows selects
     /// nothing, which disabled the focused button; Windows moved the focus into the table mid-refill and the grid threw
@@ -45,8 +45,8 @@ sealed partial class ModelPage
         matGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; matGrid.MultiSelect = false;
         matGrid.ShowCellToolTips = true;
         Ui.StyleGrid(matGrid);
-        Ui.Tip(matGrid, "Each material's maps and where they come from. Pick a row, then Use a File to put in your own (double-click does the same).");
-        matGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) UseMapFile(); };
+        Ui.Tip(matGrid, "Each material's maps and where they come from. Double-click a row to see its map large (made ones too: generated, converted, from your tags); pick a row, then Use a File to put in your own.");
+        matGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) _ = ViewMap(e.RowIndex); };   // (Kurt, 2026-10-04: was Use a File)
         matGrid.CurrentCellChanged += (_, _) => { if (!fillingMat) MatSelectionChanged(); };
         matUse = Ui.FlatButton("Use a File", UseMapFile, "Puts your own image (PNG, JPG or BMP) in for the selected map: copied into the mod's Model folder; the preview, Build and Export FBX use it. Undo (Ctrl+Z) takes it back. MHO Spec takes a map in the game's own packed layout (R shine, G spec power, B skin mask, A reflectivity), put in as it is with Angela's armor material; Spec Color tints its highlights.");
         matAuto = Ui.FlatButton("Back to Automatic", MapBackToAutomatic, "Forgets your file for the selected map (a Normal row: the green flip too); the importer's own choice is used again.");
@@ -69,8 +69,10 @@ sealed partial class ModelPage
         Icons.Make(matTags, "Tag Colors", Icons.Tag, sc);
         Icons.Make(matChannels, "From Channels", Icons.Channels, sc);
         Icons.Make(matLayout, "Layout", Icons.Layout, sc);
+        matExport = Ui.FlatButton("Export Maps", () => _ = ExportMaps(null), "Saves every material's maps as PNG files into a folder you pick, the ones the importer makes too (generated normal and spec maps, MHO spec maps converted or made from your tags, glow maps): <material>.png, _n, _sp, _mhospec (with its gray channel files), _speccolor, _glow, _alpha. The names the FBX import reads, so they can be edited and used again.");
+        Icons.Make(matExport, "Export Maps", Icons.Export, sc);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        foreach (var b in new[] { matUse, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
+        foreach (var b in new[] { matUse, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
         // what the preview shows (Kurt, 2026-10-04: moved here from Look ▾): the model lit, or one map on its own
         var showMap = new DropDown { Width = (int)(200 * DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 0) };
         showMap.Items.AddRange([.. ShowMapChoices.Select(x => (object)x.Label)]);
@@ -121,12 +123,12 @@ sealed partial class ModelPage
         string? file = kind switch { "Color" => tex.Diffuse, "Normal" => tex.Normal, "Spec" => tex.Spec, "MHO Spec" => tex.SpecMho, "Spec Color" => tex.SpecColor, "Glow" => tex.Glow, _ => tex.Alpha };
         if (kind == "Glow" && tex.GlowOff) return ("Off (No Glow)", null);
         if (kind == "Glow" && file == null && tex.SpecMho == null && tex.ColorTags is { Count: > 0 } gtags && tex.GlowFile is string tagGlow)
-            return ($"From your color tags: {gtags.Count(t => t.Tag == "glow")} group(s) tagged Glow", tagGlow);
+            return ($"From your color tags: {gtags.Count(t => ColorTags.Name(t.Tag) == "glow")} group(s) tagged Glow", tagGlow);
         if (kind == "Glow" && file == null && tex.GlowFile is string derived)
             return ($"From the MHO spec map's {tex.SpecLayoutUsed.Channels[tex.SpecLayoutUsed.GlowChannel]} channel ({"RGBA"[tex.SpecLayoutUsed.GlowChannel]}) × the color map", derived);
         if (kind == "Spec" && tex.UsesMhoSpec) return ("Not used: the MHO Spec map is", null);
         if (kind == "MHO Spec" && mine == null && tex.SpecMho == null && tex.ColorTags is { Count: > 0 } ct)
-            return ($"Made from your color tags: {string.Join(", ", ct.GroupBy(x => x.Tag).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))}", null);
+            return ($"Made from your color tags: {string.Join(", ", ct.GroupBy(x => ColorTags.Name(x.Tag)).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))}", null);
         string flip = kind == "Normal" && tex.NormalFlipGreen ? " · OpenGL (green flipped)" : "";
         if (kind == "MHO Spec" && file != null && tex.SpecLayoutUsed.Id != "v2skin") flip = $" · {tex.SpecLayoutUsed.Label}, converted to Angela's";
         if (mine != null) return ($"Your file: {System.IO.Path.GetFileName(file ?? mine)}{flip}", file);
@@ -161,6 +163,7 @@ sealed partial class ModelPage
         matRecipe.Enabled = any && sel!.Value.Kind == "Spec" && tx is { Spec: null, SpecMho: null, Diffuse: not null } && tx.ColorTags is not { Count: > 0 };
         matTags.Enabled = any && tx is { Diffuse: not null, SpecMho: null };
         matChannels.Enabled = any && sel!.Value.Kind == "MHO Spec";
+        matExport.Enabled = shownMaterials.Count > 0;
         matLayout.Enabled = any && sel!.Value.Kind == "MHO Spec" && tx?.SpecMho != null;
         matFlip.Enabled = any && sel!.Value.Kind == "Normal" && shownMaterials.FirstOrDefault(m => m.Material == sel.Value.Material).Tex?.Normal != null;
         Ui.Lit(matFlip, e?.FlipGreen == true && sel?.Kind == "Normal");
@@ -287,6 +290,107 @@ sealed partial class ModelPage
 
     /// <summary>Test: tags the material's color groups (as OK in the Tag Colors window does).</summary>
     internal void TestSetColorTags(string material, List<(string Color, string Tag)> tags) => SetColorTags(material, tags);
+
+    /// <summary>The image a map row stands for, as the build makes it: the file, or a made one (generated normal / spec map, MHO
+    /// spec map converted or from tags, glow map) written into <paramref name="dir"/>; null = none.</summary>
+    static string? MapImage(string kind, Textures tex, string mat, string dir)
+    {
+        string safe = FbxExport.SafeName(mat);
+        switch (kind)
+        {
+            case "Color": return tex.Diffuse;
+            case "Normal":
+                if (tex.Normal != null) return tex.NormalFlipGreen ? MaterialOverrides.NormalForGame(tex.Normal, true, dir, safe + "_n_directx") : tex.Normal;
+                if (tex.Diffuse == null) return null;
+                {
+                    Directory.CreateDirectory(dir);
+                    var (w, h, px) = NormalMapGen.LoadArgb(tex.Diffuse);
+                    int[]? mask = null;
+                    if (tex.Alpha != null) { var (aw, ah, apx) = NormalMapGen.LoadArgb(tex.Alpha); if (aw == w && ah == h) mask = apx; }
+                    string f = Path.Combine(dir, safe + "_n_generated.png");
+                    NormalMapGen.SaveArgb(w, h, NormalMapGen.Make(w, h, px, new NormalMapSettings(), mask), f);
+                    return f;
+                }
+            case "Spec":
+                if (tex.UsesMhoSpec) return null;
+                return tex.Spec ?? (tex.Diffuse != null ? SpecMapGen.Write(tex.Diffuse, tex.Alpha, tex.SpecRecipe, dir, safe + "_generated") : null);
+            case "MHO Spec":
+                return tex.SpecMhoAngela ?? (tex.ColorTags is { Count: > 0 } ct && tex.Diffuse != null ? ColorTags.Write(tex.Diffuse, tex.Alpha, ct, dir, safe) : null);
+            case "Spec Color": return tex.SpecColor;
+            case "Glow": return tex.GlowFile;
+            default: return tex.Alpha;
+        }
+    }
+
+    static string MapsCache => Path.Combine(Path.GetTempPath(), "MHO_ExtMM_maps");
+
+    /// <summary>Double-click: the row's map, large (Kurt, 2026-10-04), in the image viewer (zoom, pan, Export).</summary>
+    async Task ViewMap(int row)
+    {
+        if (matGrid.Rows[row].Tag is not ValueTuple<string, string> t) return;
+        var (mat, kind) = t;
+        var tex = shownMaterials.FirstOrDefault(m => m.Material == mat).Tex;
+        if (tex == null) return;
+        string? file;
+        try { file = await Task.Run(() => MapImage(kind, tex, mat, MapsCache)); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Materials: {mat}'s {kind.ToLowerInvariant()} map couldn't be made: {ex.Message}"); return; }
+        if (IsDisposed) return;
+        if (file == null) { Log($"Materials: {mat} has no {kind.ToLowerInvariant()} map ({matGrid.Rows[row].Cells["from"].Value})."); return; }
+        using var img = Image.FromFile(file);
+        using var v = new ImageViewerForm(img, $"{mat} · {kind} Map ({img.Width} × {img.Height})", $"{FbxExport.SafeName(mat)}_{kind.ToLowerInvariant().Replace(" ", "")}");
+        v.ShowDialog(this);
+    }
+
+    /// <summary>Test: the image the row's map stands for (null = none).</summary>
+    internal string? TestMapImage(string kind) =>
+        shownMaterials.Count > 0 ? MapImage(kind, shownMaterials[0].Tex, shownMaterials[0].Material, MapsCache) : null;
+
+    static readonly (string Kind, string Suffix)[] ExportNames =
+        [("Color", ""), ("Normal", "_n"), ("Spec", "_sp"), ("MHO Spec", "_mhospec"), ("Spec Color", "_speccolor"), ("Glow", "_glow"), ("Alpha", "_alpha")];
+
+    /// <summary>Export Maps (Kurt, 2026-10-04): every material's maps as the build makes them, named as the FBX import reads them.</summary>
+    /// <param name="folder">The folder (tests); null = ask.</param>
+    async Task<int> ExportMaps(string? folder)
+    {
+        if (shownMaterials.Count == 0) return 0;
+        if (folder == null)
+        {
+            using var d = new FolderBrowserDialog { Description = "Folder for the maps", UseDescriptionForTitle = true, ShowNewFolderButton = true };
+            if (d.ShowDialog(this) != DialogResult.OK) return 0;
+            folder = d.SelectedPath;
+        }
+        Protected.CheckWrite(folder);
+        var mats = shownMaterials.ToList();
+        matExport.Enabled = false;
+        Log($"Materials: exporting the maps of {mats.Count} material(s) to {folder} …");
+        int n = 0;
+        try
+        {
+            n = await Task.Run(() =>
+            {
+                int count = 0;
+                string work = Path.Combine(MapsCache, "export");
+                foreach (var (mat, tex) in mats)
+                    foreach (var (kind, suffix) in ExportNames)
+                    {
+                        if (MapImage(kind, tex, mat, work) is not string f) continue;
+                        string to = Path.Combine(folder, FbxExport.SafeName(mat) + suffix + ".png");
+                        if (Path.GetExtension(f).Equals(".png", StringComparison.OrdinalIgnoreCase)) File.Copy(f, to, true);
+                        else { using var img = Image.FromFile(f); img.Save(to, System.Drawing.Imaging.ImageFormat.Png); }
+                        count++;
+                        if (kind == "MHO Spec") SpecChannels.Split(to, folder, FbxExport.SafeName(mat) + suffix);   // (and as gray channels)
+                    }
+                return count;
+            });
+            Log($"Materials: {n} map(s) saved in {folder}.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { Log("Materials: export stopped: " + ex.Message); }
+        finally { if (!IsDisposed) matExport.Enabled = shownMaterials.Count > 0; }
+        return n;
+    }
+
+    /// <summary>Test: Export Maps into <paramref name="folder"/>; the number of maps written.</summary>
+    internal Task<int> TestExportMaps(string folder) => ExportMaps(folder);
 
     void NoGlow()
     {

@@ -148,6 +148,11 @@ sealed partial class ModEditorView : UserControl
         var cancel = Ui.FlatButton("Cancel", () => Cancelled?.Invoke(), tip: "Close the editor without saving (the mod stays as it was).");
         var post = Ui.FlatButton("Create Post", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");
         var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", Save, tip: "Save the mod to the library. Nothing in the game changes until Apply Changes.");
+        // icons (Kurt, 2026-10-04): the names head the tooltips
+        float isc = DeviceDpi / 96f;
+        Icons.Make(cancel, "Cancel", Icons.Cancel, isc);
+        Icons.Make(post, "Create Post", Icons.Post, isc);
+        Icons.Make(save, editing == null ? "Create Mod" : "Save Changes", Icons.Save, isc);
         buttons.Controls.AddRange([post, cancel, save]);
         bottom.Controls.Add(buttons, 1, 0);
         Controls.Add(body); Controls.Add(info); Controls.Add(bottom);

@@ -282,6 +282,54 @@ static partial class Program
                 Console.WriteLine($"{(w > 0 && w < 1000 ? "PASS" : "FAIL")} native max tip width {w} px");
                 return w > 0 && w < 1000 ? 0 : 1;
             }
+            case "--tip-dialog-test":
+            {
+                // ON SCREEN, a few seconds, moves the mouse: a main window, then a modal dialog with a tipped button over it; the
+                // mouse on the button; is the tip shown, and on top? (Kurt: the Tag Colors window's buttons showed no tooltips)
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Application.EnableVisualStyles();
+                Gui.Ui.UseDarkTheme();
+                var back = Cursor.Position;
+                var area = Screen.FromPoint(back).WorkingArea;
+                var main = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(area.Left + 100, area.Top + 100), Size = new Size(900, 600), ShowInTaskbar = false };
+                var mainBtn = Gui.Ui.FlatButton("Main", () => { }, "The main window's button.");
+                main.Controls.Add(mainBtn);
+                string result = "";
+                main.Shown += (_, _) => main.BeginInvoke(() =>
+                {
+                    var dlg = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(area.Left + 300, area.Top + 250), Size = new Size(600, 300), ShowInTaskbar = false, TopMost = true };   // (on top: another window there takes the mouse)
+                    var b = Gui.Ui.FlatButton("Cancel", () => { }, "Close without changing anything (Esc).");
+                    b.Location = new Point(200, 100); dlg.Controls.Add(b);
+                    Gui.Ui.Restyle(dlg);
+                    dlg.Shown += async (_, _) =>
+                    {
+                        var p = b.PointToScreen(new Point(b.Width / 2, b.Height / 2));
+                        Cursor.Position = new Point(p.X - 3, p.Y); await Task.Delay(100); Cursor.Position = p;
+                        for (int k = 0; k < 3; k++) { TipNative.mouse_event(1, 0, 0, 0, IntPtr.Zero); await Task.Delay(50); }
+                        Rectangle tip = Rectangle.Empty; IntPtr tipH = IntPtr.Zero;
+                        for (int i = 0; i < 40 && tip.IsEmpty; i++)
+                        {
+                            await Task.Delay(100);
+                            TipNative.EnumThreadWindows(TipNative.GetCurrentThreadId(), (h, _) =>
+                            {
+                                var cls = new System.Text.StringBuilder(64); TipNative.GetClassName(h, cls, 64);
+                                if (cls.ToString().Contains("tooltips_class32") && TipNative.IsWindowVisible(h) && TipNative.GetWindowRect(h, out var r) && r.Right - r.Left > 50)
+                                { tip = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom); tipH = h; return false; }
+                                return true;
+                            }, IntPtr.Zero);
+                        }
+                        result = $"title '{b.AccessibleName}', tip text '{Gui.Ui.Tips.GetToolTip(b).Replace("\u0001", "[T]").Replace("\n", " / ")}', shown {tip}";
+                        Cursor.Position = back;
+                        dlg.Close();
+                    };
+                    dlg.ShowDialog(main);
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(result);
+                foreach (var l in Gui.Ui.TipDebugLog) Console.WriteLine("  " + l);
+                return result.Contains("shown {X=0,Y=0,Width=0,Height=0}") ? 1 : 0;
+            }
             case "--tip-place-test":
             {
                 // ON SCREEN, a few seconds, moves the mouse: a window with a drop-down and a button (long tips); the mouse is put

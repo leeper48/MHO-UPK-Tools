@@ -272,6 +272,9 @@ static partial class Program
                     ("Next Recipe", Gui.Icons.Next), ("Tag Colors", Gui.Icons.Tag),
                     ("From Channels", Gui.Icons.Channels), ("Layout", Gui.Icons.Layout),
                     ("Undo", Gui.Icons.Undo), ("Redo", Gui.Icons.Redo), ("Loop", Gui.Icons.Loop), ("Reset View", Gui.Icons.ResetView),
+                    ("Build", Gui.Icons.Build), ("Full Export", Gui.Icons.WithMenu(Gui.Icons.Export)), ("Install", Gui.Icons.Install), ("New", Gui.Icons.Plus),
+                    ("Cancel", Gui.Icons.Cancel), ("Save", Gui.Icons.Save), ("Remove", Gui.Icons.Trash), ("Edit", Gui.Icons.Pencil), ("Post", Gui.Icons.Post),
+                    ("Help", Gui.Icons.Help), ("Settings", Gui.Icons.WithMenu(Gui.Icons.Gear)), ("Tags", Gui.Icons.WithMenu(Gui.Icons.Tag)), ("Look", Gui.Icons.Look), ("Export", Gui.Icons.Export), ("Updates", Gui.Icons.CheckUpdates), ("Find", Gui.Icons.Search), ("Browse", Gui.Icons.Globe),
                 };
                 var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, BackColor = f.BackColor };
                 for (int row = 0; row < 3; row++)
@@ -289,7 +292,7 @@ static partial class Program
                     flow.Controls.Add(line);
                 }
                 f.Controls.Add(flow);
-                f.ClientSize = new Size((int)(500 * sc), (int)(120 * sc));
+                f.ClientSize = new Size((int)(1180 * sc), (int)(120 * sc));
                 Gui.Ui.Restyle(f);
                 f.Show(); Application.DoEvents();
                 using var bmp = new Bitmap(f.ClientSize.Width, f.ClientSize.Height);
@@ -299,6 +302,47 @@ static partial class Program
                     tipBmp.Save(Path.ChangeExtension(rest[1], null) + "_tip.png");
                 Console.WriteLine("snapshot: " + rest[1]);
                 return 0;
+            }
+            case "--color-tags-split-test":
+            {
+                // --color-tags-split-test <color.png> <x> <y>: the Tag Colors window (off screen) double-clicked on texel (x, y):
+                // the color becomes a group of its own; tagged Glow, the build's glow map lights it (and not its old group)
+                if (rest.Count < 4) { Console.WriteLine("--color-tags-split-test <color.png> <x> <y>"); return 1; }
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Gui.Ui.UseDarkTheme();
+                int px = int.Parse(rest[2]), py = int.Parse(rest[3]), fails = 0;
+                void Check(bool c, string what) { Console.WriteLine((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+                using var f = new MhoMffImporter.Gui.ColorTagForm("test", rest[1], []);
+                f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000);
+                f.Show(); Application.DoEvents();
+                Color c0;
+                using (var img = new Bitmap(rest[1])) c0 = img.GetPixel(px, py);
+                var after = f.TestSplitOff(px, py);
+                var own = after.FirstOrDefault(g => g.Center.R == c0.R && g.Center.G == c0.G && g.Center.B == c0.B);
+                Check(own != null, $"texel ({px}, {py}) {MhoMffImporter.ColorTags.Hex(c0)} is a group of its own: {(own != null ? $"{own.Share:P2} of the map" : "missing")}, {after.Count} groups");
+                var tags = new List<(string, string)> { (MhoMffImporter.ColorTags.Hex(c0), "glow") };
+                string? glow = MhoMffImporter.ColorTags.GlowFile(rest[1], tags);
+                using (var gb = new Bitmap(glow!))
+                {
+                    int lit = 0;
+                    for (int y = 0; y < gb.Height; y++) for (int x = 0; x < gb.Width; x++) { var p = gb.GetPixel(x, y); if (p.R + p.G + p.B > 0) lit++; }
+                    var at = gb.GetPixel(px, py);
+                    Check(at.R + at.G + at.B > 0 && lit < gb.Width * gb.Height / 50, $"tagged Glow, the build's glow map lights it ({at.R} {at.G} {at.B}) and {lit} texels in all");
+                }
+                // reach: the group takes in more shades at 2, and the build's glow map follows the saved reach
+                int gi = after.FindIndex(g => g.Center.R == c0.R && g.Center.G == c0.G && g.Center.B == c0.B);
+                int at1 = f.TestReach(gi, 1f), at2 = f.TestReach(gi, 2f);
+                var saved = f.TestTags(gi, "glow");
+                string savedTag = saved.First().Item2;
+                Check(at2 > at1 && savedTag == "glow|2.00", $"reach 2: {at1} → {at2} texels in the window; saved as '{savedTag}'");
+                string? glow2 = MhoMffImporter.ColorTags.GlowFile(rest[1], saved);
+                using (var gb = new Bitmap(glow2!))
+                {
+                    int lit2 = 0;
+                    for (int y = 0; y < gb.Height; y++) for (int x = 0; x < gb.Width; x++) { var p = gb.GetPixel(x, y); if (p.R + p.G + p.B > 0) lit2++; }
+                    Check(Math.Abs(lit2 - at2) <= at2 / 10 + 5, $"the build's glow map with that reach: {lit2} texels (window {at2})");
+                }
+                return fails == 0 ? 0 : 1;
             }
             case "--color-tags-snapshot":
             {

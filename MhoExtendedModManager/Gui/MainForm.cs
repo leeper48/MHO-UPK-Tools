@@ -204,6 +204,11 @@ sealed class MainForm : Form
         tips.SetToolTip(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");
         tips.SetToolTip(settingsButton, "Game folder, library folder, the Model tab's MFF folder and Blender, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
         tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
+        // icons (Kurt, 2026-10-04): the names head the tooltips
+        Icons.Make(newMod, "New Mod", Icons.Plus, DeviceDpi / 96f);
+        Icons.Make(install, "Install Mod", Icons.Install, DeviceDpi / 96f);
+        Icons.Make(helpButton, "Help", Icons.Help, DeviceDpi / 96f);
+        Icons.Make(settingsButton, "Settings", Icons.WithMenu(Icons.Gear), DeviceDpi / 96f);
         top.Controls.Add(topButtons, 0, 0);
         top.Controls.Add(rightButtons, 4, 0);
 
@@ -268,6 +273,10 @@ sealed class MainForm : Form
         var nexusBrowse = Ui.FlatButton("Browse Nexus", () => Process.Start(new ProcessStartInfo(Nexus.SiteMods) { UseShellExecute = true }),
             "Open the Marvel Heroes Omega mods on Nexus in your browser.");
         nexusBrowse.Padding = new Padding(4, 0, 4, 0);
+        // icons (Kurt, 2026-10-04): the names head the tooltips (and name them in ▾ when folded away)
+        Icons.Make(nexusCheck, "Check for Nexus Updates", Icons.CheckUpdates, DeviceDpi / 96f);
+        Icons.Make(nexusFind, "Find My Mods on Nexus", Icons.Search, DeviceDpi / 96f);
+        Icons.Make(nexusBrowse, "Browse Nexus", Icons.Globe, DeviceDpi / 96f);
         nexusButtons.Controls.AddRange([nexusCheck, nexusFind, nexusBrowse, nexusMore]);
         nexusRow.Controls.Add(nexusButtons, 1, 0);
         nexusFolded = [nexusBrowse, nexusFind, nexusCheck];
@@ -429,6 +438,10 @@ sealed class MainForm : Form
         tips.SetToolTip(edit, "Open the selected mod in the Editor tab (or double-click it).");
         tips.SetToolTip(export, "Save the selected mod as a .ZIP to share.");
         tips.SetToolTip(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
+        Icons.Make(remove, "Remove Mod", Icons.Trash, DeviceDpi / 96f);
+        Icons.Make(edit, "Edit Mod", Icons.Pencil, DeviceDpi / 96f);
+        Icons.Make(export, "Export to ZIP", Icons.Export, DeviceDpi / 96f);
+        Icons.Make(tagsButton, "Tags", Icons.WithMenu(Icons.Tag), DeviceDpi / 96f);
         tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
         bottom.Controls.Add(leftButtons, 0, 0);
         bottom.Controls.Add(status, 1, 0);
@@ -933,6 +946,8 @@ sealed class MainForm : Form
         {
             // Esc: pauses the 3D preview's animation while one plays (Kurt); otherwise Esc does what it did.
             if (keyData == Keys.Escape && storePreview.PausePlayback()) return true;
+            // P: play / pause the 3D preview (Kurt, 2026-10-04: one key in every 3D view)
+            if (keyData == Keys.P && storePreview.TogglePlayback()) return true;
             // Del: Remove Mod (Kurt), which asks first as the button does.
             if (keyData == Keys.Delete && Selected is Mod && !readOnly) { RemoveMod(); return true; }
             // Ctrl+Up / Down: priority one step; Ctrl+Home / End: to the top / bottom (a marked group moves together).
@@ -1697,12 +1712,13 @@ sealed class MainForm : Form
     {
         float s = DeviceDpi / 96f;
         int room = row.ClientSize.Width - (int)(230 * s);
-        int always = buttons.Controls.Cast<Control>().Where(c => !nexusFolded.Contains(c)).Sum(c => c.GetPreferredSize(Size.Empty).Width + c.Margin.Horizontal) + buttons.Margin.Horizontal;
+        static int W(Control c) => (c is Button { AutoSize: false } ? c.Width : c.GetPreferredSize(Size.Empty).Width) + c.Margin.Horizontal;   // (icon buttons: their own size)
+        int always = buttons.Controls.Cast<Control>().Where(c => !nexusFolded.Contains(c)).Sum(W) + buttons.Margin.Horizontal;
         int used = always;
         // Keep from the most useful (Check, Find, Browse); fold from the other end.
         foreach (var b in nexusFolded.Reverse())
         {
-            int w = b.GetPreferredSize(Size.Empty).Width + b.Margin.Horizontal;
+            int w = W(b);
             bool fits = used + w <= room;
             if (fits) used += w;
             if (b.Visible != fits) b.Visible = fits;
@@ -1714,7 +1730,7 @@ sealed class MainForm : Form
         var menu = NewMenu();
         // Buttons folded away on a narrow list are here instead.
         var folded = nexusFolded.Where(b => !b.Visible).ToList();
-        foreach (var b in folded.AsEnumerable().Reverse()) { var act = nexusActions[b]; menu.Items.Add(b.Text, null, (_, _) => act()); }
+        foreach (var b in folded.AsEnumerable().Reverse()) { var act = nexusActions[b]; menu.Items.Add(string.IsNullOrEmpty(b.Text) ? b.AccessibleName : b.Text, null, (_, _) => act()); }
         if (folded.Count > 0) menu.Items.Add(new ToolStripSeparator());
         if (NexusAuth.Available)
         {

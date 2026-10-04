@@ -17,7 +17,7 @@ namespace MhoMffImporter.Gui;
 sealed partial class ModelPage : UserControl
 {
     readonly IModelHost host;
-    readonly Label foldersLabel = new() { AutoSize = true, Margin = new Padding(0, 7, 0, 0) };
+    readonly FolderStrip foldersLabel = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 0) };
 
     readonly TextBox characterFilter = new() { PlaceholderText = "Filter Characters" };
     readonly CheckBox heroesOnly = new() { Text = "Characters Only", Checked = true, AutoSize = true };
@@ -113,9 +113,11 @@ sealed partial class ModelPage : UserControl
         openButton = Ui.FlatButton("Open Folder", OpenFolder, "Shows the last export in Explorer (model.fbx).");
         openButton.Enabled = false;
         Icons.Make(openButton, "Open Folder", Icons.Folder, DeviceDpi / 96f);
+        Icons.Make(buildButton, "Build into Mod", Icons.Build, DeviceDpi / 96f);
         // Full Export ▾ (0.16.5, Kurt): the model and every animation, as FBX files or straight into Blender (one animation:
         // the Single Animation ▾ menu under the preview)
         fbxButton = Ui.FlatButton("Full Export ▾", ShowFullExportMenu, "The model and all of the base hero's animations: Export FBX (one FBX each, the folder opens) or Open in Blender (a new Blender scene, every animation an Action on the NLA; Ctrl+S there sends your changes back). For one animation: Single Animation ▾ under the preview.");
+        Icons.Make(fbxButton, "Full Export", Icons.WithMenu(Icons.Export), DeviceDpi / 96f);
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = Color.Transparent };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));   // unstyled, a column sizes to its widest child (MEMM 0.37.6)
@@ -131,7 +133,6 @@ sealed partial class ModelPage : UserControl
         var topRight = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         foreach (var b in new[] { undoButton, redoButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
         top.Controls.Add(foldersLabel, 0, 0); top.Controls.Add(topRight, 1, 0);
-        foldersLabel.AutoEllipsis = true; foldersLabel.AutoSize = false; foldersLabel.Dock = DockStyle.Fill; foldersLabel.TextAlign = ContentAlignment.MiddleLeft;
         root.Controls.Add(top, 0, 0);
 
         // body: characters | 3D | target
@@ -319,8 +320,7 @@ sealed partial class ModelPage : UserControl
     void Reload()
     {
         var s = Settings.Current;
-        foldersLabel.Text = $"MFF: {s.MffSource ?? "(not set)"}   ·   Game: {s.GameFolder ?? "(not found)"}{(s.StockFolder != null ? $"   ·   Stock: {s.StockFolder}" : "")}";
-        foldersLabel.ForeColor = Ui.Subtle;
+        foldersLabel.SetFolders([("MFF", s.MffSource, "Not Set"), ("GAME", s.GameFolder, "Not Found"), .. (s.StockFolder != null ? [("STOCK", s.StockFolder, "")] : Array.Empty<(string, string?, string)>())]);
         allCharacters = new();
         try
         {
@@ -1120,6 +1120,7 @@ sealed partial class ModelPage : UserControl
         bool typing = ActiveControl is TextBox || (ActiveControl is ContainerControl c && c.ActiveControl is TextBox);
         if (keyData == Keys.F11) { preview.ToggleFull(); return true; }
         if (!typing && keyData == Keys.Escape && preview.PausePlayback()) return true;
+        if (!typing && keyData == Keys.P && preview.TogglePlayback()) return true;   // (P: play / pause in every 3D view)
         if (!typing && keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
         if (!typing && (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z))) { Redo(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);

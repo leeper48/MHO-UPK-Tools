@@ -82,7 +82,7 @@ sealed partial class StorePreview
             Ui.Tip(animBox, "Play one of this mesh's animations in the 3D view (it loops). Remembered with the mesh for this mod.");
             animBox.SelectedIndexChanged += (_, _) => { if (!fillingAnims) PlaySelected(); };
             Controls.Add(animBox);
-            playBtn = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (it loads paused on its first frame).");
+            playBtn = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses). It loads paused on its first frame.");
             loopBtn = Ui.FlatButton("⟳ Loop", () => { PreviewViews.Loop = !PreviewViews.Loop; UpdateButtons(); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
             restBtn = Ui.FlatButton("Reset View", ResetView, "Back to the mod's own view of the model, or the default one (your turned, zoomed or panned view is saved per mesh; this forgets it).");
             Icons.Make(loopBtn, "Loop", Icons.Loop, S); Icons.Make(restBtn, "Reset View", Icons.ResetView, S);
@@ -331,6 +331,15 @@ sealed partial class StorePreview
 
     void Pause() { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); SaveAnim(); }
 
+    /// <summary>P (Kurt, 2026-10-04: the 3D views' play / pause key): plays or pauses the shown animation; false when the 3D
+    /// view has no animation picked (P then does nothing).</summary>
+    public bool TogglePlayback()
+    {
+        if (playing == null || !show3D) return false;
+        TogglePlay();
+        return true;
+    }
+
     /// <summary>Esc (Kurt): pauses a playing animation; false when nothing was playing (Esc then does its usual job).</summary>
     public bool PausePlayback()
     {
@@ -496,7 +505,11 @@ sealed partial class StorePreview
             FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = screen, ShowInTaskbar = false,
             Text = mod == null ? "Preview" : $"Preview: {mod.Name}", BackColor = Ui.GradientTop, KeyPreview = true,
         };
-        form.KeyDown += (_, e) => { if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !PausePlayback()) ToggleFull(); } };   // Esc: pause first, then back
+        form.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !PausePlayback()) ToggleFull(); }   // Esc: pause first, then back
+            else if (e.KeyData == Keys.P) { e.Handled = true; TogglePlayback(); }
+        };
         form.FormClosing += (_, e) => { if (fullForm == form && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; ToggleFull(); } };   // Alt+F4: back, not closed
         fullForm = form;
         Parent = form;

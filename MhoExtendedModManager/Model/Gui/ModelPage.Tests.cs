@@ -146,6 +146,18 @@ sealed partial class ModelPage
         await Task.Delay(1500);
         if (!(gMine && shownGlow && gOff && gNone)) return false;
 
+        // double-click's image (a generated normal map counts) and Export Maps (named as the FBX import reads them)
+        string? normalImg = TestMapImage("Normal"), specImg = TestMapImage("Spec");
+        string exportDir = Path.Combine(Path.GetDirectoryName(unrigged!)!, "maps_export_test");
+        if (Directory.Exists(exportDir)) Directory.Delete(exportDir, true);
+        Directory.CreateDirectory(exportDir);
+        int exported = await TestExportMaps(exportDir);
+        string safe = FbxExport.SafeName(tm);
+        bool namesOk = File.Exists(Path.Combine(exportDir, safe + ".png")) && File.Exists(Path.Combine(exportDir, safe + "_n.png")) && File.Exists(Path.Combine(exportDir, safe + "_sp.png"));
+        bool viewOk = normalImg != null && File.Exists(normalImg) && specImg != null && File.Exists(specImg);
+        say($"{(viewOk && exported >= 3 && namesOk ? "PASS" : "FAIL")} the map views (normal {Path.GetFileName(normalImg)}, spec {Path.GetFileName(specImg)}) and Export Maps ({exported} files: {string.Join(", ", Directory.GetFiles(exportDir).Select(Path.GetFileName).Take(6))})");
+        if (!(viewOk && exported >= 3 && namesOk)) return false;
+
         // Smooth Weights on an FBX source (its map holds only smoothing), then Undo and Redo
         int elbow = mapGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[1].Value == "g_l_elbow");
         if (elbow < 0) { say("FAIL no g_l_elbow row"); return false; }

@@ -64,7 +64,7 @@ sealed partial class PreviewPanel : UserControl
     public PreviewPanel()
     {
         BackColor = Color.Transparent;
-        play = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (Esc pauses).");
+        play = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses).");
         loop = Ui.FlatButton("⟳ Loop", () => { P.Loop = !P.Loop; SaveP(); Ui.Lit(loop!, P.Loop); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
         reset = Ui.FlatButton("Reset View", () => view.ResetView(), "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         edits = Ui.FlatButton("Single Animation ▾", ShowEditsMenu, "The animation picked here and Blender: export just it (Export FBX: … Only, Open … in Blender: the model and this one animation, quick), bring edits back (an FBX's animation in place of it, and / or its mesh with its weights in place of the model's; kept in the edits folder, built into the mod) and revert them. The buttons on the right export all the animations.");
@@ -123,6 +123,7 @@ sealed partial class PreviewPanel : UserControl
         // a narrow window: the menu's caption shortens so the animation drop-down keeps at least 160 px (0.16.5)
         playBar.SizeChanged += (_, _) =>
         {
+            if (!string.IsNullOrEmpty(edits.AccessibleName)) return;   // (an icon now: nothing to shorten)
             int others = new Control[] { play, loop, compare, look, reset, frameHead, frameBust, frameFull, fullScreen }.Sum(c => c.Width) + (int)(11 * 6 * S);
             string want = playBar.Width - others - TextRenderer.MeasureText("Single Animation ▾", edits.Font).Width - (int)(30 * S) >= (int)(160 * S) ? "Single Animation ▾" : "Single ▾";
             if (edits.Text != want) edits.Text = want;
@@ -372,6 +373,14 @@ sealed partial class PreviewPanel : UserControl
         clock.Restart(); timer.Start(); play.Text = "❚❚"; view.Moving = true;   // smaller frames while playing (ModelView.Moving)
     }
 
+    /// <summary>P (Kurt, 2026-10-04): plays or pauses the picked animation; false when none is picked.</summary>
+    public bool TogglePlayback()
+    {
+        if (anim == null || animator == null) return false;
+        TogglePlay();
+        return true;
+    }
+
     /// <summary>Esc: pauses a playing animation; false when nothing was playing.</summary>
     public bool PausePlayback()
     {
@@ -461,7 +470,11 @@ sealed partial class PreviewPanel : UserControl
             FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = Screen.FromControl(this).Bounds,
             ShowInTaskbar = false, Text = "Preview", BackColor = Ui.GradientTop, KeyPreview = true, Padding = new Padding(10),
         };
-        form.KeyDown += (_, e) => { if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !PausePlayback()) ToggleFull(); } };   // Esc: pause first, then back
+        form.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !PausePlayback()) ToggleFull(); }   // Esc: pause first, then back
+            else if (e.KeyData == Keys.P) { e.Handled = true; TogglePlayback(); }
+        };
         form.FormClosing += (_, e) => { if (fullForm == form && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; ToggleFull(); } };
         fullForm = form;
         Parent = form;
@@ -473,7 +486,7 @@ sealed partial class PreviewPanel : UserControl
     public bool IsFull => fullForm != null;
 
     /// <summary>A framing button's icon: a figure cropped as the shot frames it (whole body, head and shoulders, head and chest).</summary>
-    static void PersonIcon(Graphics g, Rectangle r, Color c, Framing.Shot shot)
+    internal static void PersonIcon(Graphics g, Rectangle r, Color c, Framing.Shot shot)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
         float m = r.Width * 0.18f;

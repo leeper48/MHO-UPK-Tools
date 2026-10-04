@@ -20,11 +20,22 @@ sealed partial class ModEditorView
     bool fillingPower;
     Fx.GameData? powerDb;
 
-    /// <summary>Esc stops the Powers tab's animation (as on the Mods tab), else does what it did.</summary>
+    /// <summary>In the Powers and Animations tabs' 3D previews (whichever shows): Esc stops the animation (as on the Mods tab,
+    /// Kurt: the Animations tab too), P plays / pauses it; not while typing. Otherwise the keys do what they did.</summary>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (keyData == Keys.Escape && powerPreview != null && powerPreview.Visible && powerPreview.PausePlayback()) return true;
+        if (keyData is Keys.Escape or Keys.P && !Typing())
+            foreach (var pv in new[] { powerPreview, animPreview })
+                if (pv != null && pv.Visible && (keyData == Keys.Escape ? pv.PausePlayback() : pv.TogglePlayback())) return true;
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    /// <summary>The focus is in a text box (keys are typing).</summary>
+    bool Typing()
+    {
+        Control? c = this;
+        while (c is ContainerControl cc && cc.ActiveControl != null) c = cc.ActiveControl;
+        return c is TextBoxBase;
     }
 
     Control PowersPage()

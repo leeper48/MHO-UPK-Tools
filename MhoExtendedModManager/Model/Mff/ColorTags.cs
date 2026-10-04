@@ -17,7 +17,18 @@ static class ColorTags
 {
     public static readonly string[] Tags = ["", "metal", "skin", "leather", "cloth", "glow"];
 
-    public static string Label(string? tag) => tag switch
+    /// <summary>A saved tag is "name" or "name|reach" (Kurt, 2026-10-04: a reach slider per color): the tag's name.</summary>
+    public static string Name(string? tag) => tag == null ? "" : tag.Split('|')[0];
+
+    /// <summary>How far a group reaches (1 = as found; 2 takes in shades twice as far): from "name|reach".</summary>
+    public static float Reach(string? tag) =>
+        tag != null && tag.Split('|') is [_, var r] && float.TryParse(r, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) ? Math.Clamp(v, 0.25f, 4f) : 1f;
+
+    /// <summary>The saved form of a tag and its reach ("name" when the reach is 1).</summary>
+    public static string Compose(string name, float reach) =>
+        Math.Abs(reach - 1) < 0.01f ? name : $"{name}|{reach.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}";
+
+    public static string Label(string? tag) => Name(tag) switch
     {
         "metal" => "Metal",
         "skin" => "Skin",
@@ -60,17 +71,20 @@ static class ColorTags
 
     /// <summary>The color map's color groups, largest first (cut-out texels left out). Deterministic: the same map gives the
     /// same groups, so saved tags find their group again.</summary>
-    public static List<Group> Groups(int w, int h, byte[] bgra, int k = 0)
+    /// <param name="seeds">Colors that are groups of their own, fixed (the tagged colors: Kurt, 2026-10-04, small details such as
+    /// eye whites merged into a bigger group; the Tag Colors window's double-click adds one). The rest are found around them.</param>
+    public static List<Group> Groups(int w, int h, byte[] bgra, int k = 0, IEnumerable<Color>? seeds = null)
     {
         if (k <= 0) k = int.TryParse(Environment.GetEnvironmentVariable("MHO_COLOR_GROUPS"), out int kk) ? kk : DefaultGroups;
-        var (cent, counts) = Cluster(w, h, bgra, k);
+        var fixedC = (seeds ?? []).Select(c => ((float)c.R, (float)c.G, (float)c.B)).Distinct().ToArray();
+        var (cent, counts) = Cluster(w, h, bgra, k, fixedC);
         int total = Math.Max(1, counts.Sum());
         return Enumerable.Range(0, cent.Length).Where(i => counts[i] > 0)
             .Select(i => new Group(Color.FromArgb((int)cent[i].R, (int)cent[i].G, (int)cent[i].B), counts[i] / (float)total))
             .OrderByDescending(g => g.Share).ToList();
     }
 
-    static ((float R, float G, float B)[] Centers, int[] Counts) Cluster(int w, int h, byte[] bgra, int k)
+    static ((float R, float G, float B)[] Centers, int[] Counts) Cluster(int w, int h, byte[] bgra, int k, (float R, float G, float B)[] fixedC)
     {
         // a sample of up to 128 × 128 texels
         int step = Math.Max(1, Math.Max(w, h) / 128);
@@ -84,16 +98,21 @@ static class ColorTags
             }
         if (px.Count == 0) return ([], []);
         k = Math.Min(k, px.Count);
-        // k-means++ seeding, deterministic: the texel farthest from the centers so far
-        var cent = new (float R, float G, float B)[k];
-        cent[0] = px.OrderBy(p => p.R + p.G + p.B).ElementAt(px.Count / 2);
-        var dmin = px.Select(p => D(p, cent[0])).ToArray();
-        for (int c = 1; c < k; c++)
+        // the fixed colors first (they stay where they are), then k-means++ seeding, deterministic: the texel farthest from
+        // the centers so far
+        int nf = fixedC.Length;
+        var cent = new (float R, float G, float B)[nf + k];
+        Array.Copy(fixedC, cent, nf);
+        cent[nf] = px.OrderBy(p => p.R + p.G + p.B).ElementAt(px.Count / 2);
+        var dmin = px.Select(p => D(p, cent[nf])).ToArray();
+        for (int c = 0; c < nf; c++) for (int i = 0; i < px.Count; i++) dmin[i] = MathF.Min(dmin[i], D(px[i], cent[c]));
+        for (int c = nf + 1; c < nf + k; c++)
         {
             int far = Array.IndexOf(dmin, dmin.Max());
             cent[c] = px[far];
             for (int i = 0; i < px.Count; i++) dmin[i] = MathF.Min(dmin[i], D(px[i], cent[c]));
         }
+        k += nf;
         var counts = new int[k];
         for (int it = 0; it < 12; it++)
         {
@@ -104,7 +123,7 @@ static class ColorTags
                 int c = Nearest(cent, p);
                 sum[c].R += p.R; sum[c].G += p.G; sum[c].B += p.B; counts[c]++;
             }
-            for (int c = 0; c < k; c++)
+            for (int c = nf; c < k; c++)   // (the fixed ones stay)
                 if (counts[c] > 0) cent[c] = ((float)(sum[c].R / counts[c]), (float)(sum[c].G / counts[c]), (float)(sum[c].B / counts[c]));
         }
         return (cent, counts);
@@ -126,15 +145,30 @@ static class ColorTags
 
     static (float, float, float) Rgb(Color c) => (c.R, c.G, c.B);
 
-    /// <summary>Which group each texel belongs to (index into <paramref name="groups"/>; -1 cut out).</summary>
-    public static int[] Assign(int w, int h, byte[] bgra, IReadOnlyList<Group> groups)
+    /// <summary>Which group each texel belongs to (index into <paramref name="groups"/>; -1 cut out). <paramref name="reach"/>:
+    /// each group's reach (distances divided by it squared: 2 takes in shades twice as far); null = all 1.</summary>
+    public static int[] Assign(int w, int h, byte[] bgra, IReadOnlyList<Group> groups, IReadOnlyList<float>? reach = null)
     {
         var cent = groups.Select(g => ((float)g.Center.R, (float)g.Center.G, (float)g.Center.B)).ToArray();
+        var inv = Enumerable.Range(0, cent.Length).Select(g => reach != null && g < reach.Count ? 1f / (reach[g] * reach[g]) : 1f).ToArray();
         var a = new int[w * h];
-        for (int i = 0; i < a.Length; i++)
-            a[i] = bgra[4 * i + 3] < 128 || cent.Length == 0 ? -1 : Nearest(cent, (bgra[4 * i + 2], bgra[4 * i + 1], bgra[4 * i]));
+        System.Threading.Tasks.Parallel.For(0, h, y =>
+        {
+            for (int i = y * w; i < (y + 1) * w; i++)
+            {
+                if (bgra[4 * i + 3] < 128 || cent.Length == 0) { a[i] = -1; continue; }
+                var p = ((float)bgra[4 * i + 2], (float)bgra[4 * i + 1], (float)bgra[4 * i]);
+                int best = 0; float bd = float.MaxValue;
+                for (int c = 0; c < cent.Length; c++) { float d = D(p, cent[c]) * inv[c]; if (d < bd) { bd = d; best = c; } }
+                a[i] = best;
+            }
+        });
         return a;
     }
+
+    /// <summary>Each group's reach from its saved tag (1 untagged).</summary>
+    public static float[] Reaches(IReadOnlyList<Group> groups, IReadOnlyList<(string Color, string Tag)> tags) =>
+        [.. TagsFor(groups, tags).Select(Reach)];
 
     /// <summary>Each group's tag: every saved tag goes to its single nearest group (within ~20 levels), so neighboring
     /// shades don't both take one tag.</summary>
@@ -151,6 +185,10 @@ static class ColorTags
         return res;
     }
 
+    /// <summary>The tagged colors, as fixed group colors (Groups' seeds).</summary>
+    public static IEnumerable<Color> Seeds(IEnumerable<(string Color, string Tag)> tags) =>
+        tags.Select(t => TryHex(t.Color, out var c) ? c : (Color?)null).OfType<Color>();
+
     public static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
     public static bool TryHex(string s, out Color c)
@@ -165,9 +203,9 @@ static class ColorTags
     public static byte[] MakePacked(int w, int h, byte[] bgra, IReadOnlyList<(string Color, string Tag)> tags)
     {
         var small = Small(w, h, bgra);
-        var groups = Groups(small.W, small.H, small.Bgra);
+        var groups = Groups(small.W, small.H, small.Bgra, seeds: Seeds(tags));
         var tagOf = TagsFor(groups, tags);
-        var assign = Assign(w, h, bgra, groups);
+        var assign = Assign(w, h, bgra, groups, Reaches(groups, tags));
         // each group's brightness range (5th to 95th percentile, sampled) for the within-group variation
         var lum = new float[w * h];
         for (int i = 0; i < lum.Length; i++) lum[i] = 0.299f * bgra[4 * i + 2] + 0.587f * bgra[4 * i + 1] + 0.114f * bgra[4 * i];
@@ -184,7 +222,7 @@ static class ColorTags
         {
             int g = assign[i];
             if (g < 0) continue;
-            var v = Values(tagOf[g]);
+            var v = Values(Name(tagOf[g]));
             float t = hi[g] > lo[g] ? Math.Clamp((lum[i] - lo[g]) / (hi[g] - lo[g]), 0, 1) : 0.5f;
             outp[4 * i + 2] = (byte)Math.Clamp(v.R * (0.7f + 0.6f * t), 0, 255);
             outp[4 * i + 1] = v.G; outp[4 * i] = v.B; outp[4 * i + 3] = v.A;
@@ -198,7 +236,7 @@ static class ColorTags
     /// </summary>
     public static string? GlowFile(string colorFile, IReadOnlyList<(string Color, string Tag)> tags)
     {
-        if (!tags.Any(t => t.Tag == "glow")) return null;
+        if (!tags.Any(t => Name(t.Tag) == "glow")) return null;
         string key = colorFile + "|" + File.GetLastWriteTimeUtc(colorFile).Ticks + "|" + string.Join(",", tags.OrderBy(t => t.Color).Select(t => t.Color + "=" + t.Tag));
         string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..16];
         string outFile = Path.Combine(Path.GetTempPath(), "MHO_ExtMM_spec", hash + "_tagglow.png");
@@ -207,14 +245,14 @@ static class ColorTags
         var bgra = new byte[w * h * 4];
         for (int i = 0; i < w * h; i++) { bgra[4 * i] = (byte)argb[i]; bgra[4 * i + 1] = (byte)(argb[i] >> 8); bgra[4 * i + 2] = (byte)(argb[i] >> 16); bgra[4 * i + 3] = 255; }
         var small = Small(w, h, bgra);
-        var groups = Groups(small.W, small.H, small.Bgra);
+        var groups = Groups(small.W, small.H, small.Bgra, seeds: Seeds(tags));
         var tagOf = TagsFor(groups, tags);
-        var assign = Assign(w, h, bgra, groups);
+        var assign = Assign(w, h, bgra, groups, Reaches(groups, tags));
         var outp = new byte[w * h * 4];
         for (int i = 0; i < assign.Length; i++)
         {
             outp[4 * i + 3] = 255;
-            if (assign[i] >= 0 && tagOf[assign[i]] == "glow") { outp[4 * i] = bgra[4 * i]; outp[4 * i + 1] = bgra[4 * i + 1]; outp[4 * i + 2] = bgra[4 * i + 2]; }
+            if (assign[i] >= 0 && Name(tagOf[assign[i]]) == "glow") { outp[4 * i] = bgra[4 * i]; outp[4 * i + 1] = bgra[4 * i + 1]; outp[4 * i + 2] = bgra[4 * i + 2]; }
         }
         Directory.CreateDirectory(Path.GetDirectoryName(outFile)!);
         using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);

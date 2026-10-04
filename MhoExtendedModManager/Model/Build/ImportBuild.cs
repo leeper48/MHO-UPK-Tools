@@ -210,7 +210,7 @@ sealed class ImportBuild
         {
             // the user's color group tags: an MHO packed map made from them (ColorTags)
             specMho = ColorTags.Write(tex.Diffuse, tex.Alpha, tags, texDir, MaterialOut.Safe(name));
-            log($"material: {name}: spec map made from your color tags ({tags.Count} group(s): {string.Join(", ", tags.GroupBy(t => t.Tag).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))})");
+            log($"material: {name}: spec map made from your color tags ({tags.Count} group(s): {string.Join(", ", tags.GroupBy(t => ColorTags.Name(t.Tag)).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))})");
         }
         if (specMho != null) { spec = null; generated = false; }   // an MHO packed map wins (as it is)
         string? glow = tex.GlowFile;
