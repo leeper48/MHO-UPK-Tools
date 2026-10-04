@@ -12,6 +12,10 @@ sealed record MffMaterial(string Name, string? Colour, string? Spec, string? Nor
     /// <summary>An MHO packed spec map (R shine, G power, B skin, A reflectivity), put in as it is; a spec color map.</summary>
     public string? SpecMho { get; init; }
     public string? SpecColor { get; init; }
+    /// <summary>A glow map (a glow color on black) for the template's emissive slot; GuessGlow: none of its own, so the color
+    /// map's near-white / cyan spots glow (the automatic Metal + Glow choice).</summary>
+    public string? Glow { get; init; }
+    public bool GuessGlow { get; init; }
 }
 
 /// <summary>
@@ -189,7 +193,8 @@ static class MaterialOut
                     m.SpecMho ?? (m.Spec != null ? (kind.MetalStyle ? maps.PackedMetal(m.Spec, b + "_spec_packed") : maps.PackedV2(m.Spec, b + "_spec_packed", stand.NoSpec, 15, 0)) : stand.NoSpec),
                     kind.MetalStyle || m.SpecMho != null, AlphaIsData: true));   // (an MHO map as it is: DXT5 keeps its reflectivity alpha)
             if (kind.GlowSlot)
-                plan.Add(new("emissive", m.Name, b + "_glow", kind.GlowTex, m.Colour != null ? maps.GlowMap(m.Colour, b + "_glow") : maps.Flat("mff_neutral_black", Color.Black), false));
+                plan.Add(new("emissive", m.Name, b + "_glow", kind.GlowTex, m.Glow ?? (m.GuessGlow && m.Colour != null ? maps.GlowMap(m.Colour, b + "_glow") : maps.Flat("mff_neutral_black", Color.Black)), false));
+            if (m.Glow != null) notes.Add($"{m.Name}: glow map {Path.GetFileName(m.Glow)}{(kind.GlowSlot ? "" : ": this template has no glow slot (pick Automatic or Metal + Glow)")}");
             if (kind.MetalStyle && slots.TryGetValue("speccolortex", out int scv))
                 plan.Add(new("speccolortex", m.Name, b + "_speccol", scv, m.SpecColor ?? (m.Colour != null ? maps.SpecColour(m.Colour, m.Spec, b + "_speccol") : stand.Grey), false));
             if (m.SpecMho != null) notes.Add($"{m.Name}: MHO spec map put in as it is ({Path.GetFileName(m.SpecMho)}){(slots.ContainsKey("specmult_specpow_skinmask_reflectivity") ? "" : ": this template has no slot for it")}");

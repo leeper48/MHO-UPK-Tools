@@ -133,8 +133,9 @@ sealed partial class PreviewPanel
         float metal = r.Sections.Any(x => x.Tex.UsesMhoSpec) ? 1   // an MHO spec map: the Metal template, as the build
             : MaterialChoice.MetalShare(r.Sections.Select(x => x.Tex.Spec).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase));
         float glowShare = metal > 0.5f && !r.Sections.Any(x => x.Tex.UsesMhoSpec) ? MaterialChoice.GlowShare(r.Sections.Select(x => x.Tex.Diffuse).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)) : 0;
-        string? donor = MaterialChoice.Donor(materialDonor, metal, glowShare);
-        bool metalStyle = donor is MaterialChoice.Metal or MaterialChoice.Glow, glowOn = donor == MaterialChoice.Glow;
+        bool ownGlow = r.Sections.Any(x => x.Tex.GlowFile != null);   // (as the build: a glow map → Angela's weapon material)
+        string? donor = materialDonor == null && ownGlow ? MaterialChoice.Glow : MaterialChoice.Donor(materialDonor, metal, glowShare);
+        bool metalStyle = donor is MaterialChoice.Metal or MaterialChoice.Glow, glowOn = donor == MaterialChoice.Glow && !ownGlow;
         var lookCache = new Dictionary<string, ModelView.Look>(StringComparer.OrdinalIgnoreCase);
         for (int si = 0; si < r.Sections.Count; si++)
         {
@@ -247,7 +248,12 @@ sealed partial class PreviewPanel
                 look.ReflectMult = 2; look.ReflectByDiffuse = true; look.FresnelPower = 1;
             }
         }
-        if (glowOn && colour is { } gc)
+        if (tex.GlowFile is string gf && LoadBgra(gf) is { } gm)
+        {
+            for (int i = 3; i < gm.Px.Length; i += 4) gm.Px[i] = 255;
+            look.EmissiveTex = new ModelView.Map(gm.Px, gm.W, gm.H); look.UseEmissive = true; look.EmissiveMult = 1;
+        }
+        else if (glowOn && !tex.GlowOff && colour is { } gc)
         {
             var g = new byte[gc.Px.Length];
             for (int i = 0; i < g.Length; i += 4)

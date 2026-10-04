@@ -5,22 +5,26 @@ namespace MhoMffImporter.Gui;
 /// <summary>
 /// The Materials tab (Kurt, 2026-10-04): each material's color, normal, spec and alpha maps and where they come from (found
 /// with the model, generated, none, or your file), with Use a File (an override, copied into the mod's Model folder), Back to
-/// Automatic and Flip Green (an OpenGL-style normal map). Saved per source in materials\&lt;source&gt;.json (MaterialOverrides);
+/// Automatic and OpenGL Normal Map (its green flipped to DirectX). Saved per source in materials\&lt;source&gt;.json (MaterialOverrides);
 /// the preview, Build and Export FBX use it, and Undo takes a change back.
 /// </summary>
 sealed partial class ModelPage
 {
     readonly DataGridView matGrid = new() { Dock = DockStyle.Fill };
-    Button matUse = null!, matAuto = null!, matFlip = null!, matRecipe = null!, matTags = null!, matChannels = null!, matLayout = null!;
+    Button matUse = null!, matAuto = null!, matFlip = null!, matRecipe = null!, matTags = null!, matChannels = null!, matLayout = null!, matNoGlow = null!;
     List<(string Material, Textures Tex)> shownMaterials = [];
+    /// <summary>The table is being refilled: the buttons wait (Kurt, 0.37.139 crash on Next Recipe: clearing the rows selects
+    /// nothing, which disabled the focused button; Windows moved the focus into the table mid-refill and the grid threw
+    /// "reentrant call to SetCurrentCellAddressCore").</summary>
+    bool fillingMat;
 
     static readonly (string Label, ModelView.MapView Mode)[] ShowMapChoices =
         [("All Maps", ModelView.MapView.All), ("Color Map", ModelView.MapView.Colour), ("Normal Map", ModelView.MapView.Normal),
          ("Spec: Shine (R)", ModelView.MapView.Spec), ("Spec: Power (G)", ModelView.MapView.SpecPower), ("Spec: Reflectivity (A)", ModelView.MapView.Reflectivity),
          ("Spec: Skin Mask (B)", ModelView.MapView.SkinMask), ("Spec: Combined (RGBA)", ModelView.MapView.SpecPacked),
-         ("Spec Color", ModelView.MapView.SpecColor), ("Alpha", ModelView.MapView.Alpha)];
+         ("Spec Color", ModelView.MapView.SpecColor), ("Glow Map", ModelView.MapView.Glow), ("Alpha", ModelView.MapView.Alpha)];
 
-    static readonly string[] MapKinds = ["Color", "Normal", "Spec", "MHO Spec", "Spec Color", "Alpha"];
+    static readonly string[] MapKinds = ["Color", "Normal", "Spec", "MHO Spec", "Spec Color", "Glow", "Alpha"];
 
     /// <summary>The source's overrides file (materials\&lt;source&gt;.json in the Model work folder); null without a source.</summary>
     string? OverridesPath()
@@ -43,24 +47,36 @@ sealed partial class ModelPage
         Ui.StyleGrid(matGrid);
         Ui.Tip(matGrid, "Each material's maps and where they come from. Pick a row, then Use a File to put in your own (double-click does the same).");
         matGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) UseMapFile(); };
-        matGrid.CurrentCellChanged += (_, _) => MatSelectionChanged();
+        matGrid.CurrentCellChanged += (_, _) => { if (!fillingMat) MatSelectionChanged(); };
         matUse = Ui.FlatButton("Use a File", UseMapFile, "Puts your own image (PNG, JPG or BMP) in for the selected map: copied into the mod's Model folder; the preview, Build and Export FBX use it. Undo (Ctrl+Z) takes it back. MHO Spec takes a map in the game's own packed layout (R shine, G spec power, B skin mask, A reflectivity), put in as it is with Angela's armor material; Spec Color tints its highlights.");
         matAuto = Ui.FlatButton("Back to Automatic", MapBackToAutomatic, "Forgets your file for the selected map (a Normal row: the green flip too); the importer's own choice is used again.");
-        matFlip = Ui.FlatButton("Flip Green", FlipGreen, "For a normal map made the OpenGL way (Blender, Unity, Substance's OpenGL preset: green up): flips its green to MHO's DirectX way. Bumps that look dented instead of raised need it.");
+        matFlip = Ui.FlatButton("OpenGL Normals", FlipGreen, "The selected normal map was made the OpenGL way (Blender, Unity, Maya, Substance's OpenGL preset: green up): its green is flipped to MHO's DirectX way (lit when on). Bumps that look dented instead of raised need it. Only for a normal map of the model's own or your file: one generated from the color map is already DirectX.");
         matRecipe = Ui.FlatButton("Next Recipe", NextSpecRecipe, "A spec row with no map of its own gets one made from the color map; this steps through the ways it's made: Soft, Strong, Dark Is Shiny, Detail, Flat. Preview Shows → Spec Map (above) shows it.");
         matTags = Ui.FlatButton("Tag Colors", TagColors, "Tell it what each color group of the selected material is made of (Metal, Skin, Leather, Cloth): an MHO spec map is made from your tags, with Angela's armor material. Colors alone can't tell gold paint from gold metal.");
         matChannels = Ui.FlatButton("From Channels", FromChannels, "Makes the selected material's MHO spec map from separate gray images, one per channel (Shine R, Power G, Skin Mask B, Reflectivity A), or an RGB image plus a gray Reflectivity one. Image editors show a PNG's alpha as transparency and can change the colors under it when saving: editing the channels apart avoids that.");
         matLayout = Ui.FlatButton("Layout ▾", ShowLayoutMenu, "Which of the game's packed layouts the selected MHO spec map is in. Material types pack different things into R, G, B and A: " +
             string.Join("; ", SpecLayouts.All.Select(l => $"{l.Label}: R {l.Channels[0]}, G {l.Channels[1]}, B {l.Channels[2]}, A {l.Channels[3]}")) +
-            ". The model is built with Angela's material, so another layout is converted to hers (what it has no place for, rim mask and glow, is left out). Automatic reads the layout from the file name (a map saved from the game under its parameter name), else Angela's.");
+            ". The model is built with Angela's material, so another layout is converted to hers: rim mask, ambient and height are left out, and a glow channel becomes the material's glow map (the Glow row). Automatic reads the layout from the file name (a map saved from the game under its parameter name), else Angela's.");
+        matNoGlow = Ui.FlatButton("No Glow", NoGlow, "Turns the selected material's glow off (lit when off), whatever its maps say: its own glow map, the glow channel of its MHO spec map, or the bright spots of an MFF color map. Click again to turn it back on.");
+        matNoGlow.Visible = false;   // (in OpenGL Normals' place on a Glow row)
+        // icons (Kurt, 2026-10-04): the old names lead their tooltips
+        float sc = DeviceDpi / 96f;
+        Icons.Make(matUse, "Use a File", Icons.Folder, sc);
+        Icons.Make(matAuto, "Back to Automatic", Icons.Reset, sc);
+        Icons.Make(matFlip, "OpenGL Normals", Icons.FlipVertical, sc);
+        Icons.Make(matNoGlow, "No Glow", Icons.NoGlow, sc);
+        Icons.Make(matRecipe, "Next Recipe", Icons.Next, sc);
+        Icons.Make(matTags, "Tag Colors", Icons.Tag, sc);
+        Icons.Make(matChannels, "From Channels", Icons.Channels, sc);
+        Icons.Make(matLayout, "Layout", Icons.Layout, sc);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        foreach (var b in new[] { matUse, matAuto, matFlip, matRecipe, matTags, matChannels, matLayout }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
+        foreach (var b in new[] { matUse, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
         // what the preview shows (Kurt, 2026-10-04: moved here from Look ▾): the model lit, or one map on its own
         var showMap = new DropDown { Width = (int)(200 * DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 0) };
         showMap.Items.AddRange([.. ShowMapChoices.Select(x => (object)x.Label)]);
         showMap.SelectedIndex = Math.Max(0, Array.FindIndex(ShowMapChoices, x => x.Mode == preview.ShowMap));
         showMap.SelectedIndexChanged += (_, _) => { if (showMap.SelectedIndex >= 0) preview.ShowMap = ShowMapChoices[showMap.SelectedIndex].Mode; };
-        Ui.Tip(showMap, "What the preview shows: All Maps is the model lit as usual; the others show one map or channel on its own. The spec map's channels: Shine (R: how strong the highlight is), Power (G: how tight and sharp it is), Reflectivity (A: how much the environment reflects, what makes metal look like metal), Skin Mask (B: where skin shading applies); Combined (RGBA) shows them together as an image editor would (the A channel as see-through over a checkerboard: it is reflectivity, not transparency); Spec Color tints the highlight (white: none of its own). White = most; black = none or a channel the material doesn't use. Color Map unlit, Normal Map its own colors (flat blue: none), Alpha (black is cut out).");
+        Ui.Tip(showMap, "What the preview shows: All Maps is the model lit as usual; the others show one map or channel on its own. The spec map's channels: Shine (R: how strong the highlight is), Power (G: how tight and sharp it is), Reflectivity (A: how much the environment reflects, what makes metal look like metal), Skin Mask (B: where skin shading applies); Combined (RGBA) shows them together as an image editor would (the A channel as see-through over a checkerboard: it is reflectivity, not transparency); Spec Color tints the highlight (white: none of its own); Glow Map shows what glows, in its glow color (black: none). White = most; black = none or a channel the material doesn't use. Color Map unlit, Normal Map its own colors (flat blue: none), Alpha (black is cut out).");
         var showRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 6) };
         showRow.Controls.Add(new Label { Text = "Preview Shows", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
         showRow.Controls.Add(showMap);
@@ -74,6 +90,9 @@ sealed partial class ModelPage
     void FillMaterials()
     {
         int keep = matGrid.CurrentCell?.RowIndex ?? -1;
+        fillingMat = true;
+        try
+        {
         matGrid.Rows.Clear();
         var ov = OverridesFile() is string p ? MaterialOverrides.Load(p) : new MaterialOverrides();
         foreach (var (mat, tex) in shownMaterials)
@@ -90,28 +109,36 @@ sealed partial class ModelPage
             }
         }
         if (keep >= 0 && keep < matGrid.Rows.Count) matGrid.CurrentCell = matGrid.Rows[keep].Cells["material"];
+        }
+        finally { fillingMat = false; }
         MatSelectionChanged();
     }
 
     /// <summary>Where a map comes from, in words, and its file.</summary>
     static (string From, string? Path) Describe(string kind, Textures tex, MaterialOverrides.Entry? e)
     {
-        string? mine = kind switch { "Color" => e?.Color, "Normal" => e?.Normal, "Spec" => e?.Spec, "MHO Spec" => e?.SpecMho, "Spec Color" => e?.SpecColor, _ => e?.Alpha };
-        string? file = kind switch { "Color" => tex.Diffuse, "Normal" => tex.Normal, "Spec" => tex.Spec, "MHO Spec" => tex.SpecMho, "Spec Color" => tex.SpecColor, _ => tex.Alpha };
+        string? mine = kind switch { "Color" => e?.Color, "Normal" => e?.Normal, "Spec" => e?.Spec, "MHO Spec" => e?.SpecMho, "Spec Color" => e?.SpecColor, "Glow" => e?.Glow, _ => e?.Alpha };
+        string? file = kind switch { "Color" => tex.Diffuse, "Normal" => tex.Normal, "Spec" => tex.Spec, "MHO Spec" => tex.SpecMho, "Spec Color" => tex.SpecColor, "Glow" => tex.Glow, _ => tex.Alpha };
+        if (kind == "Glow" && tex.GlowOff) return ("Off (No Glow)", null);
+        if (kind == "Glow" && file == null && tex.SpecMho == null && tex.ColorTags is { Count: > 0 } gtags && tex.GlowFile is string tagGlow)
+            return ($"From your color tags: {gtags.Count(t => t.Tag == "glow")} group(s) tagged Glow", tagGlow);
+        if (kind == "Glow" && file == null && tex.GlowFile is string derived)
+            return ($"From the MHO spec map's {tex.SpecLayoutUsed.Channels[tex.SpecLayoutUsed.GlowChannel]} channel ({"RGBA"[tex.SpecLayoutUsed.GlowChannel]}) × the color map", derived);
         if (kind == "Spec" && tex.UsesMhoSpec) return ("Not used: the MHO Spec map is", null);
         if (kind == "MHO Spec" && mine == null && tex.SpecMho == null && tex.ColorTags is { Count: > 0 } ct)
             return ($"Made from your color tags: {string.Join(", ", ct.GroupBy(x => x.Tag).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))}", null);
-        string flip = kind == "Normal" && tex.NormalFlipGreen ? " · green flipped" : "";
+        string flip = kind == "Normal" && tex.NormalFlipGreen ? " · OpenGL (green flipped)" : "";
         if (kind == "MHO Spec" && file != null && tex.SpecLayoutUsed.Id != "v2skin") flip = $" · {tex.SpecLayoutUsed.Label}, converted to Angela's";
         if (mine != null) return ($"Your file: {System.IO.Path.GetFileName(file ?? mine)}{flip}", file);
         if (file != null) return ((kind == "Color" && tex.Guessed ? "Found (by a near name): " : kind == "Normal" ? "The model's own: " : "Found: ") + System.IO.Path.GetFileName(file) + flip, file);
         return (kind switch
         {
             "Color" => "None: gray",
-            "Normal" => tex.Diffuse != null ? "Generated from the color map" : "None: flat",
+            "Normal" => tex.Diffuse != null ? "Generated from the color map (already DirectX: nothing to flip)" : "None: flat",
             "Spec" => tex.Diffuse != null ? "Generated from the color map: " + SpecMapGen.Label(tex.SpecRecipe) : "None: low shine, no reflection",
             "MHO Spec" => "None (an MHO packed map: shine, power, skin, reflectivity)",
             "Spec Color" => "None: the highlight takes the color map's tint",
+            "Glow" => "None (MFF models with metal maps: near-white / cyan spots glow)",
             _ => "None: opaque",
         }, null);
     }
@@ -125,7 +152,11 @@ sealed partial class ModelPage
         bool any = sel != null && OverridesPath() != null;
         matUse.Enabled = any;
         var e = sel is { } s && OverridesFile() is string p && MaterialOverrides.Load(p).Materials.TryGetValue(s.Material, out var x) ? x : null;
-        matAuto.Enabled = any && e != null && (sel!.Value.Kind switch { "Color" => e.Color != null, "Normal" => e.Normal != null || e.FlipGreen, "Spec" => e.Spec != null || e.SpecRecipe != null, "MHO Spec" => e.SpecMho != null, "Spec Color" => e.SpecColor != null, _ => e.Alpha != null });
+        matAuto.Enabled = any && e != null && (sel!.Value.Kind switch { "Color" => e.Color != null, "Normal" => e.Normal != null || e.FlipGreen, "Spec" => e.Spec != null || e.SpecRecipe != null, "MHO Spec" => e.SpecMho != null, "Spec Color" => e.SpecColor != null, "Glow" => e.Glow != null || e.GlowOff, _ => e.Alpha != null });
+        bool glowRow = sel?.Kind == "Glow";
+        matNoGlow.Visible = glowRow; matFlip.Visible = !glowRow;
+        matNoGlow.Enabled = any && glowRow;
+        Ui.Lit(matNoGlow, glowRow && e?.GlowOff == true);
         var tx = sel is { } s2 ? shownMaterials.FirstOrDefault(m => m.Material == s2.Material).Tex : null;
         matRecipe.Enabled = any && sel!.Value.Kind == "Spec" && tx is { Spec: null, SpecMho: null, Diffuse: not null } && tx.ColorTags is not { Count: > 0 };
         matTags.Enabled = any && tx is { Diffuse: not null, SpecMho: null };
@@ -180,7 +211,7 @@ sealed partial class ModelPage
         string rel = Path.Combine(Path.GetFileName(dir), name);
         ChangeOverrides((_, e) =>
         {
-            switch (sel.Kind) { case "Color": e.Color = rel; break; case "Normal": e.Normal = rel; break; case "Spec": e.Spec = rel; break; case "MHO Spec": e.SpecMho = rel; e.SpecLayout = SpecLayouts.FromName(dlg.FileName)?.Id;  /* the copy loses the name the layout was read from */ break; case "Spec Color": e.SpecColor = rel; break; default: e.Alpha = rel; break; }
+            switch (sel.Kind) { case "Color": e.Color = rel; break; case "Normal": e.Normal = rel; break; case "Spec": e.Spec = rel; break; case "MHO Spec": e.SpecMho = rel; e.SpecLayout = SpecLayouts.FromName(dlg.FileName)?.Id;  /* the copy loses the name the layout was read from */ break; case "Spec Color": e.SpecColor = rel; break; case "Glow": e.Glow = rel; e.GlowOff = false; break; default: e.Alpha = rel; break; }
         }, sel.Material, $"{sel.Material}'s {sel.Kind.ToLowerInvariant()} map is now {Path.GetFileName(dlg.FileName)} (copied into the mod).");
     }
 
@@ -189,7 +220,7 @@ sealed partial class ModelPage
         if (SelectedMap() is not { } sel) return;
         ChangeOverrides((_, e) =>
         {
-            switch (sel.Kind) { case "Color": e.Color = null; break; case "Normal": e.Normal = null; e.FlipGreen = false; break; case "Spec": e.Spec = null; e.SpecRecipe = null; break; case "MHO Spec": e.SpecMho = null; e.ColorTags = null; e.SpecLayout = null; break; case "Spec Color": e.SpecColor = null; break; default: e.Alpha = null; break; }
+            switch (sel.Kind) { case "Color": e.Color = null; break; case "Normal": e.Normal = null; e.FlipGreen = false; break; case "Spec": e.Spec = null; e.SpecRecipe = null; break; case "MHO Spec": e.SpecMho = null; e.ColorTags = null; e.SpecLayout = null; break; case "Spec Color": e.SpecColor = null; break; case "Glow": e.Glow = null; e.GlowOff = false; break; default: e.Alpha = null; break; }
         }, sel.Material, $"{sel.Material}'s {sel.Kind.ToLowerInvariant()} map is back to automatic.");
     }
 
@@ -257,11 +288,28 @@ sealed partial class ModelPage
     /// <summary>Test: tags the material's color groups (as OK in the Tag Colors window does).</summary>
     internal void TestSetColorTags(string material, List<(string Color, string Tag)> tags) => SetColorTags(material, tags);
 
+    void NoGlow()
+    {
+        if (SelectedMap() is not { Kind: "Glow" } sel) return;
+        bool now = false;
+        ChangeOverrides((_, e) => { e.GlowOff = !e.GlowOff; now = e.GlowOff; }, sel.Material, $"{sel.Material}'s glow toggled.");
+        Log(now ? "  (no glow)" : "  (glow as its maps say)");
+    }
+
+    /// <summary>Test: No Glow on the material (as the button).</summary>
+    internal void TestNoGlow(string material)
+    {
+        int row = matGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[0].Value == material && (string)r.Cells[1].Value == "Glow");
+        if (row < 0) return;
+        matGrid.CurrentCell = matGrid.Rows[row].Cells[0];
+        NoGlow();
+    }
+
     void FlipGreen()
     {
         if (SelectedMap() is not { Kind: "Normal" } sel) return;
         bool now = false;
-        ChangeOverrides((_, e) => { e.FlipGreen = !e.FlipGreen; now = e.FlipGreen; }, sel.Material, $"{sel.Material}'s normal map green flip toggled.");
-        Log(now ? "  (green flipped: OpenGL → DirectX)" : "  (green as the file has it)");
+        ChangeOverrides((_, e) => { e.FlipGreen = !e.FlipGreen; now = e.FlipGreen; }, sel.Material, $"{sel.Material}'s normal map: OpenGL toggled.");
+        Log(now ? "  (OpenGL normal map: green flipped to DirectX)" : "  (DirectX normal map: green as the file has it)");
     }
 }

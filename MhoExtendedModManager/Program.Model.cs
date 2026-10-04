@@ -207,6 +207,23 @@ static partial class Program
                     byte[] want = [.. Enumerable.Range(0, 4).Select(c => l.FromChannel[c] >= 0 ? given[l.FromChannel[c]] : MhoMffImporter.SpecChannels.Default[c])];
                     Check(got.SequenceEqual(want), $"layout {l.Id}: R G B A {string.Join(" ", got)} (want {string.Join(" ", want)}) · {MhoMffImporter.SpecLayouts.Change(l)}");
                 }
+                // glow: the layout's glow channel × the color map (R 200 G 100 B 50) becomes the glow map
+                string colPx = Path.Combine(dir, "col.png");
+                using (var cbmp = new Bitmap(2, 2, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                {
+                    for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) cbmp.SetPixel(x, y, Color.FromArgb(255, 200, 100, 50));
+                    cbmp.Save(colPx, System.Drawing.Imaging.ImageFormat.Png);
+                }
+                foreach (var l in MhoMffImporter.SpecLayouts.All)
+                {
+                    string? gm = MhoMffImporter.SpecLayouts.GlowMap(px, l, colPx);
+                    if (l.GlowChannel < 0) { Check(gm == null, $"layout {l.Id}: no glow channel, no glow map"); continue; }
+                    using var gb = new Bitmap(gm!);
+                    var c0 = gb.GetPixel(0, 0);
+                    int mask = given[l.GlowChannel];
+                    bool okG = Math.Abs(c0.R - 200 * mask / 255) <= 1 && Math.Abs(c0.G - 100 * mask / 255) <= 1 && Math.Abs(c0.B - 50 * mask / 255) <= 1;
+                    Check(okG, $"layout {l.Id}: glow map from {"RGBA"[l.GlowChannel]} ({mask}) × the color = {c0.R} {c0.G} {c0.B}");
+                }
                 Check(MhoMffImporter.SpecLayouts.FromName(@"x\hero_specmultrimmaskreflection.png")?.Id == "v1" && MhoMffImporter.SpecLayouts.FromName(@"x\m_specmult_specpow_reflectivity_emissive.png")?.Id == "v2emissive"
                     && MhoMffImporter.SpecLayouts.FromName(@"x\m_emissivespecpowambient.png")?.Id == "v1ambient" && MhoMffImporter.SpecLayouts.FromName(@"x\m_mhospec.png") == null, "layout from the file name");
                 // DXT5 with refine fits colors only where alpha isn't 0: wrong for a packed spec map, whose alpha is reflectivity
@@ -239,6 +256,49 @@ static partial class Program
                     Console.WriteLine("window: " + rest[3]);
                 }
                 return fails == 0 ? 0 : 1;
+            }
+            case "--material-icons-snapshot":
+            {
+                // --material-icons-snapshot <out.png>: the Materials tab's icon buttons (normal, lit, disabled), rendered off screen
+                if (rest.Count < 2) { Console.WriteLine("--material-icons-snapshot <out.png>"); return 1; }
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Gui.Ui.UseDarkTheme();
+                using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), ShowInTaskbar = false, BackColor = Color.FromArgb(30, 32, 44) };
+                float sc = f.DeviceDpi / 96f;
+                var painters = new (string Name, Action<Graphics, RectangleF, Pen, Brush> Paint)[]
+                {
+                    ("Use a File", Gui.Icons.Folder), ("Back to Automatic", Gui.Icons.Reset),
+                    ("OpenGL Normals", Gui.Icons.FlipVertical), ("No Glow", Gui.Icons.NoGlow),
+                    ("Next Recipe", Gui.Icons.Next), ("Tag Colors", Gui.Icons.Tag),
+                    ("From Channels", Gui.Icons.Channels), ("Layout", Gui.Icons.Layout),
+                    ("Undo", Gui.Icons.Undo), ("Redo", Gui.Icons.Redo), ("Loop", Gui.Icons.Loop), ("Reset View", Gui.Icons.ResetView),
+                };
+                var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, BackColor = f.BackColor };
+                for (int row = 0; row < 3; row++)
+                {
+                    var line = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = f.BackColor };
+                    foreach (var (name, paint) in painters)
+                    {
+                        var b = Gui.Ui.FlatButton(name, () => { }, "tip");
+                        Gui.Icons.Make(b, name, paint, sc);
+                        b.Margin = new Padding(0, 0, (int)(6 * sc), 0);
+                        if (row == 1) Gui.Ui.Lit(b, true);
+                        if (row == 2) b.Enabled = false;
+                        line.Controls.Add(b);
+                    }
+                    flow.Controls.Add(line);
+                }
+                f.Controls.Add(flow);
+                f.ClientSize = new Size((int)(500 * sc), (int)(120 * sc));
+                Gui.Ui.Restyle(f);
+                f.Show(); Application.DoEvents();
+                using var bmp = new Bitmap(f.ClientSize.Width, f.ClientSize.Height);
+                f.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+                bmp.Save(rest[1]);
+                using (var tipBmp = Gui.Ui.RenderTipForTest(Gui.Ui.Titled("Tag Colors", "Tell it what each color group of the selected material is made of (Metal, Skin, Leather, Cloth, Glow)."), f.DeviceDpi))
+                    tipBmp.Save(Path.ChangeExtension(rest[1], null) + "_tip.png");
+                Console.WriteLine("snapshot: " + rest[1]);
+                return 0;
             }
             case "--color-tags-snapshot":
             {

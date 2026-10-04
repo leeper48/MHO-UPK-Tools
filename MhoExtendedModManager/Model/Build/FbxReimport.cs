@@ -162,11 +162,18 @@ static class FbxReimport
             string f = Path.IsPathRooted(np) ? np : Path.Combine(dir, np);
             if (File.Exists(f) && IsImage(f)) normal = f;
         }
+        // a glow map: <material>_glow / _emissive / _emit beside it, else the file the FBX material's emissive slot names
+        string? glow = Beside("_glow") ?? Beside("_emissive") ?? Beside("_emit");
+        if (glow == null && m != null && m.HasTextureEmissive && m.TextureEmissive.FilePath is { Length: > 0 } ep)
+        {
+            string f = Path.IsPathRooted(ep) ? ep : Path.Combine(dir, ep);
+            if (File.Exists(f) && IsImage(f)) glow = f;
+        }
         return diffuse == null && normal == null ? null : new Textures
         {
             Diffuse = diffuse, Spec = Beside("_sp"), Alpha = Beside("_alpha"), Normal = normal,
             // MHO's own packed spec map (or its gray channel files _mhospec_R … _A, when newer: SpecChannels) and spec color, as-is
-            SpecMho = SpecChannels.Find(sfx => Beside("_mhospec" + sfx)), SpecColor = Beside("_speccolor"),
+            SpecMho = SpecChannels.Find(sfx => Beside("_mhospec" + sfx)), SpecColor = Beside("_speccolor"), Glow = glow,
         };
     }
 

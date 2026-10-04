@@ -85,6 +85,7 @@ sealed partial class StorePreview
             playBtn = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (it loads paused on its first frame).");
             loopBtn = Ui.FlatButton("⟳ Loop", () => { PreviewViews.Loop = !PreviewViews.Loop; UpdateButtons(); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
             restBtn = Ui.FlatButton("Reset View", ResetView, "Back to the mod's own view of the model, or the default one (your turned, zoomed or panned view is saved per mesh; this forgets it).");
+            Icons.Make(loopBtn, "Loop", Icons.Loop, S); Icons.Make(restBtn, "Reset View", Icons.ResetView, S);
             foreach (var b in new[] { playBtn, loopBtn, restBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
             powersBtn = Ui.FlatButton("Power FXs", () => { PreviewViews.Powers = !PreviewViews.Powers; ApplyShading(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's or the mod's power packages). Lit when on; remembered on this PC.");
             powersBtn.AutoSize = false; powersBtn.Padding = new Padding(0); powersBtn.Visible = false; Controls.Add(powersBtn);
@@ -122,9 +123,12 @@ sealed partial class StorePreview
             // The playback bar over the view's bottom (shown while the mouse is over the view).
             playBar = new Panel { Visible = false, BackColor = Color.FromArgb(24, 26, 34) };
             foreach (Control c in new Control[] { frameSlider, animBox, playBtn, loopBtn }) { playBar.Controls.Add(c); c.Visible = true; }
+            // Look, Reset View, the framing buttons and ⛶ on the animation's row (Kurt, 2026-10-04: the list was twice as wide
+            // as it needs): moved into the bar once Look ▾ is made (below)
             Controls.Add(playBar);
             lookBtn = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow and Props on or off, and the Light and Lens sliders. Remembered on this PC.");
-            lookBtn.AutoSize = false; lookBtn.Padding = new Padding(0); lookBtn.Visible = false; Controls.Add(lookBtn);
+            Icons.Make(lookBtn, "Look", Icons.Look, S);
+            foreach (var b in new Control?[] { lookBtn, restBtn, frameHeadBtn, frameBustBtn, frameFullBtn, fullBtn }) if (b != null) { b.Parent?.Controls.Remove(b); playBar.Controls.Add(b); b.Visible = true; }
         }
         fillingAnims = true;
         animBox.BeginUpdate();

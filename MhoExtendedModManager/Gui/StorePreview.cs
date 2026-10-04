@@ -243,7 +243,7 @@ sealed partial class StorePreview : Control
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
         int pbh = animBox?.Height ?? (int)(26 * S), pgap = (int)(6 * S);
         int powersH = powerBlock && !full ? pbh + pgap + 2 * ThumbSize + pgap + (int)(4 * S) : 0;
-        int captionH = (int)((show3D ? 80 : 40) * S);
+        int captionH = (int)((show3D ? 44 : 40) * S);   // (3D: the button row moved into the playback bar)
         int panelW = (int)(320 * S);
         Rectangle card;
         if (full)
@@ -262,7 +262,6 @@ sealed partial class StorePreview : Control
         }
         // Where the caption and the 3D controls go: under the card, or the column on the right when full screen.
         int ctlX = full ? card.Right + pad : card.X, ctlW = full ? panelW : card.Width;
-        int fbs = (int)(33 * S);   // ⛶ and the three framing buttons: one square size (Kurt: ⛶ 50 % bigger)
         // The caption under the card leaves room on the right for the ⛶ button (Kurt: lower right, under the view).
         int capX = full ? ctlX : pad, capW = full ? panelW : Width - 2 * pad, capY = full ? card.Top : card.Bottom + (int)(4 * S);
         if (show3D && viewer != null)
@@ -316,20 +315,14 @@ sealed partial class StorePreview : Control
             TextRenderer.DrawText(g, $"3D  ·  {r.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}  ·  {whose}{(fxNote.Length > 0 ? "  ·  " + fxNote : "")}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             if (animBox != null && playBtn != null && loopBtn != null && restBtn != null && playBar != null && lookBtn != null && fullBtn != null && frameSlider != null)
             {
-                int bh = animBox.Height, gap = (int)(4 * S), wPlay = (int)(30 * S), wLoop = (int)(56 * S), wRest = (int)(80 * S), wLook = (int)(78 * S);
-                // Under the caption: Look ▾ · Reset View, and ⛶ at the right.
-                // One row: Look ▾ · Reset View on the left; Full Body / Head / Bust and ⛶ (square icon buttons) on the right.
-                int y = cap.Bottom + (int)(4 * S), by = y + (fbs - bh) / 2;
-                var lk = new Rectangle(ctlX, by, wLook, bh); if (lookBtn.Bounds != lk) lookBtn.Bounds = lk;
-                var rb = new Rectangle(lk.Right + gap, by, wRest, bh); if (restBtn.Bounds != rb) restBtn.Bounds = rb;
-                var fr = new Rectangle(ctlX + ctlW - fbs, y, fbs, fbs); if (fullBtn.Bounds != fr) fullBtn.Bounds = fr;
+                int bh = animBox.Height, gap = (int)(4 * S), wPlay = (int)(30 * S), wIcon = (int)(34 * S);
+                int y = cap.Bottom + (int)(4 * S);
                 string label = full ? "Back" : "Full Screen";
                 if (fullBtn.Text != label) { fullBtn.Text = label; fullBtn.Invalidate(); }
-                foreach (Control c in new Control[] { lookBtn, restBtn, fullBtn }) if (!c.Visible) c.Visible = true;
                 if (powersBtn != null)
                 {
                     // The Powers toggle heads the power block: the bottom of the panel, or under the Look row when full screen.
-                    var pw2 = full ? new Rectangle(ctlX, fr.Bottom + (int)(10 * S), (int)(92 * S), bh) : new Rectangle(pad, Height - powersH, (int)(92 * S), bh);
+                    var pw2 = full ? new Rectangle(ctlX, y + (int)(6 * S), (int)(92 * S), bh) : new Rectangle(pad, Height - powersH, (int)(92 * S), bh);
                     if (powersBtn.Bounds != pw2) powersBtn.Bounds = pw2;
                     if (powersBtn.Visible != powerBlock) powersBtn.Visible = powerBlock;
                 }
@@ -339,18 +332,20 @@ sealed partial class StorePreview : Control
                 if (playBar.Bounds != bar) playBar.Bounds = bar;
                 int iw = bar.Width - 2 * gap;
                 var fsb = new Rectangle(gap, gap, iw, (int)(22 * S)); if (frameSlider.Bounds != fsb) frameSlider.Bounds = fsb;
-                var ab = new Rectangle(gap, fsb.Bottom + gap, iw - wPlay - wLoop - 2 * gap, bh); if (animBox.Bounds != ab) animBox.Bounds = ab;
-                var pb = new Rectangle(ab.Right + gap, ab.Y, wPlay, bh); if (playBtn.Bounds != pb) playBtn.Bounds = pb;
-                var lb = new Rectangle(pb.Right + gap, ab.Y, wLoop, bh); if (loopBtn.Bounds != lb) loopBtn.Bounds = lb;
-                if (!playBar.Visible) playBar.Visible = true;
-                if (frameFullBtn != null && frameHeadBtn != null && frameBustBtn != null)
+                // the row: animation (what's left), ▶, Loop, Look ▾, Reset View, Head, Bust, Full Body, ⛶ (right to left)
+                var row = new List<(Control C, int W)> { (playBtn, wPlay), (loopBtn, wIcon), (lookBtn, wIcon), (restBtn, wIcon) };
+                if (frameFullBtn != null && frameHeadBtn != null && frameBustBtn != null) row.AddRange([(frameHeadBtn, wIcon), (frameBustBtn, wIcon), (frameFullBtn, wIcon)]);
+                row.Add((fullBtn, wIcon));
+                int rowY = fsb.Bottom + gap, x = gap + iw;
+                for (int k = row.Count - 1; k >= 0; k--)
                 {
-                    // Left to right: Head, Bust, Full Body (Kurt).
-                    var f3 = new Rectangle(fr.X - 2 * gap - fbs, y, fbs, fbs); if (frameFullBtn.Bounds != f3) frameFullBtn.Bounds = f3;
-                    var f2 = new Rectangle(f3.X - gap - fbs, y, fbs, fbs); if (frameBustBtn.Bounds != f2) frameBustBtn.Bounds = f2;
-                    var f1 = new Rectangle(f2.X - gap - fbs, y, fbs, fbs); if (frameHeadBtn.Bounds != f1) frameHeadBtn.Bounds = f1;
-                    foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn }) if (!b.Visible) b.Visible = true;
+                    x -= row[k].W;
+                    var rb = new Rectangle(x, rowY, row[k].W, bh); if (row[k].C.Bounds != rb) row[k].C.Bounds = rb;
+                    if (!row[k].C.Visible) row[k].C.Visible = true;
+                    x -= gap;
                 }
+                var ab = new Rectangle(gap, rowY, Math.Max((int)(80 * S), x - gap), bh); if (animBox.Bounds != ab) animBox.Bounds = ab;
+                if (!playBar.Visible) playBar.Visible = true;
             }
         }
         // Caption: the texture, where it's from, and whose choice it is.

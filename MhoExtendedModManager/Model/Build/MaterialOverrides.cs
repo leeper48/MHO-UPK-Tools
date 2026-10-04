@@ -25,11 +25,14 @@ sealed class MaterialOverrides
         /// <summary>A spec map in MHO's packed layout (used as it is) and a spec color map.</summary>
         public string? SpecMho { get; set; }
         public string? SpecColor { get; set; }
+        /// <summary>A glow map (a glow color on black), and No Glow.</summary>
+        public string? Glow { get; set; }
+        public bool GlowOff { get; set; }
         /// <summary>The layout the MHO spec map is packed in (SpecLayouts id; null = automatic).</summary>
         public string? SpecLayout { get; set; }
         /// <summary>Color group tags: "#rrggbb" → metal / skin / leather / cloth (the Tag Colors window).</summary>
         public Dictionary<string, string>? ColorTags { get; set; }
-        public bool Empty => Color == null && Normal == null && Spec == null && Alpha == null && !FlipGreen && SpecRecipe == null && SpecMho == null && SpecColor == null && SpecLayout == null && ColorTags is not { Count: > 0 };
+        public bool Empty => Color == null && Normal == null && Spec == null && Alpha == null && !FlipGreen && SpecRecipe == null && SpecMho == null && SpecColor == null && SpecLayout == null && Glow == null && !GlowOff && ColorTags is not { Count: > 0 };
     }
 
     public Dictionary<string, Entry> Materials { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -73,12 +76,13 @@ sealed class MaterialOverrides
                     SpecRecipe = e.SpecRecipe ?? s.Tex.SpecRecipe,
                     SpecMho = Full(e.SpecMho) ?? s.Tex.SpecMho, SpecColor = Full(e.SpecColor) ?? s.Tex.SpecColor,
                     SpecLayout = e.SpecLayout ?? (e.SpecMho == null ? s.Tex.SpecLayout : null),
+                    Glow = Full(e.Glow) ?? s.Tex.Glow, GlowOff = e.GlowOff,
                     ColorTags = e.ColorTags is { Count: > 0 } ct ? ct.Select(kv => (kv.Key, kv.Value)).ToList() : s.Tex.ColorTags,
                 };
                 t.Extra.AddRange(s.Tex.Extra);
                 made[s.Material] = t;
-                log?.Invoke($"material {s.Material}: " + string.Join(", ", new[] { ("color", e.Color), ("normal", e.Normal), ("spec", e.Spec), ("MHO spec", e.SpecMho), ("spec color", e.SpecColor), ("alpha", e.Alpha) }
-                    .Where(x => x.Item2 != null).Select(x => $"{x.Item1} from {Path.GetFileName(x.Item2)}").Concat(e.FlipGreen ? ["normal green flipped"] : []).Concat(e.SpecRecipe != null ? [$"spec generated: {SpecMapGen.Label(e.SpecRecipe)}"] : []).Concat(e.SpecLayout != null ? [$"MHO spec layout: {SpecLayouts.ById(e.SpecLayout)?.Label}"] : []).Concat(e.ColorTags is { Count: > 0 } ctg ? [$"{ctg.Count} color group(s) tagged"] : [])));
+                log?.Invoke($"material {s.Material}: " + string.Join(", ", new[] { ("color", e.Color), ("normal", e.Normal), ("spec", e.Spec), ("MHO spec", e.SpecMho), ("spec color", e.SpecColor), ("alpha", e.Alpha), ("glow", e.Glow) }
+                    .Where(x => x.Item2 != null).Select(x => $"{x.Item1} from {Path.GetFileName(x.Item2)}").Concat(e.FlipGreen ? ["OpenGL normal map (green flipped)"] : []).Concat(e.SpecRecipe != null ? [$"spec generated: {SpecMapGen.Label(e.SpecRecipe)}"] : []).Concat(e.GlowOff ? ["no glow"] : []).Concat(e.SpecLayout != null ? [$"MHO spec layout: {SpecLayouts.ById(e.SpecLayout)?.Label}"] : []).Concat(e.ColorTags is { Count: > 0 } ctg ? [$"{ctg.Count} color group(s) tagged"] : [])));
             }
             s.Tex = t;
         }

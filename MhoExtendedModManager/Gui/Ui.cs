@@ -56,26 +56,137 @@ static class Ui
     public static ToolTip NewTips(Func<string?>? text = null)
     {
         var tip = new ToolTip { OwnerDraw = true, InitialDelay = 450, ReshowDelay = 150, AutoPopDelay = 20000, ShowAlways = true };
-        const TextFormatFlags flags = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
-        static (int Pad, int Max) Metrics(Control? c) { float s = (c?.DeviceDpi ?? 96) / 96f; return ((int)(7 * s), (int)(380 * s)); }
         tip.Popup += (_, e) =>
         {
             LimitTipWidth(tip);   // (for tips made elsewhere than Tip: from their second showing)
-            string t = text?.Invoke() ?? (e.AssociatedControl != null ? tip.GetToolTip(e.AssociatedControl) ?? "" : "");
-            var (pad, max) = Metrics(e.AssociatedControl);
-            var size = TextRenderer.MeasureText(t, TipFont, new Size(max, 0), flags);
-            e.ToolTipSize = new Size(size.Width + 2 * pad, size.Height + 2 * pad);
+            string t = text?.Invoke() ?? (tip == Tips && shownText != null ? shownText : e.AssociatedControl != null ? tip.GetToolTip(e.AssociatedControl) ?? "" : "");
+            e.ToolTipSize = MeasureTip(t, e.AssociatedControl?.DeviceDpi ?? 96);
         };
-        tip.Draw += (_, e) =>
-        {
-            var (pad, _) = Metrics(e.AssociatedControl);
-            using (var bg = new SolidBrush(Color.FromArgb(34, 36, 46))) e.Graphics.FillRectangle(bg, e.Bounds);
-            using (var pen = new Pen(Color.FromArgb(108, 99, 255))) e.Graphics.DrawRectangle(pen, e.Bounds.X, e.Bounds.Y, e.Bounds.Width - 1, e.Bounds.Height - 1);
-            TextRenderer.DrawText(e.Graphics, e.ToolTipText, TipFont, Rectangle.Inflate(e.Bounds, -pad, -pad), Text, flags);
-        };
+        tip.Draw += (_, e) => PaintTip(e.Graphics, e.Bounds, e.ToolTipText, e.AssociatedControl?.DeviceDpi ?? 96);
         return tip;
     }
     static readonly Font TipFont = Regular(9f);
+    static readonly Font TipTitleFont = Bold(9f);
+    const TextFormatFlags TipFlags = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
+    static (int Pad, int Max) TipMetrics(int dpi) { float sc = dpi / 96f; return ((int)(7 * sc), (int)(380 * sc)); }
+
+    /// <summary>A tooltip's size: its title (bold) over its text, wrapped at 380 px (scaled).</summary>
+    static Size MeasureTip(string t, int dpi)
+    {
+        var (pad, max) = TipMetrics(dpi);
+        var (title, body) = SplitTitle(t);
+        var size = body.Length > 0 ? TextRenderer.MeasureText(body, TipFont, new Size(max, 0), TipFlags) : Size.Empty;
+        if (title != null)
+        {
+            var ts = TextRenderer.MeasureText(title, TipTitleFont, new Size(max, 0), TipFlags);
+            size = new Size(Math.Max(size.Width, ts.Width), ts.Height + (body.Length > 0 ? size.Height + pad / 2 : 0));
+        }
+        return new Size(size.Width + 2 * pad, size.Height + 2 * pad);
+    }
+
+    /// <summary>Paints a tooltip: dark box, accent border, the title bold in the teal-cyan of the content tags (Kurt,
+    /// 2026-10-04), then the text.</summary>
+    static void PaintTip(Graphics g, Rectangle bounds, string t, int dpi)
+    {
+        var (pad, _) = TipMetrics(dpi);
+        using (var bg = new SolidBrush(Color.FromArgb(34, 36, 46))) g.FillRectangle(bg, bounds);
+        using (var pen = new Pen(Color.FromArgb(108, 99, 255))) g.DrawRectangle(pen, bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
+        var inner = Rectangle.Inflate(bounds, -pad, -pad);
+        var (title, body) = SplitTitle(t);
+        if (title != null)
+        {
+            var ts = TextRenderer.MeasureText(title, TipTitleFont, new Size(inner.Width, 0), TipFlags);
+            TextRenderer.DrawText(g, title, TipTitleFont, inner, TagContent, TipFlags);
+            inner = Rectangle.FromLTRB(inner.Left, inner.Top + ts.Height + pad / 2, inner.Right, inner.Bottom);
+        }
+        if (body.Length > 0) TextRenderer.DrawText(g, body, TipFont, inner, Text, TipFlags);
+    }
+
+    /// <summary>Test: a tooltip rendered as it shows.</summary>
+    internal static Bitmap RenderTipForTest(string t, int dpi)
+    {
+        var size = MeasureTip(t, dpi);
+        var bmp = new Bitmap(size.Width, size.Height);
+        using var g = Graphics.FromImage(bmp);
+        PaintTip(g, new Rectangle(Point.Empty, size), t, dpi);
+        return bmp;
+    }
+
+    /// <summary>Marks a tooltip's first line as its title (TipTitled): drawn bold, in the teal-cyan.</summary>
+    public const char TitleMark = '\u0001';
+
+    /// <summary>A tooltip headed by <paramref name="title"/> (an icon button's name), then <paramref name="text"/>.</summary>
+    public static T TipTitled<T>(T c, string title, string? text) where T : Control
+    {
+        LimitTipWidth(Tips);
+        Tips.SetToolTip(c, Titled(title, text));
+        return c;
+    }
+
+    /// <summary>The tooltip text for a title + text (for tooltips set by hand, such as Undo's).</summary>
+    public static string Titled(string title, string? text) => TitleMark + title + (string.IsNullOrEmpty(text) ? "" : "\n" + text);
+
+    static (string? Title, string Body) SplitTitle(string t)
+    {
+        if (t.Length == 0 || t[0] != TitleMark) return (null, t);
+        int nl = t.IndexOf('\n');
+        return nl < 0 ? (t[1..], "") : (t[1..nl], t[(nl + 1)..]);
+    }
+
+    /// <summary>The text a tip shown with Show() carries (a disabled control's: DisabledTips), read by Popup.</summary>
+    static string? shownText;
+
+    /// <summary>
+    /// Tooltips for disabled controls (Kurt, 2026-10-04: a grayed-out button should still say what it does). Windows sends a
+    /// disabled control no mouse messages (they go to its parent), so its ToolTip never fires: this filter watches mouse moves,
+    /// finds the control under the cursor (disabled ones included) and shows its tip after the usual delay.
+    /// </summary>
+    sealed class DisabledTips : IMessageFilter
+    {
+        readonly System.Windows.Forms.Timer timer = new() { Interval = 450 };
+        Control? over, shownOn;
+        public DisabledTips() { timer.Tick += (_, _) => { timer.Stop(); Show(); }; }
+
+        public bool PreFilterMessage(ref Message m)
+        {
+            if (m.Msg is 0x200 or 0x2A3)   // WM_MOUSEMOVE, WM_MOUSELEAVE
+            {
+                var c = Under();
+                if (c != over) { Hide(); over = c; timer.Stop(); if (c != null) timer.Start(); }
+            }
+            else if (m.Msg is 0x201 or 0x204 or 0x20A) Hide();   // a click or the wheel
+            return false;
+        }
+
+        static Control? Under()
+        {
+            var pos = Cursor.Position;
+            var form = Form.ActiveForm;
+            if (form == null || !form.Bounds.Contains(pos)) return null;
+            Control at = form;
+            while (at.GetChildAtPoint(at.PointToClient(pos), GetChildAtPointSkip.Invisible) is Control child) at = child;
+            return !at.Enabled && at.Parent != null && !string.IsNullOrEmpty(Tips.GetToolTip(at)) ? at : null;
+        }
+
+        void Show()
+        {
+            if (over == null || over.Enabled || over.Parent == null || Under() != over) return;
+            var parent = over.Parent;
+            shownText = Tips.GetToolTip(over);
+            // (measured: Show's point is taken from the window's outer corner, not its client area: a form's title bar put the
+            // tip over the cursor)
+            var outer = parent.Parent == null ? parent.Bounds : parent.Parent.RectangleToScreen(parent.Bounds);
+            var cur = Cursor.Position;
+            Tips.Show(shownText, parent, cur.X - outer.X, cur.Y - outer.Y + (int)(22 * parent.DeviceDpi / 96f), Tips.AutoPopDelay);
+            shownOn = parent;
+        }
+
+        void Hide()
+        {
+            if (shownOn != null) { Tips.Hide(shownOn); shownOn = null; }
+            shownText = null;
+        }
+    }
 
     /// <summary>
     /// Keeps a tooltip by the mouse (Kurt, 0.37.138: tips far left of the mouse). Measured with --tip-place-test on Kurt's
@@ -510,6 +621,7 @@ static class Ui
     {
         // Filter / search boxes' clear button (×) uses the app's own dark tooltips.
         MhoPackageModifier.Gui.SearchBox.Tip = (c, t) => Tip(c, t);
+        Application.AddMessageFilter(new DisabledTips());
         ToolStripManager.Renderer = new DarkMenuRenderer();
         Application.Idle += (_, _) => { foreach (Form f in Application.OpenForms) DarkFrame(f); };
     }

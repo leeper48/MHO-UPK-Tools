@@ -150,7 +150,11 @@ sealed class ImportBuild
         // an MHO packed spec map: Angela's own armor material reads all of it (shine, power, skin mask, reflectivity) and a spec color
         if (r.Sections.Any(x => x.Tex.UsesMhoSpec)) { metalShare = 1; log("material: an MHO spec map is in use: the Metal template (Angela's armor material) reads all four of its channels and the spec color"); }
         glowShare = metalShare > 0.5f && !r.Sections.Any(x => x.Tex.UsesMhoSpec) ? MaterialChoice.GlowShare(r.Sections.Select(x => x.Tex.Diffuse).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)) : 0;
-        string? donor = MaterialChoice.Donor(o.Material, metalShare, glowShare);
+        // a glow map of its own on any material (its file, or an MHO spec map's glow channel): Angela's weapon material, her
+        // armor's with a glow slot (the same packed spec and spec color slots); the others get no glow
+        bool ownGlow = r.Sections.Any(x => x.Tex.GlowFile != null);
+        string? donor = o.Material == null && ownGlow ? MaterialChoice.Glow : MaterialChoice.Donor(o.Material, metalShare, glowShare);
+        if (ownGlow && o.Material == null) log($"material: glow maps on {string.Join(", ", r.Sections.Where(x => x.Tex.GlowFile != null).Select(x => x.Material).Distinct())}: Angela's weapon material (her armor's, with a glow slot)");
         log($"material: {metalShare:P0} of the _sp maps marks metal, glow spots on {glowShare:P2} of the colour maps → {(donor == null ? "the base mesh's own material" : donor.Split(':').Last())}{(o.Material != null ? " (MFF_MATERIAL)" : " (automatic)")}");
         if (donor != null)
         {
@@ -160,7 +164,8 @@ sealed class ImportBuild
         string texDir = Path.Combine(outDir, "textures");
         Protected.CheckWrite(texDir);
         Directory.CreateDirectory(texDir);
-        var mffMats = mats.Select(name => MffMaterialFor(name, texDir)).ToList();
+        bool guessGlow = donor == MaterialChoice.Glow && !ownGlow;
+        var mffMats = mats.Select(name => MffMaterialFor(name, texDir) is var mm && mm.Glow == null && guessGlow && !r.Sections.First(x => x.Material == name).Tex.GlowOff ? mm with { GuessGlow = true } : mm).ToList();
         var madeMats = MaterialOut.Build(basePackage, template, mffMats, texDir, o.Spec, o.Reflect);
         foreach (var n in madeMats.Notes) log("material: " + n);
         return (madeMats.Package, mats.Select(x => madeMats.MaterialRef[x]).ToList());
@@ -178,7 +183,7 @@ sealed class ImportBuild
         {
             // the model's own normal map (Kurt, 2026-10-04), as DirectX green PNG
             normal = MaterialOverrides.NormalForGame(tex.Normal, tex.NormalFlipGreen, texDir, MaterialOut.Safe(name) + "_own");
-            log($"material: {name}: normal map from {Path.GetFileName(tex.Normal)}{(tex.NormalFlipGreen ? " (green flipped)" : "")}");
+            log($"material: {name}: normal map from {Path.GetFileName(tex.Normal)}{(tex.NormalFlipGreen ? " (OpenGL: green flipped)" : "")}");
         }
         else if (tex.Diffuse != null && o.Normal != "flat")
         {
@@ -208,7 +213,9 @@ sealed class ImportBuild
             log($"material: {name}: spec map made from your color tags ({tags.Count} group(s): {string.Join(", ", tags.GroupBy(t => t.Tag).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))})");
         }
         if (specMho != null) { spec = null; generated = false; }   // an MHO packed map wins (as it is)
-        return new MffMaterial(name, tex.Diffuse, spec, normal, generated) { SpecMho = specMho, SpecColor = tex.SpecColor };
+        string? glow = tex.GlowFile;
+        if (glow != null) log($"material: {name}: glow map {(tex.Glow != null && !tex.GlowOff ? Path.GetFileName(tex.Glow) : $"from the MHO spec map's {tex.SpecLayoutUsed.Channels[tex.SpecLayoutUsed.GlowChannel]} channel")}");
+        return new MffMaterial(name, tex.Diffuse, spec, normal, generated) { SpecMho = specMho, SpecColor = tex.SpecColor, Glow = glow };
     }
 
     // --- the mesh export --------------------------------------------------------------------------------------------------------

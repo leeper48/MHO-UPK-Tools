@@ -60,6 +60,7 @@ sealed partial class ModelPage
         MatSelectionChanged();
         bool recipeOn = matRecipe.Enabled;
         int sr = preview.ShowCount;
+        matRecipe.Focus();   // (as a click: the focused button lost its state mid-refill and crashed the grid, 0.37.139)
         NextSpecRecipe();
         for (int i = 0; i < 300 && preview.ShowCount == sr; i++) await Task.Delay(100);
         for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100);
@@ -81,11 +82,15 @@ sealed partial class ModelPage
         var smallMap = ColorTags.Small(cw, ch, cb);
         var grp = ColorTags.Groups(smallMap.W, smallMap.H, smallMap.Bgra);
         int st0 = preview.ShowCount;
-        TestSetColorTags(tm, [(ColorTags.Hex(grp[0].Center), "cloth"), (ColorTags.Hex(grp[1].Center), "metal")]);
+        TestSetColorTags(tm, [(ColorTags.Hex(grp[0].Center), "cloth"), (ColorTags.Hex(grp[1].Center), "metal"), (ColorTags.Hex(grp[2].Center), "glow")]);
         for (int i = 0; i < 300 && preview.ShowCount == st0; i++) await Task.Delay(100);
         for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100);
         string? mhoRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | MHO Spec | "));
-        bool tagged = mhoRow?.Contains("Made from your color tags: 1 cloth, 1 metal") == true || mhoRow?.Contains("Made from your color tags: 1 metal, 1 cloth") == true;
+        bool tagged = mhoRow?.Contains("Made from your color tags: 1 cloth, 1 metal, 1 glow") == true;
+        string? tagGlowRow = TestMaterialRows().FirstOrDefault(r => r.StartsWith(tm + " | Glow | "));
+        bool tagGlow = tagGlowRow?.Contains("From your color tags: 1 group(s) tagged Glow") == true && preview.LooksForTest.Any(l => l is { UseEmissive: true, EmissiveTex: not null });
+        say($"{(tagGlow ? "PASS" : "FAIL")} a Glow tag makes the glow map (\"{tagGlowRow}\", in the preview)");
+        tagged &= tagGlow;
         int st1 = preview.ShowCount;
         Undo();
         for (int i = 0; i < 300 && preview.ShowCount == st1; i++) await Task.Delay(100);
@@ -119,6 +124,28 @@ sealed partial class ModelPage
         await Task.Delay(1500);
         if (!(v1 && layoutOn && v2 && backV1 && none)) return false;
 
+        // a glow map of the user's (the preview's Glow Map view shows it), No Glow turns it off; Undo twice → none again
+        string? Glow() => TestMaterialRows().FirstOrDefault(r => r.StartsWith(tm + " | Glow | "));
+        int glowIdx = matGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[0].Value == tm && (string)r.Cells[1].Value == "Glow");
+        matGrid.CurrentCell = matGrid.Rows[glowIdx].Cells[0];
+        string glowFile = Path.Combine(Path.GetDirectoryName(unrigged!)!, "glow_test.png");
+        File.Copy(ttex.Diffuse!, glowFile, true);
+        await Step(() => UseMapFile(glowFile));
+        string? gRow = Glow();
+        bool gMine = gRow?.Contains("Your file: ") == true;
+        bool shownGlow = preview.LooksForTest.Any(l => l is { UseEmissive: true, EmissiveTex: not null });
+        await Step(() => TestNoGlow(tm));
+        string? offRow = Glow();
+        bool gOff = offRow?.Contains("Off (No Glow)") == true && !preview.LooksForTest.Any(l => l is { UseEmissive: true });
+        await Step(Undo);
+        int su4 = preview.ShowCount;
+        Undo();
+        for (int i = 0; i < 300 && preview.ShowCount == su4; i++) await Task.Delay(100);
+        bool gNone = Glow()?.Contains("None") == true;
+        say($"{(gMine && shownGlow && gOff && gNone ? "PASS" : "FAIL")} glow: \"{gRow}\" (in the preview: {shownGlow}), No Glow → \"{offRow}\", Undo twice → none: {gNone}");
+        await Task.Delay(1500);
+        if (!(gMine && shownGlow && gOff && gNone)) return false;
+
         // Smooth Weights on an FBX source (its map holds only smoothing), then Undo and Redo
         int elbow = mapGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[1].Value == "g_l_elbow");
         if (elbow < 0) { say("FAIL no g_l_elbow row"); return false; }
@@ -131,6 +158,7 @@ sealed partial class ModelPage
         int Passes() => MapPath() is string m && File.Exists(m) ? BoneMapFile.Load(m).Smooth.FirstOrDefault(e => e.Bone == "g_l_elbow")?.Passes ?? 0 : 0;
         int was = Passes();
         int p0 = previewId, shows = preview.ShowCount;
+        mapSmooth.Focus();
         SmoothSelected();
         for (int i = 0; i < 300 && previewId == p0; i++) await Task.Delay(100);
         for (int i = 0; i < 300 && preview.ShowCount == shows; i++) await Task.Delay(100);

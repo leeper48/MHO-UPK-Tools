@@ -75,6 +75,9 @@ sealed partial class PreviewPanel : UserControl
         frameFull = Ui.FlatButton("Full Body", () => FrameShot(Framing.Shot.Full), "Frame the whole character.");
         fullScreen = Ui.FlatButton("⛶", ToggleFull, "Full screen: the preview fills the screen (F11). Esc (after pausing), F11 or this button come back.");
         powersButton = Ui.FlatButton("Power FXs", () => { P.Powers = !P.Powers; SaveP(); ApplyLook(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's power packages). Lit when on; remembered.");
+        Icons.Make(loop, "Loop", Icons.Loop, S);
+        Icons.Make(look, "Look", Icons.Look, S);
+        Icons.Make(reset, "Reset View", Icons.ResetView, S);
         foreach (var b in new[] { frameHead, frameBust, frameFull, fullScreen })
         {
             b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size((int)(34 * S), (int)(30 * S));
@@ -107,24 +110,25 @@ sealed partial class PreviewPanel : UserControl
         showBones = P.Bones;
         ApplyLook();
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent, Margin = new Padding(0) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 4; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int i = 0; i < 3; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.Controls.Add(view, 0, 0);
         edits.AutoSize = true; edits.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        var playBar = Strip(anims, play, loop, edits, compare);
+        // one row (Kurt, 2026-10-04: the animation list was twice as wide as it needs; Look, Reset View, the framing and full
+        // screen buttons beside it): the list takes what the buttons leave
+        var playBar = Strip(anims, play, loop, edits, compare, look, reset, frameHead, frameBust, frameFull, fullScreen);
         root.Controls.Add(playBar, 0, 1);                                   // the playback bar under the view
         // a narrow window: the menu's caption shortens so the animation drop-down keeps at least 160 px (0.16.5)
         playBar.SizeChanged += (_, _) =>
         {
-            int others = play.Width + loop.Width + compare.Width + (int)(4 * 6 * S);
+            int others = new Control[] { play, loop, compare, look, reset, frameHead, frameBust, frameFull, fullScreen }.Sum(c => c.Width) + (int)(11 * 6 * S);
             string want = playBar.Width - others - TextRenderer.MeasureText("Single Animation ▾", edits.Font).Width - (int)(30 * S) >= (int)(160 * S) ? "Single Animation ▾" : "Single ▾";
             if (edits.Text != want) edits.Text = want;
         };
         root.Controls.Add(frame, 0, 2);
-        root.Controls.Add(Strip(null, look, reset, frameHead, frameBust, frameFull, fullScreen), 0, 3);
-        root.Controls.Add(PowerBlock(), 0, 4);                                                // Power FXs + the power buttons
+        root.Controls.Add(PowerBlock(), 0, 3);                                                // Power FXs + the power buttons
         Controls.Add(root);
         view.ShowMessage("Pick a character and a base hero");
         // the skeleton overlay, painted after the view's own frame (its canvas is the view's only child)
@@ -195,6 +199,8 @@ sealed partial class PreviewPanel : UserControl
 
     /// <summary>Test: Compare lit and locked (the target alone).</summary>
     internal (bool Lit, bool Enabled, bool TargetOnly) CompareForTest => (comparing, compare.Enabled, targetOnly);
+    /// <summary>Test: the shown model's section looks.</summary>
+    internal IEnumerable<ModelView.Look?> LooksForTest => shown?.Mesh.Looks ?? [];
 
     float[]? heldView;
     bool heldPlaying;

@@ -196,7 +196,7 @@ sealed class ModelView : UserControl
     /// grey. Redraws.</summary>
     /// <remarks>Spec (shine), SpecPower, Reflectivity and SkinMask are the packed spec map's channels (R, G, A / B on v1
     /// maps, B); SpecColor the highlight's tint (white where a material has no map of its own).</remarks>
-    public enum MapView { All, Colour, Normal, Spec, Alpha, SpecPower, Reflectivity, SkinMask, SpecColor, SpecPacked }
+    public enum MapView { All, Colour, Normal, Spec, Alpha, SpecPower, Reflectivity, SkinMask, SpecColor, SpecPacked, Glow }
     public MapView ShowMap { get => showMap; set { if (showMap == value) return; showMap = value; Redraw(); } }
     MapView showMap = MapView.All;
 
@@ -834,6 +834,8 @@ sealed class ModelView : UserControl
                 MapView.SkinMask => new Vector3(look.SkinMask.Map != null ? Math.Clamp(look.SkinMask.At(tuv, ratio, 0f), 0, 1) : 0f),
                 // the packed map as an image editor shows it (Kurt): R, G, B as colors, A (reflectivity) as see-through over a checkerboard
                 MapView.SpecPacked => look.UseSpec && look.Spec.Map is { } pk ? Packed(pk.Sample(tuv.X, tuv.Y, Lod(ratio, pk)), tuv) : Vector3.Zero,
+                MapView.Glow => look.UseEmissive && look.EmissiveTex is { } gv ? new Vector3(gv.Sample(tuv.X, tuv.Y, Lod(ratio, gv)).X, gv.Sample(tuv.X, tuv.Y, Lod(ratio, gv)).Y, gv.Sample(tuv.X, tuv.Y, Lod(ratio, gv)).Z)
+                    : look.UseEmissive && look.Emissive.Map != null ? rgb * Math.Clamp(look.Emissive.At(tuv, ratio, 0f), 0, 1) : Vector3.Zero,
                 MapView.SpecColor => !look.UseSpec ? Vector3.Zero : look.SpecColor is { } scv ? new Vector3(scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).X, scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).Y, scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).Z) : Vector3.One,
                 _ => new Vector3(look.Diffuse != null ? diff.W : 1f),
             };

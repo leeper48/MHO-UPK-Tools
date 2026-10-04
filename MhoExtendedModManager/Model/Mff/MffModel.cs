@@ -72,6 +72,14 @@ sealed class Textures
     /// a stock character's specmult_specpow_skinmask_reflectivity): used as it is, in place of Spec (Kurt, 2026-10-04, Angela:
     /// her shine is set by what each part is, metal / skin / cloth, which no map made from the colors can know).</summary>
     public string? SpecMho;
+    /// <summary>A glow (emissive) map of the model's own: a glow color on black (&lt;material&gt;_glow / _emissive / _emit, an FBX's
+    /// emissive slot, or the user's file). Kurt, 2026-10-04: glow / emissive.</summary>
+    public string? Glow;
+    /// <summary>No glow for this material, whatever its maps say (the Materials tab's No Glow).</summary>
+    public bool GlowOff;
+    /// <summary>The glow map the material is built with: its own, else the one an MHO spec map's glow channel makes; null = none.</summary>
+    public string? GlowFile => GlowOff || Diffuse == null && Glow == null ? null
+        : Glow ?? (SpecMho != null ? SpecLayouts.GlowMap(SpecMho, SpecLayoutUsed, Diffuse!) : ColorTags is { Count: > 0 } ct ? MhoMffImporter.ColorTags.GlowFile(Diffuse!, ct) : null);
     /// <summary>The layout SpecMho is packed in (SpecLayouts id; null = from its file name, else Angela's skin-mask layout).</summary>
     public string? SpecLayout;
     /// <summary>The layout SpecMho is read with.</summary>
@@ -673,8 +681,10 @@ sealed class TextureIndex
         if (t.Normal == null && material.Length > 0) t.Normal = Loose(material, NormalSuffix, out _);
         t.SpecMho = SpecChannels.Find(sfx => GetStem(material + "_mhospec" + sfx));
         t.SpecColor = GetStem(material + "_speccolor");
+        t.Glow = GetStem(material + "_glow") ?? GetStem(material + "_emissive") ?? GetStem(material + "_emit");
+        if (t.Glow == null && mat is { HasTextureEmissive: true } && Path.GetFileNameWithoutExtension(mat.TextureEmissive.FilePath ?? "") is { Length: > 0 } es) t.Glow = GetStem(es);
         // Other maps of this material: <material>_<word>.png (e.g. _mask, _fx), not other models' files that share the prefix.
-        var extra = new Regex("^" + Regex.Escape(material.ToLowerInvariant()) + "_(?!sp\\.|alpha\\.)[a-z]+\\.png$");
+        var extra = new Regex("^" + Regex.Escape(material.ToLowerInvariant()) + "_(?!sp\\.|alpha\\.|glow\\.|emissive\\.|emit\\.)[a-z]+\\.png$");
         foreach (var k in local.Keys.Concat(Shared.Keys))
             if (extra.IsMatch(k) && Get(k) is string p && !t.Extra.Contains(p)) t.Extra.Add(p);
         return t;

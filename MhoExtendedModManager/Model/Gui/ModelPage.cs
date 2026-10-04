@@ -101,6 +101,8 @@ sealed partial class ModelPage : UserControl
         undoButton = Ui.FlatButton("↶ Undo", Undo, "Undo the last change to the parts, Smooth, the material or the bone map (Ctrl+Z).");
         redoButton = Ui.FlatButton("↷ Redo", Redo, "Redo what Undo took back (Ctrl+Y).");
         undoButton.Enabled = redoButton.Enabled = false;
+        Icons.Make(undoButton, "Undo", Icons.Undo, DeviceDpi / 96f);
+        Icons.Make(redoButton, "Redo", Icons.Redo, DeviceDpi / 96f);
         mapReset = Ui.FlatButton("Reset to Automatic", ResetMap, "Forgets your bone map edits for this character on this base hero; the importer's own pairing is used again.");
         defaultParts = Ui.FlatButton("Default Parts", ResetParts, "Back to the parts the importer picks for this model (the body ticked; props, effects and swap parts not).");
         Font = Ui.Regular();
@@ -110,6 +112,7 @@ sealed partial class ModelPage : UserControl
         buildButton = Ui.AccentButton("Build into Mod", Build, "Builds the model onto the picked package and puts it into this mod (Save Changes keeps it; Apply Changes puts it into the game). Starts from the package as it was before the model, or from the game's stock copy (Build From).");
         openButton = Ui.FlatButton("Open Folder", OpenFolder, "Shows the last export in Explorer (model.fbx).");
         openButton.Enabled = false;
+        Icons.Make(openButton, "Open Folder", Icons.Folder, DeviceDpi / 96f);
         // Full Export ▾ (0.16.5, Kurt): the model and every animation, as FBX files or straight into Blender (one animation:
         // the Single Animation ▾ menu under the preview)
         fbxButton = Ui.FlatButton("Full Export ▾", ShowFullExportMenu, "The model and all of the base hero's animations: Export FBX (one FBX each, the folder opens) or Open in Blender (a new Blender scene, every animation an Action on the NLA; Ctrl+S there sends your changes back). For one animation: Single Animation ▾ under the preview.");
@@ -195,7 +198,7 @@ sealed partial class ModelPage : UserControl
         Ui.Tip(mapGrid, "The bone map: which MHO bone each MFF bone drives, and which MHO chain each MFF chain (hair, cape, straps) rides. Click an MHO cell to change it; the preview, Build and Export FBX use your map.");
         mapGrid.CellMouseDown += (_, e) => { if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex >= 0 && mapGrid.Columns[e.ColumnIndex].Name == "mho") PickMapTarget(e.RowIndex); };
         mapFilter.TextChanged += (_, _) => FillMap();
-        mapGrid.CurrentCellChanged += (_, _) => MapSelectionChanged();
+        mapGrid.CurrentCellChanged += (_, _) => { if (!fillingMap) MapSelectionChanged(); };   // (not mid-refill: see fillingMat)
         SearchBox.AddClear(mapFilter);
         foreach (var m in Materials) material.Items.Add(m.Label);
         material.SelectedIndex = 0;
@@ -922,9 +925,14 @@ sealed partial class ModelPage : UserControl
         : null;
 
     /// <summary>The map the preview used: chains first, then the bones (lines the chains set are shown, not editable).</summary>
+    bool fillingMap;
+
     void FillMap()
     {
         int keepRow = mapGrid.CurrentCell?.RowIndex ?? -1;
+        fillingMap = true;
+        try
+        {
         mapGrid.Rows.Clear();
         bool edited = MapPath() is string mp && File.Exists(mp);
         modelTabs.SetTitle(1, edited ? "Bone Map ✎" : "Bone Map");
@@ -944,6 +952,8 @@ sealed partial class ModelPage : UserControl
                 else if (b.How.StartsWith("guessed", StringComparison.Ordinal)) mapGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.OverrideAmber;
             }
         if (keepRow >= 0 && keepRow < mapGrid.Rows.Count) mapGrid.CurrentCell = mapGrid.Rows[keepRow].Cells["mff"];
+        }
+        finally { fillingMap = false; }
         MapSelectionChanged();
     }
 

@@ -58,6 +58,7 @@ static class FbxExport
                 SpecChannels.Split(mho, outDir, SafeName(sec.Material) + "_mhospec");
                 File.SetLastWriteTimeUtc(mho, DateTime.UtcNow.AddSeconds(1));   // the combined map counts as newer until a channel is edited
             }
+            if (sec.Tex.GlowFile is string gl) File.Copy(gl, Path.Combine(outDir, SafeName(sec.Material) + "_glow" + Path.GetExtension(gl).ToLowerInvariant()), true);   // (read back as its own glow map)
             if (sec.Tex.SpecColor != null) File.Copy(sec.Tex.SpecColor, Path.Combine(outDir, SafeName(sec.Material) + "_speccolor" + Path.GetExtension(sec.Tex.SpecColor).ToLowerInvariant()), true);
             if (sec.Tex.Normal != null)
             {

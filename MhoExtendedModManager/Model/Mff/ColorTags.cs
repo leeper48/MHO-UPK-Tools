@@ -15,7 +15,7 @@ namespace MhoMffImporter;
 /// </summary>
 static class ColorTags
 {
-    public static readonly string[] Tags = ["", "metal", "skin", "leather", "cloth"];
+    public static readonly string[] Tags = ["", "metal", "skin", "leather", "cloth", "glow"];
 
     public static string Label(string? tag) => tag switch
     {
@@ -23,6 +23,7 @@ static class ColorTags
         "skin" => "Skin",
         "leather" => "Leather",
         "cloth" => "Cloth",
+        "glow" => "Glow",
         _ => "Not Set",
     };
 
@@ -33,6 +34,7 @@ static class ColorTags
         "skin" => (78, 49, 255, 0),
         "leather" => (48, 52, 0, 0),
         "cloth" => (17, 56, 0, 0),
+        "glow" => (17, 56, 0, 0),   // (Kurt, 2026-10-04: a Glow tag) dull, as cloth: the glow is the light, not a highlight
         _ => (26, 49, 0, 0),
     };
 
@@ -188,6 +190,39 @@ static class ColorTags
             outp[4 * i + 1] = v.G; outp[4 * i] = v.B; outp[4 * i + 3] = v.A;
         }
         return outp;
+    }
+
+    /// <summary>
+    /// The glow map the Glow tags make (Kurt, 2026-10-04): the color map where a group is tagged Glow, black elsewhere, as the
+    /// game's own glow maps. Cached under %TEMP% (keyed by the color map and the tags); null without a Glow tag.
+    /// </summary>
+    public static string? GlowFile(string colorFile, IReadOnlyList<(string Color, string Tag)> tags)
+    {
+        if (!tags.Any(t => t.Tag == "glow")) return null;
+        string key = colorFile + "|" + File.GetLastWriteTimeUtc(colorFile).Ticks + "|" + string.Join(",", tags.OrderBy(t => t.Color).Select(t => t.Color + "=" + t.Tag));
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..16];
+        string outFile = Path.Combine(Path.GetTempPath(), "MHO_ExtMM_spec", hash + "_tagglow.png");
+        if (File.Exists(outFile)) return outFile;
+        var (w, h, argb) = NormalMapGen.LoadArgb(colorFile);
+        var bgra = new byte[w * h * 4];
+        for (int i = 0; i < w * h; i++) { bgra[4 * i] = (byte)argb[i]; bgra[4 * i + 1] = (byte)(argb[i] >> 8); bgra[4 * i + 2] = (byte)(argb[i] >> 16); bgra[4 * i + 3] = 255; }
+        var small = Small(w, h, bgra);
+        var groups = Groups(small.W, small.H, small.Bgra);
+        var tagOf = TagsFor(groups, tags);
+        var assign = Assign(w, h, bgra, groups);
+        var outp = new byte[w * h * 4];
+        for (int i = 0; i < assign.Length; i++)
+        {
+            outp[4 * i + 3] = 255;
+            if (assign[i] >= 0 && tagOf[assign[i]] == "glow") { outp[4 * i] = bgra[4 * i]; outp[4 * i + 1] = bgra[4 * i + 1]; outp[4 * i + 2] = bgra[4 * i + 2]; }
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(outFile)!);
+        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        System.Runtime.InteropServices.Marshal.Copy(outp, 0, d.Scan0, outp.Length);
+        bmp.UnlockBits(d);
+        bmp.Save(outFile, ImageFormat.Png);
+        return outFile;
     }
 
     /// <summary>The packed map as a PNG (RGBA) in <paramref name="dir"/>.</summary>

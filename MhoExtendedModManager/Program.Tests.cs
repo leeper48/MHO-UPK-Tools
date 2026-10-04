@@ -297,12 +297,14 @@ static partial class Program
                 var dd = new Gui.DropDown { Location = new Point(500, 40), Width = 200 };
                 dd.Items.Add("No Added Cape"); dd.SelectedIndex = 0;
                 var bt = new Button { Text = "Button", Location = new Point(500, 120), Size = new Size(150, 40) };
-                f.Controls.Add(dd); f.Controls.Add(bt);
+                var off = Gui.Ui.FlatButton("Off", () => { }); off.Location = new Point(500, 200); off.Size = new Size(150, 40); off.Enabled = false;
+                f.Controls.Add(dd); f.Controls.Add(bt); f.Controls.Add(off);
                 string longTip = string.Join(" ", Enumerable.Repeat("A long tooltip text to wrap.", 20));
                 f.Shown += async (_, _) =>
                 {
-                    Gui.Ui.Tip(dd, longTip); Gui.Ui.Tip(bt, longTip);
-                    foreach (var c in new Control[] { dd, bt })
+                    Gui.Ui.Tip(dd, longTip); Gui.Ui.Tip(bt, longTip); Gui.Ui.TipTitled(off, "Disabled Button", longTip);
+                    f.Activate();
+                    foreach (var c in new Control[] { dd, bt, off })
                     {
                         var p = c.PointToScreen(new Point(c.Width / 2, c.Height / 2));
                         Cursor.Position = new Point(p.X - 3, p.Y); await Task.Delay(100); Cursor.Position = p;
@@ -310,6 +312,12 @@ static partial class Program
                         Rectangle tipRect = Rectangle.Empty;
                         for (int i = 0; i < 40 && tipRect.IsEmpty; i++) { await Task.Delay(100); tipRect = TipWindowRect(); }
                         Console.WriteLine($"{c.GetType().Name}: cursor {Cursor.Position}, tip {tipRect}, form at {f.Bounds}, dpi {f.DeviceDpi}");
+                        if (c == off && !tipRect.IsEmpty && rest.Count > 1)
+                        {
+                            using var shot = new Bitmap(tipRect.Width, tipRect.Height);
+                            using (var sg = Graphics.FromImage(shot)) sg.CopyFromScreen(tipRect.Location, Point.Empty, tipRect.Size);
+                            shot.Save(rest[1]);
+                        }
                         Cursor.Position = new Point(f.Left + 20, f.Bottom - 20); await Task.Delay(600);
                     }
                     Cursor.Position = back;

@@ -155,7 +155,6 @@ sealed class MainForm : Form
         var topButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left };
         var rightButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
         var newMod = Ui.AccentButton("+  New Mod", () => EditMod(null));
-        var extractButton = Ui.FlatButton("Extract", () => pages.Select(2));
         var install = Ui.FlatButton("Install Mod", InstallMod);
         var settingsButton = Ui.FlatButton("Settings  ▾", () => { });
         var menu = new ContextMenuStrip { Font = Ui.Regular(9.5f) };
@@ -197,12 +196,11 @@ sealed class MainForm : Form
         // Update alert (Kurt): shown when a newer release is known; a click offers it (the update window).
         updateAlert = Ui.FlatButton("↑ Update Available", () => CheckForUpdates(manual: true), tip: "A new version of MHO Extended Mod Manager is out. Click to see what's new and update (it restarts).");
         updateAlert.Visible = false;
-        topButtons.Controls.AddRange([newMod, extractButton, install]);
+        topButtons.Controls.AddRange([newMod, install]);   // (one Extract: the tab, Kurt)
         var helpButton = Ui.FlatButton("Help", () => HelpForm.Show(this, settings), tip: "The manual: how everything works, shortcuts, troubleshooting (F1).");
         rightButtons.Controls.AddRange([updateAlert, helpButton, settingsButton]);
         writeControls.AddRange([newMod, install]);
         tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
-        tips.SetToolTip(extractButton, "Save original game icons, store images or strings, to make replacements from.");
         tips.SetToolTip(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");
         tips.SetToolTip(settingsButton, "Game folder, library folder, the Model tab's MFF folder and Blender, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
         tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
@@ -226,7 +224,7 @@ sealed class MainForm : Form
         lhead.Controls.Add(headLabel, 0, 0);
         lhead.Controls.Add(countLabel, 1, 0);
         undoButton = Ui.FlatButton("Undo", Undo); redoButton = Ui.FlatButton("Redo", Redo);
-        undoButton.Padding = redoButton.Padding = new Padding(2, 0, 2, 0);
+        Icons.Make(undoButton, "Undo", Icons.Undo, DeviceDpi / 96f); Icons.Make(redoButton, "Redo", Icons.Redo, DeviceDpi / 96f);
         lhead.Controls.Add(undoButton, 2, 0); lhead.Controls.Add(redoButton, 3, 0);
         var priorityLabel = new Label { Text = "Priority:", AutoSize = true, Anchor = AnchorStyles.Right, Font = Ui.Regular(8.5f), Tag = "subtle", Margin = new Padding(10, 0, 0, 0) };
         lhead.Controls.Add(priorityLabel, 4, 0);
@@ -907,8 +905,8 @@ sealed class MainForm : Form
     {
         undoButton.Enabled = !readOnly && undo.Count > 0;
         redoButton.Enabled = !readOnly && redo.Count > 0;
-        tips.SetToolTip(undoButton, undo.Count > 0 ? $"Undo: {undo[^1].Label}  (Ctrl+Z)" : "Nothing to undo. Turning mods on or off, moving, locking and tags can be undone.");
-        tips.SetToolTip(redoButton, redo.Count > 0 ? $"Redo: {redo[^1].Label}  (Ctrl+Y)" : "Nothing to redo.");
+        tips.SetToolTip(undoButton, Ui.Titled("Undo", undo.Count > 0 ? $"{undo[^1].Label}  (Ctrl+Z)" : "Nothing to undo. Turning mods on or off, moving, locking and tags can be undone."));
+        tips.SetToolTip(redoButton, Ui.Titled("Redo", redo.Count > 0 ? $"{redo[^1].Label}  (Ctrl+Y)" : "Nothing to redo."));
     }
 
     /// <summary>The control with the keyboard focus, inside nested containers (a text box in the editor, the note box …).</summary>

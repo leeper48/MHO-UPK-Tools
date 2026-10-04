@@ -42,7 +42,7 @@ sealed class ColorTagForm : Form
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var intro = new Label
         {
-            Text = "What is each color group made of? The spec map is made from your tags: Metal shines most and reflects, Skin is soft with the skin mask on, Cloth is dull, Leather in between (values from Angela's own map). Point at a group to see where it is.",
+            Text = "What is each color group made of? The spec map is made from your tags: Metal shines most and reflects, Skin is soft with the skin mask on, Cloth is dull, Leather in between (values from Angela's own map); Glow lights up in its own color (the glow map) and is dull otherwise. Point at a group to see where it is.",
             AutoSize = true, Tag = "subtle", Margin = new Padding(0, 0, 0, 10), MaximumSize = new Size((int)(760 * s), 0),
         };
         t.Controls.Add(intro, 0, 0); t.SetColumnSpan(intro, 2);
