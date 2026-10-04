@@ -348,12 +348,53 @@ static class ModelWork
 {
     public const string Folder = "Model";
 
+    /// <summary>The packages (without .upk) the Model tab built, from its state.json; empty when there's none.</summary>
+    static HashSet<string> Built(string folder)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "state.json")));
+            foreach (var p in doc.RootElement.EnumerateObject())
+                if (p.Name.Equals("Built", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var e in p.Value.EnumerateArray()) if (e.GetString() is string s) set.Add(Path.GetFileNameWithoutExtension(s));
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { }
+        return set;
+    }
+
+    /// <summary>
+    /// Deletes the editor's work folders (library\model-work-xxxxxxxx) left by a run that didn't close normally (killed, crashed).
+    /// Only at a normal start, which holds the single instance, so none can be in use; what's in them was never saved into a
+    /// mod (Save copies the work into the mod's Model folder). The count deleted.
+    /// </summary>
+    public static int SweepOrphans(string? library)
+    {
+        if (library == null || !Directory.Exists(library)) return 0;
+        int n = 0;
+        foreach (var d in Directory.GetDirectories(library, "model-work-*"))
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "^model-work-[0-9a-f]{8}$")) continue;
+            try { Directory.Delete(d, true); n++; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        return n;
+    }
+
     public static void CopyInto(string from, string to)
     {
+        // rigs (rigs\<fbx> on <package>): only for the packages the tab built, and only the rig's own files
+        var built = Built(from);
         foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
         {
             string rel = Path.GetRelativePath(from, f);
             if (rel.StartsWith("builds" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            if (rel.StartsWith("rigs" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = rel.Split(Path.DirectorySeparatorChar);
+                int on = parts.Length == 3 ? parts[1].LastIndexOf(" on ", StringComparison.Ordinal) : -1;
+                if (on < 0 || !built.Contains(parts[1][(on + 4)..]) || !MhoMffImporter.AutoRig.IsRigFile(parts[2])) continue;
+            }
             string dest = Path.Combine(to, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
             File.Copy(f, dest, overwrite: true);

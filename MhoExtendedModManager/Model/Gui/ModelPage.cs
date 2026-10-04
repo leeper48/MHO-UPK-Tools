@@ -55,6 +55,8 @@ sealed partial class ModelPage : UserControl
     string? sourceFbx;
     /// <summary>A source is picked: an MFF model, or an FBX file.</summary>
     bool HasSource => model != null || sourceFbx != null;
+    /// <summary>The source FBX when it has no armature (it's rigged in Blender per base hero: <see cref="RigFor"/>); else null.</summary>
+    string? unrigged;
     readonly Label status = new() { AutoSize = true, Margin = new Padding(8, 8, 0, 0) };
     readonly TextBox log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = false };
 
@@ -151,7 +153,7 @@ sealed partial class ModelPage : UserControl
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        right.Controls.Add(Column("PACKAGE", Row(packageFilter, buildFrom), packages), 0, 0);
+        right.Controls.Add(Column("TARGET", Row(packageFilter, buildFrom), packages), 0, 0);   // (Kurt: Source and Target)
         var partsHead = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         smooth.Margin = new Padding(0, 6, 10, 0); capeBox.Margin = new Padding(0, 0, 6, 0); defaultParts.Margin = new Padding(0);
         hairBox.Margin = new Padding(0, 0, 6, 0);
@@ -161,6 +163,7 @@ sealed partial class ModelPage : UserControl
         foreach (var b in new[] { mapBones, mapWeights, mapSmooth }) { b.Margin = new Padding(0, 0, 6, 0); mapButtons.Controls.Add(b); }
         mapReset.Margin = new Padding(0); mapButtons.Controls.Add(mapReset);
         modelTabs.Add("Bone Map", Column("", Row(mapFilter, mapButtons), mapGrid));
+        modelTabs.Add("Materials", MaterialsTab());
         right.Controls.Add(modelTabs, 0, 1);
         right.Controls.Add(Column("MATERIAL", null, material, autoHeight: true), 0, 2);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
@@ -220,7 +223,7 @@ sealed partial class ModelPage : UserControl
         Ui.Tip(sourceKind, "Where the model comes from: an MFF character (retargeted onto the base hero), or an FBX file with an MHO skeleton (g_ bone names), e.g. one made with Export FBX and cleaned up in Blender.");
         sourceKind.SelectedIndexChanged += (_, _) =>
         {
-            chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear();
+            chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
             heroesOnly.Visible = !FbxMode; smooth.Enabled = !FbxMode; if (FbxMode) smooth.Checked = false;
             characterFilter.Text = "";
             FillCharacters(); UpdateStatus(); SchedulePreview();
@@ -496,7 +499,7 @@ sealed partial class ModelPage : UserControl
         if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Key == chosenKey) return;
         if (it.Key == "browse:") { BrowseFbx(); return; }
         if (it.Key.StartsWith("fbx:")) { FbxChosen(it.Key); return; }
-        chosenKey = it.Key; sourceFbx = null;
+        chosenKey = it.Key; sourceFbx = null; unrigged = null;
         model = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
         try
@@ -541,7 +544,7 @@ sealed partial class ModelPage : UserControl
     async void FbxChosen(string key)
     {
         string file = key[4..];
-        chosenKey = key; model = null; sourceFbx = null; parts.Rows.Clear(); UpdateStatus();
+        chosenKey = key; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
         try
         {
@@ -567,10 +570,17 @@ sealed partial class ModelPage : UserControl
                 UpdateStatus();
                 return;
             }
-            if (whyNot != null) Log($"{Path.GetFileName(file)}: {whyNot}; it's read as an FBX with MHO bone names (g_...).");
+            bool rigged = await Task.Run(() => AutoRig.HasArmature(file));
+            if (chosenKey != key) return;
+            if (whyNot != null && rigged) Log($"{Path.GetFileName(file)}: {whyNot}; it's read as an FBX with MHO bone names (g_...).");
             var meshes = await Task.Run(() => FbxReimport.Meshes(file));
             if (chosenKey != key) return;
             sourceFbx = file;
+            if (!rigged)
+            {
+                unrigged = file;
+                Log($"{Path.GetFileName(file)} has no armature: on each base hero it's stood up, scaled to the hero and rigged to its skeleton in Blender (Automatic Weights, in the background; all its meshes are used). Full Export ▾ → Open the Rig in Blender to fix the weights; each Ctrl+S there comes back here.");
+            }
             foreach (var (name, verts) in meshes) parts.Rows.Add(true, name, "Mesh", verts.ToString("N0"));
             string folder = Path.GetFileName(Path.GetDirectoryName(file)) ?? "";
             int on = folder.IndexOf(" on ", StringComparison.Ordinal);
@@ -617,28 +627,58 @@ sealed partial class ModelPage : UserControl
     async Task RefreshPreviewCore()
     {
         int id = ++previewId;
-        if (!HasSource) { preview.ShowMessage(FbxMode ? "Pick an FBX" : "Pick a character"); return; }
-        if (ChosenPackage is not CharacterList.Item pkg) { preview.ShowMessage("Pick a base hero"); return; }
+        if (!HasSource && ChosenPackage is CharacterList.Item tpkg)
+        {
+            // no source yet: the target's own model (as Compare)
+            preview.ShowMessage("Loading…");
+            try
+            {
+                var tp = await Task.Run(() => PreviewPanel.PrepareTarget(StartPackage(tpkg.Key)));
+                if (id != previewId || IsDisposed) return;
+                preview.Show(tp);
+                shownMap = null; mhoBones = tp.MhoBones; mhoParents = tp.MhoParents; FillMap();
+                shownMaterials = []; FillMaterials();
+                Log("Preview: " + tp.Note);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException)
+            {
+                if (id == previewId && !IsDisposed) { preview.ShowMessage("No preview: " + ex.Message); Log("Preview: " + ex.Message); }
+            }
+            return;
+        }
+        if (!HasSource) { preview.ShowMessage(FbxMode ? "Pick an FBX (left) and a target (right)" : "Pick a character (left) and a target (right)"); return; }
+        if (ChosenPackage is not CharacterList.Item pkg) { preview.ShowMessage("Pick a target on the right"); return; }
         var picked = SelectedParts();
         if (picked.Count == 0) { preview.ShowMessage("Tick at least one part"); return; }
         Remember(pkg.Key);
         var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx;
+        string? uf = unrigged;
         int capeChoice = capeBox.SelectedIndex, hairChoice = hairBox.SelectedIndex;
-        preview.ShowMessage("Loading…");
+        preview.ShowMessage(uf != null && !File.Exists(AutoRig.RiggedFbx(AutoRig.Live(uf, pkg.Key))) && !File.Exists(AutoRig.RiggedFbx(AutoRig.Kept(host.WorkFolder, uf, pkg.Key))) ? "Rigging in Blender…" : "Loading…");
         try
         {
-            string? mapFile = sfbx == null && MapPath() is string mp && File.Exists(mp) ? mp : null;
-            string? modelFbx = sfbx == null && EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
+            string? mapFile = MapPath() is string mp && File.Exists(mp) ? mp : null;
+            string? ovr = OverridesFile();
+            string? modelFbx = EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
             var prepared = await Task.Run(() => sfbx != null
-                ? PreviewPanel.PrepareFbx(sfbx, picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor)
-                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice));
+                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx)
+                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr));
             if (id != previewId || IsDisposed) return;   // something changed meanwhile
             preview.Show(prepared);
             shownMap = prepared.Map; mhoBones = prepared.MhoBones; mhoParents = prepared.MhoParents; FillMap();
+            shownMaterials = prepared.MaterialList; FillMaterials();
             WatchBlender();   // this work's Blender folder (a sync that came meanwhile is applied)
+            WatchRig(uf != null ? AutoRig.Live(uf, pkg.Key) : null);
+            DateTime? fromBlender = uf != null ? rigSent : null;
             // what Automatic picked, shown in the drop-down (0.10.19, Kurt)
             material.Items[0] = prepared.Material.Length > 0 ? $"Automatic · {prepared.Material}" : "Automatic";
             Log("Preview: " + prepared.Note);
+            if (fromBlender is DateTime sent)
+            {
+                // last, so it's the log's visible line (Kurt: the preview's line hid it) and on the status line
+                Log($"Blender: the rig you saved (Ctrl+S at {sent:HH:mm:ss}) is loaded.");
+                status.Text = $"Rig from Blender loaded (Ctrl+S at {sent:HH:mm:ss})."; status.ForeColor = Ui.Enabled; rigSent = null;
+            }
         }
         catch (Exception ex)
         {
@@ -671,10 +711,11 @@ sealed partial class ModelPage : UserControl
         var picked = SelectedParts();
         if (picked.Count == 0) { Log("Tick at least one part."); return; }
         var options = new ImportOptions { Parts = string.Join(",", picked), Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
-            MapFile = sourceFbx == null && MapPath() is string mp && File.Exists(mp) ? mp : null,
+            MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
+            MaterialOverrides = OverridesFile(),
             Hair = Math.Max(0, hairBox.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex),
-            ModelFbx = sourceFbx == null && EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
-            AnimFbx = sourceFbx == null ? new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase) : null,
+            ModelFbx = EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
+            AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
             NoMod = true };
         string mff = model?.Folder ?? ImportBuild.SourceName(sourceFbx!);
         string mffSource = model?.Profile != null ? model.File : mff;   // a Mixamo … FBX: its file (not an MFF folder name)
@@ -683,11 +724,14 @@ sealed partial class ModelPage : UserControl
         log.Clear();
         string start = StartPackage(pkg.Key);
         Log($"Building {mff} on {pkg.Key} (from {StartLabel(pkg.Key)}) → {outDir}");
+        string? uf = unrigged;
         try
         {
-            var result = await Task.Run(() => ImportBuild.Run(mffSource, start, outDir, options, line => BeginInvoke(() => Log(line))));
+            var result = await Task.Run(() => ImportBuild.Run(mffSource, start, outDir,
+                uf != null ? options with { SourceFbx = RigFor(uf, pkg.Key), Parts = "all" } : options, line => BeginInvoke(() => Log(line))));
             if (result != null)
             {
+                if (uf != null) KeepRig(uf, pkg.Key);   // the mod keeps the rig of a hero it's built onto
                 host.SetPackage(pkg.Key, result.Package);
                 built[pkg.Key] = result.Package;
                 SaveState();
@@ -712,11 +756,80 @@ sealed partial class ModelPage : UserControl
         UpdateStatus();
     }
 
+    /// <summary>The rigged FBX for an unrigged source on a base hero (worker thread): made once in Blender, then kept in the work
+    /// folder (rigs\&lt;fbx&gt; on &lt;package&gt;) until Rig Again.</summary>
+    string RigFor(string file, string pkgKey)
+    {
+        string folder = AutoRig.Live(file, pkgKey), kept = AutoRig.Kept(host.WorkFolder, file, pkgKey);
+        string rigged = AutoRig.RiggedFbx(folder);
+        // the mod's copy when it's newer (the mod came from another PC, or this PC's rig folder was cleaned up)
+        if (AutoRig.Newer(kept, folder)) { AutoRig.CopyRig(kept, folder); Later(() => Log($"Rig: the mod's copy of {AutoRig.Name(file, pkgKey)} is the newer one: working on it in {folder}.")); }
+        if (File.Exists(rigged)) return rigged;
+        Later(() => Log($"Rigging {Path.GetFileName(file)} on {pkgKey} in Blender (Automatic Weights)…"));
+        string package = StartPackage(pkgKey);
+        return AutoRig.Rig(file, MhoSkeleton.Load(package, null), package, folder, line => Later(() => Log(line)));
+    }
+
+    /// <summary>The mod's copy of a hero's rig, refreshed (after Build, and after each Ctrl+S in Blender on a hero built onto).</summary>
+    void KeepRig(string file, string pkgKey)
+    {
+        string live = AutoRig.Live(file, pkgKey);
+        if (File.Exists(AutoRig.RiggedFbx(live))) AutoRig.CopyRig(live, AutoRig.Kept(host.WorkFolder, file, pkgKey));
+    }
+
+    void RigAgain(string folder, string kept)
+    {
+        if (Environment.GetEnvironmentVariable("MFF_GUI_NOASK") != "1" &&
+            Dialog.Choose(this, "Rig the model again with Automatic Weights? The rig on this hero is thrown away, with any weight fixes made in Blender.", "Rig Again", "Rig Again", "Cancel") != 0) return;
+        foreach (var dir in new[] { folder, kept })
+            if (Directory.Exists(dir))
+                foreach (var f in Directory.GetFiles(dir).Where(f => Path.GetFileName(f) is var n && (AutoRig.IsRigFile(n) || n.StartsWith("rig.blend", StringComparison.OrdinalIgnoreCase))))
+                { Protected.CheckWrite(f); File.Delete(f); }
+        SchedulePreview();
+    }
+
+    FileSystemWatcher? rigWatch;
+    string? rigWatchFolder;
+
+    /// <summary>Watches the shown rig's rigged.fbx (Blender's Ctrl+S writes it again): the preview reloads.</summary>
+    void WatchRig(string? folder)
+    {
+        if (folder == rigWatchFolder) return;
+        rigWatch?.Dispose(); rigWatch = null; rigWatchFolder = folder;
+        if (folder == null || !Directory.Exists(folder)) return;
+        rigWatch = new FileSystemWatcher(folder, "rigged.fbx") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
+        FileSystemEventHandler on = (_, _) => Later(() => { rigDelay.Stop(); rigDelay.Start(); });
+        rigWatch.Changed += on; rigWatch.Created += on;
+        rigWatch.Renamed += (_, _) => Later(() => { rigDelay.Stop(); rigDelay.Start(); });
+        rigWatch.EnableRaisingEvents = true;
+        if (!rigDelayHooked) { rigDelay.Tick += (_, _) =>
+        {
+            rigDelay.Stop(); rigSent = DateTime.Now; Log("Blender sent the rig (Ctrl+S): reloading.");
+            if (unrigged != null && ChosenPackage is CharacterList.Item rp && built.ContainsKey(rp.Key)) KeepRig(unrigged, rp.Key);
+            SchedulePreview();
+        }; rigDelayHooked = true; }
+    }
+
+    readonly System.Windows.Forms.Timer rigDelay = new() { Interval = 900 };
+    /// <summary>When Blender last sent the rig: the status line says so once the preview has it (the log's one visible line is
+    /// the preview's by then; Kurt didn't see it).</summary>
+    DateTime? rigSent;
+    bool rigDelayHooked;
+
     void ShowFullExportMenu()
     {
         var m = new ContextMenuStrip();
         m.Items.Add(new ToolStripMenuItem("Export FBX", null, (_, _) => ExportFbx(false, null)) { ToolTipText = "The model and every animation, one FBX each, into data\\model\\fbx; the folder opens." });
-        m.Items.Add(new ToolStripMenuItem("Open in Blender", null, (_, _) => ExportFbx(true, null)) { Enabled = sourceFbx == null, ToolTipText = "The same, then a new Blender scene with every animation an Action on the NLA (saved as model.blend); Ctrl+S there sends your changes back. Settings ▾ → Model → Choose Blender picks which Blender." });
+        m.Items.Add(new ToolStripMenuItem("Open in Blender", null, (_, _) => ExportFbx(true, null)) { ToolTipText = "The same, then a new Blender scene with every animation an Action on the NLA (saved as model.blend); Ctrl+S there sends your changes back. Settings ▾ → Model → Choose Blender picks which Blender." });
+        if (unrigged != null && ChosenPackage is CharacterList.Item rp)
+        {
+            string folder = AutoRig.Live(unrigged, rp.Key);
+            m.Items.Add(new ToolStripSeparator());
+            m.Items.Add(new ToolStripMenuItem("Open the Rig in Blender", null, (_, _) => { if (AutoRig.Open(folder) is string why) Log("Blender: " + why); else Log($"Blender: opening the rig ({Path.Combine(folder, "rig.blend")}). Fix the weights (Weight Paint), then Ctrl+S: the preview here reloads."); })
+            { Enabled = File.Exists(Path.Combine(folder, "rig.blend")), ToolTipText = "The model rigged to this hero's skeleton (Automatic Weights) in Blender; each Ctrl+S there sends it back here." });
+            m.Items.Add(new ToolStripMenuItem("Rig Again", null, (_, _) => RigAgain(folder, AutoRig.Kept(host.WorkFolder, unrigged, rp.Key)))
+            { Enabled = File.Exists(AutoRig.RiggedFbx(folder)), ToolTipText = "Throws away the rig on this hero (and your weight fixes in Blender) and rigs the model again with Automatic Weights." });
+        }
         Ui.ShowUnder(m, fbxButton);
     }
 
@@ -726,7 +839,6 @@ sealed partial class ModelPage : UserControl
         if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return;
         var picked = SelectedParts();
         if (picked.Count == 0) { Log("Tick at least one part."); return; }
-        if (onlyAnim != null && sourceFbx != null) { Log("One-animation exports are for MFF sources."); return; }
         // Blender first (0.16.6, Kurt): none found = ask for one before anything is exported
         if (openInBlender && BlenderLaunch.Find() == null)
         {
@@ -760,10 +872,12 @@ sealed partial class ModelPage : UserControl
             Dialog.Choose(this, what, onlyAnim == null ? (openInBlender ? "Open All Animations in Blender" : "Export All Animations") : (openInBlender ? $"Open \"{onlyAnim}\" in Blender" : $"Export \"{onlyAnim}\" Only"),
                 openInBlender ? "Open in Blender" : "Export", "Cancel") != 0) return;
         var m = model; string parts = string.Join(",", picked); bool sub = smooth.Checked; string? sfbx = sourceFbx;
+        string? uf = unrigged;
         string name = m?.Folder ?? ImportBuild.SourceName(sfbx!);
-        string? mapFile = sfbx == null && MapPath() is string mp && File.Exists(mp) ? mp : null;
+        string? mapFile = MapPath() is string mp && File.Exists(mp) ? mp : null;
+        string? ovr = OverridesFile();
         int hairChoice = sfbx == null ? Math.Max(0, hairBox.SelectedIndex) : 0, capeChoice = sfbx == null ? Math.Max(0, capeBox.SelectedIndex) : 0;
-        var exportEdits = sfbx == null ? AnimEdits.Parse(EnsureEdits().Serialize()) : null;
+        var exportEdits = AnimEdits.Parse(EnsureEdits().Serialize());
         string outDir = UniqueDir(Path.Combine(Settings.Home, "fbx", $"{name} on {Path.GetFileNameWithoutExtension(pkg.Key)}{(onlyAnim != null ? " - " + FbxExport.SafeName(onlyAnim) : "")}"));
         building = true; UpdateStatus(); status.Text = "Exporting FBX…";
         Log($"Exporting FBX: {name} on {pkg.Key} → {outDir}");
@@ -774,10 +888,14 @@ sealed partial class ModelPage : UserControl
                 string package = StartPackage(pkg.Key);
                 if (sfbx != null)
                 {
-                    var r = FbxReimport.Load(sfbx, MhoSkeleton.Load(package, null), picked.ToHashSet(StringComparer.OrdinalIgnoreCase), _ => { });
-                    FbxExport.Run(r, package, outDir, [], line => BeginInvoke(() => Log(line)));
+                    var r = FbxReimport.Load(uf != null ? RigFor(uf, pkg.Key) : sfbx, MhoSkeleton.Load(package, null), uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), _ => { });
+                    if (mapFile != null) WeightSmooth.Apply(r, BoneMapFile.Load(mapFile).Smooth);
+                    // the FBX edits as the preview and Build use them: the mesh from Blender, the replaced animations
+                    if (exportEdits.ModelFbx is string emf && File.Exists(emf)) FbxReimport.Apply(r, emf, _ => { });
+                    MaterialOverrides.Apply(r, ovr);
+                    FbxExport.Run(r, package, outDir, onlyAnim != null ? [onlyAnim] : [], line => BeginInvoke(() => Log(line)), FbxExport.EditsAdjust(exportEdits), exact: onlyAnim != null);
                 }
-                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice);
+                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice, overrides: ovr);
             });
             lastZip = Path.Combine(outDir, "model.fbx");   // Open Folder shows the latest output (a build's .ZIP or this)
             // in a new Blender scene (0.16.2), else the folder
@@ -795,9 +913,13 @@ sealed partial class ModelPage : UserControl
     }
 
     // --- bone map editor ----------------------------------------------------------------------------------------------------------
-    /// <summary>This character on this base hero's map file (data\maps); null without an MFF source and a base hero.</summary>
-    string? MapPath() => model != null && ChosenPackage is CharacterList.Item pkg
-        ? Path.Combine(host.WorkFolder, "maps", $"{model.Folder} on {Path.GetFileNameWithoutExtension(pkg.Key)}.json") : null;
+    /// <summary>This character on this base hero's map file (data\maps); null without a source and a base hero. An FBX source's
+    /// map holds only its weight smoothing (Kurt, 2026-10-04: Smooth Weights was grayed out for FBX sources): its bones are
+    /// its own, so nothing is paired.</summary>
+    string? MapPath() => ChosenPackage is not CharacterList.Item pkg ? null
+        : model != null ? Path.Combine(host.WorkFolder, "maps", $"{model.Folder} on {Path.GetFileNameWithoutExtension(pkg.Key)}.json")
+        : sourceFbx != null ? Path.Combine(host.WorkFolder, "maps", $"{ImportBuild.SourceName(sourceFbx)} on {Path.GetFileNameWithoutExtension(pkg.Key)}.json")
+        : null;
 
     /// <summary>The map the preview used: chains first, then the bones (lines the chains set are shown, not editable).</summary>
     void FillMap()
@@ -926,9 +1048,9 @@ sealed partial class ModelPage : UserControl
 
     // --- undo / redo (0.12.0, Kurt) ---------------------------------------------------------------------------------------------
     /// <summary>What Undo / Redo restores: the ticked parts, Smooth, the material and the bone map file (its text; null = none).</summary>
-    sealed record UiState(bool[] Parts, bool Subdivide, int Material, string? Map, int Cape = 0, int Hair = 0, string Edits = "")
+    sealed record UiState(bool[] Parts, bool Subdivide, int Material, string? Map, int Cape = 0, int Hair = 0, string Edits = "", string? Overrides = null)
     {
-        public bool Same(UiState o) => Parts.SequenceEqual(o.Parts) && Subdivide == o.Subdivide && Material == o.Material && Map == o.Map && Cape == o.Cape && Hair == o.Hair && Edits == o.Edits;
+        public bool Same(UiState o) => Parts.SequenceEqual(o.Parts) && Subdivide == o.Subdivide && Material == o.Material && Map == o.Map && Cape == o.Cape && Hair == o.Hair && Edits == o.Edits && Overrides == o.Overrides;
     }
     readonly Stack<UiState> undo = new(), redo = new();
     UiState? committed;
@@ -936,7 +1058,8 @@ sealed partial class ModelPage : UserControl
     bool restoring;
 
     UiState Capture() => new(parts.Rows.Cast<DataGridViewRow>().Select(r => r.Cells["use"].Value is true).ToArray(), smooth.Checked,
-        Math.Max(0, material.SelectedIndex), MapPath() is string p && File.Exists(p) ? File.ReadAllText(p) : null, Math.Max(0, capeBox.SelectedIndex), Math.Max(0, hairBox.SelectedIndex), EnsureEdits().Serialize());
+        Math.Max(0, material.SelectedIndex), MapPath() is string p && File.Exists(p) ? File.ReadAllText(p) : null, Math.Max(0, capeBox.SelectedIndex), Math.Max(0, hairBox.SelectedIndex), EnsureEdits().Serialize(),
+        OverridesFile() is string ov ? File.ReadAllText(ov) : null);
 
     /// <summary>Called as the preview rebuilds (after the short delay, so quick clicks are one step): a change since the
     /// last state becomes an undo step. The history starts over for another character or base hero.</summary>
@@ -971,6 +1094,12 @@ sealed partial class ModelPage : UserControl
             if (shownMap != null && s.Map != null) shownMap = BoneMapFile.Load(path);
         }
         if (EnsureEdits().Serialize() != s.Edits) { edits = AnimEdits.Parse(s.Edits); SaveEdits(); }
+        if (OverridesPath() is string op)
+        {
+            // the Materials tab's overrides (their image files stay in the Model folder)
+            if (s.Overrides == null) { if (File.Exists(op)) File.Delete(op); }
+            else { Protected.CheckWrite(op); Directory.CreateDirectory(Path.GetDirectoryName(op)!); File.WriteAllText(op, s.Overrides); }
+        }
         undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
         Log(what + ": back to the earlier parts / Smooth / material / bone map / FBX edits.");
         FillMap(); SchedulePreview();
@@ -989,6 +1118,7 @@ sealed partial class ModelPage : UserControl
     /// <summary>Opens the list of MHO bones for a row; a pick saves the map and redraws the preview.</summary>
     void PickMapTarget(int row)
     {
+        if (model == null) { Log("An FBX's bones are its own (nothing is paired): move or rename them in Blender. Smooth Weights works here."); return; }
         if (shownMap == null || MapPath() is not string path) return;
         var tag = mapGrid.Rows[row].Tag;
         if (tag is BoneMapFile.BoneEntry { How: "chain" }) { Log("That bone is set by its chain: change the chain's row instead."); return; }
@@ -1015,7 +1145,10 @@ sealed partial class ModelPage : UserControl
     AnimEdits edits = new();
     string? editsKey;
 
-    string? EditsFolder() => model != null && ChosenPackage is CharacterList.Item pkg ? Path.Combine(host.WorkFolder, "edits", $"{model.Folder} on {Path.GetFileNameWithoutExtension(pkg.Key)}") : null;
+    /// <summary>The FBX edits of this source on this base hero (an FBX source's too, Kurt 2026-10-04: Open in Blender was grayed
+    /// out for them).</summary>
+    string? EditsFolder() => (model?.Folder ?? (sourceFbx != null ? ImportBuild.SourceName(sourceFbx) : null)) is string key && ChosenPackage is CharacterList.Item pkg
+        ? Path.Combine(host.WorkFolder, "edits", $"{key} on {Path.GetFileNameWithoutExtension(pkg.Key)}") : null;
 
     AnimEdits EnsureEdits()
     {
@@ -1040,7 +1173,7 @@ sealed partial class ModelPage : UserControl
     void FillEditsMenu(ContextMenuStrip m)
     {
         EnsureEdits();
-        if (model == null || ChosenPackage == null) { m.Items.Add(new ToolStripMenuItem("Pick an MFF Character and a Base Hero First") { Enabled = false }); return; }
+        if (!HasSource || ChosenPackage == null) { m.Items.Add(new ToolStripMenuItem("Pick a Source and a Base Hero First") { Enabled = false }); return; }
         string? anim = preview.CurrentAnimation;
         m.Items.Add(new ToolStripMenuItem(anim != null ? $"Import FBX for \"{anim}\"" : "Import FBX (Pick an Animation to Replace One)", null, (_, _) => ImportEditFbx(anim)));
         m.Items.Add(new ToolStripSeparator());

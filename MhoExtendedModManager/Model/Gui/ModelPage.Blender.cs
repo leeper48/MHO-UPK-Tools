@@ -81,6 +81,8 @@ sealed partial class ModelPage
     {
         blenderWatch?.Dispose(); blenderWatch = null;
         blenderDelay.Stop(); blenderDelay.Dispose();
+        rigWatch?.Dispose(); rigWatch = null;
+        rigDelay.Stop(); rigDelay.Dispose();
     }
 
     sealed record SyncFile(int Version, string? Model, Dictionary<string, string> Anims, List<string>? Last, string? Time);
@@ -88,7 +90,7 @@ sealed partial class ModelPage
     /// <summary>A new sync from Blender (a higher version than the last applied) into the FBX edits.</summary>
     void ApplyBlenderSync()
     {
-        if (model == null || ChosenPackage == null || EditsFolder() is not string editsFolder) return;
+        if (!HasSource || ChosenPackage == null || EditsFolder() is not string editsFolder) return;
         var (folder, applied) = BlenderLink();
         if (folder == null) return;
         string from = Path.Combine(folder, "from_blender"), file = Path.Combine(from, "sync.json");

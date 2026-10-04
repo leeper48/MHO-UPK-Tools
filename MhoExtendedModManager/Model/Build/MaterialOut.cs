@@ -7,7 +7,12 @@ using MhoPackageModifier;
 namespace MhoMffImporter;
 
 /// <summary>One MFF material to turn into an MHO material instance.</summary>
-sealed record MffMaterial(string Name, string? Colour, string? Spec, string? Normal);
+sealed record MffMaterial(string Name, string? Colour, string? Spec, string? Normal, bool SpecGenerated = false)
+{
+    /// <summary>An MHO packed spec map (R shine, G power, B skin, A reflectivity), put in as it is; a spec color map.</summary>
+    public string? SpecMho { get; init; }
+    public string? SpecColor { get; init; }
+}
 
 /// <summary>
 /// Phase 4: MHO materials for the MFF sections, in the base package (in memory, verified at every step):
@@ -176,17 +181,20 @@ static class MaterialOut
             if (slots.TryGetValue("diffusetex", out int dt)) plan.Add(new("diffusetex", m.Name, b + "_diff", dt, m.Colour ?? stand.Grey, false));
             if (slots.TryGetValue("normaltex", out int nt)) plan.Add(new("normaltex", m.Name, b + "_norm", nt, m.Normal ?? stand.FlatNormal, false));
             if (slots.TryGetValue("specmultrimmaskreflection", out int st))
-                plan.Add(new("specmultrimmaskreflection", m.Name, b + "_spec", st, m.Spec != null ? maps.PackedV1(m.Spec, b + "_spec_packed", stand.NoSpec) : stand.NoSpec, false));
+                plan.Add(new("specmultrimmaskreflection", m.Name, b + "_spec", st, m.Spec != null ? maps.PackedV1(m.Spec, b + "_spec_packed", stand.NoSpec, m.SpecGenerated ? 1f : 2.5f) : stand.NoSpec, false));
             if (slots.TryGetValue("specmult_specpow_skinmask_reflectivity", out int sv))
                 plan.Add(new("specmult_specpow_skinmask_reflectivity", m.Name, b + "_spec", sv,
-                    m.Spec != null ? (kind.MetalStyle ? maps.PackedMetal(m.Spec, b + "_spec_packed") : maps.PackedV2(m.Spec, b + "_spec_packed", stand.NoSpec, 15, 0)) : stand.NoSpec,
-                    kind.MetalStyle));
+                    m.SpecMho ?? (m.Spec != null ? (kind.MetalStyle ? maps.PackedMetal(m.Spec, b + "_spec_packed") : maps.PackedV2(m.Spec, b + "_spec_packed", stand.NoSpec, 15, 0)) : stand.NoSpec),
+                    kind.MetalStyle || m.SpecMho != null));   // (an MHO map as it is: DXT5 keeps its reflectivity alpha)
             if (kind.GlowSlot)
                 plan.Add(new("emissive", m.Name, b + "_glow", kind.GlowTex, m.Colour != null ? maps.GlowMap(m.Colour, b + "_glow") : maps.Flat("mff_neutral_black", Color.Black), false));
             if (kind.MetalStyle && slots.TryGetValue("speccolortex", out int scv))
-                plan.Add(new("speccolortex", m.Name, b + "_speccol", scv, m.Colour != null ? maps.SpecColour(m.Colour, m.Spec, b + "_speccol") : stand.Grey, false));
+                plan.Add(new("speccolortex", m.Name, b + "_speccol", scv, m.SpecColor ?? (m.Colour != null ? maps.SpecColour(m.Colour, m.Spec, b + "_speccol") : stand.Grey), false));
+            if (m.SpecMho != null) notes.Add($"{m.Name}: MHO spec map put in as it is ({Path.GetFileName(m.SpecMho)}){(slots.ContainsKey("specmult_specpow_skinmask_reflectivity") ? "" : ": this template has no slot for it")}");
+            if (m.SpecColor != null && !kind.MetalStyle) notes.Add($"{m.Name}: the spec color map needs a template with its own spec color slot (Metal); this one tints by the color map");
             if (m.Colour == null) notes.Add($"{m.Name}: no colour map found (grey)");
-            if (m.Spec == null) notes.Add($"{m.Name}: no _sp map (low spec, no reflection)");
+            if (m.Spec == null && m.SpecMho == null) notes.Add($"{m.Name}: no _sp map (low spec, no reflection)");
+            else if (m.SpecGenerated) notes.Add($"{m.Name}: spec map generated from the color map");
         }
         return plan;
     }

@@ -93,6 +93,7 @@ static partial class Program
             return 2;
         }
         Updater.CleanUp();   // the *.old files a self-update left behind
+        if (args.Length == 0) ModelWork.SweepOrphans(Settings.Load().LibraryPath);   // the Model tab's work folders a killed run left
         Gui.Ui.UseDarkTheme();   // dark menus and title bars for every window (nothing to do without one)
         if (WindowCommand(args) is int windowResult) return windowResult;
 

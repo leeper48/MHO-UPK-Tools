@@ -36,7 +36,7 @@ sealed partial class PreviewPanel : UserControl
     Prepared? shown;
     /// <summary>The character mesh in the view (the model, or the base hero's own while comparing).</summary>
     ModMeshes.Loaded? shownLoaded;
-    bool comparing;
+    bool comparing, targetOnly;
     /// <summary>The animations in the drop-down (a power button filters them) and all of the hero's.</summary>
     List<AnimRef> animList = new(), allAnims = new();
     BoneAnimation? anim;
@@ -184,8 +184,27 @@ sealed partial class PreviewPanel : UserControl
         Ui.ShowUnder(lookMenu, look);
     }
 
+    /// <summary>Test: the camera (ModelView.ViewState).</summary>
+    internal float[] ViewForTest { get => view.ViewState; set => view.ViewState = value; }
+
+    /// <summary>One map on its own instead of the lit model (the Materials tab's Preview Shows; ModelView.MapView).</summary>
+    public ModelView.MapView ShowMap { get => view.ShowMap; set => view.ShowMap = value; }
+
+    /// <summary>Test: the view as shown, <paramref name="w"/>×<paramref name="h"/>.</summary>
+    internal Bitmap? SnapshotForTest(int w, int h) => view.Snapshot(w, h, 1);
+
+    /// <summary>Test: Compare lit and locked (the target alone).</summary>
+    internal (bool Lit, bool Enabled, bool TargetOnly) CompareForTest => (comparing, compare.Enabled, targetOnly);
+
+    float[]? heldView;
+    bool heldPlaying;
+    float heldAt;
+
     public void ShowMessage(string text)
     {
+        // a rebuild shows "Loading…" between two models: what was shown is held for the next Show (Kurt, 2026-10-04: Smooth
+        // Weights re-framed the camera and stopped playback; the camera and the place in the animation are kept now)
+        if (animator != null) { heldView = view.ViewState; heldPlaying = timer.Enabled; heldAt = seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0; }
         loadId++; frameBones = null;
         timer.Stop(); animator = mffAnimator = stockAnimator = null; anim = null; shown = null; shownLoaded = null;
         ClearEffects(); rig.Clear(); ClearPowers();
@@ -200,9 +219,11 @@ sealed partial class PreviewPanel : UserControl
         // What the reload keeps (0.10.17, Kurt): the animation by name, where in it (a share of its length), playing or
         // paused, and the camera; the frame only when the new list has that animation.
         string? keep = anims.SelectedIndex > 0 ? anims.SelectedItem as string : null;
-        float keepAt = seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0;
-        bool wasPlaying = timer.Enabled;
-        float[]? keepView = animator != null ? view.ViewState : null;
+        bool live = animator != null;
+        float keepAt = live ? (seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0) : heldAt;
+        bool wasPlaying = live ? timer.Enabled : heldPlaying;
+        float[]? keepView = live ? view.ViewState : heldView;
+        heldView = null; heldPlaying = false; heldAt = 0;
         bool samePackage = shown != null && shown.PackagePath.Equals(p.PackagePath, StringComparison.OrdinalIgnoreCase);
         timer.Stop(); anim = null; playTime = 0;
         shown = p;
@@ -210,6 +231,12 @@ sealed partial class PreviewPanel : UserControl
         stockAnimator = p.Stock is { } st ? new MeshAnimator(st.Bones.ToList(), st.Positions, st.Normals, st.Influences, st.Tangents) : null;
         if (stockAnimator == null && comparing) { comparing = false; Ui.Lit(compare, false); }
         compare.Enabled = stockAnimator != null;
+        // no source: the target's own model, Compare on and locked; a source picked after it starts on the source again
+        if (p.TargetOnly) { comparing = true; Ui.Lit(compare, true); compare.Enabled = false; }
+        else if (targetOnly) { comparing = false; Ui.Lit(compare, false); }
+        targetOnly = p.TargetOnly;
+        Ui.Tip(compare, p.TargetOnly ? "No source is picked: this is the target's own model. Pick a source on the left to put a model on it; Compare then switches between the two."
+            : "Show the target's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the source's model).");
         animator = comparing ? stockAnimator : mffAnimator;
         animator!.Pose(null, 0);   // posed at once: a new animator's bones are all zero until its first pose (MEMM 0.37.37)
         allAnims = p.Animations;

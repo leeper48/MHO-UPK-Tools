@@ -141,7 +141,9 @@ static class FbxReimport
         return (new Mapping(axes, scale, offset), err, pairs.Count);
     }
 
-    /// <summary>Textures beside the FBX for a material: name.png (+ _sp, _alpha), else the file's diffuse path.</summary>
+    static bool IsImage(string f) => Path.GetExtension(f).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".bmp";
+
+    /// <summary>Textures beside the FBX for a material: name.png (+ _sp, _alpha, _n), else the file's diffuse / normal paths.</summary>
     static Textures? FileTextures(string fbx, string name, Material? m)
     {
         string dir = Path.GetDirectoryName(Path.GetFullPath(fbx))!;
@@ -152,7 +154,19 @@ static class FbxReimport
             string f = Path.IsPathRooted(fp) ? fp : Path.Combine(dir, fp);
             if (File.Exists(f)) diffuse = f;
         }
-        return diffuse == null ? null : new Textures { Diffuse = diffuse, Spec = Beside("_sp"), Alpha = Beside("_alpha") };
+        // the model's own normal map (Kurt, 2026-10-04): <material>_n / _normal / _nrm beside it (Export FBX and the rig write
+        // _n), else the file the FBX material's normal slot names
+        string? normal = Beside("_n") ?? Beside("_normal") ?? Beside("_nrm");
+        if (normal == null && m != null && m.HasTextureNormal && m.TextureNormal.FilePath is { Length: > 0 } np)
+        {
+            string f = Path.IsPathRooted(np) ? np : Path.Combine(dir, np);
+            if (File.Exists(f) && IsImage(f)) normal = f;
+        }
+        return diffuse == null && normal == null ? null : new Textures
+        {
+            Diffuse = diffuse, Spec = Beside("_sp"), Alpha = Beside("_alpha"), Normal = normal,
+            SpecMho = Beside("_mhospec"), SpecColor = Beside("_speccolor"),   // MHO's own packed spec map and spec color (as-is)
+        };
     }
 
     static List<RefSection> ReadSections(Opened o, Mapping map, List<string> boneNames, IReadOnlyCollection<string>? only,
@@ -160,6 +174,7 @@ static class FbxReimport
     {
         var scene = o.Scene;
         int boneMissing = 0;
+        var movedToParent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int pelvis = boneNames.FindIndex(x => x.Equals("g_pelvis", StringComparison.OrdinalIgnoreCase));
         var sections = new List<RefSection>();
         foreach (var (mesh, node) in MeshNodes(scene))
@@ -181,6 +196,12 @@ static class FbxReimport
             foreach (var b in mesh.Bones)
             {
                 int bi = boneNames.FindIndex(x => x.Equals(b.Name, StringComparison.OrdinalIgnoreCase));
+                // a bone this skeleton doesn't have (Angela's ribbons and cloth on Black Widow, 48 bones): its weights go to its
+                // nearest parent the skeleton has, as an MFF model's extra bones do (dropped, the ribbons hung off the rest)
+                if (bi < 0 && o.ByName.TryGetValue(b.Name, out var bn))
+                    for (var pn = bn.Parent; pn != null && bi < 0; pn = pn.Parent)
+                        bi = boneNames.FindIndex(x => x.Equals(pn.Name, StringComparison.OrdinalIgnoreCase));
+                if (bi >= 0 && !boneNames[bi].Equals(b.Name, StringComparison.OrdinalIgnoreCase) && b.VertexWeightCount > 0) movedToParent.Add(b.Name);
                 if (bi < 0) { if (b.VertexWeightCount > 0) boneMissing++; continue; }
                 foreach (var w in b.VertexWeights) if (w.Weight > 0 && w.VertexID < nv) acc[w.VertexID][bi] = acc[w.VertexID].GetValueOrDefault(bi) + w.Weight;
             }
@@ -204,7 +225,8 @@ static class FbxReimport
             if (tex.Diffuse == null) notes.Add($"{mesh.Name}: no texture found for material '{matName}'");
             sections.Add(new RefSection { Material = matName, Tex = tex, Pos = pos, Normal = nrm, Uv = uv, Tris = tris.ToArray(), Weights = weights });
         }
-        if (boneMissing > 0) notes.Add($"{boneMissing} weighted bone(s) in the FBX aren't in the MHO skeleton: their weights were dropped");
+        if (movedToParent.Count > 0) notes.Add($"{movedToParent.Count} weighted bone(s) in the FBX aren't in this skeleton: their weights went to their nearest parent it has (they move with it, not on their own)");
+        if (boneMissing > 0) notes.Add($"{boneMissing} weighted bone(s) in the FBX aren't in the MHO skeleton and have no parent in it: their weights were dropped");
         if (sections.Count == 0) throw new InvalidDataException("no mesh of the FBX was picked");
         return sections;
     }

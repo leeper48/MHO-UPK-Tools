@@ -48,6 +48,13 @@ static class FbxExport
             // the other maps beside it, so the FBX can be a source again (material choice, alpha)
             if (sec.Tex.Spec != null) File.Copy(sec.Tex.Spec, Path.Combine(outDir, SafeName(sec.Material) + "_sp.png"), true);
             if (sec.Tex.Alpha != null) File.Copy(sec.Tex.Alpha, Path.Combine(outDir, SafeName(sec.Material) + "_alpha.png"), true);
+            if (sec.Tex.SpecMho != null) File.Copy(sec.Tex.SpecMho, Path.Combine(outDir, SafeName(sec.Material) + "_mhospec" + Path.GetExtension(sec.Tex.SpecMho).ToLowerInvariant()), true);
+            if (sec.Tex.SpecColor != null) File.Copy(sec.Tex.SpecColor, Path.Combine(outDir, SafeName(sec.Material) + "_speccolor" + Path.GetExtension(sec.Tex.SpecColor).ToLowerInvariant()), true);
+            if (sec.Tex.Normal != null)
+            {
+                string nf = MaterialOverrides.NormalForGame(sec.Tex.Normal, sec.Tex.NormalFlipGreen, outDir, SafeName(sec.Material)), dst = Path.Combine(outDir, SafeName(sec.Material) + "_n.png");
+                if (!Path.GetFullPath(nf).Equals(Path.GetFullPath(dst), StringComparison.OrdinalIgnoreCase)) File.Copy(nf, dst, true);
+            }
             texFiles[sec.Material] = png;
         }
         string model = Path.Combine(outDir, "model.fbx");
@@ -77,8 +84,14 @@ static class FbxExport
     /// hair's motion in every animation (made on the edit, unless the edit animates the hair itself: as the preview and
     /// Build). Re-imported (Single Animation ▾ or as a source), it gives back what was exported. Returns the notes for the log.
     /// </summary>
+    /// <summary>Each animation as the FBX edits have it (an edit in place of the game's); positions as the game takes them.</summary>
+    public static Func<MhoAnimRef, BoneAnimation, BoneAnimation> EditsAdjust(AnimEdits? edits) => (ar, a) =>
+        edits != null && edits.Anims.TryGetValue(ar.Name, out var f) && File.Exists(f)
+            ? AnimEdits.ForGame(f, ar.Name, ar.TranslationBones, AnimEdits.GamePositions(a, ar.TranslationBones))
+            : AnimEdits.GamePositions(a, ar.TranslationBones);
+
     public static void Work(MffModel m, IEnumerable<string> picked, bool subdivide, string package, string? mapFile, int hair, AnimEdits? edits,
-        string outDir, Action<string> log, IReadOnlyCollection<string>? animFilter = null, bool exact = false, int cape = 0)
+        string outDir, Action<string> log, IReadOnlyCollection<string>? animFilter = null, bool exact = false, int cape = 0, string? overrides = null)
     {
         var sk = MhoSkeleton.Load(package, null);
         var rigs = new List<BorrowedRig>();
@@ -93,6 +106,7 @@ static class FbxExport
         if (subdivide) sel = Subdivision.Apply(sel);
         var r = Retarget.Run(m, sel, sk, mapFile != null ? BoneMapFile.Load(mapFile) : null);
         if (edits?.ModelFbx is string mf && File.Exists(mf)) { log("mesh from the FBX edit: " + Path.GetFileName(mf)); FbxReimport.Apply(r, mf, log); }
+        MaterialOverrides.Apply(r, overrides, log);
         var bones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
         foreach (var rig in rigs) rig.MeasureBody(bones, r);
         int edited = 0;

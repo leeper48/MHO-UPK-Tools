@@ -165,6 +165,11 @@ sealed partial class ModelPage
                 string dd = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(dd);
                 Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dd}\"") { UseShellExecute = false });
             }) { ToolTipText = "Where Export FBX and Open in Blender put their files (data\\model\\fbx)." });
+            model.DropDownItems.Add(new ToolStripMenuItem("Clean Up Exports and Rigs", null, (_, _) =>
+            {
+                using var f = new MhoExtendedModManager.Gui.ModelCleanUpForm();
+                f.ShowDialog(owner);
+            }) { ToolTipText = "The exports (data\\model\\fbx) and the Blender rigs of models without an armature (data\\model\\rigs), with their sizes: delete what you don't need. Mods keep their own copies." });
         };
         return model;
     }

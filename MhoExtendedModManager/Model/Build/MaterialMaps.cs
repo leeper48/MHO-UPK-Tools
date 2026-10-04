@@ -55,14 +55,15 @@ sealed class MaterialMaps
     /// 2.5× under stock (Mark 43 44 vs 110, Punisher ~20 vs 51); its blue is a metal mask (Mark 43 armour 109-148, Punisher's
     /// cloth 14-60): R = red × 2.5, G = the stock rim level, B = blue × 1.5 when the stock material reflects, else 0.
     /// </summary>
-    public string PackedV1(string sp, string name, string noSpec)
+    /// <param name="redScale">MFF's _sp red runs about 2.5× under stock (below); a generated map is at stock levels already: 1.</param>
+    public string PackedV1(string sp, string name, string noSpec, float redScale = 2.5f)
     {
         if (raw) return sp;
         if (matte) return noSpec;
         return Repack(sp, name, c =>
         {
             int src2 = reflectFrom switch { "R" => c.R, "G" => c.G, "NONE" => 0, _ => c.B };
-            return Color.FromArgb(255, Math.Min(255, (int)(c.R * 2.5f)), rim, reflects ? Math.Min(255, (int)(src2 * reflectScale)) : 0);
+            return Color.FromArgb(255, Math.Min(255, (int)(c.R * redScale)), rim, reflects ? Math.Min(255, (int)(src2 * reflectScale)) : 0);
         });
     }
 

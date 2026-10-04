@@ -138,6 +138,9 @@ sealed class ModelView : UserControl
         /// </summary>
         public Map? Reflection, EmissiveTex;
         public Channel ReflectAt;
+        /// <summary>Where the skin mask is (shown on its own only: the preview doesn't shade skin apart), and the spec power
+        /// channel to show when the material's shading doesn't read one (Map null: none).</summary>
+        public Channel SkinMask, PowerShown;
         public bool UseReflection, ReflectByDiffuse;
         public float ReflectMult = 1, FresnelPower;
         public Vector3 Rim = new(0.5f, 0.55f, 0.65f), FillColor = new(0.8f, 0.6f, 0.5f);
@@ -187,6 +190,15 @@ sealed class ModelView : UserControl
     /// halo over the frame. Redraws.</summary>
     public bool ShowBloom { get => showBloom; set { if (showBloom == value) return; showBloom = value; Redraw(); } }
     bool showSpec = true, showRefl = true, showGlow = true, showBloom = true;
+
+    /// <summary>One map on its own instead of the lit model (Kurt, 2026-10-04: the Model tab's Materials tab, Preview Shows): the colour
+    /// map unlit, the normal map's own colours (flat blue where a section has none), the spec amount in grey, the alpha in
+    /// grey. Redraws.</summary>
+    /// <remarks>Spec (shine), SpecPower, Reflectivity and SkinMask are the packed spec map's channels (R, G, A / B on v1
+    /// maps, B); SpecColor the highlight's tint (white where a material has no map of its own).</remarks>
+    public enum MapView { All, Colour, Normal, Spec, Alpha, SpecPower, Reflectivity, SkinMask, SpecColor }
+    public MapView ShowMap { get => showMap; set { if (showMap == value) return; showMap = value; Redraw(); } }
+    MapView showMap = MapView.All;
 
     /// <summary>A picture behind the mesh, stretched over the view (the icon creator's portrait backdrop), or null.</summary>
     public Image? Backdrop { get => backdrop; set { backdrop = value; Redraw(); } }
@@ -760,7 +772,7 @@ sealed class ModelView : UserControl
         if (minX > maxX || minY > maxY) return;
         float inv = 1f / area;
         float z0 = iz[a], z1 = iz[b], z2 = iz[c];
-        var cut = look is { Cutout: true, Diffuse: not null } ? look.Diffuse : null;
+        var cut = look is { Cutout: true, Diffuse: not null } && showMap != MapView.Alpha ? look.Diffuse : null;   // (the alpha view shows what's cut out)
         float lod = cut != null ? Lod(triRatio[t / 3], cut) : 0;
         Vector2 ua = uv.Length > a ? uv[a] : default, ub = uv.Length > b ? uv[b] : default, uc = uv.Length > c ? uv[c] : default;
         int tag = t / 3 | (front ? 0 : 0x40000000);
@@ -804,6 +816,22 @@ sealed class ModelView : UserControl
         var diff = look?.Diffuse is { } dm ? dm.Sample(tuv.X, tuv.Y, Lod(ratio, dm)) : new Vector4(0.62f, 0.62f, 0.64f, 1);
         var rgb = new Vector3(diff.X, diff.Y, diff.Z);
         if (look == null) look = Look.Plain(null);
+        if (showMap != MapView.All)
+        {
+            Vector3 mv = showMap switch
+            {
+                MapView.Colour => rgb,
+                MapView.Normal => look.UseNormal && look.Normal is { } vn ? new Vector3(vn.Sample(tuv.X, tuv.Y, Lod(ratio, vn)).X, vn.Sample(tuv.X, tuv.Y, Lod(ratio, vn)).Y, vn.Sample(tuv.X, tuv.Y, Lod(ratio, vn)).Z) : new Vector3(0.5f, 0.5f, 1f),
+                MapView.Spec => new Vector3(look.UseSpec ? Math.Clamp(look.Spec.At(tuv, ratio, 0f), 0, 1) : 0f),
+                MapView.SpecPower => new Vector3(look.UseSpec && (look.SpecPow.Map != null ? look.SpecPow : look.PowerShown) is { Map: not null } pw ? Math.Clamp(pw.At(tuv, ratio, 0f), 0, 1) : 0f),
+                MapView.Reflectivity => new Vector3(look.UseReflection && look.ReflectAt.Map != null ? Math.Clamp(look.ReflectAt.At(tuv, ratio, 0f), 0, 1) : 0f),
+                MapView.SkinMask => new Vector3(look.SkinMask.Map != null ? Math.Clamp(look.SkinMask.At(tuv, ratio, 0f), 0, 1) : 0f),
+                MapView.SpecColor => !look.UseSpec ? Vector3.Zero : look.SpecColor is { } scv ? new Vector3(scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).X, scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).Y, scv.Sample(tuv.X, tuv.Y, Lod(ratio, scv)).Z) : Vector3.One,
+                _ => new Vector3(look.Diffuse != null ? diff.W : 1f),
+            };
+            int mr = (int)(Math.Clamp(mv.X, 0, 1) * 255 + 0.5f), mg = (int)(Math.Clamp(mv.Y, 0, 1) * 255 + 0.5f), mb = (int)(Math.Clamp(mv.Z, 0, 1) * 255 + 0.5f);
+            return unchecked((int)0xFF000000) | (mr << 16) | (mg << 8) | mb;
+        }
 
         if (look.UseNormal && look.Normal is { } nm && tan.Length > a)
         {

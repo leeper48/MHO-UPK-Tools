@@ -159,12 +159,14 @@ def actions_without_addon():
 
 
 def run():
-    # a new, empty scene
-    for o in list(bpy.data.objects):
-        bpy.data.objects.remove(o, do_unlink=True)
-    bpy.data.orphans_purge(do_recursive=True)
+    # into the user's own startup scene (Kurt, 2026-10-04: his default scene as the base): its objects, lights, camera and
+    # world are left as they are; the imported armature is tagged so the sync finds it and nothing else
+    before = set(bpy.data.objects)
     bpy.ops.import_scene.fbx(filepath=MODEL)
-    arm = next((o for o in bpy.context.scene.objects if o.type == "ARMATURE"), None)
+    new = [o for o in bpy.data.objects if o not in before]
+    arm = next((o for o in new if o.type == "ARMATURE"), None)
+    if arm is not None:
+        arm["mho_model"] = 1
     mho = addon()
     log = []
     if arm is not None and os.path.isdir(ANIMS):
@@ -246,7 +248,10 @@ def _action_print(act):
 
 
 def _armature():
-    return next((o for o in bpy.data.objects if o.type == "ARMATURE"), None)
+    # the imported model's (tagged), not one the user's startup scene brought along
+    arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
+    return (next((o for o in arms if o.get("mho_model")), None) or next((o for o in arms if "g_pelvis" in o.data.bones), None)
+            or (arms[0] if arms else None))
 
 
 def _meshes(arm):

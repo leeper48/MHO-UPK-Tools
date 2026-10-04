@@ -15,21 +15,161 @@ sealed partial class ModelPage
         return built.TryGetValue(package, out string? path) && File.Exists(path) ? path : null;
     }
 
+    internal bool TestHasRig => unrigged != null;
+
+    /// <summary>Test: the live rig folder (under data/model/rigs) of the shown unrigged source on the chosen hero; else null.</summary>
+    internal string? TestLiveRig => unrigged != null && ChosenPackage is CharacterList.Item p ? AutoRig.Live(unrigged, p.Key) : null;
+
+    /// <summary>Test: Blender's Ctrl+S on the rig (rigged.fbx written to a temporary file, then moved over it, as the save hook
+    /// does) must reach the tab: the log says so and the preview reloads.</summary>
+    internal async Task<bool> TestRigWatch(Action<string> say)
+    {
+        if (unrigged == null || ChosenPackage is not CharacterList.Item pkg) return false;
+        string folder = AutoRig.Live(unrigged, pkg.Key), rigged = AutoRig.RiggedFbx(folder), tmp = Path.Combine(folder, "rigged.tmp.fbx");
+        var rows = mapGrid.Rows.Cast<DataGridViewRow>().Select(r => (string)r.Cells[1].Value + " | " + r.Cells[3].Value).ToList();
+        int fingers = rows.Count(r => System.Text.RegularExpressions.Regex.IsMatch(r, @"^g_[lr]_(thumb|index|birdy|ring|pinky)\d \|.*vertices"));
+        say($"{(rows.Count > 20 && fingers >= 20 ? "PASS" : "FAIL")} the Bone Map lists the FBX's bones ({rows.Count} rows, {fingers} weighted finger bones; e.g. {rows.FirstOrDefault()})");
+        if (rows.Count <= 20 || fingers < 20) return false;
+
+        // the model's own normal map came over; an override file, then Undo
+        string? normalRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | Normal | "));
+        bool own = normalRow?.Contains("The model's own") == true;
+        say($"{(own ? "PASS" : "FAIL")} the model's own normal map is used ({normalRow})");
+        string ovFile = Path.Combine(Path.GetDirectoryName(unrigged!)!, "override_normal_test.png");
+        int pm = previewId, sm = preview.ShowCount;
+        TestUseMapFile("Normal", ovFile);
+        for (int i = 0; i < 300 && preview.ShowCount == sm; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100);
+        string? afterRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | Normal | "));
+        bool overridden = afterRow?.Contains("Your file: ") == true && OverridesFile() is string of && File.Exists(Path.Combine(Path.GetDirectoryName(of)!, Path.GetFileNameWithoutExtension(of), Directory.GetFiles(Path.Combine(Path.GetDirectoryName(of)!, Path.GetFileNameWithoutExtension(of))).Select(Path.GetFileName).First()!));
+        say($"{(overridden ? "PASS" : "FAIL")} Use a File puts an override in, copied into the Model folder ({afterRow})");
+        int su = preview.ShowCount;
+        Undo();
+        for (int i = 0; i < 300 && preview.ShowCount == su; i++) await Task.Delay(100);
+        string? undoneRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | Normal | "));
+        bool backOwn = undoneRow?.Contains("The model's own") == true;
+        say($"{(backOwn ? "PASS" : "FAIL")} Undo takes the override back ({undoneRow})");
+        await Task.Delay(1500);
+        if (!(own && overridden && backOwn)) return false;
+
+        // no spec map of its own: generated (Soft); Next Recipe steps it, Undo takes it back
+        string? specRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | Spec | "));
+        bool gen = specRow?.Contains("Generated from the color map: Soft") == true;
+        int specIdx = matGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[1].Value == "Spec");
+        matGrid.CurrentCell = matGrid.Rows[specIdx].Cells[0];
+        MatSelectionChanged();
+        bool recipeOn = matRecipe.Enabled;
+        int sr = preview.ShowCount;
+        NextSpecRecipe();
+        for (int i = 0; i < 300 && preview.ShowCount == sr; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100);
+        string? strongRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | Spec | "));
+        bool strong = strongRow?.Contains("Strong") == true;
+        int su2 = preview.ShowCount;
+        Undo();
+        for (int i = 0; i < 300 && preview.ShowCount == su2; i++) await Task.Delay(100);
+        bool softAgain = TestMaterialRows().FirstOrDefault(r => r.Contains(" | Spec | "))?.Contains("Soft") == true;
+        say($"{(gen && recipeOn && strong && softAgain ? "PASS" : "FAIL")} a generated spec map (\"{specRow}\"), Next Recipe → \"{strongRow}\", Undo → Soft again: {softAgain}");
+        await Task.Delay(1500);
+        if (!(gen && recipeOn && strong && softAgain)) return false;
+
+        // color group tags: an MHO spec map is made from them (the Metal template), Undo takes them off
+        var (tm, ttex) = shownMaterials[0];
+        var (cw, ch, cargb) = NormalMapGen.LoadArgb(ttex.Diffuse!);
+        var cb = new byte[cw * ch * 4];
+        for (int k = 0; k < cw * ch; k++) { cb[4 * k] = (byte)cargb[k]; cb[4 * k + 1] = (byte)(cargb[k] >> 8); cb[4 * k + 2] = (byte)(cargb[k] >> 16); cb[4 * k + 3] = (byte)(cargb[k] >> 24); }
+        var smallMap = ColorTags.Small(cw, ch, cb);
+        var grp = ColorTags.Groups(smallMap.W, smallMap.H, smallMap.Bgra);
+        int st0 = preview.ShowCount;
+        TestSetColorTags(tm, [(ColorTags.Hex(grp[0].Center), "cloth"), (ColorTags.Hex(grp[1].Center), "metal")]);
+        for (int i = 0; i < 300 && preview.ShowCount == st0; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100);
+        string? mhoRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | MHO Spec | "));
+        bool tagged = mhoRow?.Contains("Made from your color tags: 1 cloth, 1 metal") == true || mhoRow?.Contains("Made from your color tags: 1 metal, 1 cloth") == true;
+        int st1 = preview.ShowCount;
+        Undo();
+        for (int i = 0; i < 300 && preview.ShowCount == st1; i++) await Task.Delay(100);
+        bool untagged = TestMaterialRows().FirstOrDefault(r => r.Contains(" | MHO Spec | "))?.Contains("None") == true;
+        say($"{(tagged && untagged ? "PASS" : "FAIL")} color tags make the MHO spec map (\"{mhoRow}\"), Undo takes them off: {untagged}");
+        await Task.Delay(1500);
+        if (!(tagged && untagged)) return false;
+
+        // Smooth Weights on an FBX source (its map holds only smoothing), then Undo and Redo
+        int elbow = mapGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[1].Value == "g_l_elbow");
+        if (elbow < 0) { say("FAIL no g_l_elbow row"); return false; }
+        mapGrid.CurrentCell = mapGrid.Rows[elbow].Cells[1];
+        MapSelectionChanged();
+        bool enabled = mapSmooth.Enabled;
+        // a camera of the user's own: Smooth Weights must keep it (it re-framed the view before)
+        var cam = preview.ViewForTest; cam[0] += 0.7f; cam[1] = 0.3f; cam[2] *= 0.6f; preview.ViewForTest = cam;
+        cam = preview.ViewForTest;
+        int Passes() => MapPath() is string m && File.Exists(m) ? BoneMapFile.Load(m).Smooth.FirstOrDefault(e => e.Bone == "g_l_elbow")?.Passes ?? 0 : 0;
+        int was = Passes();
+        int p0 = previewId, shows = preview.ShowCount;
+        SmoothSelected();
+        for (int i = 0; i < 300 && previewId == p0; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && preview.ShowCount == shows; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100);
+        var after = preview.ViewForTest;
+        bool sameCam = cam.Zip(after).All(x => MathF.Abs(x.First - x.Second) < 1e-3f);
+        say($"{(sameCam ? "PASS" : "FAIL")} Smooth Weights keeps the camera (before {string.Join(" ", cam.Select(v => v.ToString("0.###")))}, after {string.Join(" ", after.Select(v => v.ToString("0.###")))})");
+        if (!sameCam) return false;
+        string? mp = MapPath();
+        bool saved = Passes() == was + 1;
+        say($"{(enabled && saved && undoButton.Enabled ? "PASS" : "FAIL")} Smooth Weights works on an FBX source (button enabled: {enabled}, saved in the map: {saved}, an undo step: {undoButton.Enabled})");
+        Undo();
+        for (int i = 0; i < 50 && Passes() != was; i++) await Task.Delay(100);
+        bool undone = Passes() == was;
+        await Task.Delay(1500);
+        Redo();
+        for (int i = 0; i < 50 && Passes() != was + 1; i++) await Task.Delay(100);
+        bool redone = Passes() == was + 1;
+        say($"{(undone && redone ? "PASS" : "FAIL")} Undo takes the smoothing off, Redo puts it back (undone: {undone}, redone: {redone})");
+        await Task.Delay(1500);
+        if (!(enabled && saved && undone && redone)) return false;
+        int before = previewId;
+        File.Copy(rigged, tmp, true);
+        File.Move(tmp, rigged, true);
+        for (int i = 0; i < 100 && !log.Text.Contains("Blender sent the rig"); i++) await Task.Delay(100);
+        bool heard = log.Text.Contains("Blender sent the rig");
+        for (int i = 0; i < 100 && previewId == before; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && !status.Text.StartsWith("Rig from Blender loaded"); i++) await Task.Delay(100);
+        bool shown = status.Text.StartsWith("Rig from Blender loaded") && log.Lines.LastOrDefault(l => l.Trim().Length > 0)?.StartsWith("Blender: the rig you saved") == true;
+        say($"{(heard && previewId != before && shown ? "PASS" : "FAIL")} Blender's Ctrl+S on the rig reaches the tab (log: {heard}, preview reloaded: {previewId != before}, status line: \"{status.Text}\")");
+        return heard && previewId != before && shown;
+    }
+
     async Task<bool> TestPick(string mff, string package, Action<string> say)
     {
         for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
+        {
+            // no source, a target picked: the target's own model, Compare lit and locked (after the tab's own restore of the last
+            // source has finished: it loads in the background)
+            for (int i = 0; i < 300 && preview.ShowCount == 0; i++) await Task.Delay(100);
+            for (int last = -1, i = 0; i < 60 && last != preview.ShowCount; i++) { last = preview.ShowCount; await Task.Delay(1500); }
+            chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
+            int sc = preview.ShowCount;
+            Reselect(packages, package);
+            SchedulePreview();
+            for (int i = 0; i < 600 && preview.ShowCount == sc; i++) await Task.Delay(100);
+            var c = preview.CompareForTest;
+            bool ok = c.Lit && !c.Enabled && c.TargetOnly && preview.AnimationNames.Count > 0;
+            say($"{(ok ? "PASS" : "FAIL")} with no source, the target's own model shows (Compare lit {c.Lit}, locked {!c.Enabled}, {preview.AnimationNames.Count} animations)");
+            if (!ok) return false;
+        }
         if (mff.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) && File.Exists(mff))
         {
             // an FBX with another skeleton family (Mixamo …): Source → FBX Files, then the file, as a pick from the list
             string key = "fbx:" + Path.GetFullPath(mff);
-            if (chosenKey != key || model == null)
+            if (chosenKey != key || !HasSource)
             {
                 if (!FbxMode) { sourceKind.SelectedIndex = 1; await Task.Delay(300); }
                 FbxChosen(key);
-                for (int i = 0; i < 1200 && !(chosenKey == key && model != null); i++) await Task.Delay(100);
+                for (int i = 0; i < 1200 && !(chosenKey == key && HasSource); i++) await Task.Delay(100);
             }
-            if (model == null) { say("the FBX didn't load as a model (no known skeleton family?): " + mff + "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
-            say($"FBX {Path.GetFileName(mff)}: {model.Profile} skeleton, {parts.Rows.Count} parts");
+            if (unrigged != null) say($"FBX {Path.GetFileName(mff)}: no armature (rigged in Blender per base hero), {parts.Rows.Count} mesh(es)");
+            else if (model == null && sourceFbx == null) { say("the FBX didn't load as a model (no known skeleton family?): " + mff + "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
+            else say($"FBX {Path.GetFileName(mff)}: {model?.Profile ?? "MHO bone names"} skeleton, {parts.Rows.Count} parts");
         }
         else if (chosenKey != mff || model == null)
         {
@@ -39,11 +179,33 @@ sealed partial class ModelPage
             Reselect(characters, mff);
             for (int i = 0; i < 1200 && !(chosenKey == mff && model != null); i++) await Task.Delay(100);
         }
-        if (model == null) { say("the MFF model didn't load: " + mff); return false; }
-        say($"model {mff}: {parts.Rows.Count} parts");
+        if (!HasSource) { say("the source didn't load: " + mff); return false; }
+        say($"source {mff}: {parts.Rows.Count} parts");
         Reselect(packages, package);
-        for (int i = 0; i < 600 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);
+        for (int i = 0; i < 1800 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);   // (an unrigged source is rigged in Blender first)
         say("package: " + ChosenPackage?.Key + " from " + StartLabel(package) + $", {preview.AnimationNames.Count} animations");
+        // MHO_TEST_MAPSHOTS=<png>: one strip of the preview in every Preview Shows view (a visual check of the map views)
+        if (Environment.GetEnvironmentVariable("MHO_TEST_MAPSHOTS") is { Length: > 0 } shots)
+        {
+            await Task.Delay(1500);
+            const int tw = 260, th = 420;
+            using var strip = new Bitmap(tw * ShowMapChoices.Length, th + 24);
+            using (var g = Graphics.FromImage(strip))
+            {
+                g.Clear(Color.FromArgb(24, 24, 28));
+                for (int k = 0; k < ShowMapChoices.Length; k++)
+                {
+                    preview.ShowMap = ShowMapChoices[k].Mode;
+                    await Task.Delay(400);
+                    using var b = preview.SnapshotForTest(tw, th);
+                    if (b != null) g.DrawImage(b, k * tw, 24);
+                    g.DrawString(ShowMapChoices[k].Label, SystemFonts.DefaultFont, Brushes.White, k * tw + 6, 5);
+                }
+            }
+            preview.ShowMap = MhoExtendedModManager.Gui.ModelView.MapView.All;
+            strip.Save(shots);
+            say("map views: " + shots);
+        }
         return ChosenPackage?.Key.Equals(package, StringComparison.OrdinalIgnoreCase) == true;
     }
 

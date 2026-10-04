@@ -2273,6 +2273,8 @@ sealed class MainForm : Form
         string? builtFile = await page.TestBuild(mff, package, say);
         say("built into the draft: " + (builtFile != null));
         if (builtFile == null) { CloseEditor(); return 1; }
+        if (page.TestHasRig && !await page.TestRigWatch(say)) { CloseEditor(); return 1; }
+        string? liveRig = page.TestLiveRig;
         byte[] builtBytes = File.ReadAllBytes(builtFile);   // the work folder goes with the editor
         await editor.SaveForTest();
         await Task.Delay(500);
@@ -2289,6 +2291,17 @@ sealed class MainForm : Form
             Check(saved.Manifest.UpkReplacements.Contains(package, StringComparer.OrdinalIgnoreCase), "the manifest still lists the package");
         }
         Check(!Directory.EnumerateDirectories(lib!.DataFolder, "model-work-*").Any(), "the editor's work folder is gone");
+        if (liveRig != null && saved != null)
+        {
+            // a model without an armature: the mod keeps its rig for the hero built onto (rig files only); the live rig, which an
+            // open Blender works on, outlives the editor
+            string rigs = Path.Combine(saved.Folder, ModelWork.Folder, "rigs");
+            var files = Directory.Exists(rigs) ? Directory.GetFiles(rigs, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(rigs, f)).ToList() : [];
+            say("  kept in the mod: " + string.Join(", ", files));
+            Check(files.Count > 0 && files.All(f => f.Contains(" on " + Path.GetFileNameWithoutExtension(package)) && MhoMffImporter.AutoRig.IsRigFile(Path.GetFileName(f)))
+                && files.Any(f => f.EndsWith("rigged.fbx")) && files.Any(f => f.EndsWith("rig.blend")), "the mod keeps the built hero's rig, rig files only");
+            Check(File.Exists(Path.Combine(liveRig, "rigged.fbx")) && File.Exists(Path.Combine(liveRig, "rig.blend")), "the live rig (data/model/rigs) is still there for Blender");
+        }
         return fails == 0 ? 0 : 1;
     }
 

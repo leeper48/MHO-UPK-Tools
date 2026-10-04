@@ -47,6 +47,8 @@ sealed record ImportOptions
     public IReadOnlyDictionary<string, string>? AnimFbx { get; init; }
     /// <summary>Only the package (the Mod Manager's Model tab puts it into its draft): no mod folder or .zip.</summary>
     public bool NoMod { get; init; }
+    /// <summary>The Materials tab's overrides file (materials\&lt;source&gt;.json; MaterialOverrides), or null.</summary>
+    public string? MaterialOverrides { get; init; }
 
     public static ImportOptions FromEnvironment(string? parts, string? mapFile, string? checkAnimation)
     {

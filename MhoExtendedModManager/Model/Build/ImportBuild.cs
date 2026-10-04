@@ -73,6 +73,8 @@ sealed class ImportBuild
             log("source: " + o.SourceFbx);
             var only = o.Parts is { Length: > 0 } ps && ps != "default" && ps != "all" ? ps.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
             r = FbxReimport.Load(o.SourceFbx, sk, only, log);
+            // an FBX source's map holds only its weight smoothing (the Bone Map's Smooth Weights)
+            if (o.MapFile != null) foreach (var n in WeightSmooth.Apply(r, BoneMapFile.Load(o.MapFile).Smooth)) log("  " + n);
         }
         else
         {
@@ -96,6 +98,7 @@ sealed class ImportBuild
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.Apply(r, o.ModelFbx, log); }
         if ((o.Hair > 0 || o.Cape > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed cape / hair is left out");
+        MaterialOverrides.Apply(r, o.MaterialOverrides, line => log("  " + line));   // the Materials tab's files
         builtBones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
         foreach (var rig in rigs)
         {
@@ -144,7 +147,9 @@ sealed class ImportBuild
         if (firstMat <= 0) throw new InvalidDataException("the base mesh has no material instance of its own to copy (every one is imported)");
         string template = mp.Exports[firstMat - 1].ObjectName;
         metalShare = MaterialChoice.MetalShare(r.Sections.Select(x => x.Tex.Spec).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase));
-        glowShare = metalShare > 0.5f ? MaterialChoice.GlowShare(r.Sections.Select(x => x.Tex.Diffuse).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)) : 0;
+        // an MHO packed spec map: Angela's own armor material reads all of it (shine, power, skin mask, reflectivity) and a spec color
+        if (r.Sections.Any(x => x.Tex.UsesMhoSpec)) { metalShare = 1; log("material: an MHO spec map is in use: the Metal template (Angela's armor material) reads all four of its channels and the spec color"); }
+        glowShare = metalShare > 0.5f && !r.Sections.Any(x => x.Tex.UsesMhoSpec) ? MaterialChoice.GlowShare(r.Sections.Select(x => x.Tex.Diffuse).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)) : 0;
         string? donor = MaterialChoice.Donor(o.Material, metalShare, glowShare);
         log($"material: {metalShare:P0} of the _sp maps marks metal, glow spots on {glowShare:P2} of the colour maps → {(donor == null ? "the base mesh's own material" : donor.Split(':').Last())}{(o.Material != null ? " (MFF_MATERIAL)" : " (automatic)")}");
         if (donor != null)
@@ -169,15 +174,39 @@ sealed class ImportBuild
         string? normal = null;
         var nset = new NormalMapSettings();
         if (o.Normal != null && float.TryParse(o.Normal, NumberStyles.Float, CultureInfo.InvariantCulture, out float ns)) nset.Strength = ns;
-        if (tex.Diffuse != null && o.Normal != "flat")
+        if (tex.Normal != null && o.Normal != "flat")
         {
+            // the model's own normal map (Kurt, 2026-10-04), as DirectX green PNG
+            normal = MaterialOverrides.NormalForGame(tex.Normal, tex.NormalFlipGreen, texDir, MaterialOut.Safe(name) + "_own");
+            log($"material: {name}: normal map from {Path.GetFileName(tex.Normal)}{(tex.NormalFlipGreen ? " (green flipped)" : "")}");
+        }
+        else if (tex.Diffuse != null && o.Normal != "flat")
+        {
+            log($"material: {name}: no normal map of its own: one is generated from the color map");
             var (w, h, px) = NormalMapGen.LoadArgb(tex.Diffuse);
             int[]? mask = null;
             if (tex.Alpha != null) { var (aw, ah, apx) = NormalMapGen.LoadArgb(tex.Alpha); if (aw == w && ah == h) mask = apx; }
             normal = Path.Combine(texDir, MaterialOut.Safe(name) + "_n.png");
             NormalMapGen.SaveArgb(w, h, NormalMapGen.Make(w, h, px, nset, mask), normal);
         }
-        return new MffMaterial(name, tex.Diffuse, o.Spec == "neutral" ? null : tex.Spec, normal);
+        // no spec map of its own: one generated from the color map (SpecMapGen, measured on the game's own maps)
+        string? spec = o.Spec == "neutral" ? null : tex.Spec;
+        bool generated = false;
+        if (spec == null && o.Spec != "neutral" && tex.Diffuse != null && !tex.UsesMhoSpec)
+        {
+            spec = SpecMapGen.Write(tex.Diffuse, tex.Alpha, tex.SpecRecipe, texDir, MaterialOut.Safe(name));
+            generated = true;
+            log($"material: {name}: no spec map of its own: generated from the color map, {SpecMapGen.Label(tex.SpecRecipe)}");
+        }
+        string? specMho = tex.SpecMho;
+        if (specMho == null && tex.ColorTags is { Count: > 0 } tags && tex.Diffuse != null)
+        {
+            // the user's color group tags: an MHO packed map made from them (ColorTags)
+            specMho = ColorTags.Write(tex.Diffuse, tex.Alpha, tags, texDir, MaterialOut.Safe(name));
+            log($"material: {name}: spec map made from your color tags ({tags.Count} group(s): {string.Join(", ", tags.GroupBy(t => t.Tag).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))})");
+        }
+        if (specMho != null) { spec = null; generated = false; }   // an MHO packed map wins (as it is)
+        return new MffMaterial(name, tex.Diffuse, spec, normal, generated) { SpecMho = specMho, SpecColor = tex.SpecColor };
     }
 
     // --- the mesh export --------------------------------------------------------------------------------------------------------

@@ -61,6 +61,24 @@ sealed class Bone
 sealed class Textures
 {
     public string? Diffuse, Spec, Alpha;
+    /// <summary>A normal map of the model's own (an FBX's normal slot, or &lt;material&gt;_n / _normal / _nrm beside it): used in
+    /// place of the one generated from the color map (Kurt, 2026-10-04: "if a normal map exists it should port over").</summary>
+    public string? Normal;
+    /// <summary>The normal map is OpenGL style (green up): flipped to MHO's DirectX green (set on the Materials tab).</summary>
+    public bool NormalFlipGreen;
+    /// <summary>The recipe a spec map is generated with when there's none (SpecMapGen; null = Soft).</summary>
+    public string? SpecRecipe;
+    /// <summary>A spec map in MHO's own packed layout (chbasematerial_v2: R shine, G spec power, B skin mask, A reflectivity;
+    /// a stock character's specmult_specpow_skinmask_reflectivity): used as it is, in place of Spec (Kurt, 2026-10-04, Angela:
+    /// her shine is set by what each part is, metal / skin / cloth, which no map made from the colors can know).</summary>
+    public string? SpecMho;
+    /// <summary>A spec color map (MHO's speccolortex: the highlight's tint, gold on gold armor).</summary>
+    public string? SpecColor;
+    /// <summary>The user's color group tags (group color hex → metal / skin / leather / cloth; ColorTags): an MHO spec map is
+    /// made from them when there's none of its own.</summary>
+    public List<(string Color, string Tag)>? ColorTags;
+    /// <summary>The material gets an MHO packed spec map (its own, or made from color tags): the Metal template reads it.</summary>
+    public bool UsesMhoSpec => SpecMho != null || ColorTags is { Count: > 0 };
     /// <summary>Found under a near name (the material without the model number, e.g. hero_squirrelgirl_S02_01 for hero_squirrelgirl01_S02_01).</summary>
     public bool Guessed;
     public List<string> Extra { get; } = new();
@@ -547,7 +565,8 @@ sealed class TextureIndex
     {
         // the folder and two levels below it (rips from elsewhere keep their textures in subfolders: Captain Carter's
         // "Marvel Strike Force Captain Carter\Captain Carter\Char_CaptainCarter_D.png"); the folder's own file first
-        local = Directory.EnumerateFiles(modelFolder, "*.png", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true })
+        local = Directory.EnumerateFiles(modelFolder, "*", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true })
+            .Where(p => ImageExt.Contains(Path.GetExtension(p).ToLowerInvariant()))
             .GroupBy(p => Path.GetFileName(p).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Length).First());
         bool mff;
@@ -597,6 +616,29 @@ sealed class TextureIndex
     }
 
     /// <summary>A name for loose matching: lower case, '-' and ' ' as '_', no leading "7_" or trailing "_0.1_16_16" numbers.</summary>
+    /// <summary>Image files the importer reads (System.Drawing: no TGA or DDS).</summary>
+    static readonly HashSet<string> ImageExt = [".png", ".jpg", ".jpeg", ".bmp"];
+
+    /// <summary>A file by name without extension: .png first, then .jpg / .jpeg / .bmp.</summary>
+    string? GetStem(string stem) => ImageExt.Select(e => Get(stem + e)).FirstOrDefault(x => x != null);
+
+    /// <summary>The folder's own image whose name, without one of <paramref name="suffix"/>'s endings, the material's name holds
+    /// (number prefixes / suffixes and case ignored): Captain Carter's "7_Char-CaptainCarter_0.1_16_16" finds Char_CaptainCarter_D.</summary>
+    string? Loose(string material, Regex suffix, out bool exact)
+    {
+        exact = false;
+        string want = Simple(material);
+        var hits = local.Keys.Select(Path.GetFileNameWithoutExtension).OfType<string>().Where(k => suffix.IsMatch(k))
+            .Select(k => (File: k, Stem: Simple(suffix.Replace(k, "")))).Where(x => x.Stem.Length >= 4 && want.Contains(x.Stem))
+            .OrderByDescending(x => x.Stem == want).ThenByDescending(x => x.Stem.Length).ToList();
+        if (hits.Count == 0) return null;
+        exact = hits[0].Stem == want;
+        return GetStem(hits[0].File);
+    }
+
+    static readonly Regex ColourSuffix = new(@"_(d|diff|diffuse|albedo|basecolor|base_color|col|color|colour)$");
+    static readonly Regex NormalSuffix = new(@"_(n|nor|nrm|norm|normal|normals|normalmap)$");
+
     static string Simple(string name)
     {
         string s = Regex.Replace(name.ToLowerInvariant(), @"[- ]", "_");
@@ -609,7 +651,7 @@ sealed class TextureIndex
     {
         var t = new Textures { Diffuse = Get(material + ".png"), Spec = Get(material + "_sp.png"), Alpha = Get(material + "_alpha.png") };
         if (t.Diffuse == null && mat is { HasTextureDiffuse: true })
-            t.Diffuse = Get(Path.GetFileName(mat.TextureDiffuse.FilePath ?? ""));
+            t.Diffuse = Get(Path.GetFileName(mat.TextureDiffuse.FilePath ?? "")) ?? GetStem(Path.GetFileNameWithoutExtension(mat.TextureDiffuse.FilePath ?? ""));
         if (t.Diffuse == null && material.Length > 0 && NearNames.TryGetValue(Near(material), out var nearName))
         {
             t.Guessed = true;
@@ -618,15 +660,13 @@ sealed class TextureIndex
         // Rips from other games (Kurt's Captain Carter, Marvel Strike Force: material "7_Char-CaptainCarter_0.1_16_16", colour
         // map "Char_CaptainCarter_D.png" in a subfolder): the material's name without its number prefix / suffix against the
         // folder's own colour maps (name without _D / _Diffuse / _Albedo / _BaseColor / _Col); the same name, else the longest one it holds.
-        if (t.Diffuse == null && material.Length > 0)
-        {
-            string want = Simple(material);
-            var colour = new Regex(@"_(d|diff|diffuse|albedo|basecolor|base_color|col|color|colour)$");
-            var hits = local.Keys.Select(k => k[..^4]).Where(k => colour.IsMatch(k))
-                .Select(k => (File: k, Stem: Simple(colour.Replace(k, "")))).Where(x => x.Stem.Length >= 4 && want.Contains(x.Stem))
-                .OrderByDescending(x => x.Stem == want).ThenByDescending(x => x.Stem.Length).ToList();
-            if (hits.Count > 0) { t.Diffuse = Get(hits[0].File + ".png"); t.Guessed = hits[0].Stem != want; }
-        }
+        if (t.Diffuse == null && material.Length > 0 && Loose(material, ColourSuffix, out bool exactColour) is string lc) { t.Diffuse = lc; t.Guessed = !exactColour; }
+        // the model's own normal map: <material>_n / _normal / _nrm, the FBX material's normal slot, or a loose match as above
+        t.Normal = GetStem(material + "_n") ?? GetStem(material + "_normal") ?? GetStem(material + "_nrm");
+        if (t.Normal == null && mat is { HasTextureNormal: true } && Path.GetFileNameWithoutExtension(mat.TextureNormal.FilePath ?? "") is { Length: > 0 } ns) t.Normal = GetStem(ns);
+        if (t.Normal == null && material.Length > 0) t.Normal = Loose(material, NormalSuffix, out _);
+        t.SpecMho = GetStem(material + "_mhospec");
+        t.SpecColor = GetStem(material + "_speccolor");
         // Other maps of this material: <material>_<word>.png (e.g. _mask, _fx), not other models' files that share the prefix.
         var extra = new Regex("^" + Regex.Escape(material.ToLowerInvariant()) + "_(?!sp\\.|alpha\\.)[a-z]+\\.png$");
         foreach (var k in local.Keys.Concat(Shared.Keys))
