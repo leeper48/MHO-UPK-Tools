@@ -331,6 +331,16 @@ for fc in curves(act):
         for k in fc.keyframe_points:
             k.co[1] += 0.25; k.handle_left[1] += 0.25; k.handle_right[1] += 0.25; n += 1
 print("TEST EDIT: keys changed", n)
+# and a bone moved in Edit Mode (0.37.159: bone edits from this scene count): g_l_elbow 3 % of the model's size up
+bpy.context.view_layer.objects.active = arm
+bpy.ops.object.mode_set(mode="EDIT")
+eb = arm.data.edit_bones["g_l_elbow"]
+d = max(arm.dimensions) / max(arm.scale) * 0.03
+for c in eb.children:
+    c.use_connect = False
+eb.head.z += d; eb.tail.z += d
+bpy.ops.object.mode_set(mode="OBJECT")
+print("TEST EDIT: g_l_elbow moved", d)
 bpy.ops.wm.save_mainfile()
 """);
         var (code2, out2) = await RunBlender(exe, $"-b \"{blend}\" -y --python \"{edit}\"", outDir);
@@ -339,9 +349,15 @@ bpy.ops.wm.save_mainfile()
         say("sync.json: " + (File.Exists(sync) ? File.ReadAllText(sync).Replace("\n", " ") : "missing"));
 
         // the watcher (0.7 s after the file settles)
-        for (int i = 0; i < 100 && !(EnsureEdits().Anims.TryGetValue(name, out var f) && File.Exists(f)); i++) await Task.Delay(100);
+        // (this save's sync: an edit left from an earlier run doesn't count)
+        for (int i = 0; i < 150 && !log.Text.Contains("Blender sent"); i++) await Task.Delay(100);
         say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
         if (!EnsureEdits().Anims.TryGetValue(name, out var kept) || !File.Exists(kept)) return null;
+        // the moved bone came along in the model (and only it)
+        if (EnsureEdits().ModelFbx is not string mfbx || !File.Exists(mfbx)) { say("FAIL: the moved bone sent no model"); return null; }
+        var moved = FbxReimport.MovedBones(Path.Combine(outDir, "model.fbx"), mfbx);
+        say("bones moved in the sent model: " + string.Join(", ", moved.Select(m => $"{m.Bone} {m.By:0.00}")));
+        if (moved.Count != 1 || !moved[0].Bone.Equals("g_l_elbow", StringComparison.OrdinalIgnoreCase)) { say("FAIL: expected g_l_elbow alone"); return null; }
         return Path.GetRelativePath(EditsFolder()!, kept);
     }
 

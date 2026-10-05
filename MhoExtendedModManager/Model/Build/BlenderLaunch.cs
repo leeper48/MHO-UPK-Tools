@@ -285,7 +285,16 @@ def _prints():
         for st in t.strips:
             if st.action:
                 acts[t.name] = _action_print(st.action)
-    return {"mesh": _mesh_print(arm) if arm else "", "actions": acts}
+    return {"mesh": _mesh_print(arm) if arm else "", "actions": acts, "rest": _rest_print(arm) if arm else ""}
+
+
+def _rest_print(arm):
+    # the bones' rest pose (Edit Mode): moved bones go out with the model (model.fbx carries the rest pose; Kurt, 2026-10-05:
+    # bone edits from a Single Animation scene count too)
+    h = hashlib.md5()
+    for b in arm.data.bones:
+        h.update(("%s %.4f %.4f %.4f %.4f %.4f %.4f;" % (b.name, *b.head_local, *b.tail_local)).encode())
+    return h.hexdigest()
 
 
 def _kwargs(**over):
@@ -352,21 +361,26 @@ def mff_sync_on_save(*_):
     sent = state.get("sent", {})
     todo_mesh = now["mesh"] != base.get("mesh") and now["mesh"] != sent.get("mesh")
     todo = [n for n, fp in now["actions"].items() if fp != base.get("actions", {}).get(n) and fp != sent.get("actions", {}).get(n)]
-    if not todo_mesh and not todo:
+    todo_rest = "rest" in base and now["rest"] != base.get("rest") and now["rest"] != sent.get("rest")
+    if not todo_mesh and not todo and not todo_rest:
         return
     os.makedirs(os.path.join(OUT, "anims"), exist_ok=True)
     changed = []
+    if todo_rest:
+        sent["rest"] = now["rest"]
+        changed.append("bones")
     sel = (list(bpy.context.selected_objects), bpy.context.view_layer.objects.active)
     mode = bpy.context.object.mode if bpy.context.object else "OBJECT"
     try:
         if mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
         _select(arm)
-        if todo_mesh:
+        if todo_mesh or todo_rest:
             bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, "model.fbx"), **_kwargs(bake_anim=False))
             state["model"] = "model.fbx"
             sent["mesh"] = now["mesh"]
-            changed.append("the mesh")
+            if todo_mesh:
+                changed.append("the mesh")
         for name in todo:
             _export_track(arm, name, os.path.join(OUT, "anims", name + ".fbx"))
             state["anims"][name] = "anims/" + name + ".fbx"

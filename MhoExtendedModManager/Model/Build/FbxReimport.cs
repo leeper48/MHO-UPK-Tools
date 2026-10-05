@@ -6,8 +6,8 @@ namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// FBX round trip, part 2: re-import (0.11.2). An edited model.fbx (exported by <see cref="FbxExport"/>, cleaned up in Blender
-/// and exported again) replaces the retarget's mesh: positions, normals, UVs, triangles and weights come from the file; the
-/// skeleton stays the importer's (bone edits in Blender are not taken). The file is lined up with the MHO skeleton by its
+/// and exported again) replaces the retarget's mesh: positions, normals, UVs, triangles and weights come from the file, and
+/// so do the joints of bones moved in Blender (0.37.159, Kurt; each keeps its MHO orientation, as an FBX source's bones do). The file is lined up with the MHO skeleton by its
 /// bones: of the 48 axis swaps / flips, the one (with a uniform scale and offset) that puts the file's bone joints on the
 /// importer's, least squares, so Blender's axis and unit settings don't matter. Weights go to MHO bones by name (4 per
 /// vertex, normalized). Sections keep their textures by material name (as exported); a new material uses the texture the
@@ -23,6 +23,9 @@ static class FbxReimport
         public Scene Scene = scene; public Dictionary<Node, Matrix4x4> Globals = globals; public Dictionary<string, Node> ByName = byName;
         /// <summary>A bone's joint in the bind pose: from the skin's bind matrices when a mesh is skinned to it (the pose the
         /// mesh was made in), else the node's (which a file exported mid-animation holds posed; Kurt's AmCha_test, 0.11.4).</summary>
+        /// <summary>Only from the skin's bind matrices (the rest pose): a bone node without them can hold the pose of the frame
+        /// the file was saved on.</summary>
+        public Vector3? BindJoint(string bone) => bind.TryGetValue(bone, out var b) ? b : null;
         public Vector3? Joint(string bone) => bind.TryGetValue(bone, out var b) ? b : ByName.TryGetValue(bone, out var n) ? Globals[n].Translation : null;
     }
 
@@ -58,7 +61,7 @@ static class FbxReimport
         return MeshNodes(o.Scene).Select(x => (x.Item1.Name, x.Item1.VertexCount)).ToList();
     }
 
-    /// <summary>Re-import: the edited file's mesh replaces the retarget's (the skeleton stays).</summary>
+    /// <summary>Re-import: the edited file's mesh replaces the retarget's, and bones moved in the file move with it.</summary>
     public static Result Apply(Retargeted r, string fbx, Action<string> log)
     {
         var o = Open(fbx);
@@ -67,6 +70,21 @@ static class FbxReimport
         foreach (var s in r.Sections) { texOf.TryAdd(s.Material, s.Tex); texOf.TryAdd(FbxExport.SafeName(s.Material), s.Tex); }
         var firstTex = r.Sections.Count > 0 ? r.Sections[0].Tex : new Textures();
         var (map, err, matched) = Line(o, r.Bones.Select(b => (b.Name, b.Position)), notes);
+        // bones moved in Blender's Edit Mode (Kurt, 2026-10-05): the file's joint, lined up like the mesh; the rest of an
+        // unchanged round trip comes back within a few thousandths, so only a real move (over 0.02 units) counts; bones with
+        // weights only (their bind matrix is the rest pose; others can be posed)
+        var moved = new List<string>();
+        foreach (var b in r.Bones)
+            if (o.BindJoint(b.Name) is Vector3 j && map.Pos(j) is var p && (p - b.Global.Translation).Length() > 0.02f)
+            {
+                b.Global.Translation = p;
+                moved.Add(b.Name);
+            }
+        if (moved.Count > 0)
+        {
+            notes.Add($"{moved.Count} bone(s) moved in the file: {string.Join(", ", moved.Take(8))}{(moved.Count > 8 ? ", …" : "")}");
+            r.Notes.Add($"{moved.Count} bone(s) from " + Path.GetFileName(fbx));
+        }
         var sections = ReadSections(o, map, r.Bones.Select(b => b.Name).ToList(), null,
             (name, m) => texOf.TryGetValue(name, out var t) ? t : FileTextures(fbx, name, m) ?? firstTex, notes);
         r.Sections.Clear(); r.Sections.AddRange(sections);
@@ -105,6 +123,17 @@ static class FbxReimport
         r.Notes.Add("source: " + fbx);
         foreach (var n in notes) { log("  " + n); r.Notes.Add(n); }
         return r;
+    }
+
+    /// <summary>Test: the bones whose rest joints differ between an exported model and its edited copy (the edited one lined
+    /// up on the export's joints, as <see cref="Apply"/> does), with the distance.</summary>
+    internal static List<(string Bone, float By)> MovedBones(string exported, string edited)
+    {
+        var a = Open(exported); var b = Open(edited);
+        var names = a.Scene.Meshes.SelectMany(m => m.Bones).Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var joints = names.Where(n => a.BindJoint(n) != null).Select(n => (n, a.BindJoint(n)!.Value)).ToList();
+        var (map, _, _) = Line(b, joints, []);
+        return joints.Where(j => b.BindJoint(j.n) != null).Select(j => (j.n, (map.Pos(b.BindJoint(j.n)!.Value) - j.Value).Length())).Where(x => x.Item2 > 0.02f).ToList();
     }
 
     /// <summary>Maps file space into MHO space.</summary>

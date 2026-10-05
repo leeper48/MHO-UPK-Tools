@@ -82,8 +82,13 @@ sealed partial class ModelPage
     void ImportEditFbx(string? anim)
     {
         if (EditsFolder() is not string folder || ChosenPackage is not CharacterList.Item pkg) return;
-        string exported = Path.Combine(Settings.Home, "fbx", $"{model!.Folder} on {Path.GetFileNameWithoutExtension(pkg.Key)}");
-        string start = Directory.Exists(Path.Combine(exported, "anims")) && anim != null ? Path.Combine(exported, "anims") : Directory.Exists(exported) ? exported : Settings.Home;
+        // the newest export of this work (Export FBX's names: "<source> on <package>", with " - <animation>" or a number after;
+        // an FBX source has no MFF model: 2026-10-05 crash)
+        string root = Path.Combine(Settings.Home, "fbx");
+        string work = $"{model?.Folder ?? ImportBuild.SourceName(sourceFbx!)} on {Path.GetFileNameWithoutExtension(pkg.Key)}";
+        string? exported = Directory.Exists(root) ? Directory.GetDirectories(root, work + "*").OrderByDescending(Directory.GetLastWriteTimeUtc).FirstOrDefault() : null;
+        string start = exported != null && anim != null && Directory.Exists(Path.Combine(exported, "anims")) ? Path.Combine(exported, "anims")
+            : exported ?? (Directory.Exists(root) ? root : Settings.Home);
         using var dlg = new OpenFileDialog { Title = anim != null ? $"FBX for {anim}" : "FBX with the edited mesh", Filter = "FBX (*.fbx)|*.fbx", InitialDirectory = start };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         AnimEdits.Contents c;

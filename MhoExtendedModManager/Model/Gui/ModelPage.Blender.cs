@@ -123,7 +123,8 @@ sealed partial class ModelPage
         if (sync.Model is string m && File.Exists(Path.Combine(from, m)))
         {
             string kept = AnimEdits.Keep(Path.Combine(from, m), editsFolder, "blender_model");
-            if (edits.ModelFbx != kept) { edits.ModelFbx = kept; notes.Insert(0, "the mesh"); }
+            bool bones = sync.Last?.Contains("bones") == true, mesh = sync.Last == null || sync.Last.Contains("the mesh");
+            if (edits.ModelFbx != kept) { edits.ModelFbx = kept; notes.Insert(0, bones && !mesh ? "the bones" : bones ? "the mesh and bones" : "the mesh"); }
         }
         SaveBlenderLink(folder, sync.Version);
         foreach (var p in problems) Log("Blender: " + p);
