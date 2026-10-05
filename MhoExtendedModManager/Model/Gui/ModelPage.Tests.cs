@@ -224,7 +224,7 @@ sealed partial class ModelPage
         }
         if (mff.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) && File.Exists(mff))
         {
-            // an FBX with another skeleton family (Mixamo …): Source → FBX Files, then the file, as a pick from the list
+            // an FBX with another skeleton family (Mixamo …): Source → Single Model, then the file, as a pick from the list
             string key = "fbx:" + Path.GetFullPath(mff);
             if (chosenKey != key || !HasSource)
             {
@@ -236,9 +236,26 @@ sealed partial class ModelPage
             else if (model == null && sourceFbx == null) { say("the FBX didn't load as a model (no known skeleton family?): " + mff + "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
             else say($"FBX {Path.GetFileName(mff)}: {model?.Profile ?? "MHO bone names"} skeleton, {parts.Rows.Count} parts");
         }
+        else if (Directory.Exists(mff))
+        {
+            // one MFF character folder picked on its own: Source → Single Model, then the folder (as Browse for an MFF Folder
+            // leaves it: remembered, then picked from the list)
+            string dir = Path.GetFullPath(mff), key = MffDir + dir;
+            if (chosenKey != key || model == null)
+            {
+                if (!FbxMode) { sourceKind.SelectedIndex = 1; await Task.Delay(300); }
+                var recent = Settings.Current.RecentFbx;
+                if (!recent.Contains(dir, StringComparer.OrdinalIgnoreCase)) recent.Insert(0, dir);
+                FillFbx();
+                Reselect(characters, key);
+                for (int i = 0; i < 1200 && !(chosenKey == key && model != null); i++) await Task.Delay(100);
+            }
+            if (model == null) { say("the MFF folder didn't load: " + dir + "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
+            say($"MFF folder {Path.GetFileName(dir)} (Single Model): {parts.Rows.Count} parts");
+        }
         else if (chosenKey != mff || model == null)
         {
-            if (FbxMode) { sourceKind.SelectedIndex = 0; await Task.Delay(300); }   // back to MFF characters (an FBX test left it on FBX)
+            if (FbxMode) { sourceKind.SelectedIndex = 0; await Task.Delay(300); }   // back to the MFF repository (an FBX test left it on Single Model)
             characterFilter.Text = mff;
             await Task.Delay(500);
             Reselect(characters, mff);

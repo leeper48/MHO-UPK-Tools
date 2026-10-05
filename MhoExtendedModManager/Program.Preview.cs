@@ -962,6 +962,32 @@ static partial class Program
                     }
                 return 0;
             }
+            case "--bone-frames":
+            {
+                // Read-only (2026-10-05, Storm's idle twisted on Jean's Phoenix set): the first skeletal mesh of two packages,
+                // bone by bone: each shared bone's rest rotation (relative to its parent) and the angle between the two; the bones
+                // only one has. --bone-frames <a.upk> <b.upk>
+                if (rest.Count < 3) { Console.WriteLine("--bone-frames <a.upk> <b.upk>"); return 1; }
+                AnimExportCli.Meshes.MeshBone[]? Bones(string f) { var mr = ModMeshes.List([(Path.GetFileName(f), f)]).FirstOrDefault(); return mr == null ? null : ModMeshes.Load(mr, null, out _)?.Bones.ToArray(); }
+                var ba = Bones(rest[1]); var bb = Bones(rest[2]);
+                if (ba == null || bb == null) { Console.WriteLine("no skeletal mesh in one of them"); return 1; }
+                var byName = bb.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
+                int shared = 0, off = 0;
+                foreach (var x in ba)
+                {
+                    if (!byName.TryGetValue(x.Name, out var y)) continue;
+                    shared++;
+                    float dot = Math.Abs(System.Numerics.Quaternion.Dot(System.Numerics.Quaternion.Normalize(x.Orientation), System.Numerics.Quaternion.Normalize(y.Orientation)));
+                    double deg = 2 * Math.Acos(Math.Min(1, dot)) * 180 / Math.PI;
+                    string pa = x.ParentIndex >= 0 && x.ParentIndex < ba.Length ? ba[x.ParentIndex].Name : "-", pb = y.ParentIndex >= 0 && y.ParentIndex < bb.Length ? bb[y.ParentIndex].Name : "-";
+                    if (deg > 5 || !pa.Equals(pb, StringComparison.OrdinalIgnoreCase)) { off++; Console.WriteLine($"  {x.Name,-24} {deg,6:0.0}°  parent {pa}{(pa.Equals(pb, StringComparison.OrdinalIgnoreCase) ? "" : " vs " + pb)}"); }
+                }
+                Console.WriteLine($"{shared} shared bones, {off} turned more than 5° (or with another parent)");
+                Console.WriteLine("only in the first: " + string.Join(", ", ba.Where(x => !byName.ContainsKey(x.Name)).Select(x => x.Name)));
+                var an = ba.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                Console.WriteLine("only in the second: " + string.Join(", ", bb.Where(x => !an.Contains(x.Name)).Select(x => x.Name)));
+                return 0;
+            }
             case "--material-probe":
             {
                 // Read-only: each section's material (parent, switches on, parameters, maps) for a mod's meshes; with an

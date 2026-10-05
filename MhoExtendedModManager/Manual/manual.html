@@ -23,6 +23,11 @@ a { color: #0a5ac2; }
 .toc li { margin: 2px 0; }
 .sub { color: #666666; }
 ol.steps > li { margin: 10px 0; }
+figure { margin: 14px 0 20px 0; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid #c8c8c8; border-radius: 4px; }
+figcaption { font-size: 13px; color: #666666; margin-top: 5px; }
+.walk { border: 1px solid #d0d0d0; border-radius: 6px; padding: 4px 16px 10px 16px; margin: 16px 0 22px 0; }
+.walk h3 { margin-top: 12px; }
 body.dark { background: #1e1e1e; color: #dedede; }
 body.dark h2 { border-top-color: #444444; }
 body.dark code, body.dark kbd { background: #2d2d30; color: #e6e6e6; }
@@ -32,6 +37,9 @@ body.dark a { color: #6fb0ff; }
 body.dark .note { background: #1f2b38; border-left-color: #4f9be0; }
 body.dark .warn { background: #33291a; border-left-color: #e0a040; }
 body.dark .sub { color: #9a9a9a; }
+body.dark figure img { border-color: #444444; }
+body.dark figcaption { color: #9a9a9a; }
+body.dark .walk { border-color: #444444; }
 .hit { background: #ffe066; color: #000000; }
 .hit.cur { background: #ff9800; color: #000000; }
 </style>
@@ -96,6 +104,7 @@ function mhoNext(dir) {
 <p>MHO Extended Mod Manager installs, orders and removes mods for Marvel Heroes Omega. It reads and writes the same mod format as MHModManager 1.0.1, so mods made for either work in both, and it adds a lot on top: a 3D preview, an editor with an icon creator, Nexus update checks, and moving a costume mod to another costume.</p>
 <ul class="toc">
 <li><a href="#start">Getting started</a></li>
+<li><a href="#walkthroughs">Walkthroughs (step by step)</a></li>
 <li><a href="#window">The main window</a></li>
 <li><a href="#list">The mod list</a></li>
 <li><a href="#details">A mod's details</a></li>
@@ -128,12 +137,166 @@ function mhoNext(dir) {
 </ol>
 <div class="note">Everything the app keeps (your library, settings, undo history, 3D views) is in <code>data</code> next to the exe. Keep one copy of the app: a copy somewhere else has its own <code>data</code>.</div>
 
+<h2 id="walkthroughs">Walkthroughs</h2>
+<p>Step-by-step guides for the things people do most. Each links to its full section for the details. Most buttons are icons: point at one to see its name.</p>
+<ul class="toc">
+<li><a href="#w-install">Install a mod and put it in the game</a></li>
+<li><a href="#w-order">Decide which mod wins</a></li>
+<li><a href="#w-icon">Make a costume's icons from the 3D model</a></li>
+<li><a href="#w-text">Change a costume's name or text</a></li>
+<li><a href="#w-move">Wear a mod on another costume or hero</a></li>
+<li><a href="#w-colors">Recolor a hero's powers</a></li>
+<li><a href="#w-anims">Give a costume another character's animations</a></li>
+<li><a href="#w-voice">Give a costume another voice, or shift it</a></li>
+<li><a href="#w-model">Put your own model on a costume</a></li>
+<li><a href="#w-blender">Edit the model or an animation in Blender</a></li>
+<li><a href="#w-share">Share your mod</a></li>
+</ul>
+
+<div class="walk">
+<h3 id="w-install">Install a mod and put it in the game</h3>
+<ol class="steps">
+<li>Download the mod (a .zip, .7z or .rar). Close the game.</li>
+<li>Click <b>Install Mod</b> (the download arrow at the top left), or drag the archive onto the window. The mod appears at the top of the list, turned off.</li>
+<li>Tick its checkbox. The status line at the bottom now says how many game files will change.</li>
+<li>Click <b>Apply Changes</b> at the bottom right (or press <kbd>Ctrl+Enter</kbd>). A window lists what will be written; click <b>Apply</b>. When it closes, the mod is in the game.</li>
+<li>To take it out again: untick it and Apply Changes. The game's original files go back.</li>
+</ol>
+<figure><img src="img/main.jpg" alt="The Mods tab: the mod list (left), the preview with its 3D view and power buttons (middle), the selected mod's details and note (right), and Apply Changes (bottom right)."><figcaption>The Mods tab: the mod list (left), the preview with its 3D view and power buttons (middle), the selected mod's details and note (right), and Apply Changes (bottom right).</figcaption></figure>
+<figure><img src="img/apply.jpg" alt="Apply Changes shows the plan first; nothing is written until you click Apply."><figcaption>Apply Changes shows the plan first; nothing is written until you click Apply.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-order">Decide which mod wins</h3>
+<p>When two mods change the same file (two Storm costume mods for the same costume, say), the one higher in the list wins.</p>
+<ol class="steps">
+<li>Look for the colored stripe on a card's left edge: red means part of that mod loses to a higher one, amber means it only wins. Select the mod and open its <b>Conflicts</b> tab to see who wins what.</li>
+<li>Drag the card you want to win above the other (or select it and use ⤒ ▲ ▼ ⤓, or <kbd>Ctrl+Up</kbd> / <kbd>Ctrl+Down</kbd>).</li>
+<li>Apply Changes.</li>
+</ol>
+<p>See <a href="#list">The mod list</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-icon">Make a costume's icons from the 3D model</h3>
+<p>Every costume has a store image (300×420), a portrait (herohor, 180×136) and a costume icon (40×40). You can make all three from the costume's own model.</p>
+<ol class="steps">
+<li>Select the mod and click <b>Edit Mod</b> (the pencil at the bottom left). The <b>Editor</b> tab opens.</li>
+<li>Open <b>Icons</b>, then <b>Store Images</b> (or <b>Icons</b> for the portrait and costume icon). The list on the left shows the costume's own images first.</li>
+<li>Click the image to replace on the left, then the <b>Create from 3D</b> tab beside Replacements.</li>
+<li>Frame the character: drag to turn, right-drag to move, the mouse wheel to zoom. The framing buttons give the usual full body, bust or head shot. Pick a pose from the animation list and a frame with the slider; press <kbd>O</kbd> to lay the game's original over it to line things up.</li>
+<li>Click <b>Take Snapshot</b>, then <b>Use as Replacement</b>. (<b>Save Large PNG ▾</b> saves a big copy for a post instead.)</li>
+<li>Click <b>Save Changes</b> (the check mark at the bottom right), turn the mod on and Apply Changes.</li>
+</ol>
+<figure><img src="img/create-from-3d.jpg" alt="Create from 3D: model, props and pose on the left, the framed view in the middle, the snapshot and what to do with it on the right."><figcaption>Create from 3D: model, props and pose on the left, the framed view in the middle, the snapshot and what to do with it on the right.</figcaption></figure>
+<figure><img src="img/editor-icons.jpg" alt="The Icons tab: the game's images on the left (filtered to this costume), the mod's replacements, and the original next to the replacement."><figcaption>The Icons tab: the game's images on the left (filtered to this costume), the mod's replacements, and the original next to the replacement.</figcaption></figure>
+<p>To use a picture you made elsewhere instead: on the Replacements tab, pick the image on the left and load your .png or .dds; it's converted to the right size and format. See <a href="#icons">Icons and Create from 3D</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-text">Change a costume's name or text</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Strings</b>.</li>
+<li>Type the current text (the costume's name, say) into <b>Find Text or ID</b> and click <b>Search</b>. The <b>Used By</b> column says what each result belongs to (a costume's name, a hero's, an item's), so you pick the right one.</li>
+<li>Select it and click <b>Add Selected to the Mod ↓</b>; it appears under <b>This Mod's Changes</b>. Type the new text in its replacement column.</li>
+<li>Save Changes, then Apply Changes.</li>
+</ol>
+<figure><img src="img/editor-strings.jpg" alt="The Strings tab: search the game's text (top) and the mod's changes with what each string is used by (bottom)."><figcaption>The Strings tab: search the game's text (top) and the mod's changes with what each string is used by (bottom).</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-move">Wear a mod on another costume or hero</h3>
+<p>A costume mod replaces one costume. Moving it gives you a copy on another costume, so you can wear both, or puts it on a different hero altogether.</p>
+<ol class="steps">
+<li>Select the mod. Its header shows <b>Costume: … ▾</b>; click it (or right-click the card → <b>Move to Another Costume</b>).</li>
+<li>Pick a costume of the same hero, or <b>Another Hero</b> at the bottom of the list to choose a hero and then one of their costumes.</li>
+<li>The Move window shows what moves and what doesn't. Click <b>Create Mod</b>.</li>
+<li>The new mod "Name (on Costume)" is at the top of the list, turned on, with the original turned off. Apply Changes.</li>
+</ol>
+<figure><img src="img/move-costume.jpg" alt="Moving Unworthy Thor onto Thor Classic: what moves, and the new mod it makes."><figcaption>Moving Unworthy Thor onto Thor Classic: what moves, and the new mod it makes.</figcaption></figure>
+<figure><img src="img/hero-picker.jpg" alt="Another Hero: pick the hero, then one of their costumes."><figcaption>Another Hero: pick the hero, then one of their costumes.</figcaption></figure>
+<p>On another hero, the model and voice come along, while the target hero's animations and powers stay. See <a href="#costume">Move to Another Costume</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-colors">Recolor a hero's powers</h3>
+<ol class="steps">
+<li>Open the mod in the Editor (a costume mod for that hero; save a new mod once first) and go to <b>Powers</b>.</li>
+<li>Pick a power on the right. Its animation shows in the preview; press ▶ to play it with its effects.</li>
+<li>Move <b>Hue</b>, <b>Saturation</b> and <b>Brightness</b>, or click one of the power's own colors under <b>Colors in This Power</b> to replace just that color (type a hex code, or use the color wheel and its eyedropper).</li>
+<li><b>Apply to All Powers</b> gives the hero's other powers the same color. Save Changes, then Apply Changes.</li>
+</ol>
+<figure><img src="img/editor-powers.jpg" alt="The Powers tab: the power in the 3D view with its effects, the hero's powers, and the color sliders and presets."><figcaption>The Powers tab: the power in the 3D view with its effects, the hero's powers, and the color sliders and presets.</figcaption></figure>
+<p>A power's colors change for every costume of that hero. See <a href="#powers">Power colors</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-anims">Give a costume another character's animations</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Animations</b>. Click a row to play that animation on the costume.</li>
+<li>Select the animation to change (the idle, say) and click <b>Change Animation</b>, or double-click the row.</li>
+<li>Pick a character and one of its animations; it plays on the costume's model so you see it before you use it. Click to use it. The row turns amber.</li>
+<li>To take many at once, <b>Copy From a Character</b> lists every animation with the same name as one of the costume's, ticked; <b>Use Ticked</b> puts them all in.</li>
+<li>Save Changes, then Apply Changes. Only this costume changes; the hero's other costumes keep their animations.</li>
+</ol>
+<figure><img src="img/editor-animations.jpg" alt="The Animations tab: every animation the costume plays, what power it belongs to and where it comes from, with the 3D view."><figcaption>The Animations tab: every animation the costume plays, what power it belongs to and where it comes from, with the 3D view.</figcaption></figure>
+<p>See <a href="#animations">Animations</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-voice">Give a costume another voice, or shift it</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Audio → Voice</b>. If no lines show, use the button above the list to put the hero's voice in.</li>
+<li>Press ▶ on a line to hear it; untick a line to turn it off.</li>
+<li><b>Use Another Voice</b> gives the costume a whole voice from the game (another costume's, or another hero's).</li>
+<li>To make the voice higher or lower, start from <b>Female → Male</b> or <b>Male → Female</b>, adjust <b>Pitch</b>, <b>Formant</b> and <b>Warmth</b> while playing lines, then click <b>Shift This Voice</b>.</li>
+<li>Save Changes, then Apply Changes.</li>
+</ol>
+<figure><img src="img/editor-voice.jpg" alt="The Voice tab: each situation the hero speaks in, its sound, and the Voice Shift sliders above."><figcaption>The Voice tab: each situation the hero speaks in, its sound, and the Voice Shift sliders above.</figcaption></figure>
+<p>See <a href="#voice">Voice lines</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-model">Put your own model on a costume</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Model</b>. (The first time, <b>Settings → Model</b> sets the folders it reads.)</li>
+<li>Under <b>Source</b>, choose <b>MFF Repository</b> and pick a character from your MFF rip, or <b>Single Model</b> and browse for an FBX file or one MFF character's folder.</li>
+<li>Under <b>Target</b>, pick the costume package it goes on. The preview shows your model on the hero's skeleton; play animations to check it moves well.</li>
+<li>Untick parts you don't want under <b>Parts</b>. If something bends wrongly, the <b>Bone Map</b> says which hero bone drives what. <b>Materials</b> lists each material's maps.</li>
+<li>Click <b>Build into Mod</b>, then Save Changes, then turn the mod on and Apply Changes.</li>
+</ol>
+<figure><img src="img/editor-model.jpg" alt="The Model tab: the source (left), the preview (middle), the target package with Parts, Bone Map and Materials (right), and the log."><figcaption>The Model tab: the source (left), the preview (middle), the target package with Parts, Bone Map and Materials (right), and the log.</figcaption></figure>
+<p>See <a href="#model">Model</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-blender">Edit the model or an animation in Blender</h3>
+<ol class="steps">
+<li>On the Model tab, with a source and target picked: <b>Full Export ▾ → Open in Blender</b> (everything), or <b>Single Animation ▾</b> for just the animation shown. Blender opens a scene with the model and the hero's animations.</li>
+<li>Edit: the mesh and its weights (Weight Paint), bones (Edit Mode: their joints move, they keep their direction), or an animation's keys.</li>
+<li>Press <kbd>Ctrl+S</kbd> in Blender. The Model tab's log says what it took in, and its status turns green.</li>
+<li>Back in the app: <b>Build into Mod</b>, Save Changes, Apply Changes.</li>
+</ol>
+<p>For a model that came without bones, its rig is in <b>Full Export ▾ → Open the Rig in Blender</b>: fix its weights there, and each Ctrl+S re-rigs the model.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-share">Share your mod</h3>
+<ol class="steps">
+<li>In the Editor, fill in the <b>Overview → Description</b> tab: the description and what changed in this version. Pick the preview and card picture people will see.</li>
+<li>Click <b>Create Post</b> (bottom bar). It writes a Nexus post and a Discord post from the mod: what it changes, the costume, how to install. Edit them, add pictures (<b>Add Screenshots</b>, <b>Add Mod Images</b>), then <b>Copy</b> the tab you're on and paste it on Nexus or Discord. <b>Save to Mod</b> keeps the post with the mod.</li>
+<li>Select the mod in the list and click <b>Export to ZIP</b> (bottom left). The zip installs in this app and in MHModManager; its post and images are saved in a folder beside it.</li>
+</ol>
+<figure><img src="img/create-post.jpg" alt="Create Post: the Nexus and Discord versions of the post, with images to go along."><figcaption>Create Post: the Nexus and Discord versions of the post, with images to go along.</figcaption></figure>
+</div>
+
 <h2 id="window">The main window</h2>
 <p><b>Top bar:</b> <b>+ New Mod</b>, <b>Extract</b>, <b>Install Mod</b>, the game folder and whether the game is running; on the right <b>Update Available</b> (only when a new version of the app is out), <b>Help</b> and <b>Settings ▾</b>.</p>
 <p><b>Tabs:</b> <b>Mods</b> (your library), <b>Editor</b> (make or change a mod; clicking it opens the mod selected in the list) and <b>Extract</b> (save the game's own icons and strings).</p>
 <p>The <b>Mods</b> tab has three columns: the mod list on the left, the <b>Preview</b> in the middle, and the selected mod's details on the right. At the bottom: <b>Remove Mod</b>, <b>Edit Mod</b>, <b>Export to ZIP</b>, <b>Tags ▾</b>, the status line and <b>Apply Changes (N)</b>. Drag the edge between the list and the rest to make the list wider; the width is remembered.</p>
 
 <h2 id="list">The mod list</h2>
+<figure><img src="img/main.jpg" alt="The Mods tab."><figcaption>The Mods tab.</figcaption></figure>
 <p>Each mod is a card: its picture (the hero portrait or costume icon it replaces, or the game's own), its name, author, tags, the <b>P T S A</b> badges (Packages, Textures, Strings, Audio) and, on the right, whether it's on and either what it changes or the costume it's for.</p>
 <ul>
 <li><b>On / off:</b> the checkbox on the card. Nothing reaches the game until <a href="#apply">Apply Changes</a>.</li>
@@ -177,6 +340,7 @@ function mhoNext(dir) {
 <li>Sound packs are built into the game's sound files from their originals.</li>
 <li>Every file is written to a temporary copy, checked, and only then swapped in, with an undo snapshot.</li>
 </ul>
+<figure><img src="img/apply.jpg" alt="The Apply window: the plan, then Apply or Cancel."><figcaption>The Apply window: the plan, then Apply or Cancel.</figcaption></figure>
 <p>The status line says how many files are waiting ("4 File(s) to Change"). Click it, or press <b>Apply Changes</b> (<kbd>Ctrl+Enter</kbd>), to see the plan first; nothing is written until you press <b>Apply</b> in that window. When everything went well the window just closes. If something stops, it stays open with the log: files written before the stop were checked and stay; nothing after it changed.</p>
 <p><b>Checks.</b> The top of the Apply window lists anything unexpected: files that can't be changed because there's no clean original of them, and game files changed by something other than this app (another tool, a mod folder deleted by hand) that Apply leaves as they are. When a file has no clean copy, it suggests <b>Settings → Clean Game Files Folder</b> and explains how to get a clean copy from Steam: verify the game's files in Steam (which takes all mods out of the game folder), copy the CookedPCConsole folder somewhere outside the game folder, choose that copy as the clean folder, then Apply Changes again to put your mods back.</p>
 <p>A game file this app wrote earlier that no mod names any more (a mod that dropped a package when it was edited or updated, or a mod folder deleted by hand) goes back to the game's original, the same as when a mod is turned off.</p>
@@ -210,10 +374,12 @@ function mhoNext(dir) {
 </ol>
 <p>The original mod isn't changed. Moving again to a costume you've already moved to selects that mod instead.</p>
 <p>The costume icon, portrait and store image must be the game's sizes (40×40, 180×136, 300×420). An image of another size is resized for the move: scaled to fill the frame and centred, so it isn't stretched (what doesn't fit is trimmed), and a message lists what was resized and from which size.</p>
+<figure><img src="img/move-costume.jpg" alt="The Move window for a costume of the same hero."><figcaption>The Move window for a costume of the same hero.</figcaption></figure>
 <h3>To another hero</h3>
 <p>At the bottom of the costume list, <b>Another Hero</b> opens a picker: the heroes with their portraits (type in <b>Filter</b> to narrow them), then the chosen hero's costumes with their store images (the default in green). The Move window then shows what moves: the <b>model</b> with its materials and textures goes into that costume's package, and the costume icon, portrait, store image and name follow. The <b>voice</b> moves too: the costume's voice set (death, level up, hits, banter, mission lines …) is copied with its sound events, so the target hero's powers play the source's lines: the mod's own voice lines (with its sound pack) if it has them, otherwise the source hero's stock voice. What stays the target hero's: the animations and powers; parts of the model the target's skeleton doesn't move (hair, a cape) stay still. The new mod is "Name <span style="color:#f2aa3c">(on Storm Modern)</span>": amber for another hero, teal for another costume of the same hero.</p>
 <p>The voice moves too. Where the moved voice has no line for a situation the target hero has (a team-up's voice has no "can't do that yet", no death line …), that situation is turned off, so the target hero's own line doesn't play there. The Editor's Audio → Voice tab lists those lines as <b>Not in This Voice</b>; they can't be turned on, since their sounds aren't in the mod.</p>
 <p><b>Team-ups</b> work the same way, in both directions: a team-up mod (Rescue, say) can move onto a hero's costume or another team-up, and a costume mod can move onto a team-up. In the picker, all team-ups are under the <b>Team-Ups</b> tile. The moved model gets the target's sockets it lacks (where effects attach), and the sockets both have are turned to face the target's way (so a beam fires straight ahead); its animations and powers stay the target's.</p>
+<figure><img src="img/move-hero.jpg" alt="Moving a costume to another hero: the model and voice move, the target hero's animations and powers stay."><figcaption>Moving a costume to another hero: the model and voice move, the target hero's animations and powers stay.</figcaption></figure>
 <p>Capes and coats simulated with APEX cloth move along with the model, together with the model's own physics setup (the cloth needs it). A few models can't move to another hero yet, for example ones with an animated material. The Move window says so.</p>
 <p><b>Sound packs</b> come along when every sound they play belongs to the costume (as with Miles Morales' voice pack). If the original and its moved copy are both on, the pack is only added once.</p>
 <div class="note">How it works: the game finds a costume by its class name and its icons by name, so the moved package is the mod's own package with the costume's class renamed to the target's, the model and materials given their own names (so they can't mix with the original costume's), and the target costume's package ID. Textures the game streams from its texture caches keep their names, as the caches find them by name. A costume that lives in a hero's main package (for example Vision Classic, or a mod that replaces Star-Lord's main package) can't be a target, but it can be moved from: its model is copied into the target costume's own package instead, as for a move to another hero.</div>
@@ -236,6 +402,7 @@ function mhoNext(dir) {
 <tr><td>Animations</td><td>every animation the costume plays; swap any for another character's or mod's, one by one or many at once (see <a href="#animations">Animations</a>)</td></tr>
 <tr><td>Model</td><td>put a model of your own (a Marvel Future Fight character or an FBX) on one of the mod's character packages (see <a href="#model">Model</a>)</td></tr>
 </table>
+<figure><img src="img/editor-overview.jpg" alt="The Editor: name, author, version, tags and note at the top, then the tab groups (Overview, Icons, Strings, Audio, Powers, Animations, Model)."><figcaption>The Editor: name, author, version, tags and note at the top, then the tab groups (Overview, Icons, Strings, Audio, Powers, Animations, Model).</figcaption></figure>
 <p>When a mod is for one costume, the image tabs open filtered to that costume's images. <b>Create Post</b> writes a Nexus and a Discord post for the mod, with images, and keeps it with the mod.</p>
 
 <h2 id="powers">Power colors</h2>
@@ -243,6 +410,7 @@ function mhoNext(dir) {
 <p>Switching powers keeps the <b>Frame</b> slider's place: the next power opens at the same point of its animation (halfway stays halfway), so you can compare powers at the same moment.</p>
 <p>The list has every power the hero's avatar names: those with an animation, the travel power, and also procs, passives and talents that have effects of their own but no animation (Captain Marvel's Radiant Cascade glows during her other attacks). Those play nothing in the preview; their colors show in the game during the powers that set them off.</p>
 <p id="singlecolors"><b>Change single colors</b>: under the presets, <b>Colors in This Power</b> shows the colors the power really uses (read from its particles, materials and effect textures, the most used first; hover one for its hex code and where it's used). Click one to replace just that color: a row appears with the new color as a hex code (#RRGGBB, for example #20FF40) and a swatch of it. Type a hex, or click the new color's swatch for a <b>color wheel</b> (hue around, strength toward the edge, and a Brightness slider) with an <b>Eyedropper</b>: press it and drag onto any color on the screen (the 3D view, a reference picture in another window), then release to take that color. Under the wheel, <b>Recent</b> keeps your five latest colors (on this PC, for every mod; click one to use it), and <b>Reset</b> takes the color back to the power's own. Each part of the power keeps its own brightness, so a glowing core stays brighter than a faint trail; a darker hex makes that color dimmer too. <b>Range</b> sets how close a color has to be to change with it: small for only that exact color, larger for similar shades (some powers use several close blues). <b>×</b> removes a replacement. You can replace several colors, and use the sliders as well (the replacements come first, then the shift). <b>Game's Colors</b> removes both.</p>
+<figure><img src="img/editor-powers.jpg" alt="The Powers tab."><figcaption>The Powers tab.</figcaption></figure>
 <p><b>Presets</b>: five swatches under the sliders. Right-click one to store the sliders there; click it to use it on the selected power. They're kept on this PC for every mod.</p>
 <p>On <b>Save Changes</b>, each colored power's own game files are recolored: its particles, effect textures and material colors, in the power's package and those of what it sets off (missiles, hotspots, conditions, pets and summons; Thor's Rolling Thunder: 6 packages). Effects many heroes share (knockdown, slow, taunt ...) are left as they are. When a few others use the same effects (Beta Ray Bill's team-up copy of Thor's), they change too: the tab names them under the presets. They become ordinary packages of the mod, so Apply Changes puts them in the game like any other, and MHModManager can install the mod too. Nothing on the server changes.</p>
 <div class="note">A color changes the power for <b>every costume</b> of that hero, for anyone using the mod: the files are the game's own power packages. Two mods that recolor the same power conflict like any two mods with the same package (the one higher in the list wins). A few effect textures stored uncompressed keep their colors.</div>
@@ -250,11 +418,13 @@ function mhoNext(dir) {
 <h2 id="animations">Animations</h2>
 <p>The Editor's <b>Animations</b> tab lists every animation a costume plays (idle, run, emotes, attacks, power animations …), the power each belongs to, and where it comes from: the hero's own set, the costume's own, or shared ones. A costume's model lists animation sets, and a name in a later set replaces the same name in an earlier one; that's how some stock costumes have their own idle or emotes. Click a row to play it in the 3D view.</p>
 <p><b>Change Animation</b> (or double-click a row) plays another animation in its place. For a costume moved from another character, the window offers the <b>Source</b> (the character the model came from) and the <b>Target</b> (this costume as the game has it) first, each at the animation of the same name; any hero, team-up or other mod follows, with the same name first and every other animation below. Picking one plays it on the costume's model before you use it. Only the costume's own package changes: the hero and the hero's other costumes keep their animations. Changed rows are amber; <b>Back to the Original</b> undoes one. <b>Copy From a Character</b> does many at once: pick a character and every one of its animations with the same name as one of the costume's is listed, ticked (Find narrows them by name or kind, such as Emote or Movement; Tick All / Tick None act on what's shown); <b>Use Ticked</b> puts them all in. Picking the Target there undoes the ticked ones. Changes are saved with the mod.</p>
+<figure><img src="img/editor-animations.jpg" alt="The Animations tab."><figcaption>The Animations tab.</figcaption></figure>
 <h2 id="model">Model</h2>
 <p>The Editor's <b>Model</b> tab puts a model of your own on one of the mod's character packages: a Marvel Future Fight character from your own MFF rip, or an FBX file from Blender or anywhere else. The model is fitted to the hero's skeleton, so the hero's own animations, powers and props play on it. The tab has three columns: <b>Source</b> (the model), the <b>Preview</b>, and <b>Target</b> (the package it goes on). Above them, the folders it reads: <b>MFF</b> (your rip), <b>GAME</b> and <b>STOCK</b> (a clean copy of the game's packages); point at one for the full path, click to open it. They're set in <b>Settings → Model</b>.</p>
 
+<figure><img src="img/editor-model.jpg" alt="The Model tab."><figcaption>The Model tab.</figcaption></figure>
 <h3>Source and Target</h3>
-<p><b>Source</b>: <b>MFF Characters</b> (each character with its uniforms; <b>Characters Only</b> leaves out props) or <b>FBX Files</b> (the files you've used, and <b>Browse for an FBX</b>). <b>Target</b> lists the mod's costume and team-up packages; <b>From the Game</b> adds another hero's package to the mod. With no source picked, the preview shows the target's own model. <b>Build From</b> chooses what a build starts from: <b>Before the Model</b> (the default: the mod's package as it was before the tab built onto it, so the mod's other changes in it stay, and building again replaces the earlier build) or <b>The Game's Stock</b>.</p>
+<p><b>Source</b>: <b>MFF Repository</b> (the characters in your MFF repository folder, each with its uniforms; <b>Characters Only</b> leaves out props) or <b>Single Model</b>: one FBX file (<b>Browse for an FBX</b>) or one MFF character's folder on its own (<b>Browse for an MFF Folder</b>), with the ones you've used listed below. <b>Target</b> lists the mod's costume and team-up packages; <b>From the Game</b> adds another hero's package to the mod. With no source picked, the preview shows the target's own model. <b>Build From</b> chooses what a build starts from: <b>Before the Model</b> (the default: the mod's package as it was before the tab built onto it, so the mod's other changes in it stay, and building again replaces the earlier build) or <b>The Game's Stock</b>.</p>
 <p>An FBX can be:</p>
 <ul>
 <li><b>Rigged with MHO bones</b> (g_ names, as Full Export writes them): used as it is.</li>
@@ -280,11 +450,12 @@ function mhoNext(dir) {
 
 <h3>Preview, build and Blender</h3>
 <p>The preview works like the others (P plays, Esc pauses, Look, framing, full screen). <b>Compare</b> shows the hero's own model in the same pose. <b>Single Animation ▾</b> exports just the picked animation, or brings back edits made to it in Blender.</p>
-<p><b>Build into Mod</b> puts the model into the picked package; <b>Save Changes</b> keeps it and <b>Apply Changes</b> puts it in the game like any other package of the mod. <b>Full Export ▾</b> writes the model and all the hero's animations as FBX files (<b>Export FBX</b>), or opens them in a new Blender scene (<b>Open in Blender</b>). In that scene, every <b>Ctrl+S</b> sends what you changed (the mesh, its weights, bones moved in Edit Mode, the animations whose keys changed) back to the tab, from a Single Animation scene too; a moved bone keeps its orientation and only its joint moves; the status line turns green, and the next build uses it. <b>Settings → Model</b> chooses the Blender, installs the optional MHO Actions add-on, opens the exports folder, and <b>Clean Up Exports and Rigs</b> lists old exports and rigs to delete. <b>Undo</b> and <b>Redo</b> (Ctrl+Z / Ctrl+Y) cover the parts, the bone map, the material and the Materials tab.</p>
+<p><b>Build into Mod</b> puts the model into the picked package; <b>Save Changes</b> keeps it and <b>Apply Changes</b> puts it in the game like any other package of the mod. <b>Full Export ▾</b> writes the model and all the hero's animations as FBX files (<b>Export FBX</b>), or opens them in a new Blender scene (<b>Open in Blender</b>). In that scene, every <b>Ctrl+S</b> sends what you changed (the mesh, its weights, bones moved in Edit Mode, the animations whose keys changed) back to the tab, from a Single Animation scene too; a moved bone keeps its orientation and only its joint moves; the status line turns green, and the next build uses it. <b>Settings → Model</b> chooses the Blender, installs the optional MHO Actions add-on, opens the exports folder, and <b>Clean Up Exports and Rigs</b> lists old exports and rigs to delete. <b>Undo</b> and <b>Redo</b> (Ctrl+Z / Ctrl+Y) cover the parts, the bone map, the material and the Materials tab. The ⛶ in the log's top right corner shows the log full screen (it keeps filling during a build); <kbd>Esc</kbd> or ⛶ come back.</p>
 <p>The tab's work (your choices, bone map changes, material files, the rig and FBX edits, and the package as it was before the model) is kept in the mod's <code>Model</code> folder, so editing the mod later continues where you left off. A full export carries it along; a legacy export leaves it out. Only the game's existing packages change, and only through Apply Changes; nothing on the server changes.</p>
 
 <h2 id="voice">Voice lines</h2>
 <p>The Editor's <b>Audio → Voice</b> tab lists the voice set of the mod's costume packages: the <b>Situation</b> (Death, Level Up, Crit Hit Landed, Banter …), extra <b>Detail</b> (the enemy type or mission) and the <b>Sound Event</b> it plays. Only costumes with their own voice set have lines here: a voice mod, or a costume moved to another hero (which brings its voice along). For any other costume, <b>Use Another Voice</b> (or the hero's-voice button the tab offers) puts a voice in first.</p>
+<figure><img src="img/editor-voice.jpg" alt="The Voice tab."><figcaption>The Voice tab.</figcaption></figure>
 <p><b>To shift a voice</b> (for example a female voice to male):</p>
 <ol>
 <li>Open the mod in the Editor and go to <b>Audio → Voice</b>. If no lines show, use the button above the list (or <b>Use Another Voice</b>) to put the hero's voice in.</li>
@@ -304,10 +475,12 @@ function mhoNext(dir) {
 </ul>
 
 <h2 id="icons">Icons and Create from 3D</h2>
-<p>In the icon, store and portrait tabs, <b>Create from 3D</b> makes the image from the character itself: frame it (drag, pan, zoom), pick a pose and frame from the animations, a lens and the light, <b>Spec</b> / <b>Reflect</b> / <b>Glow</b> (shared with the main preview; the snapshot is taken as shown), show the weapon or prop, and lay the game's original over it to line things up (<kbd>O</kbd>). Characters start facing the camera; the <b>Turn</b> slider turns them (0° = straight on), and <b>Reset View</b> goes back to the usual framing, facing front, with the standard lens and light. The snapshot is made at the original's exact size. Each icon remembers its setup; <b>Use Previous Setup</b> copies the last one.</p>
+<p>In the icon, store and portrait tabs, <b>Create from 3D</b> makes the image from the character itself: frame it (drag, pan, zoom), pick a pose and frame from the animations, a lens and the light, <b>Spec</b> / <b>Reflect</b> / <b>Glow</b> (shared with the main preview; the snapshot is taken as shown), show the weapon or prop, and lay the game's original over it to line things up (<kbd>O</kbd>). Characters start facing the camera; the <b>Turn</b> slider turns them (0° = straight on), and <b>Reset View</b> goes back to the usual framing, facing front, with the standard lens and light. The snapshot is made at the original's exact size (the game only takes that size). For a post or promo shot, <b>Save Large PNG ▾</b> saves the framed view at 1024 or 2048 pixels, square (more room at the sides) or in the icon's shape, on the same background; it stays out of the mod. Each icon remembers its setup; <b>Use Previous Setup</b> copies the last one.</p>
+<figure><img src="img/create-from-3d.jpg" alt="Create from 3D."><figcaption>Create from 3D.</figcaption></figure>
 <p>Click the Original, Replacement or Snapshot picture to look closer: fit, 1:1, zoom, full screen (<kbd>F11</kbd>) and save as PNG (<kbd>Ctrl+S</kbd>).</p>
 
 <h2 id="extract">Extract</h2>
+<figure><img src="img/extract.jpg" alt="The Extract tab: the game's images in a package, with a preview of the selected one."><figcaption>The Extract tab: the game's images in a package, with a preview of the selected one.</figcaption></figure>
 <p>The <b>Extract</b> tab saves the game's own images (as .dds or .png) and strings (as a language .json in the mod format), always from the clean originals, never from files mods have changed.</p>
 
 <h2 id="nexus">Nexus</h2>

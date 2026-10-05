@@ -41,6 +41,16 @@ sealed class HelpForm : Form
             .Replace("<!--VERSION-->", Program.Version)
             .Replace("<body>", "<body class=\"dark\">")
             .Replace("</head>", zoomPercent == 100 ? "</head>" : $"<style>body {{ zoom: {zoomPercent}%; }}</style></head>");
+        // the screenshots (Manual\img): put in the page itself, since it's written to %TEMP% and marked as from the
+        // internet (the built-in browser wouldn't load a local file from there)
+        string imgDir = Path.Combine(AppContext.BaseDirectory, "Manual", "img");
+        html = System.Text.RegularExpressions.Regex.Replace(html, "src=\"img/([^\"/]+)\"", m =>
+        {
+            string f = Path.Combine(imgDir, m.Groups[1].Value);
+            if (!File.Exists(f)) return m.Value;
+            string type = Path.GetExtension(f).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
+            return $"src=\"data:{type};base64,{Convert.ToBase64String(File.ReadAllBytes(f))}\"";
+        });
         string file = Path.Combine(Path.GetTempPath(), fileName);
         File.WriteAllText(file, html);
         return file;

@@ -226,7 +226,7 @@ sealed partial class ModelPage
         restoring2 = false;
         if (st.Source == null) return;
         pendingState = st;
-        if (st.Source.StartsWith("fbx:")) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
+        if (st.Source.StartsWith("fbx:") || st.Source.StartsWith(MffDir)) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
         else characterFilter.Text = st.Source;
         Reselect(characters, st.Source);
     }

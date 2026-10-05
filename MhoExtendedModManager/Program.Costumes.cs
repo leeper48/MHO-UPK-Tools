@@ -189,7 +189,9 @@ static partial class Program
                 // The alternate-set test (2026-10-04, Jean Grey's Phoenix animations): builds (never into the game) a costume
                 // package whose own alias list points <alias> at a set of donor animations, reads it back, and with --zip makes
                 // an installable test mod. --alias-swap <costume.upk> <hero base.upk> <alias> <slot>=<donor.upk>:<animation> [...]
-                //   --build <dir> [--zip <mod name>]   (packages by path or by file name in the game folder)
+                //   --build <dir> [--zip <mod name>] [--whole]   (packages by path or by file name in the game folder)
+                // --whole (2026-10-05, after the first test: the form's set is used alone): the hero's whole alternate set, with
+                // the donors' animations fitted to its bones (AnimSwap.FitTracks) in place of its own
                 string? agr2 = settings.ResolvedGameRoot(data);
                 string? acook = agr2 != null && Settings.IsGameRoot(agr2) ? Settings.Cooked(agr2) : null;
                 int abAt = rest.IndexOf("--build"), azAt = rest.IndexOf("--zip");
@@ -208,8 +210,29 @@ static partial class Program
                     string slot = arg[..arg.IndexOf('=')], dfile = arg[(arg.IndexOf('=') + 1)..arg.LastIndexOf(':')], dname = arg[(arg.LastIndexOf(':') + 1)..];
                     string? dpath = Find(dfile.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? dfile : dfile + ".upk");
                     if (dpath == null) { Console.WriteLine($"no donor package {dfile}"); return 1; }
-                    var da = CostumeAnims.Read(dpath, Path.GetFileName(dpath), CostumeAnims.FilesFor(null, acook))?.Anims.FirstOrDefault(x => x.Name.Equals(dname, StringComparison.OrdinalIgnoreCase));
-                    if (da == null || da.From.File == null) { Console.WriteLine($"{dfile} has no animation '{dname}'"); return 1; }
+                    // <animation>, or <set>/<animation> for a set the game's list doesn't pick (a control test from another set)
+                    string? dsetName = dname.Contains('/') ? dname[..dname.IndexOf('/')] : null;
+                    if (dsetName != null) dname = dname[(dname.IndexOf('/') + 1)..];
+                    var dread = CostumeAnims.Read(dpath, Path.GetFileName(dpath), CostumeAnims.FilesFor(null, acook));
+                    var da = dread?.Anims.Concat(dread.Anims.SelectMany(x => x.Overrides.Select(o => x with { From = o, Export = o.Sequences.FirstOrDefault(q => q.Name.Equals(x.Name, StringComparison.OrdinalIgnoreCase), (Name: "", Export: -1)).Export }))).FirstOrDefault(x => x.Name.Equals(dname, StringComparison.OrdinalIgnoreCase) && (dsetName == null || x.From.Path.EndsWith("." + dsetName, StringComparison.OrdinalIgnoreCase)));
+                    if ((da == null || da.Export < 0) && dsetName != null)
+                    {
+                        // a set no list names (a form's set: a control test copies one of its own animations back)
+                        var dpk0 = AnimExportCli.Packages.Package.Open(dpath);
+                        var mp0 = MhoPackageModifier.Package.Open(dpath);
+                        foreach (var si in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(dpk0))
+                        {
+                            string sp = mp0.PathOf(mp0.Exports[si.ExportIndex]);
+                            if (!sp.EndsWith("." + dsetName, StringComparison.OrdinalIgnoreCase)) continue;
+                            int sq = si.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).FirstOrDefault(i => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(dpk0, i).Equals(dname, StringComparison.OrdinalIgnoreCase), -1);
+                            if (sq < 0) continue;
+                            var set0 = new CostumeAnims.Set(0, sp, Path.GetFileNameWithoutExtension(dpath), dpath, si.ExportIndex, CostumeAnims.Source.Other, false, si.TrackBoneNames,
+                                si.RotationOnly ? new HashSet<string>(si.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null, []);
+                            da = new CostumeAnims.Anim(dname, set0, sq, []);
+                            break;
+                        }
+                    }
+                    if (da == null || da.From.File == null || da.Export < 0) { Console.WriteLine($"{dfile} has no animation '{dname}'"); return 1; }
                     aswaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export));
                     adonors[slot] = da;
                     Console.WriteLine($"{aliasName} · {slot} ← {da.From.PackageName}.upk · {da.From.Path} · {da.Name}");
@@ -217,7 +240,8 @@ static partial class Program
                 if (aswaps.Count == 0) { Console.WriteLine("no swaps given (slot=donor.upk:animation)"); return 1; }
                 var alog = new List<string>();
                 byte[] abuilt;
-                try { abuilt = AnimSwap.BuildAlias(cpath, cClass, hpath, hClass, aliasName, aswaps, alog); }
+                bool awhole = rest.Contains("--whole");
+                try { abuilt = AnimSwap.BuildAlias(cpath, cClass, hpath, hClass, aliasName, aswaps, alog, awhole); }
                 catch (InvalidDataException ex) { foreach (string l in alog) Console.WriteLine("  " + l); Console.WriteLine("can't: " + ex.Message); return 1; }
                 foreach (string l in alog) Console.WriteLine("  " + l);
                 Directory.CreateDirectory(aout);
@@ -238,12 +262,64 @@ static partial class Program
                 {
                     var seq = setInfo.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).FirstOrDefault(i => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, i).Equals(slot, StringComparison.OrdinalIgnoreCase), -1);
                     if (seq < 0) { abad++; Console.WriteLine($"  FAIL {slot}: not in the aliased set"); continue; }
+                    if (awhole)
+                    {
+                        // every bone both sets have: the donor's keys exactly; the others hold one key
+                        var dpk = AnimExportCli.Packages.Package.Open(da.Ref.File);
+                        var dsets = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(dpk).ToList();
+                        var dset = dsets.First(i => i.ExportIndex == da.From.Export);   // the set the game finds it in (the swap's)
+                        var lists = dsets.Where(i => i.Sequences.Any(r => r.IsExport && r.ExportIndex == da.Ref.SequenceExport)).ToList();
+                        if (lists.Count != 1 || lists[0].ExportIndex != dset.ExportIndex || lists.Any(i => !i.TrackBoneNames.SequenceEqual(dset.TrackBoneNames)))
+                            Console.WriteLine($"  note {slot}: listed by {lists.Count} set(s) (#{string.Join(", #", lists.Select(i => i.ExportIndex))}), the swap's set #{dset.ExportIndex}; bone order the same in all: {lists.All(i => i.TrackBoneNames.SequenceEqual(dset.TrackBoneNames))}");
+                        var dx = AnimExportCli.Animation.AnimObjectReader.TryRead(dpk, da.Ref.SequenceExport, dset.TrackBoneNames);
+                        var oy = AnimExportCli.Animation.AnimObjectReader.TryRead(ap, seq, setInfo.TrackBoneNames);
+                        int shared = 0, differ = 0, single = 0;
+                        if (dx != null && oy != null)
+                            foreach (var (bone, t) in oy.Tracks)
+                            {
+                                if (dx.Tracks.TryGetValue(bone, out var dt))
+                                {
+                                    shared++;
+                                    if (!t.PositionKeys.SequenceEqual(dt.PositionKeys) || !t.RotationKeys.SequenceEqual(dt.RotationKeys))
+                                    {
+                                        if (differ++ == 0) Console.WriteLine($"  first difference {bone}: pos {t.PositionKeys.Count} vs {dt.PositionKeys.Count} keys, rot {t.RotationKeys.Count} vs {dt.RotationKeys.Count}; first rot {(t.RotationKeys.Count > 0 ? t.RotationKeys[0].ToString() : "-")} vs {(dt.RotationKeys.Count > 0 ? dt.RotationKeys[0].ToString() : "-")}; first pos {(t.PositionKeys.Count > 0 ? t.PositionKeys[0].ToString() : "-")} vs {(dt.PositionKeys.Count > 0 ? dt.PositionKeys[0].ToString() : "-")}");
+                                    }
+                                }
+                                else if (t.RotationKeys.Count == 1) single++;
+                                else differ++;
+                            }
+                        bool wok = dx != null && oy != null && differ == 0 && shared > 0;
+                        if (!wok) abad++;
+                        int setSeqs = setInfo.Sequences.Count(r => r.IsExport);
+                        Console.WriteLine($"  {(wok ? "ok  " : "FAIL")} {slot}: {shared} bone(s) with the donor's keys{(differ > 0 ? $", {differ} DIFFERENT" : "")}, {single} held on one key; the set lists {setSeqs} animations");
+                        continue;
+                    }
                     var mine = new AnimRef(Path.GetFileName(aoutPath), aoutPath, slot, seq, setInfo.TrackBoneNames) { TranslationBones = setInfo.RotationOnly ? new HashSet<string>(setInfo.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null };
                     var x = ModAnimations.Load(da.Ref); var y = ModAnimations.Load(mine);
                     bool same = x != null && y != null && x.Tracks.Count == y.Tracks.Count && x.Tracks.All(kv => y.Tracks.TryGetValue(kv.Key, out var t)
                         && t.PositionKeys.SequenceEqual(kv.Value.PositionKeys) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys));
                     if (!same) abad++;
                     Console.WriteLine($"  {(same ? "ok  " : "FAIL")} {slot}: {y?.Tracks.Count ?? 0} tracks {(same ? "identical to the donor's" : "differ from the donor's")}");
+                }
+                if (awhole && setInfo != null)
+                {
+                    // the set's other animations: the hero's own, decoded identically
+                    var hpk = AnimExportCli.Packages.Package.Open(hpath);
+                    var hInfo = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(hpk).FirstOrDefault(i => i.TrackBoneNames.SequenceEqual(setInfo.TrackBoneNames) && i.Sequences.Count == setInfo.Sequences.Count);
+                    int same = 0, other = 0;
+                    if (hInfo == null) { abad++; Console.WriteLine("  FAIL the hero's set to compare with wasn't found"); }
+                    else foreach (int i in setInfo.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex))
+                    {
+                        string nm = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, i);
+                        if (adonors.ContainsKey(nm)) continue;
+                        int hi = hInfo.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).FirstOrDefault(j => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(hpk, j).Equals(nm, StringComparison.OrdinalIgnoreCase), -1);
+                        var a1 = AnimExportCli.Animation.AnimObjectReader.TryRead(ap, i, setInfo.TrackBoneNames);
+                        var a2 = hi < 0 ? null : AnimExportCli.Animation.AnimObjectReader.TryRead(hpk, hi, hInfo.TrackBoneNames);
+                        bool eq = (a1 == null && a2 == null && hi >= 0) || (a1 != null && a2 != null && a1.Tracks.Count == a2.Tracks.Count && a1.Tracks.All(kv => a2.Tracks.TryGetValue(kv.Key, out var t2) && t2.PositionKeys.SequenceEqual(kv.Value.PositionKeys) && t2.RotationKeys.SequenceEqual(kv.Value.RotationKeys)));
+                        if (eq) same++; else { other++; Console.WriteLine($"  FAIL {nm}: not the hero's"); }
+                    }
+                    if (other > 0) abad++;
+                    Console.WriteLine($"  {(other == 0 ? "ok  " : "FAIL")} the set's other animations: {same} identical to the hero's{(other > 0 ? $", {other} not" : "")}");
                 }
                 Console.WriteLine(abad == 0 ? "PASS" : $"{abad} problem(s)");
                 if (abad == 0 && azAt >= 0 && azAt + 1 < rest.Count)

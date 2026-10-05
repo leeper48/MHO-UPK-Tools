@@ -171,7 +171,9 @@ sealed class IconCreatorView : UserControl
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.TopDown };
         saveBtn = Ui.FlatButton("Save as .PNG", SavePng, tip: "Save the snapshot as a PNG file (it stays out of the mod).");
         useBtn = Ui.AccentButton("Use as Replacement", UseIt, tip: "Put the snapshot into the mod as the replacement for the selected texture (converted like a chosen PNG).");
-        buttons.Controls.AddRange([Ui.AccentButton("Take Snapshot", Snap, tip: "Render the framed view at the texture's size (smooth edges) and show it above."), useBtn, saveBtn]);
+        Button? largeBtn = null;
+        largeBtn = Ui.FlatButton("Save Large PNG ▾", () => LargeMenu(largeBtn!), tip: "A large picture of the framed view for a post or promo shot (1024 or 2048 px; square or the icon's shape), saved as PNG. It stays out of the mod: the game only takes the icon's own size.");
+        buttons.Controls.AddRange([Ui.AccentButton("Take Snapshot", Snap, tip: "Render the framed view at the texture's size (smooth edges) and show it above."), useBtn, saveBtn, largeBtn]);
         useBtn.Enabled = saveBtn.Enabled = false;
         right.Controls.Add(buttons, 0, 3);
         right.Controls.Add(status, 0, 4);
@@ -663,6 +665,57 @@ sealed class IconCreatorView : UserControl
         catch (System.Runtime.InteropServices.ExternalException ex) { Dialog.Show(this, $"{Path.GetFileName(d.FileName)} can't be saved: {ex.Message}", "Create from 3D"); }
     }
 
+    // --- large pictures (a user, 2026-10-03: a 1024 × 1024 store image for a promo shot): rendered from the view as framed
+    // (the height is the viewfinder's; a square adds room at the sides), on the same background, never into the mod -------------
+    void LargeMenu(Control button)
+    {
+        var m = new ContextMenuStrip();
+        foreach (int size in new[] { 1024, 2048 })
+        {
+            int shapeW = (int)Math.Round(size * (double)SnapW / SnapH);
+            m.Items.Add(new ToolStripMenuItem($"{size} × {size} (Square)", null, (_, _) => SaveLarge(size, size)));
+            if (shapeW != size) m.Items.Add(new ToolStripMenuItem($"{shapeW} × {size} (Icon's Shape)", null, (_, _) => SaveLarge(shapeW, size)));
+        }
+        Ui.ShowUnder(m, button);
+    }
+
+    void SaveLarge(int w, int h)
+    {
+        if (loaded == null) { status.Text = "Choose a Character First"; return; }
+        using var d = new SaveFileDialog { Title = "Save Large PNG", Filter = "PNG image (*.png)|*.png", FileName = $"{texture}_{w}x{h}.png" };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            using var big = Large(w, h);
+            if (big == null) return;
+            big.Save(d.FileName, ImageFormat.Png);
+            status.Text = Ui.TitleCase($"Saved {Path.GetFileName(d.FileName)} ({w}×{h})");
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or IOException or UnauthorizedAccessException)
+        { Dialog.Show(this, $"{Path.GetFileName(d.FileName)} can't be saved: {ex.Message}", "Create from 3D"); }
+        finally { Cursor = Cursors.Default; }
+    }
+
+    /// <summary>The view at w × h (2× supersampled: smooth edges at this size), over the background scaled to cover it.</summary>
+    internal Bitmap? Large(int w, int h)
+    {
+        using var model = view.Snapshot(w, h, supersample: 2);
+        if (model == null) return null;
+        var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.Clear(Color.Transparent);
+        if (view.Backdrop is { } b)
+        {
+            float k = Math.Max((float)w / b.Width, (float)h / b.Height);   // cover, centered (a square from the portrait backdrop)
+            float bw = b.Width * k, bh = b.Height * k;
+            g.DrawImage(b, (w - bw) / 2, (h - bh) / 2, bw, bh);
+        }
+        g.DrawImage(model, 0, 0, w, h);
+        return bmp;
+    }
+
     void UseIt()
     {
         if (snapshot == null) return;
@@ -725,6 +778,12 @@ sealed class IconCreatorView : UserControl
         {
             Directory.CreateDirectory(dir);
             snapshot.Save(Path.Combine(dir, texture + ".png"), ImageFormat.Png);
+            // the large pictures (Save Large PNG): a square and the icon's shape
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using (var sq = Large(1024, 1024)) sq?.Save(Path.Combine(dir, texture + "_1024x1024.png"), ImageFormat.Png);
+            int shapeW = (int)Math.Round(1024.0 * SnapW / SnapH);
+            using (var sh = Large(shapeW, 1024)) sh?.Save(Path.Combine(dir, $"{texture}_{shapeW}x1024.png"), ImageFormat.Png);
+            searchNote += $"; large PNGs 1024² and {shapeW}×1024 in {sw.ElapsedMilliseconds} ms";
             var form = FindForm()!;
             using var b = new Bitmap(form.Width, form.Height); form.DrawToBitmap(b, new Rectangle(0, 0, form.Width, form.Height)); b.Save(Path.Combine(dir, texture + "_window.png"));
         }

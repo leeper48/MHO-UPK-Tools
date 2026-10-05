@@ -175,7 +175,16 @@ sealed partial class ModelPage : UserControl
         right.Controls.Add(actions, 0, 3);
         body.Controls.Add(right, 2, 0);
 
-        root.Controls.Add(Column("LOG", null, log), 0, 2);
+        // ⛶ inside the log's top right corner (Kurt: inline with the text field); it travels with the log to full screen
+        logFullButton = Ui.FlatButton("⛶", ToggleLogFull, LogFullTip);
+        logFullButton.Margin = new Padding(0);
+        logFullButton.Cursor = Cursors.Default;
+        log.Controls.Add(logFullButton);
+        void PlaceLogButton() => logFullButton.Location = new Point(Math.Max(0, log.ClientSize.Width - logFullButton.Width - 4), 4);
+        log.Resize += (_, _) => PlaceLogButton();
+        logFullButton.SizeChanged += (_, _) => PlaceLogButton();
+        logHome = Column("LOG", null, log);
+        root.Controls.Add(logHome, 0, 2);
 
         // parts table: a check per part, its kind, size
         // the check boxes are toggled by our own click / Space handling (0.10.18, Kurt: they couldn't be changed); read only
@@ -222,9 +231,10 @@ sealed partial class ModelPage : UserControl
         SearchBox.AddClear(packageFilter);
         characterFilter.TextChanged += (_, _) => FillCharacters();
         heroesOnly.CheckedChanged += (_, _) => FillCharacters();
-        sourceKind.Items.AddRange(["MFF Characters", "FBX Files"]);
+        // (Kurt, 2026-10-05: "MFF Repository" for the bulk library, "Single Model" for one FBX file or one MFF character folder)
+        sourceKind.Items.AddRange(["MFF Repository", "Single Model"]);
         sourceKind.SelectedIndex = 0;
-        Ui.Tip(sourceKind, "Where the model comes from: an MFF character (retargeted onto the base hero), or an FBX file with an MHO skeleton (g_ bone names), e.g. one made with Export FBX and cleaned up in Blender.");
+        Ui.Tip(sourceKind, "Where the model comes from: MFF Repository = a character from your MFF repository folder (retargeted onto the base hero); Single Model = one FBX file (MHO, Mixamo or other skeleton, or no armature) or one MFF character folder picked on its own.");
         sourceKind.SelectedIndexChanged += (_, _) =>
         {
             chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
@@ -244,8 +254,9 @@ sealed partial class ModelPage : UserControl
         {
             if (e.KeyCode is Keys.Enter or Keys.Space && characters.SelectedItem is CharacterList.Item { Header: true } h) { ToggleGroup(h); e.Handled = true; }
         };
-        characters.Thumb = it => it.Key.StartsWith("browse:") ? null
+        characters.Thumb = it => it.Key.StartsWith("browse") ? null
             : it.Key.StartsWith("fbx:") ? (File.Exists(it.Key[4..]) ? Thumbs.Fbx(it.Key[4..]) : null)   // (its color map: Kurt, 2026-10-04)
+            : it.Key.StartsWith(MffDir) ? (Directory.Exists(it.Key[MffDir.Length..]) ? Thumbs.Model(it.Key[MffDir.Length..]) : null)
             : Thumbs.Model(it.ThumbKey ?? it.Key);
         packages.Thumb = it => Thumbs.BaseHero(it.ThumbKey ?? it.Key);
         packages.MouseUp += (_, e) =>
@@ -292,6 +303,46 @@ sealed partial class ModelPage : UserControl
     }
 
     // --- layout helpers -------------------------------------------------------------------------------------------------------
+    // --- the log full screen (Kurt, 2026-10-05): the same text box moved into a borderless window on this monitor, so it keeps
+    // filling while a build runs, and moved back
+    Control? logHome;
+    Button? logFullButton;
+    Form? logFull;
+    const string LogFullTip = "Full screen: the log fills the screen (it keeps filling during a build). Esc or ⛶ come back.";
+
+    void ToggleLogFull()
+    {
+        if (logFull != null) { logFull.Close(); return; }
+        if (logHome is not TableLayoutPanel home || logFullButton == null) return;
+        var f = new Form
+        {
+            FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = Screen.FromControl(this).Bounds,
+            BackColor = log.BackColor, KeyPreview = true, ShowInTaskbar = false, Text = "Log", Icon = FindForm()?.Icon,
+        };
+        var bar = new Label { Text = "LOG", Dock = DockStyle.Top, AutoSize = true, ForeColor = Ui.Subtle, Font = Ui.Bold(9f), BackColor = Color.FromArgb(30, 30, 36), Padding = new Padding(10, 6, 0, 6) };   // its own height (a fixed 28 px clipped it at 150 %)
+        Ui.Tip(logFullButton, "Back: the log returns to the Model tab (Esc).");
+        home.Controls.Remove(log);
+        log.Dock = DockStyle.Fill;
+        f.Controls.Add(log); f.Controls.Add(bar);
+        f.KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) { e.Handled = true; f.Close(); } };
+        f.FormClosed += (_, _) =>
+        {
+            f.Controls.Remove(log);
+            home.Controls.Add(log, 0, 2);
+            logFull = null;
+            Ui.Tip(logFullButton, LogFullTip);
+            log.SelectionStart = log.TextLength; log.ScrollToCaret();
+            f.Dispose();
+        };
+        var (bc, fc, fo) = (log.BackColor, log.ForeColor, log.Font);
+        Ui.Restyle(f);
+        (log.BackColor, log.ForeColor, log.Font) = (bc, fc, fo);
+        (bar.ForeColor, bar.BackColor, bar.Font) = (Ui.Subtle, Color.FromArgb(30, 30, 36), Ui.Bold(9f));
+        logFull = f;
+        f.Show(FindForm());
+        log.SelectionStart = log.TextLength; log.ScrollToCaret();
+    }
+
     static Control Column(string caption, Control? head, Control content, bool autoHeight = false)
     {
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = Color.Transparent, Margin = new Padding(4), AutoSize = autoHeight };
@@ -442,12 +493,24 @@ sealed partial class ModelPage : UserControl
         if (top < characters.Items.Count) characters.TopIndex = top;
     }
 
-    /// <summary>FBX mode's list: Browse first, then the exports (data\fbx\*\model.fbx) and the FBX files picked before.</summary>
+    /// <summary>A Single Model pick that is one MFF character folder (outside the repository): "mffdir:" + its path.</summary>
+    const string MffDir = "mffdir:";
+
+    /// <summary>Single Model's list: Browse (an FBX, an MFF folder) first, then the exports (data\fbx\*\model.fbx) and the
+    /// FBX files and MFF folders picked before.</summary>
     void FillFbx()
     {
         string f = characterFilter.Text.Trim();
         characters.BeginUpdate(); characters.Items.Clear();
-        characters.Items.Add(new CharacterList.Item("browse:", "Browse for an FBX", "any FBX with an MHO skeleton (g_ bone names)"));
+        characters.Items.Add(new CharacterList.Item("browse:", "Browse for an FBX", "any FBX: MHO, Mixamo or other skeleton, or no armature"));
+        characters.Items.Add(new CharacterList.Item("browsedir:", "Browse for an MFF Folder", "one MFF character's folder (its model and textures), outside the repository"));
+        foreach (var dir0 in Settings.Current.RecentFbx.Where(Directory.Exists))
+        {
+            string name = Path.GetFileName(dir0.TrimEnd('\\', '/'));
+            var (title, _) = MffNames.Describe(name);
+            if (f.Length > 0 && !$"{title} {name} {dir0}".Contains(f, StringComparison.OrdinalIgnoreCase)) continue;
+            characters.Items.Add(new CharacterList.Item(MffDir + dir0, title, $"MFF folder · {dir0}"));
+        }
         var files = new List<string>();
         string dir = Path.Combine(Settings.Home, "fbx");
         if (Directory.Exists(dir)) files.AddRange(Directory.EnumerateFiles(dir, "model.fbx", SearchOption.AllDirectories).OrderByDescending(File.GetLastWriteTimeUtc));
@@ -541,13 +604,16 @@ sealed partial class ModelPage : UserControl
     {
         if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Key == chosenKey) return;
         if (it.Key == "browse:") { BrowseFbx(); return; }
+        if (it.Key == "browsedir:") { BrowseMffFolder(); return; }
         if (it.Key.StartsWith("fbx:")) { FbxChosen(it.Key); return; }
         chosenKey = it.Key; sourceFbx = null; unrigged = null;
         model = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
+        // an MFF folder picked on its own (Single Model) loads by its path; a repository character by its folder name
+        string src = it.Key.StartsWith(MffDir) ? it.Key[MffDir.Length..] : it.Key;
         try
         {
-            var m = await Task.Run(() => MffModel.Load(Source.ResolveModelFile(it.Key)));
+            var m = await Task.Run(() => MffModel.Load(Source.ResolveModelFile(src)));
             if ((characters.SelectedItem as CharacterList.Item)?.Key != it.Key) return;   // another one was picked meanwhile
             model = m;
             foreach (var p in m.Parts)
@@ -557,7 +623,7 @@ sealed partial class ModelPage : UserControl
             }
             // Suggest the base hero: filter the packages to the character's name, or the simplest form of it that finds any
             // ("Hulkbuster (Iron Man Mark 44)" → "Hulkbuster", "Iron Man Mark 44", "Iron Man" ...).
-            var (title, _) = MffNames.Describe(it.Key);
+            var (title, _) = MffNames.Describe(Path.GetFileName(src.TrimEnd('\\', '/')));
             if (gameList && title != it.Key && SuggestFilter(title) is string sf) packageFilter.Text = sf;
             SchedulePreview();
             Log($"{it.Title} ({it.Key}): {m.Parts.Count} parts, {m.Parts.Count(p => p.DefaultOn)} ticked by default.");
@@ -580,6 +646,24 @@ sealed partial class ModelPage : UserControl
         Settings.Current.Save();
         FillFbx();
         Reselect(characters, "fbx:" + dlg.FileName);
+    }
+
+    /// <summary>Picks one MFF character folder (Single Model, Kurt 2026-10-05): a folder with its model (.fbx / .dae / .obj) and
+    /// textures, used like a repository character; remembered with the picked FBX files.</summary>
+    void BrowseMffFolder()
+    {
+        using var dlg = new FolderBrowserDialog { Description = "One MFF character's folder (its model and textures)", UseDescriptionForTitle = true };
+        if (dlg.ShowDialog(this) != DialogResult.OK) { if (chosenKey != null) Reselect(characters, chosenKey); return; }
+        string dir = dlg.SelectedPath;
+        try { Source.ResolveModelFile(dir); }
+        catch (FileNotFoundException) { Log($"{dir}: no model in it (.fbx, .dae or .obj directly in the folder): pick the character's own folder."); if (chosenKey != null) Reselect(characters, chosenKey); return; }
+        var recent = Settings.Current.RecentFbx;
+        recent.RemoveAll(x => x.Equals(dir, StringComparison.OrdinalIgnoreCase));
+        recent.Insert(0, dir);
+        if (recent.Count > 20) recent.RemoveRange(20, recent.Count - 20);
+        Settings.Current.Save();
+        FillFbx();
+        Reselect(characters, MffDir + dir);
     }
 
     /// <summary>An FBX file as the source: its meshes become the parts (all ticked); the base hero is suggested from an
@@ -645,7 +729,7 @@ sealed partial class ModelPage : UserControl
     {
         bool ready = HasSource && ChosenPackage != null && !building;
         buildButton.Enabled = ready; fbxButton.Enabled = ready;
-        status.Text = building ? "Building…" : !HasSource ? (FbxMode ? "Pick an FBX." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
+        status.Text = building ? "Building…" : !HasSource ? (FbxMode ? "Pick an FBX or an MFF folder." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
         status.ForeColor = Ui.Subtle;
     }
 

@@ -81,6 +81,14 @@ sealed partial class MainForm : Form
     void PlaceWindow()
     {
         Width = 1400; Height = 850;
+        // tests and the manual's screenshots (MHO_EXTMM_SNAP_SIZE = "1600x1000"): that size, off every screen, never saved
+        if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_SIZE") is string snap && snap.Split('x') is [var sw, var sh]
+            && int.TryParse(sw, out int snapW) && int.TryParse(sh, out int snapH))
+        {
+            StartPosition = FormStartPosition.Manual;
+            Bounds = new Rectangle(-snapW - 20000, 0, snapW, snapH);
+            return;
+        }
         if (settings.RememberWindow && settings.WindowBounds is [int x, int y, int w, int h] && w >= 400 && h >= 300)
         {
             var saved = new Rectangle(x, y, w, h);

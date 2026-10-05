@@ -24,7 +24,8 @@ sealed partial class ModelPage
             AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
             NoMod = true };
         string mff = model?.Folder ?? ImportBuild.SourceName(sourceFbx!);
-        string mffSource = model?.Profile != null ? model.File : mff;   // a Mixamo … FBX: its file (not an MFF folder name)
+        // a Mixamo … FBX, or an MFF folder picked on its own (Single Model): its file (not a repository folder name)
+        string mffSource = model != null && (model.Profile != null || chosenKey?.StartsWith(MffDir) == true) ? model.File : mff;
         string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{mff} on {Path.GetFileNameWithoutExtension(pkg.Key)}"));
         building = true; UpdateStatus();
         log.Clear();

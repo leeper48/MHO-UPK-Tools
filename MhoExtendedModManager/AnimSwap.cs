@@ -46,8 +46,11 @@ static class AnimSwap
     /// donor's animation; the form's other powers show whether the rest falls back (normal versions) or breaks. Only the
     /// costume's package changes.
     /// </summary>
+    /// <param name="whole">The second test (2026-10-05; Kurt's first one: the form's set is used alone, nothing falls back):
+    /// the alias points at a copy of the hero's whole alternate set, with the swapped animations in place of its own, each
+    /// donor animation's tracks put in that set's bone order (<see cref="FitTracks"/>).</param>
     public static byte[] BuildAlias(string costumePath, string costumeClass, string heroPath, string heroClass, string alias,
-        IReadOnlyList<Swap> swaps, List<string> log)
+        IReadOnlyList<Swap> swaps, List<string> log, bool whole = false)
     {
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
@@ -64,6 +67,33 @@ static class AnimSwap
         var donors = new Dictionary<string, Package>(StringComparer.OrdinalIgnoreCase);
         Package Donor(string f) => donors.TryGetValue(f, out var dp) ? dp : donors[f] = Package.Open(f);
         var holders = new List<(int Set, List<(int Seq, string Slot)> Seqs)>();
+        // whole: the hero's alternate set copied with all its animations; the donors' go in after (fitted below)
+        var fits = new Dictionary<int, (string Donor, int DonorSet, int DonorSeq, string Slot)>();
+        int wholeSet = 0;
+        if (whole)
+        {
+            string wholeName = Unique($"{hero.Exports[heroSet].ObjectName}_on_{cls}");
+            var wc = CrossMove.Quiet(() => ExportCopy.Copy(hero, heroSet, pkg, [], wholeName), out string ws)
+                     ?? throw new InvalidDataException($"the set {target.SetPath} couldn't be copied: {Reason(ws)}");
+            pkg = Package.FromBytes(wc.Output);
+            wholeSet = wc.RootRef;
+            string wholePath = pkg.PathOf(pkg.Exports[wholeSet - 1]);
+            log.Add($"  {alias}: {target.SetPath} copied whole as {wholePath}");
+            foreach (var x in swaps)
+            {
+                var src = Donor(x.DonorFile);
+                string dsetPath = src.PathOf(src.Exports[x.DonorSet]);
+                // a name of its own: under the copied set, the donor's animsequence_0 would be the path of the set's own
+                // animsequence_0, and the copy would find that one instead of copying (Storm's idle came out as Jean's)
+                string seqName = Unique($"{src.Exports[x.DonorSequence].ObjectName}_{x.Slot}_swap");
+                var qc = CrossMove.Quiet(() => ExportCopy.Copy(src, x.DonorSequence, pkg, ["notifies"], seqName, new Dictionary<string, string> { [dsetPath] = wholePath }), out string qs)
+                         ?? throw new InvalidDataException($"{src.PathOf(src.Exports[x.DonorSequence])} couldn't be copied: {Reason(qs)}");
+                pkg = Package.FromBytes(qc.Output);
+                fits[qc.RootRef] = (x.DonorFile, x.DonorSet, x.DonorSequence, x.Slot);
+                log.Add($"  {alias} · {x.Slot} ← {src.PathOf(src.Exports[x.DonorSequence])} (#{qc.RootRef}, without its notifies)");
+            }
+        }
+        else
         foreach (var group in swaps.GroupBy(x => (x.DonorFile.ToLowerInvariant(), x.DonorSet)))
         {
             var first = group.First();
@@ -156,6 +186,38 @@ static class AnimSwap
             }
             replace[set - 1] = _ => SetSequences(set, seqs.Select(q => q.Seq).ToList());
         }
+        if (whole)
+        {
+            // the copy's own list, with each swapped slot's animation replaced by the donor's (fitted to the set's bones)
+            var hp = AnimExportCli.Packages.Package.Open(heroPath);
+            var heroInfo = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(hp).First(i => i.ExportIndex == heroSet);
+            byte[] sd = pkg.ReadExportBytes(pkg.Exports[wholeSet - 1]).ToArray();
+            var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(y => y.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))
+                     ?? throw new InvalidDataException("the copied set has no Sequences list");
+            var list = new List<int>();
+            for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(st.ValueAt)); k < n; k++) list.Add(BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(st.ValueAt + 4 + 4 * k)));
+            foreach (var (seq, f) in fits)
+            {
+                int at = list.FindIndex(r => r > 0 && SequenceName(r).Equals(f.Slot, StringComparison.OrdinalIgnoreCase));
+                if (at < 0) throw new InvalidDataException($"{target.SetPath} has no animation '{f.Slot}' to replace (it has {string.Join(", ", list.Where(r => r > 0).Select(SequenceName).Order())})");
+                // the original (for the bones the donor lacks): the hero's sequence of that name
+                int orig = heroInfo.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex)
+                    .First(i => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(hp, i).Equals(f.Slot, StringComparison.OrdinalIgnoreCase));
+                var original = AnimExportCli.Animation.AnimObjectReader.TryRead(hp, orig, heroInfo.TrackBoneNames);
+                var dp = AnimExportCli.Packages.Package.Open(f.Donor);
+                var donorNames = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(dp).First(i => i.ExportIndex == f.DonorSet).TrackBoneNames;
+                byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
+                d = FitTracks(pkg, d, donorNames, heroInfo.TrackBoneNames, original, log, f.Slot);
+                var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(y => y.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && y.Size == 8)
+                        ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), NameIdx(f.Slot));
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt + 4), 0);
+                replace[seq - 1] = _ => d;
+                list[at] = seq;
+            }
+            replace[wholeSet - 1] = _ => SetSequences(wholeSet, list);
+            holders.Add((wholeSet, []));
+        }
         if (holders.Count != 1) throw new InvalidDataException("the test takes the swapped animations from one donor set");
         int aliasSet = holders[0].Set;
         // the costume class default's own alias list: the hero's, this alias on the copy
@@ -181,13 +243,32 @@ static class AnimSwap
         foreach (var (al, setPath) in entries)
         {
             int r = al.Equals(alias, StringComparison.OrdinalIgnoreCase) ? aliasSet
-                : setPath.StartsWith("import:") ? throw new InvalidDataException($"the alias {al} points at an import ({setPath}): not handled")
+                : setPath.StartsWith("import:") ? (own.Count > 0 ? OwnImport(setPath[7..]) : ImportOf(HeroImportPath(setPath[7..])))
                 : own.Count > 0 ? Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(setPath, StringComparison.OrdinalIgnoreCase)) + 1   // the costume's own
                 : ImportOf(setPath);                                                                                                        // the hero's set
             value.AddRange(Tag("Alias", "NameProperty", 8)); value.AddRange(NameVal(al));
             value.AddRange(Tag("AnimSet", "ObjectProperty", 4)); value.AddRange(BitConverter.GetBytes(r));
             value.AddRange(NameVal("None"));
             log.Add($"  alias {al} → {(r > 0 ? pkg.PathOf(pkg.Exports[r - 1]) : setPath + " (the hero's)")}");
+        }
+        // an alias the hero's list points at an import (Jean's darkphoenixas → phoenix_as, a set of another package): the same
+        // import, by its full path
+        int OwnImport(string name)   // the costume's own list naming an import: that import, as it is
+        {
+            int i = Array.FindIndex(pkg.Imports, im => im.ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals("AnimSet", StringComparison.OrdinalIgnoreCase));
+            return i >= 0 ? -1 - i : throw new InvalidDataException($"the costume's alias set {name} isn't among its imports");
+        }
+        string HeroImportPath(string name)
+        {
+            int i = Array.FindIndex(hero.Imports, im => im.ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals("AnimSet", StringComparison.OrdinalIgnoreCase));
+            if (i < 0) throw new InvalidDataException($"the hero's alias set {name} isn't among its imports");
+            var parts = new List<string> { hero.Imports[i].ObjectName };
+            for (int o = hero.Imports[i].OuterIndex; o != 0;)
+            {
+                if (o > 0) throw new InvalidDataException($"the hero's alias set {name} sits inside an export: not handled");
+                parts.Insert(0, hero.Imports[-o - 1].ObjectName); o = hero.Imports[-o - 1].OuterIndex;
+            }
+            return string.Join(".", parts);
         }
         var old = dtags.FirstOrDefault(y => y.Name.Equals("AnimationSetAliases", StringComparison.OrdinalIgnoreCase));
         byte[] prop = [.. Tag("AnimationSetAliases", "ArrayProperty", value.Count), .. value];
@@ -198,6 +279,79 @@ static class AnimSwap
         if (problems.Count > 0) throw new InvalidDataException("the edited package didn't verify: " + string.Join("; ", problems.Take(3)));
         log.Add($"{swaps.Count} animation(s) swapped in the alternate set '{alias}'; the costume's own alias list has {entries.Count} entr{(entries.Count == 1 ? "y" : "ies")}");
         return output;
+    }
+
+    /// <summary>
+    /// A donor animation's tracks put in another set's bone order (2026-10-05: Jean Grey's Phoenix set with Storm's idle):
+    /// each track's bytes stay where they are in the compressed stream; only CompressedTrackOffsets (4 ints per track:
+    /// translation offset and keys, rotation offset and keys) is rebuilt in the target's order. A bone the donor has no track
+    /// for holds one key, the original animation's first (else none: the bone's reference pose), appended to the stream in
+    /// the form single keys always take (3 floats; a rotation as Float96NoW, conjugated, or 4 floats for ACF_None). The
+    /// donor's bones the target lacks are left out. Per-track compression isn't handled yet.
+    /// </summary>
+    internal static byte[] FitTracks(Package pkg, byte[] d, IReadOnlyList<string> donorNames, IReadOnlyList<string> targetNames,
+        AnimExportCli.Animation.BoneAnimation? original, List<string> log, string label)
+    {
+        var tags = TagWalker.Walk(pkg, d, 4) ?? throw new InvalidDataException($"{label}: the animation's properties don't read");
+        string NameOf(string prop)
+        {
+            var t = tags.FirstOrDefault(y => y.Name.Equals(prop, StringComparison.OrdinalIgnoreCase));
+            return t == null ? "" : TagWalker.NameAt(pkg, d, t.ValueAt + (t.Size == 16 ? 8 : 0));   // a byte enum: its enum name first
+        }
+        string key = NameOf("KeyEncodingFormat"), rot = NameOf("RotationCompressionFormat");
+        if (key.Equals("AKF_PerTrackCompression", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException($"{label}: per-track compressed animations can't be fitted to another set yet");
+        bool rotNone = rot.Equals("ACF_None", StringComparison.OrdinalIgnoreCase);
+        var ot = tags.FirstOrDefault(y => y.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase))
+                 ?? throw new InvalidDataException($"{label}: no CompressedTrackOffsets");
+        int count = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt));
+        // tracks line up with the set's bones by index; an animation can have more (Storm's idle: 165 for 161 bones, left
+        // over from an older bone list: the game reads only the set's) or fewer (the bones past its end have none)
+        if (count % 4 != 0) throw new InvalidDataException($"{label}: CompressedTrackOffsets holds {count} ints, not 4 per track");
+        if (count != donorNames.Count * 4) log.Add($"  {label}: {count / 4} tracks for the donor set's {donorNames.Count} bones (tracks past the bones are ignored, as the game does)");
+        int[] offs = new int[count];
+        for (int k = 0; k < count; k++) offs[k] = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt + 4 + 4 * k));
+        // the native part: the raw tracks (empty when cooked), then the compressed stream, then whatever follows
+        int at = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at));
+        int p = at + 4;
+        for (int k = 0; k < raw; k++) { p += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); }
+        int streamAt = p + 4, streamLen = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+        var stream = new List<byte>(d.AsSpan(streamAt, streamLen).ToArray());
+        while (stream.Count % 4 != 0) stream.Add(0);
+        void F(float v) { var b = new byte[4]; BinaryPrimitives.WriteSingleLittleEndian(b, v); stream.AddRange(b); }
+        var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int k = 0; k < Math.Min(donorNames.Count, count / 4); k++) index.TryAdd(donorNames[k], k);
+        var fitted = new List<int>();
+        int held = 0, refPose = 0;
+        foreach (string bone in targetNames)
+        {
+            if (index.TryGetValue(bone, out int k)) { fitted.AddRange(offs.AsSpan(k * 4, 4).ToArray()); continue; }
+            if (original != null && original.Tracks.TryGetValue(bone, out var tr) && tr.RotationKeys.Count > 0)
+            {
+                bool hasPos = tr.PositionKeys.Count > 0;
+                int pAt = stream.Count;
+                if (hasPos) { var pos = tr.PositionKeys[0].Position; F(pos.X); F(pos.Y); F(pos.Z); }
+                var q = tr.RotationKeys[0].Rotation;
+                int rAt = stream.Count;
+                if (rotNone) { F(q.X); F(q.Y); F(q.Z); F(q.W); }
+                else { if (q.W < 0) q = -q; F(-q.X); F(-q.Y); F(-q.Z); }   // stored conjugated, W the positive root
+                fitted.AddRange([hasPos ? pAt : -1, hasPos ? 1 : 0, rAt, 1]);
+                held++;
+            }
+            else { fitted.AddRange([-1, 0, -1, 0]); refPose++; }
+        }
+        int dropped = donorNames.Count(n => !targetNames.Contains(n, StringComparer.OrdinalIgnoreCase));
+        int moved = targetNames.Select((n, i) => index.TryGetValue(n, out int k) && k != i).Count(x => x);
+        log.Add($"  {label}: {moved} track(s) at another position than in the donor's set");
+        log.Add($"  {label}: held: {string.Join(" ", targetNames.Where(n => !index.ContainsKey(n)))}");
+        log.Add($"  {label}: {targetNames.Count - held - refPose} of the set's {targetNames.Count} bones from the donor, {held} held at the original's first key, {refPose} at the reference pose; {dropped} donor bone(s) the set doesn't have left out");
+        var arr = new byte[4 + 4 * fitted.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(arr, fitted.Count);
+        for (int k = 0; k < fitted.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(arr.AsSpan(4 + 4 * k), fitted[k]);
+        var lenBytes = new byte[4]; BinaryPrimitives.WriteInt32LittleEndian(lenBytes, stream.Count);
+        byte[] o = [.. d.AsSpan(0, ot.ValueAt), .. arr, .. d.AsSpan(ot.End, p - ot.End), .. lenBytes, .. stream, .. d.AsSpan(streamAt + streamLen)];
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(ot.Start + 16), arr.Length);
+        return o;
     }
 
     /// <summary>

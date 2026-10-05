@@ -589,7 +589,8 @@ sealed partial class MainForm
         Directory.CreateDirectory(dir);
         if (modName != null && lib?.Find(modName) is Mod pick) { SelectMod(pick.FolderName); list.TopIndex = Math.Max(0, list.SelectedIndex - 5); }
         foreach (var t in new[] { loading, pending }) if (t != null) { try { await t; } catch { } }
-        await Task.Delay(5000);   // card pictures (stock ones open the icons package) decode in the background
+        // card pictures (stock ones open the icons package) decode in the background (MHO_EXTMM_SNAP_WAIT: ms, the manual's shots)
+        await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_WAIT"), out int wait) ? wait : 5000);
         using var bmp = new Bitmap(Width, Height);
         DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height));
         bmp.Save(Path.Combine(dir, "main.png"));
