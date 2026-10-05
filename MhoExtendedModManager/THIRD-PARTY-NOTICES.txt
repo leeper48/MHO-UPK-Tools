@@ -4,7 +4,7 @@ MHModManager (mod format and behavior replicated; no code copied)
   By its original author. The mod format (manifest.json, string .json files, .mhsfx sound packs) and the library layout
   follow MHModManager 1.0.1 so mods stay interchangeable.
 
-MHO Actions, a Blender add-on (Assets\Blender\mho_fbx_to_actions-1.54.0.zip; optional: the Model tab's Settings > Model
+MHO Actions, a Blender add-on (Assets\Blender\mho_fbx_to_actions-1.55.2.zip; optional: the Model tab's Settings > Model
 installs it into Blender)
   By Kurt (leeper48). License: GPL-3.0-or-later, as Blender add-ons are. It is shipped as its own file and its Python
   source is the zip's content. MHO Extended Mod Manager itself is not under the GPL: it only starts Blender, which loads

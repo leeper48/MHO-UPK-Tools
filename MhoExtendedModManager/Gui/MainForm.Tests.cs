@@ -313,7 +313,10 @@ sealed partial class MainForm
         await editor.SaveForTest();
         await Task.Delay(500);
         var saved = lib?.Find(modName);
-        string? editsTxt = saved == null ? null : Directory.EnumerateFiles(Path.Combine(saved.Folder, ModelWork.Folder, "edits"), "edits.txt", SearchOption.AllDirectories).FirstOrDefault();
+        // this source's edits (a library used by other tests holds other sources' edits too)
+        string source = Path.GetFileNameWithoutExtension(mff);
+        string? editsTxt = saved == null ? null : Directory.EnumerateFiles(Path.Combine(saved.Folder, ModelWork.Folder, "edits"), "edits.txt", SearchOption.AllDirectories)
+            .FirstOrDefault(f => Path.GetFileName(Path.GetDirectoryName(f)!).StartsWith(source + " on ", StringComparison.OrdinalIgnoreCase));
         Check(editsTxt != null, "the mod's Model folder has the edits");
         if (editsTxt != null)
         {
