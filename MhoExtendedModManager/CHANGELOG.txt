@@ -1,7 +1,7 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
-0.37.156
+0.37.157
 - New: the Editor's Model tab (experimental). Put a model of your own on one of the mod's costumes: a Marvel Future Fight character from your own MFF rip, or an FBX file. It's fitted to the hero's skeleton, so the hero's animations, powers and props play on it. Build into Mod puts it in the costume's package; Apply Changes puts it in the game.
 - Model tab: FBX files rigged with MHO bones, Mixamo bones or other skeletons (matched by name or guessed from the skeleton's shape), or not rigged at all: a plain mesh is stood up, scaled to the hero and rigged in Blender with automatic weights, fingers included; open the rig in Blender to fix weights, each Ctrl+S reloads it.
 - Model tab: Full Export writes the model and all the hero's animations as FBX, or opens them in Blender; every Ctrl+S there sends your changes (mesh, weights, animations) back to the tab.
@@ -13,6 +13,7 @@ MHO Extended Mod Manager: what's new
 - 3D views: P plays and pauses the animation (not while typing), in the Mods tab, the Editor's Powers and Animations tabs and full screen; Esc now pauses the Animations tab's preview too.
 - One Extract: the top bar's Extract button is gone (the Extract tab stays).
 - The Nexus strip's Check for Updates, Find My Mods and Browse Nexus are icons; on a narrow list they still fold into its ▾ menu, by name.
+- The optional MHO Actions Blender add-on shipped with the app is 1.55.2 (Settings → Model installs it).
 
 0.37.112
 - Powers for costumes named differently from their hero: the hero now comes from the game's costume data, so Kate Bishop (a Hawkeye costume) lists Hawkeye's powers in the Powers tab and the 3D preview, and her mod can recolor them (the power packages go into the mod on Save).

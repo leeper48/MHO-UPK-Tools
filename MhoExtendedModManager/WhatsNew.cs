@@ -32,7 +32,7 @@ static class WhatsNew
     /// <summary>The Model tab's release (written 2026-10-04 for 0.37.153; shown once ModelTabReleased is true: give it the
     /// release's version then).</summary>
     static Notice ModelNotice() => new(
-        "model-tab-release", "0.37.156",
+        "model-tab-release", "0.37.157",
         "New in the Editor: the Model tab." + nl + nl +
         "• Put a model of your own on a costume: a Marvel Future Fight character from your own MFF rip, or an FBX file. It's fitted to the hero's skeleton, so the hero's animations, powers and props play on it." + nl + nl +
         "• FBX files can come rigged (with MHO bone names, Mixamo names or other skeletons) or as a plain mesh: a mesh is stood up, scaled to the hero and rigged in Blender for you." + nl + nl +
