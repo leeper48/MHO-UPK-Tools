@@ -3,7 +3,7 @@ using System.Drawing.Imaging;
 using System.Numerics;
 using System.Runtime.InteropServices;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Makes a tangent-space normal map from a colour map (MFF ships none; MHO's character materials use one).
@@ -29,25 +29,13 @@ sealed class NormalMapSettings
 
 static class NormalMapGen
 {
-    public static (int W, int H, int[] Argb) LoadArgb(string path)
-    {
-        using var bmp = new Bitmap(path);
-        var px = new int[bmp.Width * bmp.Height];
-        var d = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        Marshal.Copy(d.Scan0, px, 0, px.Length);
-        bmp.UnlockBits(d);
-        return (bmp.Width, bmp.Height, px);
-    }
+    public static (int W, int H, int[] Argb) LoadArgb(string path) => ImagePixels.ReadArgb(path);
 
     public static void SaveArgb(int w, int h, int[] px, string path)
     {
         Protected.CheckWrite(path);
-        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        Marshal.Copy(px, 0, d.Scan0, px.Length);
-        bmp.UnlockBits(d);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        bmp.Save(path, ImageFormat.Png);
+        ImagePixels.Save(w, h, px, path);
     }
 
     /// <summary>Returns the normal map as ARGB (alpha 255), same size as the colour map.</summary>

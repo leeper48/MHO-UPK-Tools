@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The texture images a material's slots get, made from the MFF maps as PNGs in the work folder (MaterialOut encodes them).
@@ -159,26 +159,6 @@ sealed class MaterialMaps
         return outPng;
     }
 
-    /// <summary>A bitmap's pixels as ARGB ints (what GetPixel gives, read at once: the performance pass, 2026-10-04: GetPixel /
-    /// SetPixel per texel took a second per 1024² map).</summary>
-    static int[] Pixels(Bitmap b)
-    {
-        var rect = new Rectangle(0, 0, b.Width, b.Height);
-        using var c = b.Clone(rect, PixelFormat.Format32bppArgb);
-        var d = c.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        var px = new int[b.Width * b.Height];
-        for (int y = 0; y < b.Height; y++) System.Runtime.InteropServices.Marshal.Copy(d.Scan0 + y * d.Stride, px, y * b.Width, b.Width);
-        c.UnlockBits(d);
-        return px;
-    }
-
-    /// <summary>ARGB ints as a PNG (as SetPixel into a 32-bit bitmap, then Save).</summary>
-    static void SavePixels(int w, int h, int[] px, string file)
-    {
-        using var b = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var d = b.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        for (int y = 0; y < h; y++) System.Runtime.InteropServices.Marshal.Copy(px, y * w, d.Scan0 + y * d.Stride, w);
-        b.UnlockBits(d);
-        b.Save(file, ImageFormat.Png);
-    }
+    static int[] Pixels(Bitmap b) => ImagePixels.ReadArgb(b);
+    static void SavePixels(int w, int h, int[] px, string file) => ImagePixels.Save(w, h, px, file);
 }

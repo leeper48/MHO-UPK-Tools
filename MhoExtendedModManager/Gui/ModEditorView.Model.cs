@@ -1,4 +1,4 @@
-using MhoMffImporter.Gui;
+using MhoExtendedModManager.Model.Gui;
 using MhoPackageModifier.Gui;
 
 namespace MhoExtendedModManager.Gui;

@@ -2,7 +2,7 @@ using System.IO.Compression;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The importer's output (Kurt, 2026-09-30): a Mod Manager mod, never a write into the game. A folder with the

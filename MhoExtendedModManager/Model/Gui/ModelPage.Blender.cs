@@ -1,7 +1,7 @@
 using System.Text.Json;
 using MhoExtendedModManager.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The importer's half of the Blender roundtrip (0.16.3, Kurt: Ctrl+S in Blender sends the work back). Open in Blender links

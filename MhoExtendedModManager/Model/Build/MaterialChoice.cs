@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Globalization;
 using MpmPackage = MhoPackageModifier.Package;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Which stock material instance the MFF materials copy, and bringing it into the base package.
@@ -65,16 +65,7 @@ static class MaterialChoice
     }
 
     /// <summary>A bitmap's pixels as ARGB ints, read at once (GetPixel's values).</summary>
-    static int[] Pixels(System.Drawing.Bitmap b)
-    {
-        var rect = new System.Drawing.Rectangle(0, 0, b.Width, b.Height);
-        using var c = b.Clone(rect, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        var d = c.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        var px = new int[b.Width * b.Height];
-        for (int y = 0; y < b.Height; y++) System.Runtime.InteropServices.Marshal.Copy(d.Scan0 + y * d.Stride, px, y * b.Width, b.Width);
-        c.UnlockBits(d);
-        return px;
-    }
+    static int[] Pixels(System.Drawing.Bitmap b) => ImagePixels.ReadArgb(b);
 
     /// <summary>The older _sp layout: blue's low end (5th percentile, sampled) above 140 (old maps: 160-180; metal-mask maps: 0).</summary>
     public static bool OldLayout(System.Drawing.Bitmap b)

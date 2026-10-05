@@ -6,7 +6,7 @@ using AnimExportCli.Meshes;
 using MhoExtendedModManager;
 using MhoExtendedModManager.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The window's 3D preview: the retargeted MFF model on the base hero's skeleton, in the Mod Manager's 3D view (vendored

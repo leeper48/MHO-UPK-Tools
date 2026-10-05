@@ -2,7 +2,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Text.Json;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The Model tab's Materials tab (Kurt, 2026-10-04: "users should have the ability to insert an override map"): per source,

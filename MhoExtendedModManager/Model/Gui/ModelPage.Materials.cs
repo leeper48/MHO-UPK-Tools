@@ -1,6 +1,6 @@
 using MhoExtendedModManager.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The Materials tab (Kurt, 2026-10-04): each material's color, normal, spec and alpha maps and where they come from (found

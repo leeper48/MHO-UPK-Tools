@@ -1,6 +1,6 @@
 using MpmPackage = MhoPackageModifier.Package;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Writes a copy of a package with one export replaced, using MHO Package Modifier's PackageWriter (proven in game:

@@ -1,7 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
-0.37.153
+0.37.156
+- New: the Editor's Model tab (experimental). Put a model of your own on one of the mod's costumes: a Marvel Future Fight character from your own MFF rip, or an FBX file. It's fitted to the hero's skeleton, so the hero's animations, powers and props play on it. Build into Mod puts it in the costume's package; Apply Changes puts it in the game.
+- Model tab: FBX files rigged with MHO bones, Mixamo bones or other skeletons (matched by name or guessed from the skeleton's shape), or not rigged at all: a plain mesh is stood up, scaled to the hero and rigged in Blender with automatic weights, fingers included; open the rig in Blender to fix weights, each Ctrl+S reloads it.
+- Model tab: Full Export writes the model and all the hero's animations as FBX, or opens them in Blender; every Ctrl+S there sends your changes (mesh, weights, animations) back to the tab.
+- Model tab → Materials: each map and where it comes from (color, normal, spec, the game's own packed spec maps in any of its six layouts, spec color, glow, alpha), with your own files, OpenGL normal maps, spec maps made from the color map (five recipes), Tag Colors (say what each color is: metal, skin, leather, cloth or glow; an eyedropper for small details and a reach slider), glow maps, a view of any map or spec channel on the model or large, and Export Maps.
+- Model tab: Parts (with smoothing for low-poly models), moving capes and long hair for heroes without them, the Bone Map (pick bones, smooth weights, a weight-paint view), and Undo / Redo for all of it. Settings → Model: the MFF folder, Blender, the optional add-on, and Clean Up Exports and Rigs.
 - Buttons are icons now, almost everywhere (tabs keep their words, and so do Apply Changes, Update Available, Sort, Group and the answers in message windows). Point at one for its name, in bold, and what it does.
 - Tooltips: they show for grayed-out buttons too, and in pop-up windows (they didn't before). They open by the mouse; long ones could open at the far left of the screen.
 - 3D views: the animation list is half as wide, and Look (an eye), Reset View, the framing buttons and full screen sit on its row; the row under the caption is gone, so the view is taller.

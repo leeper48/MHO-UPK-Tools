@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Who each MFF model folder is (the character and uniform name from the Future Fight Wiki's uniform order, matched by the

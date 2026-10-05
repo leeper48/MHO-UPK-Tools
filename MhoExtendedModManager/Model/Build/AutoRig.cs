@@ -3,7 +3,7 @@ using System.Numerics;
 using Assimp;
 using Matrix4x4 = System.Numerics.Matrix4x4;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// An FBX with no armature (Kurt, 2026-10-03: unrigged meshes as a Model tab source). Two steps:

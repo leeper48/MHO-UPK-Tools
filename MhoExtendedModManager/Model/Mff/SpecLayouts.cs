@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The game's packed spec map layouts (Kurt, 2026-10-04: "do any material types run counter?"): the channels follow the words
@@ -74,35 +74,12 @@ static class SpecLayouts
         }
         Directory.CreateDirectory(Path.GetDirectoryName(outFile)!);
         if (lit == 0) { File.WriteAllText(none, ""); return null; }
-        using var ob = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var od = ob.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        System.Runtime.InteropServices.Marshal.Copy(o, 0, od.Scan0, o.Length);
-        ob.UnlockBits(od);
-        ob.Save(outFile, ImageFormat.Png);
+        ImagePixels.Save(w, h, o, outFile);
         return outFile;
     }
 
     /// <summary>An image's pixels as stored (BGRA, no blending), at its own size or scaled to w × h.</summary>
-    static (int W, int H, byte[] Bgra) Raw(string file, int w, int h)
-    {
-        using var src = new Bitmap(file);
-        if (w <= 0) { w = src.Width; h = src.Height; }
-        // at its own size: a plain copy (drawing goes through premultiplied color, which loses the values under a low alpha:
-        // a packed map's alpha is data); scaled (the color map, opaque): drawn
-        using var b = src.Width == w && src.Height == h ? src.Clone(new Rectangle(0, 0, w, h), PixelFormat.Format32bppArgb) : new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        if (src.Width != w || src.Height != h)
-        using (var g = Graphics.FromImage(b))
-        {
-            g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-            g.DrawImage(src, 0, 0, w, h);
-        }
-        var d = b.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        var px = new byte[w * h * 4];
-        System.Runtime.InteropServices.Marshal.Copy(d.Scan0, px, 0, px.Length);
-        b.UnlockBits(d);
-        return (w, h, px);
-    }
+    static (int W, int H, byte[] Bgra) Raw(string file, int w, int h) => ImagePixels.ReadBgra(file, w, h);
 
     /// <summary>The map in Angela's layout: the file itself for that layout, else a converted copy (cached under %TEMP%).</summary>
     public static string ToAngela(string file, Layout? layout)
@@ -112,24 +89,14 @@ static class SpecLayouts
         string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..16];
         string outFile = Path.Combine(Path.GetTempPath(), "MHO_ExtMM_spec", hash + "_" + layout.Id + ".png");
         if (File.Exists(outFile)) return outFile;
-        using var src = new Bitmap(file);
-        int w = src.Width, h = src.Height;
-        using var b = src.Clone(new Rectangle(0, 0, w, h), PixelFormat.Format32bppArgb);   // the pixels as stored (no blending)
-        var d = b.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        var px = new byte[w * h * 4];
-        System.Runtime.InteropServices.Marshal.Copy(d.Scan0, px, 0, px.Length);
-        b.UnlockBits(d);
+        var (w, h, px) = ImagePixels.ReadBgra(file);   // the pixels as stored (no blending)
         int[] off = [2, 1, 0, 3];   // BGRA bytes for R G B A
         var o = new byte[px.Length];
         for (int i = 0; i < w * h; i++)
             for (int c = 0; c < 4; c++)
                 o[4 * i + off[c]] = layout.FromChannel[c] >= 0 ? px[4 * i + off[layout.FromChannel[c]]] : SpecChannels.Default[c];
         Directory.CreateDirectory(Path.GetDirectoryName(outFile)!);
-        using var ob = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var od = ob.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        System.Runtime.InteropServices.Marshal.Copy(o, 0, od.Scan0, o.Length);
-        ob.UnlockBits(od);
-        ob.Save(outFile, ImageFormat.Png);
+        ImagePixels.Save(w, h, o, outFile);
         return outFile;
     }
 }

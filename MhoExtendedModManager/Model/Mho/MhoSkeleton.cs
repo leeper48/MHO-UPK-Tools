@@ -3,7 +3,7 @@ using AnimExportCli.Fbx;
 using AnimExportCli.Meshes;
 using AnimPackage = AnimExportCli.Packages.Package;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// An MHO skeletal mesh (the base hero the MFF model goes onto), read with AnimExportCli's reader, in the Mod Manager's

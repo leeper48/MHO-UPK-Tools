@@ -3,7 +3,7 @@ using AnimExportCli.Animation;
 using AnimExportCli.Meshes;
 using MhoExtendedModManager;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Cape motion by motion matching (2026-10-02): the strand simulation (CapeBake) tied a rigid cape against Thor's real one,

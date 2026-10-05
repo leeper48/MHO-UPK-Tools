@@ -5,7 +5,7 @@ using Assimp.Configs;
 using Matrix4x4 = System.Numerics.Matrix4x4;
 using Material = Assimp.Material;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>One mesh of the model with one material (Assimp splits multi-material meshes per material).
 /// Positions and normals are in the normalized frame (see <see cref="MffModel"/>).</summary>
@@ -79,7 +79,7 @@ sealed class Textures
     public bool GlowOff;
     /// <summary>The glow map the material is built with: its own, else the one an MHO spec map's glow channel makes; null = none.</summary>
     public string? GlowFile => GlowOff || Diffuse == null && Glow == null ? null
-        : Glow ?? (SpecMho != null ? SpecLayouts.GlowMap(SpecMho, SpecLayoutUsed, Diffuse!) : ColorTags is { Count: > 0 } ct ? MhoMffImporter.ColorTags.GlowFile(Diffuse!, ct) : null);
+        : Glow ?? (SpecMho != null ? SpecLayouts.GlowMap(SpecMho, SpecLayoutUsed, Diffuse!) : ColorTags is { Count: > 0 } ct ? MhoExtendedModManager.Model.ColorTags.GlowFile(Diffuse!, ct) : null);
     /// <summary>The layout SpecMho is packed in (SpecLayouts id; null = from its file name, else Angela's skin-mask layout).</summary>
     public string? SpecLayout;
     /// <summary>The layout SpecMho is read with.</summary>

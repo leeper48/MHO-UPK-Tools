@@ -7,7 +7,7 @@ using MhoExtendedModManager;
 using MhoExtendedModManager.Gui;
 using MpmPackage = MhoPackageModifier.Package;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>The preview's model: the retarget prepared off the UI thread (looks, normal maps, animations, the base hero's own mesh for Compare).</summary>
 sealed partial class PreviewPanel
@@ -314,17 +314,7 @@ sealed partial class PreviewPanel
     /// <summary>An image as BGRA bytes.</summary>
     static (byte[] Px, int W, int H)? LoadBgra(string png)
     {
-        try
-        {
-            using var src = new Bitmap(png);
-            var rect = new Rectangle(0, 0, src.Width, src.Height);
-            using var b = src.Clone(rect, PixelFormat.Format32bppArgb);
-            var d = b.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-            var px = new byte[d.Stride * d.Height];
-            System.Runtime.InteropServices.Marshal.Copy(d.Scan0, px, 0, px.Length);
-            b.UnlockBits(d);
-            return (px, src.Width, src.Height);
-        }
+        try { var (w, h, px) = ImagePixels.ReadBgra(png); return (px, w, h); }
         catch (Exception) { return null; }
     }
 

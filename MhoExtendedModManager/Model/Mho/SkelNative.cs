@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// A SkeletalMesh export's native data (everything after its properties), parsed completely so it can be written back

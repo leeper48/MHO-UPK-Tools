@@ -4,7 +4,7 @@ using AnimExportCli.Animation;
 using AnimExportCli.Meshes;
 using MhoExtendedModManager;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// A cape or long hair borrowed from another hero for a base hero without one (2026-10-02, preview prototype; Kurt: matched

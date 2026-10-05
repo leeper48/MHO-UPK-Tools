@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>The switches of a retarget (each was an A/B test; the defaults are what Kurt checked in game).</summary>
 sealed record RetargetOptions

@@ -9,7 +9,7 @@ using AssimpMesh = Assimp.Mesh;
 using Matrix4x4 = System.Numerics.Matrix4x4;
 using Quaternion = System.Numerics.Quaternion;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// FBX round trip, part 1: export (0.11.0, Kurt: "a little manual cleanup in Blender will be needed"). Writes the retargeted

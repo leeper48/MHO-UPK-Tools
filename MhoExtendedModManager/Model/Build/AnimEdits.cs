@@ -2,7 +2,7 @@ using AnimExportCli.Animation;
 using AnimExportCli.Fbx;
 using Assimp;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Edits brought back from Blender (0.16.0, Kurt): an FBX imported in the preview's Single Animation ▾ menu either replaces the model's

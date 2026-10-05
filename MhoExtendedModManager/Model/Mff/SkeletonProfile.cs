@@ -4,7 +4,7 @@ using Assimp;
 using Assimp.Configs;
 using Matrix4x4 = System.Numerics.Matrix4x4;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Other skeleton families read as an MFF model (Kurt, 2026-10-03: a Marvel Strike Force rip, Captain Carter, has a Mixamo

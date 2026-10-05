@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>Geometry for the encoder: one material's triangles, in MHO model space, winding as MHO's (clockwise).</summary>
 sealed class EncSection

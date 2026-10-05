@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 sealed partial class ModelPage
 {
@@ -248,6 +248,8 @@ sealed partial class ModelPage
         say($"source {mff}: {parts.Rows.Count} parts");
         Reselect(packages, package);
         for (int i = 0; i < 1800 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);   // (an unrigged source is rigged in Blender first)
+        await Task.Delay(1500);
+        say($"cape / hair lists on {package}: {TestOwnRigs}");
         say("package: " + ChosenPackage?.Key + " from " + StartLabel(package) + $", {preview.AnimationNames.Count} animations");
         // MHO_TEST_MAPSHOTS=<png>: one strip of the preview in every Preview Shows view (a visual check of the map views)
         if (Environment.GetEnvironmentVariable("MHO_TEST_MAPSHOTS") is { Length: > 0 } shots)

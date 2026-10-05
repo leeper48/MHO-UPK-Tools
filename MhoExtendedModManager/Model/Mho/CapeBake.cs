@@ -4,7 +4,7 @@ using AnimExportCli.Animation;
 using AnimExportCli.Meshes;
 using MhoExtendedModManager;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Cape motion baked from a body's own movement (2026-10-02, Kurt: a cape on a hero whose animations have none). MHO capes

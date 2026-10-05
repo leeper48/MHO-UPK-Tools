@@ -20,11 +20,11 @@ static partial class Program
                 if (rest.Count < 4) { Console.WriteLine("--model-build <mff model> <package name or file> <out folder> [--map bonemap.json]"); return 1; }
                 int mi = rest.IndexOf("--map");
                 string? map = mi > 0 && mi + 1 < rest.Count ? rest[mi + 1] : null;
-                MhoMffImporter.Settings.Reset();
+                MhoExtendedModManager.Model.Settings.Reset();
                 try
                 {
-                    string package = MhoMffImporter.BasePackage.Resolve(rest[2], true);
-                    var result = MhoMffImporter.ImportBuild.Run(rest[1], package, rest[3], MhoMffImporter.ImportOptions.FromEnvironment(null, map, null), Console.WriteLine);
+                    string package = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
+                    var result = MhoExtendedModManager.Model.ImportBuild.Run(rest[1], package, rest[3], MhoExtendedModManager.Model.ImportOptions.FromEnvironment(null, map, null), Console.WriteLine);
                     return result == null ? 1 : 0;
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException) { Console.WriteLine("ERROR: " + ex.Message); return 1; }
@@ -68,21 +68,21 @@ static partial class Program
                 string? keep = before.MffFolder, keepBlender = before.BlenderPath;
                 using var main = new Gui.MainForm();   // not shown: it only has to hold its settings
                 string probe = @"C:\MffFolderTest_" + Environment.TickCount64;
-                MhoMffImporter.Settings.Change(s => s.MffFolder = probe);
-                MhoMffImporter.Settings.Reset();
-                MhoMffImporter.Settings.Current.BlenderPath = @"C:\BlenderTest\blender.exe"; MhoMffImporter.Settings.Current.Save();
-                MhoMffImporter.Settings.App!.Save();   // the window's copy saved, as on exit
+                MhoExtendedModManager.Model.Settings.Change(s => s.MffFolder = probe);
+                MhoExtendedModManager.Model.Settings.Reset();
+                MhoExtendedModManager.Model.Settings.Current.BlenderPath = @"C:\BlenderTest\blender.exe"; MhoExtendedModManager.Model.Settings.Current.Save();
+                MhoExtendedModManager.Model.Settings.App!.Save();   // the window's copy saved, as on exit
                 var after = Settings.Load();
                 bool ok1 = after.MffFolder == probe, ok2 = after.BlenderPath == @"C:\BlenderTest\blender.exe";
                 Console.WriteLine((ok1 ? "PASS" : "FAIL") + " the MFF folder survives the window's save on exit: " + after.MffFolder);
                 Console.WriteLine((ok2 ? "PASS" : "FAIL") + " the Blender choice survives it too: " + after.BlenderPath);
                 // the old way (0.37.113–0.37.115): the file written on its own, then the window's copy saved on exit
-                var window = MhoMffImporter.Settings.App!;
+                var window = MhoExtendedModManager.Model.Settings.App!;
                 var fresh = Settings.Load(); fresh.MffFolder = probe + "_old"; fresh.Save();
                 window.Save();
                 bool lost = Settings.Load().MffFolder != probe + "_old";
                 Console.WriteLine((lost ? "PASS" : "FAIL") + " (the old way loses it, as Kurt saw: " + Settings.Load().MffFolder + ")");
-                MhoMffImporter.Settings.Change(s => { s.MffFolder = keep; s.BlenderPath = keepBlender; });   // back as it was
+                MhoExtendedModManager.Model.Settings.Change(s => { s.MffFolder = keep; s.BlenderPath = keepBlender; });   // back as it was
                 return ok1 && ok2 && lost ? 0 : 1;
             }
             case "--model-blender-test":
@@ -150,15 +150,15 @@ static partial class Program
                 // shows the pose)
                 //
                 if (rest.Count < 4) { Console.WriteLine("--model-rig <fbx> <package name or file> <out folder>"); return 1; }
-                MhoMffImporter.Settings.Reset();
+                MhoExtendedModManager.Model.Settings.Reset();
                 try
                 {
-                    string package = MhoMffImporter.BasePackage.Resolve(rest[2], true);
-                    var sk = MhoMffImporter.MhoSkeleton.Load(package, null);
-                    string rigged = MhoMffImporter.AutoRig.Rig(rest[1], sk, package, Path.Combine(rest[3], "rig"), Console.WriteLine);
+                    string package = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
+                    var sk = MhoExtendedModManager.Model.MhoSkeleton.Load(package, null);
+                    string rigged = MhoExtendedModManager.Model.AutoRig.Rig(rest[1], sk, package, Path.Combine(rest[3], "rig"), Console.WriteLine);
                     Console.WriteLine("rigged: " + rigged);
-                    var o = MhoMffImporter.ImportOptions.FromEnvironment(null, null, null) with { SourceFbx = rigged };
-                    return MhoMffImporter.ImportBuild.Run(rigged, package, rest[3], o, Console.WriteLine) == null ? 1 : 0;
+                    var o = MhoExtendedModManager.Model.ImportOptions.FromEnvironment(null, null, null) with { SourceFbx = rigged };
+                    return MhoExtendedModManager.Model.ImportBuild.Run(rigged, package, rest[3], o, Console.WriteLine) == null ? 1 : 0;
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException) { Console.WriteLine("ERROR: " + ex.Message); return 1; }
             }
@@ -174,9 +174,9 @@ static partial class Program
                 void Check(bool c, string what) { Console.WriteLine((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
                 string src = Path.Combine(dir, "m_mhospec.png");
                 File.Copy(rest[1], src);
-                MhoMffImporter.SpecChannels.Split(src, dir, "m_mhospec");
-                Check(MhoMffImporter.SpecChannels.Suffix.All(x => File.Exists(Path.Combine(dir, "m_mhospec" + x + ".png"))) && File.Exists(Path.Combine(dir, "MHO spec maps - read me.txt")), "split: four gray channel files and the read-me");
-                string back = MhoMffImporter.SpecChannels.Combine(MhoMffImporter.SpecChannels.Suffix.Select(x => (string?)Path.Combine(dir, "m_mhospec" + x + ".png")).ToList(), null, null, Path.Combine(dir, "back.png"));
+                MhoExtendedModManager.Model.SpecChannels.Split(src, dir, "m_mhospec");
+                Check(MhoExtendedModManager.Model.SpecChannels.Suffix.All(x => File.Exists(Path.Combine(dir, "m_mhospec" + x + ".png"))) && File.Exists(Path.Combine(dir, "MHO spec maps - read me.txt")), "split: four gray channel files and the read-me");
+                string back = MhoExtendedModManager.Model.SpecChannels.Combine(MhoExtendedModManager.Model.SpecChannels.Suffix.Select(x => (string?)Path.Combine(dir, "m_mhospec" + x + ".png")).ToList(), null, null, Path.Combine(dir, "back.png"));
                 bool same;
                 using (var a0 = new Bitmap(src)) using (var b0 = new Bitmap(back))
                 {
@@ -185,9 +185,9 @@ static partial class Program
                 }
                 Check(same, "combined back: identical to the original (R, G, B and A)");
                 File.SetLastWriteTimeUtc(src, DateTime.UtcNow.AddMinutes(-5));
-                Check(MhoMffImporter.SpecChannels.Find(sfx => File.Exists(Path.Combine(dir, "m_mhospec" + sfx + ".png")) ? Path.Combine(dir, "m_mhospec" + sfx + ".png") : null) != src, "channel files newer than the combined map: they are what's used");
+                Check(MhoExtendedModManager.Model.SpecChannels.Find(sfx => File.Exists(Path.Combine(dir, "m_mhospec" + sfx + ".png")) ? Path.Combine(dir, "m_mhospec" + sfx + ".png") : null) != src, "channel files newer than the combined map: they are what's used");
                 File.SetLastWriteTimeUtc(src, DateTime.UtcNow.AddMinutes(5));
-                Check(MhoMffImporter.SpecChannels.Find(sfx => File.Exists(Path.Combine(dir, "m_mhospec" + sfx + ".png")) ? Path.Combine(dir, "m_mhospec" + sfx + ".png") : null) == src, "the combined map newer: it is what's used");
+                Check(MhoExtendedModManager.Model.SpecChannels.Find(sfx => File.Exists(Path.Combine(dir, "m_mhospec" + sfx + ".png")) ? Path.Combine(dir, "m_mhospec" + sfx + ".png") : null) == src, "the combined map newer: it is what's used");
                 // layouts: a pixel R 10, G 20, B 30, A 40 read in each layout lands in Angela's channels (or the defaults)
                 string px = Path.Combine(dir, "px.png");
                 using (var pb = new Bitmap(2, 2, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
@@ -196,16 +196,16 @@ static partial class Program
                     pb.Save(px, System.Drawing.Imaging.ImageFormat.Png);
                 }
                 byte[] given = [10, 20, 30, 40];
-                foreach (var l in MhoMffImporter.SpecLayouts.All)
+                foreach (var l in MhoExtendedModManager.Model.SpecLayouts.All)
                 {
-                    string conv = MhoMffImporter.SpecLayouts.ToAngela(px, l);
+                    string conv = MhoExtendedModManager.Model.SpecLayouts.ToAngela(px, l);
                     using var cb = new Bitmap(conv);
                     using var cc = cb.Clone(new Rectangle(0, 0, 2, 2), System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                     var d = cc.LockBits(new Rectangle(0, 0, 2, 2), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                     var raw = new byte[4]; System.Runtime.InteropServices.Marshal.Copy(d.Scan0, raw, 0, 4); cc.UnlockBits(d);
                     byte[] got = [raw[2], raw[1], raw[0], raw[3]];
-                    byte[] want = [.. Enumerable.Range(0, 4).Select(c => l.FromChannel[c] >= 0 ? given[l.FromChannel[c]] : MhoMffImporter.SpecChannels.Default[c])];
-                    Check(got.SequenceEqual(want), $"layout {l.Id}: R G B A {string.Join(" ", got)} (want {string.Join(" ", want)}) · {MhoMffImporter.SpecLayouts.Change(l)}");
+                    byte[] want = [.. Enumerable.Range(0, 4).Select(c => l.FromChannel[c] >= 0 ? given[l.FromChannel[c]] : MhoExtendedModManager.Model.SpecChannels.Default[c])];
+                    Check(got.SequenceEqual(want), $"layout {l.Id}: R G B A {string.Join(" ", got)} (want {string.Join(" ", want)}) · {MhoExtendedModManager.Model.SpecLayouts.Change(l)}");
                 }
                 // glow: the layout's glow channel × the color map (R 200 G 100 B 50) becomes the glow map
                 string colPx = Path.Combine(dir, "col.png");
@@ -214,9 +214,9 @@ static partial class Program
                     for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) cbmp.SetPixel(x, y, Color.FromArgb(255, 200, 100, 50));
                     cbmp.Save(colPx, System.Drawing.Imaging.ImageFormat.Png);
                 }
-                foreach (var l in MhoMffImporter.SpecLayouts.All)
+                foreach (var l in MhoExtendedModManager.Model.SpecLayouts.All)
                 {
-                    string? gm = MhoMffImporter.SpecLayouts.GlowMap(px, l, colPx);
+                    string? gm = MhoExtendedModManager.Model.SpecLayouts.GlowMap(px, l, colPx);
                     if (l.GlowChannel < 0) { Check(gm == null, $"layout {l.Id}: no glow channel, no glow map"); continue; }
                     using var gb = new Bitmap(gm!);
                     var c0 = gb.GetPixel(0, 0);
@@ -224,8 +224,8 @@ static partial class Program
                     bool okG = Math.Abs(c0.R - 200 * mask / 255) <= 1 && Math.Abs(c0.G - 100 * mask / 255) <= 1 && Math.Abs(c0.B - 50 * mask / 255) <= 1;
                     Check(okG, $"layout {l.Id}: glow map from {"RGBA"[l.GlowChannel]} ({mask}) × the color = {c0.R} {c0.G} {c0.B}");
                 }
-                Check(MhoMffImporter.SpecLayouts.FromName(@"x\hero_specmultrimmaskreflection.png")?.Id == "v1" && MhoMffImporter.SpecLayouts.FromName(@"x\m_specmult_specpow_reflectivity_emissive.png")?.Id == "v2emissive"
-                    && MhoMffImporter.SpecLayouts.FromName(@"x\m_emissivespecpowambient.png")?.Id == "v1ambient" && MhoMffImporter.SpecLayouts.FromName(@"x\m_mhospec.png") == null, "layout from the file name");
+                Check(MhoExtendedModManager.Model.SpecLayouts.FromName(@"x\hero_specmultrimmaskreflection.png")?.Id == "v1" && MhoExtendedModManager.Model.SpecLayouts.FromName(@"x\m_specmult_specpow_reflectivity_emissive.png")?.Id == "v2emissive"
+                    && MhoExtendedModManager.Model.SpecLayouts.FromName(@"x\m_emissivespecpowambient.png")?.Id == "v1ambient" && MhoExtendedModManager.Model.SpecLayouts.FromName(@"x\m_mhospec.png") == null, "layout from the file name");
                 // DXT5 with refine fits colors only where alpha isn't 0: wrong for a packed spec map, whose alpha is reflectivity
                 foreach (bool refine in new[] { true, false })
                 {
@@ -247,7 +247,7 @@ static partial class Program
                 if (rest.Count > 3)
                 {
                     Application.SetHighDpiMode(HighDpiMode.SystemAware);
-                    using var f = new MhoMffImporter.Gui.SpecChannelsForm("material1", src);
+                    using var f = new MhoExtendedModManager.Model.Gui.SpecChannelsForm("material1", src);
                     f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000);
                     f.Show(); Application.DoEvents();
                     using var bmp = new Bitmap(f.Width, f.Height);
@@ -309,24 +309,24 @@ static partial class Program
                 // times (the first run pays for loading), then a build into a temp folder; the performance pass's numbers
                 if (rest.Count < 3) { Console.WriteLine("--model-perf <mff model | fbx file> <package> [runs]"); return 1; }
                 int runs = rest.Count > 3 ? int.Parse(rest[3]) : 3;
-                MhoMffImporter.Settings.Reset();
-                string pkg = MhoMffImporter.BasePackage.Resolve(rest[2], true);
+                MhoExtendedModManager.Model.Settings.Reset();
+                string pkg = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
                 bool fbx = rest[1].EndsWith(".fbx", StringComparison.OrdinalIgnoreCase);
                 var total = System.Diagnostics.Stopwatch.StartNew();
-                MhoMffImporter.MffModel? model = null;
-                if (!fbx) { model = MhoMffImporter.MffModel.Load(MhoMffImporter.Source.ResolveModelFile(rest[1])); Console.WriteLine($"MFF model loaded: {total.ElapsedMilliseconds} ms"); }
+                MhoExtendedModManager.Model.MffModel? model = null;
+                if (!fbx) { model = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1])); Console.WriteLine($"MFF model loaded: {total.ElapsedMilliseconds} ms"); }
                 for (int r = 1; r <= runs; r++)
                 {
                     total.Restart();
-                    _ = fbx ? MhoMffImporter.Gui.PreviewPanel.PrepareFbx(rest[1], null, pkg, null) : MhoMffImporter.Gui.PreviewPanel.Prepare(model!, null, pkg, null);
-                    Console.WriteLine($"preview run {r}: {total.ElapsedMilliseconds} ms  ({string.Join(", ", MhoMffImporter.Gui.PreviewPanel.Timings.Select(t => $"{t.Stage} {t.Ms:0}"))})");
+                    _ = fbx ? MhoExtendedModManager.Model.Gui.PreviewPanel.PrepareFbx(rest[1], null, pkg, null) : MhoExtendedModManager.Model.Gui.PreviewPanel.Prepare(model!, null, pkg, null);
+                    Console.WriteLine($"preview run {r}: {total.ElapsedMilliseconds} ms  ({string.Join(", ", MhoExtendedModManager.Model.Gui.PreviewPanel.Timings.Select(t => $"{t.Stage} {t.Ms:0}"))})");
                 }
                 string outDir = Path.Combine(Path.GetTempPath(), "MHO_ExtMM_perf_build");
                 if (Directory.Exists(outDir)) Directory.Delete(outDir, true);
                 total.Restart();
-                var opts = MhoMffImporter.ImportOptions.FromEnvironment(null, null, null) with { SourceFbx = fbx ? rest[1] : null };
+                var opts = MhoExtendedModManager.Model.ImportOptions.FromEnvironment(null, null, null) with { SourceFbx = fbx ? rest[1] : null };
                 var lines = new List<(long Ms, string Line)>();
-                var built = MhoMffImporter.ImportBuild.Run(fbx ? "x" : rest[1], pkg, outDir, opts, l => lines.Add((total.ElapsedMilliseconds, l)));
+                var built = MhoExtendedModManager.Model.ImportBuild.Run(fbx ? "x" : rest[1], pkg, outDir, opts, l => lines.Add((total.ElapsedMilliseconds, l)));
                 Console.WriteLine($"build: {total.ElapsedMilliseconds} ms ({(built == null ? "failed" : "ok")})");
                 // where the build's time goes: the log lines with the longest gaps before them
                 long prev = 0;
@@ -339,11 +339,11 @@ static partial class Program
             {
                 // --fbx-thumb <fbx> <out.png> (scratch MHO_EXTMM_HOME): the source list's thumbnail of an FBX (its color map)
                 if (rest.Count < 3) { Console.WriteLine("--fbx-thumb <fbx> <out.png>"); return 1; }
-                MhoMffImporter.Settings.Reset();
-                Console.WriteLine("color map: " + (MhoMffImporter.FbxReimport.FirstColorMap(rest[1]) ?? "none"));
+                MhoExtendedModManager.Model.Settings.Reset();
+                Console.WriteLine("color map: " + (MhoExtendedModManager.Model.FbxReimport.FirstColorMap(rest[1]) ?? "none"));
                 Image? img = null;
-                for (int i = 0; i < 200 && (img = MhoMffImporter.Thumbs.Fbx(rest[1])) == null && MhoMffImporter.Thumbs.Pending > 0; i++) Thread.Sleep(50);
-                img ??= MhoMffImporter.Thumbs.Fbx(rest[1]);
+                for (int i = 0; i < 200 && (img = MhoExtendedModManager.Model.Thumbs.Fbx(rest[1])) == null && MhoExtendedModManager.Model.Thumbs.Pending > 0; i++) Thread.Sleep(50);
+                img ??= MhoExtendedModManager.Model.Thumbs.Fbx(rest[1]);
                 if (img == null) { Console.WriteLine("no thumbnail"); return 1; }
                 img.Save(rest[2]);
                 Console.WriteLine($"thumbnail {img.Width}x{img.Height}: {rest[2]}");
@@ -358,16 +358,16 @@ static partial class Program
                 Gui.Ui.UseDarkTheme();
                 int px = int.Parse(rest[2]), py = int.Parse(rest[3]), fails = 0;
                 void Check(bool c, string what) { Console.WriteLine((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
-                using var f = new MhoMffImporter.Gui.ColorTagForm("test", rest[1], []);
+                using var f = new MhoExtendedModManager.Model.Gui.ColorTagForm("test", rest[1], []);
                 f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000);
                 f.Show(); Application.DoEvents();
                 Color c0;
                 using (var img = new Bitmap(rest[1])) c0 = img.GetPixel(px, py);
                 var after = f.TestSplitOff(px, py);
                 var own = after.FirstOrDefault(g => g.Center.R == c0.R && g.Center.G == c0.G && g.Center.B == c0.B);
-                Check(own != null, $"texel ({px}, {py}) {MhoMffImporter.ColorTags.Hex(c0)} is a group of its own: {(own != null ? $"{own.Share:P2} of the map" : "missing")}, {after.Count} groups");
-                var tags = new List<(string, string)> { (MhoMffImporter.ColorTags.Hex(c0), "glow") };
-                string? glow = MhoMffImporter.ColorTags.GlowFile(rest[1], tags);
+                Check(own != null, $"texel ({px}, {py}) {MhoExtendedModManager.Model.ColorTags.Hex(c0)} is a group of its own: {(own != null ? $"{own.Share:P2} of the map" : "missing")}, {after.Count} groups");
+                var tags = new List<(string, string)> { (MhoExtendedModManager.Model.ColorTags.Hex(c0), "glow") };
+                string? glow = MhoExtendedModManager.Model.ColorTags.GlowFile(rest[1], tags);
                 using (var gb = new Bitmap(glow!))
                 {
                     int lit = 0;
@@ -381,7 +381,7 @@ static partial class Program
                 var saved = f.TestTags(gi, "glow");
                 string savedTag = saved.First().Item2;
                 Check(at2 > at1 && savedTag == "glow|2.00", $"reach 2: {at1} → {at2} texels in the window; saved as '{savedTag}'");
-                string? glow2 = MhoMffImporter.ColorTags.GlowFile(rest[1], saved);
+                string? glow2 = MhoExtendedModManager.Model.ColorTags.GlowFile(rest[1], saved);
                 using (var gb = new Bitmap(glow2!))
                 {
                     int lit2 = 0;
@@ -395,7 +395,7 @@ static partial class Program
                 // --color-tags-snapshot <color.png> <out.png>: the Tag Colors window rendered off screen
                 if (rest.Count < 3) { Console.WriteLine("--color-tags-snapshot <color.png> <out.png>"); return 1; }
                 Application.SetHighDpiMode(HighDpiMode.SystemAware);
-                using var f = new MhoMffImporter.Gui.ColorTagForm("material1", rest[1], [("#775027", "metal")]);
+                using var f = new MhoExtendedModManager.Model.Gui.ColorTagForm("material1", rest[1], [("#775027", "metal")]);
                 f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000);
                 f.Show(); Application.DoEvents();
                 using var bmp = new Bitmap(f.Width, f.Height);
@@ -418,19 +418,19 @@ static partial class Program
                 }
                 int W, H; using (var r0 = new Bitmap(rest[2])) { W = r0.Width; H = r0.Height; }
                 var col = Load(rest[1], W, H); var R = Load(rest[2], W, H); var B = Load(rest[3], W, H); var A = Load(rest[4], W, H);
-                var groups = MhoMffImporter.ColorTags.Groups(W, H, col);
-                var assign = MhoMffImporter.ColorTags.Assign(W, H, col, groups);
+                var groups = MhoExtendedModManager.Model.ColorTags.Groups(W, H, col);
+                var assign = MhoExtendedModManager.Model.ColorTags.Assign(W, H, col, groups);
                 var tags = new List<(string, string)>();
                 for (int g = 0; g < groups.Count; g++)
                 {
                     int n = 0, metal = 0, skin = 0;
                     for (int i = 0; i < assign.Length; i++) if (assign[i] == g) { n++; if (A[4 * i + 2] > 64) metal++; else if (B[4 * i + 2] > 128) skin++; }
                     string tag = metal * 2 > n ? "metal" : skin * 2 > n ? "skin" : "cloth";
-                    tags.Add((MhoMffImporter.ColorTags.Hex(groups[g].Center), tag));
-                    Console.WriteLine($"  group {g}: {MhoMffImporter.ColorTags.Hex(groups[g].Center)} {groups[g].Share:P0} → {tag} (metal {metal * 100 / Math.Max(1, n)} %, skin {skin * 100 / Math.Max(1, n)} %)");
+                    tags.Add((MhoExtendedModManager.Model.ColorTags.Hex(groups[g].Center), tag));
+                    Console.WriteLine($"  group {g}: {MhoExtendedModManager.Model.ColorTags.Hex(groups[g].Center)} {groups[g].Share:P0} → {tag} (metal {metal * 100 / Math.Max(1, n)} %, skin {skin * 100 / Math.Max(1, n)} %)");
                 }
-                var packed = MhoMffImporter.ColorTags.MakePacked(W, H, col, tags);
-                var soft = MhoMffImporter.SpecMapGen.Make(W, H, col, "soft");
+                var packed = MhoExtendedModManager.Model.ColorTags.MakePacked(W, H, col, tags);
+                var soft = MhoExtendedModManager.Model.SpecMapGen.Make(W, H, col, "soft");
                 double eT = 0, eS = 0, eF = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0; int N = W * H;
                 for (int i = 0; i < N; i++)
                 {
@@ -446,36 +446,36 @@ static partial class Program
             {
                 // --skeleton-guess <fbx | mff model> … [--mff-sample N] (read only): the shape guess (SkeletonProfile.Guess) forced
                 // on rigs whose names are known (Mixamo, MFF Biped), each pick scored against the name: right, wrong, missed.
-                MhoMffImporter.Settings.Reset();
+                MhoExtendedModManager.Model.Settings.Reset();
                 var items = rest.Skip(1).Where(a => !a.StartsWith("--")).ToList();
                 int si = rest.IndexOf("--mff-sample");
                 if (si > 0 && si + 1 < rest.Count && int.TryParse(rest[si + 1], out int sample))
                 {
                     items.Remove(rest[si + 1]);
-                    var all = MhoMffImporter.Source.AllModelFolders().ToList();
+                    var all = MhoExtendedModManager.Model.Source.AllModelFolders().ToList();
                     for (int k = 0; k < sample && all.Count > 0; k++) items.Add(all[(int)((long)k * all.Count / sample)]);
                 }
                 if (items.Count == 0) { Console.WriteLine("--skeleton-guess <fbx | mff model> … [--mff-sample N]"); return 1; }
-                var biped = new HashSet<string>(MhoMffImporter.Retarget.DefaultMap().Select(x => x.Mff), StringComparer.OrdinalIgnoreCase);
+                var biped = new HashSet<string>(MhoExtendedModManager.Model.Retarget.DefaultMap().Select(x => x.Mff), StringComparer.OrdinalIgnoreCase);
                 int files = 0, guessed = 0, right = 0, wrong = 0, missed = 0;
                 foreach (var item in items)
                 {
                     string file;
-                    try { file = MhoMffImporter.Source.ResolveModelFile(item); }
+                    try { file = MhoExtendedModManager.Model.Source.ResolveModelFile(item); }
                     catch (Exception ex) when (ex is IOException or InvalidOperationException) { Console.WriteLine($"{item}: {ex.Message}"); continue; }
                     files++;
                     Assimp.Scene? scene;
-                    try { scene = MhoMffImporter.SkeletonProfile.Open(file); }
+                    try { scene = MhoExtendedModManager.Model.SkeletonProfile.Open(file); }
                     catch (Assimp.AssimpException ex) { Console.WriteLine($"{Path.GetFileName(file)}: {ex.Message}"); continue; }
                     if (scene == null) continue;
                     // a renamed test copy names its bones' real names beside it (<file>.names.txt: new name, tab, old name)
                     var realName = File.Exists(file + ".names.txt")
                         ? File.ReadAllLines(file + ".names.txt").Select(l => l.Split('\t')).Where(x => x.Length == 2).ToDictionary(x => x[0], x => x[1], StringComparer.OrdinalIgnoreCase)
                         : new Dictionary<string, string>();
-                    string? Truth(string n) { n = realName.GetValueOrDefault(n, n); return MhoMffImporter.SkeletonProfile.MixamoName(n) ?? (biped.Contains(n) ? n : null); }
-                    var known = MhoMffImporter.SkeletonProfile.Names(scene).Distinct().Where(n => Truth(n) != null).ToList();
-                    Console.WriteLine($"{Path.GetFileName(file)}: found as {MhoMffImporter.SkeletonProfile.Find(MhoMffImporter.SkeletonProfile.Open(file)!, out _)?.Family ?? "(MFF / MHO / none)"}");
-                    var r = MhoMffImporter.SkeletonProfile.Guess(scene, out string? why);
+                    string? Truth(string n) { n = realName.GetValueOrDefault(n, n); return MhoExtendedModManager.Model.SkeletonProfile.MixamoName(n) ?? (biped.Contains(n) ? n : null); }
+                    var known = MhoExtendedModManager.Model.SkeletonProfile.Names(scene).Distinct().Where(n => Truth(n) != null).ToList();
+                    Console.WriteLine($"{Path.GetFileName(file)}: found as {MhoExtendedModManager.Model.SkeletonProfile.Find(MhoExtendedModManager.Model.SkeletonProfile.Open(file)!, out _)?.Family ?? "(MFF / MHO / none)"}");
+                    var r = MhoExtendedModManager.Model.SkeletonProfile.Guess(scene, out string? why);
                     if (r == null) { Console.WriteLine($"{Path.GetFileName(file)}: NOT GUESSED: {why}"); continue; }
                     guessed++;
                     int ok = 0; var bad = new List<string>();

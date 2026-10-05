@@ -2,7 +2,7 @@ using System.Numerics;
 using Assimp;
 using Matrix4x4 = System.Numerics.Matrix4x4;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// FBX round trip, part 2: re-import (0.11.2). An edited model.fbx (exported by <see cref="FbxExport"/>, cleaned up in Blender

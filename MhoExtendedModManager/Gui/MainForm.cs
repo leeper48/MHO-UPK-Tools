@@ -128,7 +128,7 @@ sealed class MainForm : Form
 
     public MainForm()
     {
-        MhoMffImporter.Settings.App = settings;   // the Model tab's settings are changed on this copy (it's saved again on exit)
+        MhoExtendedModManager.Model.Settings.App = settings;   // the Model tab's settings are changed on this copy (it's saved again on exit)
         current = this;
         Text = $"MHO Extended Mod Manager v{Program.Version}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -165,7 +165,7 @@ sealed class MainForm : Form
         menu.Items.Add("Move Library", null, (_, _) => MoveLibrary());
         menu.Items.Add("Open Library Folder", null, (_, _) => { if (Settings.LibraryData(settings.LibraryPath) is string d) Process.Start("explorer.exe", $"\"{d}\""); });
         // The Editor's Model tab (in development): its settings here, grouped (Kurt: one Settings button)
-        if (WhatsNew.ModelTab) menu.Items.Add(MhoMffImporter.Gui.ModelPage.SettingsMenu(this, () => editor?.ModelPageForTest?.SettingsChanged()));
+        if (WhatsNew.ModelTab) menu.Items.Add(MhoExtendedModManager.Model.Gui.ModelPage.SettingsMenu(this, () => editor?.ModelPageForTest?.SettingsChanged()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Capture Icon Changes", null, (_, _) => CaptureIcons());
         menu.Items.Add("Migrate from MHModManager", null, (_, _) => Migrate());
@@ -2312,7 +2312,7 @@ sealed class MainForm : Form
             string rigs = Path.Combine(saved.Folder, ModelWork.Folder, "rigs");
             var files = Directory.Exists(rigs) ? Directory.GetFiles(rigs, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(rigs, f)).ToList() : [];
             say("  kept in the mod: " + string.Join(", ", files));
-            Check(files.Count > 0 && files.All(f => f.Contains(" on " + Path.GetFileNameWithoutExtension(package)) && MhoMffImporter.AutoRig.IsRigFile(Path.GetFileName(f)))
+            Check(files.Count > 0 && files.All(f => f.Contains(" on " + Path.GetFileNameWithoutExtension(package)) && MhoExtendedModManager.Model.AutoRig.IsRigFile(Path.GetFileName(f)))
                 && files.Any(f => f.EndsWith("rigged.fbx")) && files.Any(f => f.EndsWith("rig.blend")), "the mod keeps the built hero's rig, rig files only");
             Check(File.Exists(Path.Combine(liveRig, "rigged.fbx")) && File.Exists(Path.Combine(liveRig, "rig.blend")), "the live rig (data/model/rigs) is still there for Blender");
         }

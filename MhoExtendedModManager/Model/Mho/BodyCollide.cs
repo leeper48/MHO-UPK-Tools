@@ -3,7 +3,7 @@ using AnimExportCli.Animation;
 using AnimExportCli.Meshes;
 using MhoExtendedModManager;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Keeps borrowed hair / cape out of the body (2026-10-02, Kurt: "one of the main things I'm trying to prevent is her hair

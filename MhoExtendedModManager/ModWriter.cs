@@ -393,7 +393,7 @@ static class ModelWork
             {
                 var parts = rel.Split(Path.DirectorySeparatorChar);
                 int on = parts.Length == 3 ? parts[1].LastIndexOf(" on ", StringComparison.Ordinal) : -1;
-                if (on < 0 || !built.Contains(parts[1][(on + 4)..]) || !MhoMffImporter.AutoRig.IsRigFile(parts[2])) continue;
+                if (on < 0 || !built.Contains(parts[1][(on + 4)..]) || !MhoExtendedModManager.Model.AutoRig.IsRigFile(parts[2])) continue;
             }
             string dest = Path.Combine(to, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(dest)!);

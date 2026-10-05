@@ -17,7 +17,7 @@ static class WhatsNew
     /// <summary>The editor's Model tab (MFF models onto a mod's package): in development, only with "PreviewFeatures": true.</summary>
     public static bool ModelTab => ModelTabReleased || Settings.Load().PreviewFeatures;
     /// <summary>The Model tab is out for everyone (Kurt decides; then also uncomment its manual section and add a notice).</summary>
-    public const bool ModelTabReleased = false;
+    public const bool ModelTabReleased = true;   // (Kurt, 2026-10-04: the next push is live with the Model tab)
 
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
 
@@ -32,12 +32,13 @@ static class WhatsNew
     /// <summary>The Model tab's release (written 2026-10-04 for 0.37.153; shown once ModelTabReleased is true: give it the
     /// release's version then).</summary>
     static Notice ModelNotice() => new(
-        "model-tab-release", "0.37.153",
+        "model-tab-release", "0.37.156",
         "New in the Editor: the Model tab." + nl + nl +
         "• Put a model of your own on a costume: a Marvel Future Fight character from your own MFF rip, or an FBX file. It's fitted to the hero's skeleton, so the hero's animations, powers and props play on it." + nl + nl +
         "• FBX files can come rigged (with MHO bone names, Mixamo names or other skeletons) or as a plain mesh: a mesh is stood up, scaled to the hero and rigged in Blender for you." + nl + nl +
         "• Materials: each map and where it comes from, your own files, the game's own packed spec maps, Tag Colors (say what each color is made of: metal, skin, leather, cloth or glow), glow maps, and Export Maps." + nl + nl +
         "• Full Export opens the model and its animations in Blender; every Ctrl+S there sends your changes back." + nl + nl +
+        "Also new everywhere: buttons are icons (point at one for its name), tooltips show on grayed-out buttons and in pop-up windows, and P plays or pauses any 3D view." + nl + nl +
         "[!] This is experimental. Test your builds in game before sharing them." + nl + nl +
         "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
         "The manual explains each step (Help, or F1); Settings → What's New shows this notice and the earlier ones.",

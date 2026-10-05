@@ -1,7 +1,7 @@
 using MhoExtendedModManager;
 using MemmSettings = MhoExtendedModManager.Settings;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 // The MFF model importer's engine (Model\Mff, Retarget, Mho, Build, App), moved into the Mod Manager from the MHO MFF
 // Importer (Kurt, 2026-10-03: the editor's Model tab). The engine's files keep their namespace and stay as in the importer;

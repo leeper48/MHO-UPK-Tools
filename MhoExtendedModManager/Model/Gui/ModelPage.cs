@@ -5,7 +5,7 @@ using System.Drawing.Drawing2D;
 using MhoExtendedModManager.Gui;
 using MhoPackageModifier.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The Mod Manager editor's Model tab (2026-10-03, Kurt: the MHO MFF Importer moved into the Mod Manager): an MFF model (or an
@@ -215,8 +215,8 @@ sealed partial class ModelPage : UserControl
         capeBox.SelectedIndex = 0; hairBox.SelectedIndex = 0;
         capeBox.SelectedIndexChanged += (_, _) => SchedulePreview();
         hairBox.SelectedIndexChanged += (_, _) => SchedulePreview();
-        Ui.Tip(capeBox, "Adds a moving cape to a base hero that has none; a hero with its own cape bones (Angela, Doctor Strange, Thor) always keeps them and their motion, and this does nothing for them. No Added Cape adds nothing (it removes nothing either). The added cape: cape bones are added so the model's cape strips ride them, and every animation gets cape motion matched from an MHO hero's hand-animated cape (for each frame, the one whose body moves most alike). Cape 1-3 are Thor's, Doctor Strange's and Vision's. Build includes it when the base hero is a base package (its animation sets are copied into the mod with the cape's motion added), and so do Full Export and Open in Blender.");
-        Ui.Tip(hairBox, "Adds moving long hair to a base hero that has none; a hero with its own hair bones (Angela, Psylocke, Black Widow) always keeps them and their motion, and this does nothing for them. No Added Hair adds nothing (it removes nothing either). The added hair: hair bones are added so the model's hair strands ride them, and every animation gets hair motion matched from an MHO hero's hand-animated hair. Hair 1 is short, Hair 3 the longest; Mega Hair stretches Hair 3's strands to the model's own hair length (for manes such as Scream's or Medusa's). Build includes it when the base hero is a base package (its animation sets are copied into the mod with the hair's motion added).");
+        Ui.Tip(capeBox, CapeTip);
+        Ui.Tip(hairBox, HairTip);
 
         SearchBox.AddClear(characterFilter);
         SearchBox.AddClear(packageFilter);
@@ -317,6 +317,45 @@ sealed partial class ModelPage : UserControl
         return t;
     }
 
+
+    // --- a target with its own cape / hair (Kurt, 2026-10-04): the lists add nothing then, so they're grayed out and say so --------
+    const string CapeTip = "Adds a moving cape to a base hero that has none; a hero with its own cape bones (Angela, Doctor Strange, Thor) always keeps them and their motion, and this does nothing for them. No Added Cape adds nothing (it removes nothing either). The added cape: cape bones are added so the model's cape strips ride them, and every animation gets cape motion matched from an MHO hero's hand-animated cape (for each frame, the one whose body moves most alike). Cape 1-3 are Thor's, Doctor Strange's and Vision's. Build includes it when the base hero is a base package (its animation sets are copied into the mod with the cape's motion added), and so do Full Export and Open in Blender.";
+    const string HairTip = "Adds moving long hair to a base hero that has none; a hero with its own hair bones (Angela, Psylocke, Black Widow) always keeps them and their motion, and this does nothing for them. No Added Hair adds nothing (it removes nothing either). The added hair: hair bones are added so the model's hair strands ride them, and every animation gets hair motion matched from an MHO hero's hand-animated hair. Hair 1 is short, Hair 3 the longest; Mega Hair stretches Hair 3's strands to the model's own hair length (for manes such as Scream's or Medusa's). Build includes it when the base hero is a base package (its animation sets are copied into the mod with the hair's motion added).";
+    static readonly Dictionary<string, (bool Cape, bool Hair)> ownRigs = new(StringComparer.OrdinalIgnoreCase);
+
+    async Task ShowOwnRigs(string packagePath)
+    {
+        string key = packagePath + "|" + File.GetLastWriteTimeUtc(packagePath).Ticks;
+        if (!ownRigs.TryGetValue(key, out var own))
+        {
+            try
+            {
+                own = await Task.Run(() =>
+                {
+                    var names = MhoSkeleton.Load(packagePath, null).Bones.Select(b => b.Name).ToList();
+                    return (names.Any(BorrowedRig.Pattern(BorrowedRig.Kind.Cape).IsMatch), names.Any(BorrowedRig.Pattern(BorrowedRig.Kind.Hair).IsMatch));
+                });
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException) { return; }
+            ownRigs[key] = own;
+        }
+        if (IsDisposed) return;
+        void Set(DropDown box, bool has, string ownText, string noneText, string what)
+        {
+            if (box.Items.Count == 0) return;
+            if (has && box.SelectedIndex != 0) box.SelectedIndex = 0;
+            if ((string)box.Items[0]! != (has ? ownText : noneText)) box.Items[0] = has ? ownText : noneText;
+            box.Enabled = !has;
+            box.Invalidate();
+            Ui.Tip(box, has ? $"This hero has {what} bones of its own: they're always kept, with their hand-animated motion, so nothing is added." : box == capeBox ? CapeTip : HairTip);
+        }
+        Set(capeBox, own.Cape, "Hero's Own Cape", "No Added Cape", "cape");
+        Set(hairBox, own.Hair, "Hero's Own Hair", "No Added Hair", "hair");
+    }
+
+    /// <summary>Test: the cape / hair lists as shown (text, enabled).</summary>
+    internal (string Cape, bool CapeOn, string Hair, bool HairOn) TestOwnRigs =>
+        ((string)capeBox.Items[capeBox.SelectedIndex < 0 ? 0 : capeBox.SelectedIndex]!, capeBox.Enabled, (string)hairBox.Items[hairBox.SelectedIndex < 0 ? 0 : hairBox.SelectedIndex]!, hairBox.Enabled);
 
     // --- data -------------------------------------------------------------------------------------------------------------------
     void Reload()
@@ -643,6 +682,7 @@ sealed partial class ModelPage : UserControl
                 preview.Show(tp);
                 shownMap = null; mhoBones = tp.MhoBones; mhoParents = tp.MhoParents; FillMap();
                 shownMaterials = []; FillMaterials();
+                _ = ShowOwnRigs(StartPackage(tpkg.Key));
                 Log("Preview: " + tp.Note);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException)
@@ -672,6 +712,7 @@ sealed partial class ModelPage : UserControl
             preview.Show(prepared);
             shownMap = prepared.Map; mhoBones = prepared.MhoBones; mhoParents = prepared.MhoParents; FillMap();
             shownMaterials = prepared.MaterialList; FillMaterials();
+            _ = ShowOwnRigs(StartPackage(pkg.Key));
             WatchBlender();   // this work's Blender folder (a sync that came meanwhile is applied)
             WatchRig(uf != null ? AutoRig.Live(uf, pkg.Key) : null);
             DateTime? fromBlender = uf != null ? rigSent : null;

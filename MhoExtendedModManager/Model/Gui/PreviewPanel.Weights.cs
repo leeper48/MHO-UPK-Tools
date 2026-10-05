@@ -2,7 +2,7 @@ using System.Numerics;
 using MhoExtendedModManager;
 using MhoExtendedModManager.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// Weight paint view (0.13.1, Kurt: "an overlay showing the weight of influence like Blender does with weight painting"):

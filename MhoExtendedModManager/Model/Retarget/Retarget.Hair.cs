@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 static partial class Retarget
 {

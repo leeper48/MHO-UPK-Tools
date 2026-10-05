@@ -4,7 +4,7 @@ using AnimExportCli.Fbx;
 using AnimExportCli.Meshes;
 using AnimPackage = AnimExportCli.Packages.Package;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>An MHO animation that fits a skeleton.</summary>
 sealed record MhoAnimRef(string File, string Name, int Export, IReadOnlyList<string> TrackBones, IReadOnlySet<string>? TranslationBones);
@@ -31,7 +31,7 @@ static class MhoAnim
         // not beside it (the Mod Manager's Model tab starts from a kept copy in the mod's Modelase): the mod's own copy of
         // the base package, else the game's stock one
         if (BaseLookup?.Invoke(name) is string mine && File.Exists(mine)) return mine;
-        try { return MhoMffImporter.BasePackage.Resolve(name, true); }
+        try { return MhoExtendedModManager.Model.BasePackage.Resolve(name, true); }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or IOException) { return package; }
     }
 

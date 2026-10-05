@@ -3,7 +3,7 @@ using System.Drawing.Imaging;
 using System.Numerics;
 using System.Runtime.InteropServices;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>A mesh for the check renderer, in a right-handed frame: Z up, facing +X, left +Y (MHO data: negate Y first).</summary>
 sealed record RMesh(Vector3[] Pos, int[] Tris, Vector2[] Uv, string? Texture, bool FlipV = true);

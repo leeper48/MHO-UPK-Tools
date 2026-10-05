@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// A spec (shine) map made from the color map when a model has none (Kurt, 2026-10-04: "a spec mask generator like we did
@@ -118,14 +118,10 @@ static class SpecMapGen
             if (aw == w && ah == h) for (int i = 0; i < w * h; i++) bgra[4 * i + 3] = (byte)(((apx[i] & 0xFF) + ((apx[i] >> 8) & 0xFF) + ((apx[i] >> 16) & 0xFF)) / 3);
         }
         var shine = Make(w, h, bgra, recipe);
-        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
         var px = new int[w * h];
         for (int i = 0; i < px.Length; i++) px[i] = unchecked((int)0xFF000000) | (shine[i] << 16);
-        System.Runtime.InteropServices.Marshal.Copy(px, 0, d.Scan0, px.Length);
-        bmp.UnlockBits(d);
         string outFile = Path.Combine(dir, name + "_sp_gen.png");
-        bmp.Save(outFile, ImageFormat.Png);
+        ImagePixels.Save(w, h, px, outFile);
         return outFile;
     }
 }

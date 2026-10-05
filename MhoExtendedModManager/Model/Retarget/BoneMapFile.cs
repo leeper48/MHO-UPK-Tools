@@ -2,7 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The editable bone map (Kurt: an editable map for the odd cases). <c>--bone-map</c> writes what the retarget chose; edited

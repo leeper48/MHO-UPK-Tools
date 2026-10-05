@@ -1,6 +1,6 @@
 using MhoExtendedModManager.Fx;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Which portrait the game itself shows for a base hero package (0.10.16; Kurt: the base-hero thumbnails were inconsistent;

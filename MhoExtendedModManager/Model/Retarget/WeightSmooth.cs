@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Smooths one MHO bone's weights over the mesh (0.12.0, Kurt: a button on the Bone Map tab), as Blender's Weight Paint

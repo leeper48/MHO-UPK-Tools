@@ -1,7 +1,7 @@
 using MhoExtendedModManager.Gui;
 using MhoPackageModifier.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The Materials tab's Tag Colors window (Kurt, 2026-10-04): a material's color groups as swatches with their share, each
@@ -235,10 +235,7 @@ sealed class ColorTagForm : Form
             for (int c = 0; c < 3; c++) px[4 * i + c] = lit ? bgra[4 * i + c] : (byte)(bgra[4 * i + c] / 6);
             px[4 * i + 3] = 255;
         }
-        var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        var d = bmp.LockBits(new Rectangle(0, 0, w, h), System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        System.Runtime.InteropServices.Marshal.Copy(px, 0, d.Scan0, px.Length);
-        bmp.UnlockBits(d);
+        var bmp = ImagePixels.ToBitmap(w, h, px);
         var old = map.Image; map.Image = bmp; old?.Dispose();
     }
 

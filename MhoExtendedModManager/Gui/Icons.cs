@@ -451,7 +451,7 @@ static class Icons
 
     /// <summary>A person framed at a shot (Head, Bust, Full Body), as the previews draw them.</summary>
     public static Action<Graphics, RectangleF, Pen, Brush> Person(Framing.Shot shot) => (g, b, p, br) =>
-        MhoMffImporter.Gui.PreviewPanel.PersonIcon(g, Rectangle.Round(RectangleF.Inflate(b, b.Width * 0.3f, b.Height * 0.3f)), p.Color, shot);
+        MhoExtendedModManager.Model.Gui.PreviewPanel.PersonIcon(g, Rectangle.Round(RectangleF.Inflate(b, b.Width * 0.3f, b.Height * 0.3f)), p.Color, shot);
 
     /// <summary>Eyedropper.</summary>
     public static void Dropper(Graphics g, RectangleF b, Pen p, Brush br)

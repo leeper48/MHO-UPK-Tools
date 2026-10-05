@@ -16,7 +16,7 @@ sealed class ModelCleanUpForm : Form
 
     /// <summary>The folders listed: (kind, root).</summary>
     static IEnumerable<(string Kind, string Root)> Roots() =>
-        [("Export", Path.Combine(MhoMffImporter.Settings.Home, "fbx")), ("Rig", Path.Combine(MhoMffImporter.Settings.Home, "rigs"))];
+        [("Export", Path.Combine(MhoExtendedModManager.Model.Settings.Home, "fbx")), ("Rig", Path.Combine(MhoExtendedModManager.Model.Settings.Home, "rigs"))];
 
     public ModelCleanUpForm()
     {

@@ -4,7 +4,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using MhoPackageModifier;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>One MFF material to turn into an MHO material instance.</summary>
 sealed record MffMaterial(string Name, string? Colour, string? Spec, string? Normal, bool SpecGenerated = false)

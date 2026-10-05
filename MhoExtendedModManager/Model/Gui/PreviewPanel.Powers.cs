@@ -5,7 +5,7 @@ using MhoExtendedModManager;
 using MhoExtendedModManager.Gui;
 using Fx = MhoExtendedModManager.Fx;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The preview's power buttons, power effects and props (0.13.0), ported from the Mod Manager's preview

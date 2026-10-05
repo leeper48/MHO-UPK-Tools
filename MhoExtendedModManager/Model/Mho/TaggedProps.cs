@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// UE3 tagged properties as this game's packages store them (v868), read so they can be written back byte for byte

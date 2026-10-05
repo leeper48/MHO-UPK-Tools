@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>One bone of the new reference skeleton: MHO name, parent and orientation, position from the MFF model.</summary>
 sealed class RefBone

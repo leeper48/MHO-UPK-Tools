@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Puts an MFF model on an MHO hero's skeleton, keeping MFF proportions (Kurt, 2026-09-30):

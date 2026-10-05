@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// An MHO packed spec map from the user's word on what each color group is (Kurt, 2026-10-04). No map made from the colors
@@ -255,11 +255,7 @@ static class ColorTags
             if (assign[i] >= 0 && Name(tagOf[assign[i]]) == "glow") { outp[4 * i] = bgra[4 * i]; outp[4 * i + 1] = bgra[4 * i + 1]; outp[4 * i + 2] = bgra[4 * i + 2]; }
         }
         Directory.CreateDirectory(Path.GetDirectoryName(outFile)!);
-        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        System.Runtime.InteropServices.Marshal.Copy(outp, 0, d.Scan0, outp.Length);
-        bmp.UnlockBits(d);
-        bmp.Save(outFile, ImageFormat.Png);
+        ImagePixels.Save(w, h, outp, outFile);
         return outFile;
     }
 
@@ -277,12 +273,8 @@ static class ColorTags
             if (aw == w && ah == h) for (int i = 0; i < w * h; i++) bgra[4 * i + 3] = (byte)(((apx[i] & 0xFF) + ((apx[i] >> 8) & 0xFF) + ((apx[i] >> 16) & 0xFF)) / 3);
         }
         var packed = MakePacked(w, h, bgra, tags);
-        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        System.Runtime.InteropServices.Marshal.Copy(packed, 0, d.Scan0, packed.Length);
-        bmp.UnlockBits(d);
         string outFile = Path.Combine(dir, name + "_mhospec_tags.png");
-        bmp.Save(outFile, ImageFormat.Png);
+        ImagePixels.Save(w, h, packed, outFile);
         return outFile;
     }
 }

@@ -3,7 +3,7 @@ using System.Text.Json;
 using MhoExtendedModManager;
 using MhoExtendedModManager.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>What the Model tab needs from the editor around it.</summary>
 interface IModelHost

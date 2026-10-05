@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using MhoExtendedModManager.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The Model tab's folders (Kurt, 2026-10-04: tidied, the MFF path was clipped): a small caption beside each path (MFF,

@@ -7,7 +7,7 @@ using MhoExtendedModManager;
 using MhoPackageModifier;
 using AnimPackage = AnimExportCli.Packages.Package;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Borrowed hair in the built mod (0.15.0, Kurt): the animations the costume plays, with tracks for the grafted hair bones.

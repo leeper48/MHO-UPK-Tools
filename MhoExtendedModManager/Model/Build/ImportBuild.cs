@@ -3,7 +3,7 @@ using System.Numerics;
 using AnimPackage = AnimExportCli.Packages.Package;
 using MpmPackage = MhoPackageModifier.Package;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The whole import of one MFF model onto one MHO base package, in steps: retarget → materials → mesh → package → Mod

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Opens an Export FBX folder in Blender (0.16.2, Kurt: "automatically load in a new Blender scene"): a script written into

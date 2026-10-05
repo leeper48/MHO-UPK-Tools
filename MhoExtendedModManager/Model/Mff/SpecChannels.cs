@@ -2,7 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// An MHO packed spec map as four gray images, one per channel (Kurt, 2026-10-04): image editors (Photoshop) show a PNG's
@@ -29,37 +29,11 @@ static class SpecChannels
         "(<name>_R.png, _G.png, _B.png, _A.png) and let the Mod Manager combine them, or use a format that keeps alpha as a real " +
         "channel (TGA, DDS).";
 
-    static (int W, int H, byte[] Bgra) Load(string file, int w = 0, int h = 0)
-    {
-        using var src = new Bitmap(file);
-        if (w <= 0) { w = src.Width; h = src.Height; }
-        // the pixels as stored: drawing an image with alpha blends its colors away where the alpha is 0 (the very problem
-        // these files avoid), so read them directly, and resize with a plain copy (no blending)
-        Bitmap bmp;
-        if (src.Width == w && src.Height == h) bmp = src.Clone(new Rectangle(0, 0, w, h), PixelFormat.Format32bppArgb);
-        else
-        {
-            bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-            using var g = Graphics.FromImage(bmp);
-            g.CompositingMode = CompositingMode.SourceCopy; g.InterpolationMode = InterpolationMode.HighQualityBilinear;
-            g.DrawImage(src, 0, 0, w, h);
-        }
-        using var _ = bmp;
-        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-        var px = new byte[w * h * 4];
-        System.Runtime.InteropServices.Marshal.Copy(d.Scan0, px, 0, px.Length);
-        bmp.UnlockBits(d);
-        return (w, h, px);
-    }
+    // the pixels as stored (drawing an image with alpha blends its colors away where the alpha is 0: the very problem these
+    // files avoid), resized with a plain copy
+    static (int W, int H, byte[] Bgra) Load(string file, int w = 0, int h = 0) => ImagePixels.ReadBgra(file, w, h);
 
-    static void Save(string file, int w, int h, byte[] bgra)
-    {
-        using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        System.Runtime.InteropServices.Marshal.Copy(bgra, 0, d.Scan0, bgra.Length);
-        bmp.UnlockBits(d);
-        bmp.Save(file, ImageFormat.Png);
-    }
+    static void Save(string file, int w, int h, byte[] bgra) => ImagePixels.Save(w, h, bgra, file);
 
     /// <summary>Writes the four channels of <paramref name="rgbaFile"/> as gray PNGs &lt;stem&gt;_R … _A in <paramref name="dir"/>,
     /// and the read-me (once per folder).</summary>

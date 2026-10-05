@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Drawing.Imaging;
 using MhoPackageModifier;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// Thumbnails for the window's lists (Kurt, 0.9.1: "thumbnails next to source and targets"), made on one background thread
@@ -56,7 +56,7 @@ static class Thumbs
     // --- an FBX: its color map, shrunk to the row ----------------------------------------------------------------------------
     static bool MakeColorMap(string fbx, string png)
     {
-        if (MhoMffImporter.FbxReimport.FirstColorMap(fbx) is not string map) return false;
+        if (MhoExtendedModManager.Model.FbxReimport.FirstColorMap(fbx) is not string map) return false;
         using var src = LoadCopy(map);
         using var thumb = new Bitmap(128, 128);
         using (var g = Graphics.FromImage(thumb))

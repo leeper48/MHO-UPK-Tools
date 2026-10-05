@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// One level of Loop subdivision for the older, low-poly MFF models (Kurt, 0.10.10: Spider-Man is 702 vertices). Every

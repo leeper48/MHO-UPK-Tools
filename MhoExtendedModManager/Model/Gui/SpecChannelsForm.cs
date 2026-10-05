@@ -1,7 +1,7 @@
 using MhoExtendedModManager.Gui;
 using MhoPackageModifier.Gui;
 
-namespace MhoMffImporter.Gui;
+namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The Materials tab's From Channels window (Kurt, 2026-10-04): an MHO spec map from separate gray images, one per channel,

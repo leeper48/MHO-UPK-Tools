@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The choices of one import, read once (the command line reads them from the MFF_* environment switches; a GUI sets them

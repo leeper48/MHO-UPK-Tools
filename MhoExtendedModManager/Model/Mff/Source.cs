@@ -1,4 +1,4 @@
-namespace MhoMffImporter;
+namespace MhoExtendedModManager.Model;
 
 /// <summary>Kurt's MFF rip repository (read only): Models\Models\&lt;model&gt;\&lt;model&gt;.fbx and a flat Texture2D folder.
 /// MHO_MFF_SOURCE overrides the root (tests).</summary>
