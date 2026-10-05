@@ -12,9 +12,13 @@ sealed partial class ModEditorView
 {
     StorePreview? powerPreview;
     readonly ListBox powerList = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, IntegralHeight = false, BorderStyle = BorderStyle.None };
-    LightSlider? hueSlider, satSlider, brightSlider;
+    LightSlider? hueSlider, satSlider, brightSlider, opacitySlider;
     readonly Label powerCaption = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 4) };
     readonly Label powerShared = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 2, 0, 4), MaximumSize = new Size(560, 0) };
+    Button? addParent;
+    /// <summary>The package the selected own-effects entry's character extends (its model and most effects), when the mod
+    /// doesn't hold it yet: Add It to This Mod brings it in.</summary>
+    string? parentToAdd;
     readonly ColorSwatch[] presetSwatches = new ColorSwatch[5];
     int sharedRequest;
     bool fillingPower;
@@ -64,6 +68,7 @@ sealed partial class ModEditorView
             powerPreview.ControlAdded += (_, _) => Ui.RestyleButtons(powerPreview);
             host.Controls.Add(powerPreview);
             powerPreview.Mod = editing;
+            BeginInvoke(FillPowers);   // a mod without a hero package (NPCs, enemies only) lists its own effects at once
         };
         page.Controls.Add(host, 0, 0);
 
@@ -80,7 +85,12 @@ sealed partial class ModEditorView
         hueSlider = new LightSlider { Label = "Hue", Min = -180, Max = 180, Step = 1, Mark = 0, Format = v => $"{v:+0;-0;0}°", Home = () => 0, Dock = DockStyle.Top, Height = (int)(30 * S) };
         satSlider = new LightSlider { Label = "Saturation", Min = 0, Max = 2, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
         brightSlider = new LightSlider { Label = "Brightness", Min = 0, Max = 3, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
-        foreach (var sl in new[] { hueSlider, satSlider, brightSlider }) { sl.ValueChanged += SliderChanged; right.Controls.Add(sl); }
+        opacitySlider = new LightSlider { Label = "Opacity", Min = 0, Max = 1, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
+        var sliders = new TableLayoutPanel { ColumnCount = 1, RowCount = 4, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0), BackColor = Color.Transparent };
+        sliders.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        foreach (var sl in new[] { hueSlider, satSlider, brightSlider, opacitySlider }) { sl.ValueChanged += SliderChanged; sl.Dock = DockStyle.Fill; sl.Margin = new Padding(0); sliders.Controls.Add(sl); }
+        right.Controls.Add(sliders, 0, 2);
+        Ui.Tip(opacitySlider, "How visible the power's effects are: 100 % as the game has it, lower fades them, 0 % switches them off (nothing draws). Unlike Brightness, it fades smoke and dust too instead of leaving them as a dark cloud. Double-click: back to 100 %.");
         Ui.Tip(hueSlider, "Turns the power's colors around the color wheel (the brightness of each color is kept). Double-click: back to the game's.");
         Ui.Tip(satSlider, "How strong the power's colors are: 0 % is grey, 100 % as the game has it. Double-click: back to 100 %.");
         Ui.Tip(brightSlider, "How bright the power's colors are. Double-click: back to 100 %.");
@@ -101,7 +111,11 @@ sealed partial class ModEditorView
         ShowPresets();
         right.Controls.Add(presets, 0, 6);
         right.Controls.Add(PaletteSection(), 0, 7);
-        right.Controls.Add(powerShared, 0, 8);
+        addParent = Ui.FlatButton("Add It to This Mod", AddParentPackage, tip: "Adds the package this character's class extends (its model, and most of its effects such as glows and trails) to the mod, as the game's own copy, and selects its Own Effects so you can recolor them.");
+        addParent.Visible = false;
+        var sharedBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0), BackColor = Color.Transparent };
+        sharedBox.Controls.Add(powerShared); sharedBox.Controls.Add(addParent);
+        right.Controls.Add(sharedBox, 0, 8);
         page.Controls.Add(right, 1, 0);
         Disposed += (_, _) => powerPreview?.Dispose();
         return Page(page, Toolbar(), "A color recolors the power's own game files (its particles, effect textures and material colors): every costume of the hero shows it, for anyone using this mod. Save writes them into the mod's packages.");
@@ -114,10 +128,28 @@ sealed partial class ModEditorView
         powerList.BeginUpdate();
         powerList.Items.Clear();
         foreach (var p in powerPreview.AllHeroPowers) powerList.Items.Add(p);
+        foreach (var p in OwnEffects()) powerList.Items.Add(p);
         powerList.EndUpdate();
-        int at = keep == null ? -1 : powerPreview.AllHeroPowers.ToList().FindIndex(p => p.Prototype == keep);
+        var shown = powerList.Items.Cast<Fx.PowerList.Power>().ToList();
+        int at = keep == null ? -1 : shown.FindIndex(p => p.Prototype == keep);
         if (powerList.Items.Count > 0) powerList.SelectedIndex = Math.Max(0, at);
         if (powerList.Items.Count == 0) powerCaption.Text = "No Powers Found for This Hero";
+    }
+
+    /// <summary>An entry per NPC or enemy package of the mod: its own effects (Kurt, 2026-10-05: the Sinister clones' red glow,
+    /// in their attachment's particle systems), recolored like a power.</summary>
+    List<Fx.PowerList.Power> OwnEffects()
+    {
+        var list = new List<Fx.PowerList.Power>();
+        foreach (var (file, _) in draft.Packages.Where(p => PowerColorBuild.HasOwnEffects(p.File)).OrderBy(p => p.File, StringComparer.OrdinalIgnoreCase))
+        {
+            string stem = Path.GetFileNameWithoutExtension(file);
+            string name = stem[(stem.IndexOf('_', 4) + 1)..];
+            if (name.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) name = name[..^3];
+            name = System.Text.RegularExpressions.Regex.Replace(name.Replace('_', ' '), @"(?<=[a-z])(?=[A-Z])", " ");
+            list.Add(new Fx.PowerList.Power(PowerColorBuild.OwnPrefix + file, $"{name}: Own Effects", null, []) { HasName = true });
+        }
+        return list;
     }
 
     /// <summary>Who else the selected power's recolor changes (its packages' other owners: a team-up's copy, Rogue …),
@@ -126,6 +158,27 @@ sealed partial class ModEditorView
     {
         if (game == null) return;
         int req = ++sharedRequest;
+        if (addParent != null) addParent.Visible = false;
+        parentToAdd = null;
+        if (PowerColorBuild.IsOwn(p.Prototype))
+        {
+            string f = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
+            string text = $"Its color goes into {f} itself; a model built into it stays.";
+            powerShared.Text = text;
+            // a character that extends another package's (the Sinister Medal pets: the mob clones' model and red glow)
+            string? path = draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source;
+            var gc = game;
+            if (path == null || gc == null) return;
+            Task.Run(() => PowerColorBuild.ParentPackage(path, gc.Cooked)).ContinueWith(t =>
+            {
+                if (IsDisposed || req != sharedRequest || t.Status != TaskStatus.RanToCompletion || t.Result is not string parent) return;
+                bool held = draft.Packages.Any(x => x.File.Equals(parent, StringComparison.OrdinalIgnoreCase));
+                powerShared.Text = held ? $"Its model and most effects (glows, trails) come from {parent}: recolor them in its Own Effects."
+                    : $"Its model and most effects (glows, trails) come from {parent}, which this mod doesn't hold:";
+                if (!held && addParent != null) { parentToAdd = parent; addParent.Visible = true; }
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
         string? hero = draft.Packages.Select(x => HeroOf.Package(x.File, game?.Cooked)).FirstOrDefault(h => h != null);
         if (hero == null) { powerShared.Text = ""; return; }
         powerShared.Text = "";
@@ -144,16 +197,33 @@ sealed partial class ModEditorView
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
+    /// <summary>Add It to This Mod: the parent package (the game's original copy) into the mod's packages, then its Own Effects
+    /// entry selected.</summary>
+    void AddParentPackage()
+    {
+        if (parentToAdd is not string f || game == null) return;
+        string? source = new Originals(lib.DataFolder, game).Find(f) ?? (StockFiles.For(game.Cooked, f) is var st && File.Exists(st) ? st : null);
+        if (source == null) { Dialog.Show(this, $"{f}: no clean original of this package (the game's copy is changed).", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (!draft.Packages.Any(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase))) draft.Packages.Add((f, source));
+        RefreshPackages();
+        if (addParent != null) addParent.Visible = false;
+        parentToAdd = null;
+        FillPowers();
+        int at = powerList.Items.Cast<Fx.PowerList.Power>().ToList().FindIndex(x => x.Prototype.Equals(PowerColorBuild.OwnPrefix + f, StringComparison.OrdinalIgnoreCase));
+        if (at >= 0) powerList.SelectedIndex = at;
+        powerCaption.Text = Ui.TitleCase($"Added {f}: Save Changes keeps it");
+    }
+
     /// <summary>The sliders' color on every power of the hero (Kurt: one color shift for the whole hero).</summary>
     void ApplyToAll()
     {
         if (powerPreview == null || hueSlider == null || satSlider == null || brightSlider == null) return;
-        var c = new PowerColor(hueSlider.Value, satSlider.Value, brightSlider.Value);
+        var c = new PowerColor(hueSlider.Value, satSlider.Value, brightSlider.Value) { Opacity = opacitySlider?.Value ?? 1 };
         foreach (var p in powerPreview.AllHeroPowers)
         {
             var e = EntryOf(p.Prototype);
             if (e == null) { if (c.IsNone) continue; draft.PowerColors.Add(e = new PowerColorEntry { Power = p.Prototype, Name = p.Name }); }
-            e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness;
+            e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness; e.Opacity = c.Opacity;
         }
         powerCaption.Text = Ui.TitleCase(c.IsNone ? $"All {powerPreview.AllHeroPowers.Count} powers back to the game's colors" : $"Color applied to all {powerPreview.AllHeroPowers.Count} powers");
         powerList.Invalidate();
@@ -173,7 +243,7 @@ sealed partial class ModEditorView
         if (PreviewViews.PowerPreset(k) is not { } c) { powerCaption.Text = Ui.TitleCase($"Preset {k + 1} is empty: right-click it to store the sliders"); return; }
         if (powerList.SelectedItem is not Fx.PowerList.Power || hueSlider == null || satSlider == null || brightSlider == null) return;
         fillingPower = true; hueSlider.Value = c.Hue; satSlider.Value = c.Saturation; brightSlider.Value = c.Brightness; fillingPower = false;
-        SetColor(c);
+        SetColor(c with { Opacity = opacitySlider?.Value ?? 1 });   // (presets are colors; the opacity stays)
     }
 
     void ShowPresets()
@@ -205,11 +275,22 @@ sealed partial class ModEditorView
         fillingPower = true;
         var e = EntryOf(p.Prototype);
         hueSlider.Value = e?.Hue ?? 0; satSlider.Value = e?.Saturation ?? 1; brightSlider.Value = e?.Brightness ?? 1;
+        if (opacitySlider != null) opacitySlider.Value = e?.Opacity ?? 1;
         fillingPower = false;
         powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored")
             // (a proc, passive or talent: its effects play in the game during other powers, there's nothing to play here)
             + (p.Animations.Count == 0 ? " · No Animation of Its Own: Its Effects Show During Other Powers" : "");
-        if (p.Animations.Count > 0) powerPreview?.PlayPower(p.Prototype);
+        if (PowerColorBuild.IsOwn(p.Prototype))
+        {
+            powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored") + " · This Character's Own Effects (Glows, Trails …)";
+            if (powerPreview != null) powerPreview.OverridesOff = (e?.Color.Opacity ?? 1) < PowerColor.Invisible;
+            powerPreview?.PlayOwn(p.Prototype[PowerColorBuild.OwnPrefix.Length..], p.Prototype);
+        }
+        else
+        {
+            if (powerPreview != null) powerPreview.OverridesOff = false;
+            if (p.Animations.Count > 0) powerPreview?.PlayPower(p.Prototype);
+        }
         ShowShared(p);
         LoadPalette(p);
         ShowMapRows();
@@ -218,7 +299,7 @@ sealed partial class ModEditorView
     void SliderChanged()
     {
         if (fillingPower || hueSlider == null || satSlider == null || brightSlider == null) return;
-        SetColor(new PowerColor(hueSlider.Value, satSlider.Value, brightSlider.Value));
+        SetColor(new PowerColor(hueSlider.Value, satSlider.Value, brightSlider.Value) { Opacity = opacitySlider?.Value ?? 1 });
     }
 
     /// <summary>The selected power's color (null or no change: the game's); the preview shows it at once.</summary>
@@ -228,17 +309,19 @@ sealed partial class ModEditorView
         var e = EntryOf(p.Prototype);
         if (c == null || c.IsNone)
         {
-            if (e != null) { e.Hue = 0; e.Saturation = 1; e.Brightness = 1; if (c == null) e.Maps = null; }   // kept until Save, so its old packages are dropped then
-            if (c == null && hueSlider != null && satSlider != null && brightSlider != null) { fillingPower = true; hueSlider.Value = 0; satSlider.Value = 1; brightSlider.Value = 1; fillingPower = false; }
+            if (e != null) { e.Hue = 0; e.Saturation = 1; e.Brightness = 1; e.Opacity = 1; if (c == null) e.Maps = null; }   // kept until Save, so its old packages are dropped then
+            if (c == null && hueSlider != null && satSlider != null && brightSlider != null) { fillingPower = true; hueSlider.Value = 0; satSlider.Value = 1; brightSlider.Value = 1; if (opacitySlider != null) opacitySlider.Value = 1; fillingPower = false; }
         }
         else
         {
             if (e == null) draft.PowerColors.Add(e = new PowerColorEntry { Power = p.Prototype, Name = p.Name });
-            e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness;
+            e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness; e.Opacity = c.Opacity;
         }
         powerCaption.Text = EntryOf(p.Prototype) is { } now && !now.Color.IsNone ? "Recolored" : "The Game's Colors";
         powerList.Invalidate();
         powerPreview?.RefreshPowerColor();
+        // a hologram on the character's model comes off at Opacity 0 (as Save writes it)
+        if (PowerColorBuild.IsOwn(p.Prototype) && powerPreview != null) powerPreview.OverridesOff = (EntryOf(p.Prototype)?.Color.Opacity ?? 1) < PowerColor.Invisible;
         if (c == null) ShowMapRows();
     }
 
@@ -267,6 +350,6 @@ sealed partial class ModEditorView
     string? ApplyPowerColors(List<string> log)
     {
         if (game == null) { if (draft.PowerColors.Any(e => !e.Color.IsNone)) throw new InvalidDataException("the game folder isn't set"); return null; }
-        return PowerColorBuild.Apply(draft, editing, lib, game, ref powerDb, log);
+        return PowerColorBuild.Apply(draft, editing, lib, game, ref powerDb, log, () => WorkFolder);
     }
 }

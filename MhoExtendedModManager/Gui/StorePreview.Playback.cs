@@ -26,12 +26,13 @@ sealed partial class StorePreview
         if (mod != null) { float fl = PreviewViews.Lens(mod); viewer.FocalLength = fl; if (lensSlider != null) lensSlider.Value = fl; }    // and lens
         if (mod != null) { float gl = PreviewViews.GlowStrength(mod); viewer.GlowStrength = gl; if (glowSlider != null) glowSlider.Value = gl; }    // and glow
         Invalidate();
-        if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File), out var hit) && hit != null) { Show(hit); return; }
+        if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File) + (overridesOff ? "|plain" : ""), out var hit) && hit != null) { Show(hit); return; }
         viewer.ShowMessage("Loading the 3D view…");
         int req = ++request;
         string? cooked = CookedFolder;
-        string key = r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File);
-        Task.Run(() => { try { var l = ModMeshes.Load(r, cooked, out string why); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
+        string key = r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File) + (overridesOff ? "|plain" : "");
+        bool plain = overridesOff;
+        Task.Run(() => { try { var l = ModMeshes.Load(r, cooked, out string why, componentMaterials: !plain); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || viewer == null) return;
             var (loaded, why) = t.Result;
@@ -63,6 +64,7 @@ sealed partial class StorePreview
                 anims = allAnims = t.Result;
                 FillAnims();
                 AnimationsLoaded?.Invoke();
+                OwnAfterAnimations();
                 LoadHeroPowers();
                 // This PC's last animation and frame for the mesh, else the pick's "@animation".
                 var saved = mod == null ? null : PreviewViews.GetAnim(PreviewViews.Key(mod, r));

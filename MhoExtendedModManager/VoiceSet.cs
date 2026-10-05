@@ -14,12 +14,15 @@ sealed class PowerColorEntry
     public float Hue { get; set; }
     public float Saturation { get; set; } = 1;
     public float Brightness { get; set; } = 1;
+    /// <summary>The Opacity slider (1 = as the game has it; 0 = the effects off).</summary>
+    public float Opacity { get; set; } = 1;
     public List<string> Packages { get; set; } = [];
     /// <summary>Single colors replaced (hex "#RRGGBB" → "#RRGGBB", tolerance 0–1); null when none (Kurt, 2026-10-03).</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public List<ColorMapEntry>? Maps { get; set; }
     [System.Text.Json.Serialization.JsonIgnore] public PowerColor Color => new(Hue, Saturation, Brightness)
     {
+        Opacity = Opacity,
         Maps = Maps?.Select(m => ColorMap.FromHex(m.From) is { } f && ColorMap.FromHex(m.To) is { } t ? new ColorMap(f, t, m.Tolerance) : null).OfType<ColorMap>().ToList() ?? [],
     };
 }

@@ -43,6 +43,24 @@ sealed partial class ModEditorView
         paletteStrip.Controls.Clear();
         if (paletteCache.TryGetValue(p.Prototype, out var hit)) { ShowPalette(hit); return; }
         if (game == null) return;
+        if (PowerColorBuild.IsOwn(p.Prototype))
+        {
+            // a character's own effects: the package as the mod has it (the one kept before an earlier recolor, if any)
+            string f = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
+            string? path = editing != null && Path.Combine(editing.Folder, ModelWork.Folder, "color_base", f) is var kb && File.Exists(kb) ? kb
+                : draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source;
+            if (path == null) { paletteNote.Text = ""; return; }
+            paletteNote.Text = "Reading…";
+            var gc = game;
+            Task.Run(() => PowerRecolor.Palette([path], gc.Cooked)).ContinueWith(t =>
+            {
+                if (IsDisposed || req != paletteRequest) return;
+                if (t.Status != TaskStatus.RanToCompletion) { paletteNote.Text = "Its Colors Couldn't Be Read"; return; }
+                paletteCache[p.Prototype] = t.Result;
+                ShowPalette(t.Result);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
         string? hero = draft.Packages.Select(x => HeroOf.Package(x.File, game?.Cooked)).FirstOrDefault(h => h != null);
         if (hero == null) { paletteNote.Text = ""; return; }
         paletteNote.Text = "Reading…";

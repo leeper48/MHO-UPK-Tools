@@ -64,6 +64,7 @@ sealed partial class StorePreview
     /// </summary>
     void LoadEffects()
     {
+        if (ownFxPackage != null) { LoadOwnEffects(); return; }
         ClearEffects();
         if (!(PreviewViews.Powers || ForceEffects) || playing == null || animator == null || mod == null || !MeshOk || CookedFolder is not string cooked || animBox == null) { ShowPose(); Invalidate(); return; }
         int ai = animBox.SelectedIndex - 1;
@@ -138,8 +139,79 @@ sealed partial class StorePreview
 
     /// <summary>Shows a power of the hero (as its power button): its animations only, the first one picked; paused unless
     /// <paramref name="play"/> (Kurt: the editor's Powers list doesn't start playing; ▶ does).</summary>
+    // --- a character's own always-on effects (the editor's Powers tab, "<Name>: Own Effects"; Kurt, 2026-10-05: see the
+    // Sinister clones' red glow before the game) ------------------------------------------------------------------------------
+    string? ownFxPackage, ownProto;
+    bool ownPending, overridesOff;
+
+    /// <summary>The Powers tab: show the model's own materials where its component swaps them (a hologram at Opacity 0).</summary>
+    public bool OverridesOff
+    {
+        get => overridesOff;
+        set { if (overridesOff == value) return; overridesOff = value; if (meshIndex >= 0 && meshIndex < meshes.Count) { ownPending = ownFxPackage != null; LoadMesh(); } }
+    }
+
+    /// <summary>Shows a character package's own effects (PowerEffects.Own) on its model, playing its idle (or first animation);
+    /// <paramref name="proto"/> is the color entry ("own:&lt;file&gt;"). A package without a model of its own shows them on the
+    /// model shown.</summary>
+    public void PlayOwn(string packageFile, string proto)
+    {
+        ownFxPackage = packageFile; ownProto = proto;
+        powerFilter = null;
+        // the character's own model (its mesh component's: the clones' packages also hold the cryopod they come out of)
+        int k = meshes.FindIndex(r => r.Package.Equals(packageFile, StringComparison.OrdinalIgnoreCase));
+        if (k >= 0 && Model.MhoSkeleton.ComponentMesh(meshes[k].File) is string body)
+        {
+            int kb = meshes.FindIndex(r => r.Package.Equals(packageFile, StringComparison.OrdinalIgnoreCase) && r.Name.Equals(body, StringComparison.OrdinalIgnoreCase));
+            if (kb >= 0) k = kb;
+        }
+        if (k >= 0 && k != meshIndex) { meshIndex = k; ownPending = true; LoadMesh(); return; }
+        PlayOwnAnimation();
+    }
+
+    /// <summary>The idle (else the first animation) playing, which loads the own effects (LoadEffects).</summary>
+    void PlayOwnAnimation()
+    {
+        if (allAnims.Count == 0 || animBox == null) { LoadOwnEffects(); return; }
+        int i = allAnims.FindIndex(a => a.Name.Equals("idle", StringComparison.OrdinalIgnoreCase));
+        if (i < 0) i = allAnims.FindIndex(a => a.Name.Contains("idle", StringComparison.OrdinalIgnoreCase));
+        if (!PlayAnimation(allAnims[Math.Max(0, i)].Name, true)) LoadOwnEffects();
+    }
+
+    /// <summary>After the model's animations loaded (LoadMesh): the own effects' idle, if they were waiting for it.</summary>
+    void OwnAfterAnimations() { if (ownPending) { ownPending = false; PlayOwnAnimation(); } }
+
+    void LoadOwnEffects()
+    {
+        ClearEffects();
+        if (ownFxPackage is not string pkgFile || animator == null || mod == null || !MeshOk || CookedFolder is not string cooked) return;
+        var r = meshes[meshIndex];
+        var modFiles = mod.Manifest.UpkReplacements.Where(f => SkipModFile?.Invoke(f) != true).Select(f => Path.Combine(mod.Folder, f)).ToList();
+        int req = fxRequest;
+        var a = animator; var l = shownLoaded;
+        string meshFile = r.File, meshName = r.Name, proto = ownProto ?? "";
+        fxNote = "Reading Effects…"; Invalidate();
+        Task.Run(() => (Fx.PowerEffects.Own(new Fx.FxGame(cooked, modFiles), pkgFile), Fx.FxSockets.Of(meshFile, meshName))).ContinueWith(t =>
+        {
+            if (IsDisposed || req != fxRequest || animator != a || viewer == null) return;
+            if (t.Status != TaskStatus.RanToCompletion) { fxNote = ""; Invalidate(); return; }
+            var (fx, sockets) = t.Result;
+            fxSockets = sockets ?? new();
+            float ground = l == null || l.Positions.Length == 0 ? 0 : l.Positions.Min(v => v.Z);
+            fxTarget = new System.Numerics.Vector3(250, 0, ground);
+            fxPlayer = new Fx.PowerEffects.Player(fx, Socket, fxTarget, _ => true) { AnimSeconds = Math.Max(0.1f, playSeconds), Color = ColorFor?.Invoke(proto) };
+            fxPower = proto;
+            viewer.EffectStrength = PreviewViews.FxPower;
+            fxNote = fx.Effects.Count == 0 ? "No Effects of Its Own" : $"Own Effects · {fx.Effects.Count} Effect{(fx.Effects.Count == 1 ? "" : "s")}";
+            if (playing != null) FxReplay(PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime);
+            ShowPose();
+            Invalidate();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
     public bool PlayPower(string prototype, bool play = false)
     {
+        ownFxPackage = null; ownProto = null;
         int k = heroPowers.FindIndex(p => p.Prototype.Equals(prototype, StringComparison.OrdinalIgnoreCase));
         if (k < 0) return false;
         // The frame slider keeps its place (Kurt, 2026-10-03: compare powers at the same moment): the next power's

@@ -36,6 +36,7 @@ sealed class FxTables
     public string PathOf(int index)
     {
         if (index == 0) return "";
+        if (index > Exports.Count || -index > Imports.Count) return $"#{index}";   // (a reference past the tables: shown, not followed)
         var (name, outer) = index > 0 ? (Exports[index - 1].ObjectName, Exports[index - 1].Outer) : (Imports[-index - 1].ObjectName, Imports[-index - 1].Outer);
         string o = PathOf(outer);
         return o.Length > 0 ? o + "." + name : name;

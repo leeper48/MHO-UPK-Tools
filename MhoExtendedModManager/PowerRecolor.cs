@@ -16,11 +16,17 @@ public sealed record PowerColor(float Hue, float Saturation = 1, float Brightnes
     /// the hue / saturation / brightness change. Empty: none.</summary>
     public IReadOnlyList<ColorMap> Maps { get; init; } = [];
 
-    public bool IsNone => Maps.Count == 0 && Math.Abs(Hue) < 0.5f && Math.Abs(Saturation - 1) < 0.005f && Math.Abs(Brightness - 1) < 0.005f;
+    /// <summary>How visible the effects are (Kurt, 2026-10-05: fade a power out; brightness alone leaves smoke as a black
+    /// cloud): 1 as the game has it; below, the particles' alpha (and smooth-alpha effect textures) scaled; 0 also switches
+    /// every emitter off, so nothing draws.</summary>
+    public float Opacity { get; init; } = 1;
+    public const float Invisible = 0.005f;
+
+    public bool IsNone => Maps.Count == 0 && Math.Abs(Hue) < 0.5f && Math.Abs(Saturation - 1) < 0.005f && Math.Abs(Brightness - 1) < 0.005f && Math.Abs(Opacity - 1) < 0.005f;
     bool Shifts => Math.Abs(Hue) >= 0.5f || Math.Abs(Saturation - 1) >= 0.005f || Math.Abs(Brightness - 1) >= 0.005f;
 
-    public bool Equals(PowerColor? o) => o != null && Hue == o.Hue && Saturation == o.Saturation && Brightness == o.Brightness && Maps.SequenceEqual(o.Maps);
-    public override int GetHashCode() => HashCode.Combine(Hue, Saturation, Brightness, Maps.Count);
+    public bool Equals(PowerColor? o) => o != null && Hue == o.Hue && Saturation == o.Saturation && Brightness == o.Brightness && Opacity == o.Opacity && Maps.SequenceEqual(o.Maps);
+    public override int GetHashCode() => HashCode.Combine(Hue, Saturation, Brightness, Opacity, Maps.Count);
 
     public Vector3 Apply(Vector3 c)
     {
@@ -238,6 +244,11 @@ static class PowerRecolor
         byte[] body = pkg.Body.ToArray();
         var t = new FxTables(pkg);
         var (tables, objects, left) = RecolorTables(body, t, color.Apply);
+        if (color.Opacity < 0.995f)
+        {
+            var (at, ao, al) = ScaleAlpha(body, t, color.Opacity);
+            log($"opacity {color.Opacity * 100:0} %: {at} alpha table(s) and {ao} alpha value(s) scaled" + (al > 0 ? $"; {al} alpha curve(s) left as they are" : ""));
+        }
         var tinted = new SortedSet<int>();
         for (int i = 0; i < t.Exports.Count; i++)
         {
@@ -262,7 +273,36 @@ static class PowerRecolor
                 changed[i] = _ => d;
             }
         }
-        byte[] stage = PackageRebuilder.Rebuild(pkg, changed, [], out _);
+        // Opacity 0: every emitter switched off (its LOD levels' bEnabled false), so nothing draws, whatever its alpha setup
+        var offNames = new List<string>();
+        if (color.Opacity < PowerColor.Invisible)
+        {
+            int off = 0;
+            for (int i = 0; i < pkg.Exports.Length; i++)
+            {
+                if (!t.ClassOf(t.Exports[i]).Equals("ParticleLODLevel", StringComparison.OrdinalIgnoreCase)) continue;
+                byte[] d = changed.TryGetValue(i, out var f0) ? f0(0) : pkg.ReadExportBytes(pkg.Exports[i]).ToArray();
+                if (EmitterOff(pkg, d, offNames) is { } nd) { changed[i] = _ => nd; off++; }
+            }
+            log($"opacity 0 %: {off} emitter level(s) switched off");
+            // a hologram the character's mesh component puts on it (the Holo Wolverine team-up): taken off, so the mesh's
+            // own materials show
+            string compPath = $"marvelgamecontent.default__{cls}.initialskeletalmesh";
+            int comp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+            if (comp >= 0)
+            {
+                byte[] cd = changed.TryGetValue(comp, out var cf) ? cf(0) : pkg.ReadExportBytes(pkg.Exports[comp]).ToArray();
+                var ct = TagWalker.Walk(pkg, cd, 16);
+                if (ct?.FirstOrDefault(x => x.Name.Equals("Materials", StringComparison.OrdinalIgnoreCase)) is { } mt && BitConverter.ToInt32(cd, mt.ValueAt) is int mn && mn > 0 && mt.Size == 4 + 4 * mn
+                    && Enumerable.Range(0, mn).Any(k => Hologram(pkg, BitConverter.ToInt32(cd, mt.ValueAt + 4 + 4 * k))))
+                {
+                    byte[] nd = [.. cd.AsSpan(0, mt.Start), .. cd.AsSpan(mt.End)];
+                    changed[comp] = _ => nd;
+                    log("opacity 0 %: the hologram material on its mesh taken off (its own materials show)");
+                }
+            }
+        }
+        byte[] stage = PackageRebuilder.Rebuild(pkg, changed, [], out _, offNames);
         bool anySystem = Enumerable.Range(0, t.Exports.Count).Any(i => t.ClassOf(t.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase));
         if (changed.Count == 0 && !anySystem) { log($"{file}: nothing to recolor (no particle effects or material colors in it)"); return null; }
 
@@ -286,7 +326,8 @@ static class PowerRecolor
                 var d = tex.Decoded(fx, i);
                 if (d == null) { log($"note: {path}: its pixels can't be read, its colors stay"); continue; }
                 string png = Path.Combine(temp, t.Exports[i].ObjectName + "_" + i + ".png");
-                WriteRecolored(d.Value.Bgra, d.Value.W, d.Value.H, color, png);
+                // opacity: smooth alpha (DXT5) scaled; a DXT1's one-bit alpha only off at 0 (any fade in between would snap back)
+                WriteRecolored(d.Value.Bgra, d.Value.W, d.Value.H, color, png, want == "dxt5" || color.Opacity < PowerColor.Invisible ? color.Opacity : 1);
                 var enc = TextureEncode.FromImage(png, want, 85, 1f);
                 items.Add(new TextureImport.Replacement(path, TextureImport.WriteDds(enc), t.Exports[i].ObjectName));
                 recolored.Add(i);
@@ -455,7 +496,7 @@ static class PowerRecolor
 
     /// <summary>A texture's pixels recolored into a PNG. Additive effect textures often carry an unused, flat alpha (Forked
     /// Lightning's is all 0): that's written opaque, so the encoder keeps the colors (its mips weigh color by alpha).</summary>
-    static void WriteRecolored(byte[] bgra, int w, int h, PowerColor c, string png)
+    static void WriteRecolored(byte[] bgra, int w, int h, PowerColor c, string png, float alpha = 1)
     {
         bool alphaVaries = false;
         for (int k = 7; k < bgra.Length && !alphaVaries; k += 4) if (bgra[k] != bgra[3]) alphaVaries = true;
@@ -467,7 +508,8 @@ static class PowerRecolor
             int o = i * 4;
             var v = c.Apply(new Vector3(bgra[o + 2], bgra[o + 1], bgra[o]) * (1f / 255f));
             outp[o + 2] = (byte)Math.Clamp((int)(v.X * 255 + 0.5f), 0, 255); outp[o + 1] = (byte)Math.Clamp((int)(v.Y * 255 + 0.5f), 0, 255);
-            outp[o] = (byte)Math.Clamp((int)(v.Z * 255 + 0.5f), 0, 255); outp[o + 3] = alphaVaries ? bgra[o + 3] : (byte)255;
+            outp[o] = (byte)Math.Clamp((int)(v.Z * 255 + 0.5f), 0, 255);
+            outp[o + 3] = (byte)Math.Clamp((int)((alphaVaries ? bgra[o + 3] : 255) * alpha + 0.5f), 0, 255);
         }
         for (int y = 0; y < h; y++) System.Runtime.InteropServices.Marshal.Copy(outp, y * w * 4, bd.Scan0 + y * bd.Stride, w * 4);
         bmp.UnlockBits(bd);
@@ -529,6 +571,90 @@ static class PowerRecolor
             }
         }
         return (tables, objects, left);
+    }
+
+    /// <summary>Every color module's alpha (StartAlpha, AlphaOverLife, AlphaScaleOverLife: lookup tables and distribution
+    /// objects' Constant / Min / Max) times <paramref name="opacity"/>, in place. Returns the tables and values changed, and
+    /// the curves left.</summary>
+    public static (int Tables, int Objects, int Left) ScaleAlpha(byte[] b, FxTables t, float opacity)
+    {
+        int tables = 0, objects = 0, left = 0;
+        var doneObjects = new HashSet<int>();
+        for (int i = 0; i < t.Exports.Count; i++)
+        {
+            if (!t.ClassOf(t.Exports[i]).StartsWith("ParticleModuleColor", StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var prop in FxProps.Find(b, t, t.Exports[i])?.Props ?? [])
+            {
+                if (!prop.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase)) continue;
+                if (prop.Name.ToLowerInvariant() is not ("startalpha" or "alphaoverlife" or "alphascaleoverlife")) continue;
+                var inner = FxProps.TryRead(b, t, prop.ValueAt, prop.ValueAt + prop.Size) ?? [];
+                int dist = 0;
+                FxProps.Prop? table = null;
+                foreach (var x in inner)
+                {
+                    string xn = x.Name.ToLowerInvariant();
+                    if (xn == "lookuptable") table = x;
+                    else if (xn == "distribution" && x.Size == 4) dist = BitConverter.ToInt32(b, x.ValueAt);
+                }
+                // a float table: [min, max, values …]; scaling by a factor ≥ 0 keeps min and max in order
+                if (table != null && BitConverter.ToInt32(b, table.ValueAt) is int count && count > 2 && table.Size == 4 + 4 * count)
+                {
+                    int at = table.ValueAt + 4;
+                    for (int k = 0; k < count; k++) W(b, at + 4 * k, F(b, at + 4 * k) * opacity);
+                    tables++;
+                }
+                if (dist > 0 && doneObjects.Add(dist - 1))
+                {
+                    var de = t.Exports[dist - 1];
+                    if (t.ClassOf(de).ToLowerInvariant().Contains("curve")) { left++; continue; }
+                    foreach (var v in FxProps.Find(b, t, de)?.Props ?? [])
+                        if (v.Type.Equals("FloatProperty", StringComparison.OrdinalIgnoreCase) && v.Size == 4 && v.Name.ToLowerInvariant() is "constant" or "min" or "max")
+                        { W(b, v.ValueAt, F(b, v.ValueAt) * opacity); objects++; }
+                }
+            }
+        }
+        return (tables, objects, left);
+    }
+
+    /// <summary>A material whose parent chain is a hologram material (its name has "hologram").</summary>
+    static bool Hologram(Package pkg, int r)
+    {
+        for (int depth = 0; r != 0 && depth < 6; depth++)
+        {
+            string name = r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r);
+            if (name.Contains("hologram", StringComparison.OrdinalIgnoreCase)) return true;
+            if (r < 0) return false;
+            byte[] d = pkg.ReadExportBytes(pkg.Exports[r - 1]).ToArray();
+            var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase) && x.Size == 4);
+            if (t == null) return false;
+            r = BitConverter.ToInt32(d, t.ValueAt);
+        }
+        return false;
+    }
+
+    /// <summary>A ParticleLODLevel switched off: its bEnabled set to false (the tag added before None when it's omitted, as
+    /// the default true is). Null when it can't be read or is off already.</summary>
+    static byte[]? EmitterOff(Package pkg, byte[] d, List<string> addNames)
+    {
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tags == null) return null;
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return pkg.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        var en = tags.FirstOrDefault(x => x.Name.Equals("bEnabled", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("BoolProperty", StringComparison.OrdinalIgnoreCase));
+        if (en != null)
+        {
+            if (d[en.ValueAt - 1] == 0) return null;
+            var c = (byte[])d.Clone(); c[en.ValueAt - 1] = 0; return c;
+        }
+        var tag = new byte[25];   // name, type, size 0, array index 0, the value byte (false)
+        BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx("bEnabled"));
+        BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("BoolProperty"));
+        return [.. d.AsSpan(0, tags.NoneAt), .. tag, .. d.AsSpan(tags.NoneAt)];
     }
 
     static float F(byte[] b, int at) => BitConverter.ToSingle(b, at);

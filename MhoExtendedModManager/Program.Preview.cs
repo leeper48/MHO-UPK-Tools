@@ -971,6 +971,59 @@ static partial class Program
                 foreach (var kv in buckets.Reverse()) Console.WriteLine($"  {kv.Key,3}%+  {kv.Value}");
                 return 0;
             }
+            case "--own-fx":
+            {
+                // Read-only: a character package's own always-on effects (PowerEffects.Own): each effect, its sockets and emitters.
+                // --own-fx <package.upk>
+                string? ogr2 = settings.ResolvedGameRoot(data);
+                if (rest.Count < 2 || ogr2 == null) { Console.WriteLine("--own-fx <package.upk>"); return 1; }
+                var ofx = Fx.PowerEffects.Own(new Fx.FxGame(Settings.Cooked(ogr2), [rest[1]]), Path.GetFileName(rest[1]));
+                foreach (var e in ofx.Effects) Console.WriteLine($"  {e.Name}: {e.System.Emitters.Count} emitter(s) at [{string.Join(", ", e.Sockets)}]");
+                foreach (var n in ofx.Notes) Console.WriteLine("  note: " + n);
+                Console.WriteLine($"{ofx.Effects.Count} effect(s)");
+                return 0;
+            }
+            case "--parent-package":
+            {
+                // Read-only: the NPC / enemy package a package's class extends (PowerColorBuild.ParentPackage). --parent-package <package.upk> [...]
+                string? ppr = settings.ResolvedGameRoot(data);
+                if (ppr == null) { Console.WriteLine("game folder not found"); return 1; }
+                foreach (string f in rest.Skip(1)) Console.WriteLine($"{Path.GetFileName(f)} → {PowerColorBuild.ParentPackage(f, Settings.Cooked(ppr)) ?? "(none)"}");
+                return 0;
+            }
+            case "--fx-emitters":
+            {
+                // Read-only: each particle system in packages and how many of its emitters draw (an enabled LOD level).
+                // --fx-emitters <package.upk> [...]
+                foreach (string f in rest.Skip(1))
+                {
+                    var fp = MhoPackageModifier.Package.Open(f); var ft = new Fx.FxTables(fp); var ff = new Fx.FxPkg(Path.GetFileName(f), fp.Body, ft);
+                    int sys = 0, draw = 0;
+                    for (int i = 0; i < ft.Exports.Count; i++)
+                    {
+                        if (!ft.ClassOf(ft.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
+                        sys++;
+                        int n = Fx.ParticleData.Read(ff, i)?.Emitters.Count ?? 0; draw += n;
+                        Console.WriteLine($"  {n,3}  {ft.PathOf(i + 1)}");
+                    }
+                    Console.WriteLine($"{Path.GetFileName(f)}: {sys} particle system(s), {draw} emitter(s) that draw");
+                }
+                return 0;
+            }
+            case "--imports":
+            {
+                // Read-only: a package's imports (-index, class, path). --imports <package.upk> [filter]
+                if (rest.Count < 2) { Console.WriteLine("--imports <package.upk> [filter]"); return 1; }
+                var ip = MhoPackageModifier.Package.Open(rest[1]);
+                for (int i = 0; i < ip.Imports.Length; i++)
+                {
+                    string path = ip.RefName(-1 - i);
+                    for (int o = ip.Imports[i].OuterIndex; o != 0;) { if (o < 0) { path = ip.Imports[-o - 1].ObjectName + "." + path; o = ip.Imports[-o - 1].OuterIndex; } else { path = ip.PathOf(ip.Exports[o - 1]) + "." + path; break; } }
+                    if (rest.Count > 2 && !path.Contains(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    Console.WriteLine($"{-1 - i,6}  {ip.Imports[i].ClassName,-28} {path}");
+                }
+                return 0;
+            }
             case "--tag-census":
             {
                 // Read-only (2026-10-05, the scale slider: do stock characters scale their mesh component?): every export of the

@@ -101,7 +101,51 @@ static class ModMeshes
         pitch * MathF.PI * 2 / 65536, yaw * MathF.PI * 2 / 65536, roll * MathF.PI * 2 / 65536);
 
     /// <summary>Reads a mesh (highest detail, bind pose) and its section textures; null with a reason when it can't be read.</summary>
-    public static Loaded? Load(MeshRef r, string? cacheFolder, out string why)
+    /// <summary>A material (an instance) whose parent chain is a hologram material (name containing "hologram").</summary>
+    static bool IsHologram(Package mpm, int mat)
+    {
+        for (int r = mat, depth = 0; r != 0 && depth < 6; depth++)
+        {
+            string name = r > 0 ? mpm.Exports[r - 1].ObjectName : mpm.RefName(r);
+            if (name.Contains("hologram", StringComparison.OrdinalIgnoreCase)) return true;
+            if (r < 0) return false;
+            byte[] d = mpm.ReadExportBytes(mpm.Exports[r - 1]).ToArray();
+            var t = TagWalker.Walk(mpm, d, 4)?.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase) && x.Size == 4);
+            if (t == null) return false;
+            r = BitConverter.ToInt32(d, t.ValueAt);
+        }
+        return false;
+    }
+
+    /// <summary>The Materials list of the package's character mesh component (marvelgamecontent.default__&lt;class&gt;
+    /// .initialskeletalmesh) when that component shows this mesh: object references by section material slot (0 = the mesh's
+    /// own); null when there's none.</summary>
+    public static List<int>? ComponentMaterials(Package mpm, string file, string meshName)
+    {
+        try
+        {
+            string stem = Path.GetFileNameWithoutExtension(file);
+            if (stem.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) stem = stem[4..];
+            if (stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) stem = stem[..^3];
+            int comp = Array.FindIndex(mpm.Exports, e => mpm.PathOf(e).Equals($"marvelgamecontent.default__{stem.ToLowerInvariant()}.initialskeletalmesh", StringComparison.OrdinalIgnoreCase));
+            if (comp < 0) return null;
+            byte[] d = mpm.ReadExportBytes(mpm.Exports[comp]).ToArray();
+            var tags = TagWalker.Walk(mpm, d, 16);
+            if (tags == null) return null;
+            // only when the component shows this mesh (its SkeletalMesh is this export, or it names none: the class's own)
+            if (tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } sm
+                && BitConverter.ToInt32(d, sm.ValueAt) is int mr && mr > 0 && !mpm.Exports[mr - 1].ObjectName.Equals(meshName, StringComparison.OrdinalIgnoreCase)) return null;
+            if (tags.FirstOrDefault(t => t.Name.Equals("Materials", StringComparison.OrdinalIgnoreCase)) is not { } mt) return null;
+            int n = BitConverter.ToInt32(d, mt.ValueAt);
+            if (n <= 0 || mt.Size != 4 + 4 * n) return null;
+            return Enumerable.Range(0, n).Select(k => BitConverter.ToInt32(d, mt.ValueAt + 4 + 4 * k)).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or IndexOutOfRangeException or ArgumentException) { return null; }
+    }
+
+    /// <param name="componentMaterials">false: the mesh's own materials even where its component swaps them (the Powers tab
+    /// previewing a hologram taken off).</param>
+    public static Loaded? Load(MeshRef r, string? cacheFolder, out string why, bool componentMaterials = true)
     {
         string failure = "";
         var pkg = AnimPackage.Open(r.File);
@@ -115,6 +159,15 @@ static class ModMeshes
         var notes = new List<string>();
         Package? mpm = null;
         try { mpm = Package.Open(r.File); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { notes.Add("textures: " + ex.Message); }
+        // The character's mesh component can swap the mesh's materials for its own (its Materials list: the Holo Wolverine
+        // team-up's hologram): the game draws those, so the preview does too (Kurt, 2026-10-05).
+        var ownMaterials = materials;
+        if (componentMaterials && mpm != null && ComponentMaterials(mpm, r.File, r.Name) is { Count: > 0 } over)
+        {
+            materials = [.. materials];
+            for (int k = 0; k < over.Count && k < materials.Count; k++) if (over[k] != 0) materials[k] = over[k];
+            notes.Add($"materials from the mesh component: {over.Count(x => x != 0)}");
+        }
         var cache = new Dictionary<int, Gui.ModelView.Map?>();
         var otherCaches = new Dictionary<Package, Dictionary<int, Gui.ModelView.Map?>>();
         for (int s = 0; s < lod.Sections.Count && mpm != null; s++)
@@ -130,6 +183,18 @@ static class ModMeshes
                 continue;
             }
             looks[s] = LookFor(mpm, mat, cacheFolder, cache, notes, s);
+            // A hologram (the Holo Wolverine team-up's override, parent chvfxmaterial_chbasemat_hologram): the preview can't run
+            // its shader, so it shows the mesh's own textures as a cyan glow, darkened, to tell it apart from the plain look.
+            if (mat > 0 && IsHologram(mpm, mat) && mi < ownMaterials.Count && ownMaterials[mi] > 0 && LookFor(mpm, ownMaterials[mi], cacheFolder, cache, notes, s) is { } plain)
+            {
+                var cyan = new Vector3(0.25f, 0.85f, 1f);
+                var glow = plain.Diffuse?.Recolored(c => cyan * (0.35f + 0.9f * (0.299f * c.X + 0.587f * c.Y + 0.114f * c.Z)));
+                plain.Diffuse = plain.Diffuse?.Recolored(c => c * 0.15f);
+                plain.EmissiveTex = glow; plain.UseEmissive = glow != null; plain.EmissiveMult = 1.2f;
+                plain.UseSpec = false; plain.UseReflection = false;
+                looks[s] = plain;
+                notes.Add($"section {s}: hologram (shown as a cyan glow)");
+            }
         }
         var tri = new int[lod.Indices.Count / 3];
         for (int s = 0; s < lod.Sections.Count; s++)

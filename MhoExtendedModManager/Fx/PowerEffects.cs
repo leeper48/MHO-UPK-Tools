@@ -360,28 +360,124 @@ sealed class PowerEffects
                 if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1" && (shiftV != Vector3.Zero || turnR != (0, 0, 0)))
                     Console.WriteLine($"    {p.T.Exports[i].ObjectName}: offset {shiftV}, rotation pitch {turnR.Item1} yaw {turnR.Item2} roll {turnR.Item3}; local-space mesh {data.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false))}");
                 fx.Effects.Add(new Effect(p.T.Exports[i].ObjectName, data, sockets, offset, point, atTarget, stop, attached) { Kind = kindName, Shift = shiftV, Turn = turnR });
-                foreach (var em in data.Emitters.Where(x => x.Kind == "mesh"))
-                {
-                    int emr = em.Required.Ref("Material");
-                    bool overrides = em.TypeData?.Bool("bOverrideMaterial", false) == true;
-                    string emName = emr == 0 ? "" : em.Required.P.T.PathOf(emr).ToLowerInvariant();
-                    if (overrides && (emName.Contains("distort") || emName.Contains("warp") || emName.Contains("refract") || emName.Contains("radial") || NotDrawn(em.Required.P, emr, look, g))) continue;
-                    if (MeshOf(em, look, g) is not { } mm) continue;
-                    (Gui.ModelView.Map? Tex, bool Additive) own = (null, true);
-                    try { if (overrides && emr != 0) own = tex.ParticleMaterial(em.Required.P, emr, false); } catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { }
-                    if (overrides && own.Tex == null) continue;
-                    fx.Meshes[em] = (mm.Mesh, mm.Mesh.Sections.Select(sec =>
-                    {
-                        if (overrides) return own;
-                        if (NotDrawn(mm.P, sec.MaterialRef, look, g)) return ((Gui.ModelView.Map?)null, true);
-                        try { return tex.ParticleMaterial(mm.P, sec.MaterialRef, false); }
-                        catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { return ((Gui.ModelView.Map?)null, true); }
-                    }).ToArray());
-                }
-                foreach (var em in data.Emitters)
-                    try { fx.Looks[em] = tex.ParticleMaterial(em.Required.P, em.Required.Ref("Material"), em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1); }
-                    catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { fx.Looks[em] = (null, true); fx.Notes.Add($"{em.Name}: {ex.Message}"); }
+                AddLooks(fx, tex, look, g, data);
             }
+        fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
+        return fx;
+    }
+
+    /// <summary>An effect's looks: its mesh emitters' meshes and materials, and every emitter's material (ForClass, Own).</summary>
+    static void AddLooks(PowerEffects fx, FxTextures tex, List<FxPkg> look, FxGame g, ParticleData data)
+    {
+        foreach (var em in data.Emitters.Where(x => x.Kind == "mesh"))
+        {
+            int emr = em.Required.Ref("Material");
+            bool overrides = em.TypeData?.Bool("bOverrideMaterial", false) == true;
+            string emName = emr == 0 ? "" : em.Required.P.T.PathOf(emr).ToLowerInvariant();
+            if (overrides && (emName.Contains("distort") || emName.Contains("warp") || emName.Contains("refract") || emName.Contains("radial") || NotDrawn(em.Required.P, emr, look, g))) continue;
+            if (MeshOf(em, look, g) is not { } mm) continue;
+            (Gui.ModelView.Map? Tex, bool Additive) own = (null, true);
+            try { if (overrides && emr != 0) own = tex.ParticleMaterial(em.Required.P, emr, false); } catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { }
+            if (overrides && own.Tex == null) continue;
+            fx.Meshes[em] = (mm.Mesh, mm.Mesh.Sections.Select(sec =>
+            {
+                if (overrides) return own;
+                if (NotDrawn(mm.P, sec.MaterialRef, look, g)) return ((Gui.ModelView.Map?)null, true);
+                try { return tex.ParticleMaterial(mm.P, sec.MaterialRef, false); }
+                catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { return ((Gui.ModelView.Map?)null, true); }
+            }).ToArray());
+        }
+        foreach (var em in data.Emitters)
+            try { fx.Looks[em] = tex.ParticleMaterial(em.Required.P, em.Required.Ref("Material"), em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1); }
+            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { fx.Looks[em] = (null, true); fx.Notes.Add($"{em.Name}: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// A character's own always-on effects (Kurt, 2026-10-05: see the Sinister clones' red glow in the 3D view before the
+    /// game): the particle templates of the attachments its class default lists (mAttachmentClasses: their PEffectTemplates,
+    /// spawned at each of their SpawnSockets; the clones' vfx_clone_glows and eye trails) and its own EntityFxParticle
+    /// components that start with it (no ActivationPoint, not on an animated actor). They play from the start and keep
+    /// going; read from <paramref name="packageFile"/> (the mod's copy) and what it imports from loaded packages.
+    /// </summary>
+    public static PowerEffects Own(FxGame g, string packageFile)
+    {
+        var fx = new PowerEffects();
+        string stem = Path.GetFileNameWithoutExtension(packageFile);
+        FxPkg? p;
+        try { p = g.Open(stem); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { fx.Notes.Add($"{stem}: {ex.Message}"); return fx; }
+        if (p == null) { fx.Notes.Add($"{stem}: not found"); return fx; }
+        string cls = stem;
+        if (cls.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) cls = cls[4..];
+        if (cls.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) cls = cls[..^3];
+        cls = cls.ToLowerInvariant();
+        var look = new List<FxPkg> { p };
+        var tex = new FxTextures([.. look, .. g.AlwaysLoaded()], g.Cooked);
+        int Find(string path) { for (int i = 0; i < p.T.Exports.Count; i++) if (p.T.PathOf(i + 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return i; return -1; }
+        List<FxProps.Prop> Props(int i) => FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props ?? [];
+        List<int> Refs(FxProps.Prop a)
+        {
+            var list = new List<int>();
+            int n = a.Size >= 4 ? BitConverter.ToInt32(p.Bytes, a.ValueAt) : 0;
+            if (n >= 0 && a.Size == 4 + 4 * n) for (int k = 0; k < n; k++) list.Add(BitConverter.ToInt32(p.Bytes, a.ValueAt + 4 + 4 * k));
+            return list;
+        }
+        void Add(string name, int sysRef, List<string> sockets)
+        {
+            if (Resolve(p, sysRef, look, g) is not { } sysAt) { if (sysRef != 0) fx.Notes.Add($"{name}: its particle system {p.T.PathOf(sysRef)} isn't in a package the view reads"); return; }
+            ParticleData? data;
+            try { data = ParticleData.Read(sysAt.P, sysAt.Export); }
+            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException) { fx.Notes.Add($"{name}: {ex.Message}"); return; }
+            if (data == null) return;
+            fx.Effects.Add(new Effect(name, data, sockets, 0, "power_on_start", false, false, true) { Kind = "power" });
+            AddLooks(fx, tex, look, g, data);
+        }
+        int def = Find("marvelgamecontent.default__" + cls);
+        if (def < 0) { fx.Notes.Add($"{stem}: no class default {cls}"); return fx; }
+        var dp = Props(def);
+        // 1. the attachments' effect templates, at their sockets
+        if (dp.FirstOrDefault(x => x.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is { } ac)
+            foreach (int r in Refs(ac))
+            {
+                if (r == 0) continue;
+                string aname = r > 0 ? p.T.Exports[r - 1].ObjectName : p.T.Imports[-r - 1].ObjectName;
+                int ad = Find("marvelgamecontent.default__" + aname.ToLowerInvariant());
+                if (ad < 0) { fx.Notes.Add($"{aname}: its default isn't in {stem}"); continue; }
+                var ap = Props(ad);
+                // SpawnSockets: one socket name per template (the clone's 16 glows and its eye trails: 17 and 17)
+                var names = new List<string>();
+                if (ap.FirstOrDefault(x => x.Name.Equals("SpawnSockets", StringComparison.OrdinalIgnoreCase)) is { } ss && ss.Size >= 4
+                    && BitConverter.ToInt32(p.Bytes, ss.ValueAt) is int sn && sn >= 0 && ss.Size == 4 + 8 * sn)
+                    for (int k = 0; k < sn; k++)
+                    {
+                        int ni = BitConverter.ToInt32(p.Bytes, ss.ValueAt + 4 + 8 * k);
+                        names.Add(ni >= 0 && ni < p.T.Names.Count ? p.T.Names[ni].Text : "None");
+                    }
+                if (ap.FirstOrDefault(x => x.Name.Equals("PEffectTemplates", StringComparison.OrdinalIgnoreCase)) is { } et)
+                {
+                    var templates = Refs(et);
+                    for (int k = 0; k < templates.Count; k++)
+                    {
+                        int sr = templates[k];
+                        if (sr == 0) continue;
+                        var at = k < names.Count && !names[k].Equals("None", StringComparison.OrdinalIgnoreCase) ? new List<string> { names[k] } : names.Count == 1 ? names : [];
+                        Add($"{aname}: {(sr > 0 ? p.T.Exports[sr - 1].ObjectName : p.T.Imports[-sr - 1].ObjectName)}", sr, at);
+                    }
+                }
+            }
+        // 2. its own particle components that start with it
+        string prefix = "marvelgamecontent.default__" + cls + ".";
+        for (int i = 0; i < p.T.Exports.Count; i++)
+        {
+            if (!p.T.ClassOf(p.T.Exports[i]).Equals("EntityFxParticle", StringComparison.OrdinalIgnoreCase) || !p.T.PathOf(i + 1).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            var ep = Props(i);
+            FxProps.Prop? P(string n) => ep.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (P("ActivationPoint") != null || (P("SpawnOnAnimatedActor") is { } sa && p.Bytes[sa.ValueAt] != 0)) continue;
+            int sysRef = P("ParticleSystemTemplate") is { Size: 4 } sp ? BitConverter.ToInt32(p.Bytes, sp.ValueAt) : 0;
+            if (sysRef == 0) continue;
+            var sockets = P("SpawnSockets") is { } ss2 ? FxGame.StructArray(p.Bytes, p.T, ss2.ValueAt, ss2.Size)
+                .Select(d => d.TryGetValue("socketname", out var n) ? n : "None").Where(n => !n.Equals("None", StringComparison.OrdinalIgnoreCase)).ToList() : [];
+            Add(p.T.Exports[i].ObjectName, sysRef, sockets);
+        }
         fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
         return fx;
     }
@@ -512,7 +608,8 @@ sealed class PowerEffects
             lock (recolored) { if (!recolored.TryGetValue(t, out var r)) recolored[t] = r = t.Recolored(c.Apply); return r; }
         }
 
-        Vector4 Col(Vector4 v) => color is { IsNone: false } c ? new Vector4(c.Apply(new Vector3(v.X, v.Y, v.Z)), v.W) : v;
+        // (Opacity: the color and alpha faded together, so additive and blended effects both fade in the preview)
+        Vector4 Col(Vector4 v) => color is { IsNone: false } c ? new Vector4(c.Apply(new Vector3(v.X, v.Y, v.Z)) * c.Opacity, v.W * c.Opacity) : v;
 
         /// <summary>Moves the effects on by <paramref name="dt"/> seconds; <paramref name="ended"/>: the animation is over.</summary>
         public void Step(float dt, bool ended)

@@ -174,6 +174,92 @@ static partial class Program
                 Console.WriteLine(pfails == 0 ? "PASS" : $"{pfails} FAILED");
                 return pfails == 0 ? 0 : 1;
             }
+            case "--own-color-test":
+            {
+                // Test (scratch library only): an NPC / enemy package's own effects recolored (Powers tab → "<Name>: Own Effects",
+                // Kurt 2026-10-05: the Sinister clones' red glow): its reddest color → blue, saved; the model kept; saved again
+                // = the same bytes (no recolor of a recolor); back to the game's colors = the package as it was.
+                // --own-color-test <mod> <package file>
+                string? ohome = Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
+                if (ohome == null || Path.GetFullPath(ohome).Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase))
+                { Console.WriteLine("Set MHO_EXTMM_HOME to a scratch folder (a copy of a library), never the real one."); return 2; }
+                var om = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                string? ogr = settings.ResolvedGameRoot(data);
+                if (om == null || ogr == null) { Console.WriteLine("--own-color-test <mod> <package file>"); return 1; }
+                string ofile = rest[2], opath = Path.Combine(om.Folder, ofile);
+                var ogame = new GameState(ogr, data);
+                Fx.GameData? odb = null;
+                int ofails = 0;
+                void OCheck(string what, bool ok) { if (!ok) ofails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}"); }
+                byte[] original = File.ReadAllBytes(opath);
+                static byte[]? MeshBytes(string f) { var p = MhoPackageModifier.Package.Open(f); string? n = MhoExtendedModManager.Model.MhoSkeleton.ComponentMesh(f); var e = p.Exports.FirstOrDefault(x => x.ObjectName.Equals(n, StringComparison.OrdinalIgnoreCase) && p.ClassOf(x).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)); return e == null ? null : p.ReadExportBytes(e).ToArray(); }
+                byte[]? mesh0 = MeshBytes(opath);
+                var pal = PowerRecolor.Palette([opath], ogame.Cooked);
+                Console.WriteLine("  colors: " + string.Join(" ", pal.Select(x => $"{ColorMap.Hex(x.Tint)} {x.Share:P0}")));
+                var red = pal.Where(x => x.Tint.X > 0.8f && x.Tint.Y < 0.5f && x.Tint.Z < 0.5f).OrderByDescending(x => x.Weight).FirstOrDefault();
+                OCheck($"a red among its colors ({(red != null ? ColorMap.Hex(red.Tint) : "none")})", red != null);
+                if (red == null) return 1;
+                string Power = PowerColorBuild.OwnPrefix + ofile;
+                var od = ModDraft.From(om);
+                od.PowerColors.Add(new PowerColorEntry { Power = Power, Name = "Own Effects", Maps = [new ColorMapEntry { From = ColorMap.Hex(red.Tint), To = "#2060FF", Tolerance = 0.3f }] });
+                var olog = new List<string>();
+                PowerColorBuild.Apply(od, om, lib, ogame, ref odb, olog);
+                string? osaved = ModWriter.Save(lib, od, om, out string? oerr);
+                olog.ForEach(l => Console.WriteLine("    " + l));
+                OCheck("saved" + (oerr != null ? ": " + oerr : ""), osaved != null);
+                var ol2 = ModLibrary.Load(data); var om2 = ol2.Find(rest[1])!;
+                string after = Path.Combine(om2.Folder, ofile);
+                byte[] first = File.ReadAllBytes(after);
+                OCheck("the package changed", !first.AsSpan().SequenceEqual(original));
+                OCheck("its model is kept (the same mesh bytes)", mesh0 != null && MeshBytes(after) is { } m1 && m1.AsSpan().SequenceEqual(mesh0));
+                string kb = Path.Combine(om2.Folder, ModelWork.Folder, "color_base", ofile);
+                OCheck("the package before the recolor is kept with the mod (Model color_base)", File.Exists(kb) && File.ReadAllBytes(kb).AsSpan().SequenceEqual(original));
+                var pal2 = PowerRecolor.Palette([after], ogame.Cooked);
+                Console.WriteLine("  colors now: " + string.Join(" ", pal2.Select(x => $"{ColorMap.Hex(x.Tint)} {x.Share:P0}")));
+                float RedShare(List<PowerRecolor.Swatch> p) => p.Where(x => x.Tint.X > 0.8f && x.Tint.Y < 0.5f && x.Tint.Z < 0.5f).Sum(x => x.Share);
+                OCheck($"less red ({RedShare(pal):P0} → {RedShare(pal2):P0})", RedShare(pal2) < RedShare(pal));
+                // saved again with the same colors: the same bytes
+                var od2 = ModDraft.From(om2);
+                PowerColorBuild.Apply(od2, om2, ol2, ogame, ref odb, olog);
+                ModWriter.Save(ol2, od2, om2, out oerr);
+                var om3 = ModLibrary.Load(data).Find(rest[1])!;
+                OCheck("saved again: the same package (not a recolor of the recolor)", File.ReadAllBytes(Path.Combine(om3.Folder, ofile)).AsSpan().SequenceEqual(first));
+                // the game's colors again
+                var od3 = ModDraft.From(om3);
+                foreach (var e in od3.PowerColors) { e.Hue = 0; e.Saturation = 1; e.Brightness = 1; e.Maps = null; }
+                PowerColorBuild.Apply(od3, om3, ModLibrary.Load(data), ogame, ref odb, olog);
+                ModWriter.Save(ModLibrary.Load(data), od3, om3, out oerr);
+                var om4 = ModLibrary.Load(data).Find(rest[1])!;
+                OCheck("back to the game's colors: the package as it was, still in the mod", File.Exists(Path.Combine(om4.Folder, ofile)) && File.ReadAllBytes(Path.Combine(om4.Folder, ofile)).AsSpan().SequenceEqual(original));
+                OCheck("no PowerColors left in the manifest", om4.Manifest.PowerColors == null);
+                Console.WriteLine(ofails == 0 ? "PASS" : $"{ofails} FAILED");
+                return ofails == 0 ? 0 : 1;
+            }
+            case "--opacity-test":
+            {
+                // Test (read only on the source; writes <out.upk>): a package recolored at an opacity (PowerRecolor.Build), then
+                // every particle system read back: how many emitters still draw. 0 % must leave none.
+                // --opacity-test <package.upk> <opacity 0-1> <out.upk>
+                string? xgr = settings.ResolvedGameRoot(data);
+                if (rest.Count < 4 || xgr == null || !float.TryParse(rest[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float xop)) { Console.WriteLine("--opacity-test <package.upk> <opacity 0-1> <out.upk>"); return 1; }
+                string xcooked = Settings.Cooked(xgr);
+                static int Drawing(string f)
+                {
+                    var p = MhoPackageModifier.Package.Open(f); var t = new Fx.FxTables(p); var fx = new Fx.FxPkg(Path.GetFileName(f), p.Body, t);
+                    int n = 0;
+                    for (int i = 0; i < t.Exports.Count; i++)
+                        if (t.ClassOf(t.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase) && Fx.ParticleData.Read(fx, i) is { } d) n += d.Emitters.Count;
+                    return n;
+                }
+                int before = Drawing(rest[1]);
+                var xb = PowerRecolor.Build(rest[1], new PowerColor(0) { Opacity = xop }, xcooked, l => Console.WriteLine("    " + l));
+                if (xb == null) { Console.WriteLine("nothing built"); return 1; }
+                File.WriteAllBytes(rest[3], xb);
+                int after = Drawing(rest[3]);
+                bool ok = xop < PowerColor.Invisible ? after == 0 && before > 0 : after == before;
+                Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} emitters that draw: {before} → {after}");
+                return ok ? 0 : 1;
+            }
             case "--fit-icon-test":
             {
                 // Test (scratch folder): a costume image of the wrong size is fitted for a costume move (CostumeMove.FitIcon):

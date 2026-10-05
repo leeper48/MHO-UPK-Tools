@@ -294,6 +294,20 @@ static partial class Program
                     }
                     else Console.WriteLine("  no power plays " + ar.Name);
                 }
+                // MHO_RENDER_OWN=1: the shown package's own always-on effects instead (PowerEffects.Own: the Powers tab's
+                // "Own Effects"); MHO_RENDER_OPACITY=0.3 / MHO_RENDER_HUE=120: drawn with that color, as the tab previews it.
+                if (Environment.GetEnvironmentVariable("MHO_RENDER_OWN") == "1" && rc != null)
+                {
+                    var ofx = Fx.PowerEffects.Own(new Fx.FxGame(rc, rm.Manifest.UpkReplacements.Select(f => Path.Combine(rm.Folder, f))), Path.GetFileName(mr.File));
+                    var osocks = Fx.FxSockets.Of(mr.File, mr.Name);
+                    System.Numerics.Matrix4x4? OSock(string n) => osocks.TryGetValue(n, out var sk) && anim8.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * anim8.BoneMatrix(b) : anim8.BoneIndex(n) is int bi && bi >= 0 ? anim8.BoneMatrix(bi) : null;
+                    float.TryParse(Environment.GetEnvironmentVariable("MHO_RENDER_OPACITY") ?? "1", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float rop);
+                    float.TryParse(Environment.GetEnvironmentVariable("MHO_RENDER_HUE") ?? "0", System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float rhue);
+                    fxp = new Fx.PowerEffects.Player(ofx, OSock, new System.Numerics.Vector3(250, 0, ld.Positions.Min(q => q.Z)), _ => true)
+                    { AnimSeconds = Math.Max(0.1f, secs), Color = Math.Abs(rop - 1) > 0.001f || Math.Abs(rhue) > 0.4f ? new PowerColor(rhue) { Opacity = rop } : null };
+                    Console.WriteLine($"  mesh {mr.Name} sockets: {string.Join(" ", osocks.Keys.Take(40))}"); Console.WriteLine($"  own effects of {Path.GetFileName(mr.File)}: {ofx.Effects.Count} (sockets found: {ofx.Effects.SelectMany(e => e.Sockets).Distinct().Count(n => OSock(n) != null)} of {ofx.Effects.SelectMany(e => e.Sockets).Distinct().Count()})");
+                    v.EffectStrength = PreviewViews.FxPower;
+                }
                 v.Moving = Environment.GetEnvironmentVariable("MHO_RENDER_MOVING") == "1";   // timed as during playback
                 foreach (float at in new[] { 0f, 0.33f, 0.66f, 1f })
                 {
