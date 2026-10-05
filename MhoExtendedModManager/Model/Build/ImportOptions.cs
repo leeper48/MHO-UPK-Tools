@@ -49,6 +49,9 @@ sealed record ImportOptions
     public bool NoMod { get; init; }
     /// <summary>The Materials tab's overrides file (materials\&lt;source&gt;.json; MaterialOverrides), or null.</summary>
     public string? MaterialOverrides { get; init; }
+    /// <summary>The Model tab's Size: the character this much larger or smaller in game than the game has it (1 = unchanged),
+    /// written as the costume's mesh component Scale (<see cref="ImportBuild"/>.ApplySize).</summary>
+    public float Size { get; init; } = 1;
 
     public static ImportOptions FromEnvironment(string? parts, string? mapFile, string? checkAnimation)
     {
@@ -83,5 +86,6 @@ sealed record ImportOptions
         + (ModelFbx != null ? ", edited" : "")
         + (Cape > 0 ? ", " + BorrowedRig.Title(BorrowedRig.Kind.Cape, Cape) : "")
         + (Hair > 0 ? ", " + BorrowedRig.Title(BorrowedRig.Kind.Hair, Hair) : "")
-        + (AnimFbx is { Count: > 0 } af ? $", {af.Count} animation(s) edited" : "");
+        + (AnimFbx is { Count: > 0 } af ? $", {af.Count} animation(s) edited" : "")
+        + (Math.Abs(Size - 1) > 1e-4 ? $", size {Size * 100:0} %" : "");
 }

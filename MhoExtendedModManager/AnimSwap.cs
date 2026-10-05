@@ -361,7 +361,8 @@ static class AnimSwap
     /// <param name="inheritedSets">For a costume whose component has no AnimSets list (it plays its hero's): the hero's list
     /// as paths ("biped_lib.blink_as", "ironman_anim.ironman_as" …, CostumeAnims.Sets in order), imported into the package as
     /// the start of its own list, as stock costumes with their own sets do (Storm Astonishing).</param>
-    public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null)
+    /// <param name="rateScale">The copies' play rate (Model tab's Size in Game: StepRate); 1 leaves it as the donor's.</param>
+    public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1)
     {
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
@@ -448,7 +449,9 @@ static class AnimSwap
                         ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
                 BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), NameIdx(slot));
                 BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt + 4), 0);
-                replace[seq - 1] = _ => d;
+                if (Math.Abs(rateScale - 1) > 1e-5) d = MhoExtendedModManager.Model.StepRate.WithRate(pkg, d, rateScale, NameIdx);
+                byte[] dd = d;
+                replace[seq - 1] = _ => dd;
             }
             byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
             var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))

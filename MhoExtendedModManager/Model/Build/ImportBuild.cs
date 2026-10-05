@@ -316,7 +316,101 @@ sealed class ImportBuild
             packageBytes = bytes;
             src = MhoPackageModifier.Package.FromBytes(bytes);
         }
-        return InheritedMorphs(packageBytes);
+        return ApplySize(InheritedMorphs(packageBytes));
+    }
+
+    /// <summary>
+    /// The Model tab's Size (Kurt, 2026-10-05: larger or smaller in game, the animations undistorted): the costume's mesh
+    /// component gets a Scale, as the game's own costumes do (--tag-census on the stock packages: 21 player components set one,
+    /// e.g. Spider-Man Homecoming 0.975, Wolverine 1.05, Carnage 1.1, Ultron AoU 0.938). The engine scales the posed skeleton as
+    /// a whole, so the animations keep their shape; the root is at the feet, so they stay on the ground. Size is relative to
+    /// the game's: the component's own Scale, else its hero's base component's, else 1.
+    /// </summary>
+    byte[] ApplySize(byte[] packageBytes) =>
+        Math.Abs(o.Size - 1) < 1e-4 ? packageBytes : Resize(packageBytes, packageBytes, Path.GetFileName(package), o.Size, log) ?? packageBytes;
+
+    /// <summary>
+    /// The size written into <paramref name="current"/> (the package as the mod has it, a model built in or not): the game's
+    /// Scale (read from <paramref name="start"/>, the package before the Model tab changed it: its component's own, else its
+    /// hero's base component's, else 1) times <paramref name="size"/>, so sizing again never compounds; 1 puts the game's back.
+    /// Null when the package has no mesh component of its own (a costume that uses its hero's, such as Carnage Classic: the
+    /// log says to size the hero's base package instead).
+    /// </summary>
+    public static byte[]? Resize(byte[] current, byte[] start, string packageName, float size, Action<string> log)
+    {
+        string stem = Path.GetFileNameWithoutExtension(packageName);
+        if (stem.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) stem = stem[4..];
+        if (stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) stem = stem[..^3];
+        string compPath = $"marvelgamecontent.default__{stem.ToLowerInvariant()}.initialskeletalmesh";
+        static float? OwnScale(MhoPackageModifier.Package p, int comp)
+        {
+            byte[] bytes = p.ReadExportBytes(p.Exports[comp]).ToArray();
+            var t = MhoPackageModifier.TagWalker.Walk(p, bytes, 16)?.FirstOrDefault(x => x.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("FloatProperty", StringComparison.OrdinalIgnoreCase));
+            return t != null ? BitConverter.ToSingle(bytes, t.ValueAt) : null;
+        }
+        var src = MhoPackageModifier.Package.FromBytes(current);
+        int comp = Array.FindIndex(src.Exports, e => src.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+        if (comp < 0)
+        {
+            string[] p = stem.Split('_');
+            log(p.Length >= 3 && p[0].Equals("MarvelPlayer", StringComparison.OrdinalIgnoreCase)
+                ? $"size:    {packageName} has no mesh component of its own: this costume uses its hero's, in UC__MarvelPlayer_{p[1]}_SF. To size it, pick that package (Target → From the Game, the hero's Base Package): that sizes every {p[1]} costume that doesn't set a size of its own."
+                : $"size:    no {compPath} in {packageName}: the size is left as the game's");
+            return null;
+        }
+        var sp = MhoPackageModifier.Package.FromBytes(start);
+        int sc = Array.FindIndex(sp.Exports, e => sp.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+        float stock = (sc >= 0 ? OwnScale(sp, sc) : null) ?? HeroScale(stem);
+        float want = stock * size;
+        byte[] d = src.ReadExportBytes(src.Exports[comp]).ToArray();
+        var tags = MhoPackageModifier.TagWalker.Walk(src, d, 16);
+        if (tags == null) { log($"size:    {compPath}: its properties don't read; the size is left as the game's"); return null; }
+        var own = tags.FirstOrDefault(t => t.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("FloatProperty", StringComparison.OrdinalIgnoreCase));
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(src.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return src.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        byte[] rebuilt;
+        if (own != null) { rebuilt = (byte[])d.Clone(); BitConverter.GetBytes(want).CopyTo(rebuilt, own.ValueAt); }
+        else
+        {
+            var tag = new byte[28];   // name, type, size 4, array index 0, the value
+            BitConverter.GetBytes(NameIdx("Scale")).CopyTo(tag, 0);
+            BitConverter.GetBytes(NameIdx("FloatProperty")).CopyTo(tag, 8);
+            BitConverter.GetBytes(4).CopyTo(tag, 16);
+            BitConverter.GetBytes(want).CopyTo(tag, 24);
+            rebuilt = [.. d.AsSpan(0, tags.NoneAt), .. tag, .. d.AsSpan(tags.NoneAt)];
+        }
+        var replace = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => rebuilt };
+        byte[] output = MhoPackageModifier.PackageRebuilder.Rebuild(src, replace, [], out var written, addNames);
+        var problems = MhoPackageModifier.PackageRebuilder.Verify(src, output, replace.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { foreach (var x in problems.Take(3)) log("size:    PACKAGE PROBLEM: " + x); return null; }
+        var back = MhoPackageModifier.Package.FromBytes(output);
+        if (OwnScale(back, comp) is not float got || Math.Abs(got - want) > 1e-6) { log("size:    PACKAGE PROBLEM: the Scale didn't read back"); return null; }
+        log($"size:    {compPath}: Scale {(own != null ? BitConverter.ToSingle(d, own.ValueAt) : stock):0.###} → {want:0.###} ({size * 100:0} % of the game's {stock:0.###})");
+        return output;
+    }
+
+    /// <summary>The Scale a costume inherits: its hero's base component's (UC__MarvelPlayer_&lt;Hero&gt;_SF), else 1.</summary>
+    static float HeroScale(string stem)
+    {
+        string[] p = stem.Split('_');
+        if (p.Length < 3 || !p[0].Equals("MarvelPlayer", StringComparison.OrdinalIgnoreCase)) return 1;
+        try
+        {
+            string hero = p[1];
+            var bp = MhoPackageModifier.Package.Open(BasePackage.Resolve($"UC__MarvelPlayer_{hero}_SF.upk", true));
+            int bc = Array.FindIndex(bp.Exports, e => bp.PathOf(e).Equals($"marvelgamecontent.default__marvelplayer_{hero.ToLowerInvariant()}.initialskeletalmesh", StringComparison.OrdinalIgnoreCase));
+            if (bc < 0) return 1;
+            byte[] bd = bp.ReadExportBytes(bp.Exports[bc]).ToArray();
+            var t = MhoPackageModifier.TagWalker.Walk(bp, bd, 16)?.FirstOrDefault(x => x.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("FloatProperty", StringComparison.OrdinalIgnoreCase));
+            return t != null ? BitConverter.ToSingle(bd, t.ValueAt) : 1;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or IOException or InvalidDataException) { return 1; }
     }
 
     /// <summary>

@@ -908,6 +908,114 @@ static partial class Program
                 Console.WriteLine($"{total} packages; {withSets} with AnimSets; {withList} with an AnimSets list on a mesh component");
                 return 0;
             }
+            case "--target-census":
+            {
+                // Read-only (2026-10-05): the NPC and enemy / boss packages whose character (the mesh its component shows,
+                // MhoSkeleton's choice) has the humanoid skeleton the Model tab fits models to: g_pelvis, g_head, both hips
+                // and at least 90 % of the 81 core bones Storm has. Writes "file<TAB>core<TAB>bones<TAB>mesh" lines.
+                // --target-census <CookedPCConsole> <out.txt>
+                if (rest.Count < 3) { Console.WriteLine("--target-census <CookedPCConsole> <out.txt>"); return 1; }
+                var refSk = MhoExtendedModManager.Model.MhoSkeleton.Load(Path.Combine(rest[1], "UC__MarvelPlayer_Storm_SF.upk"));
+                var core = refSk.Bones.Select(b => b.Name).Where(n => n.StartsWith("g_") && !n.Contains("cape") && !n.Contains("hair") && !n.Contains("wing")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var lines = new List<string>();
+                int seen = 0;
+                foreach (string pattern in new[] { "UC__MarvelNPC_*_SF.upk", "UC__MarvelAgent_*_SF.upk" })
+                    foreach (string f in Directory.EnumerateFiles(rest[1], pattern).OrderBy(x => x))
+                    {
+                        string fn = Path.GetFileName(f);
+                        if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                        seen++;
+                        MhoExtendedModManager.Model.MhoSkeleton sk;
+                        try { sk = MhoExtendedModManager.Model.MhoSkeleton.Load(f); } catch (Exception) { continue; }
+                        var names = sk.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        int have = names.Count(core.Contains);
+                        bool ok = have * 10 >= core.Count * 9 && new[] { "g_pelvis", "g_head", "g_l_hip", "g_r_hip" }.All(names.Contains);
+                        if (ok) lines.Add($"{fn}	{have}	{sk.Bones.Count}	{sk.Mesh.Name}");
+                    }
+                File.WriteAllLines(rest[2], lines);
+                Console.WriteLine($"{seen} packages, {lines.Count} with the humanoid skeleton → {rest[2]}");
+                return 0;
+            }
+            case "--skeleton-census":
+            {
+                // Read-only (2026-10-05, Model tab targets beyond player characters): each matching package's skeletal meshes,
+                // how many of the 80 humanoid core bones (the ones Storm and Thor share) each has. --skeleton-census
+                // <CookedPCConsole> <file pattern> [reference package with the humanoid skeleton]
+                if (rest.Count < 3) { Console.WriteLine("--skeleton-census <CookedPCConsole> <file pattern> [reference.upk]"); return 1; }
+                string refPkg = rest.Count > 3 ? rest[3] : Path.Combine(rest[1], "UC__MarvelPlayer_Storm_SF.upk");
+                var refMesh = ModMeshes.List([(Path.GetFileName(refPkg), refPkg)], anyPackage: true).Select(m => ModMeshes.Load(m, null, out _)).FirstOrDefault(x => x != null);
+                if (refMesh == null) { Console.WriteLine("no reference skeleton"); return 1; }
+                var core = refMesh.Bones.Select(b => b.Name).Where(n => n.StartsWith("g_") && !n.Contains("cape") && !n.Contains("hair") && !n.Contains("wing")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var buckets = new SortedDictionary<int, int>();
+                int files = 0, meshes = 0;
+                foreach (string f in Directory.EnumerateFiles(rest[1], rest[2]).OrderBy(x => x))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    files++;
+                    List<MeshRef> list;
+                    try { list = ModMeshes.List([(fn, f)], anyPackage: true).ToList(); } catch (Exception) { continue; }
+                    foreach (var mr in list.Take(1))
+                    {
+                        ModMeshes.Loaded? ld;
+                        try { ld = ModMeshes.Load(mr, null, out _); } catch (Exception) { continue; }
+                        if (ld == null) continue;
+                        meshes++;
+                        int have = ld.Bones.Count(b => core.Contains(b.Name));
+                        int pct = have * 100 / core.Count / 10 * 10;
+                        buckets[pct] = buckets.GetValueOrDefault(pct) + 1;
+                        Console.WriteLine($"{fn} | {mr.Name} | {ld.Bones.Count} bones | {have} of {core.Count} core");
+                    }
+                }
+                Console.WriteLine($"{files} packages, {meshes} with a skeletal mesh; core bones present (percent bucket: count):");
+                foreach (var kv in buckets.Reverse()) Console.WriteLine($"  {kv.Key,3}%+  {kv.Value}");
+                return 0;
+            }
+            case "--tag-census":
+            {
+                // Read-only (2026-10-05, the scale slider: do stock characters scale their mesh component?): every export of the
+                // packages matching a pattern that has a property of these names, with its value. Skips bak / copy files.
+                // --tag-census <CookedPCConsole> <file pattern, e.g. UC__Marvel*_SF.upk> <property name> [more names]
+                if (rest.Count < 4) { Console.WriteLine("--tag-census <CookedPCConsole> <file pattern> <property> [...]"); return 1; }
+                var want = rest.Skip(3).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                int files = 0, hits = 0;
+                var byValue = new Dictionary<string, int>();
+                foreach (string f in Directory.EnumerateFiles(rest[1], rest[2]).OrderBy(x => x))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    MhoPackageModifier.Package pk;
+                    try { pk = MhoPackageModifier.Package.Open(f); } catch (Exception) { continue; }
+                    files++;
+                    for (int i = 0; i < pk.Exports.Length; i++)
+                    {
+                        string cls = pk.ClassOf(pk.Exports[i]);
+                        if (cls.Equals("Class", StringComparison.OrdinalIgnoreCase) || cls.Contains("Texture", StringComparison.OrdinalIgnoreCase) || cls.Contains("Material", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (cls.Contains("AnimSequence", StringComparison.OrdinalIgnoreCase) && Environment.GetEnvironmentVariable("MHO_CENSUS_ANIMS") != "1") continue;
+                        byte[] d;
+                        try { d = pk.ReadExportBytes(pk.Exports[i]).ToArray(); } catch (Exception) { continue; }
+                        foreach (int start in new[] { 4, 16, 8 })
+                        {
+                            MhoPackageModifier.TagWalker? tags;
+                            try { tags = MhoPackageModifier.TagWalker.Walk(pk, d, start); } catch (Exception) { continue; }
+                            if (tags == null) continue;
+                            foreach (var t in tags.Where(t => want.Contains(t.Name)))
+                            {
+                                string v = t.Type.Equals("FloatProperty", StringComparison.OrdinalIgnoreCase) ? BitConverter.ToSingle(d, t.ValueAt).ToString("0.###")
+                                    : t.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase) && t.Size >= 12 ? string.Join(" ", Enumerable.Range(0, 3).Select(k => BitConverter.ToSingle(d, t.End - t.Size + k * 4).ToString("0.###")))
+                                    : $"[{t.Type} {t.Size}]";
+                                hits++;
+                                byValue[$"{t.Name}={v}"] = byValue.GetValueOrDefault($"{t.Name}={v}") + 1;
+                                if (hits <= 400) Console.WriteLine($"{fn} | {pk.PathOf(pk.Exports[i])} ({cls}) | {t.Name} = {v}");
+                            }
+                            break;
+                        }
+                    }
+                }
+                Console.WriteLine($"{files} packages, {hits} hit(s)");
+                foreach (var kv in byValue.OrderByDescending(kv => kv.Value).Take(40)) Console.WriteLine($"  {kv.Value,6}  {kv.Key}");
+                return 0;
+            }
             case "--props-under":
             {
                 // Read-only: every export whose path starts with a prefix, with its simple properties (names, numbers, flags,

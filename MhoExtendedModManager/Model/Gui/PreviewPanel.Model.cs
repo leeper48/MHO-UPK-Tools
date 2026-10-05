@@ -114,10 +114,27 @@ sealed partial class PreviewPanel
         return f;
     }
 
+    /// <summary>A costume package without a mesh of its own (Carnage Classic: 2.7 KB, its class and component only; the mesh
+    /// is its hero's) is shown with its hero's base package (the copy beside it, else the game's); any other package as it is.</summary>
+    static string MeshPackage(string packagePath)
+    {
+        try
+        {
+            if (MhoSkeleton.List(packagePath).Count > 0) return packagePath;
+            var m = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(packagePath), @"^UC__MarvelPlayer_([A-Za-z0-9]+)_.+_SF\.upk$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!m.Success) return packagePath;
+            string baseFile = $"UC__MarvelPlayer_{m.Groups[1].Value}_SF.upk";
+            string beside = Path.Combine(Path.GetDirectoryName(packagePath)!, baseFile);
+            return File.Exists(beside) ? beside : BasePackage.Resolve(baseFile, true);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or FileNotFoundException) { return packagePath; }
+    }
+
     /// <summary>The target's own model with its animations, for when no source is picked (Kurt, 2026-10-04: the preview
     /// shows the package on the right on its own, as Compare).</summary>
     public static Prepared PrepareTarget(string packagePath)
     {
+        packagePath = MeshPackage(packagePath);
         var sk = MhoSkeleton.Load(packagePath, null);
         string file = Path.GetFileName(packagePath);
         string? cooked = Settings.Current.CookedFolder ?? Settings.Current.StockFolder;

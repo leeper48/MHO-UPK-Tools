@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.37.164</Version>
+    <Version>0.37.169</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -47,6 +47,7 @@
          embedded under the importer's resource names; the optional Blender add-on next to the exe (Assets\Blender). -->
     <EmbeddedResource Include="Model\StockData\mff_names.json" LogicalName="MhoMffImporter.StockData.mff_names.json" />
     <EmbeddedResource Include="Model\StockData\mff_rigs.json" LogicalName="MhoMffImporter.StockData.mff_rigs.json" />
+    <EmbeddedResource Include="Model\StockData\model_targets.txt" LogicalName="MhoMffImporter.StockData.model_targets.txt" />
     <None Include="Model\Assets\Blender\*.zip" Link="Assets\Blender\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- MPM's zone recipe inputs and manual would otherwise be copied here too (27 MB); this app doesn't use them. -->

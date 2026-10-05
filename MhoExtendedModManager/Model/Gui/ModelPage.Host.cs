@@ -44,7 +44,7 @@ sealed partial class ModelPage
     // --- the package list: the mod's packages first ------------------------------------------------------------------------------
     static bool CharacterPackage(string file) =>
         (file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) && !file.StartsWith("UC__MarvelPlayerAudio", StringComparison.OrdinalIgnoreCase))
-        || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase);
+        || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(file);
 
     /// <summary>The mod's character packages (Kurt: the base comes from the mod's packages; several = a choice), then "From the
     /// Game" to add one; or, after that, the game's base heroes with "Back to the Mod's Packages" on top.</summary>
@@ -190,6 +190,10 @@ sealed partial class ModelPage
         public bool FromStock { get; set; }
         /// <summary>Packages the tab built (names: the built bytes are the mod's own package once saved).</summary>
         public List<string> Built { get; set; } = new();
+        /// <summary>The Size slider (1 = the game's size).</summary>
+        public float Size { get; set; } = 1;
+        /// <summary>Match Steps to Size: movement animations at 1 / size (StepRate).</summary>
+        public bool MatchSteps { get; set; } = true;
     }
 
     string StateFile => Path.Combine(host.WorkFolder, "state.json");
@@ -203,7 +207,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex), Hair = Math.Max(0, hairBox.SelectedIndex),
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)],
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked,
         };
         try { Directory.CreateDirectory(host.WorkFolder); File.WriteAllText(StateFile, JsonSerializer.Serialize(st, new JsonSerializerOptions { WriteIndented = true })); }
         catch (IOException) { }
@@ -243,6 +247,7 @@ sealed partial class ModelPage
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
         if (st.Cape < capeBox.Items.Count) capeBox.SelectedIndex = st.Cape;
         if (st.Hair < hairBox.Items.Count) hairBox.SelectedIndex = st.Hair;
+        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps;
         restoring2 = false;
         SchedulePreview();
     }

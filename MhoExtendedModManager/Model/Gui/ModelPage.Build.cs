@@ -13,6 +13,7 @@ sealed partial class ModelPage
     // --- build --------------------------------------------------------------------------------------------------------------------
     async void Build()
     {
+        if (ChosenPackage is CharacterList.Item only && !HasSource && !building) { await BuildSizeOnly(only); return; }
         if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return;
         var picked = SelectedParts();
         if (picked.Count == 0) { Log("Tick at least one part."); return; }
@@ -22,7 +23,7 @@ sealed partial class ModelPage
             Hair = Math.Max(0, hairBox.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex),
             ModelFbx = EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
             AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
-            NoMod = true };
+            Size = sizeSlider.Value, NoMod = true };
         string mff = model?.Folder ?? ImportBuild.SourceName(sourceFbx!);
         // a Mixamo … FBX, or an MFF folder picked on its own (Single Model): its file (not a repository folder name)
         string mffSource = model != null && (model.Profile != null || chosenKey?.StartsWith(MffDir) == true) ? model.File : mff;
@@ -38,6 +39,7 @@ sealed partial class ModelPage
                 uf != null ? options with { SourceFbx = RigFor(uf, pkg.Key), Parts = "all" } : options, line => BeginInvoke(() => Log(line))));
             if (result != null)
             {
+                await TimeSteps(result.Package, pkg.Key);
                 if (uf != null) KeepRig(uf, pkg.Key);   // the mod keeps the rig of a hero it's built onto
                 host.SetPackage(pkg.Key, result.Package);
                 built[pkg.Key] = result.Package;
@@ -49,6 +51,51 @@ sealed partial class ModelPage
         catch (Exception ex) { Log("ERROR: " + ex.Message); }
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
+    }
+
+    /// <summary>
+    /// No source picked (Kurt, 2026-10-05: "make size work without a source model"): Build into Mod writes only the size, into
+    /// the package as the mod has it now (a model built earlier stays), relative to the game's size (the package before the
+    /// Model tab changed it), so building again replaces the size instead of multiplying it; 100 % puts the game's back.
+    /// </summary>
+    async Task BuildSizeOnly(CharacterList.Item pkg)
+    {
+        float size = sizeSlider.Value;
+        building = true; UpdateStatus();
+        log.Clear();
+        string current = ModCopy(pkg.Key) ?? StartPackage(pkg.Key), start = StartPackage(pkg.Key);
+        Log($"Size only: {pkg.Key} at {size * 100:0} % of the game's size (no source: the model in it stays as it is)");
+        try
+        {
+            string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"size on {Path.GetFileNameWithoutExtension(pkg.Key)}"));
+            byte[]? bytes = await Task.Run(() => ImportBuild.Resize(File.ReadAllBytes(current), File.ReadAllBytes(start), pkg.Key, size, line => BeginInvoke(() => Log(line))));
+            if (bytes != null)
+            {
+                Directory.CreateDirectory(outDir);
+                string file = Path.Combine(outDir, pkg.Key);
+                File.WriteAllBytes(file, bytes);
+                await TimeSteps(file, pkg.Key);
+                host.SetPackage(pkg.Key, file);
+                built[pkg.Key] = file;
+                SaveState();
+                Log($"Done: {pkg.Key} with the new size is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
+            }
+            else Log("The size wasn't written: see above.");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or FileNotFoundException) { Log("ERROR: " + ex.Message); }
+        building = false; UpdateStatus();
+        if (built.ContainsKey(pkg.Key)) { status.Text = "Size built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
+    }
+
+    /// <summary>Match Steps to Size: the built package's movement animations at 1 / size (StepRate), written over it; at
+    /// 100 % only the ones an earlier size slowed are put back.</summary>
+    async Task TimeSteps(string file, string packageName)
+    {
+        if (!matchSteps.Checked) return;
+        float size = sizeSlider.Value;
+        string? cooked = Settings.Current.CookedFolder;
+        byte[]? timed = await Task.Run(() => StepRate.Apply(file, packageName, size, cooked, line => BeginInvoke(() => Log(line))));
+        if (timed != null) File.WriteAllBytes(file, timed);
     }
 
     /// <summary>FBX round trip, export (0.11.0): databx\&lt;model&gt; on &lt;package&gt;\ with model.fbx, its textures and anims\.</summary>

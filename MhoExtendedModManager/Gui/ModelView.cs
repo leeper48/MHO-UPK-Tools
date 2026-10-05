@@ -355,6 +355,10 @@ sealed class ModelView : UserControl
     public static float ReferenceFocalLength => 12f / MathF.Tan(ReferenceFov / 2);
     float LensScale => MathF.Tan(ReferenceFov / 2) / MathF.Tan(Fov / 2);
 
+    /// <summary>The model drawn this much larger or smaller about its origin, the feet (the Model tab's Size, as the game
+    /// scales a character's mesh component: the posed skeleton as a whole, so animations keep their shape). 1 = as is.</summary>
+    public float ModelScale { get; set; } = 1;
+
     /// <summary>
     /// The lens as a 35 mm camera's focal length (a 24 mm tall frame: fov = 2·atan(12 / mm)). Setting it keeps what's
     /// framed the same size (the camera moves back or in, a dolly zoom), so only the perspective changes (Kurt: icons).
@@ -703,7 +707,7 @@ sealed class ModelView : UserControl
         if (sx.Length != n) { sx = new float[n]; sy = new float[n]; iz = new float[n]; }
         for (int i = 0; i < n; i++)
         {
-            var d = pos[i] - eye;
+            var d = pos[i] * ModelScale - eye;
             float z = Vector3.Dot(d, f);
             if (z < near) { iz[i] = -1; continue; }
             iz[i] = 1f / z;

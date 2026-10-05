@@ -242,6 +242,26 @@ sealed partial class MainForm
             Check(File.Exists(Path.Combine(saved.Folder, ModelWork.Folder, "state.json")), "Model/state.json is kept with the mod");
             Check(!Directory.Exists(Path.Combine(saved.Folder, ModelWork.Folder, "builds")), "no builds folder in the mod");
             Check(saved.Manifest.UpkReplacements.Contains(package, StringComparer.OrdinalIgnoreCase), "the manifest still lists the package");
+            if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts) && File.Exists(after))
+            {
+                // the Size slider: the costume's mesh component has the Scale (the game's × the slider)
+                var sp = MhoPackageModifier.Package.Open(after);
+                string stem = Path.GetFileNameWithoutExtension(package)[4..^3].ToLowerInvariant();
+                int ci = Array.FindIndex(sp.Exports, e => sp.PathOf(e).Equals($"marvelgamecontent.default__{stem}.initialskeletalmesh", StringComparison.OrdinalIgnoreCase));
+                float? got = null;
+                if (ci >= 0) { byte[] cd = sp.ReadExportBytes(sp.Exports[ci]).ToArray(); if (MhoPackageModifier.TagWalker.Walk(sp, cd, 16)?.FirstOrDefault(t => t.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase)) is { } st) got = BitConverter.ToSingle(cd, st.ValueAt); }
+                Check(got != null && Math.Abs(got.Value / ts - Math.Round(got.Value / ts, 3)) < 1e-3, $"the costume's mesh component has Scale {got?.ToString("0.###") ?? "none"} (size {ts * 100:0} %)");
+                // Match Steps to Size: the movement animations the costume plays now come from its own set, at 1 / size
+                var plays = CostumeAnims.Read(after, package, CostumeAnims.FilesFor(null, MhoExtendedModManager.Model.Settings.Current.CookedFolder));
+                var moves = plays?.Anims.Where(x => MhoExtendedModManager.Model.StepRate.IsMovement(x.Name)).ToList() ?? [];
+                int timed = 0;
+                foreach (var mv in moves.Where(x => x.From.File != null && Path.GetFullPath(x.From.File).Equals(Path.GetFullPath(after), StringComparison.OrdinalIgnoreCase)))
+                {
+                    byte[] md = sp.ReadExportBytes(sp.Exports[mv.Export]).ToArray();
+                    if (MhoPackageModifier.TagWalker.Walk(sp, md, 4)?.FirstOrDefault(t => t.Name.Equals("RateScale", StringComparison.OrdinalIgnoreCase)) is { } rt && Math.Abs(BitConverter.ToSingle(md, rt.ValueAt) - 1 / ts) < 1e-4) timed++;
+                }
+                if (Math.Abs(ts - 1) > 1e-4) Check(moves.Count > 0 && timed == moves.Count, $"{timed} of the {moves.Count} movement animations it plays are its own, at {100 / ts:0} % speed");
+            }
         }
         Check(!Directory.EnumerateDirectories(lib!.DataFolder, "model-work-*").Any(), "the editor's work folder is gone");
         if (liveRig != null && saved != null)

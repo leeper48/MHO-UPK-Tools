@@ -124,6 +124,9 @@ sealed class MhoSkeleton
         var pkg = AnimPackage.Open(package);
         var found = pkg.FindExportsOfClass(SkeletalMeshReader.ClassName).ToList();
         if (found.Count == 0) throw new InvalidDataException($"{Path.GetFileName(package)} has no skeletal mesh.");
+        // the mesh the character's own mesh component shows, when it's in this package (2026-10-05, enemies and NPCs as targets:
+        // Cable's boss package lists a gun first); else the guess below
+        if (meshName == null && ComponentMesh(package) is string own && found.Any(i => pkg.GetExportName(i).Equals(own, StringComparison.OrdinalIgnoreCase))) meshName = own;
         SkeletalMesh? mesh = null;
         string? failure = null;
         // Without a name: the character's body, not a prop rigged to the full skeleton (0.10.9; base packages hold props and
@@ -152,6 +155,29 @@ sealed class MhoSkeleton
         var sk = new MhoSkeleton { Package = package, Mesh = mesh, BoneToModel = rest.BoneToModel.ToArray() };
         sk.Measure();
         return sk;
+    }
+
+    /// <summary>The skeletal mesh named by the package's character class default's mesh component
+    /// (marvelgamecontent.default__&lt;class&gt;.initialskeletalmesh, SkeletalMesh), when it's an export there; else null. The class
+    /// is the file's name without UC__ and _SF (MarvelPlayer_Storm_Classic, MarvelAgent_BlackCat_Boss, MarvelNPC_Yukio).</summary>
+    public static string? ComponentMesh(string package)
+    {
+        try
+        {
+            string stem = Path.GetFileNameWithoutExtension(package);
+            if (stem.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) stem = stem[4..];
+            if (stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) stem = stem[..^3];
+            var mp = MhoPackageModifier.Package.Open(package);
+            string compPath = $"marvelgamecontent.default__{stem.ToLowerInvariant()}.initialskeletalmesh";
+            int comp = Array.FindIndex(mp.Exports, e => mp.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+            if (comp < 0) return null;
+            byte[] d = mp.ReadExportBytes(mp.Exports[comp]).ToArray();
+            var t = MhoPackageModifier.TagWalker.Walk(mp, d, 16)?.FirstOrDefault(x => x.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && x.Size == 4);
+            if (t == null) return null;
+            int r = BitConverter.ToInt32(d, t.ValueAt);
+            return r > 0 ? mp.Exports[r - 1].ObjectName : null;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or IndexOutOfRangeException or ArgumentException) { return null; }
     }
 
     static readonly System.Text.RegularExpressions.Regex PropName = new(

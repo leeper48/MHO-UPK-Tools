@@ -33,6 +33,8 @@ sealed partial class ModelPage : UserControl
     readonly DataGridView parts = new() { Dock = DockStyle.Fill };
     readonly DropDown material = new();
     readonly CheckBox smooth = new() { Text = "Smooth (Subdivide)", AutoSize = true };
+    readonly CheckBox matchSteps = new() { Text = "Match Steps to Size", AutoSize = true, Checked = true };
+    readonly LightSlider sizeSlider = new() { Label = "Size", Min = 0.05f, Max = 4f, Step = 0.01f, Mark = 1f, Home = () => 1f, Dock = DockStyle.Top };
     /// <summary>A cape / long hair borrowed from other heroes (preview prototype; Kurt: generic numbers, matched motion).</summary>
     readonly DropDown capeBox = new() { Width = 150 }, hairBox = new() { Width = 150 };
     // the bone map editor (0.11.5)
@@ -109,7 +111,7 @@ sealed partial class ModelPage : UserControl
         DoubleBuffered = true;
         BackColor = Color.Transparent;
 
-        buildButton = Ui.AccentButton("Build into Mod", Build, "Builds the model onto the picked package and puts it into this mod (Save Changes keeps it; Apply Changes puts it into the game). Starts from the package as it was before the model, or from the game's stock copy (Build From).");
+        buildButton = Ui.AccentButton("Build into Mod", Build, "Builds the model onto the picked package and puts it into this mod (Save Changes keeps it; Apply Changes puts it into the game). Starts from the package as it was before the model, or from the game's stock copy (Build From). With no source picked, it writes only Size in Game into the package.");
         openButton = Ui.FlatButton("Open Folder", OpenFolder, "Shows the last export in Explorer (model.fbx).");
         openButton.Enabled = false;
         Icons.Make(openButton, "Open Folder", Icons.Folder, DeviceDpi / 96f);
@@ -151,10 +153,11 @@ sealed partial class ModelPage : UserControl
         body.Controls.Add(Column("SOURCE", sourceHead, characters), 0, 0);
         body.Controls.Add(Column("PREVIEW", null, preview), 1, 0);
 
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = Color.Transparent, Margin = new Padding(0) };
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+        right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.Controls.Add(Column("TARGET", Row(packageFilter, buildFrom), packages), 0, 0);   // (Kurt: Source and Target)
@@ -170,9 +173,17 @@ sealed partial class ModelPage : UserControl
         modelTabs.Add("Materials", MaterialsTab());
         right.Controls.Add(modelTabs, 0, 1);
         right.Controls.Add(Column("MATERIAL", null, material, autoHeight: true), 0, 2);
+        // the size in game (Kurt, 2026-10-05): the costume's mesh component Scale, relative to the game's (ImportBuild.ApplySize)
+        sizeSlider.Height = (int)(30 * DeviceDpi / 96f);
+        var sizeBox = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0) };
+        sizeBox.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        sizeSlider.Dock = DockStyle.Fill; sizeSlider.Margin = new Padding(0);
+        matchSteps.Margin = new Padding(2, 4, 0, 0);
+        sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(matchSteps, 0, 1);
+        right.Controls.Add(Column("SIZE IN GAME", null, sizeBox, autoHeight: true), 0, 3);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
         actions.Controls.AddRange([buildButton, fbxButton, openButton, status]);
-        right.Controls.Add(actions, 0, 3);
+        right.Controls.Add(actions, 0, 4);
         body.Controls.Add(right, 2, 0);
 
         // ⛶ inside the log's top right corner (Kurt: inline with the text field); it travels with the log to full screen
@@ -217,6 +228,11 @@ sealed partial class ModelPage : UserControl
         Ui.Tip(heroesOnly, "List only characters: heroes, villains, bosses, enemies, NPCs and person-like summons (anything with a character rig); props such as cocoons, drones and boxes are left out.");
         Ui.Tip(smooth, "One level of smooth subdivision on the ticked parts: every triangle becomes four and the surface rounds off. For the older low-poly models; about 4x the triangles.");
         smooth.CheckedChanged += (_, _) => SchedulePreview();
+        Ui.TipTitled(sizeSlider, "Size in Game", "How big the character is in game, compared with the game's own size (100 %). The whole character is scaled as the game scales its own costumes (Spider-Man Homecoming, Carnage …), so the animations keep their shape and the feet stay on the ground. Drag, the mouse wheel or the arrow keys; double-click for 100 %. Compare shows the hero at the game's size.");
+        Ui.Tip(matchSteps, "The game moves a character at the same speed whatever its size, so a bigger one would slide its feet. With this on, the costume's run, walk and other movement animations play slower for a bigger character and faster for a smaller one (1 / size), so the steps match the ground. Only this costume's animations change (copied into its own package, as the Animations tab does).");
+        matchSteps.CheckedChanged += (_, _) => SaveState();
+        sizeSlider.ValueChanged += () => preview.Size = sizeSlider.Value;
+        sizeSlider.Committed += () => { preview.Size = sizeSlider.Value; SchedulePreview(); };
         capeBox.Items.Add("No Added Cape"); hairBox.Items.Add("No Added Hair");   // (Kurt: "No Cape Motion" read as removing one)
         for (int k = 1; k <= BorrowedRig.CapeDonors.Length; k++) capeBox.Items.Add($"Add Cape {k}");
         for (int k = 1; k <= BorrowedRig.HairDonors.Length; k++) hairBox.Items.Add($"Add Hair {k}");
@@ -438,7 +454,7 @@ sealed partial class ModelPage : UserControl
             {
                 string n = Path.GetFileName(f);
                 if (n.Contains("bak", StringComparison.OrdinalIgnoreCase) || n.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
-                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase))) continue;
+                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(n))) continue;
                 if (n.StartsWith("UC__MarvelPlayerAudio", StringComparison.OrdinalIgnoreCase) || !seen.Add(n)) continue;
                 var (t, det) = DescribePackage(n);
                 allPackages.Add((n, t, det));
@@ -447,14 +463,41 @@ sealed partial class ModelPage : UserControl
         FillCharacters();
         FillPackages();
         UpdateStatus();
-        Log($"{allCharacters.Count} MFF models; the mod's packages, or {allPackages.Count} of the game's base heroes.");
+        int others = allPackages.Count(p => OtherTargets.Contains(p.File));
+        Log($"{allCharacters.Count} MFF models; the mod's packages, or {allPackages.Count - others} of the game's hero and team-up packages and {others} NPCs, enemies and bosses.");
         if (!stateLoaded) { stateLoaded = true; LoadState(); }
     }
 
-    /// <summary>"Punisher", "Classic · UC__MarvelPlayer_Punisher_Classic_SF" from the file name.</summary>
+    /// <summary>The NPC and enemy / boss packages offered as targets (Kurt, 2026-10-05): those whose character has the humanoid
+    /// skeleton models are fitted to (Model\StockData\model_targets.txt, from --target-census on the stock packages).</summary>
+    static readonly HashSet<string> OtherTargets = LoadOtherTargets();
+
+    static HashSet<string> LoadOtherTargets()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var s = typeof(ModelPage).Assembly.GetManifestResourceStream("MhoMffImporter.StockData.model_targets.txt");
+        if (s == null) return set;
+        using var r = new StreamReader(s);
+        for (string? line; (line = r.ReadLine()) != null;)
+            if (line.Length > 0 && line[0] != '#') set.Add(line.Split('	')[0]);
+        return set;
+    }
+
+    /// <summary>"BlackCat_Boss" → "Black Cat Boss".</summary>
+    static string Spaced(string s) => System.Text.RegularExpressions.Regex.Replace(s.Replace('_', ' '), @"(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])", " ").Trim();
+
+    /// <summary>"Punisher", "Classic · UC__MarvelPlayer_Punisher_Classic_SF" from the file name; an NPC or enemy: its group
+    /// ("NPCs", "Enemies and Bosses") and "Black Cat Boss · UC__MarvelAgent_BlackCat_Boss_SF".</summary>
     static (string Title, string Detail) DescribePackage(string file)
     {
         string stem = Path.GetFileNameWithoutExtension(file);
+        foreach (var (prefix, group) in new[] { ("UC__MarvelNPC_", "NPCs"), ("UC__MarvelAgent_", "Enemies and Bosses") })
+            if (stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                string name = stem[prefix.Length..];
+                if (name.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) name = name[..^3];
+                return (group, $"{Spaced(name)} · {stem}");
+            }
         bool teamUp = stem.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase);
         string rest = stem[(teamUp ? "UC__MarvelTeamUp_".Length : "UC__MarvelPlayer_".Length)..];
         if (rest.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) rest = rest[..^3];
@@ -728,8 +771,9 @@ sealed partial class ModelPage : UserControl
     void UpdateStatus()
     {
         bool ready = HasSource && ChosenPackage != null && !building;
-        buildButton.Enabled = ready; fbxButton.Enabled = ready;
-        status.Text = building ? "Building…" : !HasSource ? (FbxMode ? "Pick an FBX or an MFF folder." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
+        buildButton.Enabled = ready || (ChosenPackage != null && !building);   // no source: the size only
+        fbxButton.Enabled = ready;
+        status.Text = building ? "Building…" : !HasSource ? (ChosenPackage != null ? "No source: Build into Mod writes only the size." : FbxMode ? "Pick an FBX or an MFF folder." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
         status.ForeColor = Ui.Subtle;
     }
 

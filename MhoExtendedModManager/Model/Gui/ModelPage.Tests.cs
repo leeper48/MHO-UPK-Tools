@@ -9,6 +9,9 @@ sealed partial class ModelPage
     internal async Task<string?> TestBuild(string mff, string package, Action<string> say)
     {
         if (!await TestPick(mff, package, say)) return null;
+        // MHO_TEST_SIZE=1.2: the Size slider set before the build (its Scale is checked after)
+        if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts))
+        { sizeSlider.Value = ts; preview.Size = ts; }
         Build();
         for (int i = 0; i < 6000 && building; i++) await Task.Delay(100);
         say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
@@ -214,14 +217,22 @@ sealed partial class ModelPage
             for (int last = -1, i = 0; i < 60 && last != preview.ShowCount; i++) { last = preview.ShowCount; await Task.Delay(1500); }
             chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); characters.ClearSelected();   // (a source still selected wouldn't fire again)
             int sc = preview.ShowCount;
+            // a game package the mod doesn't hold yet (an enemy or NPC target): added as From the Game does, without asking
+            if (!host.Packages.Any(p => p.File.Equals(package, StringComparison.OrdinalIgnoreCase)) && allPackages.Any(p => p.File.Equals(package, StringComparison.OrdinalIgnoreCase)))
+            {
+                host.AddPackage(package, BasePackage.Resolve(package));
+                gameList = false; FillPackages();
+                say("added from the game: " + package);
+            }
             Reselect(packages, package);
             SchedulePreview();
             for (int i = 0; i < 600 && preview.ShowCount == sc; i++) await Task.Delay(100);
             var c = preview.CompareForTest;
             bool ok = c.Lit && !c.Enabled && c.TargetOnly && preview.AnimationNames.Count > 0;
             say($"{(ok ? "PASS" : "FAIL")} with no source, the target's own model shows (Compare lit {c.Lit}, locked {!c.Enabled}, {preview.AnimationNames.Count} animations)");
-            if (!ok) return false;
+            if (!ok) { say($"  (picked: {ChosenPackage?.Key ?? "no package"}, source {chosenKey ?? "none"}; the mod's packages: {string.Join(", ", host.Packages.Select(p => p.File))})\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
         }
+        if (mff == "-") return ChosenPackage != null && !HasSource;   // no source: a size-only build (MHO_TEST_SIZE)
         if (mff.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) && File.Exists(mff))
         {
             // an FBX with another skeleton family (Mixamo …): Source → Single Model, then the file, as a pick from the list
