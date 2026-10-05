@@ -161,6 +161,155 @@ static partial class Program
                 if (folder) Console.WriteLine($"{read} package(s) read ({none} without a character component list); {setsAll} sets, {missingSets} not found; {overriding} with their own set overriding animations");
                 return 0;
             }
+            case "--who-references":
+            {
+                // Read-only: the exports of a package whose data holds a reference to an export (its index + 1 as an int32 at any
+                // byte position: candidates, to be checked by hand). --who-references <package.upk> <export name or path end>
+                if (rest.Count < 3) { Console.WriteLine("--who-references <package.upk> <export name or path end>"); return 1; }
+                var wp = MhoPackageModifier.Package.Open(rest[1]);
+                int target = Array.FindIndex(wp.Exports, e => wp.PathOf(e).EndsWith(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (target < 0) { Console.WriteLine("no export " + rest[2]); return 1; }
+                int refVal = target + 1;
+                string tpath = wp.PathOf(wp.Exports[target]);
+                Console.WriteLine($"{tpath} is export {refVal}");
+                for (int i = 0; i < wp.Exports.Length; i++)
+                {
+                    var e = wp.Exports[i];
+                    if (wp.PathOf(e).StartsWith(tpath + ".", StringComparison.OrdinalIgnoreCase)) continue;   // its own children
+                    byte[] d;
+                    try { d = wp.ReadExportBytes(e); } catch (Exception) { continue; }
+                    var at = new List<int>();
+                    for (int k = 0; k + 4 <= d.Length; k++) if (BitConverter.ToInt32(d, k) == refVal) at.Add(k);
+                    if (at.Count > 0) Console.WriteLine($"  {wp.PathOf(e)} ({wp.ClassOf(e)}): at byte {string.Join(", ", at.Take(6))}");
+                }
+                return 0;
+            }
+            case "--alias-swap":
+            {
+                // The alternate-set test (2026-10-04, Jean Grey's Phoenix animations): builds (never into the game) a costume
+                // package whose own alias list points <alias> at a set of donor animations, reads it back, and with --zip makes
+                // an installable test mod. --alias-swap <costume.upk> <hero base.upk> <alias> <slot>=<donor.upk>:<animation> [...]
+                //   --build <dir> [--zip <mod name>]   (packages by path or by file name in the game folder)
+                string? agr2 = settings.ResolvedGameRoot(data);
+                string? acook = agr2 != null && Settings.IsGameRoot(agr2) ? Settings.Cooked(agr2) : null;
+                int abAt = rest.IndexOf("--build"), azAt = rest.IndexOf("--zip");
+                string? aout = abAt >= 0 && abAt + 1 < rest.Count ? rest[abAt + 1] : null;
+                if (rest.Count < 5 || aout == null) { Console.WriteLine("--alias-swap <costume.upk> <hero base.upk> <alias> <slot>=<donor.upk>:<animation> [...] --build <dir> [--zip <mod name>]"); return 1; }
+                string? Find(string f) => File.Exists(f) ? f : acook != null && File.Exists(Path.Combine(acook, f)) ? Path.Combine(acook, f) : null;
+                string? cpath = Find(rest[1]), hpath = Find(rest[2]);
+                if (cpath == null || hpath == null) { Console.WriteLine("costume or hero package not found"); return 1; }
+                string cfile = Path.GetFileName(cpath), afile = Path.GetFileName(hpath), aliasName = rest[3];
+                string cClass = "marvelplayer_" + cfile["UC__MarvelPlayer_".Length..^"_SF.upk".Length].ToLowerInvariant();
+                string hClass = "marvelplayer_" + afile["UC__MarvelPlayer_".Length..^"_SF.upk".Length].ToLowerInvariant();
+                var aswaps = new List<AnimSwap.Swap>();
+                var adonors = new Dictionary<string, CostumeAnims.Anim>(StringComparer.OrdinalIgnoreCase);
+                foreach (string arg in rest.Skip(4).Where(x => x.Contains('=') && x.Contains(':') && !x.StartsWith("--")))
+                {
+                    string slot = arg[..arg.IndexOf('=')], dfile = arg[(arg.IndexOf('=') + 1)..arg.LastIndexOf(':')], dname = arg[(arg.LastIndexOf(':') + 1)..];
+                    string? dpath = Find(dfile.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? dfile : dfile + ".upk");
+                    if (dpath == null) { Console.WriteLine($"no donor package {dfile}"); return 1; }
+                    var da = CostumeAnims.Read(dpath, Path.GetFileName(dpath), CostumeAnims.FilesFor(null, acook))?.Anims.FirstOrDefault(x => x.Name.Equals(dname, StringComparison.OrdinalIgnoreCase));
+                    if (da == null || da.From.File == null) { Console.WriteLine($"{dfile} has no animation '{dname}'"); return 1; }
+                    aswaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export));
+                    adonors[slot] = da;
+                    Console.WriteLine($"{aliasName} · {slot} ← {da.From.PackageName}.upk · {da.From.Path} · {da.Name}");
+                }
+                if (aswaps.Count == 0) { Console.WriteLine("no swaps given (slot=donor.upk:animation)"); return 1; }
+                var alog = new List<string>();
+                byte[] abuilt;
+                try { abuilt = AnimSwap.BuildAlias(cpath, cClass, hpath, hClass, aliasName, aswaps, alog); }
+                catch (InvalidDataException ex) { foreach (string l in alog) Console.WriteLine("  " + l); Console.WriteLine("can't: " + ex.Message); return 1; }
+                foreach (string l in alog) Console.WriteLine("  " + l);
+                Directory.CreateDirectory(aout);
+                string aoutPath = Path.Combine(aout, cfile);
+                if (Path.GetFullPath(aoutPath).Equals(Path.GetFullPath(cpath), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("the build folder can't be the package's own"); return 1; }
+                File.WriteAllBytes(aoutPath, abuilt);
+                Console.WriteLine($"built: {aoutPath} ({abuilt.Length:N0} bytes)");
+                // read back: the costume's own alias list, and the aliased set's animations equal the donors'
+                var outPkg = MhoPackageModifier.Package.Open(aoutPath);
+                var outAliases = CostumeAnims.Aliases(outPkg, cClass);
+                Console.WriteLine("  the costume's alias list: " + string.Join(", ", outAliases.Select(x => $"{x.Alias} → {x.SetPath}")));
+                var aset = outAliases.FirstOrDefault(x => x.Alias.Equals(aliasName, StringComparison.OrdinalIgnoreCase));
+                var ap = AnimExportCli.Packages.Package.Open(aoutPath);
+                var setInfo = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).FirstOrDefault(x => outPkg.PathOf(outPkg.Exports[x.ExportIndex]).Equals(aset.SetPath ?? "", StringComparison.OrdinalIgnoreCase));
+                int abad = setInfo == null ? 1 : 0;
+                if (setInfo == null) Console.WriteLine("  FAIL the alias doesn't point at an animation set in the package");
+                else foreach (var (slot, da) in adonors)
+                {
+                    var seq = setInfo.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).FirstOrDefault(i => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, i).Equals(slot, StringComparison.OrdinalIgnoreCase), -1);
+                    if (seq < 0) { abad++; Console.WriteLine($"  FAIL {slot}: not in the aliased set"); continue; }
+                    var mine = new AnimRef(Path.GetFileName(aoutPath), aoutPath, slot, seq, setInfo.TrackBoneNames) { TranslationBones = setInfo.RotationOnly ? new HashSet<string>(setInfo.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null };
+                    var x = ModAnimations.Load(da.Ref); var y = ModAnimations.Load(mine);
+                    bool same = x != null && y != null && x.Tracks.Count == y.Tracks.Count && x.Tracks.All(kv => y.Tracks.TryGetValue(kv.Key, out var t)
+                        && t.PositionKeys.SequenceEqual(kv.Value.PositionKeys) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys));
+                    if (!same) abad++;
+                    Console.WriteLine($"  {(same ? "ok  " : "FAIL")} {slot}: {y?.Tracks.Count ?? 0} tracks {(same ? "identical to the donor's" : "differ from the donor's")}");
+                }
+                Console.WriteLine(abad == 0 ? "PASS" : $"{abad} problem(s)");
+                if (abad == 0 && azAt >= 0 && azAt + 1 < rest.Count)
+                {
+                    string modDir = Path.Combine(aout, "mod");
+                    string zip = MhoExtendedModManager.Model.ModOut.Write(modDir, rest[azAt + 1], "MHO Extended Mod Manager", "test", [aoutPath],
+                        $"Test of the alternate animation set '{aliasName}' on {cfile}: " + string.Join(", ", adonors.Select(kv => $"{kv.Key} from {kv.Value.From.PackageName}")) + ".");
+                    Console.WriteLine("test mod: " + zip);
+                }
+                return abad == 0 ? 0 : 1;
+            }
+            case "--unlisted-animsets":
+            {
+                // Read-only (2026-10-04, a user: Jean Grey's Phoenix power animations weren't in the Animations tab): every hero base
+                // package's AnimSets that its own AnimSets list doesn't name (reached only through forms, talent powers or other
+                // classes, so the Animations tab doesn't list them), and every form class package (_Transform_ and the like) with
+                // its sets. --unlisted-animsets <CookedPCConsole folder>
+                if (rest.Count < 2 || !Directory.Exists(rest[1])) { Console.WriteLine("--unlisted-animsets <CookedPCConsole folder>"); return 1; }
+                string uc = rest[1];
+                bool Skip(string f) => f.Contains("bak", StringComparison.OrdinalIgnoreCase) || f.Contains("copy", StringComparison.OrdinalIgnoreCase);
+                var bases = Directory.EnumerateFiles(uc, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileName).OfType<string>()
+                    .Where(f => !Skip(f) && f["UC__MarvelPlayer_".Length..^"_SF.upk".Length].IndexOf('_') < 0).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                int heroes = 0, unlistedSets = 0, unlistedSeqs = 0, aliasedSets = 0, aliasedSeqs = 0;
+                foreach (var f in bases)
+                {
+                    string path = Path.Combine(uc, f);
+                    try
+                    {
+                        var ap = AnimExportCli.Packages.Package.Open(path);
+                        var sets = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).Select(x => (Name: ap.GetExportName(x.ExportIndex), Seqs: x.Sequences.Count)).ToList();
+                        if (sets.Count == 0) continue;
+                        var ca = CostumeAnims.Read(path, f, CostumeAnims.FilesFor(null, uc));
+                        var listed = new HashSet<string>((ca?.Sets ?? []).Select(x => x.Path.Split('.').Last()), StringComparer.OrdinalIgnoreCase);
+                        var un = sets.Where(x => !listed.Contains(x.Name)).ToList();
+                        // the class's alternate sets by alias (AnimationSetAliases): what powers / forms switch to
+                        var mpm = MhoPackageModifier.Package.Open(path);
+                        string cls = "marvelplayer_" + f["UC__MarvelPlayer_".Length..^"_SF.upk".Length];
+                        var aliases = CostumeAnims.Aliases(mpm, cls);
+                        if (un.Count == 0 && aliases.Count == 0) continue;
+                        heroes++; unlistedSets += un.Count; unlistedSeqs += un.Sum(x => x.Seqs);
+                        string AliasOf(string set) => aliases.FirstOrDefault(a => a.SetPath.Split('.').Last().Equals(set, StringComparison.OrdinalIgnoreCase)).Alias ?? "";
+                        var byAlias = un.Where(x => AliasOf(x.Name).Length > 0).ToList();
+                        var other = un.Where(x => AliasOf(x.Name).Length == 0).ToList();
+                        aliasedSets += byAlias.Count; aliasedSeqs += byAlias.Sum(x => x.Seqs);
+                        Console.WriteLine($"{f}: ALIASES {(aliases.Count == 0 ? "none" : string.Join(", ", aliases.Select(a => $"{a.Alias} → {a.SetPath.Split('.').Last()}{(sets.FirstOrDefault(x => x.Name.Equals(a.SetPath.Split('.').Last(), StringComparison.OrdinalIgnoreCase)) is var ss && ss.Name != null ? $" ({ss.Seqs})" : "")}")))}"
+                            + (other.Count > 0 ? $"; other unlisted (props, vehicles …): {string.Join(", ", other.Select(x => $"{x.Name} ({x.Seqs})"))}" : ""));
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{f}: {ex.GetType().Name}: {ex.Message}"); }
+                }
+                Console.WriteLine($"{heroes} hero(es); {unlistedSets} unlisted set(s) ({unlistedSeqs} animations), of them {aliasedSets} alternate sets by alias ({aliasedSeqs} animations)");
+                // form classes: player packages named for a form, not a costume
+                var forms = Directory.EnumerateFiles(uc, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileName).OfType<string>()
+                    .Where(f => !Skip(f) && System.Text.RegularExpressions.Regex.IsMatch(f, "_(Transform|Form|Mode|Stance|Phoenix|Hulk|Rage|Mech|Armor)_", System.Text.RegularExpressions.RegexOptions.IgnoreCase) && f.Contains("Transform", StringComparison.OrdinalIgnoreCase)).ToList();
+                Console.WriteLine($"form packages (_Transform_): {forms.Count}");
+                foreach (var f in forms)
+                {
+                    try
+                    {
+                        var ap = AnimExportCli.Packages.Package.Open(Path.Combine(uc, f));
+                        var sets = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).Select(x => $"{ap.GetExportName(x.ExportIndex)} ({x.Sequences.Count})").ToList();
+                        Console.WriteLine($"  {f}: {(sets.Count == 0 ? "no AnimSets of its own" : string.Join(", ", sets))}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"  {f}: {ex.GetType().Name}: {ex.Message}"); }
+                }
+                return 0;
+            }
             case "--anim-swap":
             {
                 // Builds (never into the mod or the game) a costume package with other characters' animations in place of

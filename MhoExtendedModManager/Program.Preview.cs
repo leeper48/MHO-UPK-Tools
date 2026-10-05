@@ -331,6 +331,31 @@ static partial class Program
                 Console.WriteLine($"{diffs} export(s) differ of {n}.");
                 return 0;
             }
+            case "--proto-search":
+            {
+                // Read-only: every prototype (whose path contains [path part]) with a field line containing <text>, e.g. which
+                // game data names an AnimSet. --proto-search <text> [path part]
+                if (rest.Count < 2) { Console.WriteLine("--proto-search <text> [path part]"); return 1; }
+                string? sgr = settings.ResolvedGameRoot(data);
+                if (sgr == null || !Settings.IsGameRoot(sgr)) { Console.WriteLine("game folder not found"); return 1; }
+                var sdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(sgr, "Data", "Game", "Calligraphy.sip")));
+                string needle = rest[1], part = rest.Count > 2 ? rest[2] : "";
+                int hits = 0;
+                foreach (var (id, entry) in sdb.Prototypes)
+                {
+                    string path = sdb.Name(id);
+                    if (part.Length > 0 && !path.Contains(part, StringComparison.OrdinalIgnoreCase)) continue;
+                    List<string> lines;
+                    try { lines = sdb.Dump(sdb.Prototype(id).Data, 200).ToList(); } catch (Exception) { continue; }
+                    var m = lines.Where(l => l.Contains(needle, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (m.Count == 0) continue;
+                    hits++;
+                    Console.WriteLine(path);
+                    foreach (var l in m.Take(8)) Console.WriteLine("    " + l.Trim());
+                }
+                Console.WriteLine($"{hits} prototype(s)");
+                return 0;
+            }
             case "--proto":
             {
                 // Read-only: a prototype's fields as the game data has them (its own, parents not merged).

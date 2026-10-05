@@ -36,6 +36,171 @@ static class AnimSwap
     public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence);
 
     /// <summary>
+    /// An in-game test for the hero's alternate sets (2026-10-04, a user: Jean Grey's Phoenix animations; CostumeAnims.Aliases):
+    /// powers and forms switch to such a set by its alias. An animation's tracks follow its own set's bone order, so a donor's
+    /// animation can't simply be listed in a copy of the alternate set (Jean's sets have 110, 138 and 165 bones). This build
+    /// tests whether the game layers the alias set over the costume's list (animations it lacks then come from the normal
+    /// sets): the alias points at a set of the donor's animations only (named after their slots, in the donor's bone order,
+    /// as Build does), and the costume class default gets an AnimationSetAliases list of its own (the hero's, with this alias
+    /// on that set; the others keep the hero's sets, imported). In game: the swapped power in that form should play the
+    /// donor's animation; the form's other powers show whether the rest falls back (normal versions) or breaks. Only the
+    /// costume's package changes.
+    /// </summary>
+    public static byte[] BuildAlias(string costumePath, string costumeClass, string heroPath, string heroClass, string alias,
+        IReadOnlyList<Swap> swaps, List<string> log)
+    {
+        var pkg = Package.Open(costumePath);
+        string cls = costumeClass.ToLowerInvariant();
+        var hero = Package.Open(heroPath);
+        var heroAliases = CostumeAnims.Aliases(hero, heroClass);
+        if (heroAliases.Count == 0) throw new InvalidDataException($"{heroClass} has no alternate animation sets");
+        var target = heroAliases.FirstOrDefault(a => a.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase));
+        if (target.Alias == null) throw new InvalidDataException($"{heroClass} has no alternate set '{alias}' (it has {string.Join(", ", heroAliases.Select(a => a.Alias))})");
+        int heroSet = Array.FindIndex(hero.Exports, e => hero.PathOf(e).Equals(target.SetPath, StringComparison.OrdinalIgnoreCase));
+        if (heroSet < 0) throw new InvalidDataException($"{target.SetPath} isn't in {Path.GetFileName(heroPath)}");
+        string Unique(string b) { string n = b; for (int k = 2; pkg.Exports.Any(e => e.ObjectName.Equals(n, StringComparison.OrdinalIgnoreCase)); k++) n = $"{b}_{k}"; return n; }
+
+        // 2. the donors' animations, in a set of their own per donor set (named after their slots)
+        var donors = new Dictionary<string, Package>(StringComparer.OrdinalIgnoreCase);
+        Package Donor(string f) => donors.TryGetValue(f, out var dp) ? dp : donors[f] = Package.Open(f);
+        var holders = new List<(int Set, List<(int Seq, string Slot)> Seqs)>();
+        foreach (var group in swaps.GroupBy(x => (x.DonorFile.ToLowerInvariant(), x.DonorSet)))
+        {
+            var first = group.First();
+            var src = Donor(first.DonorFile);
+            string dsetPath = src.PathOf(src.Exports[first.DonorSet]);
+            string holderName = Unique($"{src.Exports[first.DonorSet].ObjectName}_{alias}_on_{cls}");
+            var hc = CrossMove.Quiet(() => ExportCopy.Copy(src, first.DonorSet, pkg, ["sequences"], holderName), out string hs)
+                     ?? throw new InvalidDataException($"the set {dsetPath} couldn't be copied: {Reason(hs)}");
+            pkg = Package.FromBytes(hc.Output);
+            string holderPath = pkg.PathOf(pkg.Exports[hc.RootRef - 1]);
+            var seqs = new List<(int, string)>();
+            foreach (var x in group)
+            {
+                var qc = CrossMove.Quiet(() => ExportCopy.Copy(src, x.DonorSequence, pkg, [], null, new Dictionary<string, string> { [dsetPath] = holderPath }), out string qs);
+                if (qc == null)
+                {
+                    qc = CrossMove.Quiet(() => ExportCopy.Copy(src, x.DonorSequence, pkg, ["notifies"], null, new Dictionary<string, string> { [dsetPath] = holderPath }), out string q2)
+                         ?? throw new InvalidDataException($"{src.PathOf(src.Exports[x.DonorSequence])} couldn't be copied: {Reason(qs)}");
+                    log.Add($"  {x.Slot}: copied without its notifies ({Reason(qs)})");
+                }
+                pkg = Package.FromBytes(qc.Output);
+                seqs.Add((qc.RootRef, x.Slot));
+                log.Add($"  {alias} · {x.Slot} ← {src.PathOf(src.Exports[x.DonorSequence])} (#{qc.RootRef})");
+            }
+            holders.Add((hc.RootRef, seqs));
+        }
+
+        // 3. the edit
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(pkg.Names, y => y.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            int j = addNames.FindIndex(y => y.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+            return pkg.Names.Length + j;
+        }
+        var addImports = new List<NewImport>();
+        int ImportOf(string path)
+        {
+            string[] parts = path.Split('.');
+            int outer = 0;
+            for (int k = 0; k < parts.Length; k++)
+            {
+                bool last = k == parts.Length - 1;
+                string cn = last ? "AnimSet" : "Package", cp = last ? "Engine" : "Core";
+                int found = Array.FindIndex(pkg.Imports, im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals(cn, StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer);
+                if (found >= 0) { outer = -1 - found; continue; }
+                int added = addImports.FindIndex(im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.ClassName == cn && im.OuterIndex == outer);
+                if (added < 0)
+                {
+                    foreach (string n in new[] { cp, cn, parts[k] }) NameIdx(n);
+                    addImports.Add(new NewImport(cp, cn, outer, parts[k]));
+                    added = addImports.Count - 1;
+                }
+                outer = -(pkg.Imports.Length + added + 1);
+            }
+            return outer;
+        }
+        var replace = new Dictionary<int, Func<long, byte[]>>();
+        byte[] SetSequences(int set, IReadOnlyList<int> refs)
+        {
+            byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
+            var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(y => y.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))
+                     ?? throw new InvalidDataException($"the set #{set} has no Sequences list");
+            var list = new byte[4 + 4 * refs.Count];
+            BinaryPrimitives.WriteInt32LittleEndian(list, refs.Count);
+            for (int k = 0; k < refs.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(list.AsSpan(4 + 4 * k), refs[k]);
+            byte[] nsd = [.. sd.AsSpan(0, st.ValueAt), .. list, .. sd.AsSpan(st.End)];
+            BinaryPrimitives.WriteInt32LittleEndian(nsd.AsSpan(st.Start + 16), list.Length);
+            return nsd;
+        }
+        string SequenceName(int seq)
+        {
+            byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
+            var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(y => y.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && y.Size == 8);
+            return t == null ? "" : TagWalker.NameAt(pkg, d, t.ValueAt);
+        }
+        // the donors' animations named after their slots; each holder set lists only them
+        foreach (var (set, seqs) in holders)
+        {
+            foreach (var (seq, slot) in seqs)
+            {
+                byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
+                var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(y => y.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && y.Size == 8)
+                        ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), NameIdx(slot));
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt + 4), 0);
+                replace[seq - 1] = _ => d;
+            }
+            replace[set - 1] = _ => SetSequences(set, seqs.Select(q => q.Seq).ToList());
+        }
+        if (holders.Count != 1) throw new InvalidDataException("the test takes the swapped animations from one donor set");
+        int aliasSet = holders[0].Set;
+        // the costume class default's own alias list: the hero's, this alias on the copy
+        string defPath = $"marvelgamecontent.default__{cls}";
+        int def = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(defPath, StringComparison.OrdinalIgnoreCase));
+        if (def < 0) throw new InvalidDataException($"no {defPath} in the package");
+        byte[] dd = pkg.ReadExportBytes(pkg.Exports[def]).ToArray();
+        var dtags = TagWalker.Walk(pkg, dd, 4) ?? throw new InvalidDataException("the class default's properties don't read");
+        var own = CostumeAnims.Aliases(pkg, cls);
+        var entries = (own.Count > 0 ? own : heroAliases).Select(a => (a.Alias, a.SetPath)).ToList();
+        if (!entries.Any(e => e.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase))) entries.Add((alias, ""));
+        byte[] Tag(string name, string type, int size)
+        {
+            var t = new byte[24];
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(0), NameIdx(name));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(8), NameIdx(type));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(16), size);
+            return t;
+        }
+        byte[] NameVal(string name) { var b = new byte[8]; BinaryPrimitives.WriteInt32LittleEndian(b, NameIdx(name)); return b; }
+        var value = new List<byte>();
+        value.AddRange(BitConverter.GetBytes(entries.Count));
+        foreach (var (al, setPath) in entries)
+        {
+            int r = al.Equals(alias, StringComparison.OrdinalIgnoreCase) ? aliasSet
+                : setPath.StartsWith("import:") ? throw new InvalidDataException($"the alias {al} points at an import ({setPath}): not handled")
+                : own.Count > 0 ? Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(setPath, StringComparison.OrdinalIgnoreCase)) + 1   // the costume's own
+                : ImportOf(setPath);                                                                                                        // the hero's set
+            value.AddRange(Tag("Alias", "NameProperty", 8)); value.AddRange(NameVal(al));
+            value.AddRange(Tag("AnimSet", "ObjectProperty", 4)); value.AddRange(BitConverter.GetBytes(r));
+            value.AddRange(NameVal("None"));
+            log.Add($"  alias {al} → {(r > 0 ? pkg.PathOf(pkg.Exports[r - 1]) : setPath + " (the hero's)")}");
+        }
+        var old = dtags.FirstOrDefault(y => y.Name.Equals("AnimationSetAliases", StringComparison.OrdinalIgnoreCase));
+        byte[] prop = [.. Tag("AnimationSetAliases", "ArrayProperty", value.Count), .. value];
+        byte[] ndd = old != null ? [.. dd.AsSpan(0, old.Start), .. prop, .. dd.AsSpan(old.End)] : [.. dd.AsSpan(0, dtags.NoneAt), .. prop, .. dd.AsSpan(dtags.NoneAt)];
+        replace[def] = _ => ndd;
+        byte[] output = PackageRebuilder.Rebuild(pkg, replace, [], out var written, addNames, addImports);
+        var problems = PackageRebuilder.Verify(pkg, output, replace.Keys.ToList(), [], written, addNames, addImports);
+        if (problems.Count > 0) throw new InvalidDataException("the edited package didn't verify: " + string.Join("; ", problems.Take(3)));
+        log.Add($"{swaps.Count} animation(s) swapped in the alternate set '{alias}'; the costume's own alias list has {entries.Count} entr{(entries.Count == 1 ? "y" : "ies")}");
+        return output;
+    }
+
+    /// <summary>
     /// The costume package with the swaps in, verified (the copies re-parsed by ExportCopy, the final edit by
     /// PackageRebuilder). Throws InvalidDataException with the reason when it can't be done.
     /// </summary>

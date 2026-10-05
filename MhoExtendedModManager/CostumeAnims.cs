@@ -50,6 +50,38 @@ sealed class CostumeAnims
     /// gives another package's file by its name (the mod's copy, else the game's) and whether it's the mod's. Null when the
     /// package has no character mesh component with an AnimSets list.
     /// </summary>
+    /// <summary>
+    /// A class's alternate animation sets by name (2026-10-04, a user: Jean Grey's Phoenix power animations weren't listed): the
+    /// class default's <c>AnimationSetAliases</c> (alias → AnimSet; Jean: phoenixas → jeangrey_phoenixform_as, darkphoenixas →
+    /// phoenix_as). Powers and forms switch to a set by its alias at run time, so the mesh's AnimSets list never names it.
+    /// Set paths are the export's path in this package, or "import:" + the import's path. Empty when the class has none.
+    /// </summary>
+    public static List<(string Alias, string SetPath)> Aliases(Package pkg, string className)
+    {
+        var res = new List<(string, string)>();
+        int def = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals($"marvelgamecontent.default__{className}", StringComparison.OrdinalIgnoreCase));
+        if (def < 0) return res;
+        byte[] d = pkg.ReadExportBytes(pkg.Exports[def]).ToArray();
+        var tag = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(t => t.Name.Equals("AnimationSetAliases", StringComparison.OrdinalIgnoreCase));
+        if (tag == null) return res;
+        int n = BitConverter.ToInt32(d, tag.ValueAt), at = tag.ValueAt + 4;
+        for (int k = 0; k < n && at < tag.End; k++)
+        {
+            var inner = TagWalker.Walk(pkg, d, at);
+            if (inner == null) break;
+            string alias = inner.FirstOrDefault(t => t.Name.Equals("Alias", StringComparison.OrdinalIgnoreCase)) is { } al ? TagWalker.NameAt(pkg, d, al.ValueAt) : "";
+            string set = "";
+            if (inner.FirstOrDefault(t => t.Name.Equals("AnimSet", StringComparison.OrdinalIgnoreCase)) is { } st)
+            {
+                int r = BitConverter.ToInt32(d, st.ValueAt);
+                set = r > 0 ? pkg.PathOf(pkg.Exports[r - 1]) : r < 0 ? "import:" + pkg.Imports[-r - 1].ObjectName : "";
+            }
+            res.Add((alias, set));
+            at = inner.NoneAt + 8;
+        }
+        return res;
+    }
+
     public static CostumeAnims? Read(string packagePath, string packageFile, Func<string, (string Path, bool FromMod)?> fileFor, string? className = null)
     {
         Package pkg;
