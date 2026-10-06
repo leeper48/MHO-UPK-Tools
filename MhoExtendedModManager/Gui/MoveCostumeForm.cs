@@ -27,7 +27,7 @@ sealed class MoveCostumeForm : Form
         StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
 
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5 };
         for (int i = 0; i < 5; i++) t.RowStyles.Add(new RowStyle(i == 2 ? SizeType.Percent : SizeType.AutoSize, 100));

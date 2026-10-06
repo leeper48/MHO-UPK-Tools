@@ -59,7 +59,7 @@ sealed partial class PreviewPanel : UserControl
 
     static Settings.PreviewPrefs P => Settings.Current.Preview;
     static void SaveP() => Settings.Current.Save();
-    float S => DeviceDpi / 96f;
+    float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
 
     public PreviewPanel()
     {
@@ -644,7 +644,7 @@ sealed partial class PreviewPanel : UserControl
     string? PickBone(Point at, Size size)
     {
         if (animator == null || frameBones == null || Project(size) is not { } pt) return null;
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         int n = frameBones.Count, joint = -1, seg = -1;
         float dj = 12 * s, ds = 8 * s;
         bool Drawn(int i) => i < frameDrawn.Length && frameDrawn[i] && frameBones[i].ParentIndex != i;
@@ -704,7 +704,7 @@ sealed partial class PreviewPanel : UserControl
     {
         if (!showBones || frameBones == null || Project(size) is not { } pt) return;
         int n = frameBones.Count;
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         var mode = g.SmoothingMode; g.SmoothingMode = SmoothingMode.AntiAlias;
         using var cold = new Pen(Color.FromArgb(170, 120, 200, 255), 1.2f * s);
         using var warm = new Pen(Color.FromArgb(255, 255, 150, 40), 3f * s);

@@ -196,6 +196,26 @@ sealed partial class MainForm : Form
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
+        // UI Scale (Kurt, 2026-10-06: a user's screen was too small): text and the app's sizes, from the next start
+        var scaleMenu = new ToolStripMenuItem("UI Scale") { ToolTipText = "Makes the app's text, buttons and lists smaller or larger (80–150 %), on top of Windows' own display scaling. Takes effect when the app starts again." };
+        foreach (int pct in new[] { 80, 90, 100, 110, 125, 150 })
+        {
+            int p2 = pct;
+            var item = new ToolStripMenuItem($"{pct} %{(pct == 100 ? " (Default)" : "")}", null, (_, _) =>
+            {
+                float v = p2 / 100f;
+                if (Math.Abs(settings.UiScale - v) < 0.001f) return;
+                settings.UiScale = v; settings.Save();
+                Dialog.Show(this, $"The UI scale is {p2} % from the next start: close the app and open it again.", "UI Scale", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
+            scaleMenu.DropDownItems.Add(item);
+        }
+        scaleMenu.DropDownOpening += (_, _) =>
+        {
+            foreach (ToolStripMenuItem it in scaleMenu.DropDownItems)
+                it.Checked = int.TryParse(it.Text!.Split(' ')[0], out int v) && Math.Abs(settings.UiScale * 100 - v) < 0.5f;
+        };
+        menu.Items.Add(scaleMenu);
         menu.Items.Add("What's New", null, (_, _) => ShowNotice(0)).ToolTipText = "The notices of new features shown when a version starts the first time, newest first, with a link to the manual.";
         menu.Items.Add("Changelog", null, (_, _) => ShowChangelog());
         menu.Items.Add("Download Counts", null, (_, _) => { using var f = new DownloadsForm(settings); f.ShowDialog(this); }).ToolTipText = "How often each release of the app was downloaded from GitHub (downloads, not people).";
@@ -214,10 +234,10 @@ sealed partial class MainForm : Form
         tips.SetToolTip(settingsButton, "Game folder, library folder, the Model tab's MFF folder and Blender, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
         tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
         // icons (Kurt, 2026-10-04): the names head the tooltips
-        Icons.Make(newMod, "New Mod", Icons.Plus, DeviceDpi / 96f);
-        Icons.Make(install, "Install Mod", Icons.Install, DeviceDpi / 96f);
-        Icons.Make(helpButton, "Help", Icons.Help, DeviceDpi / 96f);
-        Icons.Make(settingsButton, "Settings", Icons.WithMenu(Icons.Gear), DeviceDpi / 96f);
+        Icons.Make(newMod, "New Mod", Icons.Plus, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(install, "Install Mod", Icons.Install, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(helpButton, "Help", Icons.Help, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(settingsButton, "Settings", Icons.WithMenu(Icons.Gear), MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         top.Controls.Add(topButtons, 0, 0);
         top.Controls.Add(rightButtons, 4, 0);
 
@@ -226,7 +246,7 @@ sealed partial class MainForm : Form
         // One column that fits the panel (Kurt: the Nexus strip's buttons were cut off). Without a style it sizes to its
         // widest row and runs past the list's edge.
         left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        left.RowStyles.Add(new RowStyle(SizeType.Absolute, 46 * DeviceDpi / 96f));
+        left.RowStyles.Add(new RowStyle(SizeType.Absolute, 46 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -238,7 +258,7 @@ sealed partial class MainForm : Form
         lhead.Controls.Add(headLabel, 0, 0);
         lhead.Controls.Add(countLabel, 1, 0);
         undoButton = Ui.FlatButton("Undo", Undo); redoButton = Ui.FlatButton("Redo", Redo);
-        Icons.Make(undoButton, "Undo", Icons.Undo, DeviceDpi / 96f); Icons.Make(redoButton, "Redo", Icons.Redo, DeviceDpi / 96f);
+        Icons.Make(undoButton, "Undo", Icons.Undo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)); Icons.Make(redoButton, "Redo", Icons.Redo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         lhead.Controls.Add(undoButton, 2, 0); lhead.Controls.Add(redoButton, 3, 0);
         var priorityLabel = new Label { Text = "Priority:", AutoSize = true, Anchor = AnchorStyles.Right, Font = Ui.Regular(8.5f), Tag = "subtle", Margin = new Padding(10, 0, 0, 0) };
         lhead.Controls.Add(priorityLabel, 4, 0);
@@ -283,9 +303,9 @@ sealed partial class MainForm : Form
             "Open the Marvel Heroes Omega mods on Nexus in your browser.");
         nexusBrowse.Padding = new Padding(4, 0, 4, 0);
         // icons (Kurt, 2026-10-04): the names head the tooltips (and name them in ▾ when folded away)
-        Icons.Make(nexusCheck, "Check for Nexus Updates", Icons.CheckUpdates, DeviceDpi / 96f);
-        Icons.Make(nexusFind, "Find My Mods on Nexus", Icons.Search, DeviceDpi / 96f);
-        Icons.Make(nexusBrowse, "Browse Nexus", Icons.Globe, DeviceDpi / 96f);
+        Icons.Make(nexusCheck, "Check for Nexus Updates", Icons.CheckUpdates, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(nexusFind, "Find My Mods on Nexus", Icons.Search, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(nexusBrowse, "Browse Nexus", Icons.Globe, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         nexusButtons.Controls.AddRange([nexusCheck, nexusFind, nexusBrowse, nexusMore]);
         nexusRow.Controls.Add(nexusButtons, 1, 0);
         nexusFolded = [nexusBrowse, nexusFind, nexusCheck];
@@ -412,13 +432,32 @@ sealed partial class MainForm : Form
         tips.SetToolTip(noteReset, "Throw away your note and show the mod's own note again.");
         // The note under the details (Kurt, 2026-09-30: more room for the preview in the middle).
         middle.Controls.Add(storePreview); right.Controls.Add(notesPanel);
-        middleAndRight.Controls.Add(right); middleAndRight.Controls.Add(middle);
+        // the divider between Preview and the details (Kurt, 2026-10-06: it couldn't be moved); dragged = kept, double-click = automatic
+        var previewSplitter = new Splitter { Dock = DockStyle.Left, BackColor = Color.FromArgb(32, 36, 50), Cursor = Cursors.SizeWE };
+        middleAndRight.Controls.Add(right); middleAndRight.Controls.Add(previewSplitter); middleAndRight.Controls.Add(middle);
+        bool sizingPreview = false;
+        previewSplitter.SplitterMoved += (_, _) =>
+        {
+            if (sizingPreview || middleAndRight.Width <= 0) return;
+            settings.PreviewWidth = (float)Math.Round((double)middle.Width / middleAndRight.Width, 3); settings.Save();
+        };
+        previewSplitter.DoubleClick += (_, _) => { settings.PreviewWidth = null; settings.Save(); sizingPreview = true; middleAndRight.PerformLayout(); SizePreview(); sizingPreview = false; };
+        Ui.Tip(previewSplitter, "Drag to make the preview wider or narrower (kept); double-click to size it automatically again.");
         // As large as the column's height allows (store images are 300×420), but at most 28% of the space beside the list (Kurt: between the first size and 40%);
         // then the right column gives up a fifth of its width to it (Kurt, 2026-09-30: more room for the 3D view).
-        middleAndRight.Resize += (_, _) =>
+        void SizePreview()
         {
-            float sc = DeviceDpi / 96f;
-            notesPanel.Height = (int)(170 * sc);
+            float sc0 = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
+            previewSplitter.Width = Math.Max(4, (int)(5 * sc0));
+            previewSplitter.MinSize = (int)(160 * sc0); previewSplitter.MinExtra = (int)(260 * sc0);
+            notesPanel.Height = (int)(170 * sc0);
+            if (settings.PreviewWidth is float pw && pw > 0.1f && pw < 0.85f) { middle.Width = (int)(middleAndRight.Width * pw); return; }
+            AutoPreview();
+        }
+        middleAndRight.Resize += (_, _) => { sizingPreview = true; SizePreview(); sizingPreview = false; };
+        void AutoPreview()
+        {
+            float sc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
             int cardH = middleAndRight.Height - (int)(80 * sc);
             int w = (int)(cardH * 300f / 420f) + (int)(12 * sc);
             int fit = Math.Max((int)(200 * sc), Math.Min(w, (int)(middleAndRight.Width * 0.28f)));
@@ -447,10 +486,10 @@ sealed partial class MainForm : Form
         tips.SetToolTip(edit, "Open the selected mod in the Editor tab (or double-click it).");
         tips.SetToolTip(export, "Save the selected mod as a .ZIP to share.");
         tips.SetToolTip(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
-        Icons.Make(remove, "Remove Mod", Icons.Trash, DeviceDpi / 96f);
-        Icons.Make(edit, "Edit Mod", Icons.Pencil, DeviceDpi / 96f);
-        Icons.Make(export, "Export to ZIP", Icons.Export, DeviceDpi / 96f);
-        Icons.Make(tagsButton, "Tags", Icons.WithMenu(Icons.Tag), DeviceDpi / 96f);
+        Icons.Make(remove, "Remove Mod", Icons.Trash, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(edit, "Edit Mod", Icons.Pencil, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(export, "Export to ZIP", Icons.Export, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(tagsButton, "Tags", Icons.WithMenu(Icons.Tag), MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
         bottom.Controls.Add(leftButtons, 0, 0);
         bottom.Controls.Add(status, 1, 0);
@@ -1016,13 +1055,13 @@ sealed partial class MainForm : Form
         tabs.ResumeLayout();
     }
 
-    DataGridView Grid(bool thumbs, params (string Title, int Width)[] cols) => Ui.Grid(DeviceDpi / 96f, thumbs, cols);
+    DataGridView Grid(bool thumbs, params (string Title, int Width)[] cols) => Ui.Grid(MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi), thumbs, cols);
 
     /// <summary>Texture thumbnails, decoded in the background (the table shows as soon as it's built).</summary>
     void LoadThumbnails(List<(string Path, DataGridViewRow Row)> rows, DataGridView grid)
     {
         int req = ++thumbRequest;
-        int size = (int)(96 * DeviceDpi / 96f);
+        int size = (int)(96 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Task.Run(() => rows.Select(r =>
         {
             var d = TextureDecode.ReadDds(r.Path, out _);

@@ -74,7 +74,7 @@ sealed partial class ModelPage
         matNoGlow = Ui.FlatButton("No Glow", NoGlow, "Turns the selected material's glow off (lit when off), whatever its maps say: its own glow map, the glow channel of its MHO spec map, or the bright spots of an MFF color map. Click again to turn it back on.");
         matNoGlow.Visible = false;   // (in OpenGL Normals' place on a Glow row)
         // icons (Kurt, 2026-10-04): the old names lead their tooltips
-        float sc = DeviceDpi / 96f;
+        float sc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         Icons.Make(matUse, "Use a File", Icons.Folder, sc);
         Icons.Make(matAuto, "Back to Automatic", Icons.Reset, sc);
         Icons.Make(matFlip, "OpenGL Normals", Icons.FlipVertical, sc);
@@ -89,7 +89,7 @@ sealed partial class ModelPage
         EditButton();
         foreach (var b in new[] { matUse, matEdit, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
         // what the preview shows (Kurt, 2026-10-04: moved here from Look ▾): the model lit, or one map on its own
-        var showMap = new DropDown { Width = (int)(200 * DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 0) };
+        var showMap = new DropDown { Width = (int)(200 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), Margin = new Padding(0, 0, 0, 0) };
         showMap.Items.AddRange([.. ShowMapChoices.Select(x => (object)x.Label)]);
         showMap.SelectedIndex = Math.Max(0, Array.FindIndex(ShowMapChoices, x => x.Mode == preview.ShowMap));
         showMap.SelectedIndexChanged += (_, _) => { if (showMap.SelectedIndex >= 0) preview.ShowMap = ShowMapChoices[showMap.SelectedIndex].Mode; };

@@ -1,6 +1,25 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.192
+- Manual: a walkthrough with a screenshot, Fit the App to Your Screen; the What's New notice for UI Scale and the resizable, foldable panels.
+
+0.37.191
+- Tables: dragging a column divider resizes the column to its left, and only the last column gives or takes the room. Before, in tables whose first column stretches (Packages: UPK Filename), the drag moved that first column instead.
+
+0.37.190
+- Mods tab: the divider between the preview and the mod's details can be dragged (kept; double-click it to size the preview automatically again). Every panel size and fold (the mod list, preview, the Model tab's panels and log, the Editor's Tags and Note) is remembered from one start to the next, like the window's place.
+- Fixed (0.37.188): the app ran without its own screen-scaling support (blurry, and some tooltips stretched); it's sharp again at 125 %, 150 %, 175 %.
+
+0.37.189
+- Fixed (0.37.188): on a scaled screen (125 %, 175 % …) some tooltips showed hugely enlarged (the shared tooltip was made before the app told Windows it handles scaling itself, so Windows stretched it).
+
+0.37.188
+- New: Settings → UI Scale (80-150 %): the app's text, buttons and lists smaller or larger, on top of Windows' display scaling (from the next start).
+- Model tab: drag the dividers between Source, Preview and Target, between Target's list and its tabs, and above the log; click a heading (Source, Target, Material, Size in Game, Log) to fold that panel. Sizes and folds are remembered. The log starts smaller.
+- Editor: the ▴ next to Version folds the Tags and Note rows away (more room for the tabs; remembered).
+- Model tab: the first log line says plainly what's there: "Source: 1,448 models in your MFF folder. Target: the mod's own packages, or From the Game: ...".
+
 0.37.187
 - Manual: a walkthrough with a screenshot, Edit a Model's Textures in Your Image Editor; the What's New notice for the Model tab's new formats, image editor, busy ring and MFF folder layouts.
 

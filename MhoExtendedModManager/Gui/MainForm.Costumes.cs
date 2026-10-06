@@ -45,7 +45,7 @@ sealed partial class MainForm
             string text = target.Title + (target.IsDefault ? "  ·  Default" : "") + (made != null ? "  ·  Already Made (Select It)" : others.Count > 0 ? $"  ·  {others.Count} Other Mod(s)" : "");
             var item = new ToolStripMenuItem(text, null, (_, _) => { if (made != null) SelectMod(made.FolderName); else if (copy) CopyMove(m, src.File, src.Costume, target); else MoveCostume(m, src.File, src.Costume, target); });
             if (target.IsDefault) item.Tag = Ui.Enabled;
-            if (MoveCostumeForm.Image(target, catalog) is Bitmap b) { item.Image = b; item.ImageScaling = ToolStripItemImageScaling.None; item.Image = new Bitmap(b, new Size((int)(24 * DeviceDpi / 96f), (int)(34 * DeviceDpi / 96f))); b.Dispose(); }
+            if (MoveCostumeForm.Image(target, catalog) is Bitmap b) { item.Image = b; item.ImageScaling = ToolStripItemImageScaling.None; item.Image = new Bitmap(b, new Size((int)(24 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), (int)(34 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)))); b.Dispose(); }
             items.Add(item);
         }
         // Another hero (Kurt): a picker of heroes, then their costumes.

@@ -86,7 +86,7 @@ sealed partial class MainForm
     /// <summary>Shows as many of the Nexus strip's buttons as fit beside a status at least 230 px (scaled) wide; the rest are in ▾.</summary>
     void FitNexusRow(Control row, Control buttons)
     {
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         int room = row.ClientSize.Width - (int)(230 * s);
         static int W(Control c) => (c is Button { AutoSize: false } ? c.Width : c.GetPreferredSize(Size.Empty).Width) + c.Margin.Horizontal;   // (icon buttons: their own size)
         int always = buttons.Controls.Cast<Control>().Where(c => !nexusFolded.Contains(c)).Sum(W) + buttons.Margin.Horizontal;

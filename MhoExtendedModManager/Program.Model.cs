@@ -293,7 +293,7 @@ static partial class Program
                 Application.SetHighDpiMode(HighDpiMode.SystemAware);
                 Gui.Ui.UseDarkTheme();
                 using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), ShowInTaskbar = false, BackColor = Color.FromArgb(30, 32, 44) };
-                float sc = f.DeviceDpi / 96f;
+                float sc = MhoExtendedModManager.Gui.Ui.Dpi(f.DeviceDpi);
                 var painters = new (string Name, Action<Graphics, RectangleF, Pen, Brush> Paint)[]
                 {
                     ("Use a File", Gui.Icons.Folder), ("Back to Automatic", Gui.Icons.Reset),

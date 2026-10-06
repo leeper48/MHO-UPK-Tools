@@ -515,6 +515,31 @@ static partial class Program
                 Application.Run(f);
                 return 0;
             }
+            case "--grid-drag-test":
+            {
+                // (off screen) a table whose first column stretches; a drag on the divider after the second column, sent as
+                // window messages: the second column must grow by the drag and the first keep its width (Kurt, 2026-10-06)
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = new Size(700, 300), ShowInTaskbar = false };
+                var g = Gui.Ui.Grid(1f, false, ("Name", 0), ("Size", 90), ("State", 140));
+                g.Dock = DockStyle.Fill;
+                f.Controls.Add(g);
+                f.Show(); Application.DoEvents();
+                var cols = g.Columns.Cast<DataGridViewColumn>().OrderBy(c => c.DisplayIndex).ToList();
+                int w0 = cols[0].Width, w1 = cols[1].Width;
+                var rect = g.GetColumnDisplayRectangle(cols[1].Index, false);
+                int x = rect.Right - 1, y = g.ColumnHeadersHeight / 2;
+                static IntPtr L(int px, int py) => (IntPtr)((py << 16) | (px & 0xFFFF));
+                const int WM_MOUSEMOVE = 0x200, WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, MK_LBUTTON = 1;
+                // a press on the divider (the table's own drag needs the real mouse: its resize is played as it does it, Width + 40)
+                typeof(Control).GetMethod("OnMouseDown", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                    .Invoke(g, [new MouseEventArgs(MouseButtons.Left, 1, x, y, 0)]);
+                cols[1].Width += 40; Application.DoEvents();
+                int a0 = cols[0].Width, a1 = cols[1].Width;
+                bool ok = Math.Abs(a0 - w0) <= 2 && a1 - w1 >= 30;
+                Console.WriteLine($"{(ok ? "PASS" : "FAIL")} drag +40 on the divider after Size: Name {w0} -> {a0}, Size {w1} -> {a1}, State {cols[2].Width}");
+                return ok ? 0 : 1;
+            }
             case "--searchbox-test":
             {
                 // Test: the clear button (×) on a filter box, in an off-screen window: shown only with text, a click and Esc
@@ -637,6 +662,7 @@ static class TipNative
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool EnumThreadWindows(uint thread, EnumProc proc, IntPtr l);
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern void mouse_event(int flags, int dx, int dy, int data, IntPtr extra);
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] public static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);
     [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);

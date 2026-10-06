@@ -26,7 +26,7 @@ sealed class GameFilesForm : Form
         MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));

@@ -34,7 +34,7 @@ sealed partial class ModelPage
     /// scaled here, once (at 200 % the drop-downs showed "MFF Charact…").</summary>
     void ScaleToDpi()
     {
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         // the declared widths (layout may have changed Width already), held as a minimum: the auto-sized source head shrank it to its arrow
         foreach (var (d, w) in new[] { (sourceKind, 220), (buildFrom, 210), (capeBox, 150), (hairBox, 150) }) { d.MinimumSize = new Size((int)(w * s), 0); d.Width = (int)(w * s); }
         foreach (var g in new[] { parts, mapGrid })

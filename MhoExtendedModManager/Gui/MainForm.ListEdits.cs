@@ -204,11 +204,11 @@ sealed partial class MainForm
             Change($"Card picture of \"{m.Name}\": {Path.GetFileName(d.FileName)}", () => { m.LocalCard = key; return true; });
         })
         { Checked = ModPictures.IsFile(m.LocalCard) && !candidates.Any(c => c.Texture.Equals(m.LocalCard, StringComparison.OrdinalIgnoreCase)) };
-        if (ModPictures.Resolve(m.Folder, m.LocalCard) is string ownFile && own.Checked) try { own.Image = Ui.DdsThumb(ownFile, (int)(32 * DeviceDpi / 96f)); own.ImageScaling = ToolStripItemImageScaling.None; } catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException) { }
+        if (ModPictures.Resolve(m.Folder, m.LocalCard) is string ownFile && own.Checked) try { own.Image = Ui.DdsThumb(ownFile, (int)(32 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi))); own.ImageScaling = ToolStripItemImageScaling.None; } catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException) { }
         item.DropDownItems.Add(own);
         if (candidates.Count == 0) return item;
         item.DropDownItems.Add(new ToolStripSeparator());
-        int px = (int)(32 * DeviceDpi / 96f);
+        int px = (int)(32 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         string? current = m.LocalCard;
         foreach (var (tex, file) in candidates)
         {

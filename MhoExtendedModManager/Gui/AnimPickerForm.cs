@@ -54,7 +54,7 @@ sealed class AnimPickerForm : Form
         ShowInTaskbar = false; MinimizeBox = false;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(12);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4 };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));

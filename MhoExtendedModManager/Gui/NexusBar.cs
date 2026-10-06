@@ -24,7 +24,7 @@ sealed class NexusStatus : Control
         Margin = new Padding(0);
     }
 
-    float S => DeviceDpi / 96f;
+    float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
 
     public void Set(State s, string first, string second)
     {

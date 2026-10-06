@@ -111,7 +111,7 @@ sealed partial class StorePreview : Control
         tips = Ui.NewTips(() => null);
     }
 
-    float S => DeviceDpi / 96f;
+    float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
     int ThumbSize => (int)(56 * S);
 
     public Mod? Mod

@@ -208,7 +208,7 @@ static class Dialog
                 : new Label { Text = Ui.TitleCase(caption), AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 8), ForeColor = tone switch { Tone.Good => Ui.Enabled, Tone.Bad => Ui.Warn, _ => Ui.Text } };
             if (single) { heading.Margin = new Padding(0, 0, 0, 10); if (!log && !(text.Length > 420 || text.Count(c => c == '\n') > 7)) heading.Anchor = AnchorStyles.None; }
             t.Controls.Add(heading, 0, 0);
-            float s = DeviceDpi / 96f;
+            float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
             if (longText)
                 t.Controls.Add(new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = text.Replace("\n", "\r\n") }, 0, 1);
             else if (custom != null && (text.Contains("](https://") || text.Contains("[!]")))

@@ -96,7 +96,7 @@ sealed class IconCreatorView : UserControl
     {
         this.packages = packages; cooked = cookedFolder;
         Dock = DockStyle.Fill;
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Padding = new Padding(0, 6, 0, 0) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 260 * s)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220 * s));
 

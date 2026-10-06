@@ -685,7 +685,7 @@ static class Icons
             if (b.FindForm() is { } f && f.GetType().Name is "DialogForm" or "UpdateForm" or "ApplyForm") continue;
             string label = System.Text.RegularExpressions.Regex.Replace(b.Text.Trim(), @"\s+", " ");
             if (!ByLabel.TryGetValue(label, out var it)) continue;
-            float sc = b.DeviceDpi / 96f;
+            float sc = MhoExtendedModManager.Gui.Ui.Dpi(b.DeviceDpi);
             if (it.Paint != null) Make(b, it.Title, it.Paint, sc);
             else { b.AccessibleName = it.Title; Ui.TipTitled(b, it.Title, Ui.Tips.GetToolTip(b)); }
         }

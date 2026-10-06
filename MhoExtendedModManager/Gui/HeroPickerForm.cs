@@ -29,7 +29,7 @@ sealed class HeroPickerForm : Form
         ShowInTaskbar = false; MinimizeBox = false;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(12);
-        s = DeviceDpi / 96f;
+        s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55)); root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));

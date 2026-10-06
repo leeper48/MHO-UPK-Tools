@@ -28,7 +28,7 @@ sealed class ExtractView : UserControl
         this.catalog = catalog;
         Dock = DockStyle.Fill;
         Font = Ui.Regular(9.5f);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         kind.Width = (int)(200 * s); lang.Width = (int)(110 * s);
 
         // ---- Textures

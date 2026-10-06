@@ -74,7 +74,7 @@ static class Modern
         if (toggles.TryGetValue(b, out _)) return;
         toggles.Add(b, new object());
         // Our box is a little bigger than Windows' glyph: give auto-sized ones the room so their text isn't cut.
-        if (b.AutoSize) b.Padding = new Padding(b.Padding.Left, b.Padding.Top, b.Padding.Right + (int)(8 * b.DeviceDpi / 96f), b.Padding.Bottom);
+        if (b.AutoSize) b.Padding = new Padding(b.Padding.Left, b.Padding.Top, b.Padding.Right + (int)(8 * MhoExtendedModManager.Gui.Ui.Dpi(b.DeviceDpi)), b.Padding.Bottom);
         if (b is CheckBox cb) cb.CheckStateChanged += (_, _) => b.Invalidate();
         if (b is RadioButton rb) rb.CheckedChanged += (_, _) => b.Invalidate();
         b.MouseEnter += (_, _) => b.Invalidate();
@@ -86,7 +86,7 @@ static class Modern
             var r = b.ClientRectangle;
             if (r.Width < 4 || r.Height < 4) return;
             PaintBehind(b, g);
-            float s = b.DeviceDpi / 96f;
+            float s = MhoExtendedModManager.Gui.Ui.Dpi(b.DeviceDpi);
             float box = 14 * s;
             bool on = b is CheckBox c ? c.CheckState != CheckState.Unchecked : ((RadioButton)b).Checked;
             bool mixed = b is CheckBox c2 && c2.CheckState == CheckState.Indeterminate;
@@ -167,7 +167,7 @@ sealed class Field : Panel
     {
         var parent = tb.Parent;
         if (parent == null || tb.Parent is Field) return;
-        float s = tb.DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(tb.DeviceDpi);
         var f = new Field(tb)
         {
             Dock = tb.Dock, Anchor = tb.Anchor, Margin = tb.Margin, MinimumSize = tb.MinimumSize,
@@ -209,7 +209,7 @@ sealed class Field : Panel
     {
         var g = e.Graphics;
         Modern.PaintBehind(this, g);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
         using var path = Modern.Round(r, 5 * s);
@@ -269,7 +269,7 @@ sealed class DropDown : Control
 
     void FitHeight()
     {
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         Height = TextRenderer.MeasureText("Ag", Font).Height + (int)(10 * s);
         if (!ShowsSelection && Placeholder.Length > 0) Width = TextRenderer.MeasureText(Placeholder, Font).Width + (int)(40 * s);
     }
@@ -349,7 +349,7 @@ sealed class DropDown : Control
     {
         var g = e.Graphics;
         Modern.PaintBehind(this, g);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
         using (var path = Modern.Round(r, 4 * s))
@@ -389,7 +389,7 @@ sealed class DropList : ToolStripDropDown
     {
         this.texts = texts; this.selected = selected; this.pick = pick; this.color = color;
         shown = [.. Enumerable.Range(0, texts.Count)];
-        float s = owner.DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(owner.DeviceDpi);
         var font = Ui.Regular(9.5f);
         int row = TextRenderer.MeasureText("Ag", font).Height + (int)(8 * s);
         AutoSize = false; Padding = Padding.Empty; Margin = Padding.Empty; DropShadowEnabled = true;
@@ -520,7 +520,7 @@ sealed class DropList : ToolStripDropDown
         var g = e.Graphics;
         bool hot = (e.State & DrawItemState.Selected) != 0;
         using (var b = new SolidBrush(hot ? Modern.MenuHover : Modern.MenuBack)) g.FillRectangle(b, e.Bounds);
-        float s = list.DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(list.DeviceDpi);
         int check = (int)(24 * s);
         if (i == selected)
         {

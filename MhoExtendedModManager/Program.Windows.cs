@@ -9,8 +9,14 @@ static partial class Program
 {
     /// <summary>The commands that open a window (the app itself, snapshots, on-screen self-tests), as Main had them, in
     /// order. Null when <paramref name="args"/> isn't one of them.</summary>
+    static float SafeUiScale() { try { return Settings.Load().UiScale is > 0 and var v ? v : 1f; } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { return 1f; } }
+
     static int? WindowCommand(string[] args)
     {
+        // the UI scale (Settings → UI Scale; MHO_EXTMM_UI_SCALE for tests), before any window or font is made
+        float uiScale = float.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_UI_SCALE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float envScale) ? envScale
+            : SafeUiScale();
+        Gui.UiScaling.Scale = Math.Clamp(uiScale, 0.8f, 1.5f);   // (not Ui.UiScale: Ui's setup must wait for SetHighDpiMode)
         if (args.Length == 3 && args[0].Equals("--post-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: Create Post for a library mod (read only), both tabs as PNGs.

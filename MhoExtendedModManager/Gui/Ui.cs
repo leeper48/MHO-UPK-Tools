@@ -65,8 +65,10 @@ static class Ui
         tip.Draw += (_, e) => PaintTip(e.Graphics, e.Bounds, e.ToolTipText, e.AssociatedControl?.DeviceDpi ?? 96);
         return tip;
     }
-    static readonly Font TipFont = Regular(9f);
-    static readonly Font TipTitleFont = Bold(9f);
+    // (made on first use: after the UI scale is set)
+    static Font? tipFont, tipTitleFont;
+    static Font TipFont => tipFont ??= Regular(9f);
+    static Font TipTitleFont => tipTitleFont ??= Bold(9f);
     const TextFormatFlags TipFlags = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
     static (int Pad, int Max) TipMetrics(int dpi) { float sc = dpi / 96f; return ((int)(7 * sc), (int)(380 * sc)); }
 
@@ -208,7 +210,7 @@ static class Ui
             // tip over the cursor)
             var outer = parent.Parent == null ? parent.Bounds : parent.Parent.RectangleToScreen(parent.Bounds);
             var cur = Cursor.Position;
-            shownBy.Show(shownText, parent, cur.X - outer.X, cur.Y - outer.Y + (int)(22 * parent.DeviceDpi / 96f), Tips.AutoPopDelay);
+            shownBy.Show(shownText, parent, cur.X - outer.X, cur.Y - outer.Y + (int)(22 * Dpi(parent.DeviceDpi)), Tips.AutoPopDelay);
             shownOn = parent;
         }
 
@@ -401,8 +403,8 @@ static class Ui
         DarkFrame(f);
         var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill };
         t.Controls.Add(new Label { Text = TitleCase(title), AutoSize = true, Font = Bold(12f), Margin = new Padding(0, 0, 0, 8) });   // as every popup
-        t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 0, 0, 6), MaximumSize = new Size((int)(460 * f.DeviceDpi / 96f), 0) });
-        var box = new TextBox { Text = initial, Width = (int)(320 * f.DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 10), UseSystemPasswordChar = secret };
+        t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(0, 0, 0, 6), MaximumSize = new Size((int)(460 * Dpi(f.DeviceDpi)), 0) });
+        var box = new TextBox { Text = initial, Width = (int)(320 * Dpi(f.DeviceDpi)), Margin = new Padding(0, 0, 0, 10), UseSystemPasswordChar = secret };
         if (suggestions != null)
         {
             box.AutoCompleteMode = AutoCompleteMode.SuggestAppend; box.AutoCompleteSource = AutoCompleteSource.CustomSource;
@@ -525,10 +527,19 @@ static class Ui
         return bmp;
     }
 
-    public static Font Regular(float pt = 9.75f) => new("Segoe UI", pt);
-    public static Font Bold(float pt = 10f) => new("Segoe UI Semibold", pt);
+    /// <summary>
+    /// The app's UI scale (Settings → UI Scale, 80–150 %; Kurt, 2026-10-06: a user's screen was too small for the Model tab):
+    /// fonts (Regular / Bold / Heavy) and every size the app works out from the screen's DPI (<see cref="Dpi"/>) are multiplied
+    /// by it. Set once at start, before the main window is made (a change takes effect on the next start).
+    /// </summary>
+    public static float UiScale { get => UiScaling.Scale > 0 ? UiScaling.Scale : 1f; set => UiScaling.Scale = value; }
+    /// <summary>Pixels per 96-DPI pixel on a control's screen, times the UI scale (what <c>DeviceDpi / 96f</c> was).</summary>
+    public static float Dpi(int deviceDpi) => deviceDpi / 96f * UiScale;
+
+    public static Font Regular(float pt = 9.75f) => new("Segoe UI", pt * UiScale);
+    public static Font Bold(float pt = 10f) => new("Segoe UI Semibold", pt * UiScale);
     /// <summary>True bold, for the letters on the small solid badges (Kurt: legibility).</summary>
-    public static Font Heavy(float pt) => new("Segoe UI", pt, FontStyle.Bold);
+    public static Font Heavy(float pt) => new("Segoe UI", pt * UiScale, FontStyle.Bold);
 
     /// <summary>The mod's categories as badges: the full word when it has one kind of change (as MHModManager shows), letters otherwise.</summary>
     public static List<(string Text, Color Color)> Badges(Mod m)
@@ -609,7 +620,7 @@ static class Ui
         b.Paint += (_, e) =>
         {
             var size = TextRenderer.MeasureText(e.Graphics, b.Text, b.Font, Size.Empty, TextFormatFlags.NoPadding);
-            float s = b.DeviceDpi / 96f;
+            float s = Dpi(b.DeviceDpi);
             float w = size.Width * 0.9f, x = (b.Width - w) / 2f;
             float glyphTop = (b.Height - size.Height) / 2f + size.Height * 0.22f, glyphBottom = (b.Height + size.Height) / 2f - size.Height * 0.2f;
             float y = top ? glyphTop - 2.5f * s : glyphBottom + 1f * s;
@@ -769,8 +780,34 @@ static class Ui
         return g;
     }
 
+    /// <summary>
+    /// Dragging a column divider resizes the column left of it, and only the last column gives or takes the room (Kurt,
+    /// 2026-10-06: in the Packages table the divider after Size moved the file-name column instead: the stretching column was
+    /// the first one, so it absorbed the drag). When a drag starts on a header divider, every column keeps its width as shown
+    /// and the last visible one becomes the stretching one, for the rest of the table's life.
+    /// </summary>
+    static void FreezeOnResize(DataGridView g)
+    {
+        if (g.Tag is string t && t.Contains("freezeonresize")) return;
+        g.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left || !g.ColumnHeadersVisible || e.Y < 0 || e.Y >= g.ColumnHeadersHeight) return;
+            var cols = g.Columns.Cast<DataGridViewColumn>().Where(c => c.Visible).OrderBy(c => c.DisplayIndex).ToList();
+            if (cols.Count < 2) return;
+            // on a divider: within a few pixels of a column's right edge (the table's own resize zone)
+            int zone = Math.Max(3, (int)(4 * Dpi(g.DeviceDpi)));
+            if (!cols.Any(c => g.GetColumnDisplayRectangle(c.Index, false) is { Width: > 0 } r && Math.Abs(e.X - r.Right) <= zone)) return;
+            var last = cols[^1];
+            if (last.AutoSizeMode == DataGridViewAutoSizeColumnMode.Fill && cols.Take(cols.Count - 1).All(c => c.AutoSizeMode != DataGridViewAutoSizeColumnMode.Fill)) return;
+            var widths = cols.Select(c => c.Width).ToList();
+            for (int i = 0; i < cols.Count - 1; i++) { cols[i].AutoSizeMode = DataGridViewAutoSizeColumnMode.None; cols[i].Width = widths[i]; }
+            last.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+        };
+    }
+
     public static void StyleGrid(DataGridView g)
     {
+        FreezeOnResize(g);
         g.EnableHeadersVisualStyles = false;
         g.BackgroundColor = Back;
         g.GridColor = Line;
@@ -799,7 +836,7 @@ static class Ui
             cellTimer.Stop();
             if (cellTip == null || g.IsDisposed || !g.IsHandleCreated) return;
             var p = g.PointToClient(Cursor.Position);
-            float s = g.DeviceDpi / 96f;
+            float s = Dpi(g.DeviceDpi);
             cellTips.Show(cellTip, g, p.X + (int)(14 * s), p.Y + (int)(20 * s), 20000);
         };
         g.CellMouseEnter += (_, e) =>
@@ -825,7 +862,7 @@ static class Ui
         {
             if (e.RowIndex < 0 || e.ColumnIndex < 0 || g.Columns[e.ColumnIndex] is not DataGridViewCheckBoxColumn || e.Graphics == null) return;
             e.PaintBackground(e.CellBounds, true);
-            float s = g.DeviceDpi / 96f, box = 14 * s;
+            float s = Dpi(g.DeviceDpi), box = 14 * s;
             var r = new RectangleF(e.CellBounds.X + (e.CellBounds.Width - box) / 2f, e.CellBounds.Y + (e.CellBounds.Height - box) / 2f, box, box);
             bool on = e.Value is true || e.Value is CheckState.Checked;
             bool ro = g.ReadOnly || g.Columns[e.ColumnIndex].ReadOnly || g.Rows[e.RowIndex].Cells[e.ColumnIndex].ReadOnly;
@@ -878,7 +915,7 @@ static class Ui
     /// <summary>A dialog's size in 96-dpi units, scaled for the display and kept within 90% of its working area; centred on its owner.</summary>
     public static void FitToScreen(Form f, int width, int height)
     {
-        float s = f.DeviceDpi / 96f;
+        float s = Dpi(f.DeviceDpi);
         var area = Screen.FromControl(f.Owner ?? f).WorkingArea;
         f.Size = new Size(Math.Min((int)(width * s), (int)(area.Width * 0.9)), Math.Min((int)(height * s), (int)(area.Height * 0.9)));
         var o = f.Owner?.Bounds ?? area;
@@ -935,7 +972,7 @@ static class Ui
             if (parentColor.A < 255) PaintGradient(g, b, r);
             if (parentColor.A > 0) { using var pb = new SolidBrush(parentColor); g.FillRectangle(pb, r); }
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            float s = b.DeviceDpi / 96f;
+            float s = Dpi(b.DeviceDpi);
             var box = new RectangleF(0.5f, 0.5f, r.Width - 1.5f, r.Height - 1.5f);
             var fillColor = !b.Enabled ? b.BackColor : st[1] == 1 ? b.FlatAppearance.MouseDownBackColor : st[0] == 1 ? b.FlatAppearance.MouseOverBackColor : b.BackColor;
             if (fillColor.IsEmpty || fillColor.A == 0) fillColor = b.BackColor;
@@ -999,4 +1036,15 @@ static class Ui
             RestyleButtons(c);
         }
     }
+}
+
+/// <summary>
+/// Where the UI scale is kept (<see cref="Ui.UiScale"/>). Its own class, so the start can set it without running Ui's static
+/// setup: that makes the shared tooltip window, and made before the app tells Windows it's DPI-aware (SetHighDpiMode), the
+/// window was DPI-unaware and Windows stretched every tooltip by the screen's scaling (Kurt, 2026-10-06, 175 %: "some
+/// tooltips are very big").
+/// </summary>
+static class UiScaling
+{
+    public static float Scale;
 }

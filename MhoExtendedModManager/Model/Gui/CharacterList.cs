@@ -24,7 +24,7 @@ sealed class CharacterList : ListBox
         // on screen, which flickered (Kurt).
         SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
     }
-    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); ItemHeight = Math.Min(255, (int)(50 * DeviceDpi / 96f)); }
+    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); ItemHeight = Math.Min(255, (int)(50 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi))); }
     protected override void OnResize(EventArgs e) { base.OnResize(e); Invalidate(); }
     protected override void OnSelectedIndexChanged(EventArgs e) { base.OnSelectedIndexChanged(e); Invalidate(); }
     protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Invalidate(); }
@@ -78,7 +78,7 @@ sealed class CharacterList : ListBox
         bool sel = (e.State & DrawItemState.Selected) != 0;
         if (sel) { using var b = new SolidBrush(Ui.CardSelected); e.Graphics.FillRectangle(b, e.Bounds); }
         else Ui.PaintGradient(e.Graphics, this, e.Bounds);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         int x = e.Bounds.X + (int)(8 * s) + (int)(22 * s * it.Indent);
         if (it.Header)
         {

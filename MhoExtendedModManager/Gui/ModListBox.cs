@@ -126,7 +126,7 @@ sealed class ModListBox : ListBox
         };
     }
 
-    float S => DeviceDpi / 96f;
+    float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
     static readonly Color NexusOrange = Color.FromArgb(230, 140, 60);
     public static readonly Color ConflictAmber = Color.FromArgb(242, 170, 60);
 

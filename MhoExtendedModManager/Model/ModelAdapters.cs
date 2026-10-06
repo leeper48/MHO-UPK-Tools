@@ -28,6 +28,9 @@ sealed class Settings
     public List<string> RecentFbx { get; set; } = new();
     /// <summary>The image editor the Materials tab opens maps in (null: the first one found).</summary>
     public string? ImageEditorPath { get; set; }
+    /// <summary>The Model tab's panel sizes (column / row shares, the log's height) and folded panels.</summary>
+    public Dictionary<string, float> Layout { get; set; } = new();
+    public List<string> Folded { get; set; } = new();
     public bool RememberWindow { get; set; }
 
     public sealed class PreviewPrefs
@@ -45,7 +48,7 @@ sealed class Settings
         public float GlowStrength { get; set; } = 1;
     }
 
-    sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); public string? ImageEditorPath { get; set; } }
+    sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); public string? ImageEditorPath { get; set; } public Dictionary<string, float>? Layout { get; set; } public List<string>? Folded { get; set; } }
     static string OwnFile => Path.Combine(Home, "settings.json");
 
     /// <summary>The engine's own work folder (thumbnails, exports, command-line outputs): model\ in the Mod Manager's data.</summary>
@@ -80,7 +83,7 @@ sealed class Settings
     {
         try
         {
-            if (File.Exists(OwnFile) && System.Text.Json.JsonSerializer.Deserialize<Own>(File.ReadAllText(OwnFile)) is { } o) { Preview = o.Preview; RecentFbx = o.RecentFbx; ImageEditorPath = o.ImageEditorPath; }
+            if (File.Exists(OwnFile) && System.Text.Json.JsonSerializer.Deserialize<Own>(File.ReadAllText(OwnFile)) is { } o) { Preview = o.Preview; RecentFbx = o.RecentFbx; ImageEditorPath = o.ImageEditorPath; Layout = o.Layout ?? new(); Folded = o.Folded ?? new(); }
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { }
         return this;
@@ -92,7 +95,7 @@ sealed class Settings
         var s = App ?? MemmSettings.Load();
         if (s.BlenderPath != BlenderPath || s.SkipBlenderAddonOffer != SkipAddonOffer) Change(m => { m.BlenderPath = BlenderPath; m.SkipBlenderAddonOffer = SkipAddonOffer; });
         Directory.CreateDirectory(Home);
-        File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx, ImageEditorPath = ImageEditorPath }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx, ImageEditorPath = ImageEditorPath, Layout = Layout, Folded = Folded }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
 }
 

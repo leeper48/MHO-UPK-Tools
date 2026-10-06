@@ -31,10 +31,14 @@ sealed class Settings
     public string ListSort { get; set; } = "priority";
     /// <summary>The mod list's width as a fraction of the window (null: 30%), kept between starts (a user's request).</summary>
     public float? ListWidth { get; set; }
+    /// <summary>The preview column's share of the room beside the list (the divider between Preview and the details); null = automatic.</summary>
+    public float? PreviewWidth { get; set; }
     /// <summary>The main window's monitor, size and position (a user's request: it always opened maximized on the main
     /// monitor): its normal bounds (x, y, width, height) and whether it was maximized, restored at start while that spot is
     /// on a connected monitor. <see cref="RememberWindow"/> off = the old behavior (maximized on the main monitor).</summary>
     public bool RememberWindow { get; set; } = true;
+    /// <summary>The UI scale (Settings → UI Scale): 0.8 to 1.5, 1 = as Windows sizes it. Applied at start.</summary>
+    public float UiScale { get; set; } = 1f;
     public int[]? WindowBounds { get; set; }
     public bool WindowMaximized { get; set; } = true;
     /// <summary>Settings → Download Counts: the total seen last time and when (to show the change since).</summary>

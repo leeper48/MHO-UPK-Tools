@@ -51,7 +51,7 @@ sealed partial class MainForm
         Check("checkbox click again restores", M(a).Enabled == aOn);
         Check("the list keeps its window through the clicks", list.Handle == listHandle);
         {
-            var pt = list.PartCentre(topIndex, padlock: false); pt.X -= (int)(200 * DeviceDpi / 96f);
+            var pt = list.PartCentre(topIndex, padlock: false); pt.X -= (int)(200 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
             var lp = (IntPtr)((pt.Y << 16) | (pt.X & 0xFFFF));
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
             SendMessage(list.Handle, 0x0201, (IntPtr)1, lp); SendMessage(list.Handle, 0x0202, IntPtr.Zero, lp);
@@ -76,8 +76,8 @@ sealed partial class MainForm
             int ci = list.Items.Cast<object>().ToList().FindIndex(o => o is Mod mm && mm.FolderName == c);
             var from = list.GetItemRectangle(ci); var to = list.GetItemRectangle(topIndex);
             IntPtr L(int x, int y) => (IntPtr)((y << 16) | (x & 0xFFFF));
-            int x0 = from.X + (int)(140 * DeviceDpi / 96f);
-            int y0 = from.Y + (int)(12 * DeviceDpi / 96f);   // the name row (the second row has tag chips)
+            int x0 = from.X + (int)(140 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+            int y0 = from.Y + (int)(12 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));   // the name row (the second row has tag chips)
             SendMessage(list.Handle, 0x0201, (IntPtr)1, L(x0, y0));   // down
             foreach (int y in new[] { y0 - 12, (from.Y + to.Y) / 2, to.Y + 4 })
                 SendMessage(list.Handle, 0x0200, (IntPtr)1, L(x0, y));                        // WM_MOUSEMOVE, MK_LBUTTON
@@ -147,10 +147,10 @@ sealed partial class MainForm
         settings.ListGroup = "none"; FillList(null);
 
         // Tooltip: shown on the Apply button, captured from the screen.
-        tips.Show("Sample tooltip: the dark tip the buttons and cards show." + Environment.NewLine + "Second line.", applyButton, 0, -(int)(60 * DeviceDpi / 96f), 5000);
+        tips.Show("Sample tooltip: the dark tip the buttons and cards show." + Environment.NewLine + "Second line.", applyButton, 0, -(int)(60 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), 5000);
         await Task.Delay(700);
-        var at = applyButton.PointToScreen(new Point(-(int)(300 * DeviceDpi / 96f), -(int)(70 * DeviceDpi / 96f)));
-        using (var shot = new Bitmap((int)(500 * DeviceDpi / 96f), (int)(80 * DeviceDpi / 96f)))
+        var at = applyButton.PointToScreen(new Point(-(int)(300 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), -(int)(70 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi))));
+        using (var shot = new Bitmap((int)(500 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), (int)(80 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi))))
         {
             using (var g = Graphics.FromImage(shot)) g.CopyFromScreen(at, Point.Empty, shot.Size);
             shot.Save(Path.Combine(dir, "tooltip.png"));

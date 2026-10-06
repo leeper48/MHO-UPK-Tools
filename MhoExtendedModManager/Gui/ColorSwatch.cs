@@ -23,7 +23,7 @@ sealed class ColorSwatch : Control
     {
         var g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        float s = DeviceDpi / 96f, rad = 5 * s;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi), rad = 5 * s;
         var r = new RectangleF(1, 1, Width - 3, Height - 3);
         using var path = new System.Drawing.Drawing2D.GraphicsPath();
         path.AddArc(r.X, r.Y, rad * 2, rad * 2, 180, 90); path.AddArc(r.Right - rad * 2, r.Y, rad * 2, rad * 2, 270, 90);

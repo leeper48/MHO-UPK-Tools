@@ -47,7 +47,7 @@ sealed class ColorTagForm : Form
         MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
-        s = DeviceDpi / 96f;
+        s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3 };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 500 * s)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));

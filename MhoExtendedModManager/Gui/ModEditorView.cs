@@ -82,7 +82,7 @@ sealed partial class ModEditorView : UserControl
     readonly TexturePage[] texturePages;
     readonly StringsPage stringsPage;
     readonly FlatTabs tabs = new() { Dock = DockStyle.Fill };
-    float S => DeviceDpi / 96f;
+    float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
     /// <summary>The info and bottom bars (the host colours them as bars after theming).</summary>
     public Control[] Bars { get; private set; } = [];
 
@@ -98,13 +98,32 @@ sealed partial class ModEditorView : UserControl
         sounds = Ui.Grid(S, false, ("Sound Pack", 0), ("Events", 80), ("Sound Files It Patches", 360), ("From", 360));
 
         // ---- Info bar: name, author, version
-        var info = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 6, Padding = new Padding(12, 10, 12, 10) };
+        var info = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 7, Padding = new Padding(12, 10, 12, 10) };
         info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); info.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); info.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
         info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); info.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
         info.Controls.Add(Caption("Name"), 0, 0); info.Controls.Add(nameBox, 1, 0);
         info.Controls.Add(Caption("Author"), 2, 0); info.Controls.Add(authorBox, 3, 0);
         info.Controls.Add(Caption("Version"), 4, 0); info.Controls.Add(versionBox, 5, 0);
+        info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        // fold Tags and Note away (Kurt, 2026-10-06: on a small screen they took a third of the Model tab's room); kept
+        var foldInfo = Ui.FlatButton("▴", () => { }, tip: "Hide or show the Tags and Note rows (more room for the tabs below). Remembered.");
+        foldInfo.Margin = new Padding(8, 0, 0, 0);
+        info.Controls.Add(foldInfo, 6, 0);
+        void ShowInfo()
+        {
+            bool folded = MhoExtendedModManager.Model.Settings.Current.Folded.Contains("editorinfo");
+            foreach (Control c in info.Controls) if (info.GetRow(c) > 0) c.Visible = !folded;
+            foldInfo.Text = folded ? "▾" : "▴";
+        }
+        foldInfo.Click += (_, _) =>
+        {
+            var f = MhoExtendedModManager.Model.Settings.Current.Folded;
+            if (!f.Remove("editorinfo")) f.Add("editorinfo");
+            MhoExtendedModManager.Model.Settings.Current.Save();
+            ShowInfo();
+        };
+        HandleCreated += (_, _) => ShowInfo();
         nameBox.Text = draft.Name; authorBox.Text = draft.Author; versionBox.Text = draft.Version;
         if (editing == null) authorBox.PlaceholderText = "Your name (Settings → Your Author Name fills it in)";
         Ui.Tip(authorBox, "Who made the mod. New mods start with the name in Settings → Your Author Name.");
@@ -149,7 +168,7 @@ sealed partial class ModEditorView : UserControl
         var post = Ui.FlatButton("Create Post", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");
         var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", SaveAsked, tip: "Save the mod to the library. Nothing in the game changes until Apply Changes.");
         // icons (Kurt, 2026-10-04): the names head the tooltips
-        float isc = DeviceDpi / 96f;
+        float isc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         Icons.Make(cancel, "Cancel", Icons.Cancel, isc);
         Icons.Make(post, "Create Post", Icons.Post, isc);
         Icons.Make(save, editing == null ? "Create Mod" : "Save Changes", Icons.Save, isc);

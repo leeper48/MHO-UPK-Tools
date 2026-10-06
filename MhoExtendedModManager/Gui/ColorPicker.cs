@@ -24,7 +24,7 @@ sealed class ColorPickerPopup : ToolStripDropDown
     ColorPickerPopup(Control owner, Rectangle anchor, Color initial, Color? original, Action<Color> changed)
     {
         this.changed = changed; this.initial = initial; current = initial;
-        float s = owner.DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(owner.DeviceDpi);
         AutoSize = false; Padding = Padding.Empty; Margin = Padding.Empty; DropShadowEnabled = true;
         BackColor = Modern.MenuBack;
         int w = (int)(250 * s);
@@ -210,7 +210,7 @@ sealed class ColorWheel : Control
         g.DrawImage(disc, ctr.X - size / 2f, ctr.Y - size / 2f);
         float ang = Hue * MathF.PI / 180, rad = Saturation * Radius;
         var m = new PointF(ctr.X + MathF.Cos(ang) * rad, ctr.Y - MathF.Sin(ang) * rad);
-        float s = DeviceDpi / 96f, k = 6 * s;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi), k = 6 * s;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         using (var p1 = new Pen(Color.Black, 3 * s)) g.DrawEllipse(p1, m.X - k, m.Y - k, 2 * k, 2 * k);
         using (var p2 = new Pen(Color.White, 1.5f * s)) g.DrawEllipse(p2, m.X - k, m.Y - k, 2 * k, 2 * k);

@@ -19,7 +19,7 @@ sealed class FolderStrip : Control
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.SupportsTransparentBackColor, true);
         BackColor = Color.Transparent;
-        Height = (int)(24 * DeviceDpi / 96f);
+        Height = (int)(24 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
     }
 
     public void SetFolders(params (string Caption, string? Path, string Missing)[] folders)
@@ -36,7 +36,7 @@ sealed class FolderStrip : Control
     {
         var g = e.Graphics;
         hits.Clear();
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         int gap = (int)(18 * s), pad = (int)(6 * s), x = 0;
         // each path gets an equal share of what the captions leave
         int capsW = items.Sum(i => TextRenderer.MeasureText(g, i.Caption, captionFont, Size.Empty, TextFormatFlags.NoPadding).Width + pad) + gap * Math.Max(0, items.Count - 1);

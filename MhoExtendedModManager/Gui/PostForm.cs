@@ -40,7 +40,7 @@ sealed class PostForm : Form
         MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6 };
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         t.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -139,7 +139,7 @@ sealed class PostForm : Form
     void ShowImages()
     {
         foreach (Control c in strip.Controls.Cast<Control>().ToList()) { strip.Controls.Remove(c); c.Dispose(); }
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         int h = (int)(92 * s);
         foreach (string f in images)
         {

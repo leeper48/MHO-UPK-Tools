@@ -27,7 +27,20 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.192 (Kurt, 2026-10-06): UI scale, resizable and foldable panels.</summary>
+    static Notice ScreenFit() => new(
+        "0.37.192-screen-fit", "0.37.192",
+        "Fit the app to your screen:" + nl + nl +
+        "• Settings → UI Scale (80–150 %) makes the whole app's text and controls smaller or larger (from the next start)." + nl + nl +
+        "• Drag the dividers: beside the mod list, between the preview and the details, and on the Model tab between Source, Preview and Target, Target's list and its tabs, and above the log." + nl + nl +
+        "• Fold panels away: click a Model tab heading (Source, Target, Material, Size in Game, Log), or the ▴ next to Version in the Editor for the Tags and Note rows." + nl + nl +
+        "• In any table, dragging a column divider sizes the column on its left." + nl + nl +
+        "All of it is remembered. Also fixed: the Model tab's first log line is clearer, and on a scaled screen tooltips are their normal size again." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
+        "The manual's Walkthroughs show each step (Help, or F1); Settings → What's New shows this notice and the earlier ones.",
+        "w-layout");
 
     /// <summary>0.37.187 (Kurt, 2026-10-06): more model formats, your image editor, the busy ring, MFF folder layouts.</summary>
     static Notice FormatsAndEditors() => new(

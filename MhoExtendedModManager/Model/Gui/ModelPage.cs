@@ -107,8 +107,8 @@ sealed partial class ModelPage : UserControl
         undoButton = Ui.FlatButton("↶ Undo", Undo, "Undo the last change to the parts, Smooth, the material or the bone map (Ctrl+Z).");
         redoButton = Ui.FlatButton("↷ Redo", Redo, "Redo what Undo took back (Ctrl+Y).");
         undoButton.Enabled = redoButton.Enabled = false;
-        Icons.Make(undoButton, "Undo", Icons.Undo, DeviceDpi / 96f);
-        Icons.Make(redoButton, "Redo", Icons.Redo, DeviceDpi / 96f);
+        Icons.Make(undoButton, "Undo", Icons.Undo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(redoButton, "Redo", Icons.Redo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         mapReset = Ui.FlatButton("Reset to Automatic", ResetMap, "Forgets your bone map edits for this character on this base hero; the importer's own pairing is used again.");
         defaultParts = Ui.FlatButton("Default Parts", ResetParts, "Back to the parts the importer picks for this model (the body ticked; props, effects and swap parts not).");
         Font = Ui.Regular();
@@ -118,18 +118,20 @@ sealed partial class ModelPage : UserControl
         buildButton = Ui.AccentButton("Build into Mod", Build, "Builds the model onto the picked package and puts it into this mod (Save Changes keeps it; Apply Changes puts it into the game). Starts from the package as it was before the model, or from the game's stock copy (Build From). With no source picked, it writes only Size in Game into the package.");
         openButton = Ui.FlatButton("Open Folder", OpenFolder, "Shows the last export in Explorer (model.fbx).");
         openButton.Enabled = false;
-        Icons.Make(openButton, "Open Folder", Icons.Folder, DeviceDpi / 96f);
-        Icons.Make(buildButton, "Build into Mod", Icons.Build, DeviceDpi / 96f);
+        Icons.Make(openButton, "Open Folder", Icons.Folder, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(buildButton, "Build into Mod", Icons.Build, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         // Full Export ▾ (0.16.5, Kurt): the model and every animation, as FBX files or straight into Blender (one animation:
         // the Single Animation ▾ menu under the preview)
         fbxButton = Ui.FlatButton("Full Export ▾", ShowFullExportMenu, "The model and all of the base hero's animations: Export FBX (one FBX each, the folder opens) or Open in Blender (a new Blender scene, every animation an Action on the NLA; Ctrl+S there sends your changes back). For one animation: Single Animation ▾ under the preview.");
-        Icons.Make(fbxButton, "Full Export", Icons.WithMenu(Icons.Export), DeviceDpi / 96f);
+        Icons.Make(fbxButton, "Full Export", Icons.WithMenu(Icons.Export), MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = Color.Transparent };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));   // unstyled, a column sizes to its widest child (MEMM 0.37.6)
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 7));          // the divider above the log
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 90));
+        layoutRoot = root;
         Controls.Add(root);
 
         // the tab's bar: the folders it reads, Undo / Redo, its settings
@@ -142,11 +144,18 @@ sealed partial class ModelPage : UserControl
         root.Controls.Add(top, 0, 0);
 
         // body: characters | 3D | target
-        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, BackColor = Color.Transparent, Padding = new Padding(6) };
+        // (Kurt, 2026-10-06: dividers between the columns, ModelPage.Layout)
+        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, BackColor = Color.Transparent, Padding = new Padding(6) };
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 27));
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 7));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 7));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
         root.Controls.Add(body, 0, 1);
+        layoutBody = body;
+        barSource = Divider(body, true, 0, 2, "col0", "col1");
+        barPreview = Divider(body, true, 2, 4, "col1", "col2");
+        body.Controls.Add(barSource, 1, 0); body.Controls.Add(barPreview, 3, 0);
 
         var sourceHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         sourceHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -154,17 +163,23 @@ sealed partial class ModelPage : UserControl
         sourceHead.Controls.Add(sourceKind, 0, 0);
         var filterRow = Row(characterFilter, heroesOnly); filterRow.Dock = DockStyle.Fill;
         sourceHead.Controls.Add(filterRow, 0, 1);
-        body.Controls.Add(Column("SOURCE", sourceHead, characters), 0, 0);
-        body.Controls.Add(Column("PREVIEW", null, preview), 1, 0);
+        var sourceColumn = Column("SOURCE", sourceHead, characters);
+        body.Controls.Add(sourceColumn, 0, 0);
+        body.Controls.Add(Column("PREVIEW", null, preview), 2, 0);
 
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = Color.Transparent, Margin = new Padding(0) };
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        right.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
-        right.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+        right.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 7));             // the divider between the list and the tabs
+        right.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        right.Controls.Add(Column("TARGET", Row(packageFilter, buildFrom), packages), 0, 0);   // (Kurt: Source and Target)
+        layoutRight = right;
+        var targetColumn = Column("TARGET", Row(packageFilter, buildFrom), packages);
+        right.Controls.Add(targetColumn, 0, 0);   // (Kurt: Source and Target)
+        barTarget = Divider(right, false, 0, 2, "target", "tabs");
+        right.Controls.Add(barTarget, 0, 1);
         var partsHead = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         smooth.Margin = new Padding(0, 6, 10, 0); capeBox.Margin = new Padding(0, 0, 6, 0); defaultParts.Margin = new Padding(0);
         hairBox.Margin = new Padding(0, 0, 6, 0);
@@ -178,21 +193,23 @@ sealed partial class ModelPage : UserControl
         // the manual's screenshots (MHO_EXTMM_SNAP_MODELTAB = Parts / Bone Map / Materials): that sub-tab first
         if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_MODELTAB") is { Length: > 0 } snapTab)
             for (int k = 0; k < modelTabs.Count; k++) if (modelTabs.TitleAt(k).Equals(snapTab, StringComparison.OrdinalIgnoreCase)) modelTabs.Select(k);
-        right.Controls.Add(modelTabs, 0, 1);
-        right.Controls.Add(Column("MATERIAL", null, material, autoHeight: true), 0, 2);
+        right.Controls.Add(modelTabs, 0, 2);
+        var materialColumn = Column("MATERIAL", null, material, autoHeight: true);
+        right.Controls.Add(materialColumn, 0, 3);
         // the size in game (Kurt, 2026-10-05): the costume's mesh component Scale, relative to the game's (ImportBuild.ApplySize)
-        sizeSlider.Height = (int)(30 * DeviceDpi / 96f);
+        sizeSlider.Height = (int)(30 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         var sizeBox = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0) };
         sizeBox.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         sizeSlider.Dock = DockStyle.Fill; sizeSlider.Margin = new Padding(0);
         matchSteps.Margin = new Padding(2, 4, 0, 0);
         sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(matchSteps, 0, 1);
-        right.Controls.Add(Column("SIZE IN GAME", null, sizeBox, autoHeight: true), 0, 3);
+        var sizeColumn = Column("SIZE IN GAME", null, sizeBox, autoHeight: true);
+        right.Controls.Add(sizeColumn, 0, 4);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
         actions.Controls.AddRange([buildButton, fbxButton, openButton, modelSpinner, status]);
         modelSpinner.Margin = new Padding(8, 6, 0, 0);
-        right.Controls.Add(actions, 0, 4);
-        body.Controls.Add(right, 2, 0);
+        right.Controls.Add(actions, 0, 5);
+        body.Controls.Add(right, 4, 0);
 
         // ⛶ inside the log's top right corner (Kurt: inline with the text field); it travels with the log to full screen
         logFullButton = Ui.FlatButton("⛶", ToggleLogFull, LogFullTip);
@@ -203,7 +220,12 @@ sealed partial class ModelPage : UserControl
         log.Resize += (_, _) => PlaceLogButton();
         logFullButton.SizeChanged += (_, _) => PlaceLogButton();
         logHome = Column("LOG", null, log);
-        root.Controls.Add(logHome, 0, 2);
+        barLog = LogDivider();
+        root.Controls.Add(barLog, 0, 2);
+        root.Controls.Add(logHome, 0, 3);
+        // folding and the remembered sizes (Kurt, 2026-10-06)
+        Foldable(sourceColumn, "source"); Foldable(targetColumn, "target"); Foldable(materialColumn, "material"); Foldable(sizeColumn, "size"); Foldable(logHome, "log");
+        HandleCreated += (_, _) => ApplyLayout();
 
         // parts table: a check per part, its kind, size
         // the check boxes are toggled by our own click / Space handling (0.10.18, Kurt: they couldn't be changed); read only
@@ -298,7 +320,7 @@ sealed partial class ModelPage : UserControl
         packages.SelectedIndexChanged += (_, _) => UpdateStatus();
 
         Ui.Lit(mapBones, preview.ShowBones); Ui.Lit(mapWeights, preview.ShowWeights);
-        log.BackColor = Color.FromArgb(22, 22, 26); log.ForeColor = Ui.Subtle; log.Font = new Font("Consolas", 9f);
+        log.BackColor = Color.FromArgb(22, 22, 26); log.ForeColor = Ui.Subtle; log.Font = new Font("Consolas", 9f * Ui.UiScale);
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); RefreshPreview(); };
         packages.SelectedIndexChanged += (_, _) => SchedulePreview();
         material.SelectedIndexChanged += (_, _) => SchedulePreview();
@@ -472,7 +494,8 @@ sealed partial class ModelPage : UserControl
         FillPackages();
         UpdateStatus();
         int others = allPackages.Count(p => OtherTargets.Contains(p.File));
-        Log($"{allCharacters.Count} MFF models; the mod's packages, or {allPackages.Count - others} of the game's hero and team-up packages and {others} NPCs, enemies and bosses.");
+        // (Kurt, 2026-10-06: a user found the old wording unclear)
+        Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others:N0} hero and team-up packages and {others:N0} NPCs, enemies and bosses.");
         if (!stateLoaded) { stateLoaded = true; LoadState(); }
     }
 

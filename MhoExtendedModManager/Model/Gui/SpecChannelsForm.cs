@@ -27,7 +27,7 @@ sealed class SpecChannelsForm : Form
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
-        float s = DeviceDpi / 96f;
+        float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var note = new Label { Text = SpecChannels.Note.Replace("\r\n\r\n", "\n\n"), AutoSize = true, Tag = "subtle", MaximumSize = new Size((int)(700 * s), 0), Margin = new Padding(0, 0, 0, 12) };

@@ -37,7 +37,7 @@ sealed class NameList : ListBox
         DrawMode = DrawMode.OwnerDrawFixed; BorderStyle = BorderStyle.None; IntegralHeight = false;
         SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
     }
-    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); ItemHeight = Math.Min(255, (int)(26 * DeviceDpi / 96f)); }
+    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); ItemHeight = Math.Min(255, (int)(26 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi))); }
     protected override void OnResize(EventArgs e) { base.OnResize(e); Invalidate(); }
     protected override void WndProc(ref Message m)
     {
@@ -51,7 +51,7 @@ sealed class NameList : ListBox
         if (sel) { using var b = new SolidBrush(Ui.CardSelected); e.Graphics.FillRectangle(b, e.Bounds); }
         else Ui.PaintGradient(e.Graphics, this, e.Bounds);
         string text = GetItemText(Items[e.Index]) ?? "";
-        var r = new Rectangle(e.Bounds.X + (int)(8 * DeviceDpi / 96f), e.Bounds.Y, e.Bounds.Width - (int)(12 * DeviceDpi / 96f), e.Bounds.Height);
+        var r = new Rectangle(e.Bounds.X + (int)(8 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), e.Bounds.Y, e.Bounds.Width - (int)(12 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), e.Bounds.Height);
         TextRenderer.DrawText(e.Graphics, text, Font, r, text.StartsWith('(') || text == "Loading…" ? Ui.Subtle : Ui.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
 }
@@ -101,7 +101,7 @@ sealed class FlatTabs : UserControl
         {
             if (index != SelectedIndex) return;
             using var b = new SolidBrush(Ui.Accent);
-            float s = DeviceDpi / 96f;
+            float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
             e.Graphics.FillRectangle(b, 6 * s, tab.Height - 3 * s, tab.Width - 12 * s, 2.5f * s);
         };
         page.Dock = DockStyle.Fill; page.Visible = false;
@@ -149,7 +149,7 @@ sealed class DetailsHeader : Control
         Cursor = Cursors.Default;
     }
 
-    float S => DeviceDpi / 96f;
+    float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
     protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Height = (int)(64 * S); }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -311,7 +311,7 @@ sealed class LightSlider : Control
         set { float v = Math.Clamp(Step > 0 ? MathF.Round(value / Step) * Step : value, Min, Max); if (Math.Abs(v - this.value) < 1e-4) return; this.value = v; Invalidate(); ValueChanged?.Invoke(); }
     }
 
-    float S => DeviceDpi / 96f;
+    float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
     Rectangle Track
     {
         get

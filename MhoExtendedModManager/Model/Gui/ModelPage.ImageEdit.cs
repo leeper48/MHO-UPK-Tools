@@ -26,7 +26,7 @@ sealed partial class ModelPage
     Button EditButton()
     {
         matEdit = Ui.FlatButton("Edit in Image Editor", EditMapExternally, "Opens the selected map in your image editor (Settings ▾ → Model → Choose Image Editor: GIMP, Photoshop, Corel PHOTO-PAINT …) as a PNG copy in the mod's Model folder. Every time you save it there, the Model tab takes it in as that map (the preview updates; Back to Automatic or Undo takes it back). Keep the file name and PNG format when saving (GIMP: Ctrl+E, which exports over the PNG; Ctrl+S only saves GIMP's own .xcf).");
-        Icons.Make(matEdit, "Edit in Image Editor", Icons.Pencil, DeviceDpi / 96f);
+        Icons.Make(matEdit, "Edit in Image Editor", Icons.Pencil, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         return matEdit;
     }
 

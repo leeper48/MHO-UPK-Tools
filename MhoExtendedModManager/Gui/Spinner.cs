@@ -61,7 +61,7 @@ sealed class Spinner : Control
         HandleCreated += (_, _) => Update_();
     }
 
-    protected override void OnCreateControl() { base.OnCreateControl(); int s = (int)Math.Round(22 * DeviceDpi / 96f); Size = new Size(s, s); }
+    protected override void OnCreateControl() { base.OnCreateControl(); int s = (int)Math.Round(22 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)); Size = new Size(s, s); }
 
     void OnBusy()
     {
