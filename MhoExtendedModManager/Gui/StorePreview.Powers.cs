@@ -255,6 +255,10 @@ sealed partial class StorePreview
     System.Numerics.Matrix4x4? Socket(string name)
     {
         if (animator == null) return null;
+        // "<socket>@bone": the socket's turn at its bone's origin (an effect whose local-space start already holds the socket's
+        // offset: PowerEffects.Player)
+        if (name.EndsWith("@bone", StringComparison.Ordinal) && fxSockets.TryGetValue(name[..^5], out var sb) && animator.BoneIndex(sb.Bone) is int bb && bb >= 0)
+        { var turn = sb.Local; turn.Translation = System.Numerics.Vector3.Zero; return turn * animator.BoneMatrix(bb); }
         if (fxSockets.TryGetValue(name, out var sk) && animator.BoneIndex(sk.Bone) is int b && b >= 0) return sk.Local * animator.BoneMatrix(b);
         int bi = animator.BoneIndex(name);
         return bi >= 0 ? animator.BoneMatrix(bi) : null;

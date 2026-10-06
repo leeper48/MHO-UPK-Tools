@@ -123,4 +123,10 @@ sealed partial class ModEditorView : IModelHost
     }
 
     public void AddPackage(string file, string path) => SetPackage(file, path);
+
+    public void RemovePackage(string file)
+    {
+        draft.Packages.RemoveAll(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+        RefreshPackages();
+    }
 }

@@ -393,6 +393,9 @@ sealed partial class PreviewPanel : UserControl
     {
         if (anim == null || animator == null) return false;
         TogglePlay();
+        // the arrow keys then scrub, a frame at a time (Kurt, 2026-10-06): the frame slider takes the keyboard
+        frame.ArrowStep = frames > 0 ? 1f / frames : 0;
+        if (frame is { Visible: true, Enabled: true }) frame.Focus();
         return true;
     }
 

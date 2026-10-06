@@ -153,6 +153,77 @@ sealed class MffModel
 
     // ---------------------------------------------------------------- loading
 
+    /// <summary>
+    /// Hands and feet exported loose (2026-10-06; Kamala Khan's base model): no Bip001 L Hand / Foot / Toe0, but
+    /// Bip001 L Hand001 / Foot001 / Toe001 hanging off the Biped root, with fingers numbered Finger042-051. Unmapped, their skin
+    /// stayed behind and stretched when the arm or leg moved. Here such a bone takes the standard name (the file's own is
+    /// kept in <see cref="Bone.Original"/>) and hangs under its forearm / calf; its fingers take Biped names by their layout
+    /// (thumb: the chain starting nearest the wrist; the others by distance from it: index, middle, ring, pinky); the bones are put
+    /// back in parent-first order (weights renumbered).
+    /// </summary>
+    void AdoptLooseLimbs()
+    {
+        int Find(string n) => Bones.FindIndex(b => b.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+        var done = new List<string>();
+        void Rename(int i, string to) { Bones[i].Original ??= Bones[i].Name; done.Add($"{Bones[i].Name} → {to}"); Bones[i].Name = to; }
+        foreach (string s in new[] { "L", "R" })
+        {
+            foreach (var (kind, under) in new[] { ("Hand", "Forearm"), ("Foot", "Calf") })
+            {
+                if (Find($"Bip001 {s} {kind}") >= 0) continue;
+                var rx = new Regex($@"^Bip001 ?{s} ?{kind}\d+$", RegexOptions.IgnoreCase);
+                var hits = Enumerable.Range(0, Bones.Count).Where(i => rx.IsMatch(Bones[i].Name)).ToList();
+                int up = Find($"Bip001 {s} {under}");
+                if (hits.Count != 1 || up < 0) continue;
+                int h = hits[0];
+                Rename(h, $"Bip001 {s} {kind}");
+                if (Bones[h].Parent != up) Bones[h].Parent = up;
+                if (kind == "Foot" && Find($"Bip001 {s} Toe0") < 0)
+                {
+                    var toes = Enumerable.Range(0, Bones.Count).Where(i => Bones[i].Parent == h && Regex.IsMatch(Bones[i].Name, $@"^Bip001 ?{s} ?Toe\d+$", RegexOptions.IgnoreCase)).ToList();
+                    if (toes.Count == 1) Rename(toes[0], $"Bip001 {s} Toe0");
+                }
+                if (kind == "Hand" && !Enumerable.Range(0, 5).Any(f => Find($"Bip001 {s} Finger{f}") >= 0))
+                {
+                    var roots = Enumerable.Range(0, Bones.Count).Where(i => Bones[i].Parent == h && Bones[i].Name.Contains("Finger", StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (roots.Count is < 2 or > 5) continue;
+                    var wrist = Bones[h].Position;
+                    int thumb = roots.MinBy(i => Vector3.Distance(Bones[i].Position, wrist));
+                    var others = roots.Where(i => i != thumb).OrderBy(i => Vector3.Distance(Bones[i].Position, Bones[thumb].Position)).ToList();   // index next to the thumb (any axes: still the file's frame here)
+                    var order = new List<(int Root, int F)> { (thumb, 0) };
+                    for (int k = 0; k < others.Count; k++) order.Add((others[k], k + 1));
+                    foreach (var (root, f) in order)
+                    {
+                        Rename(root, $"Bip001 {s} Finger{f}");
+                        int at = root;
+                        for (int j = 1; j <= 2; j++)
+                        {
+                            var kids = Enumerable.Range(0, Bones.Count).Where(i => Bones[i].Parent == at).ToList();
+                            if (kids.Count != 1) break;
+                            at = kids[0];
+                            Rename(at, $"Bip001 {s} Finger{f}{j}");
+                        }
+                    }
+                }
+            }
+        }
+        if (done.Count == 0) return;
+        Warnings.Add("loose hands / feet given their Biped names: " + string.Join(", ", done));
+        // parent-first order again (an adopted hand can sit before its forearm)
+        var order2 = new List<int>(); var placed = new bool[Bones.Count];
+        void Place(int i) { if (placed[i]) return; if (Bones[i].Parent >= 0) Place(Bones[i].Parent); placed[i] = true; order2.Add(i); }
+        for (int i = 0; i < Bones.Count; i++) Place(i);
+        if (order2.SequenceEqual(Enumerable.Range(0, Bones.Count))) return;
+        var newIndex = new int[Bones.Count];
+        for (int k = 0; k < order2.Count; k++) newIndex[order2[k]] = k;
+        var old = Bones.ToList();
+        Bones.Clear();
+        foreach (int i in order2) { var b = old[i]; if (b.Parent >= 0) b.Parent = newIndex[b.Parent]; Bones.Add(b); }
+        foreach (var sec in Parts.SelectMany(pt => pt.Sections))
+            foreach (var ws in sec.Weights)
+                for (int q = 0; q < ws.Length; q++) ws[q] = (newIndex[ws[q].Bone], ws[q].Weight);
+    }
+
     public static MffModel Load(string file, TextureIndex? texIndex = null)
     {
         using var ctx = new AssimpContext();
@@ -320,6 +391,7 @@ sealed class MffModel
                     { x.Tex.Diffuse = d; x.Tex.Spec ??= sp; x.Tex.Alpha ??= al; x.Tex.Guessed = true; }
                 }
         }
+        model.AdoptLooseLimbs();
         model.SplitPropBones();
         // Swap parts (0.7.2, Kurt: Iron Man S01 had two hands per wrist): extra non-Biped bones within 0.5 cm of a Biped bone.
         // Positions are still in the file's units (metres) here: 0.5 / UnitScale (0.10.17; 0.5 read as half a metre, and

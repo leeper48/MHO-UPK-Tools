@@ -12,7 +12,70 @@ namespace MhoExtendedModManager.Fx;
 /// </summary>
 static class PowerClosure
 {
-    public sealed record Art(string Prototype, string Class, bool IsPower);
+    /// <param name="ViaEntity">Reached through an entity the power makes (a hotspot, a summon: Vision's Channeled Solar Beam
+    /// summons VisionChanneledEnergyBeamArea, which applies SolarChanneledEnergyBeamEffect): what it applies lands on others,
+    /// not the caster.</param>
+    /// <param name="Hostile">Its prototype derives from a damage-over-time or debuff blueprint (Vision's Tri-Beam:
+    /// DamageOverTimeRecurringCostPower): what it applies is put on the ones it hits. A plain ConditionPower (his Healing
+    /// Nanites) is the caster's own buff.</param>
+    /// <param name="Generic">Its nearest blueprint is the plain ConditionPower (buffs and hits alike: Healing Nanites, Green
+    /// Goblin's laser impact): the effect's own name decides.</param>
+    public sealed record Art(string Prototype, string Class, bool IsPower, bool ViaEntity = false, bool Hostile = false, bool Generic = false)
+    {
+        /// <summary>Steps from the power (0: itself, 1: named by it …).</summary>
+        public int Depth { get; init; }
+    }
+
+    /// <summary>
+    /// Who a condition lands on, from its blueprint lineage (the census of all 66 heroes, 2026-10-06): self-buff blueprints
+    /// (damage shields, summon buffs, revives, heals over time, resistance changes, invulnerability, dashes) are the caster's;
+    /// the plain ConditionPower (or none) is undecided; every other condition blueprint (stun, damage over time, slow, bleed,
+    /// knockup, immobilize, freeze, weaken, vulnerability, chain / dual / summon / target-restricted conditions …) is put on
+    /// the ones it hits.
+    /// </summary>
+    public static (bool Hostile, bool Generic) Target(GameData db, ulong id)
+    {
+        string lin = Lineage(db, id);
+        string first = lin.Split(" < ")[0];
+        if (first.Length == 0 || first.Equals("ConditionPower", StringComparison.OrdinalIgnoreCase)) return (false, true);
+        foreach (var self in new[] { "Shield", "Buff", "Revive", "Restore", "HoT", "Heal", "Resistance", "Immune", "Invulnerab", "Dash", "Phasing", "Stealth", "Haste" })
+            if (first.Contains(self, StringComparison.OrdinalIgnoreCase)) return (false, false);
+        return (first.Contains("Condition", StringComparison.OrdinalIgnoreCase) || first.Contains("Power", StringComparison.OrdinalIgnoreCase) || IsHostile(db, id), false);
+    }
+
+    /// <summary>A plain condition's effect that looks like a hit or a debuff (by its own name).</summary>
+    public static bool HitLike(string name) =>
+        System.Text.RegularExpressions.Regex.IsMatch(name, "(hit|impact|slow|debuff|stun|bleed|poison|burn|freez|knock|daze)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>The prototype's parents, nearest first (blueprint defaults and prototypes), for the census.</summary>
+    public static string Lineage(GameData db, ulong id)
+    {
+        var names = new List<string>();
+        for (int k = 0; k < 10 && id != 0; k++)
+        {
+            Calligraphy.Data d;
+            try { d = db.Prototype(id).Data; } catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { break; }
+            if (!d.HasParent) break;
+            names.Add(Path.GetFileNameWithoutExtension(db.Name(d.Parent)));
+            id = d.Parent;
+        }
+        return string.Join(" < ", names);
+    }
+
+    /// <summary>The prototype derives (through its parents) from a damage-over-time or debuff blueprint.</summary>
+    public static bool IsHostile(GameData db, ulong id)
+    {
+        for (int k = 0; k < 10 && id != 0; k++)
+        {
+            Calligraphy.Data d;
+            try { d = db.Prototype(id).Data; } catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { return false; }
+            if (!d.HasParent) return false;
+            string n = db.Name(d.Parent);
+            if (n.Contains("DamageOverTime", StringComparison.OrdinalIgnoreCase) || n.Contains("Debuff", StringComparison.OrdinalIgnoreCase)) return true;
+            id = d.Parent;
+        }
+        return false;
+    }
 
     static readonly Dictionary<string, List<Art>> cache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -27,26 +90,35 @@ static class PowerClosure
         if (start != null)
         {
             var seen = new HashSet<ulong> { start.Id };
-            var queue = new Queue<(ulong Id, int Depth)>();
-            queue.Enqueue((start.Id, 0));
+            var queue = new Queue<(ulong Id, int Depth, bool Via)>();
+            queue.Enqueue((start.Id, 0, false));
             while (queue.Count > 0)
             {
-                var (id, depth) = queue.Dequeue();
+                var (id, depth, via) = queue.Dequeue();
                 var e = db.Prototypes[id];
                 var d = db.Prototype(id).Data;
                 foreach (var g in d.Groups)
                     foreach (var f in g.Simple)
                         if (f.Type == 'A' && db.FieldName(g.Blueprint, f.Id) is "PowerUnrealClass" or "UnrealClass" && db.Assets.TryGetValue(f.Value.Raw, out var a)
                             && !list.Any(x => x.Class.Equals(a.Asset.Name, StringComparison.OrdinalIgnoreCase)))
-                            list.Add(new Art(e.Path, a.Asset.Name, db.FieldName(g.Blueprint, f.Id) == "PowerUnrealClass"));
+                        {
+                            bool isPower = db.FieldName(g.Blueprint, f.Id) == "PowerUnrealClass";
+                            var (hostile, generic) = isPower ? (IsHostile(db, id), false) : Target(db, id);
+                            list.Add(new Art(e.Path, a.Asset.Name, isPower, via, hostile, generic) { Depth = depth });
+                        }
                 if (depth >= maxDepth) continue;
                 foreach (ulong r in Refs(db, d))
-                    if (r != 0 && seen.Add(r) && db.Prototypes.TryGetValue(r, out var re) && Follow(re.Path)) queue.Enqueue((r, depth + 1));
+                    if (r != 0 && seen.Add(r) && db.Prototypes.TryGetValue(r, out var re) && Follow(re.Path))
+                        queue.Enqueue((r, depth + 1, via || re.Path.StartsWith(@"Entity\", StringComparison.OrdinalIgnoreCase) || EntityLike(re.Path)));
             }
         }
         lock (cache) cache[powerPath] = list;
         return list;
     }
+
+    /// <summary>A prototype that makes something out in the world, by its name (Hawkeye's HawkeyeShriekingArrowEntity lives under
+    /// Powers\ and sets off the arrow's explosion): an entity, hotspot, missile, projectile or summon.</summary>
+    static bool EntityLike(string path) => System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(path), "(Entity|Hotspot|Missile|Projectile|Summon)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     static bool Follow(string path) =>
         (path.StartsWith(@"Powers\", StringComparison.OrdinalIgnoreCase) || path.StartsWith(@"Entity\", StringComparison.OrdinalIgnoreCase))

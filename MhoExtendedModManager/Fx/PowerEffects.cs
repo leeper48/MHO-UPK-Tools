@@ -17,6 +17,11 @@ sealed class PowerEffects
     public sealed record Effect(string Name, ParticleData System, List<string> Sockets, float Offset, string Point, bool AtTarget, bool StopOnEnd, bool Attached)
     {
         public string? TriggeredBy { get; init; }
+        /// <summary>A condition applied through an entity the power makes (a hotspot, a summon): it plays on whoever that hits, so
+        /// at the target point, at the height its socket has on the caster (Kurt, 2026-10-06: Vision's Channeled Solar Beam's
+        /// impact and vulnerability glow, from the hotspot it summons at the beam's end, piled up on his own chest; his Healing
+        /// Nanites, applied by the power itself at the same socket_hit, stays on him).</summary>
+        public bool OnHit { get; init; }
         /// <summary>Whose component: "power", "condition", "entity" (plays at the target point) or "projectile".</summary>
         public string Kind { get; init; } = "power";
         /// <summary>A beam's far end (PowerFxBeam TargetSocket), else null.</summary>
@@ -127,6 +132,15 @@ sealed class PowerEffects
             fx.Returning = Contains(db, d, "IsReturningMissile");
         }
         else fx.Notes.Add("no power " + powerPath);
+        // the power's own conditions (in its own package): the same rule, from the power's own lineage
+        if (db.Find(powerPath) is { } own)
+        {
+            var (hostileOwn, genericOwn) = PowerClosure.Target(db, own.Id);
+            hostileOwn |= PowerClosure.IsHostile(db, own.Id);
+            for (int k = 0; k < fx.Effects.Count; k++)
+                if (!fx.Effects[k].OnHit && CondOnHit(fx.Effects[k], false, hostileOwn, genericOwn, ownClass ?? ""))
+                    fx.Effects[k] = fx.Effects[k] with { OnHit = true };
+        }
         if (!triggered) return fx;
         var arts = PowerClosure.Of(db, powerPath).Where(x => !(x.Prototype.Equals(db.Find(powerPath)?.Path, StringComparison.OrdinalIgnoreCase) && x.Class.Equals(ownClass ?? "", StringComparison.OrdinalIgnoreCase))).ToList();
         var names = arts.Select(x => Path.GetFileNameWithoutExtension(x.Prototype)).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -136,9 +150,18 @@ sealed class PowerEffects
             // set off (ShockwaveOFMissile beside ShockwaveNoOFMissile, HammerDashOdinforceCombo beside HammerDashNormalCombo)
             // is left out; in game only one plays, by the hero's resource.
             if (ResourceTwin(Path.GetFileNameWithoutExtension(art.Prototype), names) is { } plain) { fx.Notes.Add($"{Path.GetFileNameWithoutExtension(art.Prototype)}: left out (its plain twin {plain} plays)"); continue; }
+            // Another power the hero performs, with an animation of its own (Kurt, 2026-10-06: Solar Bolt reaches Ground Smash's
+            // and Death from Below's endings through talent combos, and their dives and rings played with it): not this power's.
+            // Combos without an animation (Thor's Chain Lightning off Hammer Strike) stay.
+            if (art.IsPower && !art.Class.Equals(ownClass ?? "", StringComparison.OrdinalIgnoreCase) && OwnAnimation(g, art.Class))
+            { fx.Notes.Add($"{Path.GetFileNameWithoutExtension(art.Prototype)}: another power with its own animation, left out (depth {art.Depth})"); continue; }
             var more = ForClass(g, art.Class, seen, extra);
             string by = Path.GetFileNameWithoutExtension(art.Prototype);
-            foreach (var e in more.Effects) fx.Effects.Add(e with { TriggeredBy = by });
+            // (a debuff's look is put on the one hit too: MarvelConditionEffect_DebuffDamage, vfx_debuff_ …)
+            // (a power set off through a missile, hotspot or summon goes off where that is: Shrieking Arrow's explosion hits)
+            foreach (var e in more.Effects)
+                fx.Effects.Add(e with { TriggeredBy = by, OnHit = e.OnHit || CondOnHit(e, art.ViaEntity, art.Hostile, art.Generic, art.Class)
+                    || (art.ViaEntity && e.Kind == "power" && !e.AtTarget) });
             foreach (var kv in more.Looks) fx.Looks[kv.Key] = kv.Value;
             foreach (var kv in more.Meshes) fx.Meshes[kv.Key] = kv.Value;
             foreach (var dc in more.Decals) fx.Decals.Add(dc with { TriggeredBy = by });
@@ -359,11 +382,60 @@ sealed class PowerEffects
                 var turnR = P("OffsetRotation") is { Size: 12 } orp ? (BitConverter.ToInt32(p.Bytes, orp.ValueAt), BitConverter.ToInt32(p.Bytes, orp.ValueAt + 4), BitConverter.ToInt32(p.Bytes, orp.ValueAt + 8)) : (0, 0, 0);
                 if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1" && (shiftV != Vector3.Zero || turnR != (0, 0, 0)))
                     Console.WriteLine($"    {p.T.Exports[i].ObjectName}: offset {shiftV}, rotation pitch {turnR.Item1} yaw {turnR.Item2} roll {turnR.Item3}; local-space mesh {data.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false))}");
-                fx.Effects.Add(new Effect(p.T.Exports[i].ObjectName, data, sockets, offset, point, atTarget, stop, attached) { Kind = kindName, Shift = shiftV, Turn = turnR });
+                // A power's hit effect plays on the one it hits (Kurt, 2026-10-06: Vision's Solar Bolt, Solar Flare and Tri-Beam
+                // hits burst on his own chest): timed by the hit (power_on_server_target_result), or at socket_hit, the point
+                // where a character is struck.
+                bool powerHit = kindName == "power" && !atTarget && (point.Contains("target_result", StringComparison.OrdinalIgnoreCase)
+                    || (sockets.Count > 0 && sockets.All(n => n.Equals("socket_hit", StringComparison.OrdinalIgnoreCase))));
+                fx.Effects.Add(new Effect(p.T.Exports[i].ObjectName, data, sockets, offset, point, atTarget, stop, attached) { Kind = kindName, Shift = shiftV, Turn = turnR, OnHit = powerHit });
                 AddLooks(fx, tex, look, g, data);
             }
         fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
         return fx;
+    }
+
+    /// <summary>
+    /// A condition's effect plays on the one hit (not the caster): applied through a hotspot or summon, from a hostile
+    /// blueprint, a debuff, or a hit-like effect (hit, impact, slow, stun, bleed, burn …) that isn't a shield's or a heal's
+    /// (Jean's psi shield hits, Silver Surfer's quick heal stay on the hero). The rule the census of all 66 heroes settled on.
+    /// </summary>
+    static bool CondOnHit(Effect e, bool viaEntity, bool hostile, bool generic, string cls)
+    {
+        if (e.Kind != "condition") return false;
+        string n = e.Name + " " + e.System.Name;
+        bool selfLook = System.Text.RegularExpressions.Regex.IsMatch(n, "(shield|heal|buff|bodyglow|aura|invuln|skin)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            && !n.Contains("debuff", StringComparison.OrdinalIgnoreCase);
+        if (viaEntity || hostile) return !selfLook || !generic;
+        if (cls.Contains("Debuff", StringComparison.OrdinalIgnoreCase) || n.Contains("debuff", StringComparison.OrdinalIgnoreCase)) return true;
+        return PowerClosure.HitLike(n) && !selfLook;
+    }
+
+    /// <summary>A soft white band (8 × 32: across the width, bright in the middle, fading to the edges) for beams whose
+    /// material has no texture; the particle's color tints it.</summary>
+    static readonly Gui.ModelView.Map SolidBeam = MakeSolidBeam();
+    static Gui.ModelView.Map MakeSolidBeam()
+    {
+        const int w = 8, h = 32;
+        var px = new byte[w * h * 4];
+        for (int y = 0; y < h; y++)
+        {
+            float v = (y + 0.5f) / h - 0.5f;
+            byte a = (byte)Math.Clamp((int)(255 * MathF.Exp(-v * v / (2 * 0.16f * 0.16f))), 0, 255);
+            for (int x = 0; x < w; x++) { int o = (y * w + x) * 4; px[o] = px[o + 1] = px[o + 2] = a; px[o + 3] = a; }
+        }
+        return new Gui.ModelView.Map(px, w, h);
+    }
+
+    static readonly Dictionary<string, bool> ownAnimation = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The power class's package plays an animation of its own (a PowerFxAnimation with an AnimName).</summary>
+    static bool OwnAnimation(FxGame g, string cls)
+    {
+        string key = g.Cooked + "|" + cls;
+        lock (ownAnimation) if (ownAnimation.TryGetValue(key, out bool hit)) return hit;
+        string file = Path.Combine(g.Cooked, $"UC__{cls}_SF.upk");
+        bool has = File.Exists(file) && PowerIndex.AnimationsIn(StockFiles.For(g.Cooked, $"UC__{cls}_SF.upk")).Count > 0;
+        lock (ownAnimation) ownAnimation[key] = has;
+        return has;
     }
 
     /// <summary>An effect's looks: its mesh emitters' meshes and materials, and every emitter's material (ForClass, Own).</summary>
@@ -540,7 +612,30 @@ sealed class PowerEffects
 
         /// <summary>When a component starts: its activation point (the contact time for "…contact…" points, and for summons' and
         /// missiles' components) plus its offset.</summary>
-        float StartOf(string point, float offset, string kind) => (point.Contains("contact", StringComparison.OrdinalIgnoreCase) || kind is "entity" or "projectile" ? ContactTime : 0) + offset;
+        float StartOf(string point, float offset, string kind) => (point.Contains("contact", StringComparison.OrdinalIgnoreCase) || kind is "entity" or "projectile" ? ContactTime : 0) + offset
+            + (kind == "projectile" && point.Contains("explode", StringComparison.OrdinalIgnoreCase) ? Math.Max(0, target.X - 30) / MissileSpeed : 0);
+        static bool Explodes(Effect e) => e.Point.Contains("explode", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// "&lt;socket&gt;@bone" when the effect's local-space particles already start where the socket is (their start location
+        /// as long as the socket's offset from its bone, within 15 %): the game places them from the bone, turned as the socket
+        /// (Kurt, 2026-10-06: Ms. Marvel's Disengaging Shot, socket_disengage 39 ahead and 74.5 up on root, particles starting at
+        /// (0, 40, 75): added together the shot came from above her head). Null otherwise.
+        /// </summary>
+        string? BoneOrigin(Effect e, string sock)
+        {
+            if (socket(sock) is not { } at || socket(sock + "@bone") is not { } bone) return null;
+            float offset = (at.Translation - bone.Translation).Length();
+            if (offset < 20) return null;
+            foreach (var em in e.System.Emitters)
+            {
+                if (!em.Required.Bool("bUseLocalSpace", false) || em.Module("particlemodulelocation") is not { } loc) continue;
+                if (loc.Dist("StartLocation", 3) is not { IsSet: true } sl) continue;
+                float len = sl.V(0, new Random(1)).Length();
+                if (Math.Abs(len - offset) <= 0.15f * offset) return sock + "@bone";
+            }
+            return null;
+        }
         bool Shown(string? by) => by == null || ShowTriggered;
 
         /// <summary>When an animated actor shows: from its activation point to its deactivation point, else (DeactivatesOnEnd)
@@ -626,6 +721,14 @@ sealed class PowerEffects
                 float at = StartOf(e.Point, e.Offset, e.Kind);
                 if (started.Contains(e) || time < at || include?.Invoke(e) == false) continue;
                 started.Add(e);
+                if (e.Kind == "projectile" && Explodes(e))
+                {
+                    // the missile's explosion: where its flight reaches the target (Kurt, 2026-10-06: Kate's Nerve Gas Arrow
+                    // burst on her own chest), when it gets there (StartOf adds the flight time)
+                    var from0 = e.Sockets.Select(n => socket(n)).FirstOrDefault(m => m != null)?.Translation ?? new Vector3(0, 0, target.Z + 60);
+                    running.Add((e, new ParticleSim(e.System) { Origin = Matrix4x4.CreateTranslation(new Vector3(Math.Max(from0.X, target.X), target.Y, Math.Max(target.Z, from0.Z - 30))) }, null));
+                    continue;
+                }
                 if (e.Kind == "projectile")
                 {
                     // One missile from its (first) spawn socket, else chest height over the ground below the hero.
@@ -635,8 +738,10 @@ sealed class PowerEffects
                     running.Add((e, sim, null));
                     continue;
                 }
-                var places = e.AtTarget ? [(Matrix4x4.CreateTranslation(target), (string?)null)]
-                    : e.Sockets.Count == 0 ? [(Matrix4x4.Identity, null)] : e.Sockets.Select(n => (Place(e, socket(n) ?? Matrix4x4.Identity), (string?)n)).ToList();
+                // on the one hit: the target point, raised to the height its socket has on the caster above its feet (else 60)
+                var places = e.OnHit ? [(Matrix4x4.CreateTranslation(target + new Vector3(0, 0, (e.Sockets.Count > 0 ? socket(e.Sockets[0]) : null) is { } hs ? Math.Max(0, hs.Translation.Z - target.Z) : 60)), (string?)null)]
+                    : e.AtTarget ? [(Matrix4x4.CreateTranslation(target), (string?)null)]
+                    : e.Sockets.Count == 0 ? [(Matrix4x4.Identity, null)] : e.Sockets.Select(n => BoneOrigin(e, n) is string bn ? (Place(e, socket(bn) ?? Matrix4x4.Identity), (string?)bn) : (Place(e, socket(n) ?? Matrix4x4.Identity), (string?)n)).ToList();
                 foreach (var (pl, sock) in places) running.Add((e, new ParticleSim(e.System) { Origin = pl }, sock));
             }
             for (int k = 0; k < running.Count; k++)
@@ -678,10 +783,17 @@ sealed class PowerEffects
                         // aimed at the point ahead, the beams ran at the camera and showed as tall vertical bars), else to
                         // the target point (chest high); in TextureTile pieces along its length.
                         var (btex, badd) = fx.Looks.TryGetValue(em, out var bl) ? bl : (null, true);
-                        if (btex == null) continue;
+                        // a beam whose material has no texture (Ms. Marvel's Photonic Devastation: mat_beam_generic_solid) is a
+                        // solid band of the particle's color: drawn with a soft band of our own (Kurt, 2026-10-06: it didn't show)
+                        if (btex == null) { btex = SolidBeam; badd = true; }
                         var from = sim.Origin.Translation;
-                        var to = re.BeamTarget is { Length: > 0 } bt && !bt.Equals("target", StringComparison.OrdinalIgnoreCase) && socket(bt) is { } tm
-                            ? tm.Translation : target + new Vector3(0, 0, 60);
+                        // A standard socket (socket_hit, socket_head …) is the target's: the beam ends there, at that socket's height
+                        // on the caster (Kurt, 2026-10-06: Vision's Tri-Beam aimed at his own chest); an aiming helper of the caster's
+                        // own (…_tgt / …target: Iron Man's socket_l_laser_tgt) stays his.
+                        bool ownAim = re.BeamTarget is { Length: > 0 } ob && (ob.Contains("tgt", StringComparison.OrdinalIgnoreCase) || ob.Contains("target", StringComparison.OrdinalIgnoreCase)) && !ob.Equals("target", StringComparison.OrdinalIgnoreCase);
+                        var to = ownAim && socket(re.BeamTarget!) is { } tm ? tm.Translation
+                            : re.BeamTarget is { Length: > 0 } bt2 && !bt2.Equals("target", StringComparison.OrdinalIgnoreCase) && socket(bt2) is { } hm ? target + new Vector3(0, 0, Math.Max(0, hm.Translation.Z - target.Z))
+                            : target + new Vector3(0, 0, 60);
                         var dir = to - from; float len = dir.Length();
                         if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
                             Console.WriteLine($"    {Gui.ModelView.BeamStats()} (before); beam {re.Name}/{em.Name}: from {from} to {to} (target socket {re.BeamTarget}: {(re.BeamTarget != null && socket(re.BeamTarget) != null ? "found" : "not found")})");
@@ -808,6 +920,9 @@ sealed class PowerEffects
             return phases > 1 ? PhaseOf(animation) : _ => true;
         }
 
+        /// <summary>The effect runs on by itself: one of its emitters loops for good (EmitterLoops 0) or for a long time.</summary>
+        static bool KeepsGoing(Effect e) => e.System.Emitters.Any(em => em.Required.Int("EmitterLoops", 0) == 0 || em.Required.Float("EmitterDuration", 1) * em.Required.Int("EmitterLoops", 0) >= 5);
+
         public static Func<Effect, bool> PhaseOf(string animation)
         {
             string a = animation.ToLowerInvariant();
@@ -818,7 +933,9 @@ sealed class PowerEffects
         static Func<Effect, bool> PhaseOnly(string a)
         {
             // Summons and missiles go at the contact: with any animation but a loop (Hammer of Storms throws in its _end).
-            if (a.EndsWith("_loop")) return e => e.Kind is not ("entity" or "projectile") && e.Point.Contains("loop") && !e.Point.Contains("end");
+            // a loop also shows what started with the power and keeps going through it (Kurt, 2026-10-06: Cyclops's Visor Off
+            // beam, sigfx at power_on_start, played in no phase of the loop; every power with start / loop / end animations)
+            if (a.EndsWith("_loop")) return e => e.Kind is not ("entity" or "projectile") && !e.Point.Contains("end") && (e.Point.Contains("loop") || KeepsGoing(e));
             if (a.EndsWith("_end")) return e => e.Kind is "entity" or "projectile" || e.Point.Contains("end");
             return e => e.Kind is "entity" or "projectile" || !e.Point.Contains("loop") && !e.Point.Contains("end");
         }

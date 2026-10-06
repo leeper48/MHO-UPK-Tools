@@ -112,6 +112,14 @@ static partial class Retarget
         /// <summary>The MHO bone each MFF bone's weights go to, and helper bones' second MHO bone (step 2).</summary>
         int[] target = [];
         readonly Dictionary<int, int> helperTo = new();
+        /// <summary>Helpers given to a limb by their skin (<see cref="SkinLimb"/>): half to the limb, half to the helper's parent,
+        /// as a 3ds Max helper turns halfway (Kamala S02, 2026-10-06: all on the thigh, her tunic's back tail stretched into a
+        /// sheet with the swinging leg; a quarter still poked out; split per spot as the stock mesh, which has no tunic, did the
+        /// same as all; half looked right).</summary>
+        readonly HashSet<int> skinHelpers = new();
+        const float SkinHelperShare = 0.5f;
+        /// <summary>The current vertex's weight on <see cref="skinHelpers"/>: (parent's MHO bone, limb's MHO bone, weight).</summary>
+        readonly List<(int Parent, int Limb, float Weight)> skinPending = new();
         /// <summary>MHO bone → the MFF bone placing it, and the new skeleton's positions (step 3).</summary>
         Dictionary<string, int> mffOf = null!;
         Vector3?[] pos = [];
@@ -146,9 +154,44 @@ static partial class Retarget
             var hair = new Hair(this);
             Mesh(hair);
             CapeTransfer();
+            if (Environment.GetEnvironmentVariable("MFF_HELPERSHARE") != "0") HelperShare.Apply(r, sk);   // team-up / NPC helper bones (uprarm, uprleg …): the stock mesh's share of the limb
             hair.RideOnBody();
             FinalNotes();
             return r;
+        }
+
+        /// <summary>
+        /// Biped twist bones numbered past the default map's names (0.37.201; Kamala Khan S02: R ForeTwist13 / 15 / 16,
+        /// RUpArmTwist11 / 12, L ForeTwist04 / 06 / 07, all hanging off the model's root): mapped as their unnumbered names are
+        /// (ForeTwist → g_*_forarm, UpArmTwist → g_*_biceptwist, ThighTwist → g_*_thightwist). Unmapped they fell back to the
+        /// pelvis, and the middle of each arm stayed behind (Kurt saw the gap in the weights view).
+        /// </summary>
+        void MapNumberedTwists()
+        {
+            var rx = new System.Text.RegularExpressions.Regex(@"^Bip001 ?([LR]) ?(ForeTwist|UpArmTwist|ThighTwist)\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            for (int i = 0; i < nb; i++)
+            {
+                if (r.Map.ContainsKey(m.Bones[i].Name) || rx.Match(m.Bones[i].Name) is not { Success: true } mt) continue;
+                string side = mt.Groups[1].Value.ToLowerInvariant();
+                if (!AlongItsLimb(i, mt.Groups[1].Value, mt.Groups[2].Value)) continue;   // (Doc Ock's second rig: ForeTwist010 … far below)
+                string to = mt.Groups[2].Value.ToLowerInvariant() switch { "foretwist" => "forarm", "uparmtwist" => "biceptwist", _ => "thightwist" };
+                if (sk.Find($"g_{side}_{to}") is int h && h >= 0) { r.Map[m.Bones[i].Name] = sk.Bones[h].Name; r.Notes.Add($"numbered twist {m.Bones[i].Name} → {sk.Bones[h].Name}"); }
+            }
+        }
+
+        /// <summary>Twist bone <paramref name="i"/> lies along its side's limb (ForeTwist: Forearm → Hand, UpArmTwist: UpperArm →
+        /// Forearm, ThighTwist: Thigh → Calf, CalfTwist: Calf → Foot): from half its length above the limb's joint (Kamala S02's
+        /// ForeTwist04 sits above the elbow) to a little past its end, within a third of its length of it. Doc Ock's numbered twists belong to a second rig (Clavicle001, Spine003 …).</summary>
+        bool AlongItsLimb(int i, string side, string kind)
+        {
+            side = side.ToUpperInvariant();
+            var (a, b) = kind.ToLowerInvariant() switch { "foretwist" => ("Forearm", "Hand"), "uparmtwist" => ("UpperArm", "Forearm"), "thightwist" => ("Thigh", "Calf"), _ => ("Calf", "Foot") };
+            int ia = Mff($"Bip001 {side} {a}"), ib = Mff($"Bip001 {side} {b}");
+            if (ia < 0 || ib < 0) return false;
+            var A = m.Bones[ia].Position; var seg = m.Bones[ib].Position - A; float l2 = seg.LengthSquared();
+            if (l2 < 1e-6f) return false;
+            float t = Vector3.Dot(m.Bones[i].Position - A, seg) / l2;
+            return t > -0.5f && t < 1.3f && (m.Bones[i].Position - (A + t * seg)).Length() < MathF.Sqrt(l2) / 3;
         }
 
         // --- the bone map ----------------------------------------------------------------------------------------------------
@@ -160,6 +203,7 @@ static partial class Retarget
                     if (Mff(a) >= 0 && sk.Find(b) >= 0) r.Map[m.Bones[Mff(a)].Name] = sk.Bones[sk.Find(b)].Name;
                 MapDuplicateHeads();
                 MapJaw();
+                if (Environment.GetEnvironmentVariable("MFF_NUMTWIST") != "0") MapNumberedTwists();
             }
             else
             {
@@ -338,15 +382,19 @@ static partial class Retarget
         }
 
         /// <summary>The limb bone a biped twist bone lies along (ForeTwist → Forearm, UpArmTwist → UpperArm, ThighTwist → Thigh,
-        /// CalfTwist → Calf), when that limb isn't already its parent; null otherwise. Only the first bone of a twist chain
-        /// (ForeTwist, not ForeTwist1): the rest follow it as children.</summary>
+        /// CalfTwist → Calf), when that limb isn't already its parent and the bone doesn't hang on another twist bone; null
+        /// otherwise. The first bone of a twist chain (ForeTwist): the rest (ForeTwist1 …) follow it as children; numbered ones
+        /// hanging off something else (Kamala S02's, off the model's root) follow the limb too.</summary>
         int? TwistLimb(int i)
         {
-            var mt = System.Text.RegularExpressions.Regex.Match(m.Bones[i].Name, @"^Bip001 ?([LR]) ?(ForeTwist|UpArmTwist|ThighTwist|CalfTwist)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var mt = System.Text.RegularExpressions.Regex.Match(m.Bones[i].Name, @"^Bip001 ?([LR]) ?(ForeTwist|UpArmTwist|ThighTwist|CalfTwist)\d*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (!mt.Success) return null;
             string limbName = mt.Groups[2].Value.ToLowerInvariant() switch { "foretwist" => "Forearm", "uparmtwist" => "UpperArm", "thightwist" => "Thigh", _ => "Calf" };
             int limb = Mff($"Bip001 {mt.Groups[1].Value.ToUpperInvariant()} {limbName}");
-            return limb >= 0 && limb != m.Bones[i].Parent ? limb : null;
+            int par = m.Bones[i].Parent;
+            if (par >= 0 && m.Bones[par].Name.Contains("Twist", StringComparison.OrdinalIgnoreCase)) return null;
+            if (!m.Bones[i].Name.EndsWith(mt.Groups[2].Value, StringComparison.OrdinalIgnoreCase) && !AlongItsLimb(i, mt.Groups[1].Value, mt.Groups[2].Value)) return null;
+            return limb >= 0 && limb != par ? limb : null;
         }
 
         /// <summary>The turn about the forearm's (new) axis that lines the hand's knuckle line (index → pinky; three-finger rigs:
@@ -599,10 +647,8 @@ static partial class Retarget
         /// shoulder pinched in when the limb lifted (Kurt saw the kneeling thigh collapse, 2026-09-30). Their weight goes by
         /// <see cref="RetargetOptions.Helper"/>.</summary>
         Dictionary<int, Vector3>? skinCentre;
-        /// <summary>For a helper sitting on Biped joint <paramref name="k"/>: that joint's Biped parent when the vertices helper
-        /// <paramref name="i"/> carries most lie along the parent segment (parent → k: inside it, and much nearer the segment than
-        /// the joint), else null.</summary>
-        int? SkinSegment(int i, int k)
+        /// <summary>Per MFF bone: the centre of the vertices it carries most (4 or more).</summary>
+        Dictionary<int, Vector3> SkinCentres()
         {
             if (skinCentre == null)
             {
@@ -616,7 +662,15 @@ static partial class Retarget
                         }
                 skinCentre = sum.Where(kv => kv.Value.N >= 4).ToDictionary(kv => kv.Key, kv => kv.Value.S / kv.Value.N);
             }
-            if (!skinCentre.TryGetValue(i, out var at)) return null;
+            return skinCentre;
+        }
+
+        /// <summary>For a helper sitting on Biped joint <paramref name="k"/>: that joint's Biped parent when the vertices helper
+        /// <paramref name="i"/> carries most lie along the parent segment (parent → k: inside it, and much nearer the segment than
+        /// the joint), else null.</summary>
+        int? SkinSegment(int i, int k)
+        {
+            if (!SkinCentres().TryGetValue(i, out var at)) return null;
             int p = m.Bones[k].Parent;
             if (p < 0 || !primary.Contains(m.Bones[p].Name) || !m.Bones[p].Name.StartsWith("Bip001", StringComparison.OrdinalIgnoreCase)) return null;
             var a = m.Bones[p].Position; var ab = m.Bones[k].Position - a;
@@ -624,6 +678,54 @@ static partial class Retarget
             float t = Vector3.Dot(at - a, ab) / ab.LengthSquared();
             float dSeg = (a + Math.Clamp(t, 0, 1) * ab - at).Length(), dJoint = (m.Bones[k].Position - at).Length();
             return t > 0.05f && t < 0.8f && dSeg < 0.5f * dJoint ? p : null;
+        }
+
+        /// <summary>For an unmapped helper <paramref name="i"/> that sits on no joint: the mapped Biped thigh or upper arm (not
+        /// one of its ancestors) whose top end the helper's skin lies at (see the limits below), nearest first; null when none
+        /// does. Elbows and knees keep the parent rule (no case seen to need it).</summary>
+        int? SkinLimb(int i)
+        {
+            if (!SkinCentres().TryGetValue(i, out var at) || Mff("Bip001 Pelvis") is not (>= 0 and int pel)) return null;
+            float pelvisY = m.Bones[pel].Position.Y;
+            if (System.Text.RegularExpressions.Regex.IsMatch(m.Bones[i].Name, "clavicle|spine|neck|pelvis", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return null;
+            bool Anc(int a, int b) { for (int k = m.Bones[b].Parent; k >= 0; k = m.Bones[k].Parent) if (k == a) return true; return false; }
+            int best = -1; float bd = float.MaxValue;
+            for (int k = 0; k < nb; k++)
+            {
+                if (!primary.Contains(m.Bones[k].Name) || !m.Bones[k].Name.StartsWith("Bip001", StringComparison.OrdinalIgnoreCase) || Anc(k, i)) continue;
+                var lm = System.Text.RegularExpressions.Regex.Match(m.Bones[k].Name, "^(.*)(Thigh|UpperArm)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (!lm.Success) continue;
+                string next = lm.Groups[2].Value.Equals("Thigh", StringComparison.OrdinalIgnoreCase) ? "Calf" : "Forearm";
+                int c = Mff(lm.Groups[1].Value + next);
+                if (c < 0) continue;
+                var a = m.Bones[k].Position; var ab = m.Bones[c].Position - a; float l2 = ab.LengthSquared();
+                if (l2 < 1e-6f) continue;
+                float t = Vector3.Dot(at - a, ab) / l2;
+                float d = (a + Math.Clamp(t, 0, 1) * ab - at).Length();
+                // at the limb's top end (above its joint, up to a tenth of the way down), inside the body there, on the limb's own
+                // side, sharing some skin with it: skirts and frills hang further down (Kurse's skirt 30-40 %, Luna Snow's frills
+                // 26-60 %, one across the body)
+                if (t < -0.6f || t > 0.1f || d > 0.5f * MathF.Sqrt(l2)) continue;
+                if (MathF.Sign(at.Y - pelvisY) != MathF.Sign(a.Y - pelvisY)) continue;
+                if (d < bd && CoWeight(i, k) >= 0.05f) { bd = d; best = k; }
+            }
+            return best >= 0 ? best : null;
+        }
+
+        /// <summary>Over the vertices helper <paramref name="i"/> carries (weight 0.1 or more): the average weight of the bones
+        /// that go where limb <paramref name="k"/> goes. A helper of the limb shares its skin with it (Kamala S02's hip helpers:
+        /// 21–28 % thigh); skirt, cape and hair bones don't.</summary>
+        float CoWeight(int i, int k)
+        {
+            int to = target[k]; double sum = 0; int n = 0;
+            foreach (var sec in parts.SelectMany(p => p.Sections))
+                foreach (var ws in sec.Weights)
+                {
+                    if (!ws.Any(x => x.Bone == i && x.Weight >= 0.1f)) continue;
+                    n++; float tot = ws.Sum(x => x.Weight);
+                    if (tot > 0) sum += ws.Where(x => x.Bone != i && target[x.Bone] == to).Sum(x => x.Weight) / tot;
+                }
+            return n == 0 ? 0 : (float)(sum / n);
         }
 
         void Helpers()
@@ -645,10 +747,17 @@ static partial class Retarget
                 // joint but carries the lower leg: on the ankle the calf turned with the foot and the knee buckled): the
                 // joint's parent when the vertices it carries lie along the parent segment.
                 if (best >= 0 && bd <= near && opt.HelperBySkin && SkinSegment(i, best) is int seg) best = seg;
+                // Not on a joint: the thigh or upper arm whose top its skin is at (0.37.199; Kamala S02's hip helpers Bone050 /
+                // Bone053 sit at the pelvis's height, 19 cm above the Biped thigh joints, and carry half the upper thigh: on the
+                // pelvis the thigh's top stayed behind when the leg swung and folded; her shoulder helpers Bone044 / Bone047 on
+                // the clavicles notched the sleeve). Of the 879 MFF models only Kamala S02 has such helpers.
+                bool along = false;
+                if ((best < 0 || bd > near) && opt.HelperBySkin && SkinLimb(i) is int limb) { best = limb; bd = 0; along = true; }
                 if (best >= 0 && bd <= near && sk.Find(r.Map[m.Bones[best].Name]) != target[i] && opt.Helper != "parent")
                 {
                     helperTo[i] = sk.Find(r.Map[m.Bones[best].Name]);
-                    r.Notes.Add($"helper bone {m.Bones[i].Name} (on {m.Bones[best].Name}, {bd:0.0} cm): weight {(opt.Helper == "split" ? $"split between {sk.Bones[target[i]].Name} and " : "to ")}{r.Map[m.Bones[best].Name]}");
+                    if (along) skinHelpers.Add(i);
+                    r.Notes.Add($"helper bone {m.Bones[i].Name} ({(along ? "its skin is at the top of " + m.Bones[best].Name : $"on {m.Bones[best].Name}, {bd:0.0} cm")}): weight {(along ? $"split between {sk.Bones[target[i]].Name} and {r.Map[m.Bones[best].Name]} half each" : (opt.Helper == "split" ? $"split between {sk.Bones[target[i]].Name} and " : "to ") + r.Map[m.Bones[best].Name])}");
                 }
             }
         }
@@ -695,6 +804,21 @@ static partial class Retarget
                 if (placed) continue;
                 int best = mappedIdx.Where(j => IsAncestor(j, i) || IsAncestor(i, j)).DefaultIfEmpty(-1).MinBy(j => j < 0 ? float.MaxValue : (sk.Pos(j) - p).LengthSquared());
                 pos[i] = best >= 0 ? pos[best]!.Value + (p - sk.Pos(best)) : p;
+            }
+            // The forearm twist at MHO's own place between elbow and wrist (0.37.199; Kamala S02's only mapped ForeTwist9 sits
+            // 86 % of the way down, MHO's g_*_forarm at 47-53 %: turned by the animations so near the wrist, the forearm kinked;
+            // the weight ramp (TwistTable) already uses MHO's place).
+            foreach (string side in Environment.GetEnvironmentVariable("MFF_FORARMPLACE") == "0" ? [] : new[] { "l", "r" })
+            {
+                int fa = sk.Find($"g_{side}_forarm"), el = sk.Find($"g_{side}_elbow"), wr = sk.Find($"g_{side}_wrist");
+                if (fa < 0 || el < 0 || wr < 0 || pos[fa] == null || pos[el] == null || pos[wr] == null) continue;
+                var seg = sk.Pos(wr) - sk.Pos(el); float len2 = seg.LengthSquared();
+                if (len2 < 1e-6f) continue;
+                float t = Vector3.Dot(sk.Pos(fa) - sk.Pos(el), seg) / len2;
+                if (t <= 0.05f || t >= 0.95f) continue;
+                var off = sk.Pos(fa) - (sk.Pos(el) + t * seg);
+                float scale = (pos[wr]!.Value - pos[el]!.Value).Length() / MathF.Sqrt(len2);
+                pos[fa] = Vector3.Lerp(pos[el]!.Value, pos[wr]!.Value, t) + off * scale;
             }
             // Bones the animations place (0.10.13; Kurt: Spider-Man's shoulders, upper arms and chest grew in motion, not at rest):
             // MHO's AnimSets are rotation-only except for UseTranslationBoneNames (spine, hips, clavicles, shoulders, elbows,
@@ -789,6 +913,7 @@ static partial class Retarget
                     if (inf.Length == 0) { pp[v] = ToMho(s.Pos[v]); nn[v] = Mirror(s.Normal[v]); w[v] = [(sk.Find("g_pelvis"), 1f)]; continue; }
                     Vector3 sp = Vector3.Zero, sn = Vector3.Zero; float tot = 0;
                     var acc = new Dictionary<int, float>();
+                    skinPending.Clear();
                     foreach (var (bone, weight) in inf)
                     {
                         sp += weight * (newPos[bone] + Vector3.Transform(s.Pos[v] - m.Bones[bone].Position, delta[bone]));
@@ -797,6 +922,11 @@ static partial class Retarget
                         WeightTo(acc, bone, weight, s.Pos[v]);
                     }
                     pp[v] = ToMho(sp / tot);
+                    foreach (var (pt, lt, sw) in skinPending)
+                    {
+                        float f = SkinHelperShare;
+                        Add(acc, lt, sw * f); Add(acc, pt, sw * (1 - f));
+                    }
                     nn[v] = sn.LengthSquared() > 0 ? Vector3.Normalize(Mirror(sn)) : Mirror(s.Normal[v]);
                     hair.Fall(acc, pp[v], r.Sections.Count, v, opt.HairByBone && inf.Any(x => x.Weight > 0.2f && IsHairBone(x.Bone)));
                     w[v] = Top4(acc);
@@ -810,6 +940,7 @@ static partial class Retarget
         /// <summary>Where one MFF influence's weight goes among MHO bones (<paramref name="p"/>: the vertex, MFF frame).</summary>
         void WeightTo(Dictionary<int, float> acc, int bone, float weight, Vector3 p)
         {
+            if (skinHelpers.Contains(bone)) { skinPending.Add((target[bone], helperTo[bone], weight)); return; }
             if (helperTo.TryGetValue(bone, out int second))
             {
                 // Helper mode: "limb" (default since 0.4.2, Kurt: skip the helpers) gives it all to the limb it sits on;

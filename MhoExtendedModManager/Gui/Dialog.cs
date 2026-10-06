@@ -26,7 +26,8 @@ static class Dialog
         if (Environment.GetEnvironmentVariable("MHO_EXTMM_TEST_DIALOGS") is { Length: > 0 } testLog)
         {
             File.AppendAllText(testLog, $"[{caption}] {text} ({string.Join(" / ", labels)}){Environment.NewLine}");
-            return labels.Length - 1;
+            // MHO_EXTMM_TEST_CHOICE=<n>: that button instead of the last (Cancel)
+            return int.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_TEST_CHOICE"), out int pick) && pick >= 0 && pick < labels.Length ? pick : labels.Length - 1;
         }
         // Form.DialogResult accepts only the enum's own values: the buttons take these in order, the last one is Cancel (Esc).
         DialogResult[] results = [DialogResult.OK, DialogResult.Yes, DialogResult.Retry, DialogResult.Ignore, DialogResult.Abort];   // (not No: the dialog makes No the Esc button)

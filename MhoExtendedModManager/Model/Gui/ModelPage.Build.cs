@@ -50,6 +50,7 @@ sealed partial class ModelPage
                 host.SetPackage(pkg.Key, result.Package);
                 built[pkg.Key] = result.Package;
                 if (print != null) builtPrint[pkg.Key] = print;
+                takenOff.Remove(pkg.Key);
                 ok = true;
                 SaveState();
                 Log($"Done: {pkg.Key} is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
@@ -90,6 +91,7 @@ sealed partial class ModelPage
                 host.SetPackage(pkg.Key, file);
                 built[pkg.Key] = file;
                 if (print != null) builtPrint[pkg.Key] = print;
+                takenOff.Remove(pkg.Key);
                 ok = true;
                 SaveState();
                 Log($"Done: {pkg.Key} with the new size is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
@@ -105,6 +107,9 @@ sealed partial class ModelPage
     // --- changes not built yet (Kurt, 2026-10-06: leaving the tab or Save Changes asks to build first) ------------------------
     /// <summary>The settings each built package was built with (<see cref="Fingerprint"/>), kept in the tab's state.</summary>
     readonly Dictionary<string, string> builtPrint = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Packages whose model was taken off (Remove → Restore the Mod's Copy), with the settings then: until they change,
+    /// leaving or saving doesn't ask to build it again.</summary>
+    readonly Dictionary<string, string?> takenOff = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Everything a build of the picked package depends on: the package, Build From, Size, Match Steps, and with a
     /// source: the source, parts, material, smoothing, hair, cape, and the bone map / material overrides (by content), the
@@ -140,6 +145,7 @@ sealed partial class ModelPage
         {
             if (!loaded || building || ChosenPackage is not CharacterList.Item pkg) return false;
             string? fp = Fingerprint();
+            if (takenOff.TryGetValue(pkg.Key, out var off) && off == fp) return false;   // the model just taken off: not asked again
             if (builtPrint.TryGetValue(pkg.Key, out var b)) return b != fp;
             if (built.ContainsKey(pkg.Key)) return false;
             return HasSource || Math.Abs(sizeSlider.Value - 1) > 1e-4;

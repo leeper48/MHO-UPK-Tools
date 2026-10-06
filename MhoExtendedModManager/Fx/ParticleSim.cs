@@ -102,6 +102,10 @@ sealed class ParticleSim
         m.Accum += Math.Max(0, rate) * dt;
         int n = (int)m.Accum; m.Accum -= n;
         if (m.E.Spawn is { } sp2) n += Bursts(sp2, m, t / duration);
+        // A beam that doesn't spawn by rate or burst keeps its beams up as long as it runs (UE3's beam emitters fill up to
+        // MaxBeamCount themselves; Vision's Channeled Solar Beam: rate 0, no bursts, lifetime 0; Kurt, 2026-10-06: no beam showed)
+        if (m.E.Kind == "beam" && n == 0 && rate <= 0 && m.Ps.Count == 0)
+            n = Math.Clamp(m.E.TypeData?.Int("MaxBeamCount", 1) ?? 1, 1, 4);
         for (int k = 0; k < n && m.Ps.Count < MaxPerEmitter; k++) Spawn(m, t);
     }
 

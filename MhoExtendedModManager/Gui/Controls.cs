@@ -280,7 +280,9 @@ sealed class LightSlider : Control
 
     // Keyboard (Kurt: click once, then step with the arrow keys, Shift for faster): ← → ↑ ↓ one step, Shift five,
     // Home / End the ends. The steps while a key is held are one change; Committed fires when it's let go.
-    float KeyStep => Step > 0 ? Step : (Max - Min) / 100f;
+    /// <summary>What one arrow key moves when it isn't <see cref="Step"/> (the Model tab's frame slider, 0–1: one frame).</summary>
+    public float ArrowStep { get; set; }
+    float KeyStep => ArrowStep > 0 ? ArrowStep : Step > 0 ? Step : (Max - Min) / 100f;
     bool keyChanged;
     protected override bool IsInputKey(Keys keyData) => (keyData & Keys.KeyCode) is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End || base.IsInputKey(keyData);
     protected override void OnKeyDown(KeyEventArgs e)

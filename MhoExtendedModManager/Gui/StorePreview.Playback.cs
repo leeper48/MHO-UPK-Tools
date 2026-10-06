@@ -339,6 +339,8 @@ sealed partial class StorePreview
     {
         if (playing == null || !show3D) return false;
         TogglePlay();
+        // the arrow keys then scrub (Kurt, 2026-10-06): the frame slider takes the keyboard
+        if (frameSlider is { Visible: true, Enabled: true } fs) fs.Focus();
         return true;
     }
 

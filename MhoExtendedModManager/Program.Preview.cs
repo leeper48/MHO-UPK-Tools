@@ -389,7 +389,7 @@ static partial class Program
                 else fx = Fx.PowerEffects.ForClass(game, rest[1], rest.Count > 2 ? rest[2] : null);
                 Console.WriteLine($"{rest[1]}: particles {string.Join(", ", fx.Effects.Where(e => e.BeamTarget == null).GroupBy(e => e.Kind).Select(g => $"{g.Key} {g.Count()}"))}; beams {fx.Effects.Count(e => e.BeamTarget != null)}; decals {fx.Decals.Count} ({fx.Decals.Count(d => d.Tex != null)} with a texture); weapon slots {string.Join(" ", fx.Slots.Select(x => (x.Show != null ? "+" + x.Show : "") + (x.Hide != null ? " -" + x.Hide : "")))}; thrown {fx.ThrownSlot ?? "-"}; mesh emitters {fx.Meshes.Count}; contact {fx.ContactPercent:0.##}{(fx.Returning ? ", returning" : "")}  ({sw.ElapsedMilliseconds} ms)");
                 foreach (var e in fx.Effects)
-                    Console.WriteLine($"  {e.Kind,-10} {e.Name}: {e.System.Name} ({e.System.Emitters.Count} emitters, {e.System.Emitters.Count(em => fx.Looks.TryGetValue(em, out var lk) && lk.Tex != null)} textured) at {(e.AtTarget ? "the target" : string.Join("/", e.Sockets.DefaultIfEmpty("root")))}, {e.Point}+{e.Offset:0.##}{(e.BeamTarget != null ? " beam to " + e.BeamTarget : "")}{(e.TriggeredBy != null ? " · by " + e.TriggeredBy : "")} · in {(e.System.Emitters.Count > 0 ? e.System.Emitters[0].Required.P.Name : "?")}");
+                    Console.WriteLine($"  {e.Kind,-10}{(e.OnHit ? " [on the one hit]" : "")} {e.Name}: {e.System.Name} ({e.System.Emitters.Count} emitters, {e.System.Emitters.Count(em => fx.Looks.TryGetValue(em, out var lk) && lk.Tex != null)} textured) at {(e.AtTarget ? "the target" : string.Join("/", e.Sockets.DefaultIfEmpty("root")))}, {e.Point}+{e.Offset:0.##}{(e.BeamTarget != null ? " beam to " + e.BeamTarget : "")}{(e.TriggeredBy != null ? " · by " + e.TriggeredBy : "")} · in {(e.System.Emitters.Count > 0 ? e.System.Emitters[0].Required.P.Name : "?")}");
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
                 return 0;
             }
@@ -805,6 +805,48 @@ static partial class Program
                 Console.WriteLine($"{powersWith} power(s) of {heroes.Count} hero(es): {summons} summoned model(s), {actors} animated actor(s)");
                 return 0;
             }
+            case "--fx-hit-census":
+            {
+                // Read-only: every hero's powers (the 3D preview's power buttons), each effect the preview would put on the hero at
+                // socket_hit or socket_head without playing it on the one hit (candidates for a wrong place), and the beams with
+                // their ends. --fx-hit-census [hero ...]
+                string? cgr = settings.ResolvedGameRoot(data);
+                string? ccook = cgr != null && Settings.IsGameRoot(cgr) ? Settings.Cooked(cgr) : null;
+                if (ccook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var cdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(cgr!, "Data", "Game", "Calligraphy.sip")));
+                var cheroes = rest.Count > 1 ? rest.Skip(1).ToList()
+                    : Directory.EnumerateFiles(ccook, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileNameWithoutExtension)
+                        .Select(n => n!.Split('_', StringSplitOptions.RemoveEmptyEntries)).Where(q => q.Length == 4).Select(q => q[2]).Order(StringComparer.OrdinalIgnoreCase).ToList();
+                var cg = new Fx.FxGame(ccook, []);
+                int powers = 0, onHit = 0, left = 0, beams = 0, leftOut = 0;
+                foreach (string hero in cheroes)
+                {
+                    List<Fx.PowerList.Power> list;
+                    try { list = Fx.PowerList.For(cdb, hero, ccook, [], effectOnly: true); } catch (Exception ex) when (ex is IOException or InvalidDataException) { continue; }
+                    foreach (var pw in list)
+                    {
+                        powers++;
+                        Fx.PowerEffects fx;
+                        try { fx = Fx.PowerEffects.For(cg, cdb, pw.Prototype, hero); } catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { continue; }
+                        onHit += fx.Effects.Count(e => e.OnHit);
+                        if (fx.Effects.Count == 0 && pw.Animations.Count > 0)
+                            Console.WriteLine($"{hero} · {pw.Name}: NO EFFECTS ({Path.GetFileNameWithoutExtension(pw.Prototype)}; {string.Join(" | ", fx.Notes.Take(3))})");
+                        leftOut += fx.Notes.Count(n => n.Contains("its own animation"));
+                        foreach (var e in fx.Effects)
+                        {
+                            if (e.BeamTarget != null) { beams++; Console.WriteLine($"{hero} · {pw.Name}: beam {e.Name} {string.Join("/", e.Sockets)} → {e.BeamTarget}"); }
+                            if (e.OnHit || e.AtTarget) continue;
+                            if (!e.Sockets.Any(n => n.Equals("socket_hit", StringComparison.OrdinalIgnoreCase))) continue;
+                            left++;
+                            string lin = e.TriggeredBy != null && Fx.PowerClosure.Of(cdb, pw.Prototype).FirstOrDefault(a => Path.GetFileNameWithoutExtension(a.Prototype).Equals(e.TriggeredBy, StringComparison.OrdinalIgnoreCase)) is { } art
+                                && cdb.Find(art.Prototype) is { } ape ? Fx.PowerClosure.Lineage(cdb, ape.Id) : "";
+                            Console.WriteLine($"{hero} · {pw.Name}: ON THE HERO {e.Kind} {e.Name} {e.System.Name} at {string.Join("/", e.Sockets)} ({e.Point}){(e.TriggeredBy != null ? " by " + e.TriggeredBy : "")} [{lin}]");
+                        }
+                    }
+                }
+                Console.WriteLine($"{cheroes.Count} heroes, {powers} powers: {onHit} effects play on the one hit, {left} at socket_hit stay on the hero, {beams} beams, {leftOut} other powers left out");
+                return 0;
+            }
             case "--hero-powers":
             {
                 // Read-only: a hero's powers as the 3D preview's power buttons list them (name, icon, animations).
@@ -1144,6 +1186,144 @@ static partial class Program
                             for (int k = 0; k < sum.Length; k++) if (cnt[k] > 0) Console.WriteLine($"   {ld.Bones[k].Name,-28} {sum[k],9:0.0} {cnt[k],6}");
                         }
                     }
+                return 0;
+            }
+            case "--weight-compare":
+            {
+                // Read-only (2026-10-06, Kamala's team-up thighs kinked): two skinned meshes on the same skeleton (stock, ours).
+                // For each of ours vertices the nearest stock vertex (bind pose); per stock dominant bone (limbs only): how our
+                // vertices there are weighted on average. --weight-compare <stock.upk> <ours.upk> [bone regex]
+                if (rest.Count < 3) { Console.WriteLine("--weight-compare <stock.upk> <ours.upk> [bone regex]"); return 1; }
+                ModMeshes.Loaded? L(string f) { var mr = ModMeshes.List([(Path.GetFileName(f), f)]).FirstOrDefault(); return mr == null ? null : ModMeshes.Load(mr, null, out _); }
+                var sa = L(rest[1]); var oa = L(rest[2]);
+                if (sa == null || oa == null) { Console.WriteLine("no skeletal mesh in one of them"); return 1; }
+                var rx = new System.Text.RegularExpressions.Regex(rest.Count > 3 ? rest[3] : "(hip|knee|uprleg|thigh|lwrleg|shoulder|uprarm|bicep|elbow|lwrarm|clavical|pelvis|spine01)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                string Bn(IReadOnlyList<AnimExportCli.Meshes.MeshBone> bs, int b) => b >= 0 && b < bs.Count ? bs[b].Name : "?";
+                (int B, float W)[] Inf(ModMeshes.Loaded l, int v) => Enumerable.Range(0, l.Influences[v].Bones.Count).Where(k => l.Influences[v].Weights[k] > 0)
+                    .Select(k => ((int)l.Influences[v].Bones[k], (float)l.Influences[v].Weights[k])).ToArray();
+                var groups = new SortedDictionary<string, (int N, Dictionary<string, double> Ours, Dictionary<string, double> Stock)>();
+                for (int v = 0; v < oa.Positions.Length; v++)
+                {
+                    int best = -1; float bd = float.MaxValue;
+                    for (int s = 0; s < sa.Positions.Length; s++) { float d = System.Numerics.Vector3.DistanceSquared(sa.Positions[s], oa.Positions[v]); if (d < bd) { bd = d; best = s; } }
+                    if (best < 0 || bd > 25) continue;
+                    var si = Inf(sa, best);
+                    if (si.Length == 0) continue;
+                    string dom = Bn(sa.Bones, si.MaxBy(x => x.W).B);
+                    if (!rx.IsMatch(dom)) continue;
+                    if (!groups.TryGetValue(dom, out var g)) g = (0, new(), new());
+                    g.N++;
+                    foreach (var (b, w) in Inf(oa, v)) g.Ours[Bn(oa.Bones, b)] = g.Ours.GetValueOrDefault(Bn(oa.Bones, b)) + w;
+                    foreach (var (b, w) in si) g.Stock[Bn(sa.Bones, b)] = g.Stock.GetValueOrDefault(Bn(sa.Bones, b)) + w;
+                    groups[dom] = g;
+                }
+                string Top(Dictionary<string, double> d, int n) => string.Join(", ", d.OrderByDescending(x => x.Value).Take(5).Select(x => $"{x.Key} {x.Value / n:0.00}"));
+                foreach (var (dom, g) in groups)
+                    Console.WriteLine($"{dom} ({g.N} of ours)\n   stock: {Top(g.Stock, g.N)}\n   ours:  {Top(g.Ours, g.N)}");
+                return 0;
+            }
+            case "--limb-profile":
+            {
+                // Read-only (2026-10-06): a skinned mesh's weights along a limb (bind pose): the vertices near the segment from one
+                // bone to another, in tenths of its length, and their average weights. --limb-profile <upk> <from bone> <to bone>
+                var lmr = ModMeshes.List([(Path.GetFileName(rest[1]), rest[1])]).FirstOrDefault();
+                var lm = lmr == null ? null : ModMeshes.Load(lmr, null, out _);
+                if (lm == null) { Console.WriteLine("no skeletal mesh"); return 1; }
+                var anim = new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false };
+                anim.Pose(null, 0);
+                int ia = anim.BoneIndex(rest[2]), ib = anim.BoneIndex(rest[3]);
+                if (ia < 0 || ib < 0) { Console.WriteLine("no such bone"); return 1; }
+                var A = anim.BonePosition(ia); var B = anim.BonePosition(ib); var seg = B - A; float len = seg.Length();
+                foreach (var bn in lm.Bones.Where(b => System.Text.RegularExpressions.Regex.IsMatch(b.Name, "forarm|lwrarm|elbow|wrist|uprarm|bicep|shoulder|hip|knee|thigh|uprleg|lwrleg")))
+                {
+                    int k = anim.BoneIndex(bn.Name); var bp = anim.BonePosition(k);
+                    float bt = System.Numerics.Vector3.Dot(bp - A, seg) / (len * len);
+                    if (bt > -0.3f && bt < 1.3f && (bp - (A + bt * seg)).Length() < 0.3f * len) Console.WriteLine($"  bone {bn.Name} at {bt:0.00}");
+                }
+                for (int bin = -2; bin < 12; bin++)
+                {
+                    var acc = new Dictionary<string, double>(); int n = 0;
+                    for (int v = 0; v < lm.Positions.Length; v++)
+                    {
+                        float t = System.Numerics.Vector3.Dot(lm.Positions[v] - A, seg) / (len * len);
+                        if (t < bin / 10f || t >= (bin + 1) / 10f || (lm.Positions[v] - (A + t * seg)).Length() > 0.45f * len) continue;
+                        n++;
+                        var inf = lm.Influences[v];
+                        for (int q = 0; q < inf.Bones.Count; q++) if (inf.Weights[q] > 0) acc[lm.Bones[inf.Bones[q]].Name] = acc.GetValueOrDefault(lm.Bones[inf.Bones[q]].Name) + inf.Weights[q];
+                    }
+                    if (n > 0) Console.WriteLine($"{bin / 10f:0.0}..{(bin + 1) / 10f:0.0} ({n,4}): " + string.Join(", ", acc.OrderByDescending(x => x.Value).Take(5).Select(x => $"{x.Key} {x.Value / n:0.00}")));
+                }
+                return 0;
+            }
+            case "--mff-thigh-weights":
+            {
+                // Read-only (2026-10-06): an MFF model's own weights near the top of each thigh (between the hip joint and a third
+                // of the way to the knee, within the thigh's reach): which of its bones carry them. --mff-thigh-weights <model>
+                var mm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1]));
+                int Fb(string n) => mm.Bones.FindIndex(b => b.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+                foreach (var bo in mm.Bones.Where(b => b.Deforms && (!b.Name.StartsWith("Bip001", StringComparison.OrdinalIgnoreCase) || b.Name.Contains("Twist") || b.Name.EndsWith(" 1"))))
+                    Console.WriteLine($"  {bo.Name} parent {(bo.Parent >= 0 ? mm.Bones[bo.Parent].Name : "-")} at {bo.Position.X:0.0} {bo.Position.Y:0.0} {bo.Position.Z:0.0}");
+                // MHO_BONES=<regex>: those bones instead, with parent and whether they deform and carry weight
+                if (Environment.GetEnvironmentVariable("MHO_BONES") is string brx)
+                {
+                    var wsum = new double[mm.Bones.Count];
+                    foreach (var s2 in mm.Parts.SelectMany(p2 => p2.Sections)) foreach (var ws in s2.Weights) foreach (var (bb, w) in ws) wsum[bb] += w;
+                    for (int q = 0; q < mm.Bones.Count; q++)
+                        if (System.Text.RegularExpressions.Regex.IsMatch(mm.Bones[q].Name, brx))
+                            Console.WriteLine($"  [{q}] {mm.Bones[q].Name} parent {(mm.Bones[q].Parent >= 0 ? mm.Bones[mm.Bones[q].Parent].Name : "-")} at {mm.Bones[q].Position.X:0.0} {mm.Bones[q].Position.Y:0.0} {mm.Bones[q].Position.Z:0.0} deforms {mm.Bones[q].Deforms} weight {wsum[q]:0.0}");
+                    return 0;
+                }
+                foreach (var bo in mm.Bones.Where(b => System.Text.RegularExpressions.Regex.IsMatch(b.Name, "Pelvis|Thigh$|Calf$|UpperArm$|Clavicle$|Spine")))
+                    Console.WriteLine($"  {bo.Name} at {bo.Position.X:0.0} {bo.Position.Y:0.0} {bo.Position.Z:0.0}");
+                foreach (var (z0, z1) in new[] { (84f, 92f), (76f, 84f), (68f, 76f) })
+                {
+                    var acc = new Dictionary<string, double>(); int n = 0;
+                    foreach (var pt in mm.Parts) foreach (var s in pt.Sections)
+                        for (int v = 0; v < s.Pos.Length; v++)
+                            if (s.Pos[v].Z >= z0 && s.Pos[v].Z < z1 && s.Pos[v].Y > 2)
+                            { n++; foreach (var (bb, w) in s.Weights[v]) acc[pt.Name + ":" + mm.Bones[bb].Name] = acc.GetValueOrDefault(pt.Name + ":" + mm.Bones[bb].Name) + w; }
+                    Console.WriteLine($"left z {z0}..{z1} ({n}): " + string.Join(", ", acc.OrderByDescending(x => x.Value).Take(8).Select(x => $"{x.Key} {x.Value / Math.Max(1, n):0.00}")));
+                }
+                foreach (string side in new[] { "L", "R" })
+                {
+                    int t = Fb($"Bip001 {side} Thigh"), c = Fb($"Bip001 {side} Calf");
+                    if (t < 0 || c < 0) { Console.WriteLine("no Bip001 thigh / calf"); break; }
+                    var A = mm.Bones[t].Position; var seg = mm.Bones[c].Position - A; float len = seg.Length();
+                    foreach (var (lo, hi) in new[] { (-0.3f, -0.15f), (-0.15f, 0f), (0f, 0.15f), (0.15f, 0.35f), (0.35f, 0.6f) })
+                    {
+                        var acc = new Dictionary<string, double>(); int n = 0;
+                        foreach (var s in mm.Parts.SelectMany(p => p.Sections))
+                            for (int v = 0; v < s.Pos.Length; v++)
+                            {
+                                float u = System.Numerics.Vector3.Dot(s.Pos[v] - A, seg) / (len * len);
+                                var perp = s.Pos[v] - (A + u * seg);
+                                if (u < lo || u >= hi || perp.Length() > (Environment.GetEnvironmentVariable("MHO_R") is string rr ? float.Parse(rr) : 0.35f) * len) continue;
+                                n++;
+                                foreach (var (b, w) in s.Weights[v]) acc[mm.Bones[b].Name] = acc.GetValueOrDefault(mm.Bones[b].Name) + w;
+                            }
+                        Console.WriteLine($"{side} thigh {lo:0.00}..{hi:0.00} ({n}): " + string.Join(", ", acc.OrderByDescending(x => x.Value).Take(6).Select(x => $"{x.Key} {x.Value / Math.Max(1, n):0.00}")));
+                    }
+                }
+                return 0;
+            }
+            case "--helper-sweep":
+            {
+                // Read-only (2026-10-06): every MFF model in the MFF folder retargeted onto a package's skeleton (no build); the
+                // helper bones each one hands to a limb. --helper-sweep <package name or file> [name filter]
+                var hsk = MhoExtendedModManager.Model.MhoSkeleton.Load(MhoExtendedModManager.Model.BasePackage.Resolve(rest[1], true), null);
+                foreach (string dir in MhoExtendedModManager.Model.Source.AllModelFolders())
+                {
+                    if (rest.Count > 2 && !Path.GetFileName(dir).Contains(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        var mm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(Path.GetFileName(dir)));
+                        foreach (var w in mm.Warnings.Where(w => w.StartsWith("loose hands"))) Console.WriteLine($"{Path.GetFileName(dir)} | {w}");
+                        if (!mm.Bones.Any(b => b.Name.Equals("Bip001 Pelvis", StringComparison.OrdinalIgnoreCase))) continue;
+                        var rr = MhoExtendedModManager.Model.Retarget.Run(mm, mm.Selected(null), hsk);
+                        foreach (var n in rr.Notes.Where(n => (n.StartsWith("helper bone") && n.Contains("top of") || n.StartsWith("numbered twist")))) Console.WriteLine($"{Path.GetFileName(dir)} | {n}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(dir)} | error: {ex.Message}"); }
+                }
                 return 0;
             }
             case "--bone-frames":

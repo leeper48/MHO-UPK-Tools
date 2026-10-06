@@ -276,7 +276,12 @@ static partial class Program
                         string pcls = pw.First(p => Fx.PowerIndex.PrototypesByClass(db).TryGetValue(p.Class, out var l2) && l2.Contains(proto)).Class;
                         var pfx = Fx.PowerEffects.For(new Fx.FxGame(rc, modFiles), db, proto, hero);
                         var socks = Fx.FxSockets.Of(mr.File, mr.Name);
-                        System.Numerics.Matrix4x4? Sock(string n) => socks.TryGetValue(n, out var sk) && anim8.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * anim8.BoneMatrix(b) : anim8.BoneIndex(n) is int bi && bi >= 0 ? anim8.BoneMatrix(bi) : null;
+                        System.Numerics.Matrix4x4? Sock(string n)
+                        {
+                            if (n.EndsWith("@bone", StringComparison.Ordinal) && socks.TryGetValue(n[..^5], out var sb) && anim8.BoneIndex(sb.Bone) is int bb && bb >= 0)
+                            { var turn = sb.Local; turn.Translation = System.Numerics.Vector3.Zero; return turn * anim8.BoneMatrix(bb); }   // (as the previews: PowerEffects.Player.BoneOrigin)
+                            return socks.TryGetValue(n, out var sk) && anim8.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * anim8.BoneMatrix(b) : anim8.BoneIndex(n) is int bi && bi >= 0 ? anim8.BoneMatrix(bi) : null;
+                        }
                         fxp = new Fx.PowerEffects.Player(pfx, Sock, new System.Numerics.Vector3(250, 0, ld.Positions.Min(q => q.Z)), Fx.PowerEffects.Player.PhaseFor(ar.Name, idx.Where(kv => kv.Value.Any(p => p.Class == pcls)).Select(kv => kv.Key))) { AnimSeconds = Math.Max(0.1f, secs) };
                         Console.WriteLine($"  power {Path.GetFileNameWithoutExtension(proto)}: {pfx.Effects.Count} effects, {pfx.Decals.Count} decals, {pfx.Meshes.Count} mesh emitters");
                         // Its animated actors, as the preview adds them to its rig.
@@ -319,6 +324,16 @@ static partial class Program
                     v.EffectStrength = PreviewViews.FxPower;
                 }
                 v.Moving = Environment.GetEnvironmentVariable("MHO_RENDER_MOVING") == "1";   // timed as during playback
+                // MHO_RENDER_VIEW=<yaw added (degrees)>[,<distance factor>[,<target height, fraction of the radius>]]: the camera turned / closer
+                if (Environment.GetEnvironmentVariable("MHO_RENDER_VIEW") is string rview)
+                {
+                    var pv = rview.Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                    var vs = v.ViewState;
+                    vs[0] += pv[0] * MathF.PI / 180;
+                    if (pv.Length > 1) vs[2] *= pv[1];
+                    if (pv.Length > 2) vs[5] = pv[2];
+                    v.ViewState = vs;
+                }
                 foreach (float at in new[] { 0f, 0.33f, 0.66f, 1f })
                 {
                     if (fxp != null)

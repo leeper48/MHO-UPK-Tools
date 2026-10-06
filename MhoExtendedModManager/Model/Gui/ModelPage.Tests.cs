@@ -27,7 +27,21 @@ sealed partial class ModelPage
         TestUnbuilt = !after && changed && !back;   // (before: true unless the mod was built with these settings already)
         say($"{(TestUnbuilt ? "PASS" : "FAIL")} unbuilt changes: before Build {before}, after {after}, size changed {changed}, size back {back}");
         say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
-        return built.TryGetValue(package, out string? path) && File.Exists(path) ? path : null;
+        string? result = built.TryGetValue(package, out string? path) && File.Exists(path) ? path : null;
+        // MHO_TEST_REMOVE=1 (with MHO_EXTMM_TEST_DIALOGS: the first button): the built target removed again
+        if (Environment.GetEnvironmentVariable("MHO_TEST_REMOVE") == "1" && packages.Items.OfType<CharacterList.Item>().FirstOrDefault(x => x.Key.Equals(package, StringComparison.OrdinalIgnoreCase)) is { } t)
+        {
+            bool ours = added.Contains(package) || host.SavedPath(package) == null;
+            RemoveTarget(t);
+            bool inMod = host.Packages.Any(p => p.File.Equals(package, StringComparison.OrdinalIgnoreCase));
+            bool inList = packages.Items.OfType<CharacterList.Item>().Any(x => x.Key.Equals(package, StringComparison.OrdinalIgnoreCase));
+            bool restored = host.Packages.FirstOrDefault(p => p.File.Equals(package, StringComparison.OrdinalIgnoreCase)).Path is string pp && pp == host.SavedPath(package);
+            // (MHO_EXTMM_TEST_CHOICE: 0 = Remove / Restore the Mod's Copy, 1 = Remove From the Mod)
+            bool restore = !ours && Environment.GetEnvironmentVariable("MHO_EXTMM_TEST_CHOICE") == "0";
+            bool ok = !built.ContainsKey(package) && (restore ? restored && inList : !inMod && !inList);
+            say($"{(ok ? "PASS" : "FAIL")} remove the target ({(ours ? "added by the tab: out of the mod" : restore ? "the mod's own: its copy back" : "the mod's own: out of the mod")}; in the mod {inMod}, in the list {inList}, built {built.ContainsKey(package)})");
+        }
+        return result;
     }
 
     internal bool TestHasRig => unrigged != null;

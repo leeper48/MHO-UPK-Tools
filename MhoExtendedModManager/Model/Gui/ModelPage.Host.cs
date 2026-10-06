@@ -19,6 +19,8 @@ interface IModelHost
     void SetPackage(string file, string path);
     /// <summary>A package from the game added to the draft.</summary>
     void AddPackage(string file, string path);
+    /// <summary>A package taken out of the draft.</summary>
+    void RemovePackage(string file);
 }
 
 sealed partial class ModelPage
@@ -29,6 +31,8 @@ sealed partial class ModelPage
     readonly DropDown buildFrom = new() { Width = 210 };
     /// <summary>Packages this tab built in this session or before (file → the built file).</summary>
     readonly Dictionary<string, string> built = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Packages this tab added to the mod from the game (From the Game), in this session or before.</summary>
+    readonly HashSet<string> added = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The fixed widths were the importer window's, which Windows scaled as a whole; inside the editor they're
     /// scaled here, once (at 200 % the drop-downs showed "MFF Charact…").</summary>
@@ -84,10 +88,53 @@ sealed partial class ModelPage
         try { stock = BasePackage.Resolve(it.Key); }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException) { Dialog.Show(this, ex.Message, "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         host.AddPackage(it.Key, stock);
+        added.Add(it.Key);
         Log($"Added {it.Key} to the mod (the game's stock copy, until it's built).");
         gameList = false; packageFilter.Text = "";
         FillPackages();
         Reselect(packages, it.Key);
+        SaveState();
+    }
+
+    /// <summary>
+    /// Takes a target out of the list (Kurt, 2026-10-06): right-click → Remove, or Delete. A package this tab added from the game
+    /// leaves the mod with its build; one of the mod's own packages can go back to the mod's copy (when built here) or leave the
+    /// mod. Only the draft changes: the editor's Cancel brings it all back.
+    /// </summary>
+    void RemoveTarget(CharacterList.Item it)
+    {
+        if (gameList || it.Header || it.Key.Contains(':')) return;
+        string file = it.Key;
+        bool isBuilt = built.ContainsKey(file);
+        string? saved = host.SavedPath(file);
+        bool ours = added.Contains(file) || saved == null;
+        int pick;
+        if (ours)
+            pick = Dialog.Choose(this, $"Remove {file} ({it.Title}) from the list? The Model tab added it to the mod{(isBuilt ? " and built the model onto it" : "")}, so it leaves the mod too.",
+                "Remove a Target", "Remove", "Cancel") == 0 ? 1 : -1;
+        else if (isBuilt)
+            pick = Dialog.Choose(this, $"{file} ({it.Title}) is one of the mod's own packages, with the model built onto it. Put the mod's own copy back (the model comes off), or take the package out of the mod?",
+                "Remove a Target", "Restore the Mod's Copy", "Remove From the Mod", "Cancel") switch { 0 => 0, 1 => 1, _ => -1 };
+        else
+            pick = Dialog.Choose(this, $"{file} ({it.Title}) is one of the mod's own packages. Take it out of the mod?",
+                "Remove a Target", "Remove From the Mod", "Cancel") == 0 ? 1 : -1;
+        if (pick < 0) return;
+        if (pick == 0 && saved != null)
+        {
+            host.SetPackage(file, saved);
+            takenOff[file] = Fingerprint();
+            Log($"{file}: the mod's own copy is back (the model built onto it is off).");
+        }
+        else
+        {
+            host.RemovePackage(file);
+            takenOff.Remove(file);
+            Log($"Removed {file} from the mod{(ours ? " (the Model tab had added it)" : "")}.");
+        }
+        built.Remove(file); builtPrint.Remove(file); added.Remove(file);
+        FillPackages();
+        SaveState();
+        SchedulePreview();
     }
 
     // --- what a build starts from --------------------------------------------------------------------------------------------------
@@ -214,6 +261,8 @@ sealed partial class ModelPage
         public bool MatchSteps { get; set; } = true;
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
+        /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
+        public List<string> Added { get; set; } = new();
     }
 
     string StateFile => Path.Combine(host.WorkFolder, "state.json");
@@ -228,7 +277,7 @@ sealed partial class ModelPage
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex), Hair = Math.Max(0, hairBox.SelectedIndex),
             FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked,
-            BuiltPrints = new Dictionary<string, string>(builtPrint),
+            BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
         };
         try { Directory.CreateDirectory(host.WorkFolder); File.WriteAllText(StateFile, JsonSerializer.Serialize(st, new JsonSerializerOptions { WriteIndented = true })); }
         catch (IOException) { }
@@ -244,6 +293,7 @@ sealed partial class ModelPage
         catch (Exception ex) when (ex is IOException or JsonException) { return; }
         if (st == null) return;
         foreach (var f in st.Built) built.TryAdd(f, "");
+        foreach (var f in st.Added ?? []) added.Add(f);
         foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;
         buildFrom.SelectedIndex = st.FromStock ? 1 : 0;

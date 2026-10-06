@@ -309,10 +309,22 @@ sealed partial class ModelPage : UserControl
         {
             int i = packages.IndexFromPoint(e.Location);
             if (i >= 0 && i < packages.Items.Count && packages.Items[i] is CharacterList.Item { Header: true } h) ToggleHero(h);
+            // right-click a target: Remove (Kurt, 2026-10-06)
+            else if (e.Button == MouseButtons.Right && !gameList && i >= 0 && i < packages.Items.Count && packages.Items[i] is CharacterList.Item { Header: false } t && !t.Key.Contains(':'))
+            {
+                packages.SelectedIndex = i;
+                var m = new ContextMenuStrip();
+                var rm = new ToolStripMenuItem("Remove", null, (_, _) => RemoveTarget(t)) { ShortcutKeyDisplayString = "Del",
+                    ToolTipText = added.Contains(t.Key) || host.SavedPath(t.Key) == null ? "Take it off the list and out of the mod (the Model tab added it)." : "One of the mod's own packages: put its own copy back, or take it out of the mod." };
+                m.Items.Add(rm);
+                m.Closed += (_, _) => BeginInvoke(m.Dispose);
+                m.Show(packages, e.Location);
+            }
         };
         packages.KeyDown += (_, e) =>
         {
             if (e.KeyCode is Keys.Enter or Keys.Space && packages.SelectedItem is CharacterList.Item { Header: true } h) { ToggleHero(h); e.Handled = true; }
+            else if (e.KeyCode == Keys.Delete && packages.SelectedItem is CharacterList.Item t) { RemoveTarget(t); e.Handled = true; }
         };
         Thumbs.Ready += OnThumbReady;
         MhoAnim.BaseLookup = ModCopy;   // the export's animations: the hero's base package from the mod first

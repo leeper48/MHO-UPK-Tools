@@ -1,6 +1,43 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.202
+- Model tab: MFF models whose hands and feet were exported loose (Bip001 L Hand001 / Foot001 / Toe001 hanging off the root, fingers numbered Finger042 …) get them as the Biped hand, foot, toe and fingers again, under their forearm and calf. Unmapped, their skin stayed behind and the legs and arms stretched when they moved (Kamala Khan's base model). Changes Kamala Khan (base and S01), Sandman and the Sentinels.
+
+0.37.201
+- Model tab: Biped twist bones numbered past the usual names (ForeTwist13, RUpArmTwist11, ForeTwist011 …) are mapped like their plain names (forearm twist, bicep twist, thigh twist) and turn with their limb. Unmapped, they fell back to the body, and the middle of the arm didn't follow it: Kamala S02's upper arms had a gap of no weight. Only twist bones lying along their own limb (Doc Ock's second rig is left alone). Changes Kamala S02, Doctor Strange's models, Magik, The Hood, Captain America S14, Dark Elf soldiers and Mephisto's dummy.
+
+0.37.200
+- Model tab: the hip and shoulder helpers 0.37.199 gave to the limb now go half to the limb and half to the pelvis or clavicle, as a 3ds Max helper turns halfway: all on the thigh, Kamala S02's tunic tail and buttock stretched with the swinging leg.
+- Model tab: the forearm twist bone (g_*_forarm) is placed where the game's skeleton has it, about halfway between elbow and wrist. MFF rigs whose mapped twist bone sits near the wrist (Kamala S02: 86 % of the way down) had the forearm kink when the animations turn it. Applies to every MFF build.
+
+0.37.199
+- Model tab: an MFF model's helper bones at the top of a thigh or upper arm that sit on no joint (Kamala Khan S02's hip helpers at the pelvis's height, her shoulder helpers on the clavicles) now go with the thigh or upper arm, not the pelvis or clavicle: the top of the thigh no longer folds when the leg swings, and the sleeve no longer notches at the shoulder. Of the 879 MFF models only Kamala S02 has such helpers.
+- Model tab: remove a target from the list (right-click it → Remove, or Delete). A package the tab added from the game leaves the mod with its build; one of the mod's own packages can go back to the mod's copy (taking the model off) or leave the mod. Cancel in the editor brings it all back.
+
+0.37.198
+- Model tab: a model built onto a team-up or NPC whose skeleton has helper bones beside the limbs (g_l_uprarm, g_l_uprleg, g_l_lwrlegmid …, turned by its animations) gets the share of the limb the stock mesh gives them (from its nearest vertices), so the upper arms and thighs follow as the stock model's do. Player builds don't change.
+
+0.37.197
+- 3D preview: a power's "_loop" animation also plays what started with the power and keeps going through it (a looping effect from the power's start): Cyclops's Visor Off beam showed nothing in its loop. Applies to every power with start / loop / end animations.
+
+0.37.196
+- 3D preview: a missile's explosion plays where its flight reaches the target, when it gets there (Kate Bishop's Nerve Gas Arrow burst on her own chest), and what a missile, hotspot or summon sets off goes off there too (Shrieking Arrow's explosion hits).
+- 3D preview: an effect whose particles already start where its socket is (their own start offset as long as the socket's) is placed from the socket's bone, turned as the socket: Ms. Marvel's Disengaging Shot fired from above her head.
+
+0.37.195
+- 3D preview: beams whose material has no texture (a plain solid beam: Ms. Marvel's Photonic Devastation) show as a soft band in their own color; they were left out.
+
+0.37.194
+- 3D preview, power effects, for every hero (checked over all 66 heroes' 1,760 powers): what lands on the ones a power hits now plays at the target point in front of the hero instead of on the hero: a power's hit effects (timed by the hit or at socket_hit), and conditions from hostile blueprints (stun, damage over time, slow, bleed, knockup, freeze, vulnerability …), debuffs and hit-like looks. Buffs, shields, heals and auras stay on the hero.
+- 3D preview: beams aimed at a standard socket (socket_hit, socket_head …) end at the target, at that height (Vision's Tri-Beam ran into his own chest). A caster's own aiming helper (Iron Man's laser targets) is still used.
+- 3D preview: other powers a power links to (talents, combos) that have animations of their own aren't played with it (Solar Bolt showed Ground Smash's and Death from Below's dives and rings).
+- 3D views: P (play / pause) also puts the keyboard on the frame slider, so the arrow keys step frame by frame (Shift: 5).
+
+0.37.193
+- 3D preview: a beam that keeps itself up (no spawn rate or bursts: Vision's Channeled Solar Beam) shows now, from its socket (his eyes) to the target.
+- 3D preview: what a power applies through a hotspot or summon it makes plays on the one it hits, at the target point in front of the hero, not on the hero (the beam's impact and vulnerability glow had piled up on Vision's chest). Conditions the power puts on the hero himself (Healing Nanites) stay on him.
+
 0.37.192
 - Manual: a walkthrough with a screenshot, Fit the App to Your Screen; the What's New notice for UI Scale and the resizable, foldable panels.
 
