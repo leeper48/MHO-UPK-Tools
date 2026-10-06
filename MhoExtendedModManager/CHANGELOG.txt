@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.203
+- Manual: a walkthrough for watching a hero's powers in the 3D preview, removing a Model target, and where power effects play; What's New notice.
+
 0.37.202
 - Model tab: MFF models whose hands and feet were exported loose (Bip001 L Hand001 / Foot001 / Toe001 hanging off the root, fingers numbered Finger042 …) get them as the Biped hand, foot, toe and fingers again, under their forearm and calf. Unmapped, their skin stayed behind and the legs and arms stretched when they moved (Kamala Khan's base model). Changes Kamala Khan (base and S01), Sandman and the Sentinels.
 

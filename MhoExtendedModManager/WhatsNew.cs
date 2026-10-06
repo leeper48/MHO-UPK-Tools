@@ -27,7 +27,19 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.203 (Kurt, 2026-10-06): power effects where the game puts them, P scrubs, remove a Model target, MFF rig fixes.</summary>
+    static Notice PowersPlaced() => new(
+        "0.37.203-powers-placed", "0.37.203",
+        "What's new:" + nl + nl +
+        "• Power effects in the 3D preview play where the game puts them, for every hero: beams reach toward a target in front of the hero at the height they aim, missiles burst where they land, and what a power does to the one it hits (stuns, burns, impacts) plays there instead of on the hero." + nl + nl +
+        "• P pauses and puts the focus on the Frame slider: the arrow keys then step frame by frame." + nl + nl +
+        "• Model tab: right-click a target → Remove (or Delete) takes it off the list. One the tab added leaves the mod; one of the mod's own can get its own copy back." + nl + nl +
+        "• Model tab: MFF models with unusual rigs move better: helper bones at the hips and shoulders, numbered twist bones (Kamala Khan, Doctor Strange, Magik …), hands and feet exported loose (Kamala's base model, Sandman, the Sentinels), the forearm twist, and team-ups' extra limb bones. Rebuild a model to get the fixes." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
+        "The manual's Walkthroughs show each step (Help, or F1); Settings → What's New shows this notice and the earlier ones.",
+        "w-powers");
 
     /// <summary>0.37.192 (Kurt, 2026-10-06): UI scale, resizable and foldable panels.</summary>
     static Notice ScreenFit() => new(
