@@ -244,7 +244,13 @@ sealed partial class ModelPage
             if (!ok) { say($"  (picked: {ChosenPackage?.Key ?? "no package"}, source {chosenKey ?? "none"}; the mod's packages: {string.Join(", ", host.Packages.Select(p => p.File))})\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
         }
         if (mff == "-") return ChosenPackage != null && !HasSource;   // no source: a size-only build (MHO_TEST_SIZE)
-        if (mff.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) && File.Exists(mff))
+        if (File.Exists(mff) && ModelConvert.NeedsBlender(mff))
+        {
+            // a .blend / XPS model: Browse makes its FBX with Blender first (the same call), then it's read as that FBX
+            mff = ModelConvert.ToFbx(mff, say);
+            say($"read through Blender: {mff}");
+        }
+        if (File.Exists(mff) && !Directory.Exists(mff) && !mff.EndsWith(".pck", StringComparison.OrdinalIgnoreCase))
         {
             // an FBX with another skeleton family (Mixamo …): Source → Single Model, then the file, as a pick from the list
             string key = "fbx:" + Path.GetFullPath(mff);

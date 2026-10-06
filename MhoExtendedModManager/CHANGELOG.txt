@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.180
+- Model tab: Single Model reads more kinds of model: OBJ, DAE (Collada) and STL directly, and Blender files (.blend) and XNALara / XPS models (.xps, .mesh, .mesh.ascii) through Blender, which makes an FBX of them once (until the file changes). XPS models come with their skeleton, weights and textures; an MFF character saved as XPS (Bip001 bones) is read as an MFF character. Browse for an FBX is now Browse for a Model.
+
 0.37.179
 - New: Size in Game (Model tab). Make a character bigger or smaller in game (5-400 % of the game's size). It's written as the mesh's scale, as the game sizes its own costumes, so the animations keep their shape and the feet stay on the ground. It works without a model too: with no source picked, Build into Mod writes only the size. Match Steps to Size (on by default) plays the run and walk slower for a bigger character and faster for a smaller one, so the feet don't slide.
 - New: models on NPCs, enemies and team-ups. Target → From the Game lists the game's NPCs and Enemies and Bosses that share the heroes' skeleton (672), and the team-ups. A model built onto one shows wherever the game uses that character.

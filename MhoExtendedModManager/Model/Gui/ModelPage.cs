@@ -545,7 +545,7 @@ sealed partial class ModelPage : UserControl
     {
         string f = characterFilter.Text.Trim();
         characters.BeginUpdate(); characters.Items.Clear();
-        characters.Items.Add(new CharacterList.Item("browse:", "Browse for an FBX", "any FBX: MHO, Mixamo or other skeleton, no armature, or an MFF character's model"));
+        characters.Items.Add(new CharacterList.Item("browse:", "Browse for a Model", "FBX, OBJ, DAE, STL, Blender or XPS: MHO, Mixamo or other skeleton, no armature, or an MFF character's model"));
         foreach (var dir0 in Settings.Current.RecentFbx.Where(Directory.Exists))
         {
             string name = Path.GetFileName(dir0.TrimEnd('\\', '/'));
@@ -677,14 +677,28 @@ sealed partial class ModelPage : UserControl
     /// <summary>Picks any model file and adds it to the list (remembered). An MFF character's model (Bip001 bones; Kurt,
     /// 2026-10-06: one Browse, the MFF structure recognized) is read as that MFF character: its folder, its textures, the MFF
     /// retarget, as a repository character is.</summary>
-    void BrowseFbx()
+    async void BrowseFbx()
     {
         string start = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(start);
-        using var dlg = new OpenFileDialog { Title = "A Model (FBX, or an MFF Character's FBX / DAE / OBJ)", Filter = "Models (*.fbx;*.dae;*.obj)|*.fbx;*.dae;*.obj|FBX (*.fbx)|*.fbx", InitialDirectory = start };
+        using var dlg = new OpenFileDialog { Title = "A Model (FBX, OBJ, DAE, STL, Blender or XPS)", Filter = ModelConvert.Filter, InitialDirectory = start };
         if (dlg.ShowDialog(this) != DialogResult.OK) { if (chosenKey != null) Reselect(characters, chosenKey); return; }
-        string file = dlg.FileName, dir = Path.GetDirectoryName(file)!;
+        string file = dlg.FileName;
+        // .blend and XPS (Kurt, 2026-10-06): an FBX made by Blender stands in for the file (kept until the file changes)
+        if (ModelConvert.NeedsBlender(file))
+        {
+            status.Text = "Reading It with Blender…"; status.ForeColor = Ui.Subtle;
+            Log($"{Path.GetFileName(file)}: read through Blender (an FBX is made from it once, until the file changes)…");
+            string src = file;
+            try { file = await Task.Run(() => ModelConvert.ToFbx(src, line => BeginInvoke(() => Log(line)))); }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+            { Log($"{Path.GetFileName(src)}: {ex.Message}"); UpdateStatus(); if (chosenKey != null) Reselect(characters, chosenKey); return; }
+            UpdateStatus();
+        }
+        string dir = Path.GetDirectoryName(file)!;
         Cursor = Cursors.WaitCursor;
-        bool mff = !file.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) || SkeletonProfile.IsMff(file);
+        // an MFF character's model: Bip001 bones, or an OBJ / DAE in an MFF character's folder (hero_…)
+        bool mff = !ModelConvert.IsStl(file) && (SkeletonProfile.IsMff(file)
+            || (!file.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) && Path.GetFileName(dir).StartsWith("hero_", StringComparison.OrdinalIgnoreCase)));
         Cursor = Cursors.Default;
         string entry = file;
         if (mff)

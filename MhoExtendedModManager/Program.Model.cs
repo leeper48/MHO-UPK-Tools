@@ -13,6 +13,26 @@ static partial class Program
     {
         switch (cmd)
         {
+            case "--model-convert":
+            {
+                // --model-convert <model file>... (read-only on the files): each one as Single Model reads it: a .blend / XPS
+                // turned into an FBX by Blender (data\model\converted), then what the Model tab sees in it
+                foreach (string f in rest.Skip(1))
+                {
+                    Console.WriteLine($"== {f}");
+                    try
+                    {
+                        string file = MhoExtendedModManager.Model.ModelConvert.NeedsBlender(f) ? MhoExtendedModManager.Model.ModelConvert.ToFbx(f, Console.WriteLine) : f;
+                        if (file != f) Console.WriteLine($"  FBX: {file} ({new FileInfo(file).Length:N0} bytes; beside it: {string.Join(", ", Directory.GetFiles(Path.GetDirectoryName(file)!).Select(Path.GetFileName).Where(n => n != Path.GetFileName(file)).Take(8))})");
+                        string? why;
+                        string? family = MhoExtendedModManager.Model.SkeletonProfile.DetectFile(file, out why);
+                        Console.WriteLine($"  MFF (Bip001): {MhoExtendedModManager.Model.SkeletonProfile.IsMff(file)}; skeleton family: {family ?? "none"}{(why != null ? " (" + why + ")" : "")}; armature: {MhoExtendedModManager.Model.AutoRig.HasArmature(file)}; MHO bones: {MhoExtendedModManager.Model.AutoRig.MhoBoneCount(file)}");
+                        foreach (var (name, verts) in MhoExtendedModManager.Model.FbxReimport.Meshes(file).Take(12)) Console.WriteLine($"  mesh {name}: {verts:N0} vertices");
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or IOException or InvalidDataException or Assimp.AssimpException) { Console.WriteLine("  ERROR: " + ex.Message); }
+                }
+                return 0;
+            }
             case "--model-build":
             {
                 // --model-build <mff model> <package name or file> <out folder> [--map bonemap.json]: the importer's --encode-mff
