@@ -135,7 +135,7 @@ function mhoNext(dir) {
 <li><b>First start.</b> The app finds the game through Steam (or asks you to browse to it), then asks whether you used MHModManager. If you did, it copies your mods, their order and on/off state, and the verified stock backups; your old folder isn't changed. Stop using the old manager afterwards, or the two will undo each other's changes.</li>
 <li><b>Use it.</b> Tick the mods you want, order them, and press <b>Apply Changes</b> with the game closed.</li>
 </ol>
-<div class="note">Everything the app keeps (your library, settings, undo history, 3D views) is in <code>data</code> next to the exe. Keep one copy of the app: a copy somewhere else has its own <code>data</code>.</div>
+<div class="note">Everything the app keeps (your library, settings, the record of what it wrote to the game, 3D views) is in <code>data</code> next to the exe. Keep one copy of the app: a copy somewhere else has its own <code>data</code>.</div>
 
 <h2 id="walkthroughs">Walkthroughs</h2>
 <p>Step-by-step guides for the things people do most. Each links to its full section for the details. Most buttons are icons: point at one to see its name.</p>
@@ -391,7 +391,7 @@ function mhoNext(dir) {
 <li><b>Nexus:</b> an orange N on the picture means the mod is linked to a Nexus page, a green ↑ and an <b>↑ UPDATE</b> pill mean Nexus has a newer version.</li>
 <li><b>Moved costumes:</b> a mod made with <a href="#costume">Move to Another Costume</a> ends in <span style="color:#f2aa3c">(on Classic)</span> in amber: that part is the app's, not the mod's name.</li>
 <li><b>All</b> turns every mod the list shows on (or off, if they're all on).</li>
-<li><b>Undo / Redo</b> (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) step back through list changes: on/off, order, locks, tags, notes. They don't touch the game; Apply has its own history.</li>
+<li><b>Undo / Redo</b> (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) step back through list changes: on/off, order, locks, tags, notes. They don't touch the game: to take a mod's changes out of the game, turn it off and Apply Changes, which puts the originals back.</li>
 </ul>
 <h3>Filter</h3>
 <p>Type in <b>Filter</b>; every word must match. Plain words search names, authors and tags. The <b>×</b> at its right (or <kbd>Esc</kbd>) clears it, as in every search box in the app. Special words:</p>

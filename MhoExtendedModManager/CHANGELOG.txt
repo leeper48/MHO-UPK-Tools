@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.204
+- The data\history folder no longer fills up: Apply keeps only a record of each game file it writes (to tell its own writes from other programs'), not a full copy of the file's previous version. Nothing used those copies (Apply always rebuilds from the originals in data\library\originals), and they grew to gigabytes. The copies an earlier version kept are deleted in the background at the first start; the records stay.
+
 0.37.203
 - Manual: a walkthrough for watching a hero's powers in the 3D preview, removing a Model target, and where power effects play; What's New notice.
 

@@ -41,7 +41,7 @@ Why Windows may warn you (the program is not code-signed)
 Privacy
   Nothing is sent anywhere unless you ask for it. The update check contacts GitHub only if you agreed to it at the
   first start (Settings -> Check for Updates at Start) or when you pick Settings -> Check for Updates; nothing about
-  you, your game or your mods is sent. Your mods, settings and undo history stay in the program's "data" folder.
+  you, your game or your mods is sent. Your mods and settings stay in the program's "data" folder.
   Nexus Mods is contacted only when you use its features (Find My Mods, Check for Updates, or checking at start if you
   turn that on). It only reads public information about Marvel Heroes Omega mods: no Nexus account or key is used, and
   nothing about you or your mods is sent.

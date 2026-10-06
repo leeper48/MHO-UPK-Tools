@@ -12,6 +12,45 @@ static partial class Program
     {
         switch (cmd)
         {
+            case "--history-test":
+            {
+                // Test (scratch folder only): a recorded write keeps no copy, the app still knows its own write, and
+                // DeleteSnapshots removes an earlier version's copies but keeps the records. --history-test <scratch dir>
+                if (rest.Count < 2) { Console.WriteLine("--history-test <scratch dir>"); return 1; }
+                string dir = Path.GetFullPath(rest[1]);
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                Directory.CreateDirectory(dir);
+                string? keepRoot = MhoPackageModifier.History.RootOverride;
+                MhoPackageModifier.History.RootOverride = Path.Combine(dir, "history");
+                int fails = 0;
+                void Check(string what, bool ok) { Console.WriteLine($"{(ok ? "PASS" : "FAIL")} {what}"); if (!ok) fails++; }
+                try
+                {
+                    string live = Path.Combine(dir, "Test_SF.upk");
+                    File.WriteAllBytes(live, [1, 2, 3]);
+                    byte[] next = [4, 5, 6, 7];
+                    MhoPackageModifier.History.Record(live, next);
+                    File.WriteAllBytes(live, next);
+                    var folder = Directory.GetDirectories(Path.Combine(dir, "history")).Single();
+                    Check("a write leaves no copy of the previous version", !Directory.EnumerateFiles(folder, "*.upk").Any());
+                    Check("the record (history.txt) is written", File.Exists(Path.Combine(folder, "history.txt")));
+                    Check("the app still knows the file as its own write", MhoPackageModifier.History.IsLastWritten(live));
+                    File.WriteAllBytes(live, [9, 9]);
+                    Check("a change by something else is still noticed", !MhoPackageModifier.History.IsLastWritten(live));
+                    File.WriteAllBytes(live, next);
+                    // an earlier version's copies, and a file that isn't one
+                    File.WriteAllBytes(Path.Combine(folder, "00001.upk"), new byte[1000]);
+                    File.WriteAllBytes(Path.Combine(folder, "00002.upk"), new byte[500]);
+                    File.WriteAllBytes(Path.Combine(folder, "notes.upk"), [1]);
+                    var (n, bytes) = MhoPackageModifier.History.DeleteSnapshots();
+                    Check($"cleanup removes the numbered copies ({n} files, {bytes} bytes)", n == 2 && bytes == 1500 && !File.Exists(Path.Combine(folder, "00001.upk")));
+                    Check("cleanup keeps the record and other files", File.Exists(Path.Combine(folder, "history.txt")) && File.Exists(Path.Combine(folder, "notes.upk")));
+                    Check("after cleanup the app still knows its own write", MhoPackageModifier.History.IsLastWritten(live));
+                }
+                finally { MhoPackageModifier.History.RootOverride = keepRoot; }
+                Console.WriteLine(fails == 0 ? "all passed" : $"{fails} failed");
+                return fails == 0 ? 0 : 1;
+            }
             case "--test-images":
             {
                 // Test: stock image → .png / .dds, .png → .dds (same size and format as the original), and a 2× image scaled.

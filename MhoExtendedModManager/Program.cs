@@ -83,6 +83,9 @@ static partial class Program
     {
         // Undo snapshots of the files Apply writes go to data\history next to the exe, not AppData.
         MhoPackageModifier.History.RootOverride = Settings.HistoryFolder;
+        // Only the record of each write (hashes), no copy of the previous version: nothing here undoes a game write (Apply
+        // rebuilds from the originals), and the copies grew to gigabytes (0.37.204).
+        MhoPackageModifier.History.KeepSnapshots = false;
         // Starting the window again brings the open one forward instead (SingleInstance).
         if (args.Length == 0 && !SingleInstance.Claim()) return 0;
         bool gui = args.Length == 0 || args[0].StartsWith("--gui", StringComparison.OrdinalIgnoreCase) || args[0].StartsWith("--editor", StringComparison.OrdinalIgnoreCase) || args[0].StartsWith("--first-run", StringComparison.OrdinalIgnoreCase);
@@ -93,6 +96,9 @@ static partial class Program
             return 2;
         }
         Updater.CleanUp();   // the *.old files a self-update left behind
+        // Undo copies an earlier version kept in data\history (up to gigabytes; nothing reads them): deleted in the background,
+        // the records (history.txt) stay (0.37.204).
+        if (args.Length == 0) Task.Run(() => MhoPackageModifier.History.DeleteSnapshots());
         if (args.Length == 0) ModelWork.SweepOrphans(Settings.Load().LibraryPath);   // the Model tab's work folders a killed run left
         Gui.Ui.UseDarkTheme();   // dark menus and title bars for every window (nothing to do without one)
         if (WindowCommand(args) is int windowResult) return windowResult;

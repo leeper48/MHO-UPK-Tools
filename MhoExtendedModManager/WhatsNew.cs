@@ -27,7 +27,14 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.204 (Kurt, 2026-10-06): data\history no longer fills up.</summary>
+    static Notice HistorySmall() => new(
+        "0.37.204-history", "0.37.204",
+        "Smaller data folder: Apply no longer keeps a full copy of every game file it replaces in data\\history (nothing used them, and they grew to gigabytes). It keeps only a small record of what it wrote, so it still tells its own changes from other programs'. The old copies were deleted at this start; your mods and the game are unchanged." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "settings");
 
     /// <summary>0.37.203 (Kurt, 2026-10-06): power effects where the game puts them, P scrubs, remove a Model target, MFF rig fixes.</summary>
     static Notice PowersPlaced() => new(
