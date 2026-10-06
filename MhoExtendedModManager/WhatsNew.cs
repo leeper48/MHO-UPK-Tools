@@ -27,7 +27,21 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.179 (Kurt, 2026-10-06): size in game, NPC / enemy / team-up models and effects, Blender texture paint.</summary>
+    static Notice SizeAndNpcs() => new(
+        "0.37.179-size-npcs", "0.37.179",
+        "New in the Editor:" + nl + nl +
+        "• Size in Game (Model tab): make a character bigger or smaller (5–400 %), with or without a new model. Match Steps to Size keeps the feet from sliding." + nl + nl +
+        "• Models on NPCs, enemies and team-ups: From the Game lists the game's NPCs and Enemies and Bosses with the heroes' skeleton, and the team-ups." + nl + nl +
+        "• Their effects in the Powers tab: an NPC's, enemy's or team-up's Own Effects (glows, trails) and its own powers can be recolored, and Opacity fades an effect out (at 0 % a hologram team-up shows its own materials)." + nl + nl +
+        "• Blender: Texture Paint comes back with Ctrl+S, as the material's maps. Single Model takes any FBX with one Browse (an MFF model is recognized) and finds textures in the folders next to it." + nl + nl +
+        "• Forgot to build? Leaving the Model tab or Save Changes asks to build first." + nl + nl +
+        "[!] These features are experimental. Test your builds in game before sharing them." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
+        "The manual's Walkthroughs show each step (Help, or F1); Settings → What's New shows this notice and the earlier ones.",
+        "w-size");
 
     /// <summary>The Model tab's release (written 2026-10-04 for 0.37.153; shown once ModelTabReleased is true: give it the
     /// release's version then).</summary>

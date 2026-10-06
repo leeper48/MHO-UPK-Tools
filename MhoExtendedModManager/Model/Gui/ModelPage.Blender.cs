@@ -13,7 +13,7 @@ namespace MhoExtendedModManager.Model.Gui;
 /// </summary>
 sealed partial class ModelPage
 {
-    FileSystemWatcher? blenderWatch;
+    FileSystemWatcher? blenderWatch, paintWatch;
     string? blenderWatchKey;
     readonly System.Windows.Forms.Timer blenderDelay = new() { Interval = 700 };
     bool blenderDelayHooked;
@@ -49,6 +49,7 @@ sealed partial class ModelPage
         if (key == blenderWatchKey) return;
         blenderWatchKey = key;
         blenderWatch?.Dispose(); blenderWatch = null;
+        paintWatch?.Dispose(); paintWatch = null;
         if (!blenderDelayHooked) { blenderDelay.Tick += (_, _) => { blenderDelay.Stop(); ApplyBlenderSync(); }; blenderDelayHooked = true; }
         var (folder, _) = BlenderLink();
         if (folder == null) return;
@@ -63,6 +64,13 @@ sealed partial class ModelPage
             blenderWatch.Changed += on; blenderWatch.Created += on;
             blenderWatch.Renamed += (_, _) => Later(() => { blenderDelay.Stop(); blenderDelay.Start(); });
             blenderWatch.EnableRaisingEvents = true;
+            // textures painted in Blender and saved to the export folder (Texture Paint; Image → Save, or Ctrl+S in a scene
+            // that saves painted images)
+            paintWatch?.Dispose();
+            paintWatch = new FileSystemWatcher(folder, "*.png") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
+            paintWatch.Changed += on; paintWatch.Created += on;
+            paintWatch.Renamed += (_, _) => Later(() => { blenderDelay.Stop(); blenderDelay.Start(); });
+            paintWatch.EnableRaisingEvents = true;
         }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { Log($"Blender: can't watch {from}: {ex.Message}"); return; }
         ApplyBlenderSync();
@@ -80,9 +88,61 @@ sealed partial class ModelPage
     void StopBlenderWatch()
     {
         blenderWatch?.Dispose(); blenderWatch = null;
+        paintWatch?.Dispose(); paintWatch = null;
         blenderDelay.Stop(); blenderDelay.Dispose();
         rigWatch?.Dispose(); rigWatch = null;
         rigDelay.Stop(); rigDelay.Dispose();
+    }
+
+    /// <summary>The export's texture names (FbxExport: &lt;material&gt; + suffix) and the map each one is.</summary>
+    static readonly (string Suffix, string Kind)[] PaintKinds =
+        [("", "Color"), ("_n", "Normal"), ("_sp", "Spec"), ("_mhospec", "MHO Spec"), ("_speccolor", "Spec Color"), ("_glow", "Glow"), ("_alpha", "Alpha")];
+
+    /// <summary>
+    /// Textures painted in Blender (Kurt, 2026-10-06: Texture Paint on She-Hulk's horns): an export folder texture saved after
+    /// the export (newer than its model.fbx; the export copies keep their own dates or are written before it) and not taken
+    /// in yet becomes that material's map override (the Materials tab's Use a File: copied into the mod's Model folder,
+    /// Back to Automatic undoes it). What was taken in is kept in the edits folder (painted.txt: file, SHA-1).
+    /// </summary>
+    void ApplyPaintedTextures(string folder)
+    {
+        if (EditsFolder() is not string editsFolder || OverridesPath() is not string ovPath) return;
+        string modelFbx = Path.Combine(folder, "model.fbx");
+        if (!File.Exists(modelFbx)) return;
+        DateTime exported = File.GetLastWriteTimeUtc(modelFbx).AddSeconds(5);
+        string record = Path.Combine(editsFolder, "painted.txt");
+        var taken = File.Exists(record) ? File.ReadAllLines(record).Select(l => l.Split('	')).Where(p => p.Length == 2).ToDictionary(p => p[0], p => p[1], StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        bool changed = false;
+        foreach (var (material, _) in shownMaterials)
+            foreach (var (suffix, kind) in PaintKinds)
+            {
+                string file = Path.Combine(folder, FbxExport.SafeName(material) + suffix + ".png");
+                if (!File.Exists(file) || File.GetLastWriteTimeUtc(file) <= exported) continue;
+                byte[] bytes;
+                try { bytes = File.ReadAllBytes(file); } catch (IOException) { continue; }   // Blender still writing: the next change event comes
+                string hash = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(bytes));
+                string key = Path.GetFileName(file);
+                if (taken.TryGetValue(key, out var was) && was == hash) continue;
+                string dir = Path.Combine(Path.GetDirectoryName(ovPath)!, Path.GetFileNameWithoutExtension(ovPath));
+                Protected.CheckWrite(dir);
+                Directory.CreateDirectory(dir);
+                // a new name per paint: pictures are cached by file
+                string name = $"{FbxExport.SafeName(material)}_{kind.ToLowerInvariant().Replace(" ", "")}_painted_{hash[..8].ToLowerInvariant()}.png";
+                File.WriteAllBytes(Path.Combine(dir, name), bytes);
+                string rel = Path.Combine(Path.GetFileName(dir), name);
+                ChangeOverrides((_, e) =>
+                {
+                    switch (kind) { case "Color": e.Color = rel; break; case "Normal": e.Normal = rel; e.FlipGreen = false; break; case "Spec": e.Spec = rel; break; case "MHO Spec": e.SpecMho = rel; break; case "Spec Color": e.SpecColor = rel; break; case "Glow": e.Glow = rel; e.GlowOff = false; break; default: e.Alpha = rel; break; }
+                }, material, $"{material}'s {kind.ToLowerInvariant()} map painted in Blender ({key}, saved {File.GetLastWriteTime(file):HH:mm:ss}) is in now.");
+                taken[key] = hash;
+                changed = true;
+            }
+        if (!changed) return;
+        Protected.CheckWrite(editsFolder);
+        Directory.CreateDirectory(editsFolder);
+        File.WriteAllLines(record, taken.Select(kv => kv.Key + "	" + kv.Value));
+        FillMaterials();
     }
 
     sealed record SyncFile(int Version, string? Model, Dictionary<string, string> Anims, List<string>? Last, string? Time);
@@ -93,6 +153,7 @@ sealed partial class ModelPage
         if (!HasSource || ChosenPackage == null || EditsFolder() is not string editsFolder) return;
         var (folder, applied) = BlenderLink();
         if (folder == null) return;
+        ApplyPaintedTextures(folder);
         string from = Path.Combine(folder, "from_blender"), file = Path.Combine(from, "sync.json");
         if (!File.Exists(file)) return;
         SyncFile? sync = null;

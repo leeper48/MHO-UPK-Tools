@@ -348,6 +348,15 @@ def _export_track(arm, name, path):
 @persistent
 def mff_sync_on_save(*_):
     scene = bpy.context.scene
+    # painted textures (Kurt, 2026-10-06: Texture Paint in this scene): saved to their files in the export folder, where the
+    # importer picks them up as material maps
+    for img in bpy.data.images:
+        try:
+            if img.is_dirty and img.source == "FILE" and img.filepath:
+                img.save()
+                print("MHO MFF Importer sync: saved", img.name)
+        except Exception as ex:
+            print("MHO MFF Importer sync: image not saved:", img.name, ex)
     base = json.loads(scene.get("mff_sync_baseline", "{}") or "{}")
     if not base:
         return

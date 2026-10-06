@@ -380,6 +380,18 @@ for c in eb.children:
 eb.head.z += d; eb.tail.z += d
 bpy.ops.object.mode_set(mode="OBJECT")
 print("TEST EDIT: g_l_elbow moved", d)
+# and texture paint (2026-10-06): a corner of the first material's color map painted red, unsaved (Ctrl+S saves it)
+img = next((n.image for o in bpy.data.objects if o.type == "MESH" for s in o.material_slots if s.material and s.material.node_tree
+            for n in s.material.node_tree.nodes if n.type == "TEX_IMAGE" and n.image and n.image.filepath and not n.image.name.lower().endswith(("_n.png", "_sp.png", "_alpha.png"))), None)
+if img is not None:
+    w, h = img.size
+    px = list(img.pixels)
+    for y in range(min(32, h)):
+        for x in range(min(32, w)):
+            i = (y * w + x) * 4
+            px[i:i + 4] = [1.0, 0.0, 0.0, 1.0]
+    img.pixels = px
+    print("TEST EDIT: painted", img.name, img.is_dirty)
 bpy.ops.wm.save_mainfile()
 """);
         var (code2, out2) = await RunBlender(exe, $"-b \"{blend}\" -y --python \"{edit}\"", outDir);
@@ -397,6 +409,12 @@ bpy.ops.wm.save_mainfile()
         var moved = FbxReimport.MovedBones(Path.Combine(outDir, "model.fbx"), mfbx);
         say("bones moved in the sent model: " + string.Join(", ", moved.Select(m => $"{m.Bone} {m.By:0.00}")));
         if (moved.Count != 1 || !moved[0].Bone.Equals("g_l_elbow", StringComparison.OrdinalIgnoreCase)) { say("FAIL: expected g_l_elbow alone"); return null; }
+        // the painted color map came back as that material's color override
+        for (int i = 0; i < 100 && !log.Text.Contains("painted in Blender"); i++) await Task.Delay(100);
+        var ovp = OverridesFile();
+        var painted = ovp != null ? MaterialOverrides.Load(ovp).Materials.Where(kv => kv.Value.Color?.Contains("_painted_") == true).Select(kv => kv.Key).ToList() : [];
+        say("painted color maps taken in: " + (painted.Count > 0 ? string.Join(", ", painted) : "none"));
+        if (painted.Count == 0) { say("FAIL: the texture painted in Blender didn't come back"); return null; }
         return Path.GetRelativePath(EditsFolder()!, kept);
     }
 

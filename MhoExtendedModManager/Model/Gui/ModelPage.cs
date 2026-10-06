@@ -844,6 +844,7 @@ sealed partial class ModelPage : UserControl
             preview.Show(prepared);
             shownMap = prepared.Map; mhoBones = prepared.MhoBones; mhoParents = prepared.MhoParents; FillMap();
             shownMaterials = prepared.MaterialList; FillMaterials();
+            if (BlenderLink().Folder is string paintFolder && Directory.Exists(paintFolder)) ApplyPaintedTextures(paintFolder);   // painted while the tab was closed
             _ = ShowOwnRigs(StartPackage(pkg.Key));
             WatchBlender();   // this work's Blender folder (a sync that came meanwhile is applied)
             WatchRig(uf != null ? AutoRig.Live(uf, pkg.Key) : null);

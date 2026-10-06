@@ -1,6 +1,22 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.179
+- New: Size in Game (Model tab). Make a character bigger or smaller in game (5-400 % of the game's size). It's written as the mesh's scale, as the game sizes its own costumes, so the animations keep their shape and the feet stay on the ground. It works without a model too: with no source picked, Build into Mod writes only the size. Match Steps to Size (on by default) plays the run and walk slower for a bigger character and faster for a smaller one, so the feet don't slide.
+- New: models on NPCs, enemies and team-ups. Target → From the Game lists the game's NPCs and Enemies and Bosses that share the heroes' skeleton (672), and the team-ups. A model built onto one shows wherever the game uses that character.
+- Model tab: team-ups and NPCs whose animations set every bone's position (the heroes' only turn the bones) pulled a new model's arms and shoulders back to the old model's shape. The build now makes them work like a hero's, and the preview shows them that way.
+- New: Own Effects in the Powers tab. A mod holding an NPC, enemy or team-up package lists its own effects (glows, trails: the Sinister clones' red glow) and its own powers (read from the game data), recolored and played in the 3D view like a hero's power. Add It to This Mod brings in the package a character is built on (the Sinister Medal pets use the mob clones').
+- New: Opacity in the Powers tab fades an effect out; at 0 % it's switched off, and a hologram team-up (the Danger Room Wolverine) shows its own materials, in the preview and in game.
+- Model tab: Single Model has one Browse for an FBX. An MFF character's model is recognized and read with its folder, an FBX with a skeleton the tab doesn't know is rigged for you, and textures are found in its folder, its subfolders and the folders next to it (such as Textures).
+- Model tab: the source list says MFF Repository (your MFF rip) or Single Model (one file).
+- Blender: Texture Paint comes back too. Ctrl+S saves the painted images, and each comes into the Materials tab as that material's map (in a scene opened before this version, save the image with Image → Save).
+- Blender: bones moved in Edit Mode come back with Ctrl+S, from any Open in Blender scene.
+- Model tab: leaving the tab or Save Changes with a change not built yet asks: Build Now / Build and Save, or carry on without it.
+- Model tab: ⛶ in the log shows it full screen (Esc comes back).
+- Create from 3D: Save Large PNG saves a big copy of the snapshot (up to 2048 px) for a promo picture.
+- Fixed: Import FBX crashed for FBX sources.
+- Manual: Walkthroughs with screenshots for the common jobs (Help, or F1).
+
 0.37.157
 - New: the Editor's Model tab (experimental). Put a model of your own on one of the mod's costumes: a Marvel Future Fight character from your own MFF rip, or an FBX file. It's fitted to the hero's skeleton, so the hero's animations, powers and props play on it. Build into Mod puts it in the costume's package; Apply Changes puts it in the game.
 - Model tab: FBX files rigged with MHO bones, Mixamo bones or other skeletons (matched by name or guessed from the skeleton's shape), or not rigged at all: a plain mesh is stood up, scaled to the hero and rigged in Blender with automatic weights, fingers included; open the rig in Blender to fix weights, each Ctrl+S reloads it.
