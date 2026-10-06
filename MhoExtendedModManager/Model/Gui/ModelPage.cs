@@ -60,6 +60,8 @@ sealed partial class ModelPage : UserControl
     /// <summary>The source FBX when it has no armature (it's rigged in Blender per base hero: <see cref="RigFor"/>); else null.</summary>
     string? unrigged;
     readonly Label status = new() { AutoSize = true, Margin = new Padding(8, 8, 0, 0) };
+    /// <summary>Turns while the tab works in the background (Kurt, 2026-10-06): loading, preview, Blender, build, export.</summary>
+    readonly Spinner modelSpinner = new() { Shows = w => w.StartsWith("Model:", StringComparison.Ordinal), IdleTip = "Turns while the Model tab works in the background (loading a model, the preview, Blender, a build or an export)." };
     readonly TextBox log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = false };
 
     /// <summary>One MFF model: its character (the group), its uniform (name, slot S02 / Base, wiki order) and folder.</summary>
@@ -96,6 +98,8 @@ sealed partial class ModelPage : UserControl
         mapBones = Ui.FlatButton("Bones", () => preview.ShowBones = !preview.ShowBones, "Draw the skeleton over the model; the selected row's bones in orange (as Look ▾ → Bones).");
         mapWeights = Ui.FlatButton("Weights", () => preview.ShowWeights = !preview.ShowWeights, "Weight paint: colour the model by how much the selected row's bones move it, as Blender does (blue 0 → cyan → green → yellow → red 1). Pick rows to see each bone; Smooth Weights shows its effect at once.");
         preview.BonePicked += SelectBoneRow;
+        preview.MaterialPicked += SelectMaterialRow;
+        modelTabs.SelectedChanged += i => preview.PickMaterials = modelTabs.TitleAt(i) == "Materials";
         preview.Override = (ar, orig) => EnsureEdits().Anims.TryGetValue(ar.Name, out var f) && File.Exists(f) ? AnimEdits.ForGame(f, ar, orig) : null;
         preview.IsOverridden = n => edits.Anims.ContainsKey(n);
         preview.FillEditsMenu = FillEditsMenu;
@@ -171,6 +175,9 @@ sealed partial class ModelPage : UserControl
         mapReset.Margin = new Padding(0); mapButtons.Controls.Add(mapReset);
         modelTabs.Add("Bone Map", Column("", Row(mapFilter, mapButtons), mapGrid));
         modelTabs.Add("Materials", MaterialsTab());
+        // the manual's screenshots (MHO_EXTMM_SNAP_MODELTAB = Parts / Bone Map / Materials): that sub-tab first
+        if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_MODELTAB") is { Length: > 0 } snapTab)
+            for (int k = 0; k < modelTabs.Count; k++) if (modelTabs.TitleAt(k).Equals(snapTab, StringComparison.OrdinalIgnoreCase)) modelTabs.Select(k);
         right.Controls.Add(modelTabs, 0, 1);
         right.Controls.Add(Column("MATERIAL", null, material, autoHeight: true), 0, 2);
         // the size in game (Kurt, 2026-10-05): the costume's mesh component Scale, relative to the game's (ImportBuild.ApplySize)
@@ -182,7 +189,8 @@ sealed partial class ModelPage : UserControl
         sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(matchSteps, 0, 1);
         right.Controls.Add(Column("SIZE IN GAME", null, sizeBox, autoHeight: true), 0, 3);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
-        actions.Controls.AddRange([buildButton, fbxButton, openButton, status]);
+        actions.Controls.AddRange([buildButton, fbxButton, openButton, modelSpinner, status]);
+        modelSpinner.Margin = new Padding(8, 6, 0, 0);
         right.Controls.Add(actions, 0, 4);
         body.Controls.Add(right, 2, 0);
 
@@ -650,6 +658,7 @@ sealed partial class ModelPage : UserControl
         chosenKey = it.Key; sourceFbx = null; unrigged = null;
         model = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
+        using var busy = Busy.Begin("Model: loading the MFF character");
         // an MFF folder picked on its own (Single Model) loads by its path; a repository character by its folder name
         string src = it.Key.StartsWith(MffDir) ? it.Key[MffDir.Length..] : it.Key;
         try
@@ -689,6 +698,7 @@ sealed partial class ModelPage : UserControl
             status.Text = "Reading It with Blender…"; status.ForeColor = Ui.Subtle;
             Log($"{Path.GetFileName(file)}: read through Blender (an FBX is made from it once, until the file changes)…");
             string src = file;
+            using var busy = Busy.Begin($"Model: reading {Path.GetFileName(src)} with Blender");
             try { file = await Task.Run(() => ModelConvert.ToFbx(src, line => BeginInvoke(() => Log(line)))); }
             catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
             { Log($"{Path.GetFileName(src)}: {ex.Message}"); UpdateStatus(); if (chosenKey != null) Reselect(characters, chosenKey); return; }
@@ -726,6 +736,7 @@ sealed partial class ModelPage : UserControl
         string file = key[4..];
         chosenKey = key; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
+        using var busy = Busy.Begin("Model: loading the model");
         try
         {
             // another skeleton family (Mixamo …): read like an MFF model, so its bones are paired with the hero's by the
@@ -817,16 +828,27 @@ sealed partial class ModelPage : UserControl
     async Task RefreshPreviewCore()
     {
         int id = ++previewId;
+        if (HasSource) packageMaps = null;
+        using var busy = Busy.Begin("Model: preview");
         if (!HasSource && ChosenPackage is CharacterList.Item tpkg)
         {
             // no source yet: the target's own model (as Compare)
             preview.ShowMessage("Loading…");
             try
             {
-                var tp = await Task.Run(() => PreviewPanel.PrepareTarget(StartPackage(tpkg.Key)));
+                // the mod's own copy as it is now (a model built into it earlier, its textures edited here), else the start
+                string shownPath = ModCopy(tpkg.Key) is string mc && File.Exists(mc) ? mc : StartPackage(tpkg.Key);
+                var tp = await Task.Run(() => PreviewPanel.PrepareTarget(shownPath));
                 if (id != previewId || IsDisposed) return;
                 preview.Show(tp);
                 shownMap = null; mhoBones = tp.MhoBones; mhoParents = tp.MhoParents; FillMap();
+                // its textures, to edit in place (Kurt, 2026-10-06): only when the model is the package's own
+                List<PackageMap>? maps = null;
+                if (tp.MainRef is { } mainRef && Path.GetFullPath(mainRef.File).Equals(Path.GetFullPath(shownPath), StringComparison.OrdinalIgnoreCase))
+                    try { maps = await Task.Run(() => ListPackageMaps(shownPath, mainRef)); }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { Log("Materials: " + ex.Message); }
+                if (id != previewId || IsDisposed) return;
+                packageMaps = maps; packageMapsFile = shownPath;
                 shownMaterials = []; FillMaterials();
                 _ = ShowOwnRigs(StartPackage(tpkg.Key));
                 Log("Preview: " + tp.Note);

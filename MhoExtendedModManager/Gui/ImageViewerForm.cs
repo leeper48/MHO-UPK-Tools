@@ -24,7 +24,12 @@ sealed class ImageViewerForm : Form
     readonly string exportName;
 
     /// <param name="exportName">The file name Export suggests (without extension).</param>
-    public ImageViewerForm(Image source, string title, string exportName = "image")
+    /// <summary>Edit in Image Editor was clicked (the viewer closed for it): the caller opens the map in the editor.</summary>
+    public bool EditRequested { get; private set; }
+
+    /// <param name="editIn">The image editor's name: an "Edit in …" button that closes the viewer and asks the caller to open the
+    /// picture there (<see cref="EditRequested"/>); null for none.</param>
+    public ImageViewerForm(Image source, string title, string exportName = "image", string? editIn = null)
     {
         image = new Bitmap(source);
         this.exportName = exportName;
@@ -45,6 +50,7 @@ sealed class ImageViewerForm : Form
             Ui.FlatButton("−", () => Step(-1, null), tip: "Zoom out by 25% (− or the mouse wheel)."),
             Ui.FlatButton("+", () => Step(1, null), tip: "Zoom in by 25% (+ or the mouse wheel)."),
             fullBtn,
+            .. (editIn != null ? new[] { Ui.FlatButton("Edit in " + editIn, () => { EditRequested = true; Close(); }, tip: $"Close this and open the map in {editIn}; each save there comes back into the Model tab (E).") } : []),
             Ui.FlatButton("Export", Export, tip: "Save the picture as a PNG at its real size (what's shown here, whatever the zoom): e.g. a snapshot, or a replacement .DDS decoded, to compare them (Ctrl+S)."),
             Ui.FlatButton("Close", Close, tip: "Close the viewer (Esc)."),
         ]);
@@ -72,6 +78,7 @@ sealed class ImageViewerForm : Form
             {
                 case Keys.Escape: if (FormBorderStyle == FormBorderStyle.None) ToggleFull(); else Close(); break;
                 case Keys.F11: ToggleFull(); break;
+                case Keys.E when !e.Control && editIn != null: EditRequested = true; Close(); break;
                 case Keys.S when e.Control: Export(); break;
                 case Keys.Oemplus: case Keys.Add: Step(1, null); break;
                 case Keys.OemMinus: case Keys.Subtract: Step(-1, null); break;

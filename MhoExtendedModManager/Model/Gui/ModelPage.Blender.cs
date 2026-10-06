@@ -89,6 +89,7 @@ sealed partial class ModelPage
     {
         blenderWatch?.Dispose(); blenderWatch = null;
         paintWatch?.Dispose(); paintWatch = null;
+        StopImageWatches();
         blenderDelay.Stop(); blenderDelay.Dispose();
         rigWatch?.Dispose(); rigWatch = null;
         rigDelay.Stop(); rigDelay.Dispose();

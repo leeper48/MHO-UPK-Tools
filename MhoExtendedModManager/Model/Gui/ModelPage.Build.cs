@@ -22,6 +22,7 @@ sealed partial class ModelPage
         if (picked.Count == 0) { Log("Tick at least one part."); return false; }
         string? print = Fingerprint();
         bool ok = false;
+        using var busy = Busy.Begin($"Model: building onto {ChosenPackage?.Key}");
         var options = new ImportOptions { Parts = string.Join(",", picked), Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
             MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
             MaterialOverrides = OverridesFile(),
@@ -71,6 +72,7 @@ sealed partial class ModelPage
         float size = sizeSlider.Value;
         string? print = Fingerprint();
         bool ok = false;
+        using var busy = Busy.Begin($"Model: building onto {ChosenPackage?.Key}");
         building = true; UpdateStatus();
         log.Clear();
         string current = ModCopy(pkg.Key) ?? StartPackage(pkg.Key), start = StartPackage(pkg.Key);
@@ -255,6 +257,7 @@ sealed partial class ModelPage
         if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return;
         var picked = SelectedParts();
         if (picked.Count == 0) { Log("Tick at least one part."); return; }
+        using var busy = Busy.Begin(openInBlender ? "Model: exporting for Blender" : "Model: exporting FBX");
         // Blender first (0.16.6, Kurt): none found = ask for one before anything is exported
         if (openInBlender && BlenderLaunch.Find() == null)
         {

@@ -138,9 +138,10 @@ sealed partial class ModelPage
             string? mff = (Settings.App ?? MhoExtendedModManager.Settings.Load()).MffFolder;
             model.DropDownItems.Add(new ToolStripMenuItem("Change MFF Folder", null, (_, _) =>
             {
-                using var d = new FolderBrowserDialog { Description = "Your MFF rip folder (it holds Models\\Models and Texture2D); read only", UseDescriptionForTitle = true, InitialDirectory = mff ?? "" };
+                using var d = new FolderBrowserDialog { Description = "Your MFF rip folder (it holds Models\\Models or Models, and Texture2D); read only", UseDescriptionForTitle = true, InitialDirectory = mff ?? "" };
                 if (d.ShowDialog(owner) != DialogResult.OK) return;
                 Settings.Change(s => s.MffFolder = d.SelectedPath);
+                Source.ForgetLayouts();
                 Settings.Reset();
                 changed();
             }) { ToolTipText = "Now: " + (mff ?? "not set") + ". Only read, never changed." });
@@ -152,6 +153,23 @@ sealed partial class ModelPage
                 Settings.Current.BlenderPath = d.FileName; Settings.Current.Save();
                 changed();
             }) { ToolTipText = "The Blender that Open in Blender starts (the newest with the MHO Actions add-on unless you pick one)." });
+            // the image editor the Materials tab opens maps in (Kurt, 2026-10-06)
+            string? editor = ImageEditor.Find();
+            var editors = new ToolStripMenuItem($"Choose Image Editor ({(editor != null ? ImageEditor.Describe(editor) : "None Found")})") { ToolTipText = "The program the Materials tab's Edit in Image Editor opens a map in (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita, Paint.NET, or any other). Each save there comes back into the Model tab." };
+            foreach (var ed in ImageEditor.Installed())
+            {
+                string e2 = ed;
+                editors.DropDownItems.Add(new ToolStripMenuItem(ImageEditor.Describe(ed), null, (_, _) => { Settings.Current.ImageEditorPath = e2; Settings.Current.Save(); changed(); })
+                { Checked = editor != null && editor.Equals(ed, StringComparison.OrdinalIgnoreCase), ToolTipText = ed });
+            }
+            editors.DropDownItems.Add(new ToolStripMenuItem("Another Program", null, (_, _) =>
+            {
+                using var d = new OpenFileDialog { Title = "Your image editor's program file", Filter = "Programs (*.exe)|*.exe", InitialDirectory = Path.GetDirectoryName(editor ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)) };
+                if (d.ShowDialog(owner) != DialogResult.OK) return;
+                Settings.Current.ImageEditorPath = d.FileName; Settings.Current.Save();
+                changed();
+            }) { ToolTipText = "Pick the .exe of any image editor that opens a PNG file given to it." });
+            model.DropDownItems.Add(editors);
             if (exe != null && BlenderLaunch.CanOfferAddon(exe))
                 model.DropDownItems.Add(new ToolStripMenuItem("Install the MHO Actions Add-On", null, async (_, _) =>
                 {

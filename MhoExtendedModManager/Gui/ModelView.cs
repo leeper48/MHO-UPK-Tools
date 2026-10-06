@@ -410,6 +410,21 @@ sealed class ModelView : UserControl
     // ---------------------------------------------------------------- the renderer
 
     int W, H;
+    /// <summary>The model section drawn at a point of the view in the last frame (the triangle buffer, stretched to the view as
+    /// drawn); -1 for the background (Kurt, 2026-10-06: Ctrl+click picks the material in the Model tab's Materials).</summary>
+    public int SectionAt(Point at)
+    {
+        var c = canvas.ClientSize;
+        int w = W, h = H; var tri = gTri; var sec = triSection;
+        if (w <= 0 || h <= 0 || c.Width <= 0 || c.Height <= 0 || tri.Length != w * h) return -1;
+        int x = at.X * w / c.Width, y = at.Y * h / c.Height;
+        if (x < 0 || y < 0 || x >= w || y >= h) return -1;
+        int t = tri[y * w + x];
+        if (t < 0) return -1;
+        t &= ~(1 << 30);
+        return t < sec.Length ? sec[t] : -1;
+    }
+
     int[] color = [];
     float[] depth = [];                      // 1/z: larger is nearer, 0 = empty
     int[] gTri = [];                         // triangle index per pixel (-1: none; bit 30: seen from behind)

@@ -228,13 +228,15 @@ sealed partial class MainForm
         if (builtFile == null) { CloseEditor(); return 1; }
         if (page.TestHasRig && !await page.TestRigWatch(say)) { CloseEditor(); return 1; }
         string? liveRig = page.TestLiveRig;
+        bool imageEdit = mff == "-" || Environment.GetEnvironmentVariable("MHO_TEST_EDITOR") != "1" || await page.TestImageEdit(say);   // (no source: the package-texture test ran instead)
         byte[] builtBytes = File.ReadAllBytes(builtFile);   // the work folder goes with the editor
         await editor.SaveForTest();
         await Task.Delay(500);
         var saved = lib?.Find(modName);
         int fails = 0;
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
-        Check(page.TestUnbuilt, "the Model tab tells built and unbuilt changes apart");
+        if (mff != "-") Check(page.TestUnbuilt, "the Model tab tells built and unbuilt changes apart");
+        Check(imageEdit, "the image editor's save is taken in (MHO_TEST_EDITOR)");
         Check(saved != null, "the mod is still in the library");
         if (saved != null)
         {

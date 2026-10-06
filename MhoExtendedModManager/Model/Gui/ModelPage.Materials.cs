@@ -45,8 +45,22 @@ sealed partial class ModelPage
         matGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; matGrid.MultiSelect = false;
         matGrid.ShowCellToolTips = true;
         Ui.StyleGrid(matGrid);
-        Ui.Tip(matGrid, "Each material's maps and where they come from. Double-click a row to see its map large (made ones too: generated, converted, from your tags); pick a row, then Use a File to put in your own.");
+        Ui.Tip(matGrid, "Each material's maps and where they come from. Double-click a row to see its map large (made ones too: generated, converted, from your tags); right-click a row to view, edit in your image editor, use a file or go back to automatic. Ctrl+click the model in the preview to pick its material.");
         matGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) _ = ViewMap(e.RowIndex); };   // (Kurt, 2026-10-04: was Use a File)
+        // right-click (Kurt, 2026-10-06): the row selected, then its menu: view large, edit, a file, back to automatic
+        matGrid.CellMouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Right || e.RowIndex < 0) return;
+            matGrid.CurrentCell = matGrid.Rows[e.RowIndex].Cells[Math.Max(0, e.ColumnIndex)];
+            var m = new ContextMenuStrip();
+            int row = e.RowIndex;
+            m.Items.Add(new ToolStripMenuItem("View Large", null, (_, _) => _ = ViewMap(row)) { ToolTipText = "The map large, with zoom and Export as PNG (also: double-click the row)." });
+            m.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditMapExternally()) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in your image editor; each save there comes back here." });
+            m.Items.Add(new ToolStripMenuItem("Use a File", null, (_, _) => UseMapFile()) { Enabled = matUse.Enabled, ToolTipText = "Puts in an image of yours for this map." });
+            m.Items.Add(new ToolStripMenuItem("Back to Automatic", null, (_, _) => MapBackToAutomatic()) { Enabled = matAuto.Enabled, ToolTipText = "Forgets your file for this map." });
+            m.Closed += (_, _) => BeginInvoke(m.Dispose);
+            m.Show(matGrid, matGrid.PointToClient(Cursor.Position));
+        };
         matGrid.CurrentCellChanged += (_, _) => { if (!fillingMat) MatSelectionChanged(); };
         matUse = Ui.FlatButton("Use a File", UseMapFile, "Puts your own image (PNG, JPG or BMP) in for the selected map: copied into the mod's Model folder; the preview, Build and Export FBX use it. Undo (Ctrl+Z) takes it back. MHO Spec takes a map in the game's own packed layout (R shine, G spec power, B skin mask, A reflectivity), put in as it is with Angela's armor material; Spec Color tints its highlights.");
         matAuto = Ui.FlatButton("Back to Automatic", MapBackToAutomatic, "Forgets your file for the selected map (a Normal row: the green flip too); the importer's own choice is used again.");
@@ -72,7 +86,8 @@ sealed partial class ModelPage
         matExport = Ui.FlatButton("Export Maps", () => _ = ExportMaps(null), "Saves every material's maps as PNG files into a folder you pick, the ones the importer makes too (generated normal and spec maps, MHO spec maps converted or made from your tags, glow maps): <material>.png, _n, _sp, _mhospec (with its gray channel files), _speccolor, _glow, _alpha. The names the FBX import reads, so they can be edited and used again.");
         Icons.Make(matExport, "Export Maps", Icons.Export, sc);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        foreach (var b in new[] { matUse, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
+        EditButton();
+        foreach (var b in new[] { matUse, matEdit, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
         // what the preview shows (Kurt, 2026-10-04: moved here from Look ▾): the model lit, or one map on its own
         var showMap = new DropDown { Width = (int)(200 * DeviceDpi / 96f), Margin = new Padding(0, 0, 0, 0) };
         showMap.Items.AddRange([.. ShowMapChoices.Select(x => (object)x.Label)]);
@@ -88,6 +103,21 @@ sealed partial class ModelPage
         return Column("", head, matGrid);
     }
 
+    /// <summary>Ctrl+click on the model in the Materials tab: that material's first row (the color map) selected and shown.</summary>
+    void SelectMaterialRow(string material)
+    {
+        for (int i = 0; i < matGrid.Rows.Count; i++)
+        {
+            string? m = matGrid.Rows[i].Tag switch { ValueTuple<string, string> t => t.Item1, PackageMap pm => pm.Material, _ => null };
+            if (m == null || !m.Equals(material, StringComparison.OrdinalIgnoreCase)) continue;
+            matGrid.CurrentCell = matGrid.Rows[i].Cells["material"];
+            matGrid.FirstDisplayedScrollingRowIndex = i;
+            Log($"Materials: {material} (Ctrl+click)");
+            return;
+        }
+        Log($"Materials: {material} isn't in the list.");
+    }
+
     /// <summary>The material list as the preview made it (after the overrides).</summary>
     void FillMaterials()
     {
@@ -96,6 +126,7 @@ sealed partial class ModelPage
         try
         {
         matGrid.Rows.Clear();
+        if (!HasSource && packageMaps != null) FillPackageMaps();   // no source: the shown package's own textures
         var ov = OverridesFile() is string p ? MaterialOverrides.Load(p) : new MaterialOverrides();
         foreach (var (mat, tex) in shownMaterials)
         {
@@ -153,6 +184,8 @@ sealed partial class ModelPage
         var sel = SelectedMap();
         bool any = sel != null && OverridesPath() != null;
         matUse.Enabled = any;
+        if (matEdit != null) matEdit.Enabled = any && SelectedMapFile() != null;
+        if (SelectedPackageMap() != null) { matUse.Enabled = true; if (matEdit != null) matEdit.Enabled = true; }
         var e = sel is { } s && OverridesFile() is string p && MaterialOverrides.Load(p).Materials.TryGetValue(s.Material, out var x) ? x : null;
         matAuto.Enabled = any && e != null && (sel!.Value.Kind switch { "Color" => e.Color != null, "Normal" => e.Normal != null || e.FlipGreen, "Spec" => e.Spec != null || e.SpecRecipe != null, "MHO Spec" => e.SpecMho != null, "Spec Color" => e.SpecColor != null, "Glow" => e.Glow != null || e.GlowOff, _ => e.Alpha != null });
         bool glowRow = sel?.Kind == "Glow";
@@ -198,6 +231,7 @@ sealed partial class ModelPage
     /// <param name="file">The image (tests); null = ask with a file dialog.</param>
     void UseMapFile(string? file)
     {
+        if (SelectedPackageMap() is { } pm) { if (file != null) ReplacePackageMap(pm, file); else UsePackageMapFile(pm); return; }
         if (SelectedMap() is not { } sel || OverridesPath() is not string path) return;
         if (file == null)
         {
@@ -327,6 +361,25 @@ sealed partial class ModelPage
     /// <summary>Double-click: the row's map, large (Kurt, 2026-10-04), in the image viewer (zoom, pan, Export).</summary>
     async Task ViewMap(int row)
     {
+        if (row >= 0 && row < matGrid.Rows.Count && matGrid.CurrentCell?.RowIndex != row) matGrid.CurrentCell = matGrid.Rows[row].Cells["material"];
+        // the viewer's Edit in … button (Kurt, 2026-10-06): when this row can be edited and an editor is there
+        string? editIn = matEdit.Enabled && ImageEditor.Find() is string ed ? ImageEditor.Describe(ed) : null;
+        if (matGrid.Rows[row].Tag is PackageMap pm)
+        {
+            // a texture of the package itself (no source): decoded from the package
+            string png = Path.Combine(MapsCache, "package_" + FbxExport.SafeName(pm.Texture) + "_" + Guid.NewGuid().ToString("N")[..6] + ".png");
+            bool made;
+            try { made = await Task.Run(() => ExportPackageMap(pm, png)); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Materials: {pm.Texture} couldn't be read: {ex.Message}"); return; }
+            if (!made || IsDisposed) return;
+            bool editPkg;
+            using (var pimg = Image.FromFile(png))
+            using (var pv = new ImageViewerForm(pimg, $"{pm.Material} · {pm.Kind} ({pm.Texture}, {pimg.Width} × {pimg.Height})", FbxExport.SafeName(pm.Texture), editIn))
+            { pv.ShowDialog(this); editPkg = pv.EditRequested; }
+            try { File.Delete(png); } catch (IOException) { }
+            if (editPkg) EditMapExternally();
+            return;
+        }
         if (matGrid.Rows[row].Tag is not ValueTuple<string, string> t) return;
         var (mat, kind) = t;
         var tex = shownMaterials.FirstOrDefault(m => m.Material == mat).Tex;
@@ -336,9 +389,11 @@ sealed partial class ModelPage
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Materials: {mat}'s {kind.ToLowerInvariant()} map couldn't be made: {ex.Message}"); return; }
         if (IsDisposed) return;
         if (file == null) { Log($"Materials: {mat} has no {kind.ToLowerInvariant()} map ({matGrid.Rows[row].Cells["from"].Value})."); return; }
-        using var img = Image.FromFile(file);
-        using var v = new ImageViewerForm(img, $"{mat} · {kind} Map ({img.Width} × {img.Height})", $"{FbxExport.SafeName(mat)}_{kind.ToLowerInvariant().Replace(" ", "")}");
-        v.ShowDialog(this);
+        bool editIt;
+        using (var img = Image.FromFile(file))
+        using (var v = new ImageViewerForm(img, $"{mat} · {kind} Map ({img.Width} × {img.Height})", $"{FbxExport.SafeName(mat)}_{kind.ToLowerInvariant().Replace(" ", "")}", editIn))
+        { v.ShowDialog(this); editIt = v.EditRequested; }
+        if (editIt) EditMapExternally();
     }
 
     /// <summary>Test: the image the row's map stands for (null = none).</summary>

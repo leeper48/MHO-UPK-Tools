@@ -9,6 +9,9 @@ sealed partial class ModelPage
     internal async Task<string?> TestBuild(string mff, string package, Action<string> say)
     {
         if (!await TestPick(mff, package, say)) return null;
+        // MHO_TEST_PKGMAPS=1 with no source ("-"): the package's own textures listed, one edited in the image editor (MHO_TEST_EDITOR)
+        if (mff == "-" && Environment.GetEnvironmentVariable("MHO_TEST_PKGMAPS") == "1")
+            return await TestPackageMaps(say) ? built.GetValueOrDefault(package) : null;
         // MHO_TEST_SIZE=1.2: the Size slider set before the build (its Scale is checked after)
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts))
         { sizeSlider.Value = ts; preview.Size = ts; }

@@ -206,7 +206,8 @@ sealed partial class MainForm : Form
         updateAlert.Visible = false;
         topButtons.Controls.AddRange([newMod, install]);   // (one Extract: the tab, Kurt)
         var helpButton = Ui.FlatButton("Help", () => HelpForm.Show(this, settings), tip: "The manual: how everything works, shortcuts, troubleshooting (F1).");
-        rightButtons.Controls.AddRange([updateAlert, helpButton, settingsButton]);
+        var spinner = new Spinner { Anchor = AnchorStyles.None, Margin = new Padding(0, 8, 8, 0) };   // anything running in the background (Kurt, 2026-10-06)
+        rightButtons.Controls.AddRange([spinner, updateAlert, helpButton, settingsButton]);
         writeControls.AddRange([newMod, install]);
         tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
         tips.SetToolTip(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");

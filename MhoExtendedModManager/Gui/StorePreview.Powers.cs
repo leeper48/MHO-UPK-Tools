@@ -29,6 +29,7 @@ sealed partial class StorePreview
         var specs = fx.Actors.ToList();
         Task.Run(() =>
         {
+            using var busy = Busy.Begin("3D view: loading the power's characters");
             var list = new List<(Fx.PowerEffects.Actor, ModMeshes.Loaded, MeshAnimator, AnimExportCli.Animation.BoneAnimation?)>();
             foreach (var s in specs)
                 try
@@ -81,6 +82,7 @@ sealed partial class StorePreview
         fxNote = "Reading Powers…"; Invalidate();
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
+            using var busy = Busy.Begin("3D view: reading the power's effects");
             var db = dbt.Result;
             if (db == null) return ((Fx.PowerEffects?)null, "", (Dictionary<string, (string, System.Numerics.Matrix4x4)>?)null, "", (Func<Fx.PowerEffects.Effect, bool>?)null);
             var idx = Fx.PowerIndex.For(hero, cooked, modFiles, db);
@@ -393,6 +395,7 @@ sealed partial class StorePreview
         var names = allAnims.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
+            using var busy = Busy.Begin("3D view: listing the powers");
             if (dbt.Result is not { } db) return (Play: new List<Fx.PowerList.Power>(), All: new List<Fx.PowerList.Power>());
             // All: with the powers that have effects but no animation (the editor's colors); Play: those the preview can play.
             var all = Fx.PowerList.For(db, hero, cooked, modFiles, effectOnly: true);

@@ -138,9 +138,16 @@ sealed partial class PreviewPanel : UserControl
         view.Controls[0].MouseDown += (_, e) =>
         {
             if (e.Button != MouseButtons.Left || (ModifierKeys & Keys.Control) == 0) return;
+            // the Materials tab (Kurt, 2026-10-06): Ctrl+click picks the material under the mouse
+            if (PickMaterials)
+            {
+                int sec = view.SectionAt(e.Location);
+                if (shown != null && sec >= 0 && sec < shown.SectionNames.Count && shown.SectionNames[sec].Length > 0) MaterialPicked?.Invoke(shown.SectionNames[sec]);
+                return;
+            }
             if (PickBone(e.Location, view.Controls[0].ClientSize) is string bone) BonePicked?.Invoke(bone);
         };
-        Ui.Tip(view.Controls[0], "Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to frame. Ctrl+click a bone to pick it in the Bone Map tab.");
+        Ui.Tip(view.Controls[0], "Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to frame. Ctrl+click a bone to pick it in the Bone Map tab; on the Materials tab, Ctrl+click the model to pick that material.");
     }
 
     static Control Strip(Control? fill, params Control[] buttons)
@@ -613,6 +620,18 @@ sealed partial class PreviewPanel : UserControl
         string? picked = PickBone(Point.Round(at), size);
         if (picked != null) BonePicked?.Invoke(picked);
         return picked;
+    }
+
+    /// <summary>Ctrl+click picks a material (the Materials tab is showing) instead of a bone.</summary>
+    public bool PickMaterials { get; set; }
+    /// <summary>A material was Ctrl+clicked in the view (its name, as the Materials tab lists it).</summary>
+    public event Action<string>? MaterialPicked;
+    /// <summary>Test: the material a Ctrl+click at the view's middle picks (null: background).</summary>
+    public string? TestMaterialAtCenter()
+    {
+        var c = view.Controls[0].ClientSize;
+        int sec = view.SectionAt(new Point(c.Width / 2, c.Height / 2));
+        return shown != null && sec >= 0 && sec < shown.SectionNames.Count ? shown.SectionNames[sec] : null;
     }
 
     /// <summary>A bone was Ctrl+clicked in the view (its MHO name).</summary>

@@ -22,6 +22,8 @@ sealed partial class PreviewPanel
         public BoneMapFile? Map { get; init; }
         /// <summary>Each material and its maps as used (after the Materials tab's overrides), for the Materials tab.</summary>
         public List<(string Material, Textures Tex)> MaterialList { get; init; } = [];
+        /// <summary>Each section's material name (Ctrl+click in the Materials tab picks its row).</summary>
+        public List<string> SectionNames { get; init; } = [];
         /// <summary>The MHO skeleton's bone names (the Bone Map tab's choices) and each one's parent (-1 = root).</summary>
         public List<string> MhoBones { get; init; } = [];
         public List<int> MhoParents { get; init; } = [];
@@ -149,7 +151,20 @@ sealed partial class PreviewPanel
             TargetOnly = true, MhoBones = sk.Bones.Select(b => b.Name).ToList(),
             MhoParents = sk.Bones.Select((b, i) => b.ParentIndex == i ? -1 : b.ParentIndex).ToList(),
             PackagePath = packagePath, PackageMeshes = pkgMeshes, MainRef = mr,
+            SectionNames = TargetSectionNames(packagePath, mr),
         };
+    }
+
+    /// <summary>The target model's sections' material names (its own materials; an imported one by name).</summary>
+    static List<string> TargetSectionNames(string packagePath, MeshRef mr)
+    {
+        try
+        {
+            var pkg = MhoPackageModifier.Package.Open(mr.File);
+            return ModMeshes.SectionMaterials(mr).Select(x => x.Material > 0 && x.Material <= pkg.Exports.Length ? pkg.Exports[x.Material - 1].ObjectName
+                : x.Material < 0 ? pkg.RefName(x.Material) : "").ToList();
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or IndexOutOfRangeException) { return []; }
     }
 
     // --- per package: the hero's animation list and own mesh don't change with the model or its materials (the performance
@@ -236,6 +251,7 @@ sealed partial class PreviewPanel
             MhoParents = sk.Bones.Select((b, i) => b.ParentIndex == i ? -1 : b.ParentIndex).ToList(),
             PackagePath = packagePath, PackageMeshes = pkgMeshes, MainRef = mr,
             MaterialList = r.Sections.GroupBy(x => x.Material).Select(g => (g.Key, g.First().Tex)).ToList(),
+            SectionNames = r.Sections.Select(x => x.Material).ToList(),
         };
     }
 

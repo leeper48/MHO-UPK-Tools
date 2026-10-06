@@ -1,6 +1,29 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.187
+- Manual: a walkthrough with a screenshot, Edit a Model's Textures in Your Image Editor; the What's New notice for the Model tab's new formats, image editor, busy ring and MFF folder layouts.
+
+0.37.186
+- Model tab: the MFF folder can be laid out in more ways: models in Models\Models, Models, or right in the picked folder; textures in Texture2D, Texture2D\Texture2D, Textures, or beside a picked Models folder. Each is found.
+
+0.37.185
+- Model tab → Materials: the large map viewer (double-click a row) has Edit in <your image editor> (or press E): it closes the viewer and opens that map in the editor.
+
+0.37.184
+- Edit in Image Editor: the hint for GIMP says to export with Ctrl+E (it writes over the PNG); Ctrl+S only saves GIMP's own .xcf, which the app doesn't see.
+
+0.37.183
+- Model tab → Materials: right-click a row for View Large, Edit in Image Editor, Use a File and Back to Automatic. Double-click (View Large) now also opens the package's own textures (no source picked).
+
+0.37.182
+- Model tab → Materials with no source picked: the shown package's own textures are listed (a model built into the mod earlier, such as an MFF character, or the game's), with Edit in Image Editor and Use a File. A change goes right into the mod's copy of the package, encoded like the original (DXT1 / DXT5, its size, with mipmaps); the preview shows the mod's package as it is now.
+- Model tab → Materials: Ctrl+click the model in the preview to select the material under the mouse (models with several materials). On the other tabs Ctrl+click still picks a bone.
+
+0.37.181
+- New: a busy ring. One in the top bar turns while anything runs in the background (3D models, animations and effects loading, the Model tab's preview, builds, exports, Blender), one beside the Model tab's status for its own work; point at it to see what's running.
+- Model tab → Materials: Edit in Image Editor opens the selected map in your image editor (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita and Paint.NET are found; Settings → Model → Choose Image Editor picks one or any other program). Every save there comes back into the tab as that map, like Use a File; Back to Automatic or Undo takes it back.
+
 0.37.180
 - Model tab: Single Model reads more kinds of model: OBJ, DAE (Collada) and STL directly, and Blender files (.blend) and XNALara / XPS models (.xps, .mesh, .mesh.ascii) through Blender, which makes an FBX of them once (until the file changes). XPS models come with their skeleton, weights and textures; an MFF character saved as XPS (Bip001 bones) is read as an MFF character. Browse for an FBX is now Browse for a Model.
 

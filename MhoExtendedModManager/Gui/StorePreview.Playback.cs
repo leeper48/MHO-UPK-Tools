@@ -32,7 +32,7 @@ sealed partial class StorePreview
         string? cooked = CookedFolder;
         string key = r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File) + (overridesOff ? "|plain" : "");
         bool plain = overridesOff;
-        Task.Run(() => { try { var l = ModMeshes.Load(r, cooked, out string why, componentMaterials: !plain); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
+        Task.Run(() => { using var busy = Busy.Begin("3D view: loading the model"); try { var l = ModMeshes.Load(r, cooked, out string why, componentMaterials: !plain); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || viewer == null) return;
             var (loaded, why) = t.Result;
@@ -58,7 +58,7 @@ sealed partial class StorePreview
             var m = mod; string? cooked2 = CookedFolder;
             var pkgs = m == null ? [] : m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))).ToList();
             int req2 = request;
-            Task.Run(() => { try { return ModAnimations.For(r, l.Bones, pkgs, cooked2); } catch { return []; } }).ContinueWith(t =>
+            Task.Run(() => { using var busy = Busy.Begin("3D view: reading the animations"); try { return ModAnimations.For(r, l.Bones, pkgs, cooked2); } catch { return []; } }).ContinueWith(t =>
             {
                 if (IsDisposed || req2 != request || mod?.FolderName != m?.FolderName) return;   // (a reload of the same mod is a new object)
                 anims = allAnims = t.Result;

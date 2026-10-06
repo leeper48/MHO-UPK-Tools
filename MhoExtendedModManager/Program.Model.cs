@@ -13,6 +13,15 @@ static partial class Program
     {
         switch (cmd)
         {
+            case "--mff-layout":
+                // read-only: where an MFF rip folder keeps its model folders and textures (Models\Models or Models, Texture2D …)
+                foreach (string f in rest.Skip(1)) { var (m, t) = MhoExtendedModManager.Model.Source.Layout(f); Console.WriteLine($"{f}\n  models:   {m}\n  textures: {t}"); }
+                return 0;
+            case "--image-editors":
+                // read-only: the image editors found installed, and the one the Materials tab uses
+                foreach (var ed in MhoExtendedModManager.Model.ImageEditor.Installed()) Console.WriteLine($"{MhoExtendedModManager.Model.ImageEditor.Describe(ed)}: {ed}");
+                Console.WriteLine("uses: " + (MhoExtendedModManager.Model.ImageEditor.Find() ?? "none"));
+                return 0;
             case "--model-convert":
             {
                 // --model-convert <model file>... (read-only on the files): each one as Single Model reads it: a .blend / XPS

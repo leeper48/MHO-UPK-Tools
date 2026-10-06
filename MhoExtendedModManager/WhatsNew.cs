@@ -27,7 +27,21 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.187 (Kurt, 2026-10-06): more model formats, your image editor, the busy ring, MFF folder layouts.</summary>
+    static Notice FormatsAndEditors() => new(
+        "0.37.187-formats-editors", "0.37.187",
+        "New in the Editor's Model tab:" + nl + nl +
+        "• More model files: Single Model takes OBJ, DAE, STL, Blender (.blend) and XNALara / XPS (.xps, .mesh, .mesh.ascii) as well as FBX." + nl + nl +
+        "• Your image editor: Materials → the pencil (or right-click a row, or Edit in … in the large view) opens a map in GIMP, Photoshop, Corel PHOTO-PAINT and others; every save there comes back to the model. Settings → Model → Choose Image Editor picks one." + nl + nl +
+        "• With no source picked, the Materials tab lists the textures of the model already in the package, to edit them right there. Ctrl+click the model to pick its material." + nl + nl +
+        "• A busy ring turns while things load or build in the background (top right, and beside the Model tab's status)." + nl + nl +
+        "• The MFF folder can be laid out as Models\\Models or just Models, with Texture2D or Textures." + nl + nl +
+        "[!] These features are experimental. Test your builds in game before sharing them." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
+        "The manual's Walkthroughs show each step (Help, or F1); Settings → What's New shows this notice and the earlier ones.",
+        "w-textures");
 
     /// <summary>0.37.179 (Kurt, 2026-10-06): size in game, NPC / enemy / team-up models and effects, Blender texture paint.</summary>
     static Notice SizeAndNpcs() => new(
