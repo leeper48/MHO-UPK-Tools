@@ -74,6 +74,10 @@ static class AutoRig
     /// <summary>Whether the FBX's meshes are skinned to bones at all.</summary>
     public static bool HasArmature(string fbx) => SkeletonProfile.Open(fbx) is { } s && s.Meshes.Any(m => m.BoneCount > 0);
 
+    /// <summary>How many of the bones the FBX's meshes are skinned to have MHO names (g_…).</summary>
+    public static int MhoBoneCount(string fbx) => SkeletonProfile.Open(fbx) is { } s
+        ? s.Meshes.SelectMany(m => m.Bones).Select(b => b.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count(n => n.StartsWith("g_", StringComparison.OrdinalIgnoreCase)) : 0;
+
     /// <summary>The meshes in the hero's model space, each vertex on g_pelvis for now (step 1).</summary>
     public static Retargeted Fit(string fbx, MhoSkeleton sk, List<string> notes)
     {

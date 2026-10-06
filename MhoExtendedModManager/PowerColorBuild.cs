@@ -17,7 +17,7 @@ static class PowerColorBuild
         var wanted = draft.PowerColors.Where(e => !e.Color.IsNone).ToList();
         if (wanted.Count == 0 && before.Count == 0) { draft.PowerColors.Clear(); return null; }
         string? hero = draft.Packages.Select(p => HeroOf.Package(p.File, game.Cooked)).FirstOrDefault(h => h != null);
-        if (wanted.Any(e => !IsOwn(e.Power)) && hero == null) throw new InvalidDataException("the mod has no hero package (UC__MarvelPlayer_…) to tell whose powers these are");
+        if (wanted.Any(e => !IsOwn(e.Power) && e.Owner == null) && hero == null) throw new InvalidDataException("the mod has no hero package (UC__MarvelPlayer_…) to tell whose powers these are");
         if (wanted.Any(e => !IsOwn(e.Power)) || before.Count > beforeOwn.Count)
             powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(game.Root, "Data", "Game", "Calligraphy.sip")));
         string ModelFolder()
@@ -36,7 +36,9 @@ static class PowerColorBuild
         foreach (var e in wanted)
         {
             e.Packages = [];
-            foreach (string f in IsOwn(e.Power) ? [e.Power[OwnPrefix.Length..]] : PowerRecolor.PackagesOf(powerDb!, e.Power, hero!, game.Cooked))
+            foreach (string f in IsOwn(e.Power) ? [e.Power[OwnPrefix.Length..]]
+                : e.Owner != null ? PowerRecolor.PackagesOfAgent(powerDb!, e.Power, ClassOf(e.Owner), game.Cooked)
+                : PowerRecolor.PackagesOf(powerDb!, e.Power, hero!, game.Cooked))
             {
                 if (assigned.TryGetValue(f, out var other))
                 {
@@ -115,6 +117,14 @@ static class PowerColorBuild
             return Directory.EnumerateFiles(cooked, want).Select(Path.GetFileName).FirstOrDefault(f => f!.Equals(want, StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>A package's character class: UC__MarvelAgent_CloneWolverine_SF.upk → MarvelAgent_CloneWolverine.</summary>
+    public static string ClassOf(string file)
+    {
+        string stem = Path.GetFileNameWithoutExtension(file);
+        if (stem.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) stem = stem[4..];
+        return stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
     }
 
     /// <summary>An NPC, enemy or team-up package: its own effects can be recolored (a team-up's hologram too).</summary>

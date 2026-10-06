@@ -14,6 +14,9 @@ sealed class PowerColorEntry
     public float Hue { get; set; }
     public float Saturation { get; set; } = 1;
     public float Brightness { get; set; } = 1;
+    /// <summary>An NPC's or enemy's power (Fx.AgentPowers): the mod's package of that character; null for a hero's.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Owner { get; set; }
     /// <summary>The Opacity slider (1 = as the game has it; 0 = the effects off).</summary>
     public float Opacity { get; set; } = 1;
     public List<string> Packages { get; set; } = [];

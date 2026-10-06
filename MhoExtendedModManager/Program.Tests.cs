@@ -260,6 +260,48 @@ static partial class Program
                 Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} emitters that draw: {before} → {after}");
                 return ok ? 0 : 1;
             }
+            case "--agent-color-test":
+            {
+                // Test (scratch library only): an NPC's / enemy's power colored (Powers tab: its powers under its Own Effects),
+                // saved: the packages are the power's (PackagesOfAgent), the character's own package untouched; then off again.
+                // --agent-color-test <mod> <character package file> <power name part>
+                string? ahome = Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
+                if (ahome == null || Path.GetFullPath(ahome).Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("Set MHO_EXTMM_HOME to a scratch folder."); return 2; }
+                var am = rest.Count > 3 ? lib.Find(rest[1]) : null;
+                string? agr3 = settings.ResolvedGameRoot(data);
+                if (am == null || agr3 == null) { Console.WriteLine("--agent-color-test <mod> <character package> <power name part>"); return 1; }
+                var ag = new GameState(agr3, data);
+                Fx.GameData? adb3 = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(agr3, "Data", "Game", "Calligraphy.sip")));
+                string acls = PowerColorBuild.ClassOf(rest[2]);
+                var apw = Fx.AgentPowers.List(adb3, acls, ag.Cooked, "x").FirstOrDefault(x => x.Name.Contains(rest[3], StringComparison.OrdinalIgnoreCase));
+                int afails = 0;
+                void ACheck(string what, bool ok) { if (!ok) afails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}"); }
+                ACheck($"power '{rest[3]}' of {acls}: {apw?.Prototype}", apw != null);
+                if (apw == null) return 1;
+                byte[] ownBefore = File.ReadAllBytes(Path.Combine(am.Folder, rest[2]));
+                int countBefore = am.Manifest.UpkReplacements.Count;
+                var ad = ModDraft.From(am);
+                ad.PowerColors.Add(new PowerColorEntry { Power = apw.Prototype, Name = apw.Name, Owner = rest[2], Hue = 120 });
+                var alog = new List<string>();
+                PowerColorBuild.Apply(ad, am, lib, ag, ref adb3, alog);
+                string? asaved = ModWriter.Save(lib, ad, am, out string? aerr);
+                alog.ForEach(l => Console.WriteLine("    " + l));
+                ACheck("saved" + (aerr != null ? ": " + aerr : ""), asaved != null);
+                var am2 = ModLibrary.Load(data).Find(rest[1])!;
+                var want = PowerRecolor.PackagesOfAgent(adb3, apw.Prototype, acls, ag.Cooked);
+                var entry = am2.Manifest.PowerColors?.FirstOrDefault(e => e.Power == apw.Prototype);
+                ACheck($"its packages in the mod: {string.Join(", ", entry?.Packages ?? [])}", entry != null && entry.Packages.Count > 0 && entry.Packages.All(f => want.Contains(f) && File.Exists(Path.Combine(am2.Folder, f))));
+                ACheck("the owner is kept with the color", entry?.Owner == rest[2]);
+                ACheck("the character's own package untouched", File.ReadAllBytes(Path.Combine(am2.Folder, rest[2])).AsSpan().SequenceEqual(ownBefore));
+                var ad2 = ModDraft.From(am2);
+                foreach (var e in ad2.PowerColors) { e.Hue = 0; e.Saturation = 1; e.Brightness = 1; e.Maps = null; }
+                PowerColorBuild.Apply(ad2, am2, ModLibrary.Load(data), ag, ref adb3, alog);
+                ModWriter.Save(ModLibrary.Load(data), ad2, am2, out aerr);
+                var am3 = ModLibrary.Load(data).Find(rest[1])!;
+                ACheck($"color off: its packages gone ({am3.Manifest.UpkReplacements.Count} = {countBefore})", am3.Manifest.UpkReplacements.Count == countBefore && am3.Manifest.PowerColors == null);
+                Console.WriteLine(afails == 0 ? "PASS" : $"{afails} FAILED");
+                return afails == 0 ? 0 : 1;
+            }
             case "--fit-icon-test":
             {
                 // Test (scratch folder): a costume image of the wrong size is fitted for a costume move (CostumeMove.FitIcon):

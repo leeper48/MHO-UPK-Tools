@@ -583,6 +583,9 @@ sealed class TextureIndex
             .Where(p => ImageExt.Contains(Path.GetExtension(p).ToLowerInvariant()))
             .GroupBy(p => Path.GetFileName(p).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.OrderBy(p => p.Length).First());
+        // then the folders beside it (Kurt, 2026-10-06: a single model's textures often sit in "..\Textures" next to the
+        // FBX's folder): the parent folder's own images and its other subfolders, two levels down; the model's own folder wins
+        foreach (var (k, v) in Beside(modelFolder)) local.TryAdd(k, v);
         bool mff;
         try { mff = Directory.Exists(Source.Textures); } catch (InvalidOperationException) { mff = false; }   // no MFF folder set: this folder only
         if (!mff) { sharedHere = new(); nearHere = new(); return; }
@@ -591,6 +594,37 @@ sealed class TextureIndex
         lock (gate)
             near ??= shared!.Keys.Where(k => !Regex.IsMatch(k, @"_(sp|alpha)\.png$")).Select(k => k[..^4])
                 .GroupBy(Near).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First());
+    }
+
+    /// <summary>Images in the folders beside <paramref name="modelFolder"/> (its parent's own files and the parent's other
+    /// subfolders, two levels down), nearest first. None for a folder in the MFF repository (its parent holds every model), at a
+    /// drive's top, or in a parent with more than 64 subfolders or 4,000 images (Desktop, Downloads: too much to guess from).</summary>
+    static Dictionary<string, string> Beside(string modelFolder)
+    {
+        var found = new Dictionary<string, string>();
+        try
+        {
+            string full = Path.GetFullPath(modelFolder).TrimEnd('\\', '/');
+            string? parent = Path.GetDirectoryName(full);
+            if (parent == null || Path.GetPathRoot(parent)?.TrimEnd('\\', '/') == parent.TrimEnd('\\', '/')) return found;
+            try
+            {
+                string repo = Path.GetFullPath(Source.Root).TrimEnd('\\', '/');
+                if (full.StartsWith(repo + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return found;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException) { }
+            var opts = new EnumerationOptions { IgnoreInaccessible = true };
+            var subs = Directory.EnumerateDirectories(parent, "*", opts).Where(d => !d.TrimEnd('\\', '/').Equals(full, StringComparison.OrdinalIgnoreCase)).Take(65).ToList();
+            if (subs.Count > 64) return found;
+            var files = Directory.EnumerateFiles(parent, "*", opts).Where(p => ImageExt.Contains(Path.GetExtension(p).ToLowerInvariant())).ToList();
+            foreach (string d in subs.OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+                files.AddRange(Directory.EnumerateFiles(d, "*", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true })
+                    .Where(p => ImageExt.Contains(Path.GetExtension(p).ToLowerInvariant())).Take(4001));
+            if (files.Count > 4000) return found;
+            foreach (string f in files) found.TryAdd(Path.GetFileName(f).ToLowerInvariant(), f);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
+        return found;
     }
 
     static Dictionary<string, string>? near;

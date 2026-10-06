@@ -194,6 +194,8 @@ sealed partial class ModelPage
         public float Size { get; set; } = 1;
         /// <summary>Match Steps to Size: movement animations at 1 / size (StepRate).</summary>
         public bool MatchSteps { get; set; } = true;
+        /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
+        public Dictionary<string, string> BuiltPrints { get; set; } = new();
     }
 
     string StateFile => Path.Combine(host.WorkFolder, "state.json");
@@ -208,6 +210,7 @@ sealed partial class ModelPage
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex), Hair = Math.Max(0, hairBox.SelectedIndex),
             FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked,
+            BuiltPrints = new Dictionary<string, string>(builtPrint),
         };
         try { Directory.CreateDirectory(host.WorkFolder); File.WriteAllText(StateFile, JsonSerializer.Serialize(st, new JsonSerializerOptions { WriteIndented = true })); }
         catch (IOException) { }
@@ -222,13 +225,14 @@ sealed partial class ModelPage
         try { st = JsonSerializer.Deserialize<State>(File.ReadAllText(StateFile)); }
         catch (Exception ex) when (ex is IOException or JsonException) { return; }
         if (st == null) return;
-        foreach (var f in st.Built) built.TryAdd(f, "");   // built in an earlier session: its bytes are the mod's package
+        foreach (var f in st.Built) built.TryAdd(f, "");
+        foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;
         buildFrom.SelectedIndex = st.FromStock ? 1 : 0;
         FillPackages();
         if (st.Package != null) Reselect(packages, st.Package);
         restoring2 = false;
-        if (st.Source == null) return;
+        if (st.Source == null) { if (st.Package != null) AssumeBuilt(); return; }
         pendingState = st;
         if (st.Source.StartsWith("fbx:") || st.Source.StartsWith(MffDir)) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
         else characterFilter.Text = st.Source;
@@ -236,6 +240,14 @@ sealed partial class ModelPage
     }
 
     /// <summary>The rest of the saved choices, once the source has loaded (parts, Smooth, material, Cape / Hair).</summary>
+    /// <summary>A package built before the tab kept build settings (no BuiltPrints entry): its restored settings are taken as
+    /// what it was built with, so later changes count as not built.</summary>
+    void AssumeBuilt()
+    {
+        if (ChosenPackage is CharacterList.Item p && built.ContainsKey(p.Key) && !builtPrint.ContainsKey(p.Key) && Fingerprint() is string fp)
+        { builtPrint[p.Key] = fp; SaveState(); }
+    }
+
     void RestoreState()
     {
         if (pendingState is not { } st || st.Source != chosenKey) return;
@@ -249,6 +261,7 @@ sealed partial class ModelPage
         if (st.Hair < hairBox.Items.Count) hairBox.SelectedIndex = st.Hair;
         sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps;
         restoring2 = false;
+        AssumeBuilt();
         SchedulePreview();
     }
 }

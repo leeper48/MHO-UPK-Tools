@@ -11,12 +11,17 @@ namespace MhoExtendedModManager.Model.Gui;
 sealed partial class ModelPage
 {
     // --- build --------------------------------------------------------------------------------------------------------------------
-    async void Build()
+    async void Build() => await BuildAsync();
+
+    /// <summary>Build into Mod; true when the package went into the mod (also Save Changes' "Build and Save").</summary>
+    public async Task<bool> BuildAsync()
     {
-        if (ChosenPackage is CharacterList.Item only && !HasSource && !building) { await BuildSizeOnly(only); return; }
-        if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return;
+        if (ChosenPackage is CharacterList.Item only && !HasSource && !building) return await BuildSizeOnly(only);
+        if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return false;
         var picked = SelectedParts();
-        if (picked.Count == 0) { Log("Tick at least one part."); return; }
+        if (picked.Count == 0) { Log("Tick at least one part."); return false; }
+        string? print = Fingerprint();
+        bool ok = false;
         var options = new ImportOptions { Parts = string.Join(",", picked), Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
             MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
             MaterialOverrides = OverridesFile(),
@@ -43,6 +48,8 @@ sealed partial class ModelPage
                 if (uf != null) KeepRig(uf, pkg.Key);   // the mod keeps the rig of a hero it's built onto
                 host.SetPackage(pkg.Key, result.Package);
                 built[pkg.Key] = result.Package;
+                if (print != null) builtPrint[pkg.Key] = print;
+                ok = true;
                 SaveState();
                 Log($"Done: {pkg.Key} is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
             }
@@ -51,6 +58,7 @@ sealed partial class ModelPage
         catch (Exception ex) { Log("ERROR: " + ex.Message); }
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
+        return ok;
     }
 
     /// <summary>
@@ -58,9 +66,11 @@ sealed partial class ModelPage
     /// the package as the mod has it now (a model built earlier stays), relative to the game's size (the package before the
     /// Model tab changed it), so building again replaces the size instead of multiplying it; 100 % puts the game's back.
     /// </summary>
-    async Task BuildSizeOnly(CharacterList.Item pkg)
+    async Task<bool> BuildSizeOnly(CharacterList.Item pkg)
     {
         float size = sizeSlider.Value;
+        string? print = Fingerprint();
+        bool ok = false;
         building = true; UpdateStatus();
         log.Clear();
         string current = ModCopy(pkg.Key) ?? StartPackage(pkg.Key), start = StartPackage(pkg.Key);
@@ -77,6 +87,8 @@ sealed partial class ModelPage
                 await TimeSteps(file, pkg.Key);
                 host.SetPackage(pkg.Key, file);
                 built[pkg.Key] = file;
+                if (print != null) builtPrint[pkg.Key] = print;
+                ok = true;
                 SaveState();
                 Log($"Done: {pkg.Key} with the new size is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
             }
@@ -85,7 +97,57 @@ sealed partial class ModelPage
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or FileNotFoundException) { Log("ERROR: " + ex.Message); }
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Size built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
+        return ok;
     }
+
+    // --- changes not built yet (Kurt, 2026-10-06: leaving the tab or Save Changes asks to build first) ------------------------
+    /// <summary>The settings each built package was built with (<see cref="Fingerprint"/>), kept in the tab's state.</summary>
+    readonly Dictionary<string, string> builtPrint = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Everything a build of the picked package depends on: the package, Build From, Size, Match Steps, and with a
+    /// source: the source, parts, material, smoothing, hair, cape, and the bone map / material overrides (by content), the
+    /// unrigged FBX, Blender edits (by file size and date). Null with no package picked.</summary>
+    string? Fingerprint()
+    {
+        if (ChosenPackage is not CharacterList.Item pkg) return null;
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pkg.Key).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked);
+        if (HasSource)
+        {
+            sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))
+              .Append('|').Append(material.SelectedIndex).Append('|').Append(smooth.Checked).Append('|').Append(hairBox.SelectedIndex).Append('|').Append(capeBox.SelectedIndex);
+            sb.Append('|').Append(Content(MapPath())).Append('|').Append(Content(OverridesPath())).Append('|').Append(Stamp(unrigged));
+            var ed = EnsureEdits();
+            sb.Append('|').Append(Stamp(ed.ModelFbx));
+            foreach (var kv in ed.Anims.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)) sb.Append('|').Append(kv.Key).Append('=').Append(Stamp(kv.Value));
+        }
+        return sb.ToString();
+        static string Stamp(string? f) => f != null && File.Exists(f) ? $"{f}:{new FileInfo(f).Length}:{File.GetLastWriteTimeUtc(f).Ticks}" : "-";
+        static string Content(string? f)
+        {
+            try { return f != null && File.Exists(f) ? Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(f))) : "-"; }
+            catch (IOException) { return "?"; }
+        }
+    }
+
+    /// <summary>The picked package has changes (a source picked, a size, materials, the bone map …) that Build into Mod hasn't
+    /// put into the mod yet. Packages built in an earlier version (no settings kept) count as built.</summary>
+    public bool HasUnbuiltChanges
+    {
+        get
+        {
+            if (!loaded || building || ChosenPackage is not CharacterList.Item pkg) return false;
+            string? fp = Fingerprint();
+            if (builtPrint.TryGetValue(pkg.Key, out var b)) return b != fp;
+            if (built.ContainsKey(pkg.Key)) return false;
+            return HasSource || Math.Abs(sizeSlider.Value - 1) > 1e-4;
+        }
+    }
+
+    /// <summary>What isn't built, in a sentence for the question.</summary>
+    public string UnbuiltWhat => ChosenPackage is not CharacterList.Item pkg ? ""
+        : HasSource ? $"The model on {pkg.Key} has changes that aren't built into the mod yet."
+        : $"The size of {pkg.Key} ({sizeSlider.Value * 100:0} %) isn't built into the mod yet.";
 
     /// <summary>Match Steps to Size: the built package's movement animations at 1 / size (StepRate), written over it; at
     /// 100 % only the ones an earlier size slowed are put back.</summary>

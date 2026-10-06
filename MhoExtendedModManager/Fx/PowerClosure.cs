@@ -58,7 +58,7 @@ static class PowerClosure
     /// TooltipPowerSynergyBonuses and EvalPowerSynergies name Antnado, which it doesn't set off; talent checks name talents).
     /// What sets things off is in the rest: ActionsTriggeredOnPowerEvent[].Power (Hammer Strike's combos), summon / missile
     /// contexts, conditions.</summary>
-    static IEnumerable<ulong> Refs(GameData db, Calligraphy.Data d)
+    internal static IEnumerable<ulong> Refs(GameData db, Calligraphy.Data d)
     {
         // Tooltips and synergy formulas only describe (Big Foot's name Antnado); other evals can start things (Thor's
         // OdinforceMechanics starts its glow manager in EvalOnCreate). Talents are left out in Follow (talent checks name them).

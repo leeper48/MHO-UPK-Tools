@@ -95,6 +95,14 @@ static class SkeletonProfile
     }
 
     /// <summary>The family of an FBX file's skeleton (see <see cref="Find"/>).</summary>
+    /// <summary>An MFF character's model: its skeleton is MFF's Biped (bones named Bip001 …), so it's read as an MFF
+    /// character (its folder's textures, the MFF retarget) when picked as a single file (Kurt, 2026-10-06).</summary>
+    public static bool IsMff(string file)
+    {
+        try { return Open(file) is { } scene && Names(scene).Any(n => n.StartsWith("Bip001", StringComparison.OrdinalIgnoreCase)); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or Assimp.AssimpException) { return false; }
+    }
+
     public static string? DetectFile(string file, out string? whyNot)
     {
         whyNot = null;

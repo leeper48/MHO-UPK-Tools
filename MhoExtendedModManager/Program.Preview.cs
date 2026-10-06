@@ -971,6 +971,22 @@ static partial class Program
                 foreach (var kv in buckets.Reverse()) Console.WriteLine($"  {kv.Key,3}%+  {kv.Value}");
                 return 0;
             }
+            case "--agent-powers":
+            {
+                // Read-only: an NPC's / enemy's powers (Fx.AgentPowers): its prototypes, the powers they name, and per power
+                // the packages a recolor writes. --agent-powers <class, e.g. MarvelAgent_CloneWolverine>
+                string? agr = settings.ResolvedGameRoot(data);
+                if (rest.Count < 2 || agr == null) { Console.WriteLine("--agent-powers <class>"); return 1; }
+                string acook = Settings.Cooked(agr);
+                var adb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(agr, "Data", "Game", "Calligraphy.sip")));
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                foreach (string p in Fx.AgentPowers.PrototypesOf(adb, rest[1])) Console.WriteLine("  character: " + p);
+                Console.WriteLine($"  ({clock.ElapsedMilliseconds} ms)");
+                foreach (var pw in Fx.AgentPowers.List(adb, rest[1], acook, "x"))
+                    Console.WriteLine($"  {pw.Name[3..]} | {pw.Prototype} | anims {string.Join(",", pw.Animations.Take(4))} | packages {string.Join(", ", PowerRecolor.PackagesOfAgent(adb, pw.Prototype, rest[1], acook))}");
+                Console.WriteLine($"  all powers named: {Fx.AgentPowers.PowersOf(adb, rest[1]).Count} ({clock.ElapsedMilliseconds} ms)");
+                return 0;
+            }
             case "--own-fx":
             {
                 // Read-only: a character package's own always-on effects (PowerEffects.Own): each effect, its sockets and emitters.
@@ -1120,6 +1136,13 @@ static partial class Program
                     {
                         var ld = ModMeshes.Load(mr, null, out string why);
                         Console.WriteLine(ld == null ? $"{mr.Package} | {mr.Name}: {why}" : $"{mr.Package} | {mr.Name} | {ld.Bones.Count} | " + string.Join(",", ld.Bones.Select(b => b.Name)));
+                        if (ld != null && Environment.GetEnvironmentVariable("MHO_MESH_WEIGHTS") == "1")
+                        {
+                            // per bone: total weight and vertex count (which bones the skin follows)
+                            var sum = new double[ld.Bones.Count]; var cnt = new int[ld.Bones.Count];
+                            foreach (var inf in ld.Influences) for (int k = 0; k < inf.Bones.Count; k++) if (inf.Weights[k] > 0 && inf.Bones[k] < sum.Length) { sum[inf.Bones[k]] += inf.Weights[k]; cnt[inf.Bones[k]]++; }
+                            for (int k = 0; k < sum.Length; k++) if (cnt[k] > 0) Console.WriteLine($"   {ld.Bones[k].Name,-28} {sum[k],9:0.0} {cnt[k],6}");
+                        }
                     }
                 return 0;
             }

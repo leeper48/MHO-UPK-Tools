@@ -442,6 +442,12 @@ static partial class Program
                 Console.WriteLine($"shine error: tagged {eT / N:0.0}, Soft {eS / N:0.0}, flat 26 {eF / N:0.0}; tagged correlation with the real shine {corr:0.00}");
                 return 0;
             }
+            case "--is-mff":
+            {
+                // Read-only: whether model files are MFF characters (Bip001 skeleton: Browse for an FBX reads them as MFF). --is-mff <file> ...
+                foreach (string f in rest.Skip(1)) Console.WriteLine($"{(MhoExtendedModManager.Model.SkeletonProfile.IsMff(f) ? "MFF  " : "other")}  {f}");
+                return 0;
+            }
             case "--skeleton-guess":
             {
                 // --skeleton-guess <fbx | mff model> … [--mff-sample N] (read only): the shape guess (SkeletonProfile.Guess) forced

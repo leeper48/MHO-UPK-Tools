@@ -31,6 +31,68 @@ sealed partial class ModEditorView : IModelHost
         return host;
     }
 
+    // --- a model change not built yet (Kurt, 2026-10-06): leaving the Model tab, or Save Changes, asks to build it first ----------
+    int modelTop = -1, lastTop;
+    /// <summary>Build Now / Stay on Model after leaving the Editor: the main window shows the Editor again.</summary>
+    public event Action? BackToEditor;
+    bool askingModel;
+
+    /// <summary>The Model tab has changes Build into Mod hasn't put into the mod yet.</summary>
+    public bool ModelUnbuilt => modelPage?.HasUnbuiltChanges == true;
+
+    void WatchModelLeave()
+    {
+        lastTop = tabs.SelectedIndex;
+        tabs.SelectedChanged += i =>
+        {
+            int was = lastTop; lastTop = i;
+            if (askingModel || was != modelTop || i == modelTop || !ModelUnbuilt) return;
+            BeginInvoke(() => AskLeavingModel(i));
+        };
+    }
+
+    /// <summary>Leaving the Model tab with a change not built: Build Now (back on the Model tab), Stay on Model, or leave it.</summary>
+    async void AskLeavingModel(int goingTo)
+    {
+        if (askingModel || modelPage == null) return;
+        askingModel = true;
+        try
+        {
+            int pick = Dialog.Choose(this, modelPage.UnbuiltWhat + " Save Changes saves the mod without it until you build.", "Model Not Built", "Build Now", "Stay on Model", "Leave It Unbuilt");
+            if (pick == 2) return;
+            if (goingTo < 0) BackToEditor?.Invoke();
+            tabs.Select(modelTop);
+            if (pick == 0) await modelPage.BuildAsync();
+        }
+        finally { askingModel = false; }
+    }
+
+    /// <summary>Leaving the Editor (the main window's other tabs) while on the Model tab: the same question.</summary>
+    public void LeavingEditor() { if (tabs.SelectedIndex == modelTop && ModelUnbuilt) BeginInvoke(() => AskLeavingModel(-1)); }
+
+    /// <summary>Save Changes / Create Mod: with a model change not built, asks to build it first (Build and Save).</summary>
+    async void SaveAsked()
+    {
+        if (askingModel) return;
+        if (modelPage != null && ModelUnbuilt)
+        {
+            askingModel = true;
+            int pick;
+            try { pick = Dialog.Choose(this, modelPage.UnbuiltWhat + " Build it into the mod before saving?", "Model Not Built", "Build and Save", "Cancel", "Save Without Building"); }
+            finally { askingModel = false; }
+            if (pick == 1) return;
+            if (pick == 0)
+            {
+                askingModel = true;
+                bool ok;
+                try { tabs.Select(modelTop); ok = await modelPage.BuildAsync(); }
+                finally { askingModel = false; }
+                if (!ok) { Dialog.Show(this, "The build didn't finish, so nothing was saved: see the Model tab's log.", "Not Saved", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            }
+        }
+        Save();
+    }
+
     /// <summary>Test (--model-tab-test): the Model tab's page once it has shown.</summary>
     internal ModelPage? ModelPageForTest => modelPage;   // also Settings ▾ → Model (reload after a change)
 

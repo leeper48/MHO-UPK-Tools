@@ -16,6 +16,10 @@ sealed partial class ModEditorView
     readonly Label powerCaption = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 4) };
     readonly Label powerShared = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 2, 0, 4), MaximumSize = new Size(560, 0) };
     Button? addParent;
+    /// <summary>The NPCs' and enemies' own powers (Fx.AgentPowers), by package, once read; and each such power's package.</summary>
+    readonly Dictionary<string, List<Fx.PowerList.Power>> agentPowers = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, string> agentOwner = new(StringComparer.OrdinalIgnoreCase);
+    bool agentLoading;
     /// <summary>The package the selected own-effects entry's character extends (its model and most effects), when the mod
     /// doesn't hold it yet: Add It to This Mod brings it in.</summary>
     string? parentToAdd;
@@ -128,12 +132,52 @@ sealed partial class ModEditorView
         powerList.BeginUpdate();
         powerList.Items.Clear();
         foreach (var p in powerPreview.AllHeroPowers) powerList.Items.Add(p);
-        foreach (var p in OwnEffects()) powerList.Items.Add(p);
+        foreach (var p in OwnEffects())
+        {
+            powerList.Items.Add(p);
+            // then that character's own powers (read in the background, once)
+            string file = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
+            if (agentPowers.TryGetValue(file, out var list)) foreach (var ap in list) powerList.Items.Add(ap);
+        }
+        LoadAgentPowers();
         powerList.EndUpdate();
         var shown = powerList.Items.Cast<Fx.PowerList.Power>().ToList();
         int at = keep == null ? -1 : shown.FindIndex(p => p.Prototype == keep);
         if (powerList.Items.Count > 0) powerList.SelectedIndex = Math.Max(0, at);
         if (powerList.Items.Count == 0) powerCaption.Text = "No Powers Found for This Hero";
+    }
+
+    /// <summary>The mod's NPC / enemy / team-up packages' own powers, read in the background (the game data and a scan of
+    /// its characters, about a second the first time); the list fills again when they're in.</summary>
+    void LoadAgentPowers()
+    {
+        if (agentLoading || game == null) return;
+        var files = draft.Packages.Select(x => x.File).Where(f => PowerColorBuild.HasOwnEffects(f) && !agentPowers.ContainsKey(f)).ToList();
+        if (files.Count == 0) return;
+        agentLoading = true;
+        var g = game;
+        Task.Run(() =>
+        {
+            powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
+            var got = new Dictionary<string, List<Fx.PowerList.Power>>(StringComparer.OrdinalIgnoreCase);
+            foreach (string f in files)
+            {
+                string label = OwnEffects().FirstOrDefault(o => o.Prototype.EndsWith(f, StringComparison.OrdinalIgnoreCase))?.Name.Replace(": Own Effects", "") ?? PowerColorBuild.ClassOf(f);
+                try { got[f] = Fx.AgentPowers.List(powerDb, PowerColorBuild.ClassOf(f), g.Cooked, label); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException) { got[f] = []; }
+            }
+            return got;
+        }).ContinueWith(t =>
+        {
+            agentLoading = false;
+            if (IsDisposed || t.Status != TaskStatus.RanToCompletion) return;
+            foreach (var (f, list) in t.Result)
+            {
+                agentPowers[f] = list;
+                foreach (var p in list) agentOwner[p.Prototype] = f;
+            }
+            if (t.Result.Values.Any(l => l.Count > 0)) FillPowers();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     /// <summary>An entry per NPC or enemy package of the mod: its own effects (Kurt, 2026-10-05: the Sinister clones' red glow,
@@ -176,6 +220,23 @@ sealed partial class ModEditorView
                 powerShared.Text = held ? $"Its model and most effects (glows, trails) come from {parent}: recolor them in its Own Effects."
                     : $"Its model and most effects (glows, trails) come from {parent}, which this mod doesn't hold:";
                 if (!held && addParent != null) { parentToAdd = parent; addParent.Visible = true; }
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
+        if (agentOwner.TryGetValue(p.Prototype, out var aowner))
+        {
+            powerShared.Text = "";
+            var ga = game;
+            Task.Run(() =>
+            {
+                powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(ga.Root, "Data", "Game", "Calligraphy.sip")));
+                string cls = PowerColorBuild.ClassOf(aowner);
+                return (PowerRecolor.PackagesOfAgent(powerDb, p.Prototype, cls, ga.Cooked).Count, PowerRecolor.SharedWithAgent(powerDb, p.Prototype, cls, ga.Cooked));
+            }).ContinueWith(t =>
+            {
+                if (IsDisposed || req != sharedRequest || t.Status != TaskStatus.RanToCompletion) return;
+                var (n, shared) = t.Result;
+                powerShared.Text = $"Its color goes into {n} package(s)." + (shared.Count > 0 ? "\nAlso changes, as they use the same effects: " + string.Join(", ", shared) + "." : "");
             }, TaskScheduler.FromCurrentSynchronizationContext());
             return;
         }
@@ -280,7 +341,12 @@ sealed partial class ModEditorView
         powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored")
             // (a proc, passive or talent: its effects play in the game during other powers, there's nothing to play here)
             + (p.Animations.Count == 0 ? " · No Animation of Its Own: Its Effects Show During Other Powers" : "");
-        if (PowerColorBuild.IsOwn(p.Prototype))
+        if (agentOwner.TryGetValue(p.Prototype, out var owner))
+        {
+            if (powerPreview != null) powerPreview.OverridesOff = false;
+            powerPreview?.PlayAgentPower(owner, p.Prototype, p.Animations);
+        }
+        else if (PowerColorBuild.IsOwn(p.Prototype))
         {
             powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored") + " · This Character's Own Effects (Glows, Trails …)";
             if (powerPreview != null) powerPreview.OverridesOff = (e?.Color.Opacity ?? 1) < PowerColor.Invisible;
@@ -314,7 +380,7 @@ sealed partial class ModEditorView
         }
         else
         {
-            if (e == null) draft.PowerColors.Add(e = new PowerColorEntry { Power = p.Prototype, Name = p.Name });
+            if (e == null) draft.PowerColors.Add(e = new PowerColorEntry { Power = p.Prototype, Name = p.Name, Owner = agentOwner.GetValueOrDefault(p.Prototype) });
             e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness; e.Opacity = c.Opacity;
         }
         powerCaption.Text = EntryOf(p.Prototype) is { } now && !now.Color.IsNone ? "Recolored" : "The Game's Colors";

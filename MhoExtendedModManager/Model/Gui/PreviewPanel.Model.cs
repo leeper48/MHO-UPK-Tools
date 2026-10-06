@@ -168,7 +168,8 @@ sealed partial class PreviewPanel
     {
         string key = Stamp(packagePath) + "|" + mesh + "|" + string.Join(",", bones.Select(b => b.Name));   // (added cape / hair bones change the list)
         lock (cacheLock) if (animCache.TryGetValue(key, out var hit)) return hit;
-        var list = ModAnimations.For(new MeshRef(file, packagePath, mesh, 0), bones, [], Settings.Current.CookedFolder ?? Settings.Current.StockFolder);
+        var list = ModAnimations.For(new MeshRef(file, packagePath, mesh, 0), bones, [], Settings.Current.CookedFolder ?? Settings.Current.StockFolder)
+            .Select(ImportBuild.AsBuilt).ToList();
         lock (cacheLock) { if (animCache.Count > 32) animCache.Clear(); animCache[key] = list; }
         return list;
     }

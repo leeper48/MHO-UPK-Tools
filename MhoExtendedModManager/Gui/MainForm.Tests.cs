@@ -234,6 +234,7 @@ sealed partial class MainForm
         var saved = lib?.Find(modName);
         int fails = 0;
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+        Check(page.TestUnbuilt, "the Model tab tells built and unbuilt changes apart");
         Check(saved != null, "the mod is still in the library");
         if (saved != null)
         {

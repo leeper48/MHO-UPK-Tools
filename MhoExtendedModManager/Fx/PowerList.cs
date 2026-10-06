@@ -21,7 +21,7 @@ static class PowerList
     static string? englishRoot;
 
     /// <summary>The game's English strings (Data\Game\Loco\eng.all\*.string), read once.</summary>
-    static Dictionary<ulong, string> English(string gameRoot)
+    internal static Dictionary<ulong, string> English(string gameRoot)
     {
         if (english != null && englishRoot == gameRoot) return english;
         var d = new Dictionary<ulong, string>();
@@ -34,7 +34,7 @@ static class PowerList
         return english = d;
     }
 
-    static (ulong Raw, bool Found) Field(GameData db, string path, string name, char type) =>
+    internal static (ulong Raw, bool Found) Field(GameData db, string path, string name, char type) =>
         db.Find(path) is { } e ? Field(db, e.Id, name, type, false) : (0, false);
 
     /// <summary>A simple field of a prototype; <paramref name="inherit"/>: else its parents' (a travel power such as

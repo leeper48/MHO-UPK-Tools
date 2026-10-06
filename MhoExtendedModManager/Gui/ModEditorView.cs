@@ -136,7 +136,7 @@ sealed partial class ModEditorView : UserControl
         // In development (Kurt, 2026-10-02): the Animations tab, also only with "PreviewFeatures": true.
         if (WhatsNew.PowersAndAnimations) AddGroup("Animations", ("Animations", AnimationsPage()));
         // In development (Kurt, 2026-10-03): the Model tab, the MFF model importer inside the editor.
-        if (WhatsNew.ModelTab) AddGroup("Model", ("Model", ModelTabPage()));
+        if (WhatsNew.ModelTab) { modelTop = tabs.Count; AddGroup("Model", ("Model", ModelTabPage())); WatchModelLeave(); }
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 6, 10, 0) };
         body.Controls.Add(tabs);
 
@@ -147,7 +147,7 @@ sealed partial class ModEditorView : UserControl
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
         var cancel = Ui.FlatButton("Cancel", () => Cancelled?.Invoke(), tip: "Close the editor without saving (the mod stays as it was).");
         var post = Ui.FlatButton("Create Post", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");
-        var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", Save, tip: "Save the mod to the library. Nothing in the game changes until Apply Changes.");
+        var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", SaveAsked, tip: "Save the mod to the library. Nothing in the game changes until Apply Changes.");
         // icons (Kurt, 2026-10-04): the names head the tooltips
         float isc = DeviceDpi / 96f;
         Icons.Make(cancel, "Cancel", Icons.Cancel, isc);

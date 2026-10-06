@@ -12,13 +12,24 @@ sealed partial class ModelPage
         // MHO_TEST_SIZE=1.2: the Size slider set before the build (its Scale is checked after)
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts))
         { sizeSlider.Value = ts; preview.Size = ts; }
+        bool before = HasUnbuiltChanges;
         Build();
         for (int i = 0; i < 6000 && building; i++) await Task.Delay(100);
+        bool after = HasUnbuiltChanges;
+        float s0 = sizeSlider.Value;
+        sizeSlider.Value = s0 + 0.1f;
+        bool changed = HasUnbuiltChanges;
+        sizeSlider.Value = s0;
+        bool back = HasUnbuiltChanges;
+        TestUnbuilt = !after && changed && !back;   // (before: true unless the mod was built with these settings already)
+        say($"{(TestUnbuilt ? "PASS" : "FAIL")} unbuilt changes: before Build {before}, after {after}, size changed {changed}, size back {back}");
         say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
         return built.TryGetValue(package, out string? path) && File.Exists(path) ? path : null;
     }
 
     internal bool TestHasRig => unrigged != null;
+    /// <summary>Test: the unbuilt-changes check behaved (before Build yes, after no, a size change yes, put back no).</summary>
+    internal bool TestUnbuilt { get; private set; }
 
     /// <summary>Test: the live rig folder (under data/model/rigs) of the shown unrigged source on the chosen hero; else null.</summary>
     internal string? TestLiveRig => unrigged != null && ChosenPackage is CharacterList.Item p ? AutoRig.Live(unrigged, p.Key) : null;
@@ -249,7 +260,7 @@ sealed partial class ModelPage
         }
         else if (Directory.Exists(mff))
         {
-            // one MFF character folder picked on its own: Source → Single Model, then the folder (as Browse for an MFF Folder
+            // one MFF character folder picked on its own: Source → Single Model, then the folder (as Browse for an FBX does for an MFF model:
             // leaves it: remembered, then picked from the list)
             string dir = Path.GetFullPath(mff), key = MffDir + dir;
             if (chosenKey != key || model == null)

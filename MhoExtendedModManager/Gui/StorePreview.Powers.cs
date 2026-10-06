@@ -141,7 +141,7 @@ sealed partial class StorePreview
     /// <paramref name="play"/> (Kurt: the editor's Powers list doesn't start playing; ▶ does).</summary>
     // --- a character's own always-on effects (the editor's Powers tab, "<Name>: Own Effects"; Kurt, 2026-10-05: see the
     // Sinister clones' red glow before the game) ------------------------------------------------------------------------------
-    string? ownFxPackage, ownProto;
+    string? ownFxPackage, ownProto, agentPower, agentAnim;
     bool ownPending, overridesOff;
 
     /// <summary>The Powers tab: show the model's own materials where its component swaps them (a hologram at Opacity 0).</summary>
@@ -156,7 +156,7 @@ sealed partial class StorePreview
     /// model shown.</summary>
     public void PlayOwn(string packageFile, string proto)
     {
-        ownFxPackage = packageFile; ownProto = proto;
+        ownFxPackage = packageFile; ownProto = proto; agentPower = null; agentAnim = null;
         powerFilter = null;
         // the character's own model (its mesh component's: the clones' packages also hold the cryopod they come out of)
         int k = meshes.FindIndex(r => r.Package.Equals(packageFile, StringComparison.OrdinalIgnoreCase));
@@ -169,9 +169,21 @@ sealed partial class StorePreview
         PlayOwnAnimation();
     }
 
+    /// <summary>An NPC's or enemy's power (Fx.AgentPowers) on its character: the first of its animations the model has,
+    /// playing with the power's effects (as a hero's power plays).</summary>
+    public void PlayAgentPower(string packageFile, string proto, IReadOnlyList<string> animations)
+    {
+        string keep = proto;
+        PlayOwn(packageFile, proto);
+        agentPower = keep; ownProto = keep;
+        agentAnim = animations.FirstOrDefault(a => allAnims.Any(x => x.Name.Equals(a, StringComparison.OrdinalIgnoreCase))) ?? animations.FirstOrDefault();
+        if (!ownPending && agentAnim != null) PlayAnimation(agentAnim, true);
+    }
+
     /// <summary>The idle (else the first animation) playing, which loads the own effects (LoadEffects).</summary>
     void PlayOwnAnimation()
     {
+        if (agentAnim != null && allAnims.Any(x => x.Name.Equals(agentAnim, StringComparison.OrdinalIgnoreCase)) && PlayAnimation(agentAnim, true)) return;
         if (allAnims.Count == 0 || animBox == null) { LoadOwnEffects(); return; }
         int i = allAnims.FindIndex(a => a.Name.Equals("idle", StringComparison.OrdinalIgnoreCase));
         if (i < 0) i = allAnims.FindIndex(a => a.Name.Contains("idle", StringComparison.OrdinalIgnoreCase));
@@ -191,7 +203,10 @@ sealed partial class StorePreview
         var a = animator; var l = shownLoaded;
         string meshFile = r.File, meshName = r.Name, proto = ownProto ?? "";
         fxNote = "Reading Effects…"; Invalidate();
-        Task.Run(() => (Fx.PowerEffects.Own(new Fx.FxGame(cooked, modFiles), pkgFile), Fx.FxSockets.Of(meshFile, meshName))).ContinueWith(t =>
+        string? power = agentPower;
+        var dbTask = power != null ? GameDb(cooked) : Task.FromResult<Fx.GameData?>(null);
+        dbTask.ContinueWith(dbt => (power != null && dbt.Result is { } db ? Fx.PowerEffects.For(new Fx.FxGame(cooked, modFiles), db, power, null) : Fx.PowerEffects.Own(new Fx.FxGame(cooked, modFiles), pkgFile),
+            Fx.FxSockets.Of(meshFile, meshName))).ContinueWith(t =>
         {
             if (IsDisposed || req != fxRequest || animator != a || viewer == null) return;
             if (t.Status != TaskStatus.RanToCompletion) { fxNote = ""; Invalidate(); return; }
@@ -199,10 +214,11 @@ sealed partial class StorePreview
             fxSockets = sockets ?? new();
             float ground = l == null || l.Positions.Length == 0 ? 0 : l.Positions.Min(v => v.Z);
             fxTarget = new System.Numerics.Vector3(250, 0, ground);
-            fxPlayer = new Fx.PowerEffects.Player(fx, Socket, fxTarget, _ => true) { AnimSeconds = Math.Max(0.1f, playSeconds), Color = ColorFor?.Invoke(proto) };
+            fxPlayer = new Fx.PowerEffects.Player(fx, Socket, fxTarget, power != null && playing != null ? Fx.PowerEffects.Player.PhaseOf(playing.Name) : _ => true) { AnimSeconds = Math.Max(0.1f, playSeconds), Color = ColorFor?.Invoke(proto) };
             fxPower = proto;
             viewer.EffectStrength = PreviewViews.FxPower;
-            fxNote = fx.Effects.Count == 0 ? "No Effects of Its Own" : $"Own Effects · {fx.Effects.Count} Effect{(fx.Effects.Count == 1 ? "" : "s")}";
+            fxNote = power != null ? $"{SplitWords(Path.GetFileNameWithoutExtension(power))} · {fx.Effects.Count} Effect{(fx.Effects.Count == 1 ? "" : "s")}"
+                : fx.Effects.Count == 0 ? "No Effects of Its Own" : $"Own Effects · {fx.Effects.Count} Effect{(fx.Effects.Count == 1 ? "" : "s")}";
             if (playing != null) FxReplay(PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime);
             ShowPose();
             Invalidate();
@@ -211,7 +227,7 @@ sealed partial class StorePreview
 
     public bool PlayPower(string prototype, bool play = false)
     {
-        ownFxPackage = null; ownProto = null;
+        ownFxPackage = null; ownProto = null; agentPower = null; agentAnim = null;
         int k = heroPowers.FindIndex(p => p.Prototype.Equals(prototype, StringComparison.OrdinalIgnoreCase));
         if (k < 0) return false;
         // The frame slider keeps its place (Kurt, 2026-10-03: compare powers at the same moment): the next power's

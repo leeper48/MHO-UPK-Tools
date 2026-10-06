@@ -545,14 +545,13 @@ sealed partial class ModelPage : UserControl
     {
         string f = characterFilter.Text.Trim();
         characters.BeginUpdate(); characters.Items.Clear();
-        characters.Items.Add(new CharacterList.Item("browse:", "Browse for an FBX", "any FBX: MHO, Mixamo or other skeleton, or no armature"));
-        characters.Items.Add(new CharacterList.Item("browsedir:", "Browse for an MFF Folder", "one MFF character's folder (its model and textures), outside the repository"));
+        characters.Items.Add(new CharacterList.Item("browse:", "Browse for an FBX", "any FBX: MHO, Mixamo or other skeleton, no armature, or an MFF character's model"));
         foreach (var dir0 in Settings.Current.RecentFbx.Where(Directory.Exists))
         {
             string name = Path.GetFileName(dir0.TrimEnd('\\', '/'));
             var (title, _) = MffNames.Describe(name);
             if (f.Length > 0 && !$"{title} {name} {dir0}".Contains(f, StringComparison.OrdinalIgnoreCase)) continue;
-            characters.Items.Add(new CharacterList.Item(MffDir + dir0, title, $"MFF folder · {dir0}"));
+            characters.Items.Add(new CharacterList.Item(MffDir + dir0, title, $"MFF character · {dir0}"));
         }
         var files = new List<string>();
         string dir = Path.Combine(Settings.Home, "fbx");
@@ -647,7 +646,6 @@ sealed partial class ModelPage : UserControl
     {
         if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Key == chosenKey) return;
         if (it.Key == "browse:") { BrowseFbx(); return; }
-        if (it.Key == "browsedir:") { BrowseMffFolder(); return; }
         if (it.Key.StartsWith("fbx:")) { FbxChosen(it.Key); return; }
         chosenKey = it.Key; sourceFbx = null; unrigged = null;
         model = null; parts.Rows.Clear(); UpdateStatus();
@@ -676,37 +674,35 @@ sealed partial class ModelPage : UserControl
         UpdateStatus();
     }
 
-    /// <summary>Picks any FBX file and adds it to the list (remembered).</summary>
+    /// <summary>Picks any model file and adds it to the list (remembered). An MFF character's model (Bip001 bones; Kurt,
+    /// 2026-10-06: one Browse, the MFF structure recognized) is read as that MFF character: its folder, its textures, the MFF
+    /// retarget, as a repository character is.</summary>
     void BrowseFbx()
     {
         string start = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(start);
-        using var dlg = new OpenFileDialog { Title = "FBX with an MHO skeleton", Filter = "FBX (*.fbx)|*.fbx", InitialDirectory = start };
+        using var dlg = new OpenFileDialog { Title = "A Model (FBX, or an MFF Character's FBX / DAE / OBJ)", Filter = "Models (*.fbx;*.dae;*.obj)|*.fbx;*.dae;*.obj|FBX (*.fbx)|*.fbx", InitialDirectory = start };
         if (dlg.ShowDialog(this) != DialogResult.OK) { if (chosenKey != null) Reselect(characters, chosenKey); return; }
+        string file = dlg.FileName, dir = Path.GetDirectoryName(file)!;
+        Cursor = Cursors.WaitCursor;
+        bool mff = !file.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) || SkeletonProfile.IsMff(file);
+        Cursor = Cursors.Default;
+        string entry = file;
+        if (mff)
+        {
+            // the MFF character's folder (its model must be the one the folder resolves to: one model per character folder)
+            string? resolved = null;
+            try { resolved = Source.ResolveModelFile(dir); } catch (FileNotFoundException) { }
+            if (resolved != null && Path.GetFullPath(resolved).Equals(Path.GetFullPath(file), StringComparison.OrdinalIgnoreCase)) entry = dir;
+            else if (!file.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase)) { Log($"{Path.GetFileName(file)}: its folder holds another model first ({Path.GetFileName(resolved ?? "")}); put the MFF character in a folder of its own."); if (chosenKey != null) Reselect(characters, chosenKey); return; }
+            if (entry == dir) Log($"{Path.GetFileName(file)}: an MFF character's model (Bip001 skeleton): read with its folder's textures, as an MFF character.");
+        }
         var recent = Settings.Current.RecentFbx;
-        recent.RemoveAll(x => x.Equals(dlg.FileName, StringComparison.OrdinalIgnoreCase));
-        recent.Insert(0, dlg.FileName);
+        recent.RemoveAll(x => x.Equals(entry, StringComparison.OrdinalIgnoreCase));
+        recent.Insert(0, entry);
         if (recent.Count > 20) recent.RemoveRange(20, recent.Count - 20);
         Settings.Current.Save();
         FillFbx();
-        Reselect(characters, "fbx:" + dlg.FileName);
-    }
-
-    /// <summary>Picks one MFF character folder (Single Model, Kurt 2026-10-05): a folder with its model (.fbx / .dae / .obj) and
-    /// textures, used like a repository character; remembered with the picked FBX files.</summary>
-    void BrowseMffFolder()
-    {
-        using var dlg = new FolderBrowserDialog { Description = "One MFF character's folder (its model and textures)", UseDescriptionForTitle = true };
-        if (dlg.ShowDialog(this) != DialogResult.OK) { if (chosenKey != null) Reselect(characters, chosenKey); return; }
-        string dir = dlg.SelectedPath;
-        try { Source.ResolveModelFile(dir); }
-        catch (FileNotFoundException) { Log($"{dir}: no model in it (.fbx, .dae or .obj directly in the folder): pick the character's own folder."); if (chosenKey != null) Reselect(characters, chosenKey); return; }
-        var recent = Settings.Current.RecentFbx;
-        recent.RemoveAll(x => x.Equals(dir, StringComparison.OrdinalIgnoreCase));
-        recent.Insert(0, dir);
-        if (recent.Count > 20) recent.RemoveRange(20, recent.Count - 20);
-        Settings.Current.Save();
-        FillFbx();
-        Reselect(characters, MffDir + dir);
+        Reselect(characters, entry == dir ? MffDir + dir : "fbx:" + file);
     }
 
     /// <summary>An FBX file as the source: its meshes become the parts (all ticked); the base hero is suggested from an
@@ -742,7 +738,16 @@ sealed partial class ModelPage : UserControl
             }
             bool rigged = await Task.Run(() => AutoRig.HasArmature(file));
             if (chosenKey != key) return;
-            if (whyNot != null && rigged) Log($"{Path.GetFileName(file)}: {whyNot}; it's read as an FBX with MHO bone names (g_...).");
+            // (a user, 2026-10-06: a model with a skeleton the tool doesn't know (neither MHO names, a known family nor one it
+            // can guess) stopped at "only 0 of the FBX's bones are bones of this MHO skeleton": it's rigged again in Blender
+            // instead, as a model without bones; its own skeleton and weights are left out)
+            if (rigged && await Task.Run(() => AutoRig.MhoBoneCount(file)) < 4)
+            {
+                if (chosenKey != key) return;
+                Log($"{Path.GetFileName(file)}: its skeleton isn't one this tool knows{(whyNot != null ? " (" + whyNot + ")" : "")}, so it's rigged again to the hero in Blender, as a model without bones (its own bones and weights are left out).");
+                rigged = false;
+            }
+            else if (whyNot != null && rigged) Log($"{Path.GetFileName(file)}: {whyNot}; it's read as an FBX with MHO bone names (g_...).");
             var meshes = await Task.Run(() => FbxReimport.Meshes(file));
             if (chosenKey != key) return;
             sourceFbx = file;

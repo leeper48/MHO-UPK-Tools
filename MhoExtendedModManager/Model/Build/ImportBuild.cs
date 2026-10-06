@@ -316,7 +316,74 @@ sealed class ImportBuild
             packageBytes = bytes;
             src = MhoPackageModifier.Package.FromBytes(bytes);
         }
-        return ApplySize(InheritedMorphs(packageBytes));
+        return ApplySize(TurnOnlySets(InheritedMorphs(packageBytes)));
+    }
+
+    /// <summary>The positions every player AnimSet keeps (--anim-probe on Storm, Thor, Daredevil, Spider-Man, Hulk: these 16,
+    /// plus cape / hair / muscle bones of their own).</summary>
+    static readonly string[] CorePositionBones = ["g_spine01", "g_spine02", "g_spine03", "g_topeyelid", "g_l_hip", "g_r_hip", "g_l_legikeffector",
+        "g_r_legikeffector", "g_l_armikeffector", "g_r_armikeffector", "g_armikbase", "g_breast", "g_l_palm", "g_r_palm", "g_throwable_attach_offset", "g_throwable_attach"];
+
+    /// <summary>An animation as the build leaves it (TurnOnlySets): one from a set with positions for every bone and a body
+    /// turns bones only, positions for the core bones; the preview of a fitted model shows it so.</summary>
+    public static AnimRef AsBuilt(AnimRef a) =>
+        a.TranslationBones != null || !a.TrackBoneNames.Contains("g_l_shoulder", StringComparer.OrdinalIgnoreCase) ? a
+            : a with { TranslationBones = new HashSet<string>(CorePositionBones.Where(b => a.TrackBoneNames.Contains(b, StringComparer.OrdinalIgnoreCase)), StringComparer.OrdinalIgnoreCase) };
+
+    /// <summary>
+    /// AnimSets that set every bone's position (Kurt, 2026-10-06: an MFF Ms. Marvel on the Kamala Khan team-up had distorted
+    /// arms and shoulders). Player AnimSets turn bones only (bAnimRotationOnly, omitted = true) and keep positions for a few
+    /// (UseTranslationBoneNames), so a model fitted here, whose bones moved to its own proportions, keeps them. Team-up (and
+    /// some NPC) sets store bAnimRotationOnly = false: every frame puts each bone back where the stock model has it, and the new
+    /// skin, bound to the moved bones, stretches. Such a set (one with a body: g_l_shoulder among its tracks) is made like a
+    /// player's: rotation only, positions for the 16 core bones it has. The package is rebuilt and verified.
+    /// </summary>
+    byte[] TurnOnlySets(byte[] packageBytes)
+    {
+        var src = MhoPackageModifier.Package.FromBytes(packageBytes);
+        var names = src.Names;
+        for (int i = 0; i < src.Exports.Length; i++)
+        {
+            var e = src.Exports[i];
+            if (!src.ClassOf(e).Equals("AnimSet", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d = src.ReadExportBytes(e).ToArray();
+            TaggedProps? props = null;
+            int at = 0, start = 0;
+            foreach (int off in new[] { 4, 0, 8, 16 })
+            {
+                at = off;
+                try { var t = TaggedProps.Read(d, ref at, r => TaggedProps.NameOf(names, r)); if (t.Find("TrackBoneNames") != null) { props = t; start = off; break; } }
+                catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
+            }
+            if (props == null) continue;
+            var flag = props.Find("bAnimRotationOnly");
+            if (flag == null || flag.BoolValue != 0) continue;
+            var track = props.Find("TrackBoneNames")!;
+            int n = BitConverter.ToInt32(track.Value, 0);
+            var bones = new List<(int Index, int Number)>();
+            for (int k = 0; k < n && 4 + 8 * k + 8 <= track.Value.Length; k++)
+                bones.Add((BitConverter.ToInt32(track.Value, 4 + 8 * k), BitConverter.ToInt32(track.Value, 8 + 8 * k)));
+            string BoneName((int Index, int Number) b) => b.Index >= 0 && b.Index < names.Length ? names[b.Index] : "";
+            if (!bones.Any(b => BoneName(b).Equals("g_l_shoulder", StringComparison.OrdinalIgnoreCase))) continue;
+            var keep = bones.Where(b => b.Number == 0 && CorePositionBones.Contains(BoneName(b), StringComparer.OrdinalIgnoreCase)).ToList();
+            var list = props.Find("UseTranslationBoneNames");
+            if (list == null) { log($"anim:    {src.PathOf(e)}: sets every bone's position but has no UseTranslationBoneNames to fill; left as it is (arms may stretch)"); continue; }
+            flag.BoolValue = 1;
+            var v = new byte[4 + 8 * keep.Count];
+            BitConverter.GetBytes(keep.Count).CopyTo(v, 0);
+            for (int k = 0; k < keep.Count; k++) { BitConverter.GetBytes(keep[k].Index).CopyTo(v, 4 + 8 * k); BitConverter.GetBytes(keep[k].Number).CopyTo(v, 8 + 8 * k); }
+            int before = list.Value.Length >= 4 ? BitConverter.ToInt32(list.Value, 0) : 0;
+            list.Value = v;
+            byte[] rebuilt = [.. d.AsSpan(0, start), .. props.Write(), .. d.AsSpan(at)];
+            var bytes = PackageOut.ReplaceExport(src, i, rebuilt);
+            var problems = PackageOut.Verify(src, MhoPackageModifier.Package.FromBytes(bytes), i, rebuilt);
+            if (problems.Count > 0) { foreach (var x in problems) log("anim:    PACKAGE PROBLEM: " + x); continue; }
+            log($"anim:    {src.PathOf(e)}: set every bone's position ({n} bones, {before} listed); now turns bones only, positions for {keep.Count} core bones, as player sets do (the new model keeps its own proportions)");
+            packageBytes = bytes;
+            src = MhoPackageModifier.Package.FromBytes(bytes);
+            names = src.Names;
+        }
+        return packageBytes;
     }
 
     /// <summary>

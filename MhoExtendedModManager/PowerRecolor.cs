@@ -120,26 +120,30 @@ static class PowerRecolor
     /// Slow, Taunt, DebuffDamage: every hero's) and left. One with a few (Thor's Death From Above: Beta Ray Bill's team-up
     /// copy too) is recolored; <see cref="SharedWith"/> names them so the editor can say so.
     /// </summary>
-    public static List<string> PackagesOf(GameData db, string power, string hero, string cooked)
+    public static List<string> PackagesOf(GameData db, string power, string hero, string cooked) =>
+        PackagesOf(db, power, HeroPrototypes(db, hero, cooked), hero, cooked);
+
+    /// <summary>An NPC's or enemy's power (Fx.AgentPowers): the same, with that character's powers as "its own".</summary>
+    public static List<string> PackagesOfAgent(GameData db, string power, string cls, string cooked) =>
+        PackagesOf(db, power, AgentPowers.Mine(db, cls), cls, cooked);
+
+    static List<string> PackagesOf(GameData db, string power, HashSet<string> mine, string owner, string cooked)
     {
         var classes = new List<string>();
         if (PowerEffects.UnrealClassOf(db, power) is string own) classes.Add(own);
         foreach (var a in PowerClosure.Of(db, power)) if (!string.IsNullOrEmpty(a.Class)) classes.Add(a.Class);
-        var users = ClassUsers(db);
-        var mine = HeroPrototypes(db, hero, cooked);
-        bool Owned(string cls) => Owners(db, cls, hero, cooked).Count < 6;   // (generic ones have dozens; a power copied by Rogue, a team-up and Omega has 4)
+        bool Owned(string cls) => Owners(db, cls, mine, owner).Count < 6;   // (generic ones have dozens; a power copied by Rogue, a team-up and Omega has 4)
         return [.. classes.Distinct(StringComparer.OrdinalIgnoreCase).Where(Owned)
             .Select(c => $"UC__{c}_SF.upk").Where(f => File.Exists(Path.Combine(cooked, f)))];
     }
 
     /// <summary>The owners of the prototypes using a class: this hero (its own), else "Beta Ray Bill (team-up)", "Deadpool",
     /// "Rogue (pet)", or the folder (enemies and other content).</summary>
-    static HashSet<string> Owners(GameData db, string cls, string hero, string cooked)
+    static HashSet<string> Owners(GameData db, string cls, HashSet<string> mine, string owner)
     {
-        var mine = HeroPrototypes(db, hero, cooked);
-        var o = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { hero };
+        var o = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { owner };
         if (ClassUsers(db).TryGetValue(cls, out var list))
-            foreach (string u in list) o.Add(mine.Contains(u) ? hero : OwnerOf(u));
+            foreach (string u in list) o.Add(mine.Contains(u) ? owner : OwnerOf(u));
         return o;
     }
 
@@ -157,14 +161,21 @@ static class PowerRecolor
 
     /// <summary>Who else a power's recolor changes: the other owners of the packages it recolors (Beta Ray Bill (team-up),
     /// Deadpool …); empty when it's the hero's alone.</summary>
-    public static List<string> SharedWith(GameData db, string power, string hero, string cooked)
+    public static List<string> SharedWith(GameData db, string power, string hero, string cooked) =>
+        SharedWith(db, power, HeroPrototypes(db, hero, cooked), hero, cooked);
+
+    /// <summary>An NPC's or enemy's power: who else its recolor changes.</summary>
+    public static List<string> SharedWithAgent(GameData db, string power, string cls, string cooked) =>
+        SharedWith(db, power, AgentPowers.Mine(db, cls), cls, cooked);
+
+    static List<string> SharedWith(GameData db, string power, HashSet<string> mine, string hero, string cooked)
     {
-        var files = PackagesOf(db, power, hero, cooked).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var files = PackagesOf(db, power, mine, hero, cooked).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var classes = new List<string>();
         if (PowerEffects.UnrealClassOf(db, power) is string own) classes.Add(own);
         foreach (var a in PowerClosure.Of(db, power)) if (!string.IsNullOrEmpty(a.Class)) classes.Add(a.Class);
         return [.. classes.Distinct(StringComparer.OrdinalIgnoreCase).Where(c => files.Contains($"UC__{c}_SF.upk"))
-            .SelectMany(c => Owners(db, c, hero, cooked)).Where(o => !o.Equals(hero, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(c => Owners(db, c, mine, hero)).Where(o => !o.Equals(hero, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)];
     }
 

@@ -474,8 +474,11 @@ sealed partial class MainForm : Form
         pages.Add("Mods", modsPage);
         pages.Add("Editor", editorHost);
         pages.Add("Extract", extractHost);
+        int lastPage = 0;
         pages.SelectedChanged += i =>
         {
+            if (lastPage == 1 && i != 1) editor?.LeavingEditor();   // a Model tab change not built yet: asks (Kurt, 2026-10-06)
+            lastPage = i;
             if (i == 2) EnsureExtract();
             // The Editor tab with nothing open: open the mod highlighted in the list (Kurt). A mod already open stays as it is.
             if (i == 1 && editor == null && !readOnly && Selected is Mod m) BeginInvoke(() => { if (editor == null) EditMod(m); });
@@ -1163,6 +1166,7 @@ sealed partial class MainForm : Form
             status.Text = Ui.TitleCase((m == null ? $"Created \"{name}\" (top of the list, off: tick it, then Apply Changes)" : $"Saved \"{name}\"") + (m?.Enabled == true ? "  ·  Apply Changes to update the game" : ""));
         };
         ed.Cancelled += () => { CloseEditor(); pages.Select(0); };
+        ed.BackToEditor += () => pages.Select(1);
         editor = ed;
         editorHost.Controls.Clear();
         editorHost.Controls.Add(ed);

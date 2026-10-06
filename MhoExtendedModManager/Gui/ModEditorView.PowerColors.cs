@@ -62,7 +62,8 @@ sealed partial class ModEditorView
             return;
         }
         string? hero = draft.Packages.Select(x => HeroOf.Package(x.File, game?.Cooked)).FirstOrDefault(h => h != null);
-        if (hero == null) { paletteNote.Text = ""; return; }
+        string? agentCls = agentOwner.TryGetValue(p.Prototype, out var ao) ? PowerColorBuild.ClassOf(ao) : null;
+        if (hero == null && agentCls == null) { paletteNote.Text = ""; return; }
         paletteNote.Text = "Reading…";
         var g = game;
         string data = lib.DataFolder;
@@ -70,7 +71,8 @@ sealed partial class ModEditorView
         {
             powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
             var originals = new Originals(data, g);
-            var files = PowerRecolor.PackagesOf(powerDb, p.Prototype, hero, g.Cooked).Select(f => originals.Find(f) ?? StockFiles.For(g.Cooked, f)).ToList();
+            var files = (agentCls != null ? PowerRecolor.PackagesOfAgent(powerDb, p.Prototype, agentCls, g.Cooked) : PowerRecolor.PackagesOf(powerDb, p.Prototype, hero!, g.Cooked))
+                .Select(f => originals.Find(f) ?? StockFiles.For(g.Cooked, f)).ToList();
             return PowerRecolor.Palette(files, g.Cooked);
         }).ContinueWith(t =>
         {

@@ -188,6 +188,19 @@ static class FbxReimport
         return null;
     }
 
+    static readonly Dictionary<string, (DateTime At, TextureIndex Index)> wide = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The TextureIndex of a folder, kept 30 s (one build asks for every material).</summary>
+    static TextureIndex WideIndex(string dir)
+    {
+        lock (wide)
+        {
+            if (wide.TryGetValue(dir, out var w) && (DateTime.UtcNow - w.At).TotalSeconds < 30) return w.Index;
+            var ix = new TextureIndex(dir);
+            wide[dir] = (DateTime.UtcNow, ix);
+            return ix;
+        }
+    }
+
     static Textures? FileTextures(string fbx, string name, Material? m)
     {
         string dir = Path.GetDirectoryName(Path.GetFullPath(fbx))!;
@@ -213,7 +226,14 @@ static class FbxReimport
             string f = Path.IsPathRooted(ep) ? ep : Path.Combine(dir, ep);
             if (File.Exists(f) && IsImage(f)) glow = f;
         }
-        return diffuse == null && normal == null ? null : new Textures
+        // nothing beside it by name: the importer's wider search (Kurt, 2026-10-06: subfolders, then the folders next to the
+        // FBX's folder such as ..\Textures; the FBX's own texture file names by name there; rips' loose names)
+        if (diffuse == null && normal == null)
+        {
+            var t = WideIndex(dir).Find(name, m);
+            return t.Diffuse == null && t.Normal == null ? null : t;
+        }
+        return new Textures
         {
             Diffuse = diffuse, Spec = Beside("_sp"), Alpha = Beside("_alpha"), Normal = normal,
             // MHO's own packed spec map (or its gray channel files _mhospec_R … _A, when newer: SpecChannels) and spec color, as-is
