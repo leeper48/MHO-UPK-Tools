@@ -25,8 +25,9 @@ namespace MhoExtendedModManager;
 /// </summary>
 static class NexusAuth
 {
-    /// <summary>The client ID Nexus issues when the app is registered (empty: sign-in isn't offered yet).</summary>
-    public const string ClientId = "";
+    /// <summary>The client ID Nexus issued when the app was registered (2026-10-07: a public app, so the sign-in is PKCE
+    /// with no client secret; the secret Nexus also shows is never put in the app). Empty: sign-in isn't offered.</summary>
+    public const string ClientId = "mho_extended_mod_manager";
     public const int CallbackPort = 31985;
     public static string RedirectUri => $"http://127.0.0.1:{CallbackPort}/callback";
     static string AuthBase => Environment.GetEnvironmentVariable("MHO_EXTMM_NEXUS_AUTH") ?? "https://users.nexusmods.com";

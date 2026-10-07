@@ -27,7 +27,15 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.212 (Kurt, 2026-10-07): Nexus registered the app: Sign In with Nexus for one-click updates.</summary>
+    static Notice NexusSignIn() => new(
+        "0.37.212-nexus-sign-in", "0.37.212",
+        "Sign In with Nexus: Nexus Mods has approved the app. In the Nexus strip above the mod list, ▾ → Sign In with Nexus opens your browser to approve it (the app never sees your password)." + nl + nl +
+        "Signed in with a Premium account, ↑ UPDATE on a mod downloads and installs its new version in one click. Without signing in everything works as before: Check for Updates finds new versions and opens their Files page." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-nexus");
 
     /// <summary>0.37.211 (Kurt, 2026-10-07): a hero's audio package's powers and own effects; Replace File.</summary>
     static Notice PhoenixEffects() => new(

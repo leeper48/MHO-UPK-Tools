@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.212
+- Sign in with Nexus is on: Nexus registered the app (client ID mho_extended_mod_manager). Signed in with a Premium account, Update downloads and installs a mod's new version in one click; otherwise it opens the Files page as before.
+
 0.37.211
 - Powers tab, Own Effects: the effects of the condition classes a package defines play in the preview too (Jean Grey's audio package: her Dark Phoenix maelstrom's ring of fire), with their textures; and own effects of a model with no animations run on their own over its rest pose.
 
