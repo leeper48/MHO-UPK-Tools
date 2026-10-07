@@ -45,7 +45,21 @@ static class ModInstaller
             }
             var manifests = Directory.GetFiles(root, "manifest.json", SearchOption.AllDirectories)
                 .Where(m => Path.GetRelativePath(root, m).Count(c => c == Path.DirectorySeparatorChar) <= 2).OrderBy(m => m).ToList();
-            if (manifests.Count == 0) { log.Add("No manifest.json in it: not a mod in MHModManager's format."); return installed; }
+            if (manifests.Count == 0 && TextureManagerMod.Find(root) is { Count: > 0 } texMods)
+            {
+                // MH Texture Manager mods (.json + .tfc): converted into package mods first (TextureManagerMod), then
+                // installed as those.
+                if (StockFiles.Cooked is not string cooked) { log.Add("It's an MH Texture Manager mod: set the game folder first (Settings), it's converted from the game's packages."); return installed; }
+                Directory.CreateDirectory(temp);
+                for (int k = 0; k < texMods.Count; k++)
+                {
+                    string outDir = Path.Combine(temp, "converted", k.ToString());
+                    if (TextureManagerMod.Convert(texMods[k], texMods.Count == 1 ? source : texMods[k], cooked, outDir, log))
+                        manifests.Add(Path.Combine(outDir, "manifest.json"));
+                }
+                if (manifests.Count == 0) return installed;
+            }
+            if (manifests.Count == 0) { log.Add("No manifest.json in it: not a mod in MHModManager's format (nor an MH Texture Manager mod)."); return installed; }
             if (into != null && manifests.Count != 1) { log.Add($"It holds {manifests.Count} mods: to update '{into.Name}' it has to hold exactly one."); return installed; }
             var updated = new List<string>();
             foreach (string manifestPath in manifests)

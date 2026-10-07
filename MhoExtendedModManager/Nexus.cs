@@ -51,6 +51,33 @@ static class Nexus
 
     /// <summary>The linked mods' Nexus info and files, in batches of 20 per request. Mods Nexus doesn't return
     /// (hidden, removed) come back as unavailable.</summary>
+    /// <summary>
+    /// The author a Nexus mod page credits (its Author field), else its uploader's name; null when the page has neither or
+    /// isn't there. Public information, no account (0.37.206: a converted MH Texture Manager mod is credited to its author).
+    /// </summary>
+    public static async Task<string?> Author(int modId)
+    {
+        if (Fake is string fake)
+        {
+            var list = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(fake, "graphql_mods.json"))).RootElement;
+            var n = list.EnumerateArray().FirstOrDefault(x => x.GetProperty("modId").GetInt32() == modId);
+            return n.ValueKind == JsonValueKind.Object ? AuthorOf(n) : null;
+        }
+        var data = await GraphQl($"{{ legacyModsByDomain(ids:[{{gameDomain:\"{Game}\", modId:{modId}}}]){{ nodes {{ modId author uploader {{ name }} }} }} }}");
+        var nodes = data.TryGetProperty("legacyModsByDomain", out var l) && l.TryGetProperty("nodes", out var ns) && ns.ValueKind == JsonValueKind.Array ? ns : default;
+        if (nodes.ValueKind != JsonValueKind.Array) return null;
+        var node = nodes.EnumerateArray().FirstOrDefault(x => x.TryGetProperty("modId", out var id) && id.GetInt32() == modId);
+        return node.ValueKind == JsonValueKind.Object ? AuthorOf(node) : null;
+    }
+
+    static string? AuthorOf(JsonElement n)
+    {
+        string? a = n.TryGetProperty("author", out var au) && au.ValueKind == JsonValueKind.String ? au.GetString()?.Trim() : null;
+        if (!string.IsNullOrEmpty(a)) return a;
+        string? u = n.TryGetProperty("uploader", out var up) && up.ValueKind == JsonValueKind.Object && up.TryGetProperty("name", out var un) ? un.GetString()?.Trim() : null;
+        return string.IsNullOrEmpty(u) ? null : u;
+    }
+
     public static async Task<Dictionary<int, ModInfo>> Mods(IEnumerable<int> modIds)
     {
         var ids = modIds.Distinct().ToList();

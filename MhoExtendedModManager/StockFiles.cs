@@ -19,6 +19,9 @@ static class StockFiles
         lock (cache) cache.Clear();
     }
 
+    /// <summary>The game's CookedPCConsole (null before <see cref="Init"/> with a game folder).</summary>
+    public static string? Cooked => game?.Cooked;
+
     /// <summary>The clean folder in use (null when not set or missing).</summary>
     public static string? Clean => clean;
 

@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.206
+- A converted MH Texture Manager mod is credited to its author: read from the mod's Nexus page (public information, only its number is sent), when the download's name gives the Nexus mod. Without a connection it stays Unknown, and the install log says why.
+
+0.37.205
+- Install takes mods made for the older MH Texture Manager (a .json and a .tfc, no manifest.json) and converts them into ordinary package mods: each texture goes into every game package that uses it (built from the game's stock copies, the mod's mip levels stored in the package, the small ones kept from the game), so the mod turns on and off like any other, stays installable in MHModManager, and the game's texture caches are left alone. Name, version and Nexus page come from the Nexus file name.
+
 0.37.204
 - The data\history folder no longer fills up: Apply keeps only a record of each game file it writes (to tell its own writes from other programs'), not a full copy of the file's previous version. Nothing used those copies (Apply always rebuilds from the originals in data\library\originals), and they grew to gigabytes. The copies an earlier version kept are deleted in the background at the first start; the records stay.
 

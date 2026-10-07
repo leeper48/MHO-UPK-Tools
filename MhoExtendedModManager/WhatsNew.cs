@@ -27,7 +27,14 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.206 (Kurt, 2026-10-06): MH Texture Manager mods installed as package mods.</summary>
+    static Notice TextureManager() => new(
+        "0.37.206-texture-manager", "0.37.206",
+        "Install Mod now takes mods made for the older MH Texture Manager (a .json and a .tfc). They're converted into ordinary mods as they install: the textures go into the game packages that use them, so the mod turns on and off like any other and the game's texture caches are left alone. The name and version come from the Nexus download's name, and the author from its Nexus page." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-install");
 
     /// <summary>0.37.204 (Kurt, 2026-10-06): data\history no longer fills up.</summary>
     static Notice HistorySmall() => new(

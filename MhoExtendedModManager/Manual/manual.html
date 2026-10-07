@@ -163,7 +163,7 @@ function mhoNext(dir) {
 <h3 id="w-install">Install a Mod and Put It in the Game</h3>
 <ol class="steps">
 <li>Download the mod (a .zip, .7z or .rar). Close the game.</li>
-<li>Click <b>Install Mod</b> (the download arrow at the top left), or drag the archive onto the window. The mod appears at the top of the list, turned off.</li>
+<li>Click <b>Install Mod</b> (the download arrow at the top left), or drag the archive onto the window. The mod appears at the top of the list, turned off. (Mods for the older MH Texture Manager, a .json and a .tfc, are converted into ordinary mods as they're installed.)</li>
 <li>Tick its checkbox. The status line at the bottom now says how many game files will change.</li>
 <li>Click <b>Apply Changes</b> at the bottom right (or press <kbd>Ctrl+Enter</kbd>). A window lists what will be written; click <b>Apply</b>. When it closes, the mod is in the game.</li>
 <li>To take it out again: untick it and Apply Changes. The game's original files go back.</li>
@@ -434,7 +434,7 @@ function mhoNext(dir) {
 
 <h2 id="install">Installing, Updating and Exporting</h2>
 <ul>
-<li><b>Install Mod</b> (or drag an archive onto the window) takes a .zip, .7z, .rar or a folder. An archive can hold several mods. New mods go to the top of the list, turned off: tick them, then Apply Changes.</li>
+<li><b>Install Mod</b> (or drag an archive onto the window) takes a .zip, .7z, .rar or a folder. An archive can hold several mods. New mods go to the top of the list, turned off: tick them, then Apply Changes. A mod made for the older <b>MH Texture Manager</b> (a <code>.json</code> and a <code>.tfc</code> instead of a <code>manifest.json</code>) is converted as it's installed: its textures go into the game packages that use them (from the game's stock copies, the new mip levels stored in the package), so it becomes an ordinary mod that turns on and off like any other and leaves the game's texture caches alone. Its name and version come from the Nexus file name when there is one, and its author from that mod's Nexus page (public information; only the page's number is sent; without a connection the author is left as Unknown).</li>
 <li><b>Updating:</b> installing a mod whose name you already have asks to replace it. Right-click a card → <b>Update from a File</b> replaces that mod with an archive's mod under any name. Either way the mod keeps its place, on/off, lock, tags and note.</li>
 <li><b>Export to ZIP</b> saves the mod as <code>Name - vVersion.zip</code>, with its post and images in a folder beside it. If the mod uses features MHModManager doesn't know, you can export a <b>legacy</b> copy without them.</li>
 </ul>

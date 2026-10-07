@@ -43,7 +43,7 @@ Privacy
   first start (Settings -> Check for Updates at Start) or when you pick Settings -> Check for Updates; nothing about
   you, your game or your mods is sent. Your mods and settings stay in the program's "data" folder.
   Nexus Mods is contacted only when you use its features (Find My Mods, Check for Updates, or checking at start if you
-  turn that on). It only reads public information about Marvel Heroes Omega mods: no Nexus account or key is used, and
+  turn that on), and when you install an MH Texture Manager mod downloaded from Nexus (to read its author from its page). It only reads public information about Marvel Heroes Omega mods: no Nexus account or key is used, and
   nothing about you or your mods is sent.
 
 Source code and license (MIT): https://github.com/leeper48/MHO-UPK-Tools
