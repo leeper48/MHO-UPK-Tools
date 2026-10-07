@@ -7,8 +7,33 @@ namespace MhoExtendedModManager.Gui;
 /// <summary>The preview's power effects, power buttons and props (what the character holds, and what each power shows).</summary>
 sealed partial class StorePreview
 {
+    /// <summary>Own effects with no animation to play them with (a package with a model but no animations: Jean Grey's
+    /// Phoenix form, 2026-10-07): they run on their own, in real time, over the rest pose.</summary>
+    readonly System.Windows.Forms.Timer fxIdleTimer = new() { Interval = 33 };
+    readonly System.Diagnostics.Stopwatch fxIdleClock = new();
+    double fxIdleLast;
+
+    void StartIdleEffects()
+    {
+        if (fxPlayer == null || playing != null) return;
+        fxIdleClock.Restart(); fxIdleLast = 0; fxTime = 0;
+        fxIdleTimer.Tick -= IdleEffectsTick; fxIdleTimer.Tick += IdleEffectsTick;
+        fxIdleTimer.Start();
+    }
+
+    void IdleEffectsTick(object? sender, EventArgs e)
+    {
+        if (fxPlayer == null || playing != null || viewer == null || !Visible || !show3D) { fxIdleTimer.Stop(); return; }
+        double now = fxIdleClock.Elapsed.TotalSeconds;
+        fxPlayer.Step((float)Math.Min(0.1, now - fxIdleLast), false);
+        fxIdleLast = now;
+        ShowPose();
+        viewer.Invalidate();
+    }
+
     void ClearEffects()
     {
+        fxIdleTimer.Stop();
         fxRequest++; fxPlayer = null; fxNote = "";
         if (viewer != null) { viewer.Effects = []; viewer.EffectTris = []; }
         if (fxActors.Count > 0) { fxActors = []; RebuildRig(); }
@@ -222,6 +247,7 @@ sealed partial class StorePreview
             fxNote = power != null ? $"{SplitWords(Path.GetFileNameWithoutExtension(power))} · {fx.Effects.Count} Effect{(fx.Effects.Count == 1 ? "" : "s")}"
                 : fx.Effects.Count == 0 ? "No Effects of Its Own" : $"Own Effects · {fx.Effects.Count} Effect{(fx.Effects.Count == 1 ? "" : "s")}";
             if (playing != null) FxReplay(PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime);
+            else StartIdleEffects();   // no animation: the effects run on their own
             ShowPose();
             Invalidate();
         }, TaskScheduler.FromCurrentSynchronizationContext());

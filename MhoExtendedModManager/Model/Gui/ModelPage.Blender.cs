@@ -102,7 +102,7 @@ sealed partial class ModelPage
     /// <summary>
     /// Textures painted in Blender (Kurt, 2026-10-06: Texture Paint on She-Hulk's horns): an export folder texture saved after
     /// the export (newer than its model.fbx; the export copies keep their own dates or are written before it) and not taken
-    /// in yet becomes that material's map override (the Materials tab's Use a File: copied into the mod's Model folder,
+    /// in yet becomes that material's map override (the Materials tab's Replace File: copied into the mod's Model folder,
     /// Back to Automatic undoes it). What was taken in is kept in the edits folder (painted.txt: file, SHA-1).
     /// </summary>
     void ApplyPaintedTextures(string folder)

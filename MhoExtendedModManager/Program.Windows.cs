@@ -309,6 +309,7 @@ static partial class Program
                 // "Own Effects"); MHO_RENDER_OPACITY=0.3 / MHO_RENDER_HUE=120: drawn with that color, as the tab previews it.
                 if (Environment.GetEnvironmentVariable("MHO_RENDER_OWN") == "1" && rc != null)
                 {
+                    if (ba == null) secs = 3;   // a model with no animations: its effects run 3 s over the rest pose (as the preview's own clock)
                     // MHO_RENDER_AGENT_POWER=<power prototype>: that NPC / enemy power's effects (as the Powers tab plays them)
                     string? agentProto = Environment.GetEnvironmentVariable("MHO_RENDER_AGENT_POWER");
                     var ofx = agentProto != null

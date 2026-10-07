@@ -27,7 +27,16 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.211 (Kurt, 2026-10-07): a hero's audio package's powers and own effects; Replace File.</summary>
+    static Notice PhoenixEffects() => new(
+        "0.37.211-phoenix-effects", "0.37.211",
+        "What's new:" + nl + nl +
+        "• Powers tab: a mod with a hero's audio package (Jean Grey's holds her Phoenix form) shows that hero's powers and the package's Own Effects to recolor, and the preview plays them (the Dark Phoenix ring of fire)." + nl + nl +
+        "• Model tab, Materials: Use a File is now called Replace File." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-own");
 
     /// <summary>0.37.208 (Kurt, 2026-10-07): any package as a Model target, a choice of character, more textures to edit.</summary>
     static Notice AnyTarget() => new(

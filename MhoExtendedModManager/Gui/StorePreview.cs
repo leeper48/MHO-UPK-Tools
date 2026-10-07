@@ -625,7 +625,7 @@ sealed partial class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); playTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); playTimer.Dispose(); fxIdleTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
         base.Dispose(disposing);
     }
 }

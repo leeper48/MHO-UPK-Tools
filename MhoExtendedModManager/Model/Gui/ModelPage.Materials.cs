@@ -4,7 +4,7 @@ namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
 /// The Materials tab (Kurt, 2026-10-04): each material's color, normal, spec and alpha maps and where they come from (found
-/// with the model, generated, none, or your file), with Use a File (an override, copied into the mod's Model folder), Back to
+/// with the model, generated, none, or your file), with Replace File (an override, copied into the mod's Model folder), Back to
 /// Automatic and OpenGL Normal Map (its green flipped to DirectX). Saved per source in materials\&lt;source&gt;.json (MaterialOverrides);
 /// the preview, Build and Export FBX use it, and Undo takes a change back.
 /// </summary>
@@ -46,7 +46,7 @@ sealed partial class ModelPage
         matGrid.ShowCellToolTips = true;
         Ui.StyleGrid(matGrid);
         Ui.Tip(matGrid, "Each material's maps and where they come from. Double-click a row to see its map large (made ones too: generated, converted, from your tags); right-click a row to view, edit in your image editor, use a file or go back to automatic. Ctrl+click the model in the preview to pick its material.");
-        matGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) _ = ViewMap(e.RowIndex); };   // (Kurt, 2026-10-04: was Use a File)
+        matGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) _ = ViewMap(e.RowIndex); };   // (Kurt, 2026-10-04: was Use a File, now Replace File)
         // right-click (Kurt, 2026-10-06): the row selected, then its menu: view large, edit, a file, back to automatic
         matGrid.CellMouseDown += (_, e) =>
         {
@@ -56,13 +56,13 @@ sealed partial class ModelPage
             int row = e.RowIndex;
             m.Items.Add(new ToolStripMenuItem("View Large", null, (_, _) => _ = ViewMap(row)) { ToolTipText = "The map large, with zoom and Export as PNG (also: double-click the row)." });
             m.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditMapExternally()) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in your image editor; each save there comes back here." });
-            m.Items.Add(new ToolStripMenuItem("Use a File", null, (_, _) => UseMapFile()) { Enabled = matUse.Enabled, ToolTipText = "Puts in an image of yours for this map." });
+            m.Items.Add(new ToolStripMenuItem("Replace File", null, (_, _) => UseMapFile()) { Enabled = matUse.Enabled, ToolTipText = "Puts in an image of yours for this map." });
             m.Items.Add(new ToolStripMenuItem("Back to Automatic", null, (_, _) => MapBackToAutomatic()) { Enabled = matAuto.Enabled, ToolTipText = "Forgets your file for this map." });
             m.Closed += (_, _) => BeginInvoke(m.Dispose);
             m.Show(matGrid, matGrid.PointToClient(Cursor.Position));
         };
         matGrid.CurrentCellChanged += (_, _) => { if (!fillingMat) MatSelectionChanged(); };
-        matUse = Ui.FlatButton("Use a File", UseMapFile, "Puts your own image (PNG, JPG or BMP) in for the selected map: copied into the mod's Model folder; the preview, Build and Export FBX use it. Undo (Ctrl+Z) takes it back. MHO Spec takes a map in the game's own packed layout (R shine, G spec power, B skin mask, A reflectivity), put in as it is with Angela's armor material; Spec Color tints its highlights.");
+        matUse = Ui.FlatButton("Replace File", UseMapFile, "Puts your own image (PNG, JPG or BMP) in for the selected map: copied into the mod's Model folder; the preview, Build and Export FBX use it. Undo (Ctrl+Z) takes it back. MHO Spec takes a map in the game's own packed layout (R shine, G spec power, B skin mask, A reflectivity), put in as it is with Angela's armor material; Spec Color tints its highlights.");
         matAuto = Ui.FlatButton("Back to Automatic", MapBackToAutomatic, "Forgets your file for the selected map (a Normal row: the green flip too); the importer's own choice is used again.");
         matFlip = Ui.FlatButton("OpenGL Normals", FlipGreen, "The selected normal map was made the OpenGL way (Blender, Unity, Maya, Substance's OpenGL preset: green up): its green is flipped to MHO's DirectX way (lit when on). Bumps that look dented instead of raised need it. Only for a normal map of the model's own or your file: one generated from the color map is already DirectX.");
         matRecipe = Ui.FlatButton("Next Recipe", NextSpecRecipe, "A spec row with no map of its own gets one made from the color map; this steps through the ways it's made: Soft, Strong, Dark Is Shiny, Detail, Flat. Preview Shows → Spec Map (above) shows it.");
@@ -75,7 +75,7 @@ sealed partial class ModelPage
         matNoGlow.Visible = false;   // (in OpenGL Normals' place on a Glow row)
         // icons (Kurt, 2026-10-04): the old names lead their tooltips
         float sc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
-        Icons.Make(matUse, "Use a File", Icons.Folder, sc);
+        Icons.Make(matUse, "Replace File", Icons.Folder, sc);
         Icons.Make(matAuto, "Back to Automatic", Icons.Reset, sc);
         Icons.Make(matFlip, "OpenGL Normals", Icons.FlipVertical, sc);
         Icons.Make(matNoGlow, "No Glow", Icons.NoGlow, sc);
@@ -205,7 +205,7 @@ sealed partial class ModelPage
     /// <summary>Test: the Materials tab's rows (material | map | from).</summary>
     internal List<string> TestMaterialRows() => matGrid.Rows.Cast<DataGridViewRow>().Select(r => $"{r.Cells[0].Value} | {r.Cells[1].Value} | {r.Cells[2].Value}").ToList();
 
-    /// <summary>Test: Use a File on the first row of <paramref name="kind"/> with <paramref name="file"/>.</summary>
+    /// <summary>Test: Replace File on the first row of <paramref name="kind"/> with <paramref name="file"/>.</summary>
     internal void TestUseMapFile(string kind, string file)
     {
         int row = matGrid.Rows.Cast<DataGridViewRow>().ToList().FindIndex(r => (string)r.Cells[1].Value == kind);

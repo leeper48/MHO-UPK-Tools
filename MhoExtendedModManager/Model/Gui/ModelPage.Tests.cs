@@ -95,7 +95,7 @@ sealed partial class ModelPage
         for (int i = 0; i < 300 && !undoButton.Enabled; i++) await Task.Delay(100);
         string? afterRow = TestMaterialRows().FirstOrDefault(r => r.Contains(" | Normal | "));
         bool overridden = afterRow?.Contains("Your file: ") == true && OverridesFile() is string of && File.Exists(Path.Combine(Path.GetDirectoryName(of)!, Path.GetFileNameWithoutExtension(of), Directory.GetFiles(Path.Combine(Path.GetDirectoryName(of)!, Path.GetFileNameWithoutExtension(of))).Select(Path.GetFileName).First()!));
-        say($"{(overridden ? "PASS" : "FAIL")} Use a File puts an override in, copied into the Model folder ({afterRow})");
+        say($"{(overridden ? "PASS" : "FAIL")} Replace File puts an override in, copied into the Model folder ({afterRow})");
         int su = preview.ShowCount;
         Undo();
         for (int i = 0; i < 300 && preview.ShowCount == su; i++) await Task.Delay(100);

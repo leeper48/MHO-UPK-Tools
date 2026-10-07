@@ -155,7 +155,8 @@ sealed partial class ModEditorView
     void LoadAgentPowers()
     {
         if (agentLoading || game == null) return;
-        var files = draft.Packages.Select(x => x.File).Where(f => PowerColorBuild.HasOwnEffects(f) && !agentPowers.ContainsKey(f)).ToList();
+        var files = draft.Packages.Select(x => x.File).Where(f => PowerColorBuild.HasOwnEffects(f) && !agentPowers.ContainsKey(f)
+            && !f.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase)).ToList();   // (an audio package is no character with an AI's powers)
         if (files.Count == 0) return;
         agentLoading = true;
         var g = game;

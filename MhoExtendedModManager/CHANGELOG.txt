@@ -1,6 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.211
+- Powers tab, Own Effects: the effects of the condition classes a package defines play in the preview too (Jean Grey's audio package: her Dark Phoenix maelstrom's ring of fire), with their textures; and own effects of a model with no animations run on their own over its rest pose.
+
+0.37.210
+- Powers tab: a mod holding only a hero's audio package (UC__MarvelPlayerAudio_…, Jean Grey's with her Phoenix form) shows that hero's powers and the package's Own Effects (flames, wings, glows) to recolor; the preview shows its model. The Mods tab's preview finds models in such packages too.
+
+0.37.209
+- Model tab, Materials: Use a File is now called Replace File (button, right-click menu, tooltips, manual).
+
 0.37.208
 - Model tab, Materials with no source: a plain material's textures are listed too (its shader's own textures, typed by their names), and so are the textures of a material the model takes from its hero's base package (Jean Grey's Phoenix wings, from UC__MarvelPlayer_JeanGrey_SF). Changing one of those asks first, then adds that package to the mod with the change.
 - 3D preview: a hero's audio / voice package (UC__MarvelPlayerAudio_<Hero>_…) finds the materials it imports in the hero's base package: Jean Grey's Phoenix wings are textured.

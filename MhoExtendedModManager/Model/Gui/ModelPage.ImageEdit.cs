@@ -6,7 +6,7 @@ namespace MhoExtendedModManager.Model.Gui;
 /// The Materials tab's Edit in Image Editor (Kurt, 2026-10-06: GIMP, Corel PHOTO-PAINT, Photoshop …, its saves applied like
 /// Blender's Ctrl+S): the selected map is copied as a PNG into the mod's Model folder (materials\&lt;source&gt;\edit\) and
 /// opened in the editor; a watcher takes every save there in as that map's override (a copy under a new name per save, so
-/// the preview's picture cache sees it; Undo / Back to Automatic as for Use a File).
+/// the preview's picture cache sees it; Undo / Back to Automatic as for Replace File).
 /// </summary>
 sealed partial class ModelPage
 {
@@ -44,7 +44,7 @@ sealed partial class ModelPage
     {
         if (SelectedPackageMap() is { } pm) { EditPackageMap(pm); return; }
         if (SelectedMap() is not { } sel || OverridesPath() is not string ovPath) return;
-        if (SelectedMapFile() is not string source) { Log($"Image editor: {sel.Material} has no {sel.Kind.ToLowerInvariant()} map to edit (Use a File puts one in)."); return; }
+        if (SelectedMapFile() is not string source) { Log($"Image editor: {sel.Material} has no {sel.Kind.ToLowerInvariant()} map to edit (Replace File puts one in)."); return; }
         string? exe = ImageEditor.Find();
         if (exe == null)
         {
@@ -184,7 +184,7 @@ sealed partial class ModelPage
         if (row < 0) { say("FAIL no Color texture listed for the package"); return false; }
         matGrid.CurrentCell = matGrid.Rows[row].Cells["material"];
         var map = (PackageMap)matGrid.Rows[row].Tag!;
-        say($"{(matEdit.Enabled && matUse.Enabled ? "PASS" : "FAIL")} Edit in Image Editor and Use a File are on for a package texture");
+        say($"{(matEdit.Enabled && matUse.Enabled ? "PASS" : "FAIL")} Edit in Image Editor and Replace File are on for a package texture");
         EditMapExternally();
         var w = imageWatches.Values.FirstOrDefault(x => x.Pkg != null);
         if (w == null) { say("FAIL no edit copy watched"); return false; }

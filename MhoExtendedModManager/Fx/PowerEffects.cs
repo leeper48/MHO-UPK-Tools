@@ -550,6 +550,21 @@ sealed class PowerEffects
                 .Select(d => d.TryGetValue("socketname", out var n) ? n : "None").Where(n => !n.Equals("None", StringComparison.OrdinalIgnoreCase)).ToList() : [];
             Add(p.T.Exports[i].ObjectName, sysRef, sockets);
         }
+        // 3. the condition classes the package defines (2026-10-07: Jean Grey's audio package holds her Dark Phoenix form,
+        // marvelconditioneffect_jeangrey_darkphoenixmaelstrom: its flames and aura are ConditionFxParticles of that class)
+        string? hero = stem.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase) ? stem.Split('_', StringSplitOptions.RemoveEmptyEntries)[2] : null;
+        for (int i = 0; i < p.T.Exports.Count; i++)
+        {
+            if (!p.T.ClassOf(p.T.Exports[i]).Equals("Class", StringComparison.OrdinalIgnoreCase)) continue;
+            string cc = p.T.Exports[i].ObjectName;
+            if (!cc.StartsWith("marvelconditioneffect_", StringComparison.OrdinalIgnoreCase)) continue;
+            var more = ForClass(g, cc, hero);
+            fx.Effects.AddRange(more.Effects);
+            foreach (var (em, lk) in more.Looks) fx.Looks.TryAdd(em, lk);       // (their textures: without them nothing is drawn)
+            foreach (var (em, mesh) in more.Meshes) fx.Meshes.TryAdd(em, mesh);
+            fx.Decals.AddRange(more.Decals);
+            fx.Notes.AddRange(more.Notes.Take(4));
+        }
         fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
         return fx;
     }

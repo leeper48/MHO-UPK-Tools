@@ -298,7 +298,7 @@ static partial class Program
                 float sc = MhoExtendedModManager.Gui.Ui.Dpi(f.DeviceDpi);
                 var painters = new (string Name, Action<Graphics, RectangleF, Pen, Brush> Paint)[]
                 {
-                    ("Use a File", Gui.Icons.Folder), ("Back to Automatic", Gui.Icons.Reset),
+                    ("Replace File", Gui.Icons.Folder), ("Back to Automatic", Gui.Icons.Reset),
                     ("OpenGL Normals", Gui.Icons.FlipVertical), ("No Glow", Gui.Icons.NoGlow),
                     ("Next Recipe", Gui.Icons.Next), ("Tag Colors", Gui.Icons.Tag),
                     ("From Channels", Gui.Icons.Channels), ("Layout", Gui.Icons.Layout),

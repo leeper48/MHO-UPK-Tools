@@ -26,7 +26,7 @@ static class Icons
         });
     }
 
-    /// <summary>Use a File: an open folder.</summary>
+    /// <summary>Replace File: an open folder.</summary>
     public static void Folder(Graphics g, RectangleF b, Pen p, Brush _)
     {
         float w = b.Width, h = b.Height;

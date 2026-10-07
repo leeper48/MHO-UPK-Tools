@@ -24,7 +24,8 @@ sealed record MeshRef(string Package, string File, string Name, int Export)
 /// </summary>
 static class ModMeshes
 {
-    static readonly string[] CharacterPrefixes = ["UC__MarvelPlayer_", "UC__MarvelTeamUp_", "UC__MarvelNPC_", "UC__MarvelAgent_", "UC__MarvelVanityPet_"];
+    // (a hero's audio / voice packages last: Jean Grey's holds her Phoenix form's model and effects, 2026-10-07)
+    static readonly string[] CharacterPrefixes = ["UC__MarvelPlayer_", "UC__MarvelTeamUp_", "UC__MarvelNPC_", "UC__MarvelAgent_", "UC__MarvelVanityPet_", "UC__MarvelPlayerAudio_"];
     static int Rank(string file) { for (int i = 0; i < CharacterPrefixes.Length; i++) if (file.StartsWith(CharacterPrefixes[i], StringComparison.OrdinalIgnoreCase)) return i; return 99; }
     static readonly Dictionary<string, List<MeshRef>> listCache = new(StringComparer.OrdinalIgnoreCase);
 

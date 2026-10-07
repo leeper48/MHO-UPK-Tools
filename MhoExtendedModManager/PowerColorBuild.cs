@@ -127,10 +127,11 @@ static class PowerColorBuild
         return stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
     }
 
-    /// <summary>An NPC, enemy or team-up package: its own effects can be recolored (a team-up's hologram too).</summary>
+    /// <summary>An NPC, enemy, team-up or hero audio package: its own effects can be recolored (a team-up's hologram too).</summary>
     public static bool HasOwnEffects(string file) =>
         file.StartsWith("UC__MarvelAgent_", StringComparison.OrdinalIgnoreCase) || file.StartsWith("UC__MarvelNPC_", StringComparison.OrdinalIgnoreCase)
-        || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase);
+        || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase)
+        || file.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase);   // (Jean Grey's: her Phoenix form's flames and wings, 2026-10-07)
 
     /// <summary>
     /// The package an own-effects recolor starts from. The mod's saved copy that an earlier recolor made: the copy kept before

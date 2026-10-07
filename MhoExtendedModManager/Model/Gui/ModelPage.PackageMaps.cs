@@ -6,7 +6,7 @@ namespace MhoExtendedModManager.Model.Gui;
 /// <summary>
 /// The Materials tab with no source picked (Kurt, 2026-10-06: Blue Marvel, already built into the mod's package, showed no
 /// maps): the shown package's own textures, per material of its model (the material instance's texture parameters), with
-/// Edit in Image Editor and Use a File. A change is encoded like the package's other textures (DXT1 / DXT5 as the original,
+/// Edit in Image Editor and Replace File. A change is encoded like the package's other textures (DXT1 / DXT5 as the original,
 /// with mipmaps) and replaces that texture in the mod's copy of the package (MPM's texture replace, verified), as a build of
 /// the tab: Save Changes keeps it.
 /// </summary>
@@ -80,7 +80,7 @@ sealed partial class ModelPage
             matGrid.Rows[i].Tag = m;
             matGrid.Rows[i].Cells["from"].ToolTipText = m.InFile != null
                 ? $"{m.Texture} is in {m.InFile}, the hero's base package this model takes the material from: changing it adds that package to the mod (asked first), and every costume of the hero that uses the texture shows the change."
-                : $"{m.Texture}{(m.Param.Length > 0 ? $" ({m.Param})" : "")} in {Path.GetFileName(packageMapsFile)}: Edit in Image Editor or Use a File changes it in the mod's copy of the package.";
+                : $"{m.Texture}{(m.Param.Length > 0 ? $" ({m.Param})" : "")} in {Path.GetFileName(packageMapsFile)}: Edit in Image Editor or Replace File changes it in the mod's copy of the package.";
         }
     }
 
@@ -165,7 +165,7 @@ sealed partial class ModelPage
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
-    /// <summary>Use a File in package mode: the picked image replaces the texture.</summary>
+    /// <summary>Replace File in package mode: the picked image replaces the texture.</summary>
     void UsePackageMapFile(PackageMap m)
     {
         using var d = new OpenFileDialog { Title = $"{m.Kind} map for {m.Material} ({m.Texture})", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
