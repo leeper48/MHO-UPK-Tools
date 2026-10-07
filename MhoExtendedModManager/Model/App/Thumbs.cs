@@ -72,6 +72,30 @@ static class Thumbs
         return true;
     }
 
+    /// <summary>A cached file shown this session: its date says so (once per session: the memory cache holds it after),
+    /// so <see cref="Prune"/> keeps it.</summary>
+    static void Touch(string file) { try { File.SetLastWriteTimeUtc(file, DateTime.UtcNow); } catch (Exception) { } }
+
+    /// <summary>
+    /// Thumbnails not shown for <paramref name="days"/> days (models deleted or moved, FBX files changed since: each change
+    /// gets a new key, so the old picture was never used again), and temp files a killed run left; they're made again when
+    /// needed. (2026-10-07, a user: data\model\thumbs never shrank.) Files and bytes removed.
+    /// </summary>
+    public static (int Files, long Bytes) Prune(int days)
+    {
+        int n = 0; long bytes = 0;
+        if (!Directory.Exists(Dir)) return (0, 0);
+        var cutoff = DateTime.UtcNow.AddDays(-days);
+        foreach (var f in new DirectoryInfo(Dir).EnumerateFiles())
+        {
+            bool temp = f.Name.EndsWith(".making.png", StringComparison.OrdinalIgnoreCase) || f.Name.EndsWith(".sheet.png", StringComparison.OrdinalIgnoreCase);
+            bool old = (f.Extension.Equals(".png", StringComparison.OrdinalIgnoreCase) || f.Extension.Equals(".none", StringComparison.OrdinalIgnoreCase)) && f.LastWriteTimeUtc < cutoff;
+            if (!temp && !old) continue;
+            try { long len = f.Length; f.Delete(); n++; bytes += len; } catch (Exception) { }
+        }
+        return (n, bytes);
+    }
+
     static Image? Get(string key, Func<string, bool> make)
     {
         if (memory.TryGetValue(key, out var img)) return img;
@@ -81,10 +105,10 @@ static class Thumbs
         {
             // Read failures (a file another program holds, a broken one) = not ready yet: try again on the next paint. The
             // worker only ever renames a finished file into place, so a half-written one is never read (Kurt's crash, 0.9.1).
-            try { return memory[key] = LoadCopy(png); }
+            try { var loaded = memory[key] = LoadCopy(png); Touch(png); return loaded; }
             catch (Exception) { return null; }
         }
-        if (File.Exists(none)) return memory[key] = null;
+        if (File.Exists(none)) { Touch(none); return memory[key] = null; }
         if (queued.TryAdd(key, true))
         {
             work.Add((key, make));

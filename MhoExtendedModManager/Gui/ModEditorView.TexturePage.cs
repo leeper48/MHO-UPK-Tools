@@ -242,7 +242,10 @@ sealed partial class ModEditorView
             {
                 // An image: made into a .dds like the original (size, DXT1 / DXT5); the mod gets the .dds.
                 if (f.catalog == null) { Dialog.Show(this, "Set the game folder first: the original texture's size and format are needed to convert an image.", "Textures"); return; }
-                string outDds = Path.Combine(Settings.Home, "converted", ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(chosen)) + ".dds");
+                // named per texture too: one image used for two textures of different sizes (an icon and a portrait) made two
+                // conversions of one name, and the second overwrote the first before Save (2026-10-07)
+                string stem = ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(chosen));
+                string outDds = Path.Combine(Settings.Home, "converted", (stem.Equals(e.Name, StringComparison.OrdinalIgnoreCase) ? stem : $"{stem}_{ModInstaller.Sanitise(e.Name)}") + ".dds");
                 try { convertNote = $"{Path.GetFileName(chosen)}: " + f.catalog.ImageToDds(e.File, e.Name, chosen, outDds, keepSize); chosen = outDds; }
                 catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException or System.Runtime.InteropServices.ExternalException) { Dialog.Show(this, $"{Path.GetFileName(chosen)} can't be converted: {ex.Message}", "Textures"); return; }
             }

@@ -125,6 +125,7 @@ function mhoNext(dir) {
 <li><a href="#settings">Settings</a></li>
 <li><a href="#keys">Keyboard Shortcuts</a></li>
 <li><a href="#trouble">Troubleshooting</a></li>
+<li><a href="#datafolder">The Data Folder</a></li>
 <li><a href="#commands">Command Line</a></li>
 </ul>
 
@@ -385,7 +386,7 @@ function mhoNext(dir) {
 <ol class="steps">
 <li>In the Editor, fill in the <b>Overview → Description</b> tab: the description and what changed in this version. Pick the preview and card picture people will see.</li>
 <li>Click <b>Create Post</b> (bottom bar). It writes a Nexus post and a Discord post from the mod: what it changes, the costume, how to install. Edit them, add pictures (<b>Add Screenshots</b>, <b>Add Mod Images</b>), then <b>Copy</b> the tab you're on and paste it on Nexus or Discord. <b>Save to Mod</b> keeps the post with the mod.</li>
-<li>Select the mod in the list and click <b>Export to ZIP</b> (bottom left). The zip installs in this app and in MHModManager; its post and images are saved in a folder beside it.</li>
+<li>Select the mod in the list and click <b>Export to ZIP</b> (bottom left). The zip installs in this app and in MHModManager. If you saved a post with the mod (step above), the post and its images are saved in a folder beside the zip (<code>Name - vVersion - Post</code>).</li>
 </ol>
 <figure><img src="img/create-post.jpg" alt="Create Post: the Nexus and Discord versions of the post, with images to go along."><figcaption>Create Post: the Nexus and Discord versions of the post, with images to go along.</figcaption></figure>
 </div>
@@ -452,7 +453,7 @@ function mhoNext(dir) {
 <ul>
 <li><b>Install Mod</b> (or drag an archive onto the window) takes a .zip, .7z, .rar or a folder. An archive can hold several mods. New mods go to the top of the list, turned off: tick them, then Apply Changes. A mod made for the older <b>MH Texture Manager</b> (a <code>.json</code> and a <code>.tfc</code> instead of a <code>manifest.json</code>) is converted as it's installed: its textures go into the game packages that use them (from the game's stock copies, the new mip levels stored in the package), so it becomes an ordinary mod that turns on and off like any other and leaves the game's texture caches alone. Its name and version come from the Nexus file name when there is one, and its author from that mod's Nexus page (public information; only the page's number is sent; without a connection the author is left as Unknown).</li>
 <li><b>Updating:</b> installing a mod whose name you already have asks to replace it. Right-click a card → <b>Update from a File</b> replaces that mod with an archive's mod under any name. Either way the mod keeps its place, on/off, lock, tags and note.</li>
-<li><b>Export to ZIP</b> saves the mod as <code>Name - vVersion.zip</code>, with its post and images in a folder beside it. If the mod uses features MHModManager doesn't know, you can export a <b>legacy</b> copy without them.</li>
+<li><b>Export to ZIP</b> saves the mod as <code>Name - vVersion.zip</code>; a mod with a saved post (Create Post → Save to Mod) also gets its post and images in a folder beside it. If the mod uses features MHModManager doesn't know, you can export a <b>legacy</b> copy without them.</li>
 </ul>
 
 <h2 id="remove">Removing a Mod</h2>
@@ -638,6 +639,16 @@ function mhoNext(dir) {
 <tr><td>A costume looks like the original in game</td><td>Check which costume you're wearing: some heroes have two costumes with the same model (Thor's Age of Ultron and its Armored Variant). The costume's name in game tells them apart.</td></tr>
 <tr><td>Something doesn't work (a bug)</td><td>Please report it on Discord: <a href="https://discord.com/channels/1130836076332863580/1553841408471867442">MHServerEmu Development</a> or <a href="https://discord.com/channels/1142968916205903942/1553842238969352263">TAHITI</a>: what you did, what happened, and the version (in the window's title). The newest Editor features (Voice Shift, power colors, animation swaps) are experimental.</td></tr>
 </table>
+
+<h2 id="datafolder">The Data Folder</h2>
+<p>Everything the app keeps is in <code>data</code> next to the program. Each normal start clears what nothing needs any more, so you don't have to:</p>
+<ul>
+<li><code>converted</code>: images converted for the editor (PNG to DDS, Create from 3D snapshots). Save copies them into the mod, so the copies here aren't needed after the app closes.</li>
+<li><code>downloads</code>: mods downloaded from Nexus for a one-click update, once installed. <code>update</code>: an app update that stopped part way.</li>
+<li><code>model\thumbs</code>: model thumbnails not shown for 30 days (made again when needed).</li>
+<li>The editor's work folders in <code>library</code> (<code>model-work-…</code>, <code>power-colors-…</code>, <code>voice-…</code>, <code>anim-work-…</code>, <code>costume-move-…</code>) that a closed or crashed run left.</li>
+</ul>
+<p>Keep the rest: <code>library</code> (your mods, the game's clean originals the app restores from, its list), <code>settings.json</code>, and <code>history</code> (a small record of each game file the app wrote, so Apply can tell its own changes from other programs'; no copies of files any more). <code>model\fbx</code> and <code>model\rigs</code> hold your Model-tab exports, Blender scenes and rigs: clear them with <b>Settings → Model → Clean Up Exports and Rigs</b>, which shows what each one is and sends the ones you pick to the Recycle Bin. <code>model\converted</code> holds Blender and XPS models read through Blender; it's made again when you browse to them.</p>
 
 <h2 id="commands">Command Line</h2>
 <p>Every feature is also available from a command prompt (<code>MHO_Ext_ModManager.exe --command …</code>), for scripting and checks. Commands that don't say they write change nothing.</p>

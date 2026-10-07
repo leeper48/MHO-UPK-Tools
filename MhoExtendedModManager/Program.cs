@@ -99,7 +99,9 @@ static partial class Program
         // Undo copies an earlier version kept in data\history (up to gigabytes; nothing reads them): deleted in the background,
         // the records (history.txt) stay (0.37.204).
         if (args.Length == 0) Task.Run(() => MhoPackageModifier.History.DeleteSnapshots());
-        if (args.Length == 0) ModelWork.SweepOrphans(Settings.Load().LibraryPath);   // the Model tab's work folders a killed run left
+        // what the data folder collects that nothing needs any more (converted editor images, Nexus downloads, an unfinished
+        // update, unused thumbnails, the editor's work folders a killed run left: DataCleanup)
+        if (args.Length == 0) DataCleanup.Run(Settings.Load().LibraryPath);
         Gui.Ui.UseDarkTheme();   // dark menus and title bars for every window (nothing to do without one)
         if (WindowCommand(args) is int windowResult) return windowResult;
 
@@ -410,6 +412,15 @@ static partial class Program
                 if (m == null) { Console.WriteLine("Usage: --export <mod> <out.zip> [--legacy] (no such mod?)"); return 1; }
                 ModInstaller.Export(m, rest[2], rest.Any(a => a.Equals("--legacy", StringComparison.OrdinalIgnoreCase)));
                 Console.WriteLine($"Exported {m.Name} to {rest[2]} ({new FileInfo(rest[2]).Length:N0} bytes).");
+                return 0;
+            }
+            case "--clean-data":
+            {
+                // What a normal start clears from the data folder (DataCleanup); --dry-run only counts it.
+                bool dry = rest.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase));
+                var cleaned = DataCleanup.Run(lib.DataFolder, dry);
+                foreach (var c in cleaned) Console.WriteLine($"{(dry ? "would clear" : "cleared")}: {c.What}: {c.Files} file(s)/folder(s), {c.Bytes / 1048576.0:0.0} MB");
+                if (cleaned.Count == 0) Console.WriteLine("nothing to clear");
                 return 0;
             }
             case "--remove":

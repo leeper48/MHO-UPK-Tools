@@ -1301,7 +1301,16 @@ sealed partial class MainForm : Form
         }
         using var d = new SaveFileDialog { Title = legacy ? "Export Mod (Legacy)" : "Export Mod", Filter = "Zip archive (*.zip)|*.zip", FileName = ModInstaller.ZipName(m, legacy) };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        try { ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views, light, card); ModPost.WriteBeside(m, d.FileName); status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with the user tags / note / preview)" : ""); }
+        try
+        {
+            ModInstaller.Export(m, d.FileName, legacy, addTags, note, pick, views, light, card);
+            // "<zip> - Post" beside it only for a mod with a saved post (Create Post → Save to Mod): a user exporting a mod got
+            // an extra folder they didn't ask for (2026-10-07)
+            var (pn, pd, pi) = ModPost.Read(m.Folder);
+            string? postDir = pn != null || pd != null || pi.Count > 0 ? ModPost.WriteBeside(m, d.FileName) : null;
+            status.Text = $"Exported {m.Name} to {d.FileName}" + (legacy ? " (legacy: other icon packages, tags, note and preview left out)" : addTags != null ? " (with the user tags / note / preview)" : "")
+                + (postDir != null ? $", its post in {Path.GetFileName(postDir)}" : "");
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Export Failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 

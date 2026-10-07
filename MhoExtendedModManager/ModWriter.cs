@@ -372,9 +372,10 @@ static class ModelWork
     {
         if (library == null || !Directory.Exists(library)) return 0;
         int n = 0;
-        foreach (var d in Directory.GetDirectories(library, "model-work-*"))
+        // (2026-10-07: the other work folders a killed run left were never swept: power colors, voice, animations, moves)
+        foreach (var d in Directory.GetDirectories(library))
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "^model-work-[0-9a-f]{8}$")) continue;
+            if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "^(model-work|power-colors|voice-work|voice-edit|voice-shift|anim-work|costume-move)-[0-9a-f]{8}$")) continue;
             try { Directory.Delete(d, true); n++; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }

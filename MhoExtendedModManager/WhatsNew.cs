@@ -27,7 +27,15 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.213 (Kurt, 2026-10-07): the data folder cleans up after itself; the Post folder only with a saved post.</summary>
+    static Notice TidyData() => new(
+        "0.37.213-tidy-data", "0.37.213",
+        "A tidier data folder: each start now clears what nothing needs any more: the editor's converted images (Save already copies them into the mod), model thumbnails not shown for 30 days, Nexus downloads once installed, and the editor's leftovers from a crash. Your mods, settings and Model-tab work are kept; the manual's \"The Data Folder\" section says what's what." + nl + nl +
+        "Export to ZIP adds the \"- Post\" folder beside the zip only for a mod with a saved post (Create Post → Save to Mod)." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "datafolder");
 
     /// <summary>0.37.212 (Kurt, 2026-10-07): Nexus registered the app: Sign In with Nexus for one-click updates.</summary>
     static Notice NexusSignIn() => new(

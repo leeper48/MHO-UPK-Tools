@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.213
+- The data folder cleans up after itself at each start: images converted for the editor (data\converted; Save copies them into the mod), Nexus downloads once installed, an unfinished app update, model thumbnails not shown for 30 days, and every kind of editor work folder a closed or crashed run left (only the Model tab's were cleared before). Your library, originals, settings, the write records (history), and the Model tab's exports and rigs are kept. The manual has a Data Folder section.
+- Export to ZIP writes the "<name> - Post" folder beside the zip only for a mod with a saved post (Create Post → Save to Mod).
+- Editor: one image used for two textures of different sizes (an icon and a portrait) no longer has its first conversion overwritten by the second before Save.
+- README: the privacy section describes Sign In with Nexus.
+
 0.37.212
 - Sign in with Nexus is on: Nexus registered the app (client ID mho_extended_mod_manager). Signed in with a Premium account, Update downloads and installs a mod's new version in one click; otherwise it opens the Files page as before.
 
