@@ -22,7 +22,8 @@ static class AutoRig
 {
     /// <summary>A rig's name: &lt;fbx name&gt; on &lt;package&gt;.</summary>
     public static string Name(string fbx, string package) =>
-        $"{FbxExport.SafeName(Path.GetFileNameWithoutExtension(fbx))} on {Path.GetFileNameWithoutExtension(package)}";
+        $"{FbxExport.SafeName(Path.GetFileNameWithoutExtension(fbx))} on {Path.GetFileNameWithoutExtension(package)}"
+        + (MhoSkeleton.ChosenFor(package) is string mesh ? " " + FbxExport.SafeName(mesh) : "");   // a character picked in the package: its own rig
 
     /// <summary>
     /// Where a rig is worked on (data\model\rigs\&lt;name&gt; &lt;id&gt;; the id is from the source's full path, so two files of the

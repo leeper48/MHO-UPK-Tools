@@ -176,7 +176,15 @@ sealed partial class ModelPage : UserControl
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layoutRight = right;
-        var targetColumn = Column("TARGET", Row(packageFilter, buildFrom), packages);
+        // the filter and Build From, then Character ▾ on its own line (shown for a package with several characters)
+        var targetHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
+        targetHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize)); targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var targetRow = Row(packageFilter, buildFrom); targetRow.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+        targetHead.Controls.Add(targetRow, 0, 0);
+        meshPick.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; meshPick.Margin = new Padding(0, 4, 0, 0);
+        targetHead.Controls.Add(meshPick, 0, 1);
+        var targetColumn = Column("TARGET", targetHead, packages);
         right.Controls.Add(targetColumn, 0, 0);   // (Kurt: Source and Target)
         barTarget = Divider(right, false, 0, 2, "target", "tabs");
         right.Controls.Add(barTarget, 0, 1);
@@ -352,6 +360,7 @@ sealed partial class ModelPage : UserControl
 
         HandleCreated += (_, _) => { if (!loaded) { loaded = true; ScaleToDpi(); Reload(); } };
         InitBuildFrom();
+        InitMeshPick();
     }
 
     void OnThumbReady(string key)
@@ -542,6 +551,12 @@ sealed partial class ModelPage : UserControl
                 return (group, $"{Spaced(name)} · {stem}");
             }
         bool teamUp = stem.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase);
+        if (!teamUp && !stem.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase))
+        {
+            // any other package (Browse for a Package): its name, readable
+            string plain = System.Text.RegularExpressions.Regex.Replace(stem, @"^(UC__|ICO__|SCS__)|_SF$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return (Spaced(plain.Replace('_', ' ')), $"Package · {stem}");
+        }
         string rest = stem[(teamUp ? "UC__MarvelTeamUp_".Length : "UC__MarvelPlayer_".Length)..];
         if (rest.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) rest = rest[..^3];
         int us = rest.IndexOf('_');

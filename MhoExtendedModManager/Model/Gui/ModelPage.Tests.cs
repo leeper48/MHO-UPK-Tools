@@ -11,10 +11,21 @@ sealed partial class ModelPage
         if (!await TestPick(mff, package, say)) return null;
         // MHO_TEST_PKGMAPS=1 with no source ("-"): the package's own textures listed, one edited in the image editor (MHO_TEST_EDITOR)
         if (mff == "-" && Environment.GetEnvironmentVariable("MHO_TEST_PKGMAPS") == "1")
-            return await TestPackageMaps(say) ? built.GetValueOrDefault(package) : null;
+            return await TestPackageMaps(say) ? TestChanged?.Path ?? built.GetValueOrDefault(package) : null;
         // MHO_TEST_SIZE=1.2: the Size slider set before the build (its Scale is checked after)
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts))
         { sizeSlider.Value = ts; preview.Size = ts; }
+        // MHO_TEST_MESH=<name>: the Character drop-down shows for the package, and picking that character makes the build use it
+        string? testMesh = Environment.GetEnvironmentVariable("MHO_TEST_MESH");
+        if (testMesh is { Length: > 0 })
+        {
+            for (int i = 0; i < 100 && !meshNames.Any(); i++) await Task.Delay(100);
+            int at = meshNames.FindIndex(n => n.Equals(testMesh, StringComparison.OrdinalIgnoreCase));
+            bool shown = meshPick.Visible && at >= 0;
+            if (at >= 0) meshPick.SelectedIndex = at + 1;
+            bool picked = MhoSkeleton.ChosenFor(package)?.Equals(testMesh, StringComparison.OrdinalIgnoreCase) == true;
+            say($"{(shown && picked ? "PASS" : "FAIL")} Character ▾ lists the package's characters ({string.Join(", ", meshNames)}), {testMesh} picked");
+        }
         bool before = HasUnbuiltChanges;
         Build();
         for (int i = 0; i < 6000 && building; i++) await Task.Delay(100);
@@ -28,6 +39,17 @@ sealed partial class ModelPage
         say($"{(TestUnbuilt ? "PASS" : "FAIL")} unbuilt changes: before Build {before}, after {after}, size changed {changed}, size back {back}");
         say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
         string? result = built.TryGetValue(package, out string? path) && File.Exists(path) ? path : null;
+        if (testMesh is { Length: > 0 } && result != null)
+        {
+            // the picked character is the one built onto (the model's vertex count), the others as they were
+            var mine = MhoSkeleton.Load(result, testMesh);
+            string other = meshNames.First(n => !n.Equals(testMesh, StringComparison.OrdinalIgnoreCase));
+            var stockOther = MhoSkeleton.Load(StartPackage(package), other);
+            var builtOther = MhoSkeleton.Load(result, other);
+            int verts = mine.Mesh.HighestDetail?.Positions.Count ?? 0, stockVerts = MhoSkeleton.Load(StartPackage(package), testMesh).Mesh.HighestDetail?.Positions.Count ?? 0;
+            bool ok = verts != stockVerts && builtOther.Mesh.HighestDetail?.Positions.Count == stockOther.Mesh.HighestDetail?.Positions.Count;
+            say($"{(ok ? "PASS" : "FAIL")} the build replaced {testMesh} ({stockVerts} → {verts} vertices) and left {other} as it was");
+        }
         // MHO_TEST_REMOVE=1 (with MHO_EXTMM_TEST_DIALOGS: the first button): the built target removed again
         if (Environment.GetEnvironmentVariable("MHO_TEST_REMOVE") == "1" && packages.Items.OfType<CharacterList.Item>().FirstOrDefault(x => x.Key.Equals(package, StringComparison.OrdinalIgnoreCase)) is { } t)
         {
@@ -246,9 +268,11 @@ sealed partial class ModelPage
             chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); characters.ClearSelected();   // (a source still selected wouldn't fire again)
             int sc = preview.ShowCount;
             // a game package the mod doesn't hold yet (an enemy or NPC target): added as From the Game does, without asking
-            if (!host.Packages.Any(p => p.File.Equals(package, StringComparison.OrdinalIgnoreCase)) && allPackages.Any(p => p.File.Equals(package, StringComparison.OrdinalIgnoreCase)))
+            // (any game package, as Browse for a Package adds it: Jean Grey's audio package with her Phoenix wings)
+            if (!host.Packages.Any(p => p.File.Equals(package, StringComparison.OrdinalIgnoreCase)))
             {
                 host.AddPackage(package, BasePackage.Resolve(package));
+                added.Add(package);
                 gameList = false; FillPackages();
                 say("added from the game: " + package);
             }
@@ -256,7 +280,7 @@ sealed partial class ModelPage
             SchedulePreview();
             for (int i = 0; i < 600 && preview.ShowCount == sc; i++) await Task.Delay(100);
             var c = preview.CompareForTest;
-            bool ok = c.Lit && !c.Enabled && c.TargetOnly && preview.AnimationNames.Count > 0;
+            bool ok = c.Lit && !c.Enabled && c.TargetOnly && (preview.AnimationNames.Count > 0 || !CharacterPackage(package));   // (a package of another kind may have none)
             say($"{(ok ? "PASS" : "FAIL")} with no source, the target's own model shows (Compare lit {c.Lit}, locked {!c.Enabled}, {preview.AnimationNames.Count} animations)");
             if (!ok) { say($"  (picked: {ChosenPackage?.Key ?? "no package"}, source {chosenKey ?? "none"}; the mod's packages: {string.Join(", ", host.Packages.Select(p => p.File))})\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
         }

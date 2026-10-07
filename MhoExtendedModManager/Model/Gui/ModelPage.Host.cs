@@ -29,6 +29,12 @@ sealed partial class ModelPage
     /// <summary>The package list shows the game's base heroes (to add one) instead of the mod's packages.</summary>
     bool gameList;
     readonly DropDown buildFrom = new() { Width = 210 };
+    /// <summary>The character in the chosen package to fit models to, when it has several skeletal meshes (Kurt, 2026-10-07).</summary>
+    readonly DropDown meshPick = new() { Width = 210, Visible = false };
+    List<string> meshNames = [];
+    bool fillingMesh;
+    /// <summary>Package file → has a skeletal mesh (by size and date), for the mod's own packages in the list.</summary>
+    readonly Dictionary<string, (long Len, DateTime At, bool Has)> hasCharacter = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Packages this tab built in this session or before (file → the built file).</summary>
     readonly Dictionary<string, string> built = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Packages this tab added to the mod from the game (From the Game), in this session or before.</summary>
@@ -62,15 +68,17 @@ sealed partial class ModelPage
         }
         string? keep = ChosenPackage?.Key;
         packages.BeginUpdate(); packages.Items.Clear();
-        foreach (var (file, _) in host.Packages.Where(p => CharacterPackage(p.File)).OrderBy(p => p.File, StringComparer.OrdinalIgnoreCase))
+        foreach (var (file, _) in host.Packages.Where(p => CharacterPackage(p.File) || added.Contains(p.File) || built.ContainsKey(p.File) || HasCharacter(p.File, p.Path))
+                     .OrderBy(p => p.File, StringComparer.OrdinalIgnoreCase))
         {
             var (title, detail) = DescribePackage(file);
             packages.Items.Add(new CharacterList.Item(file, title, detail + (built.ContainsKey(file) ? " · built by the Model tab" : "")));
         }
         packages.Items.Add(new CharacterList.Item("game:", "From the Game", "add another base hero's package to the mod"));
+        packages.Items.Add(new CharacterList.Item("browse:", "Browse for a Package", "any .upk with a character in it (a pet, a vehicle, a prop …)"));
         packages.EndUpdate();
         if (keep != null) Reselect(packages, keep);
-        else if (packages.Items.Count == 2) packages.SelectedIndex = 0;   // one package: it's the one
+        else if (packages.Items.Count == 3) packages.SelectedIndex = 0;   // one package: it's the one
         UpdateStatus();
     }
 
@@ -80,6 +88,7 @@ sealed partial class ModelPage
         if (packages.SelectedItem is not CharacterList.Item { Header: false } it) return;
         if (it.Key == "game:") { gameList = true; packageFilter.Text = ""; FillPackages(); return; }
         if (it.Key == "back:") { gameList = false; packageFilter.Text = ""; FillPackages(); return; }
+        if (it.Key == "browse:") { BeginInvoke(BrowsePackage); return; }
         if (!gameList) return;
         if (host.Packages.Any(p => p.File.Equals(it.Key, StringComparison.OrdinalIgnoreCase))) { gameList = false; FillPackages(); Reselect(packages, it.Key); return; }
         if (Dialog.Show(this, $"Add {it.Key} ({it.Title}, {it.Detail.Split(" · ")[0]}) to this mod? The model is built onto it; until then it's the game's own package.",
@@ -147,6 +156,90 @@ sealed partial class ModelPage
     }
 
     bool FromStock => buildFrom.SelectedIndex == 1;
+
+    /// <summary>A mod package of another kind (UC__ only: zones and icon packages aren't opened) that holds a skeletal mesh.</summary>
+    bool HasCharacter(string file, string path)
+    {
+        if (!file.StartsWith("UC__", StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) return false;
+        var fi = new FileInfo(path);
+        if (hasCharacter.TryGetValue(path, out var c) && c.Len == fi.Length && c.At == fi.LastWriteTimeUtc) return c.Has;
+        bool has;
+        try { has = MhoSkeleton.List(path).Count > 0; } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { has = false; }
+        hasCharacter[path] = (fi.Length, fi.LastWriteTimeUtc, has);
+        return has;
+    }
+
+    /// <summary>
+    /// Browse for a Package (Kurt, 2026-10-07: any package as a target): a .upk with a skeletal mesh, named like a game package
+    /// (the mod replaces that file). From the game folder its stock copy is used (a live file may be modded); from anywhere
+    /// else that file (another mod's package, say).
+    /// </summary>
+    void BrowsePackage()
+    {
+        string? cooked = MhoExtendedModManager.Model.Settings.Current.CookedFolder;
+        using var d = new OpenFileDialog { Title = "Browse for a Package", Filter = "Unreal packages (*.upk)|*.upk", InitialDirectory = cooked != null && Directory.Exists(cooked) ? cooked : "" };
+        if (d.ShowDialog(this) != DialogResult.OK) { FillPackages(); return; }
+        string file = Path.GetFileName(d.FileName);
+        int meshes;
+        try { meshes = MhoSkeleton.List(d.FileName).Count; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { Dialog.Show(this, $"{file} couldn't be read: {ex.Message}", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); FillPackages(); return; }
+        if (meshes == 0) { Dialog.Show(this, $"{file} has no skeletal mesh: there's no character in it to fit a model to.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); FillPackages(); return; }
+        if (cooked != null && !File.Exists(Path.Combine(cooked, file)))
+        { Dialog.Show(this, $"{file} isn't the name of a game package, so the game would never load it: a mod replaces a game package of the same name.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); FillPackages(); return; }
+        bool fromGame = cooked != null && Path.GetFullPath(Path.GetDirectoryName(d.FileName)!).TrimEnd('\\').Equals(Path.GetFullPath(cooked).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+        string src = d.FileName;
+        if (fromGame)
+            try { src = BasePackage.Resolve(file); }
+            catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException) { Dialog.Show(this, ex.Message, "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); FillPackages(); return; }
+        if (host.Packages.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (fromGame) { FillPackages(); Reselect(packages, file); return; }   // the mod has it already
+            if (Dialog.Choose(this, $"The mod has {file} already. Put this file in its place?", "Browse for a Package", "Replace It", "Cancel") != 0) { FillPackages(); return; }
+            built.Remove(file); builtPrint.Remove(file);
+        }
+        host.AddPackage(file, src);
+        added.Add(file);
+        Log($"Added {file} to the mod ({(fromGame ? "the game's stock copy" : d.FileName)}, until it's built){(meshes > 1 ? $"; it has {meshes} characters: pick one under Character" : "")}.");
+        FillPackages();
+        Reselect(packages, file);
+        SaveState();
+    }
+
+    void InitMeshPick()
+    {
+        Ui.Tip(meshPick, "The character in this package the model is fitted to and replaces, when the package holds several (a hero's base package can hold props and other characters). Automatic picks the costume's own model, else the biggest.");
+        meshPick.SelectedIndexChanged += (_, _) =>
+        {
+            if (fillingMesh || ChosenPackage is not CharacterList.Item pkg) return;
+            MhoSkeleton.Choose(pkg.Key, meshPick.SelectedIndex <= 0 ? null : meshNames[meshPick.SelectedIndex - 1]);
+            SaveState(); SchedulePreview(); UpdateStatus();
+        };
+        packages.SelectedIndexChanged += (_, _) => FillMeshPick();
+    }
+
+    /// <summary>The Character drop-down for the chosen package: shown when it holds more than one skeletal mesh.</summary>
+    async void FillMeshPick()
+    {
+        if (ChosenPackage is not CharacterList.Item pkg) { meshPick.Visible = false; return; }
+        string key = pkg.Key, path = StartPackage(key);
+        List<string> names;
+        try { names = await Task.Run(() => MhoSkeleton.List(path).Select(m => m.Name).ToList()); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { names = []; }
+        if (IsDisposed || ChosenPackage?.Key != key) return;
+        fillingMesh = true;
+        try
+        {
+            meshNames = names;
+            meshPick.Items.Clear();
+            meshPick.Items.Add("Character: Automatic");
+            foreach (var n in names) meshPick.Items.Add("Character: " + n);
+            string? pick = MhoSkeleton.ChosenFor(key);
+            int at = pick == null ? -1 : names.FindIndex(n => n.Equals(pick, StringComparison.OrdinalIgnoreCase));
+            meshPick.SelectedIndex = at + 1;
+            meshPick.Visible = names.Count > 1 || at >= 0;
+        }
+        finally { fillingMesh = false; }
+    }
 
     /// <summary>The file a build of <paramref name="file"/> starts from (also what the preview shows the model on).</summary>
     string StartPackage(string file)
@@ -263,6 +356,8 @@ sealed partial class ModelPage
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
         public List<string> Added { get; set; } = new();
+        /// <summary>Package → the character picked in it (Character ▾), when not the automatic one.</summary>
+        public Dictionary<string, string> Meshes { get; set; } = new();
     }
 
     string StateFile => Path.Combine(host.WorkFolder, "state.json");
@@ -278,6 +373,7 @@ sealed partial class ModelPage
             Material = Math.Max(0, material.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex), Hair = Math.Max(0, hairBox.SelectedIndex),
             FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
+            Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
         try { Directory.CreateDirectory(host.WorkFolder); File.WriteAllText(StateFile, JsonSerializer.Serialize(st, new JsonSerializerOptions { WriteIndented = true })); }
         catch (IOException) { }
@@ -287,6 +383,7 @@ sealed partial class ModelPage
     /// rest follows when the source has loaded: <see cref="RestoreState"/>).</summary>
     void LoadState()
     {
+        MhoSkeleton.ClearChoices();   // another mod's picks don't carry over
         if (!File.Exists(StateFile)) return;
         State? st;
         try { st = JsonSerializer.Deserialize<State>(File.ReadAllText(StateFile)); }
@@ -294,6 +391,7 @@ sealed partial class ModelPage
         if (st == null) return;
         foreach (var f in st.Built) built.TryAdd(f, "");
         foreach (var f in st.Added ?? []) added.Add(f);
+        foreach (var (f, mesh) in st.Meshes ?? []) MhoSkeleton.Choose(f, mesh);
         foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;
         buildFrom.SelectedIndex = st.FromStock ? 1 : 0;

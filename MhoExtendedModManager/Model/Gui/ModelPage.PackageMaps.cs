@@ -13,17 +13,20 @@ namespace MhoExtendedModManager.Model.Gui;
 sealed partial class ModelPage
 {
     /// <summary>One texture of the shown package: its material, parameter, Texture2D (export index) and how it's stored.</summary>
-    sealed record PackageMap(string Material, string Param, int Export, string Texture, int W, int H, string Format)
+    /// <param name="InFile">The game package the texture is in when it isn't the shown one (a material the model imports
+    /// from its hero's base package), with <paramref name="InPath"/> the copy it's read from; null: the shown package.</param>
+    sealed record PackageMap(string Material, string Param, int Export, string Texture, int W, int H, string Format, string? InFile = null, string? InPath = null)
     {
-        public string Kind => Param.ToLowerInvariant() switch
+        // (a plain material's textures have no parameter name: the texture's own name tells)
+        public string Kind => (Param.Length > 0 ? Param : Texture).ToLowerInvariant() switch
         {
-            var p when p.Contains("diffuse") => "Color",
+            var p when p.Contains("diffuse") || Param.Length == 0 && (p.Contains("_diff") || p.EndsWith("_d")) => "Color",
             var p when p.Contains("norm") => "Normal",
             var p when p.Contains("speccolor") => "Spec Color",
             var p when p.Contains("spec") => "Spec (Packed)",
             var p when p.Contains("emissive") || p.Contains("glow") => "Glow",
             var p when p.Contains("reflect") => "Reflection",
-            _ => Param,
+            _ => Param.Length > 0 ? Param : "Texture",
         };
     }
 
@@ -36,15 +39,33 @@ sealed partial class ModelPage
     {
         var list = new List<PackageMap>();
         var pkg = Package.Open(packagePath);
-        foreach (int mat in ModMeshes.SectionMaterials(main).Select(x => x.Material).Where(m => m > 0).Distinct())
+        foreach (int mat in ModMeshes.SectionMaterials(main).Select(x => x.Material).Where(m => m != 0).Distinct())
         {
-            MaterialInfo? mi;
-            try { mi = ModMaterials.Read(pkg, mat); } catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { continue; }
-            if (mi == null) continue;
-            foreach (var (param, export) in mi.Textures)
+            // a material in this package, or one the model imports from its hero's base package (Jean Grey's Phoenix wings,
+            // 2026-10-07): that one's textures are in the other package
+            Package mp = pkg; int mref = mat; string? inFile = null, inPath = null;
+            if (mat < 0)
             {
-                var mip = TextureExport.ReadBestMip(pkg, export, out _, Settings.Current.CookedFolder);
-                list.Add(new PackageMap(mi.Name, param, export, pkg.Exports[export].ObjectName, mip?.Width ?? 0, mip?.Height ?? 0, mip?.Format ?? "?"));
+                if (ModMeshes.ImportedMaterialAt(main, pkg, mat, Settings.Current.CookedFolder) is not { } at) continue;
+                mp = at.Pkg; mref = at.Index + 1; inFile = at.File; inPath = at.Path;
+            }
+            MaterialInfo? mi;
+            try { mi = ModMaterials.Read(mp, mref); } catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { continue; }
+            if (mi == null) continue;
+            var textures = mi.Textures.Select(kv => (Param: kv.Key, Export: kv.Value)).ToList();
+            if (textures.Count == 0)
+                // a plain material (no parameters): the textures its compiled shader uses, as the 3D view reads them
+                try
+                {
+                    var me = mp.Exports[mref - 1];
+                    foreach (int r in ExportCopy.MaterialNativeTextures(mp, mp.ReadExportBytes(me), mp.ClassOf(me)).Distinct())
+                        if (r > 0 && mp.ClassOf(mp.Exports[r - 1]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) textures.Add(("", r - 1));
+                }
+                catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
+            foreach (var (param, export) in textures)
+            {
+                var mip = TextureExport.ReadBestMip(mp, export, out _, Settings.Current.CookedFolder);
+                list.Add(new PackageMap(mi.Name, param, export, mp.Exports[export].ObjectName, mip?.Width ?? 0, mip?.Height ?? 0, mip?.Format ?? "?", inFile, inPath));
             }
         }
         return list;
@@ -55,9 +76,11 @@ sealed partial class ModelPage
     {
         foreach (var m in packageMaps ?? [])
         {
-            int i = matGrid.Rows.Add(m.Material, m.Kind, $"In the package: {m.Texture} · {m.W}×{m.H} {m.Format.Replace("PF_", "")}");
+            int i = matGrid.Rows.Add(m.Material, m.Kind, $"{(m.InFile != null ? $"In {m.InFile}" : "In the package")}: {m.Texture} · {m.W}×{m.H} {m.Format.Replace("PF_", "")}");
             matGrid.Rows[i].Tag = m;
-            matGrid.Rows[i].Cells["from"].ToolTipText = $"{m.Texture} ({m.Param}) in {Path.GetFileName(packageMapsFile)}: Edit in Image Editor or Use a File changes it in the mod's copy of the package.";
+            matGrid.Rows[i].Cells["from"].ToolTipText = m.InFile != null
+                ? $"{m.Texture} is in {m.InFile}, the hero's base package this model takes the material from: changing it adds that package to the mod (asked first), and every costume of the hero that uses the texture shows the change."
+                : $"{m.Texture}{(m.Param.Length > 0 ? $" ({m.Param})" : "")} in {Path.GetFileName(packageMapsFile)}: Edit in Image Editor or Use a File changes it in the mod's copy of the package.";
         }
     }
 
@@ -67,7 +90,7 @@ sealed partial class ModelPage
     bool ExportPackageMap(PackageMap m, string png)
     {
         if (packageMapsFile == null) return false;
-        var pkg = Package.Open(packageMapsFile);
+        var pkg = Package.Open(m.InPath ?? packageMapsFile);
         var mip = TextureExport.ReadBestMip(pkg, m.Export, out string note, Settings.Current.CookedFolder);
         if (mip == null || TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _) is not byte[] px) { Log($"Materials: {m.Texture} can't be read ({note})."); return false; }
         Directory.CreateDirectory(Path.GetDirectoryName(png)!);
@@ -81,6 +104,16 @@ sealed partial class ModelPage
     bool ReplacePackageMap(PackageMap m, string image)
     {
         if (packageMapsFile == null || ChosenPackage is not CharacterList.Item pkgItem) return false;
+        // a texture in another package (an imported material): that package goes into the mod with the change, asked first
+        string targetFile = pkgItem.Key, sourcePath = packageMapsFile;
+        if (m.InFile != null)
+        {
+            bool inMod = host.Packages.FirstOrDefault(p => p.File.Equals(m.InFile, StringComparison.OrdinalIgnoreCase)) is { File: not null } own && File.Exists(own.Path);
+            if (!inMod && Dialog.Choose(this, $"{m.Texture} is in {m.InFile}, the hero's base package the model takes its {m.Material} material from. Changing it adds that package to the mod (the game's copy with this texture changed); every costume of the hero that uses the texture shows the change.",
+                    "Texture in Another Package", "Add It and Change the Texture", "Cancel") != 0) return false;
+            targetFile = m.InFile;
+            sourcePath = inMod ? host.Packages.First(p => p.File.Equals(m.InFile, StringComparison.OrdinalIgnoreCase)).Path : m.InPath!;
+        }
         string temp = Path.Combine(Path.GetTempPath(), "mhoextmm_tex_" + Guid.NewGuid().ToString("N")[..8] + ".png");
         try
         {
@@ -100,20 +133,29 @@ sealed partial class ModelPage
             }
             string? want = m.Format.Contains("DXT1", StringComparison.OrdinalIgnoreCase) ? "dxt1" : m.Format.Contains("DXT5", StringComparison.OrdinalIgnoreCase) ? "dxt5" : null;
             var enc = TextureEncode.FromImage(temp, want, 85, 1f, noMips: false, refine: true);
-            var pkg = Package.Open(packageMapsFile);
+            var pkg = Package.Open(sourcePath);
             byte[]? output = TextureImport.ReplaceMany(pkg, [new TextureImport.Replacement(pkg.PathOf(pkg.Exports[m.Export]), TextureImport.WriteDds(enc), Path.GetFileName(image))], out var problems, out var verify);
             if (output == null) { foreach (var p in problems) Log("Materials: " + p); return false; }
             var check = verify(output);
             if (check.Count > 0) { foreach (var p in check.Take(3)) Log("Materials: PACKAGE PROBLEM: " + p); return false; }
-            string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"textures on {Path.GetFileNameWithoutExtension(pkgItem.Key)}"));
+            string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"textures on {Path.GetFileNameWithoutExtension(targetFile)}"));
             Directory.CreateDirectory(outDir);
-            string file = Path.Combine(outDir, pkgItem.Key);
+            string file = Path.Combine(outDir, targetFile);
             File.WriteAllBytes(file, output);
-            host.SetPackage(pkgItem.Key, file);
-            built[pkgItem.Key] = file;
-            if (Fingerprint() is string fp) builtPrint[pkgItem.Key] = fp;
+            host.SetPackage(targetFile, file);
+            if (m.InFile == null)
+            {
+                built[pkgItem.Key] = file;
+                if (Fingerprint() is string fp) builtPrint[pkgItem.Key] = fp;
+            }
+            else
+            {
+                added.Add(targetFile);
+                // the list now reads the texture from the mod's copy
+                packageMaps = packageMaps?.Select(x => x.InFile != null && x.InFile.Equals(targetFile, StringComparison.OrdinalIgnoreCase) ? x with { InPath = file } : x).ToList();
+            }
             SaveState();
-            Log($"Materials: {m.Material}'s {m.Kind.ToLowerInvariant()} ({m.Texture}) replaced from {Path.GetFileName(image)}, {enc.FourCC} {enc.Width}×{enc.Height} with {enc.Levels.Count} mips; {pkgItem.Key} is in the mod now (Save Changes keeps it).");
+            Log($"Materials: {m.Material}'s {m.Kind.ToLowerInvariant()} ({m.Texture}) replaced from {Path.GetFileName(image)}, {enc.FourCC} {enc.Width}×{enc.Height} with {enc.Levels.Count} mips; {targetFile} is in the mod now (Save Changes keeps it).");
             status.Text = $"{m.Texture} Updated in the Package"; status.ForeColor = Ui.Enabled;
             SchedulePreview();
             return true;

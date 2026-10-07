@@ -53,6 +53,8 @@ static partial class Program
                 try
                 {
                     string package = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
+                    // MHO_MODEL_MESH=<name>: the character in the package to build onto (the Model tab's Character ▾)
+                    if (Environment.GetEnvironmentVariable("MHO_MODEL_MESH") is { Length: > 0 } pickMesh) MhoExtendedModManager.Model.MhoSkeleton.Choose(package, pickMesh);
                     var result = MhoExtendedModManager.Model.ImportBuild.Run(rest[1], package, rest[3], MhoExtendedModManager.Model.ImportOptions.FromEnvironment(null, map, null), Console.WriteLine);
                     return result == null ? 1 : 0;
                 }

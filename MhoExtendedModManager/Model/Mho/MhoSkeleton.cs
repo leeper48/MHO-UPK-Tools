@@ -119,11 +119,32 @@ sealed class MhoSkeleton
     }
 
     /// <summary>Reads the named skeletal mesh, or the package's one with the most bones.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> chosen = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The character the Model tab fits models to in a package with several skeletal meshes (Kurt, 2026-10-07: any package as
+    /// a target, and a choice of character in it), by package file name; null goes back to the automatic pick. Every load of
+    /// that package without a name (preview, build, Blender export, auto-rig) then reads that mesh.
+    /// </summary>
+    public static void Choose(string package, string? mesh)
+    {
+        if (string.IsNullOrEmpty(mesh)) chosen.TryRemove(Path.GetFileName(package), out _);
+        else chosen[Path.GetFileName(package)] = mesh;
+    }
+
+    /// <summary>Every package back to the automatic pick (a mod's own picks are loaded with its Model settings).</summary>
+    public static void ClearChoices() => chosen.Clear();
+
+    /// <summary>The character chosen for this package (by file name), or null for the automatic pick.</summary>
+    public static string? ChosenFor(string package) => chosen.TryGetValue(Path.GetFileName(package), out var m) ? m : null;
+
     public static MhoSkeleton Load(string package, string? meshName = null)
     {
         var pkg = AnimPackage.Open(package);
         var found = pkg.FindExportsOfClass(SkeletalMeshReader.ClassName).ToList();
         if (found.Count == 0) throw new InvalidDataException($"{Path.GetFileName(package)} has no skeletal mesh.");
+        // the character picked on the Model tab (Choose), when this package has it
+        if (meshName == null && ChosenFor(package) is string pick && found.Any(i => pkg.GetExportName(i).Equals(pick, StringComparison.OrdinalIgnoreCase))) meshName = pick;
         // the mesh the character's own mesh component shows, when it's in this package (2026-10-05, enemies and NPCs as targets:
         // Cable's boss package lists a gun first); else the guess below
         if (meshName == null && ComponentMesh(package) is string own && found.Any(i => pkg.GetExportName(i).Equals(own, StringComparison.OrdinalIgnoreCase))) meshName = own;

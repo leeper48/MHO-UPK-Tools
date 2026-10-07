@@ -159,6 +159,9 @@ sealed partial class ModelPage
         return ok;
     }
 
+    /// <summary>Test: the package the package-texture test changed (another package's name, or null for the target) and its file.</summary>
+    internal (string? File, string? Path)? TestChanged { get; private set; }
+
     internal async Task<bool> TestPackageMaps(Action<string> say)
     {
         for (int i = 0; i < 600 && packageMaps == null; i++) await Task.Delay(100);
@@ -169,9 +172,15 @@ sealed partial class ModelPage
         string? atCenter = preview.TestMaterialAtCenter();
         if (atCenter != null) SelectMaterialRow(atCenter);
         bool picked = atCenter != null && SelectedPackageMap()?.Material == atCenter && preview.PickMaterials;
-        say($"{(picked ? "PASS" : "FAIL")} Ctrl+click at the view's middle picks a material: {atCenter ?? "none"} (row: {SelectedPackageMap()?.Material ?? "none"})");
-        if (!picked) return false;
-        int row = Enumerable.Range(0, matGrid.Rows.Count).FirstOrDefault(i => matGrid.Rows[i].Tag is PackageMap pm && pm.Kind == "Color", -1);
+        if (atCenter == null) say("SKIP Ctrl+click at the view's middle: nothing of the model there (Jean Grey's Phoenix wings leave a gap)");
+        else
+        {
+            say($"{(picked ? "PASS" : "FAIL")} Ctrl+click at the view's middle picks a material: {atCenter} (row: {SelectedPackageMap()?.Material ?? "none"})");
+            if (!picked) return false;
+        }
+        // MHO_TEST_MAPFROM=other: a texture the model takes from another package (an imported material)
+        bool other = Environment.GetEnvironmentVariable("MHO_TEST_MAPFROM") == "other";
+        int row = Enumerable.Range(0, matGrid.Rows.Count).FirstOrDefault(i => matGrid.Rows[i].Tag is PackageMap pm && (other ? pm.InFile != null : pm.Kind == "Color"), -1);
         if (row < 0) { say("FAIL no Color texture listed for the package"); return false; }
         matGrid.CurrentCell = matGrid.Rows[row].Cells["material"];
         var map = (PackageMap)matGrid.Rows[row].Tag!;
@@ -189,16 +198,20 @@ sealed partial class ModelPage
             c.Save(w.File, System.Drawing.Imaging.ImageFormat.Png);
         }
         for (int i = 0; i < 300 && !log.Text.Contains("replaced from"); i++) await Task.Delay(100);
-        bool ok = ChosenPackage is CharacterList.Item p && built.TryGetValue(p.Key, out var f) && File.Exists(f);
+        string? changed = map.InFile != null
+            ? host.Packages.FirstOrDefault(x => x.File.Equals(map.InFile, StringComparison.OrdinalIgnoreCase) && x.Path.Contains("builds", StringComparison.OrdinalIgnoreCase)).Path
+            : ChosenPackage is CharacterList.Item p && built.TryGetValue(p.Key, out var f) ? f : null;
+        bool ok = changed != null && File.Exists(changed);
+        TestChanged = ok ? (map.InFile, changed) : null;
         if (ok)
         {
-            var pkg = MhoPackageModifier.Package.Open(built[ChosenPackage!.Key]);
+            var pkg = MhoPackageModifier.Package.Open(changed!);
             var mip = MhoPackageModifier.TextureExport.ReadBestMip(pkg, map.Export, out _, Settings.Current.CookedFolder);
             var px = mip == null ? null : MhoPackageModifier.TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _);
             ok = px != null && Math.Abs(px[0] - paint.B) < 24 && Math.Abs(px[1] - paint.G) < 24 && Math.Abs(px[2] - paint.R) < 24;   // BGRA: the painted color
             say($"  texture read back from the new package: {mip?.Width}x{mip?.Height} {mip?.Format}, first pixel BGRA {(px == null ? "-" : $"{px[0]} {px[1]} {px[2]} {px[3]}")}");
         }
-        say($"{(ok ? "PASS" : "FAIL")} the edited texture is in the mod's package" + (ok ? "" : "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()));
+        say($"{(ok ? "PASS" : "FAIL")} the edited texture is in the mod's package{(map.InFile != null ? $" ({map.InFile}, added to the mod)" : "")}" + (ok ? "" : "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()));
         return ok;
     }
 

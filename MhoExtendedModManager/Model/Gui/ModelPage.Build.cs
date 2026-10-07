@@ -118,7 +118,7 @@ sealed partial class ModelPage
     {
         if (ChosenPackage is not CharacterList.Item pkg) return null;
         var sb = new System.Text.StringBuilder();
-        sb.Append(pkg.Key).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked);
+        sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked);
         if (HasSource)
         {
             sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))

@@ -27,7 +27,17 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.208 (Kurt, 2026-10-07): any package as a Model target, a choice of character, more textures to edit.</summary>
+    static Notice AnyTarget() => new(
+        "0.37.208-any-target", "0.37.208",
+        "New in the Editor's Model tab:" + nl + nl +
+        "• Browse for a Package (end of the Target list) makes any package with a character in it the target: a pet, a vehicle, a prop, another mod's package." + nl + nl +
+        "• Character ▾ picks which character in a package the model replaces, when it holds several (Cyclops's base package: Cyclops, Angel, Wolverine's bike)." + nl + nl +
+        "• Materials lists more of a model's textures to edit: those of plain materials, and those it takes from its hero's base package (Jean Grey's Phoenix wings; changing one adds that package to the mod, asked first)." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-npc");
 
     /// <summary>0.37.206 (Kurt, 2026-10-06): MH Texture Manager mods installed as package mods.</summary>
     static Notice TextureManager() => new(

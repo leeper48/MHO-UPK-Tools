@@ -681,15 +681,22 @@ static class ModMeshes
     /// A material a costume package imports (by name) from the hero's base package UC__MarvelPlayer_&lt;Hero&gt;_SF, as the
     /// game loads it: the copy next to the mesh's package (the mod's), else the game's. Null when it isn't found there.
     /// </summary>
-    static (Package, int)? ImportedMaterial(MeshRef r, Package pkg, int mat, string? cooked)
+    static (Package, int)? ImportedMaterial(MeshRef r, Package pkg, int mat, string? cooked) =>
+        ImportedMaterialAt(r, pkg, mat, cooked) is { } at ? (at.Pkg, at.Index) : null;
+
+    /// <summary><see cref="ImportedMaterial"/> with the file it was found in (its game file name and the path read). Also for
+    /// a hero's audio / voice packages (UC__MarvelPlayerAudio_&lt;Hero&gt;_…: Jean Grey's Phoenix wings import their material
+    /// from her base package, 2026-10-07).</summary>
+    internal static (Package Pkg, int Index, string File, string Path)? ImportedMaterialAt(MeshRef r, Package pkg, int mat, string? cooked)
     {
-        const string player = "UC__MarvelPlayer_";
-        if (!r.Package.StartsWith(player, StringComparison.OrdinalIgnoreCase)) return null;
+        const string player = "UC__MarvelPlayer_", audio = "UC__MarvelPlayerAudio_";
+        string? prefix = r.Package.StartsWith(audio, StringComparison.OrdinalIgnoreCase) ? audio : r.Package.StartsWith(player, StringComparison.OrdinalIgnoreCase) ? player : null;
+        if (prefix == null) return null;
         string name;
         try { name = pkg.RefName(mat); } catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException) { return null; }
         int dot = name.LastIndexOf('.');
         if (dot >= 0) name = name[(dot + 1)..];
-        string hero = Path.GetFileNameWithoutExtension(r.Package)[player.Length..].Split('_')[0];
+        string hero = Path.GetFileNameWithoutExtension(r.Package)[prefix.Length..].Split('_')[0];
         string baseFile = $"{player}{hero}_SF.upk";
         if (baseFile.Equals(r.Package, StringComparison.OrdinalIgnoreCase)) return null;
         foreach (var path in new[] { Path.Combine(Path.GetDirectoryName(r.File) ?? "", baseFile), cooked == null ? "" : StockFiles.For(cooked, baseFile) })
@@ -700,7 +707,7 @@ static class ModMeshes
                 var bp = Package.Open(path);
                 for (int i = 0; i < bp.Exports.Length; i++)
                     if (bp.Exports[i].ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase) && bp.ClassOf(bp.Exports[i]).Contains("Material", StringComparison.OrdinalIgnoreCase))
-                        return (bp, i);
+                        return (bp, i, baseFile, path);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
         }

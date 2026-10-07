@@ -1,6 +1,14 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.208
+- Model tab, Materials with no source: a plain material's textures are listed too (its shader's own textures, typed by their names), and so are the textures of a material the model takes from its hero's base package (Jean Grey's Phoenix wings, from UC__MarvelPlayer_JeanGrey_SF). Changing one of those asks first, then adds that package to the mod with the change.
+- 3D preview: a hero's audio / voice package (UC__MarvelPlayerAudio_<Hero>_…) finds the materials it imports in the hero's base package: Jean Grey's Phoenix wings are textured.
+
+0.37.207
+- Model tab: any package can be the target: Browse for a Package (end of the Target list) adds a .upk with a character in it, named like a game package (from the game folder its stock copy is used, from elsewhere that file). The mod's own packages show when they hold a character, whatever their name.
+- Model tab: Character ▾ under the Target filter picks which character in a package the model is fitted to and replaces, when it holds several (Cyclops's base package: Cyclops, Angel, Wolverine's bike). Remembered per package with the mod; the preview, Build, Open in Blender and the auto-rig all use it.
+
 0.37.206
 - A converted MH Texture Manager mod is credited to its author: read from the mod's Nexus page (public information, only its number is sent), when the download's name gives the Nexus mod. Without a connection it stays Unknown, and the install log says why.
 

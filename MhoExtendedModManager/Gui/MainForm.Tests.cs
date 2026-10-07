@@ -200,7 +200,7 @@ sealed partial class MainForm
         for (int i = 0; i < editor!.TabCount; i++)
         {
             editor.SelectTab(i);
-            await Task.Delay(editor.TabTitle(i) is "Packages" or "Store Images" ? 6000 : editor.TabTitle(i) is "Animations" or "Powers" ? 9000 : 1500);   // icon names / previews / 3D models load in the background
+            await Task.Delay(editor.TabTitle(i) is "Packages" or "Store Images" ? 6000 : editor.TabTitle(i) is "Animations" or "Powers" ? 9000 : editor.TabTitle(i) is "Model" ? 12000 : 1500);   // icon names / previews / 3D models load in the background
             using var b = new Bitmap(Width, Height);
             DrawToBitmap(b, new Rectangle(0, 0, Width, Height));
             b.Save(Path.Combine(dir, $"editor_{i}_{editor.TabTitle(i).Replace(' ', '_')}.png"));
@@ -233,6 +233,7 @@ sealed partial class MainForm
         await editor.SaveForTest();
         await Task.Delay(500);
         var saved = lib?.Find(modName);
+        package = page.TestChanged?.File ?? package;   // (a texture of another package changed: that one is checked)
         int fails = 0;
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         if (mff != "-") Check(page.TestUnbuilt, "the Model tab tells built and unbuilt changes apart");

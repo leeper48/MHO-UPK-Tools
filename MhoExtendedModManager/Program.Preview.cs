@@ -1222,6 +1222,28 @@ static partial class Program
                     Console.WriteLine($"{dom} ({g.N} of ours)\n   stock: {Top(g.Stock, g.N)}\n   ours:  {Top(g.Ours, g.N)}");
                 return 0;
             }
+            case "--mesh-materials":
+            {
+                // Read-only (2026-10-07): a skeletal mesh's material slots (native list): each one's path, whether it's in the
+                // package or imported, its class, the textures ModMaterials finds, and the textures under it (expressions).
+                // --mesh-materials <upk> <mesh>
+                if (rest.Count < 3) { Console.WriteLine("--mesh-materials <upk> <mesh>"); return 1; }
+                var mmr = ModMeshes.List([(Path.GetFileName(rest[1]), rest[1])], anyPackage: true).FirstOrDefault(r => r.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (mmr == null) { Console.WriteLine("no such mesh"); return 1; }
+                var mp = MhoPackageModifier.Package.Open(rest[1]);
+                foreach (var (sec, mat) in ModMeshes.SectionMaterials(mmr))
+                {
+                    if (mat == 0) { Console.WriteLine($"section {sec}: none"); continue; }
+                    if (mat < 0) { var im = mp.Imports[-mat - 1]; Console.WriteLine($"section {sec}: import {mp.RefName(mat)} ({im.ClassName}, outer {mp.RefName(im.OuterIndex)})"); continue; }
+                    var ex = mp.Exports[mat - 1];
+                    var info = ModMaterials.Read(mp, mat);
+                    Console.WriteLine($"section {sec}: {mp.PathOf(ex)} ({mp.ClassOf(ex)}) parent {info?.Parent}; textures: {string.Join(", ", info?.Textures.Select(t => $"{t.Key}={mp.Exports[t.Value].ObjectName}") ?? [])}");
+                    string prefix = mp.PathOf(ex) + ".";
+                    foreach (var sub in mp.Exports.Where(x => mp.PathOf(x).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                        Console.WriteLine($"    {mp.ClassOf(sub)} {sub.ObjectName}");
+                }
+                return 0;
+            }
             case "--limb-profile":
             {
                 // Read-only (2026-10-06): a skinned mesh's weights along a limb (bind pose): the vertices near the segment from one
