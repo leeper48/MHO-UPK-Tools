@@ -429,6 +429,11 @@ sealed class MffModel
                 foreach (var p in model.Parts) if (body > 0 && Extent(p) > 4f * body) p.IsProp = true;
             }
         }
+        // Off the character's skeleton (Kurt, 2026-10-08: She-Hulk All-New ticked her book, not her body): a part whose weight is
+        // mostly on bones outside the Bip001 tree (the book on Book_all / Book_F …, the barbell on "barbell", tank lorries) is a
+        // prop that moves on its own, whatever its material is called; the body hangs on Bip001 and the bones below it (hair,
+        // jaw, cape). Her body's material is "SheHulk", the book's hero_shehulk01_S04_book, so by material the book won.
+        model.OffSkeletonProps();
         foreach (var p in model.Parts) p.DefaultOn = p.Weighted && p.OwnMaterial && !p.IsProp && !p.IsAlternate;
         if (!model.Parts.Any(p => p.DefaultOn)) foreach (var p in model.Parts) p.DefaultOn = p.Weighted && !p.IsProp && !p.IsAlternate;
         if (!model.Parts.Any(p => p.DefaultOn)) foreach (var p in model.Parts) p.DefaultOn = p.Weighted && !p.IsAlternate;
@@ -557,10 +562,86 @@ sealed class MffModel
     /// prop-named bones (weapon, arrow, gun, knife …) move to their own part "&lt;part&gt; · &lt;bone&gt;", marked a prop:
     /// off by default, and the parts picker can put them back. Vertices are copied, so the body keeps its own.
     /// </summary>
+    /// <summary>Share of a part's weight on the Bip001 tree (Bip001 and every bone under it); 1 when the model has no Bip001
+    /// (a guessed or Mixamo skeleton: no such test).</summary>
+    internal float SkeletonShare(Part p)
+    {
+        int root = Bones.FindIndex(b => b.Name.Equals("Bip001", StringComparison.OrdinalIgnoreCase));
+        if (root < 0) return 1;
+        var under = new bool[Bones.Count];
+        for (int i = 0; i < Bones.Count; i++)
+        {
+            int b = i;
+            for (int g = 0; b >= 0 && g < 64; g++) { if (b == root || Bones[b].Name.StartsWith("Bip001 ", StringComparison.OrdinalIgnoreCase)) { under[i] = true; break; } b = Bones[b].Parent; }   // (Hydro-Man's Bip001 bones hang straight off the scene root)
+        }
+        float on = 0, all = 0;
+        foreach (var sec in p.Sections) foreach (var vw in sec.Weights) foreach (var w in vw) { all += w.Weight; if (w.Bone >= 0 && w.Bone < under.Length && under[w.Bone]) on += w.Weight; }
+        return all > 0 ? on / all : 1;
+    }
+
+    /// <summary>Weighted parts with (almost) none of their weight on the character's skeleton are props (see the caller).</summary>
+    void OffSkeletonProps()
+    {
+        if (Environment.GetEnvironmentVariable("MHO_NO_OFFSKELETON") == "1") return;   // (--default-parts: the old choice, to compare)
+        foreach (var p in Parts.Where(p => p.Weighted && !p.IsProp))
+            if (SkeletonShare(p) < 0.04f && !BodyAttachment(p)) p.IsProp = true;   // (almost nothing on the body: a cape, tentacles or armor skinned partly to it stays body)
+    }
+
+    /// <summary>Capes, hair, wings, tails and tentacles can hang on bone chains of their own outside the Bip001 tree (Echo's
+    /// cape on "cape bone…" under "wing Point001", Medusa's hair on hair_Bn…, Omega Red's tentacles on Bone_Chain…): a part named
+    /// so, or whose weight is on bones named so (the bone or one above it), stays body.</summary>
+    static readonly Regex BodyWord = new(@"cape|cloak|hair|wing|tail|skirt|coat|chain|tent|cloth|ribbon|scarf|bang|braid|robe|mane|tassel|sleeve", RegexOptions.IgnoreCase);
+
+    /// <summary>A head on bones of its own (Dormammu's flaming head on head_bone, above his body); bones only: a part named
+    /// "head" can be an effect (Toxin's symbiote heads, on BoneWG_* bones, float far off).</summary>
+    static readonly Regex HeadBone = new(@"(^|[ _])head([ _]|$)", RegexOptions.IgnoreCase);
+
+    /// <summary>A second Biped's bone (Bip002 …): a mount or summoned creature (Odin's, Valkyrie's and Black Knight's horses,
+    /// Crescent's bear, War Tiger's tiger: rigs of 34–64 bones), whose head isn't the character's (Dormammu's flaming head
+    /// is on head_bone, a rig of 20).</summary>
+    static readonly Regex OtherBiped = new(@"^Bip0*(?!0*1\b)\d+\b", RegexOptions.IgnoreCase);
+
+    /// <summary>Bones in the rig a bone belongs to: its topmost ancestor below the scene root and everything under that (a mount
+    /// or summoned creature has a whole skeleton, with a head of its own: Black Knight's horse, Crescent's bear).</summary>
+    internal int RigSize(int bone)
+    {
+        // its top: the highest ancestor that isn't also above the character's Bip001 (the scene's own nodes are shared)
+        var shared = new HashSet<int>();
+        int bip = Bones.FindIndex(x => x.Name.Equals("Bip001", StringComparison.OrdinalIgnoreCase));
+        for (int b = bip, g = 0; b >= 0 && g < 64; b = Bones[b].Parent, g++) shared.Add(b);
+        int top = bone;
+        for (int g = 0; g < 64 && Bones[top].Parent >= 0 && !shared.Contains(Bones[top].Parent); g++) top = Bones[top].Parent;
+        int n = 0;
+        for (int i = 0; i < Bones.Count; i++)
+            for (int b = i, g = 0; b >= 0 && g < 64; b = Bones[b].Parent, g++) if (b == top) { n++; break; }
+        return n;
+    }
+
+    bool BodyAttachment(Part p)
+    {
+        if (BodyWord.IsMatch(p.Name)) return true;
+        var w = new Dictionary<int, float>(); float all = 0;
+        foreach (var sec in p.Sections) foreach (var vw in sec.Weights) foreach (var x in vw) { w[x.Bone] = w.GetValueOrDefault(x.Bone) + x.Weight; all += x.Weight; }
+        // (summed: a cape spreads its weight over many bones, 5 % each on Echo's)
+        float named = 0;
+        foreach (var (bone, weight) in w)
+            for (int b = bone, g = 0; b >= 0 && b < Bones.Count && g < 64; b = Bones[b].Parent, g++)
+                if (BodyWord.IsMatch(Bones[b].Name) || HeadBone.IsMatch(Bones[b].Name) && !OtherBiped.IsMatch(Bones[b].Name)) { named += weight; break; }
+        return all > 0 && named >= 0.3f * all;
+    }
+
+    /// <summary>
+    /// MFF's weapon bones (Kurt, 2026-10-08: Red She-Hulk's and Blade's floating weapons were built into the body): Bone_w
+    /// under the right hand (Red She-Hulk's 150 cm weapon, a part of its own in her own material, 90 cm beside her), BoneW /
+    /// BoneW_1 / BoneW003 / BoneW_004 (Blade's swords and guns, some inside his body sheet), Bone_ultimate00 (his ultimate's
+    /// blades). The game shows a costume's weapons as props of their own, so what hangs on these is a prop part, off by default.
+    /// </summary>
+    static readonly Regex WeaponBone = new(@"^bone_?w(_?\d+)?$|^bone_?ultimate\d*$", RegexOptions.IgnoreCase);
+
     void SplitPropBones()
     {
         // A prop-named bone and everything below it (Kate's bow tips hang on Bone029, under Dummy001).
-        var propBone = Bones.Select(b => PropName.IsMatch(b.Name)).ToArray();
+        var propBone = Bones.Select(b => PropName.IsMatch(b.Name) || WeaponBone.IsMatch(b.Name)).ToArray();
         for (int i = 0; i < Bones.Count; i++) if (Bones[i].Parent >= 0 && propBone[Bones[i].Parent]) propBone[i] = true;
         if (!propBone.Any(x => x)) return;
         foreach (var part in Parts.Where(p => !p.IsProp).ToList())

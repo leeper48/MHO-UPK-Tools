@@ -13,6 +13,86 @@ static partial class Program
     {
         switch (cmd)
         {
+            case "--default-parts":
+            {
+                // --default-parts <models folder> (read only): each MFF model's parts ticked by default, one line per model
+                // (MHO_NO_OFFSKELETON=1: without the off-skeleton rule, to compare)
+                if (rest.Count < 2) { Console.WriteLine("--default-parts <models folder>"); return 1; }
+                foreach (string dir in Directory.EnumerateDirectories(rest[1]).Order())
+                {
+                    string? fbx = Directory.EnumerateFiles(dir, "*.fbx").FirstOrDefault();
+                    if (fbx == null) continue;
+                    try
+                    {
+                        var mm = MhoExtendedModManager.Model.MffModel.Load(fbx);
+                        Console.WriteLine($"{Path.GetFileName(dir)}	{string.Join(" | ", mm.Parts.Where(p => p.DefaultOn).Select(p => $"{p.Name} ({p.Verts}, {mm.SkeletonShare(p):P0})"))}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(dir)}	ERROR {ex.GetType().Name}"); }
+                }
+                return 0;
+            }
+            case "--weapon-bone-census":
+            {
+                // --weapon-bone-census <models folder> [max] (read only): every MFF model's prop parts split off on a weapon bone
+                // (Bone_w, BoneW…, Bone_ultimate…): model, part, vertices, size (cm), and whether it was ticked before (body)
+                if (rest.Count < 2) { Console.WriteLine("--weapon-bone-census <models folder> [max]"); return 1; }
+                int max = rest.Count > 2 && int.TryParse(rest[2], out int mx) ? mx : int.MaxValue, seen = 0, hit = 0;
+                var rx = new System.Text.RegularExpressions.Regex(@"· (bone_?w(_?\d+)?|bone_?ultimate\d*)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                foreach (string dir in Directory.EnumerateDirectories(rest[1]).Order())
+                {
+                    if (seen++ >= max) break;
+                    string? fbx = Directory.EnumerateFiles(dir, "*.fbx").FirstOrDefault();
+                    if (fbx == null) continue;
+                    try
+                    {
+                        var mm = MhoExtendedModManager.Model.MffModel.Load(fbx);
+                        var split = mm.Parts.Where(p => rx.IsMatch(p.Name)).ToList();
+                        if (split.Count == 0) continue;
+                        hit++;
+                        foreach (var p in split)
+                        {
+                            var pos = p.Sections.SelectMany(x => x.Pos).ToList();
+                            var d = pos.Aggregate(System.Numerics.Vector3.Max) - pos.Aggregate(System.Numerics.Vector3.Min);
+                            Console.WriteLine($"{Path.GetFileName(dir)}	{p.Name}	{p.Verts}	{MathF.Max(d.X, MathF.Max(d.Y, d.Z)):0}");
+                        }
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(dir)}	ERROR {ex.GetType().Name}: {ex.Message}"); }
+                }
+                Console.WriteLine($"{hit} of {seen} models have parts on weapon bones");
+                return 0;
+            }
+            case "--mff-parts":
+            {
+                // --mff-parts <model file or MFF folder name> (read only): each part as the importer sorts it (kind, ticked by
+                // default), its size and place (normalized cm) and the bones carrying its weight, with each bone's parent chain
+                if (rest.Count < 2) { Console.WriteLine("--mff-parts <model>"); return 1; }
+                var mm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1]));
+                string Chain(int b) { var l = new List<string>(); for (int g = 0; b >= 0 && g < 6; g++) { l.Add(mm.Bones[b].Name); b = mm.Bones[b].Parent; } return string.Join(" < ", l); }
+                foreach (var pt in mm.Parts)
+                {
+                    var pos = pt.Sections.SelectMany(x => x.Pos).ToList();
+                    var lo = pos.Aggregate(System.Numerics.Vector3.Min); var hi = pos.Aggregate(System.Numerics.Vector3.Max);
+                    var w = new Dictionary<int, float>(); float tot = 0;
+                    foreach (var sec in pt.Sections) foreach (var vw in sec.Weights) foreach (var x in vw) { w[x.Bone] = w.GetValueOrDefault(x.Bone) + x.Weight; tot += x.Weight; }
+                    Console.WriteLine($"{pt.Name}: {pt.Verts} verts, {(pt.IsProp ? "prop" : pt.IsAlternate ? "swap" : !pt.Weighted ? "unrigged" : "body")}, {(pt.DefaultOn ? "ticked" : "off")}, own material {pt.OwnMaterial}; box {lo.X:0} {lo.Y:0} {lo.Z:0} .. {hi.X:0} {hi.Y:0} {hi.Z:0}; materials {string.Join(", ", pt.Sections.Select(x => x.Material).Distinct())}");
+                    foreach (var (b, v) in w.OrderByDescending(kv => kv.Value).Take(5)) Console.WriteLine($"    {v / tot:P0} {Chain(b)} (rig of {mm.RigSize(b)} bones)");
+                    // vertex islands far from their bones (a floating piece): connected pieces, each with its dominant bone and gap
+                    foreach (var sec in pt.Sections)
+                    {
+                        int n = sec.Pos.Length; var par = Enumerable.Range(0, n).ToArray();
+                        int Find(int x) { while (par[x] != x) x = par[x] = par[par[x]]; return x; }
+                        for (int t = 0; t + 2 < sec.Tris.Length; t += 3) { par[Find(sec.Tris[t])] = Find(sec.Tris[t + 1]); par[Find(sec.Tris[t + 1])] = Find(sec.Tris[t + 2]); }
+                        foreach (var g in Enumerable.Range(0, n).GroupBy(Find).Where(g => g.Count() >= 4))
+                        {
+                            var c = g.Select(v => sec.Pos[v]).Aggregate((p, q) => p + q) / g.Count();
+                            var dom = g.SelectMany(v => sec.Weights[v]).GroupBy(x => x.Bone).OrderByDescending(x => x.Sum(y => y.Weight)).FirstOrDefault()?.Key ?? -1;
+                            float gap = dom >= 0 ? g.Min(v => System.Numerics.Vector3.Distance(sec.Pos[v], mm.Bones[dom].Position)) : -1;
+                            if (gap > 15) Console.WriteLine($"    island {g.Count()} verts at {c.X:0} {c.Y:0} {c.Z:0} on {(dom >= 0 ? Chain(dom) : "nothing")}, {gap:0} cm from that bone");
+                        }
+                    }
+                }
+                return 0;
+            }
             case "--mff-layout":
                 // read-only: where an MFF rip folder keeps its model folders and textures (Models\Models or Models, Texture2D …)
                 foreach (string f in rest.Skip(1)) { var (m, t) = MhoExtendedModManager.Model.Source.Layout(f); Console.WriteLine($"{f}\n  models:   {m}\n  textures: {t}"); }
