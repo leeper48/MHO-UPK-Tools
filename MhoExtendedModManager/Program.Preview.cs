@@ -1235,6 +1235,50 @@ static partial class Program
                 Console.WriteLine($"{rest[2]}: {ns}");
                 return 0;
             }
+            case "--mesh-refs":
+            {
+                // --mesh-refs <CookedPCConsole> [name part] (read only): character packages (UC__Marvel*) with no skeletal mesh of
+                // their own, and the mesh their class default's mesh component names (an import from another package)
+                if (rest.Count < 2) { Console.WriteLine("--mesh-refs <CookedPCConsole> [name part]"); return 1; }
+                string part = rest.Count > 2 ? rest[2] : "";
+                int none = 0, total = 0;
+                foreach (string f in Directory.EnumerateFiles(rest[1], "UC__Marvel*.upk").Order())
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (part.Length > 0 && !fn.Contains(part, StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        var mp = MhoPackageModifier.Package.Open(f);
+                        total++;
+                        int meshes = mp.Exports.Count(e => mp.ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
+                        if (meshes > 0) continue;
+                        string stem = Path.GetFileNameWithoutExtension(f)[4..];
+                        if (stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) stem = stem[..^3];
+                        string compPath = $"marvelgamecontent.default__{stem.ToLowerInvariant()}.initialskeletalmesh";
+                        int comp = Array.FindIndex(mp.Exports, e => mp.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+                        string refTo = "no component of its own";
+                        if (comp >= 0)
+                        {
+                            byte[] d = mp.ReadExportBytes(mp.Exports[comp]).ToArray();
+                            var t = MhoPackageModifier.TagWalker.Walk(mp, d, 16)?.FirstOrDefault(x => x.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && x.Size == 4);
+                            int r = t == null ? 0 : BitConverter.ToInt32(d, t.ValueAt);
+                            if (r < 0)
+                            {
+                                var parts = new List<string>();
+                                for (int guard = 0; r < 0 && guard < 16; guard++) { var im = mp.Imports[-r - 1]; parts.Insert(0, im.ObjectName); r = im.OuterIndex; }
+                                refTo = "imports " + string.Join('.', parts);
+                            }
+                            else refTo = t == null ? "component sets no SkeletalMesh" : "SkeletalMesh = " + r;
+                        }
+                        none++;
+                        Console.WriteLine($"{fn}	{refTo}");
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or IndexOutOfRangeException) { }
+                }
+                Console.WriteLine($"{none} of {total} character packages have no skeletal mesh of their own");
+                return 0;
+            }
             case "--mesh-materials":
             {
                 // Read-only (2026-10-07): a skeletal mesh's material slots (native list): each one's path, whether it's in the

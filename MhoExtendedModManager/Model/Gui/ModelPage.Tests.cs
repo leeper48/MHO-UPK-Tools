@@ -24,8 +24,9 @@ sealed partial class ModelPage
             bool shown = meshPick.Visible && at >= 0;
             if (at >= 0) meshPick.SelectedIndex = at + 1;
             bool picked = MhoSkeleton.ChosenFor(package)?.Equals(testMesh, StringComparison.OrdinalIgnoreCase) == true;
-            say($"{(shown && picked ? "PASS" : "FAIL")} Character ▾ lists the package's characters ({string.Join(", ", meshNames)}), {testMesh} picked");
+            say($"{(shown && picked ? "PASS" : "FAIL")} Model ▾ lists the package's characters ({string.Join(", ", meshNames)}), {testMesh} picked");
         }
+        await propTicks;
         bool before = HasUnbuiltChanges;
         Build();
         for (int i = 0; i < 6000 && building; i++) await Task.Delay(100);
@@ -44,7 +45,7 @@ sealed partial class ModelPage
             // the picked character is the one built onto (the model's vertex count), the others as they were
             var mine = MhoSkeleton.Load(result, testMesh);
             string other = meshNames.First(n => !n.Equals(testMesh, StringComparison.OrdinalIgnoreCase));
-            var stockOther = MhoSkeleton.Load(StartPackage(package), other);
+            var stockOther = MhoSkeleton.Load(lastStart ?? StartPackage(package), other);   // (as the build started: an earlier build of it kept)
             var builtOther = MhoSkeleton.Load(result, other);
             int verts = mine.Mesh.HighestDetail?.Positions.Count ?? 0, stockVerts = MhoSkeleton.Load(StartPackage(package), testMesh).Mesh.HighestDetail?.Positions.Count ?? 0;
             bool ok = verts != stockVerts && builtOther.Mesh.HighestDetail?.Positions.Count == stockOther.Mesh.HighestDetail?.Positions.Count;
@@ -65,6 +66,9 @@ sealed partial class ModelPage
         }
         return result;
     }
+
+    /// <summary>The package the last build started from (the start package, or the mod's copy holding another model's build).</summary>
+    string? lastStart;
 
     internal bool TestHasRig => unrigged != null;
     /// <summary>Test: the unbuilt-changes check behaved (before Build yes, after no, a size change yes, put back no).</summary>
@@ -280,7 +284,8 @@ sealed partial class ModelPage
             SchedulePreview();
             for (int i = 0; i < 600 && preview.ShowCount == sc; i++) await Task.Delay(100);
             var c = preview.CompareForTest;
-            bool ok = c.Lit && !c.Enabled && c.TargetOnly && (preview.AnimationNames.Count > 0 || !CharacterPackage(package));   // (a package of another kind may have none)
+            await propTicks;
+            bool ok = c.Lit && !c.Enabled && c.TargetOnly && (preview.AnimationNames.Count > 0 || !CharacterPackage(package) || propTarget != null);   // (a package of another kind, or a prop picked as the Character, may have none)
             say($"{(ok ? "PASS" : "FAIL")} with no source, the target's own model shows (Compare lit {c.Lit}, locked {!c.Enabled}, {preview.AnimationNames.Count} animations)");
             if (!ok) { say($"  (picked: {ChosenPackage?.Key ?? "no package"}, source {chosenKey ?? "none"}; the mod's packages: {string.Join(", ", host.Packages.Select(p => p.File))})\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
         }

@@ -16,6 +16,7 @@ sealed partial class ModelPage
     /// <summary>Build into Mod; true when the package went into the mod (also Save Changes' "Build and Save").</summary>
     public async Task<bool> BuildAsync()
     {
+        await propTicks;   // (a Character just picked: a prop ticks its own part first)
         if (ChosenPackage is CharacterList.Item only && !HasSource && !building) return await BuildSizeOnly(only);
         if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return false;
         var picked = SelectedParts();
@@ -36,8 +37,13 @@ sealed partial class ModelPage
         string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{mff} on {Path.GetFileNameWithoutExtension(pkg.Key)}"));
         building = true; UpdateStatus();
         log.Clear();
-        string start = StartPackage(pkg.Key);
-        Log($"Building {mff} on {pkg.Key} (from {StartLabel(pkg.Key)}) → {outDir}");
+        string baseStart = StartPackage(pkg.Key);
+        // another model of this package built already (the body, then its shield): this build starts from that build, so both stay
+        string? keepOther = await Task.Run(() => OtherModelBuilt(pkg.Key, baseStart));
+        if (keepOther != null) options = options with { SizeFrom = baseStart };
+        string start = keepOther != null ? ModCopy(pkg.Key)! : baseStart;
+        lastStart = start;
+        Log($"Building {mff} on {pkg.Key} (from {(keepOther != null ? $"the mod's copy, which holds your build of {keepOther}: it stays" : StartLabel(pkg.Key))}) → {outDir}");
         string? uf = unrigged;
         try
         {
@@ -61,6 +67,33 @@ sealed partial class ModelPage
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
         return ok;
+    }
+
+    /// <summary>
+    /// Another model of the package that the mod's copy has changed (Kurt, 2026-10-08: US Agent's body and shield on Cap: two
+    /// builds of one package): the first other skeletal mesh whose data differs from the start package's, else null. Then the
+    /// build starts from the mod's copy, so the earlier build stays (objects of the earlier build of the same model stay
+    /// unused, under their own names).
+    /// </summary>
+    string? OtherModelBuilt(string pkgKey, string baseStart)
+    {
+        string? current = ModCopy(pkgKey);
+        if (current == null || !File.Exists(current) || Path.GetFullPath(current).Equals(Path.GetFullPath(baseStart), StringComparison.OrdinalIgnoreCase)) return null;
+        try
+        {
+            string target = MhoSkeleton.Load(baseStart, null).Name;
+            var a = AnimExportCli.Packages.Package.Open(baseStart);
+            var b = AnimExportCli.Packages.Package.Open(current);
+            foreach (int i in b.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName))
+            {
+                string name = b.GetExportName(i);
+                if (name.Equals(target, StringComparison.OrdinalIgnoreCase)) continue;
+                int j = a.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).FirstOrDefault(k => a.GetExportName(k).Equals(name, StringComparison.OrdinalIgnoreCase), -1);
+                if (j < 0 || !a.GetExportData(j).SequenceEqual(b.GetExportData(i))) return name;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+        return null;
     }
 
     /// <summary>

@@ -25,6 +25,8 @@ static class DataCleanup
         Add("an unfinished app update (data\\update)", Folder(Path.Combine(Settings.Home, "update"), dryRun));
         // Thumbnails not shown for 30 days, and temp files of a killed run (made again when needed).
         if (!dryRun) Add("model thumbnails not used for 30 days (data\\model\\thumbs)", Model.Thumbs.Prune(30));
+        // Costume packages with their hero's model copied in, for the Model tab (InheritedMesh): made again in a second when needed.
+        Add("Model tab copies of costumes with their hero's model (data\\model\\inherit)", Folder(Path.Combine(Model.Settings.Home, "inherit"), dryRun));
         // The editor's work folders a killed run left (library\model-work-…, power-colors-…, voice-…, anim-work-…, costume-move-…).
         if (library != null && Directory.Exists(library))
         {

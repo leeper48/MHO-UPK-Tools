@@ -81,6 +81,8 @@ static partial class Retarget
     /// edited bone map (it decides every pair); <paramref name="options"/>: the switches (default: from the MFF_* environment).</summary>
     public static Retargeted Run(MffModel m, IEnumerable<Part> parts, MhoSkeleton sk, BoneMapFile? file = null, RetargetOptions? options = null)
     {
+        // a weapon or shield picked as the model (Model ▾): laid over it as a rigid prop, no body to fit
+        if (PropFit.IsProp(sk)) return PropFit.Run(m, parts, sk);
         var r = new Job(m, parts, sk, file, options ?? RetargetOptions.FromEnvironment()).Run();
         // the map file's weight smoothing (0.12.0), after everything else
         if (file is { Smooth.Count: > 0 }) r.Notes.AddRange(WeightSmooth.Apply(r, file.Smooth));

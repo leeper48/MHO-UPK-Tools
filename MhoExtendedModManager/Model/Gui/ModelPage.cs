@@ -176,7 +176,7 @@ sealed partial class ModelPage : UserControl
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layoutRight = right;
-        // the filter and Build From, then Character ▾ on its own line (shown for a package with several characters)
+        // the filter and Build From, then Model ▾ on its own line (shown for a package with several models)
         var targetHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         targetHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize)); targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -728,6 +728,7 @@ sealed partial class ModelPage : UserControl
             SchedulePreview();
             Log($"{it.Title} ({it.Key}): {m.Parts.Count} parts, {m.Parts.Count(p => p.DefaultOn)} ticked by default.");
             RestoreState();
+            PropTicks(changed: false);
         }
         catch (Exception ex) { Log($"{it.Key}: {ex.Message}"); }
         UpdateStatus();
@@ -963,8 +964,50 @@ sealed partial class ModelPage : UserControl
     void ResetParts()
     {
         if (model == null) { SetUse(parts.Rows.Cast<DataGridViewRow>().Where(r => r.Cells["use"].Value is not true), true); return; }   // FBX: all meshes
+        if (propTarget != null && PropFit.BestPart(model, propTarget) is { } best)   // a prop target: the part most like it
+        {
+            for (int i = 0; i < parts.Rows.Count && i < model.Parts.Count; i++) parts.Rows[i].Cells["use"].Value = model.Parts[i] == best;
+            return;
+        }
         for (int i = 0; i < parts.Rows.Count && i < model.Parts.Count; i++)
             if ((parts.Rows[i].Cells["use"].Value is true) != model.Parts[i].DefaultOn) parts.Rows[i].Cells["use"].Value = model.Parts[i].DefaultOn;
+    }
+
+    /// <summary>The picked Character when it's a prop (a weapon or shield: PropFit.IsProp), else null.</summary>
+    MhoSkeleton? propTarget;
+
+    /// <summary>
+    /// Parts for a prop target (Kurt, 2026-10-08: an MFF weapon or shield in place of the game's): when Model ▾ picks a
+    /// prop, the MFF part most like it is ticked alone (PropFit.BestPart); back on a body, the importer's own choice. On a new
+    /// source (<paramref name="changed"/> false) only parts still as the importer ticked them are changed.
+    /// </summary>
+    void PropTicks(bool changed) => propTicks = PropTicksAsync(changed, ++propTicksRun);
+
+    /// <summary>The latest prop check's number: an older one still loading (the restored pick) doesn't override a newer pick.</summary>
+    int propTicksRun;
+
+    /// <summary>The last prop check (Build waits for it, so it builds with the parts it ticks).</summary>
+    Task propTicks = Task.CompletedTask;
+
+    async Task PropTicksAsync(bool changed, int run)
+    {
+        if (ChosenPackage is not CharacterList.Item pkg) return;
+        string key = pkg.Key, path = StartPackage(key);
+        MhoSkeleton? sk;
+        try { sk = await Task.Run(() => MhoSkeleton.Load(path, null)); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { sk = null; }
+        if (IsDisposed || ChosenPackage?.Key != key || run != propTicksRun) return;
+        bool wasProp = propTarget != null;
+        propTarget = sk != null && PropFit.IsProp(sk) ? sk : null;
+        if (model == null) return;
+        bool asImporter = Enumerable.Range(0, Math.Min(parts.Rows.Count, model.Parts.Count)).All(i => (parts.Rows[i].Cells["use"].Value is true) == model.Parts[i].DefaultOn);
+        if (propTarget != null && (changed || asImporter) && PropFit.BestPart(model, propTarget) is { } best)
+        {
+            for (int i = 0; i < parts.Rows.Count && i < model.Parts.Count; i++)
+                if ((parts.Rows[i].Cells["use"].Value is true) != (model.Parts[i] == best)) parts.Rows[i].Cells["use"].Value = model.Parts[i] == best;
+            Log($"{propTarget.Name} is a prop (a weapon or shield): only {best.Name}, the part most like it, is ticked. It's laid over the game's prop, scaled to its size and held where the game holds it; tick other parts to use them instead.");
+        }
+        else if (propTarget == null && wasProp && changed) ResetParts();
     }
 
     List<string> SelectedParts() => parts.Rows.Cast<DataGridViewRow>().Where(r => r.Cells["use"].Value is true).Select(r => (string)r.Cells["part"].Value).ToList();

@@ -53,7 +53,7 @@ sealed class ImportBuild
         var (basePackage, matRefs) = Materials();
         var extraNames = HairNames(ref basePackage);
         var (export, native) = EncodeMesh(matRefs, extraNames);
-        basePackage = NoMorphs(basePackage);
+        if (!PropFit.IsProp(sk)) basePackage = NoMorphs(basePackage);   // (a prop: the character's component and animations aren't this build's)
         string? pkgOut = WritePackage(basePackage, export);
         if (pkgOut == null) return null;
         if ((rigs.Count > 0 || o.AnimFbx is { Count: > 0 }) && !HairAnimation(pkgOut)) return null;
@@ -72,6 +72,7 @@ sealed class ImportBuild
             sourceName = SourceName(o.SourceFbx);
             log("source: " + o.SourceFbx);
             var only = o.Parts is { Length: > 0 } ps && ps != "default" && ps != "all" ? ps.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
+            if (PropFit.IsProp(sk)) throw new InvalidOperationException($"{sk.Name} is a prop (a weapon or shield): for now a prop can only be built from an MFF character's part");
             r = FbxReimport.Load(o.SourceFbx, sk, only, log);
             // an FBX source's map holds only its weight smoothing (the Bone Map's Smooth Weights)
             if (o.MapFile != null) foreach (var n in WeightSmooth.Apply(r, BoneMapFile.Load(o.MapFile).Smooth)) log("  " + n);
@@ -93,8 +94,11 @@ sealed class ImportBuild
                 if (hairRig != null) rigs.Add(hairRig);
             }
             var picked = m.Selected(o.Parts);
+            // a prop target (a weapon or shield picked under Model ▾): with no parts named, the part most like it
+            if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, sk) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
             if (o.Subdivide) picked = Subdivision.Apply(picked);
             r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null);
+            foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.Apply(r, o.ModelFbx, log); }
         if ((o.Hair > 0 || o.Cape > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed cape / hair is left out");
@@ -398,7 +402,8 @@ sealed class ImportBuild
     /// the game's: the component's own Scale, else its hero's base component's, else 1.
     /// </summary>
     byte[] ApplySize(byte[] packageBytes) =>
-        Math.Abs(o.Size - 1) < 1e-4 ? packageBytes : Resize(packageBytes, packageBytes, Path.GetFileName(package), o.Size, log) ?? packageBytes;
+        Math.Abs(o.Size - 1) < 1e-4 && o.SizeFrom == null ? packageBytes
+            : Resize(packageBytes, o.SizeFrom != null && File.Exists(o.SizeFrom) ? File.ReadAllBytes(o.SizeFrom) : packageBytes, Path.GetFileName(package), o.Size, log) ?? packageBytes;
 
     /// <summary>
     /// The size written into <paramref name="current"/> (the package as the mod has it, a model built in or not): the game's
@@ -615,8 +620,28 @@ sealed class ImportBuild
         RenderCheck(back, decodedBones, p2, u2, w2);
     }
 
+    /// <summary>A prop build: the game's prop and the new one from the front, side and back, at rest (props have no
+    /// animations of their own: the character's attachment moves them).</summary>
+    void PropCheck()
+    {
+        static Vector3 M(Vector3 v) => new(v.X, -v.Y, v.Z);
+        var lod = sk.Mesh.HighestDetail;
+        if (lod == null) return;
+        var game = new List<RMesh> { new(lod.Positions.Select(M).ToArray(), lod.Indices.ToArray(), lod.TexCoords.ToArray(), null) };
+        var made = r.Sections.Select(x => new RMesh(x.Pos.Select(M).ToArray(), x.Tris, x.Uv, x.Tex.Diffuse)).ToList();
+        string png = Path.Combine(outDir, sk.Name + ".prop_check.png");
+        Snapshot.Sheet(png,
+        [
+            new("Game's Prop", "front", game, null, "front"), new("New Prop", "front", made, null, "front"),
+            new("Game's Prop", "side", game, null, "left"), new("New Prop", "side", made, null, "left"),
+            new("Game's Prop", "back", game, null, "back"), new("New Prop", "back", made, null, "back"),
+        ]);
+        log($"render:  {Path.GetFullPath(png)}");
+    }
+
     void RenderCheck(SkelNative back, List<AnimExportCli.Meshes.MeshBone> decodedBones, Vector3[] p2, Vector2[] u2, (int, float)[][] w2)
     {
+        if (PropFit.IsProp(sk)) { PropCheck(); return; }
         var anims = MhoAnim.For(package, sk.Bones.Select(b => b.Name));
         var ar = anims.FirstOrDefault(a => a.Name.Contains(o.CheckAnimation ?? "attack", StringComparison.OrdinalIgnoreCase)) ?? anims.FirstOrDefault();
         var anim = ar != null ? MhoAnim.Load(ar) : null;

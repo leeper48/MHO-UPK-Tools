@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.217
+- Model tab: weapons and shields as targets. Pick a costume's prop under Model ▾ (Captain America's shield, a hammer, a gun …; props are marked Prop) and an MFF character: the part most like the prop is ticked (US Agent's shield for Cap's), laid over the game's prop, turned onto its axes, scaled to its size and held on the same bone, with its own materials. The game moves the same prop in every animation and power, so the new one is held, carried and thrown where the old one was.
+- Model tab: Character ▾ under the Target is now Model ▾, and a package's props are marked Prop in it.
+- Model tab: costumes that show their hero's model instead of one of their own (Captain America Avengers, Carnage Classic, Venom Classic, Thing Classic, Rogue Modern, Spider-Man Big Time … 20 in the game) can be targets: the costume gets a copy of its hero's model under its own name, and the new model is built onto that. Only that costume changes; the hero's other costumes keep the shared model.
+- Model tab: two models of one package can be built (US Agent's body on Cap, then his shield on Cap's shield): a build of one keeps the other's build.
+
 0.37.216
 - Model tab, Materials: Adjust Colors works on a package's own textures too (no source picked): the adjusted image goes into the mod's copy of the package, encoded like the original.
 - Model tab: the normal maps the importer makes from a color map are much gentler (Miike79 compared them with GIMP's Normal Map filter: ours were about three times as steep, with wide halos around edges). They now come close to GIMP's at scale 2–3.

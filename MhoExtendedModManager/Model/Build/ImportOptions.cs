@@ -52,6 +52,10 @@ sealed record ImportOptions
     /// <summary>The Model tab's Size: the character this much larger or smaller in game than the game has it (1 = unchanged),
     /// written as the costume's mesh component Scale (<see cref="ImportBuild"/>.ApplySize).</summary>
     public float Size { get; init; } = 1;
+    /// <summary>The package the game's size is read from when the build starts from a copy that already holds another build
+    /// (a shield built onto a package whose body was built: its size is set already, and must not be multiplied); null = the
+    /// start package.</summary>
+    public string? SizeFrom { get; init; }
 
     public static ImportOptions FromEnvironment(string? parts, string? mapFile, string? checkAnimation)
     {

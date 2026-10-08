@@ -52,8 +52,8 @@ static partial class Program
                 MhoExtendedModManager.Model.Settings.Reset();
                 try
                 {
-                    string package = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
-                    // MHO_MODEL_MESH=<name>: the character in the package to build onto (the Model tab's Character ▾)
+                    string package = MhoExtendedModManager.Model.InheritedMesh.Start(MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true), Console.WriteLine);   // (a costume showing its hero's model: a copy with it in)
+                    // MHO_MODEL_MESH=<name>: the character in the package to build onto (the Model tab's Model ▾)
                     if (Environment.GetEnvironmentVariable("MHO_MODEL_MESH") is { Length: > 0 } pickMesh) MhoExtendedModManager.Model.MhoSkeleton.Choose(package, pickMesh);
                     var result = MhoExtendedModManager.Model.ImportBuild.Run(rest[1], package, rest[3], MhoExtendedModManager.Model.ImportOptions.FromEnvironment(null, map, null), Console.WriteLine);
                     return result == null ? 1 : 0;

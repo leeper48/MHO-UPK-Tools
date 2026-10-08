@@ -207,11 +207,12 @@ sealed partial class ModelPage
 
     void InitMeshPick()
     {
-        Ui.Tip(meshPick, "The character in this package the model is fitted to and replaces, when the package holds several (a hero's base package can hold props and other characters). Automatic picks the costume's own model, else the biggest.");
+        Ui.Tip(meshPick, "The model in this package that the build replaces, when the package holds several: the character (a hero's base package can hold other characters too) or one of its props, marked Prop (a shield, hammer, gun or blade: then an MFF part, such as a weapon, takes its place). Automatic picks the costume's own character, else the biggest.");
         meshPick.SelectedIndexChanged += (_, _) =>
         {
             if (fillingMesh || ChosenPackage is not CharacterList.Item pkg) return;
             MhoSkeleton.Choose(pkg.Key, meshPick.SelectedIndex <= 0 ? null : meshNames[meshPick.SelectedIndex - 1]);
+            PropTicks(changed: true);
             SaveState(); SchedulePreview(); UpdateStatus();
         };
         packages.SelectedIndexChanged += (_, _) => FillMeshPick();
@@ -223,7 +224,20 @@ sealed partial class ModelPage
         if (ChosenPackage is not CharacterList.Item pkg) { meshPick.Visible = false; return; }
         string key = pkg.Key, path = StartPackage(key);
         List<string> names;
-        try { names = await Task.Run(() => MhoSkeleton.List(path).Select(m => m.Name).ToList()); }
+        var props = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            names = await Task.Run(() =>
+            {
+                var list = MhoSkeleton.List(path).Select(m => m.Name).ToList();
+                // which of them are props (a weapon or shield: PropFit), marked in the list
+                if (list.Count > 1)
+                    foreach (var n in list)
+                        try { if (PropFit.IsProp(MhoSkeleton.Load(path, n))) props.Add(n); }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                return list;
+            });
+        }
         catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { names = []; }
         if (IsDisposed || ChosenPackage?.Key != key) return;
         fillingMesh = true;
@@ -231,18 +245,31 @@ sealed partial class ModelPage
         {
             meshNames = names;
             meshPick.Items.Clear();
-            meshPick.Items.Add("Character: Automatic");
-            foreach (var n in names) meshPick.Items.Add("Character: " + n);
+            meshPick.Items.Add("Model: Automatic");
+            foreach (var n in names) meshPick.Items.Add("Model: " + n + (props.Contains(n) ? " · Prop" : ""));
             string? pick = MhoSkeleton.ChosenFor(key);
             int at = pick == null ? -1 : names.FindIndex(n => n.Equals(pick, StringComparison.OrdinalIgnoreCase));
             meshPick.SelectedIndex = at + 1;
             meshPick.Visible = names.Count > 1 || at >= 0;
+            PropTicks(changed: false);
         }
         finally { fillingMesh = false; }
     }
 
     /// <summary>The file a build of <paramref name="file"/> starts from (also what the preview shows the model on).</summary>
     string StartPackage(string file)
+    {
+        // a costume that shows its hero's model (no model of its own): a copy with that model in it, under the costume's name
+        string start = StartPackageAsIs(file);
+        try { return InheritedMesh.Start(start, line => Later(() => Log(line))); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or UnauthorizedAccessException)
+        {
+            Later(() => Log($"{file}: its hero's model couldn't be copied in: {ex.Message}"));
+            return start;
+        }
+    }
+
+    string StartPackageAsIs(string file)
     {
         if (FromStock) return BasePackage.Resolve(file);
         string kept = Path.Combine(host.WorkFolder, "base", file);
@@ -356,7 +383,7 @@ sealed partial class ModelPage
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
         public List<string> Added { get; set; } = new();
-        /// <summary>Package → the character picked in it (Character ▾), when not the automatic one.</summary>
+        /// <summary>Package → the model picked in it (Model ▾), when not the automatic one.</summary>
         public Dictionary<string, string> Meshes { get; set; } = new();
     }
 
