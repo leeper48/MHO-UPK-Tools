@@ -17,6 +17,10 @@ sealed class Settings
     public static void Reset() => current = null;
 
     public string? MffSource { get; init; }
+    /// <summary>The folder Browse for a Model opens in (Settings → Model → Change Models Folder); null = <see cref="LastModelFolder"/>.</summary>
+    public string? ModelsFolder { get; init; }
+    /// <summary>The folder the last model was picked from (model\settings.json).</summary>
+    public string? LastModelFolder { get; set; }
     public string? GameFolder { get; init; }
     /// <summary>The clean stock packages folder (read only).</summary>
     public string? StockFolder { get; init; }
@@ -48,7 +52,7 @@ sealed class Settings
         public float GlowStrength { get; set; } = 1;
     }
 
-    sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); public string? ImageEditorPath { get; set; } public Dictionary<string, float>? Layout { get; set; } public List<string>? Folded { get; set; } }
+    sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); public string? ImageEditorPath { get; set; } public Dictionary<string, float>? Layout { get; set; } public List<string>? Folded { get; set; } public string? LastModelFolder { get; set; } }
     static string OwnFile => Path.Combine(Home, "settings.json");
 
     /// <summary>The engine's own work folder (thumbnails, exports, command-line outputs): model\ in the Mod Manager's data.</summary>
@@ -74,6 +78,7 @@ sealed class Settings
         return new Settings
         {
             MffSource = s.MffFolder is { Length: > 0 } m ? m : null, GameFolder = root,
+            ModelsFolder = s.ModelsFolder is { Length: > 0 } mf ? mf : null,
             StockFolder = StockFiles.Clean ?? (s.CleanGameFiles is { Length: > 0 } c && Directory.Exists(c) ? c : null),
             BlenderPath = s.BlenderPath, SkipAddonOffer = s.SkipBlenderAddonOffer,
         }.WithOwn();
@@ -83,7 +88,7 @@ sealed class Settings
     {
         try
         {
-            if (File.Exists(OwnFile) && System.Text.Json.JsonSerializer.Deserialize<Own>(File.ReadAllText(OwnFile)) is { } o) { Preview = o.Preview; RecentFbx = o.RecentFbx; ImageEditorPath = o.ImageEditorPath; Layout = o.Layout ?? new(); Folded = o.Folded ?? new(); }
+            if (File.Exists(OwnFile) && System.Text.Json.JsonSerializer.Deserialize<Own>(File.ReadAllText(OwnFile)) is { } o) { Preview = o.Preview; RecentFbx = o.RecentFbx; ImageEditorPath = o.ImageEditorPath; Layout = o.Layout ?? new(); Folded = o.Folded ?? new(); LastModelFolder = o.LastModelFolder; }
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { }
         return this;
@@ -95,7 +100,7 @@ sealed class Settings
         var s = App ?? MemmSettings.Load();
         if (s.BlenderPath != BlenderPath || s.SkipBlenderAddonOffer != SkipAddonOffer) Change(m => { m.BlenderPath = BlenderPath; m.SkipBlenderAddonOffer = SkipAddonOffer; });
         Directory.CreateDirectory(Home);
-        File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx, ImageEditorPath = ImageEditorPath, Layout = Layout, Folded = Folded }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx, ImageEditorPath = ImageEditorPath, Layout = Layout, Folded = Folded, LastModelFolder = LastModelFolder }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
 }
 

@@ -312,6 +312,15 @@ sealed partial class ModelPage
                 Settings.Reset();
                 changed();
             }) { ToolTipText = "Now: " + (mff ?? "not set") + ". Only read, never changed." });
+            string? models = (Settings.App ?? MhoExtendedModManager.Settings.Load()).ModelsFolder;
+            model.DropDownItems.Add(new ToolStripMenuItem("Change Models Folder", null, (_, _) =>
+            {
+                using var d = new FolderBrowserDialog { Description = "The folder Browse for a Model opens in (your own model files); read only", UseDescriptionForTitle = true, InitialDirectory = models ?? Settings.Current.LastModelFolder ?? "" };
+                if (d.ShowDialog(owner) != DialogResult.OK) return;
+                Settings.Change(s => s.ModelsFolder = d.SelectedPath);
+                Settings.Reset();
+                changed();
+            }) { ToolTipText = "Now: " + (models ?? "not set: Browse for a Model opens where you last picked a model") + ". Only read, never changed." });
             string? exe = BlenderLaunch.Find();
             model.DropDownItems.Add(new ToolStripMenuItem($"Choose Blender ({(exe != null ? BlenderLaunch.Describe(exe).Split(" (")[0].Replace("with the MHO Actions add-on", "with the Add-On").Replace("without the MHO Actions add-on", "without the Add-On") : "None Found")})", null, (_, _) =>
             {

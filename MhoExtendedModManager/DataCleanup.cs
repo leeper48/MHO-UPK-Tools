@@ -23,8 +23,10 @@ static class DataCleanup
         Add("Nexus downloads (data\\downloads)", Folder(Path.Combine(Settings.Home, "downloads"), dryRun));
         // A self-update that stopped part way (a finished one removes its folder itself).
         Add("an unfinished app update (data\\update)", Folder(Path.Combine(Settings.Home, "update"), dryRun));
+        // FBX copies Blender made of .blend / XPS files whose file is gone or unused for 30 days (before the thumbnails: theirs go too)
+        if (!dryRun) Add("Model tab copies of .blend and XPS files no longer used (data\\model\\converted)", Model.ModelConvert.Prune(30));
         // Thumbnails not shown for 30 days, and temp files of a killed run (made again when needed).
-        if (!dryRun) Add("model thumbnails not used for 30 days (data\\model\\thumbs)", Model.Thumbs.Prune(30));
+        if (!dryRun) Add("model thumbnails of models that are gone or not shown for 30 days (data\\model\\thumbs)", Model.Thumbs.Prune(30));
         // Costume packages with their hero's model copied in, for the Model tab (InheritedMesh): made again in a second when needed.
         Add("Model tab copies of costumes with their hero's model (data\\model\\inherit)", Folder(Path.Combine(Model.Settings.Home, "inherit"), dryRun));
         // The editor's work folders a killed run left (library\model-work-…, power-colors-…, voice-…, anim-work-…, costume-move-…).

@@ -739,10 +739,15 @@ sealed partial class ModelPage : UserControl
     /// retarget, as a repository character is.</summary>
     async void BrowseFbx()
     {
-        string start = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(start);
+        // the Models Folder (Settings → Model), else where the last model was picked from, else data\model\fbx (a user,
+        // 2026-10-08: it always opened in the app's own folder)
+        string? start = new[] { Settings.Current.ModelsFolder, Settings.Current.LastModelFolder }.FirstOrDefault(d => d != null && Directory.Exists(d));
+        if (start == null) { start = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(start); }
         using var dlg = new OpenFileDialog { Title = "A Model (FBX, OBJ, DAE, STL, Blender or XPS)", Filter = ModelConvert.Filter, InitialDirectory = start };
         if (dlg.ShowDialog(this) != DialogResult.OK) { if (chosenKey != null) Reselect(characters, chosenKey); return; }
         string file = dlg.FileName;
+        Settings.Current.LastModelFolder = Path.GetDirectoryName(file);
+        Settings.Current.Save();
         // .blend and XPS (Kurt, 2026-10-06): an FBX made by Blender stands in for the file (kept until the file changes)
         if (ModelConvert.NeedsBlender(file))
         {

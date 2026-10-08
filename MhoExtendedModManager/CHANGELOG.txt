@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.219
+- Model tab: Browse for a Model opens in your Models Folder (Settings → Model → Change Models Folder), else where you last picked a model; it always opened the app's own data\model\fbx folder.
+- The data folder: the FBX copies Blender makes of .blend and XPS models (data\model\converted) now remember their file and are cleared at start once it's gone, or after 30 days unused when they're not in the model list; their thumbnails go with them.
+
 0.37.218
 - Model tab: MFF weapons that hang on a weapon bone (Bone_w, BoneW…, Bone_ultimate…) are no longer built into the body: Red She-Hulk's weapon floating beside her, and Blade's swords and holstered pieces inside his body sheets, are their own prop parts now, unticked (tick one to use it). 22 of the 1,448 MFF models have such parts (Corvus Glaive's glaive, Loki's staff, Zemo's sword, Viper's whip …).
 - Model tab: the parts ticked by default are the character's, not things that move on their own. A part with (almost) none of its weight on the character's skeleton is a prop: She-Hulk's book (ticked instead of her body on several uniforms), her barbell, horses, Loki's cup, cars, boards, bombs and rings. Capes, hair, tentacles and heads on bone chains of their own stay with the body (Echo's cape, Medusa's hair, Omega Red's tentacles, Dormammu's head). 76 of the 1,448 MFF models pick differently.

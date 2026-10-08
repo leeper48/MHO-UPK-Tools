@@ -23,6 +23,9 @@ sealed class Settings
     /// <summary>The Model tab (MFF models onto a mod's package): the MFF rip folder (Models\Models, Texture2D; read only), the
     /// Blender it opens exports in (null = found), and whether its add-on offer was turned off.</summary>
     public string? MffFolder { get; set; }
+    /// <summary>The folder Browse for a Model opens in (a user, 2026-10-08: your own model files; null = the last folder a model
+    /// was picked from).</summary>
+    public string? ModelsFolder { get; set; }
     public string? BlenderPath { get; set; }
     public bool SkipBlenderAddonOffer { get; set; }
     /// <summary>Null = the default location. May also be MHModManager's folder (read-only there until migrated).</summary>

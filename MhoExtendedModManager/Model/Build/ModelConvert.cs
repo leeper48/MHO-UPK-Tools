@@ -53,7 +53,7 @@ static class ModelConvert
     public static string ToFbx(string file, Action<string> log)
     {
         string out_ = FbxFor(file);
-        if (File.Exists(out_) && File.GetLastWriteTimeUtc(out_) > File.GetLastWriteTimeUtc(file)) return out_;
+        if (File.Exists(out_) && File.GetLastWriteTimeUtc(out_) > File.GetLastWriteTimeUtc(file)) { Record(out_, file); return out_; }
         string exe = BlenderLaunch.Find() ?? throw new InvalidOperationException("this file is read through Blender, and Blender isn't installed: pick blender.exe in Settings ▾ → Model → Choose Blender.");
         string dir = Path.GetDirectoryName(out_)!;
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
@@ -77,7 +77,50 @@ static class ModelConvert
                 if (!File.Exists(Path.Combine(dir, Path.GetFileName(img)))) File.Copy(img, Path.Combine(dir, Path.GetFileName(img)));
         if (!File.Exists(out_))
             throw new InvalidOperationException("Blender couldn't read it: " + string.Join(" | ", output.Split('\n').Where(l => l.Contains("Error") || l.Contains("MHO convert")).Select(l => l.Trim()).Take(6)));
+        Record(out_, file);
         return out_;
+    }
+
+    /// <summary>The converted copy's source.txt (in its data\model\converted\&lt;hash&gt; folder): the file it was made from;
+    /// written again on every use, so its date says when it was last used (<see cref="Prune"/>).</summary>
+    static void Record(string fbx, string source)
+    {
+        try { File.WriteAllText(Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(fbx)!)!, "source.txt"), Path.GetFullPath(source)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>
+    /// Converted copies no longer needed (a user, 2026-10-08: a .blend's FBX stayed in data\model\converted): its file is gone,
+    /// or it hasn't been used for <paramref name="days"/> days and isn't in the Model tab's list of models. One without a
+    /// source.txt (made before 0.37.219) goes after the same time unused. Each is made again from its file when picked.
+    /// </summary>
+    public static (int Files, long Bytes) Prune(int days)
+    {
+        string root = Path.Combine(Settings.Home, "converted");
+        if (!Directory.Exists(root)) return (0, 0);
+        var cutoff = DateTime.UtcNow.AddDays(-days);
+        var listed = Settings.Current.RecentFbx.Select(r => Path.GetFullPath(r)).ToList();
+        int n = 0; long bytes = 0;
+        foreach (var dir in Directory.GetDirectories(root))
+        {
+            string rec = Path.Combine(dir, "source.txt");
+            string? source = null;
+            try { if (File.Exists(rec)) source = File.ReadAllText(rec).Trim(); } catch (IOException) { }
+            var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
+            string prefix = Path.GetFullPath(dir) + Path.DirectorySeparatorChar;
+            bool inList = listed.Any(l => l.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            DateTime used = File.Exists(rec) ? File.GetLastWriteTimeUtc(rec) : files.Select(File.GetLastWriteTimeUtc).DefaultIfEmpty(DateTime.MinValue).Max();
+            bool gone = source != null && !File.Exists(source);
+            if (!gone && (inList || used >= cutoff)) continue;
+            try
+            {
+                long size = files.Sum(f => new FileInfo(f).Length);
+                Directory.Delete(dir, true);
+                n += files.Count; bytes += size;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        return (n, bytes);
     }
 
     const string Script = """
