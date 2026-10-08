@@ -17,8 +17,14 @@ sealed class NormalMapSettings
 {
     public float Strength = 1f;       // slope scale (height 0..1 per texel × this × texture size / 512)
     public float Fine = 1.0f;         // weight of the fine layer
-    public float Broad = 0.6f;        // weight of the broad layer
-    public float FineBlur = 0.7f;     // Gaussian sigma in texels (at 512 px; scaled with the texture size)
+    // (2026-10-07, a user compared ours with his own normal map for MFF Songbird's color map (GIMP, below): ours tilted 3.3
+    // times as far on average and embossed wide halos around every edge. Now: no broad layer, no blur, under a quarter of
+    // the slope; on songbird.png: mean tilt R / G 6.7 / 5.4, 95th percentile 36 / 28, detail 3.07, against his 5.9 / 5.0,
+    // 34 / 29, 3.52 (before: 19.3 / 17.5, 82 / 69, 5.21).)
+    public float Broad = 0f;          // weight of the broad layer (folds, panels; off by default)
+    // (no blur: the user made his reference in GIMP: desaturate, Filters → Generic → Normal Map, scale 2-3, flip Y (DirectX
+    // green, as the game reads it); this is that, height from luminance and slopes from the neighboring texels)
+    public float FineBlur = 0f;       // Gaussian sigma in texels (at 512 px; scaled with the texture size)
     public float BroadBlur = 4f;
     public bool Invert;               // dark = high instead of bright = high
     public bool OpenGl;               // green up instead of DirectX green down
@@ -69,7 +75,7 @@ static class NormalMapGen
                 }
         }
         var outPx = new int[w * h];
-        float scale = s.Strength * 12f * k;   // 12: at strength 1 a full black-to-white step over 12 texels leans the normal 45°
+        float scale = s.Strength * 2.7f * k;   // at strength 1 a full black-to-white step over 2.7 texels leans the normal 45° (12 before 0.37.216: far too strong)
         for (int i = 0; i < outPx.Length; i++)
         {
             Vector3 n;

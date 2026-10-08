@@ -185,6 +185,23 @@ sealed partial class ModelPage
         matGrid.CurrentCell = matGrid.Rows[row].Cells["material"];
         var map = (PackageMap)matGrid.Rows[row].Tag!;
         say($"{(matEdit.Enabled && matUse.Enabled ? "PASS" : "FAIL")} Edit in Image Editor and Replace File are on for a package texture");
+        if (Environment.GetEnvironmentVariable("MHO_TEST_PKGADJUST") == "1" && map.Kind == "Color")
+        {
+            // Adjust Colors on the package texture (+120° hue): the texture in the mod's package changes its colors
+            string beforePng = Path.Combine(Path.GetTempPath(), "mhoextmm_test_before.png");
+            ExportPackageMap(map, beforePng);
+            var (_, _, b0) = ImagePixels.ReadBgra(beforePng);
+            say($"{(matAdjust.Enabled ? "PASS" : "FAIL")} Adjust Colors is on for the package's color texture");
+            AdjustPackageMap(map, new ColorAdjust { Hue = 120 });
+            string afterPng = Path.Combine(Path.GetTempPath(), "mhoextmm_test_after.png");
+            ExportPackageMap(map with { InPath = built.GetValueOrDefault(ChosenPackage!.Key) }, afterPng);   // (the package just built)
+            var (_, _, b1) = ImagePixels.ReadBgra(afterPng);
+            double Mean(byte[] px, int ch) { double t = 0; for (int i = ch; i < px.Length; i += 4) t += px[i]; return t / (px.Length / 4); }
+            string Means(byte[] px) => $"R {Mean(px, 2):0} G {Mean(px, 1):0} B {Mean(px, 0):0}";
+            bool adjustedOk = built.ContainsKey(ChosenPackage!.Key) && Math.Abs(Mean(b0, 0) - Mean(b1, 0)) + Math.Abs(Mean(b0, 2) - Mean(b1, 2)) > 8;
+            say($"{(adjustedOk ? "PASS" : "FAIL")} the package's color texture is adjusted (before {Means(b0)}, after {Means(b1)})");
+            return adjustedOk;
+        }
         EditMapExternally();
         var w = imageWatches.Values.FirstOrDefault(x => x.Pkg != null);
         if (w == null) { say("FAIL no edit copy watched"); return false; }

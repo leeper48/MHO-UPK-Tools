@@ -41,6 +41,24 @@ static class MaterialOut
 
     public static string Safe(string s) => Regex.Replace(s, "[^A-Za-z0-9_]", "_");
 
+    /// <summary>The start of every object name a build adds ("mff_", or "mff2_", "mff3_" … when the package already holds an
+    /// earlier build's: <see cref="PrefixFor"/>). Set by <see cref="Build"/> for the length of the call.</summary>
+    [ThreadStatic] static string? prefix;
+    static string P => prefix ?? "mff_";
+
+    /// <summary>
+    /// The name prefix for a build into <paramref name="pkg"/>: "mff_" for a package without a Model-tab build, else the
+    /// first free "mff&lt;n&gt;_" (2026-10-07, a user: building onto a mod's package that already held a Model build, made in
+    /// another session or by the mod's author, failed: 'mff_template_mat' already exists). The earlier build's objects stay
+    /// in the package unused; the mesh is replaced as always.
+    /// </summary>
+    public static string PrefixFor(Package pkg)
+    {
+        bool Taken(string p) => pkg.Exports.Any(e => e.ObjectName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+        if (!Taken("mff_")) return "mff_";
+        for (int n = 2; ; n++) if (!Taken($"mff{n}_")) return $"mff{n}_";
+    }
+
     /// <summary>Texture parameters of a material instance: slot name → texture export index (-1 when it's an import).</summary>
     public static Dictionary<string, int> TextureSlots(Package pkg, int mic)
     {
@@ -136,7 +154,14 @@ static class MaterialOut
     /// <summary>Builds the materials into <paramref name="packageBytes"/> (a stock base package). Returns the new package
     /// and each MFF material's instance reference (export index + 1). <paramref name="spec"/> / <paramref name="reflect"/>:
     /// the A/B switches (see <see cref="ImportOptions"/>).</summary>
-    public static Result Build(byte[] packageBytes, string templateMic, IReadOnlyList<MffMaterial> mats, string workDir, string? spec = null, string? reflect = null)
+    public static Result Build(byte[] packageBytes, string templateMic, IReadOnlyList<MffMaterial> mats, string workDir, string? spec = null, string? reflect = null, string namePrefix = "mff_")
+    {
+        prefix = namePrefix;
+        try { return BuildNamed(packageBytes, templateMic, mats, workDir, spec, reflect); }
+        finally { prefix = null; }
+    }
+
+    static Result BuildNamed(byte[] packageBytes, string templateMic, IReadOnlyList<MffMaterial> mats, string workDir, string? spec, string? reflect)
     {
         var notes = new List<string>();
         var pkg = Package.FromBytes(packageBytes);
@@ -180,14 +205,14 @@ static class MaterialOut
             if (Is(slot, "reflectiontex")) { notes.Add("reflectiontex: the stock environment image is kept"); continue; }
             if (kind.MetalStyle && Is(slot, "speccolortex")) continue;   // per material
             if (kind.GlowSlot && Is(slot, "emissive")) continue;   // per material
-            string n = $"mff_{Safe(slot)}_neutral";
+            string n = $"{P}{Safe(slot)}_neutral";
             shared[slot] = n;
             plan.Add(new(slot, null, n, tex, Is(slot, "emissivespecpow") ? stand.NoGlow
                 : Is(slot, "speccolortex") ? (maps.Matte ? stand.NoSpec : stand.SpecColour) : stand.Grey, false));
         }
         foreach (var m in mats)
         {
-            string b = "mff_" + Safe(m.Name);
+            string b = P + Safe(m.Name);
             if (slots.TryGetValue("diffusetex", out int dt)) plan.Add(new("diffusetex", m.Name, b + "_diff", dt, m.Colour ?? stand.Grey, false));
             if (slots.TryGetValue("normaltex", out int nt)) plan.Add(new("normaltex", m.Name, b + "_norm", nt, m.Normal ?? stand.FlatNormal, false));
             if (slots.TryGetValue("specmultrimmaskreflection", out int st))
@@ -281,16 +306,16 @@ static class MaterialOut
                 if (tex == kind.DiffuseTex && !Is(slot, "diffusetex")) continue;   // follows the diffuse
                 if (Is(slot, "reflectiontex")) continue;   // stock image kept
                 string newName = shared.TryGetValue(slot, out var sn) ? sn
-                    : Is(slot, "diffusetex") ? $"mff_{Safe(m.Name)}_diff"
-                    : Is(slot, "normaltex") ? $"mff_{Safe(m.Name)}_norm"
-                    : Is(slot, "speccolortex") && kind.MetalStyle ? $"mff_{Safe(m.Name)}_speccol"
-                    : Is(slot, "emissive") && kind.GlowSlot ? $"mff_{Safe(m.Name)}_glow"
-                    : $"mff_{Safe(m.Name)}_spec";
+                    : Is(slot, "diffusetex") ? $"{P}{Safe(m.Name)}_diff"
+                    : Is(slot, "normaltex") ? $"{P}{Safe(m.Name)}_norm"
+                    : Is(slot, "speccolortex") && kind.MetalStyle ? $"{P}{Safe(m.Name)}_speccol"
+                    : Is(slot, "emissive") && kind.GlowSlot ? $"{P}{Safe(m.Name)}_glow"
+                    : $"{P}{Safe(m.Name)}_spec";
                 replace[pkg.PathOf(pkg.Exports[tex])] = PathOfNew(cur, newName);
             }
-            string micName = $"mff_{Safe(m.Name)}_mat";
-            var copy = ExportCopy.Copy(cur, src, cur, Array.Empty<string>(), micName, replace)
-                ?? throw new InvalidDataException($"copying {templateMic} as {micName} failed (see above)");
+            string micName = $"{P}{Safe(m.Name)}_mat";
+            var copy = MaterialChoice.Explained(() => ExportCopy.Copy(cur, src, cur, Array.Empty<string>(), micName, replace), out string why)
+                ?? throw new InvalidDataException($"copying {templateMic} as {micName} failed: {why}");
             var check = copy.Check(copy.Output);
             if (check.Count > 0) throw new InvalidDataException($"{micName}: " + string.Join("; ", check.Take(5)));
             current = copy.Output;

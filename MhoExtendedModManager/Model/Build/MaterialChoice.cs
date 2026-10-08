@@ -106,7 +106,7 @@ static class MaterialChoice
     /// 20 / 3 not 3 / 1 ...), only from an instance with the same parent (the expression GUIDs in the entries are the
     /// parent's). Entries only the template has are kept; emissivemultiplier = <paramref name="glow"/> (the weapon's is 1).
     /// </summary>
-    public static byte[] CopyDonor(MpmPackage target, string donor, string? valuesFrom, float glow, Action<string> log)
+    public static byte[] CopyDonor(MpmPackage target, string donor, string? valuesFrom, float glow, Action<string> log, string templateName = "mff_template_mat")
     {
         var dparts = donor.Split(':', 2);
         string dfile = dparts[0].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? dparts[0] : dparts[0] + ".upk";
@@ -118,12 +118,37 @@ static class MaterialChoice
         valuesFrom ??= donorPkg.Exports[di].ObjectName.Equals("weapons_1602_mtl", StringComparison.OrdinalIgnoreCase) ? "angela_std_v2-1" : null;
         if (!string.IsNullOrWhiteSpace(valuesFrom))
             donorPkg = MergeValues(donorPkg, di, valuesFrom, dfile, glow, log);
-        var dc = MhoPackageModifier.ExportCopy.Copy(donorPkg, di, target, Array.Empty<string>(), "mff_template_mat")
-            ?? throw new InvalidDataException($"copying {donorPkg.Exports[di].ObjectName} from {dfile} failed (see above)");
+        var dc = Explained(() => MhoPackageModifier.ExportCopy.Copy(donorPkg, di, target, Array.Empty<string>(), templateName), out string why)
+            ?? throw new InvalidDataException($"copying {donorPkg.Exports[di].ObjectName} from {dfile} failed: {why}");
         var dcheck = dc.Check(dc.Output);
         if (dcheck.Count > 0) throw new InvalidDataException("template copy: " + string.Join("; ", dcheck.Take(5)));
         return dc.Output;
     }
+
+    /// <summary>
+    /// Runs an MPM copy and keeps what it printed: MPM tells why a copy can't be done on the console, which the window app
+    /// doesn't show (2026-10-07, a user's log said only "failed (see above)" with nothing above). <paramref name="why"/>: its
+    /// lines that say what went wrong (the last few printed when none do).
+    /// </summary>
+    internal static T? Explained<T>(Func<T?> run, out string why) where T : class
+    {
+        var was = Console.Out;
+        var sw = new StringWriter();
+        T? result;
+        lock (consoleLock)
+        {
+            Console.SetOut(sw);
+            try { result = run(); }
+            finally { Console.SetOut(was); }
+        }
+        var lines = sw.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        var bad = lines.Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, "can't|already exists|not supported|no such|FAIL|reached from|^- ", System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToList();
+        why = string.Join("; ", (bad.Count > 0 ? bad : lines.TakeLast(3)).Take(6));
+        if (why.Length == 0) why = "no reason given";
+        foreach (var l in lines) Console.WriteLine("  " + l);   // the command line still shows all of it
+        return result;
+    }
+    static readonly object consoleLock = new();
 
     /// <summary>The donor package with instance <paramref name="di"/>'s scalar / vector values taken from <paramref name="valuesFrom"/>.</summary>
     static MpmPackage MergeValues(MpmPackage dk, int di, string valuesFrom, string dfile, float glow, Action<string> log)

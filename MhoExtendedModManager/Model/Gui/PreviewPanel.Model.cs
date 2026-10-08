@@ -282,8 +282,8 @@ sealed partial class PreviewPanel
         }
         bool mhoSpec = false;
         var mhoMap = tex.SpecMho != null ? LoadBgra(tex.SpecMhoAngela!) : null;
-        if (mhoMap == null && tex.ColorTags is { Count: > 0 } ctags && colour is { } ccol)
-            mhoMap = (ColorTags.MakePacked(ccol.W, ccol.H, ccol.Px, ctags), ccol.W, ccol.H);   // from the user's color tags, as the build
+        if (mhoMap == null && tex.ColorTags is { Count: > 0 } ctags && (tex.DiffuseSource != null ? LoadBgra(tex.DiffuseSource) : colour) is { } ccol)
+            mhoMap = (ColorTags.MakePacked(ccol.W, ccol.H, ccol.Px, ctags), ccol.W, ccol.H);   // from the user's color tags, as the build (on the map before Adjust Colors)
         if (mhoMap is { } mho)
         {
             mhoSpec = true;

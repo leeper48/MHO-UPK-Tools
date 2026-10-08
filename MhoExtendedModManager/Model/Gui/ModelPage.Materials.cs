@@ -11,7 +11,7 @@ namespace MhoExtendedModManager.Model.Gui;
 sealed partial class ModelPage
 {
     readonly DataGridView matGrid = new() { Dock = DockStyle.Fill };
-    Button matUse = null!, matAuto = null!, matFlip = null!, matRecipe = null!, matTags = null!, matChannels = null!, matLayout = null!, matNoGlow = null!, matExport = null!;
+    Button matUse = null!, matAdjust = null!, matAuto = null!, matFlip = null!, matRecipe = null!, matTags = null!, matChannels = null!, matLayout = null!, matNoGlow = null!, matExport = null!;
     List<(string Material, Textures Tex)> shownMaterials = [];
     /// <summary>The table is being refilled: the buttons wait (Kurt, 0.37.139 crash on Next Recipe: clearing the rows selects
     /// nothing, which disabled the focused button; Windows moved the focus into the table mid-refill and the grid threw
@@ -57,6 +57,8 @@ sealed partial class ModelPage
             m.Items.Add(new ToolStripMenuItem("View Large", null, (_, _) => _ = ViewMap(row)) { ToolTipText = "The map large, with zoom and Export as PNG (also: double-click the row)." });
             m.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditMapExternally()) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in your image editor; each save there comes back here." });
             m.Items.Add(new ToolStripMenuItem("Replace File", null, (_, _) => UseMapFile()) { Enabled = matUse.Enabled, ToolTipText = "Puts in an image of yours for this map." });
+            if (SelectedMap() is { Kind: "Color" } || SelectedPackageMap() is { Kind: "Color" })
+                m.Items.Add(new ToolStripMenuItem("Adjust Colors", null, (_, _) => AdjustColors()) { Enabled = matAdjust.Enabled, ToolTipText = "Hue, saturation, brightness and levels for this color map." });
             m.Items.Add(new ToolStripMenuItem("Back to Automatic", null, (_, _) => MapBackToAutomatic()) { Enabled = matAuto.Enabled, ToolTipText = "Forgets your file for this map." });
             m.Closed += (_, _) => BeginInvoke(m.Dispose);
             m.Show(matGrid, matGrid.PointToClient(Cursor.Position));
@@ -66,6 +68,7 @@ sealed partial class ModelPage
         matAuto = Ui.FlatButton("Back to Automatic", MapBackToAutomatic, "Forgets your file for the selected map (a Normal row: the green flip too); the importer's own choice is used again.");
         matFlip = Ui.FlatButton("OpenGL Normals", FlipGreen, "The selected normal map was made the OpenGL way (Blender, Unity, Maya, Substance's OpenGL preset: green up): its green is flipped to MHO's DirectX way (lit when on). Bumps that look dented instead of raised need it. Only for a normal map of the model's own or your file: one generated from the color map is already DirectX.");
         matRecipe = Ui.FlatButton("Next Recipe", NextSpecRecipe, "A spec row with no map of its own gets one made from the color map; this steps through the ways it's made: Soft, Strong, Dark Is Shiny, Detail, Flat. Preview Shows → Spec Map (above) shows it.");
+        matAdjust = Ui.FlatButton("Adjust Colors", AdjustColors, "Adjusts the selected material's color map: hue, saturation and brightness, and levels (input black and white, gamma, output black and white), with the map before and after side by side. The file isn't changed: the preview, Build and Export FBX use an adjusted copy, and the values are kept with the material (lit while it's adjusted). Undo (Ctrl+Z) takes a change back; Back to Automatic on the Color row clears it.");
         matTags = Ui.FlatButton("Tag Colors", TagColors, "Tell it what each color group of the selected material is made of (Metal, Skin, Leather, Cloth): an MHO spec map is made from your tags, with Angela's armor material. Colors alone can't tell gold paint from gold metal.");
         matChannels = Ui.FlatButton("From Channels", FromChannels, "Makes the selected material's MHO spec map from separate gray images, one per channel (Shine R, Power G, Skin Mask B, Reflectivity A), or an RGB image plus a gray Reflectivity one. Image editors show a PNG's alpha as transparency and can change the colors under it when saving: editing the channels apart avoids that.");
         matLayout = Ui.FlatButton("Layout ▾", ShowLayoutMenu, "Which of the game's packed layouts the selected MHO spec map is in. Material types pack different things into R, G, B and A: " +
@@ -81,13 +84,14 @@ sealed partial class ModelPage
         Icons.Make(matNoGlow, "No Glow", Icons.NoGlow, sc);
         Icons.Make(matRecipe, "Next Recipe", Icons.Next, sc);
         Icons.Make(matTags, "Tag Colors", Icons.Tag, sc);
+        Icons.Make(matAdjust, "Adjust Colors", Icons.Sun, sc);
         Icons.Make(matChannels, "From Channels", Icons.Channels, sc);
         Icons.Make(matLayout, "Layout", Icons.Layout, sc);
         matExport = Ui.FlatButton("Export Maps", () => _ = ExportMaps(null), "Saves every material's maps as PNG files into a folder you pick, the ones the importer makes too (generated normal and spec maps, MHO spec maps converted or made from your tags, glow maps): <material>.png, _n, _sp, _mhospec (with its gray channel files), _speccolor, _glow, _alpha. The names the FBX import reads, so they can be edited and used again.");
         Icons.Make(matExport, "Export Maps", Icons.Export, sc);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         EditButton();
-        foreach (var b in new[] { matUse, matEdit, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
+        foreach (var b in new[] { matUse, matEdit, matAdjust, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
         // what the preview shows (Kurt, 2026-10-04: moved here from Look ▾): the model lit, or one map on its own
         var showMap = new DropDown { Width = (int)(200 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), Margin = new Padding(0, 0, 0, 0) };
         showMap.Items.AddRange([.. ShowMapChoices.Select(x => (object)x.Label)]);
@@ -187,7 +191,7 @@ sealed partial class ModelPage
         if (matEdit != null) matEdit.Enabled = any && SelectedMapFile() != null;
         if (SelectedPackageMap() != null) { matUse.Enabled = true; if (matEdit != null) matEdit.Enabled = true; }
         var e = sel is { } s && OverridesFile() is string p && MaterialOverrides.Load(p).Materials.TryGetValue(s.Material, out var x) ? x : null;
-        matAuto.Enabled = any && e != null && (sel!.Value.Kind switch { "Color" => e.Color != null, "Normal" => e.Normal != null || e.FlipGreen, "Spec" => e.Spec != null || e.SpecRecipe != null, "MHO Spec" => e.SpecMho != null, "Spec Color" => e.SpecColor != null, "Glow" => e.Glow != null || e.GlowOff, _ => e.Alpha != null });
+        matAuto.Enabled = any && e != null && (sel!.Value.Kind switch { "Color" => e.Color != null || e.Adjust is { IsNone: false }, "Normal" => e.Normal != null || e.FlipGreen, "Spec" => e.Spec != null || e.SpecRecipe != null, "MHO Spec" => e.SpecMho != null, "Spec Color" => e.SpecColor != null, "Glow" => e.Glow != null || e.GlowOff, _ => e.Alpha != null });
         bool glowRow = sel?.Kind == "Glow";
         matNoGlow.Visible = glowRow; matFlip.Visible = !glowRow;
         matNoGlow.Enabled = any && glowRow;
@@ -195,11 +199,14 @@ sealed partial class ModelPage
         var tx = sel is { } s2 ? shownMaterials.FirstOrDefault(m => m.Material == s2.Material).Tex : null;
         matRecipe.Enabled = any && sel!.Value.Kind == "Spec" && tx is { Spec: null, SpecMho: null, Diffuse: not null } && tx.ColorTags is not { Count: > 0 };
         matTags.Enabled = any && tx is { Diffuse: not null, SpecMho: null };
+        matAdjust.Enabled = any && sel!.Value.Kind == "Color" && tx?.Diffuse != null;
+        Ui.Lit(matAdjust, sel?.Kind == "Color" && e?.Adjust is { IsNone: false });
         matChannels.Enabled = any && sel!.Value.Kind == "MHO Spec";
         matExport.Enabled = shownMaterials.Count > 0;
         matLayout.Enabled = any && sel!.Value.Kind == "MHO Spec" && tx?.SpecMho != null;
         matFlip.Enabled = any && sel!.Value.Kind == "Normal" && shownMaterials.FirstOrDefault(m => m.Material == sel.Value.Material).Tex?.Normal != null;
         Ui.Lit(matFlip, e?.FlipGreen == true && sel?.Kind == "Normal");
+        if (SelectedPackageMap() is { Kind: "Color" }) { matAdjust.Enabled = true; Ui.Lit(matAdjust, false); }   // a package texture: applied to it
     }
 
     /// <summary>Test: the Materials tab's rows (material | map | from).</summary>
@@ -257,7 +264,7 @@ sealed partial class ModelPage
         if (SelectedMap() is not { } sel) return;
         ChangeOverrides((_, e) =>
         {
-            switch (sel.Kind) { case "Color": e.Color = null; break; case "Normal": e.Normal = null; e.FlipGreen = false; break; case "Spec": e.Spec = null; e.SpecRecipe = null; break; case "MHO Spec": e.SpecMho = null; e.ColorTags = null; e.SpecLayout = null; break; case "Spec Color": e.SpecColor = null; break; case "Glow": e.Glow = null; e.GlowOff = false; break; default: e.Alpha = null; break; }
+            switch (sel.Kind) { case "Color": e.Color = null; e.Adjust = null; break; case "Normal": e.Normal = null; e.FlipGreen = false; break; case "Spec": e.Spec = null; e.SpecRecipe = null; break; case "MHO Spec": e.SpecMho = null; e.ColorTags = null; e.SpecLayout = null; break; case "Spec Color": e.SpecColor = null; break; case "Glow": e.Glow = null; e.GlowOff = false; break; default: e.Alpha = null; break; }
         }, sel.Material, $"{sel.Material}'s {sel.Kind.ToLowerInvariant()} map is back to automatic.");
     }
 
@@ -310,10 +317,24 @@ sealed partial class ModelPage
     /// <summary>Test: sets the material's MHO spec layout (as the Layout ▾ menu does).</summary>
     internal void TestSetSpecLayout(string material, string? id) => SetSpecLayout(material, id);
 
+    /// <summary>Adjust Colors: the selected material's color map with hue / saturation / brightness and levels (ColorAdjustForm);
+    /// the values go with the material's overrides (one undo step).</summary>
+    void AdjustColors()
+    {
+        if (SelectedPackageMap() is { Kind: "Color" } pm) { AdjustPackageMap(pm); return; }
+        if (SelectedMap() is not { } sel || shownMaterials.FirstOrDefault(m => m.Material == sel.Material).Tex is not { Diffuse: string } tex) return;
+        var current = OverridesFile() is string p && MaterialOverrides.Load(p).Materials.TryGetValue(sel.Material, out var oe) ? oe.Adjust : null;
+        using var f = new ColorAdjustForm(sel.Material, tex.TagsColor!, current);   // (the map before any adjustment)
+        if (f.ShowDialog(this) != DialogResult.OK) return;
+        var result = f.Result;
+        ChangeOverrides((_, e) => e.Adjust = result, sel.Material,
+            result == null ? $"{sel.Material}'s color map is back as it is." : $"{sel.Material}'s color map adjusted: {result.Describe()}.");
+    }
+
     void TagColors()
     {
-        if (SelectedMap() is not { } sel || shownMaterials.FirstOrDefault(m => m.Material == sel.Material).Tex is not { Diffuse: string color } tex) return;
-        using var f = new ColorTagForm(sel.Material, color, tex.ColorTags ?? []);
+        if (SelectedMap() is not { } sel || shownMaterials.FirstOrDefault(m => m.Material == sel.Material).Tex is not { Diffuse: string } tex) return;
+        using var f = new ColorTagForm(sel.Material, tex.TagsColor!, tex.ColorTags ?? []);   // (tags are picked on the map before Adjust Colors)
         if (f.ShowDialog(this) != DialogResult.OK) return;
         SetColorTags(sel.Material, f.Result);
     }
@@ -349,7 +370,7 @@ sealed partial class ModelPage
                 if (tex.UsesMhoSpec) return null;
                 return tex.Spec ?? (tex.Diffuse != null ? SpecMapGen.Write(tex.Diffuse, tex.Alpha, tex.SpecRecipe, dir, safe + "_generated") : null);
             case "MHO Spec":
-                return tex.SpecMhoAngela ?? (tex.ColorTags is { Count: > 0 } ct && tex.Diffuse != null ? ColorTags.Write(tex.Diffuse, tex.Alpha, ct, dir, safe) : null);
+                return tex.SpecMhoAngela ?? (tex.ColorTags is { Count: > 0 } ct && tex.Diffuse != null ? ColorTags.Write(tex.TagsColor!, tex.Alpha, ct, dir, safe) : null);
             case "Spec Color": return tex.SpecColor;
             case "Glow": return tex.GlowFile;
             default: return tex.Alpha;

@@ -165,6 +165,33 @@ sealed partial class ModelPage
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
+    /// <summary>
+    /// Adjust Colors on a texture in the package (no source picked; Kurt, 2026-10-07: "accommodate inside a package/target
+    /// too"): the texture as it is now (the mod's copy, edits included) in the Adjust Colors window; OK writes the adjusted
+    /// image into the mod's copy of the package as Replace File does (encoded like the original). Unlike a source model's
+    /// map, the result is the texture itself: adjusting again starts from it.
+    /// </summary>
+    void AdjustPackageMap(PackageMap m, ColorAdjust? preset = null)
+    {
+        string png = Path.Combine(Path.GetTempPath(), "mhoextmm_adjust_" + Guid.NewGuid().ToString("N")[..8] + ".png");
+        try
+        {
+            if (!ExportPackageMap(m, png)) return;
+            ColorAdjust adj;
+            if (preset != null) adj = preset;   // (the test: no window)
+            else
+            {
+                using var f = new ColorAdjustForm(m.Texture, png, null);
+                if (f.ShowDialog(this) != DialogResult.OK || f.Result is not { } chosen) return;
+                adj = chosen;
+            }
+            string adjusted = ColorAdjust.FileFor(png, adj);
+            if (adjusted == png) { Log($"Materials: {m.Texture} couldn't be adjusted."); return; }
+            if (ReplacePackageMap(m, adjusted)) Log($"Materials: {m.Texture} adjusted in the package: {adj.Describe()}.");
+        }
+        finally { try { if (File.Exists(png)) File.Delete(png); } catch (IOException) { } }
+    }
+
     /// <summary>Replace File in package mode: the picked image replaces the texture.</summary>
     void UsePackageMapFile(PackageMap m)
     {

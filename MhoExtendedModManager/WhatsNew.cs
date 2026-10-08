@@ -27,7 +27,15 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.216 (Kurt, 2026-10-07): Adjust Colors, gentler normal maps, building over an earlier build.</summary>
+    static Notice AdjustColors() => new(
+        "0.37.216-adjust-colors", "0.37.216",
+        "Model tab, Materials: Adjust Colors (the sun) changes a color map's hue, saturation and brightness and its levels, with the map before and after side by side, no image editor needed. It works on a source model's maps and on the textures already in a package." + nl + nl +
+        "The normal maps the importer makes from a color map are much gentler now, close to GIMP's Normal Map filter (thanks to the user who compared them). Building onto a package that already holds a Model build works too." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-adjust");
 
     /// <summary>0.37.213 (Kurt, 2026-10-07): the data folder cleans up after itself; the Post folder only with a saved post.</summary>
     static Notice TidyData() => new(

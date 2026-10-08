@@ -58,6 +58,7 @@ sealed record ImportOptions
         static string? Env(string n) => Environment.GetEnvironmentVariable(n);
         return new ImportOptions
         {
+            MaterialOverrides = Env("MFF_OVERRIDES"),   // a Materials tab overrides file (materials\<source>.json), for command-line builds and tests
             Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation,
             Material = Env("MFF_MATERIAL") is { Length: > 0 } m ? m : null,
             ValuesFrom = Env("MFF_VALUES_FROM"),

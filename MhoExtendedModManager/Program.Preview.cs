@@ -1222,6 +1222,19 @@ static partial class Program
                     Console.WriteLine($"{dom} ({g.N} of ours)\n   stock: {Top(g.Stock, g.N)}\n   ours:  {Top(g.Ours, g.N)}");
                 return 0;
             }
+            case "--normal-map":
+            {
+                // Read-only (2026-10-07, a user: the generated normal maps are too strong): the normal map NormalMapGen makes from a
+                // color map, with optional settings. --normal-map <color.png> <out.png> [strength fine broad fineBlur broadBlur]
+                if (rest.Count < 3) { Console.WriteLine("--normal-map <color.png> <out.png> [strength fine broad fineBlur broadBlur]"); return 1; }
+                var ns = new MhoExtendedModManager.Model.NormalMapSettings();
+                float F(int i, float d) => rest.Count > i ? float.Parse(rest[i], System.Globalization.CultureInfo.InvariantCulture) : d;
+                ns.Strength = F(3, ns.Strength); ns.Fine = F(4, ns.Fine); ns.Broad = F(5, ns.Broad); ns.FineBlur = F(6, ns.FineBlur); ns.BroadBlur = F(7, ns.BroadBlur);
+                var (nw, nh, npx) = MhoExtendedModManager.Model.NormalMapGen.LoadArgb(rest[1]);
+                MhoExtendedModManager.Model.NormalMapGen.SaveArgb(nw, nh, MhoExtendedModManager.Model.NormalMapGen.Make(nw, nh, npx, ns), rest[2]);
+                Console.WriteLine($"{rest[2]}: {ns}");
+                return 0;
+            }
             case "--mesh-materials":
             {
                 // Read-only (2026-10-07): a skeletal mesh's material slots (native list): each one's path, whether it's in the

@@ -1,6 +1,18 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.216
+- Model tab, Materials: Adjust Colors works on a package's own textures too (no source picked): the adjusted image goes into the mod's copy of the package, encoded like the original.
+- Model tab: the normal maps the importer makes from a color map are much gentler (a user compared them with GIMP's Normal Map filter: ours were about three times as steep, with wide halos around edges). They now come close to GIMP's at scale 2–3.
+- Model tab thumbnails of a model file that's been deleted are removed at the next start (older thumbnails still go after 30 days unused).
+
+0.37.215
+- Model tab, Materials: Adjust Colors on a material's color map: hue, saturation and brightness, and levels (input black / white, gamma, output black / white), with the map before and after side by side. The file isn't changed: the preview, Build and Export FBX use an adjusted copy, and the values are kept with the material (undo, Back to Automatic).
+
+0.37.214
+- Model tab: building onto a package that already holds a Model build (made in another session, on another PC, or by the mod's author) works: it failed with "copying punisher_modernvu_testmat … failed (see above)". The new build's objects get their own names (mff2_…) next to the earlier build's, which stay unused.
+- Model tab: when a copy inside a build fails, the log says why (it said "see above" with nothing above).
+
 0.37.213
 - The data folder cleans up after itself at each start: images converted for the editor (data\converted; Save copies them into the mod), Nexus downloads once installed, an unfinished app update, model thumbnails not shown for 30 days, and every kind of editor work folder a closed or crashed run left (only the Model tab's were cleared before). Your library, originals, settings, the write records (history), and the Model tab's exports and rigs are kept. The manual has a Data Folder section.
 - Export to ZIP writes the "<name> - Post" folder beside the zip only for a mod with a saved post (Create Post → Save to Mod).

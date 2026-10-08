@@ -50,7 +50,16 @@ static class Thumbs
         // (the folder's date too: a color map put beside the FBX later makes a new thumbnail, not the old "none")
         long dir = fi.Directory?.LastWriteTimeUtc.Ticks ?? 0;
         string id = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{dir}")))[..16];
-        return Get("fbx_" + id, png => MakeColorMap(file, png));
+        string key = "fbx_" + id;
+        // its source beside it (key.src), so Prune drops it once the file is gone (2026-10-07, a user: thumbnails of deleted
+        // folders stayed): the key is a hash and can't be traced back
+        string src = Path.Combine(Dir, key + ".src");
+        return Get(key, png =>
+        {
+            bool ok = MakeColorMap(file, png);
+            try { File.WriteAllText(src, fi.FullName); } catch (Exception) { }
+            return ok;
+        });
     }
 
     // --- an FBX: its color map, shrunk to the row ----------------------------------------------------------------------------
@@ -85,11 +94,24 @@ static class Thumbs
     {
         int n = 0; long bytes = 0;
         if (!Directory.Exists(Dir)) return (0, 0);
+        void Drop(FileInfo f) { try { long len = f.Length; f.Delete(); n++; bytes += len; } catch (Exception) { } }
+        // thumbnails whose source is gone (a deleted model folder or export), by the source recorded beside them
+        foreach (var src in new DirectoryInfo(Dir).EnumerateFiles("*.src").ToList())
+        {
+            string? path = null;
+            try { path = File.ReadAllText(src.FullName).Trim(); } catch (Exception) { }
+            if (string.IsNullOrEmpty(path) || File.Exists(path)) continue;
+            string stem = Path.Combine(Dir, Path.GetFileNameWithoutExtension(src.Name));
+            foreach (var ext in new[] { ".png", ".none" }) if (File.Exists(stem + ext)) Drop(new FileInfo(stem + ext));
+            Drop(src);
+        }
         var cutoff = DateTime.UtcNow.AddDays(-days);
         foreach (var f in new DirectoryInfo(Dir).EnumerateFiles())
         {
             bool temp = f.Name.EndsWith(".making.png", StringComparison.OrdinalIgnoreCase) || f.Name.EndsWith(".sheet.png", StringComparison.OrdinalIgnoreCase);
             bool old = (f.Extension.Equals(".png", StringComparison.OrdinalIgnoreCase) || f.Extension.Equals(".none", StringComparison.OrdinalIgnoreCase)) && f.LastWriteTimeUtc < cutoff;
+            if (old && File.Exists(Path.Combine(Dir, Path.GetFileNameWithoutExtension(f.Name) + ".src")) && !f.Name.EndsWith(".making.png", StringComparison.OrdinalIgnoreCase))
+                try { File.Delete(Path.Combine(Dir, Path.GetFileNameWithoutExtension(f.Name) + ".src")); } catch (Exception) { }
             if (!temp && !old) continue;
             try { long len = f.Length; f.Delete(); n++; bytes += len; } catch (Exception) { }
         }

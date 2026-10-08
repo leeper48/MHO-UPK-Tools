@@ -117,6 +117,25 @@ static partial class Program
             Gui.Dialog.Snapshot(args[1]);
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--adjust-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: the Model tab's Adjust Colors window on an image, with a few values set, to a PNG (off-screen).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            using var f = new Model.Gui.ColorAdjustForm(Environment.GetEnvironmentVariable("MHO_ADJUST_NAME") ?? "example", args[1], new Model.ColorAdjust { Hue = 40, Saturation = 1.2f, InBlack = 12, Gamma = 1.15f })
+            { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(500);
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[2]);
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--apply-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);

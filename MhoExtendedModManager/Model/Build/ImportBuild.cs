@@ -156,17 +156,21 @@ sealed class ImportBuild
         string? donor = o.Material == null && ownGlow ? MaterialChoice.Glow : MaterialChoice.Donor(o.Material, metalShare, glowShare);
         if (ownGlow && o.Material == null) log($"material: glow maps on {string.Join(", ", r.Sections.Where(x => x.Tex.GlowFile != null).Select(x => x.Material).Distinct())}: Angela's weapon material (her armor's, with a glow slot)");
         log($"material: {metalShare:P0} of the _sp maps marks metal, glow spots on {glowShare:P2} of the colour maps → {(donor == null ? "the base mesh's own material" : donor.Split(':').Last())}{(o.Material != null ? " (MFF_MATERIAL)" : " (automatic)")}");
+        // a package that already holds a Model build (made elsewhere: no copy from before it was kept): this build's objects
+        // get their own names, next to the earlier one's
+        string namePrefix = MaterialOut.PrefixFor(mp);
+        if (namePrefix != "mff_") log($"material: the package already holds an earlier Model build (its objects are kept, unused); this build's are named {namePrefix}…");
         if (donor != null)
         {
-            basePackage = MaterialChoice.CopyDonor(mp, donor, o.ValuesFrom, o.Glow, log);
-            template = "mff_template_mat";
+            template = namePrefix + "template_mat";
+            basePackage = MaterialChoice.CopyDonor(mp, donor, o.ValuesFrom, o.Glow, log, template);
         }
         string texDir = Path.Combine(outDir, "textures");
         Protected.CheckWrite(texDir);
         Directory.CreateDirectory(texDir);
         bool guessGlow = donor == MaterialChoice.Glow && !ownGlow;
         var mffMats = mats.Select(name => MffMaterialFor(name, texDir) is var mm && mm.Glow == null && guessGlow && !r.Sections.First(x => x.Material == name).Tex.GlowOff ? mm with { GuessGlow = true } : mm).ToList();
-        var madeMats = MaterialOut.Build(basePackage, template, mffMats, texDir, o.Spec, o.Reflect);
+        var madeMats = MaterialOut.Build(basePackage, template, mffMats, texDir, o.Spec, o.Reflect, namePrefix);
         foreach (var n in madeMats.Notes) log("material: " + n);
         return (madeMats.Package, mats.Select(x => madeMats.MaterialRef[x]).ToList());
     }
@@ -209,7 +213,7 @@ sealed class ImportBuild
         if (specMho == null && tex.ColorTags is { Count: > 0 } tags && tex.Diffuse != null)
         {
             // the user's color group tags: an MHO packed map made from them (ColorTags)
-            specMho = ColorTags.Write(tex.Diffuse, tex.Alpha, tags, texDir, MaterialOut.Safe(name));
+            specMho = ColorTags.Write(tex.TagsColor!, tex.Alpha, tags, texDir, MaterialOut.Safe(name));
             log($"material: {name}: spec map made from your color tags ({tags.Count} group(s): {string.Join(", ", tags.GroupBy(t => ColorTags.Name(t.Tag)).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))})");
         }
         if (specMho != null) { spec = null; generated = false; }   // an MHO packed map wins (as it is)

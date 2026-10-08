@@ -61,6 +61,11 @@ sealed class Bone
 sealed class Textures
 {
     public string? Diffuse, Spec, Alpha;
+    /// <summary>The color map before the Materials tab's Adjust Colors (Diffuse is then the adjusted copy); null when not
+    /// adjusted. Color tags were picked on it, so what's made from them (their spec and glow maps) reads it.</summary>
+    public string? DiffuseSource;
+    /// <summary>The color map the color tags are matched on.</summary>
+    public string? TagsColor => DiffuseSource ?? Diffuse;
     /// <summary>A normal map of the model's own (an FBX's normal slot, or &lt;material&gt;_n / _normal / _nrm beside it): used in
     /// place of the one generated from the color map (Kurt, 2026-10-04: "if a normal map exists it should port over").</summary>
     public string? Normal;
@@ -79,7 +84,7 @@ sealed class Textures
     public bool GlowOff;
     /// <summary>The glow map the material is built with: its own, else the one an MHO spec map's glow channel makes; null = none.</summary>
     public string? GlowFile => GlowOff || Diffuse == null && Glow == null ? null
-        : Glow ?? (SpecMho != null ? SpecLayouts.GlowMap(SpecMho, SpecLayoutUsed, Diffuse!) : ColorTags is { Count: > 0 } ct ? MhoExtendedModManager.Model.ColorTags.GlowFile(Diffuse!, ct) : null);
+        : Glow ?? (SpecMho != null ? SpecLayouts.GlowMap(SpecMho, SpecLayoutUsed, Diffuse!) : ColorTags is { Count: > 0 } ct ? MhoExtendedModManager.Model.ColorTags.GlowFile(TagsColor!, ct) : null);
     /// <summary>The layout SpecMho is packed in (SpecLayouts id; null = from its file name, else Angela's skin-mask layout).</summary>
     public string? SpecLayout;
     /// <summary>The layout SpecMho is read with.</summary>

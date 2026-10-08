@@ -32,7 +32,9 @@ sealed class MaterialOverrides
         public string? SpecLayout { get; set; }
         /// <summary>Color group tags: "#rrggbb" → metal / skin / leather / cloth (the Tag Colors window).</summary>
         public Dictionary<string, string>? ColorTags { get; set; }
-        public bool Empty => Color == null && Normal == null && Spec == null && Alpha == null && !FlipGreen && SpecRecipe == null && SpecMho == null && SpecColor == null && SpecLayout == null && Glow == null && !GlowOff && ColorTags is not { Count: > 0 };
+        /// <summary>The color map's hue / saturation / brightness and levels (the Adjust Colors window); null = as it is.</summary>
+        public ColorAdjust? Adjust { get; set; }
+        public bool Empty => Color == null && Normal == null && Spec == null && Alpha == null && !FlipGreen && SpecRecipe == null && SpecMho == null && SpecColor == null && SpecLayout == null && Glow == null && !GlowOff && ColorTags is not { Count: > 0 } && Adjust is not { IsNone: false };
     }
 
     public Dictionary<string, Entry> Materials { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -69,9 +71,11 @@ sealed class MaterialOverrides
             if (!o.Materials.TryGetValue(s.Material, out var e) || e.Empty) continue;
             if (!made.TryGetValue(s.Material, out var t))
             {
+                string? colour = Full(e.Color) ?? s.Tex.Diffuse;
+                string? adjusted = colour != null && e.Adjust is { IsNone: false } adj ? ColorAdjust.FileFor(colour, adj) : null;
                 t = new Textures
                 {
-                    Diffuse = Full(e.Color) ?? s.Tex.Diffuse, Spec = Full(e.Spec) ?? s.Tex.Spec, Alpha = Full(e.Alpha) ?? s.Tex.Alpha,
+                    Diffuse = adjusted ?? colour, DiffuseSource = adjusted != null && adjusted != colour ? colour : null, Spec = Full(e.Spec) ?? s.Tex.Spec, Alpha = Full(e.Alpha) ?? s.Tex.Alpha,
                     Normal = Full(e.Normal) ?? s.Tex.Normal, NormalFlipGreen = e.FlipGreen, Guessed = s.Tex.Guessed && e.Color == null,
                     SpecRecipe = e.SpecRecipe ?? s.Tex.SpecRecipe,
                     SpecMho = Full(e.SpecMho) ?? s.Tex.SpecMho, SpecColor = Full(e.SpecColor) ?? s.Tex.SpecColor,
@@ -82,7 +86,7 @@ sealed class MaterialOverrides
                 t.Extra.AddRange(s.Tex.Extra);
                 made[s.Material] = t;
                 log?.Invoke($"material {s.Material}: " + string.Join(", ", new[] { ("color", e.Color), ("normal", e.Normal), ("spec", e.Spec), ("MHO spec", e.SpecMho), ("spec color", e.SpecColor), ("alpha", e.Alpha), ("glow", e.Glow) }
-                    .Where(x => x.Item2 != null).Select(x => $"{x.Item1} from {Path.GetFileName(x.Item2)}").Concat(e.FlipGreen ? ["OpenGL normal map (green flipped)"] : []).Concat(e.SpecRecipe != null ? [$"spec generated: {SpecMapGen.Label(e.SpecRecipe)}"] : []).Concat(e.GlowOff ? ["no glow"] : []).Concat(e.SpecLayout != null ? [$"MHO spec layout: {SpecLayouts.ById(e.SpecLayout)?.Label}"] : []).Concat(e.ColorTags is { Count: > 0 } ctg ? [$"{ctg.Count} color group(s) tagged"] : [])));
+                    .Where(x => x.Item2 != null).Select(x => $"{x.Item1} from {Path.GetFileName(x.Item2)}").Concat(e.FlipGreen ? ["OpenGL normal map (green flipped)"] : []).Concat(e.SpecRecipe != null ? [$"spec generated: {SpecMapGen.Label(e.SpecRecipe)}"] : []).Concat(e.GlowOff ? ["no glow"] : []).Concat(e.SpecLayout != null ? [$"MHO spec layout: {SpecLayouts.ById(e.SpecLayout)?.Label}"] : []).Concat(e.ColorTags is { Count: > 0 } ctg ? [$"{ctg.Count} color group(s) tagged"] : []).Concat(e.Adjust is { IsNone: false } ca ? [$"color map adjusted: {ca.Describe()}"] : [])));
             }
             s.Tex = t;
         }
