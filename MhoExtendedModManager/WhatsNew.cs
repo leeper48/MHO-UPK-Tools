@@ -33,7 +33,7 @@ static class WhatsNew
     static Notice AdjustColors() => new(
         "0.37.216-adjust-colors", "0.37.216",
         "Model tab, Materials: Adjust Colors (the sun) changes a color map's hue, saturation and brightness and its levels, with the map before and after side by side, no image editor needed. It works on a source model's maps and on the textures already in a package." + nl + nl +
-        "The normal maps the importer makes from a color map are much gentler now, close to GIMP's Normal Map filter (thanks to the user who compared them). Building onto a package that already holds a Model build works too." + nl + nl +
+        "The normal maps the importer makes from a color map are much gentler now, close to GIMP's Normal Map filter (thanks to Miike79, who compared them). Building onto a package that already holds a Model build works too." + nl + nl +
         "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
         "w-adjust");
 
