@@ -27,7 +27,17 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.219 (Kurt, 2026-10-08): weapons and shields as Model targets, costumes that show their hero's model,
+    /// better default parts, the Models Folder.</summary>
+    static Notice PropTargets() => new(
+        "0.37.219-prop-targets", "0.37.219",
+        "Model tab: swap a costume's weapon or shield. Model ▾ (was Character ▾) marks a package's props: pick Captain America's shield and an MFF character's shield, hammer or gun takes its place, laid over the game's prop and held where the game holds it. Body and prop can both be built into one package." + nl + nl +
+        "Costumes that show their hero's model instead of one of their own (Captain America Avengers, Carnage Classic, Venom Classic, Thing Classic and 16 more) work as targets now: the costume gets its own copy, so the hero's other costumes stay as they are." + nl + nl +
+        "MFF characters start with their own body ticked: weapons on weapon bones (Red She-Hulk, Blade), She-Hulk's book, horses and other things that move on their own are props, unticked. Settings → Model → Change Models Folder sets where Browse for a Model opens." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-prop");
 
     /// <summary>0.37.216 (Kurt, 2026-10-07): Adjust Colors, gentler normal maps, building over an earlier build.</summary>
     static Notice AdjustColors() => new(

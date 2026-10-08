@@ -153,6 +153,7 @@ function mhoNext(dir) {
 <li><a href="#w-model">Put Your Own Model on a Costume</a></li>
 <li><a href="#w-size">Make a Character Bigger or Smaller</a></li>
 <li><a href="#w-npc">Put a Model on an NPC, Enemy or Team-Up</a></li>
+<li><a href="#w-prop">Swap a Costume's Weapon or Shield</a></li>
 <li><a href="#w-own">Recolor or Hide an NPC's or Team-Up's Effects</a></li>
 <li><a href="#w-blender">Edit the Model, an Animation or a Texture in Blender</a></li>
 <li><a href="#w-textures">Edit a Model's Textures in Your Image Editor</a></li>
@@ -313,8 +314,20 @@ function mhoNext(dir) {
 </ol>
 <figure><img src="img/remove-target.jpg" alt="Removing a target that is one of the mod's own packages: put the mod's copy back, or take the package out of the mod."><figcaption>Removing a target that is one of the mod's own packages: put the mod's copy back, or take the package out of the mod.</figcaption></figure>
 <p>Team-ups and many NPCs store their animations so that they set every bone's position; the build changes them to work like a hero's, so the new model keeps its own shape (the log's <code>anim:</code> line).</p>
-<figure><img src="img/editor-model-character.jpg" alt="Cyclops's base package as the target: it holds Cyclops, Angel and Wolverine's bike, and Model ▾ has Angel picked, so the model is built onto Angel."><figcaption>Cyclops's base package as the target: it holds Cyclops, Angel and Wolverine's bike, and Model ▾ has Angel picked, so the model is built onto Angel.</figcaption></figure>
+<figure><img src="img/editor-model-character.jpg" alt="Captain America Classic's package holds Cap and his shield: Model ▾ picks which one a build replaces (here Cap; the shield is marked Prop in the list)."><figcaption>Captain America Classic's package holds Cap and his shield: Model ▾ picks which one a build replaces (here Cap; the shield is marked Prop in the list).</figcaption></figure>
 <figure><img src="img/editor-model-npc.jpg" alt="The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider."><figcaption>The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-prop">Swap a Costume's Weapon or Shield</h3>
+<ol class="steps">
+<li>On the Model tab, pick the costume (or hero) package under <b>Target</b>, and an MFF character that carries the weapon under <b>Source</b> (US Agent for his shield).</li>
+<li>Open <b>Model ▾</b> above the Target list and pick the prop: props are marked <b>Prop</b> (<code>captainamerica_shield_avengers · Prop</code>).</li>
+<li>Under <b>Parts</b>, the part most like the prop is ticked on its own (US Agent's shield). Tick another part to use it instead.</li>
+<li><b>Build into Mod</b>. The part is laid over the game's prop: centered, turned onto its axes, scaled to its size and held on the same bone. A round shield can come out turned in its own plane.</li>
+<li>To give the character a new body too, pick it under Model ▾ and build again: each build keeps the other's. Then Save Changes and Apply Changes; the Mods tab's 3D preview shows the prop in the character's hands with Props on.</li>
+</ol>
+<figure><img src="img/editor-model-prop.jpg" alt="Captain America's shield picked under Model ▾ (marked Prop), with only US Agent's shield ticked under Parts: the preview shows it in place of Cap's."><figcaption>Captain America's shield picked under Model ▾ (marked Prop), with only US Agent's shield ticked under Parts: the preview shows it in place of Cap's.</figcaption></figure>
 </div>
 
 <div class="walk">
