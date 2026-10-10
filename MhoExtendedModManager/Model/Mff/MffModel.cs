@@ -634,9 +634,11 @@ sealed class MffModel
     /// MFF's weapon bones (Kurt, 2026-10-08: Red She-Hulk's and Blade's floating weapons were built into the body): Bone_w
     /// under the right hand (Red She-Hulk's 150 cm weapon, a part of its own in her own material, 90 cm beside her), BoneW /
     /// BoneW_1 / BoneW003 / BoneW_004 (Blade's swords and guns, some inside his body sheet), Bone_ultimate00 (his ultimate's
-    /// blades). The game shows a costume's weapons as props of their own, so what hangs on these is a prop part, off by default.
+    /// blades), Bone_S_L / Bone_S_R (Kurt, 2026-10-10: Kitty Pryde S01's two swords, under her hands, floated beside her; Ikaris,
+    /// Kid Omega, Red Guardian use them too). The game shows a costume's weapons as props of their own, so what hangs on these is
+    /// a prop part, off by default.
     /// </summary>
-    static readonly Regex WeaponBone = new(@"^bone_?w(_?\d+)?$|^bone_?ultimate\d*$", RegexOptions.IgnoreCase);
+    static readonly Regex WeaponBone = new(@"^bone_?w(_?\d+)?$|^bone_?ultimate\d*$|^bone_s_[lr]$", RegexOptions.IgnoreCase);
 
     void SplitPropBones()
     {

@@ -15,6 +15,12 @@ sealed partial class ModelPage
         // MHO_TEST_SIZE=1.2: the Size slider set before the build (its Scale is checked after)
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts))
         { sizeSlider.Value = ts; preview.Size = ts; }
+        // MHO_TEST_RIGS=Coat:1,Tail:1: those rigs picked (as Add Rigs ▾ does) before the build
+        if (Environment.GetEnvironmentVariable("MHO_TEST_RIGS") is { Length: > 0 } tr)
+        {
+            SetRigsText(tr);
+            say($"{(RigsText() == tr ? "PASS" : "FAIL")} Add Rigs ▾ picks {tr} (button: \"{rigsButton.Text}\", saved as {RigsText()})");
+        }
         // MHO_TEST_MESH=<name>: the Character drop-down shows for the package, and picking that character makes the build use it
         string? testMesh = Environment.GetEnvironmentVariable("MHO_TEST_MESH");
         if (testMesh is { Length: > 0 })

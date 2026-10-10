@@ -68,7 +68,7 @@ static class HairAnims
         foreach (var w in winners) if (w!.From.Kind == CostumeAnims.Source.Shared && !copy.Contains(w.From)) copy.Add(w.From);
         var lines = new List<string>();
         string cls = ca.Class.ToLowerInvariant();
-        if (all) foreach (var s in ca.Sets.Except(copy)) lines.Add($"set {s.Path} ({s.Kind}, {s.Sequences.Count} animations) not copied: the borrowed cape / hair keeps its rest pose there");
+        if (all) foreach (var s in ca.Sets.Except(copy)) lines.Add($"set {s.Path} ({s.Kind}, {s.Sequences.Count} animations) not copied: the borrowed rigs keep their rest pose there");
 
         // 1. Sets in another package (a costume playing its hero's): copied in with ExportCopy, all sequences and notifies.
         // Sets of the built package itself (a base-package build: the hero's own sets) are cloned in step 2 instead: same

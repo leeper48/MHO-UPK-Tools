@@ -17,7 +17,10 @@ namespace MhoExtendedModManager.Model;
 /// </summary>
 sealed class BorrowedRig
 {
-    public enum Kind { Cape, Hair }
+    /// <summary>What's borrowed. Coat, Dress, Loincloth, Tail, Chains and Wings (Kurt, 2026-10-10, a user: "Loincloth / Dress /
+    /// Coat / Chains / Whips / Wings like the cape and hair"): donors from --rig-census, the stock heroes whose bones of that
+    /// kind are keyframed in nearly every animation. Whips aren't here: no hero has whip bones (whips are animated props).</summary>
+    public enum Kind { Cape, Hair, Coat, Dress, Loincloth, Tail, Chains, Wings }
 
     public required Kind Part;
     public required string Label;           // "Cape 2"
@@ -37,14 +40,28 @@ sealed class BorrowedRig
     {
         // hair only: a cape hangs against the back, and a robe or collar on the spine bones makes the torso capsule as wide as
         // the cape's own place (MFF Doctor Strange on Daredevil: 9.4 % of the cape inside the body matched, 16.4 % pushed)
-        if (Environment.GetEnvironmentVariable("MFF_NOCOLLIDE") == "1" || (Part == Kind.Cape && Environment.GetEnvironmentVariable("MFF_CAPECOLLIDE") != "1")) return;
+        // (every kind but hair hangs against the body the way a cape does: no collision either)
+        if (Environment.GetEnvironmentVariable("MFF_NOCOLLIDE") == "1" || (Part != Kind.Hair && Environment.GetEnvironmentVariable("MFF_CAPECOLLIDE") != "1")) return;
         var names = bones.Select(b => b.Name).Where(n => Bones.IsMatch(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         Collide = BodyCollide.Measure(bones, r.Sections.SelectMany(s => s.Pos).ToArray(), r.Sections.SelectMany(s => s.Weights).ToArray(), names);
     }
 
     static readonly Regex CapeBones = new("cape", RegexOptions.IgnoreCase);
     static readonly Regex HairBones = new("hair|bangs|ponytail|braid", RegexOptions.IgnoreCase);
-    public static Regex Pattern(Kind k) => k == Kind.Cape ? CapeBones : HairBones;
+    static readonly Regex CoatBones = new(@"coat(?!belt)|trench(?!belt)", RegexOptions.IgnoreCase);   // (Deadpool's and Gambit's coat belts aren't coats)
+    static readonly Regex DressBones = new("dress", RegexOptions.IgnoreCase);
+    static readonly Regex SashBones = new("sash", RegexOptions.IgnoreCase);
+    static readonly Regex TailBones = new(@"(^|_)tail_?\d", RegexOptions.IgnoreCase);   // (not a ponytail)
+    static readonly Regex ChainBones = new(@"(^|_)chain_", RegexOptions.IgnoreCase);
+    static readonly Regex WingBones = new("wing", RegexOptions.IgnoreCase);
+    public static Regex Pattern(Kind k) => k switch
+    {
+        Kind.Cape => CapeBones, Kind.Hair => HairBones, Kind.Coat => CoatBones, Kind.Dress => DressBones, Kind.Loincloth => SashBones,
+        Kind.Tail => TailBones, Kind.Chains => ChainBones, _ => WingBones,
+    };
+
+    /// <summary>A bone some kind borrows (a bone map naming one whose option is off now is left out, not an error).</summary>
+    public static bool AnyPattern(string bone) => Enum.GetValues<Kind>().Any(k => Pattern(k).IsMatch(bone));
     /// <summary>Mega Hair's bones: back hair only (g_hair1, g_l / r / c_hair1-3), no front strands or bangs (Kurt: a mane is
     /// back hair; the front strands hang by the face).</summary>
     static readonly Regex BackHair = new(@"^g_([lrc]_)?hair\d+$", RegexOptions.IgnoreCase);
@@ -55,6 +72,46 @@ sealed class BorrowedRig
     /// Psylocke, Hair 3 = Angela: the most keyframed hair of a common rig, short to chest-long).</summary>
     public static readonly string[] CapeDonors = ["UC__MarvelPlayer_Thor_SF.upk", "UC__MarvelPlayer_DoctorStrange_SF.upk", "UC__MarvelPlayer_Vision_SF.upk"];
     public static readonly string[] HairDonors = ["UC__MarvelPlayer_BlackWidow_SF.upk", "UC__MarvelPlayer_Psylocke_SF.upk", "UC__MarvelPlayer_Angela_SF.upk"];
+
+    /// <summary>The donors of each kind, by number (--rig-census, animations keyed: Coat 1 = Blade 72/76, 2 = Nick Fury 62/64;
+    /// Dress 1 = Angela 75/80, 2 = Emma Frost 118/133, 3 = Black Cat 68/71; Loincloth 1 = Iron Fist 95/98,
+    /// 2 = Scarlet Witch 103/112, 3 = Doctor Strange 82/95; Tail 1 = Nightcrawler 100/110, 2 = Squirrel Girl 96/112; Chains 1 = Luke
+    /// Cage 75/110; Wings 1 = Black Bolt 74/77).</summary>
+    public static string[] Donors(Kind k) => k switch
+    {
+        Kind.Cape => CapeDonors,
+        Kind.Hair => HairDonors,
+        Kind.Coat => ["UC__MarvelPlayer_Blade_SF.upk", "UC__MarvelPlayer_NickFury_SF.upk"],   // (Emma Frost's coat hangs on her dress bones: it can't stand alone)
+        Kind.Dress => ["UC__MarvelPlayer_Angela_SF.upk", "UC__MarvelPlayer_EmmaFrost_SF.upk", "UC__MarvelPlayer_blackCat_SF.upk"],
+        Kind.Loincloth => ["UC__MarvelPlayer_IronFist_SF.upk", "UC__MarvelPlayer_ScarletWitch_SF.upk", "UC__MarvelPlayer_DoctorStrange_SF.upk"],
+        Kind.Tail => ["UC__MarvelPlayer_Nightcrawler_SF.upk", "UC__MarvelPlayer_SquirrelGirl_SF.upk"],
+        Kind.Chains => ["UC__MarvelPlayer_LukeCage_SF.upk"],
+        _ => ["UC__MarvelPlayer_BlackBolt_SF.upk"],
+    };
+
+    /// <summary>Every rig asked for (cape, hair, then the rest in turn) grafted on: the skeleton and the rigs, each logged.</summary>
+    public static (MhoSkeleton Skeleton, List<BorrowedRig> Rigs) GraftAll(MhoSkeleton sk, IEnumerable<(Kind Kind, int Number)> picks, MffModel? m, Action<string> log)
+    {
+        var rigs = new List<BorrowedRig>();
+        foreach (var (kind, n) in picks)
+        {
+            if (n <= 0) continue;
+            (sk, var rig) = Graft(sk, kind, n, out string note, kind == Kind.Hair && m != null ? HairDrop(m) : 0);
+            log($"{kind.ToString().ToLowerInvariant()}: {note}");
+            if (rig != null) rigs.Add(rig);
+        }
+        return (sk, rigs);
+    }
+
+    /// <summary>The cape and hair choices, then the other kinds (the Model tab's and MFF_RIGS's "Coat:1,Tail:2").</summary>
+    public static List<(Kind Kind, int Number)> Picks(int cape, int hair, IEnumerable<(Kind Kind, int Number)>? more) =>
+        [(Kind.Cape, cape), (Kind.Hair, hair), .. (more ?? []).Where(x => x.Kind is not Kind.Cape and not Kind.Hair)];
+
+    /// <summary>"Coat:1,Tail:2" (MFF_RIGS, the tab's saved choice) as kinds and donor numbers; unknown names are skipped.</summary>
+    public static List<(Kind Kind, int Number)> ParsePicks(string? text) =>
+        (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => x.Split(':')).Where(x => x.Length == 2 && Enum.TryParse<Kind>(x[0], true, out _) && int.TryParse(x[1], out int n) && n > 0)
+            .Select(x => (Enum.Parse<Kind>(x[0], true), int.Parse(x[1]))).ToList();
     /// <summary>Mega Hair (Hair ▾'s 4th; Kurt, for Scream / Medusa-like manes): Hair 3's strands stretched to the model's own
     /// hair length, so a waist-long mane has strands reaching it (its lone hair bones then find one nearby).</summary>
     public const int MegaHair = 4;
@@ -152,13 +209,14 @@ sealed class BorrowedRig
     /// the skeleton unchanged (and null) when the base hero has its own or the donor can't be used: <paramref name="note"/> says.</summary>
     public static (MhoSkeleton Skeleton, BorrowedRig? Rig) Graft(MhoSkeleton sk, Kind part, int number, out string note, float modelHairDrop = 0)
     {
-        var donors = part == Kind.Cape ? CapeDonors : HairDonors;
+        var donors = Donors(part);
         string label = Title(part, number);
         bool mega = part == Kind.Hair && number == MegaHair;
         if (mega) number = 3;
         var rigPattern = mega ? BackHair : Pattern(part);
         if (number < 1 || number > donors.Length) { note = $"no {label}"; return (sk, null); }
         if (sk.Bones.Any(b => Pattern(part).IsMatch(b.Name))) { note = $"{sk.Name} has {part.ToString().ToLowerInvariant()} bones of its own: {label} isn't used"; return (sk, null); }
+        if (sk.Find("g_pelvis") < 0) { note = $"{sk.Name} isn't a body (a prop): {label} isn't used"; return (sk, null); }
         string pkg = BasePackage.Resolve(donors[number - 1], true);
         var donor = MhoSkeleton.Load(pkg, null);
         // Mega Hair: the strands stretched so they reach as far below the head (as a share of the height) as the model's hair
@@ -174,7 +232,7 @@ sealed class BorrowedRig
             }
         }
         // a hero with its own cape / hair bones keeps them (and their hand-animated motion); nothing is added
-        if (sk.Bones.Any(b => rigPattern.IsMatch(b.Name))) { note = $"{label}: not added, {sk.Name} has its own {(part == Kind.Cape ? "cape" : "hair")} bones (kept, with their own motion)"; return (sk, null); }
+        if (sk.Bones.Any(b => rigPattern.IsMatch(b.Name))) { note = $"{label}: not added, {sk.Name} has its own {part.ToString().ToLowerInvariant()} bones (kept, with their own motion)"; return (sk, null); }
         var grafted = sk.WithRig(donor, rigPattern, out var corrections, stretch);
         if (grafted == null) { note = $"{label} couldn't be added to {sk.Name}"; return (sk, null); }
         CapeMatch lib;

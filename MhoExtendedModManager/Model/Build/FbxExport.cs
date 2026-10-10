@@ -101,17 +101,11 @@ static class FbxExport
             : AnimEdits.GamePositions(a, ar.TranslationBones);
 
     public static void Work(MffModel m, IEnumerable<string> picked, bool subdivide, string package, string? mapFile, int hair, AnimEdits? edits,
-        string outDir, Action<string> log, IReadOnlyCollection<string>? animFilter = null, bool exact = false, int cape = 0, string? overrides = null)
+        string outDir, Action<string> log, IReadOnlyCollection<string>? animFilter = null, bool exact = false, int cape = 0, string? overrides = null,
+        IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null)
     {
         var sk = MhoSkeleton.Load(package, null);
-        var rigs = new List<BorrowedRig>();
-        foreach (var (kind, n) in new[] { (BorrowedRig.Kind.Cape, cape), (BorrowedRig.Kind.Hair, hair) })
-        {
-            if (n <= 0) continue;
-            (sk, var rig) = BorrowedRig.Graft(sk, kind, n, out string note, kind == BorrowedRig.Kind.Hair ? BorrowedRig.HairDrop(m) : 0);
-            log((kind == BorrowedRig.Kind.Cape ? "cape: " : "hair: ") + note);
-            if (rig != null) rigs.Add(rig);
-        }
+        (sk, var rigs) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(cape, hair, rigsMore), m, log);
         var sel = m.Selected(string.Join(",", picked));
         if (subdivide) sel = Subdivision.Apply(sel);
         var r = Retarget.Run(m, sel, sk, mapFile != null ? BoneMapFile.Load(mapFile) : null);

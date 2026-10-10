@@ -36,7 +36,6 @@ sealed partial class ModelPage : UserControl
     readonly CheckBox matchSteps = new() { Text = "Match Steps to Size", AutoSize = true, Checked = true };
     readonly LightSlider sizeSlider = new() { Label = "Size", Min = 0.05f, Max = 4f, Step = 0.01f, Mark = 1f, Home = () => 1f, Dock = DockStyle.Top };
     /// <summary>A cape / long hair borrowed from other heroes (preview prototype; Kurt: generic numbers, matched motion).</summary>
-    readonly DropDown capeBox = new() { Width = 150 }, hairBox = new() { Width = 150 };
     // the bone map editor (0.11.5)
     readonly DataGridView mapGrid = new() { Dock = DockStyle.Fill };
     readonly TextBox mapFilter = new() { PlaceholderText = "Filter bones" };
@@ -189,9 +188,9 @@ sealed partial class ModelPage : UserControl
         barTarget = Divider(right, false, 0, 2, "target", "tabs");
         right.Controls.Add(barTarget, 0, 1);
         var partsHead = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        smooth.Margin = new Padding(0, 6, 10, 0); capeBox.Margin = new Padding(0, 0, 6, 0); defaultParts.Margin = new Padding(0);
-        hairBox.Margin = new Padding(0, 0, 6, 0);
-        partsHead.Controls.AddRange([smooth, capeBox, hairBox, defaultParts]);
+        InitRigs();
+        smooth.Margin = new Padding(0, 6, 10, 0); rigsButton.Margin = new Padding(0, 0, 6, 0); defaultParts.Margin = new Padding(0);
+        partsHead.Controls.AddRange([smooth, rigsButton, defaultParts]);
         modelTabs.Add("Parts", Column("", partsHead, parts));
         var mapButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         foreach (var b in new[] { mapBones, mapWeights, mapSmooth }) { b.Margin = new Padding(0, 0, 6, 0); mapButtons.Controls.Add(b); }
@@ -271,15 +270,6 @@ sealed partial class ModelPage : UserControl
         matchSteps.CheckedChanged += (_, _) => SaveState();
         sizeSlider.ValueChanged += () => preview.Size = sizeSlider.Value;
         sizeSlider.Committed += () => { preview.Size = sizeSlider.Value; SchedulePreview(); };
-        capeBox.Items.Add("No Added Cape"); hairBox.Items.Add("No Added Hair");   // (Kurt: "No Cape Motion" read as removing one)
-        for (int k = 1; k <= BorrowedRig.CapeDonors.Length; k++) capeBox.Items.Add($"Add Cape {k}");
-        for (int k = 1; k <= BorrowedRig.HairDonors.Length; k++) hairBox.Items.Add($"Add Hair {k}");
-        hairBox.Items.Add("Add Mega Hair");
-        capeBox.SelectedIndex = 0; hairBox.SelectedIndex = 0;
-        capeBox.SelectedIndexChanged += (_, _) => SchedulePreview();
-        hairBox.SelectedIndexChanged += (_, _) => SchedulePreview();
-        Ui.Tip(capeBox, CapeTip);
-        Ui.Tip(hairBox, HairTip);
 
         SearchBox.AddClear(characterFilter);
         SearchBox.AddClear(packageFilter);
@@ -436,44 +426,6 @@ sealed partial class ModelPage : UserControl
     }
 
     // --- a target with its own cape / hair (Kurt, 2026-10-04): the lists add nothing then, so they're grayed out and say so --------
-    const string CapeTip = "Adds a moving cape to a base hero that has none; a hero with its own cape bones (Angela, Doctor Strange, Thor) always keeps them and their motion, and this does nothing for them. No Added Cape adds nothing (it removes nothing either). The added cape: cape bones are added so the model's cape strips ride them, and every animation gets cape motion matched from an MHO hero's hand-animated cape (for each frame, the one whose body moves most alike). Cape 1-3 are Thor's, Doctor Strange's and Vision's. Build includes it when the base hero is a base package (its animation sets are copied into the mod with the cape's motion added), and so do Full Export and Open in Blender.";
-    const string HairTip = "Adds moving long hair to a base hero that has none; a hero with its own hair bones (Angela, Psylocke, Black Widow) always keeps them and their motion, and this does nothing for them. No Added Hair adds nothing (it removes nothing either). The added hair: hair bones are added so the model's hair strands ride them, and every animation gets hair motion matched from an MHO hero's hand-animated hair. Hair 1 is short, Hair 3 the longest; Mega Hair stretches Hair 3's strands to the model's own hair length (for manes such as Scream's or Medusa's). Build includes it when the base hero is a base package (its animation sets are copied into the mod with the hair's motion added).";
-    static readonly Dictionary<string, (bool Cape, bool Hair)> ownRigs = new(StringComparer.OrdinalIgnoreCase);
-
-    async Task ShowOwnRigs(string packagePath)
-    {
-        string key = packagePath + "|" + File.GetLastWriteTimeUtc(packagePath).Ticks;
-        if (!ownRigs.TryGetValue(key, out var own))
-        {
-            try
-            {
-                own = await Task.Run(() =>
-                {
-                    var names = MhoSkeleton.Load(packagePath, null).Bones.Select(b => b.Name).ToList();
-                    return (names.Any(BorrowedRig.Pattern(BorrowedRig.Kind.Cape).IsMatch), names.Any(BorrowedRig.Pattern(BorrowedRig.Kind.Hair).IsMatch));
-                });
-            }
-            catch (Exception ex) when (ex is IOException or InvalidDataException) { return; }
-            ownRigs[key] = own;
-        }
-        if (IsDisposed) return;
-        void Set(DropDown box, bool has, string ownText, string noneText, string what)
-        {
-            if (box.Items.Count == 0) return;
-            if (has && box.SelectedIndex != 0) box.SelectedIndex = 0;
-            if ((string)box.Items[0]! != (has ? ownText : noneText)) box.Items[0] = has ? ownText : noneText;
-            box.Enabled = !has;
-            box.Invalidate();
-            Ui.Tip(box, has ? $"This hero has {what} bones of its own: they're always kept, with their hand-animated motion, so nothing is added." : box == capeBox ? CapeTip : HairTip);
-        }
-        Set(capeBox, own.Cape, "Hero's Own Cape", "No Added Cape", "cape");
-        Set(hairBox, own.Hair, "Hero's Own Hair", "No Added Hair", "hair");
-    }
-
-    /// <summary>Test: the cape / hair lists as shown (text, enabled).</summary>
-    internal (string Cape, bool CapeOn, string Hair, bool HairOn) TestOwnRigs =>
-        ((string)capeBox.Items[capeBox.SelectedIndex < 0 ? 0 : capeBox.SelectedIndex]!, capeBox.Enabled, (string)hairBox.Items[hairBox.SelectedIndex < 0 ? 0 : hairBox.SelectedIndex]!, hairBox.Enabled);
-
     // --- data -------------------------------------------------------------------------------------------------------------------
     void Reload()
     {
@@ -922,7 +874,8 @@ sealed partial class ModelPage : UserControl
         Remember(pkg.Key);
         var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx;
         string? uf = unrigged;
-        int capeChoice = capeBox.SelectedIndex, hairChoice = hairBox.SelectedIndex;
+        int capeChoice = CapeChoice, hairChoice = HairChoice;
+        var moreRigs = OtherRigs();
         preview.ShowMessage(uf != null && !File.Exists(AutoRig.RiggedFbx(AutoRig.Live(uf, pkg.Key))) && !File.Exists(AutoRig.RiggedFbx(AutoRig.Kept(host.WorkFolder, uf, pkg.Key))) ? "Rigging in Blender…" : "Loading…");
         try
         {
@@ -931,7 +884,7 @@ sealed partial class ModelPage : UserControl
             string? modelFbx = EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
             var prepared = await Task.Run(() => sfbx != null
                 ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx)
-                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr));
+                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs));
             if (id != previewId || IsDisposed) return;   // something changed meanwhile
             preview.Show(prepared);
             shownMap = prepared.Map; mhoBones = prepared.MhoBones; mhoParents = prepared.MhoParents; FillMap();

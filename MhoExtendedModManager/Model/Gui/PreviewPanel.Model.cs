@@ -44,19 +44,13 @@ sealed partial class PreviewPanel
     static void StartStages() { Timings.Clear(); stageClock.Restart(); }
 
     public static Prepared Prepare(MffModel model, string? parts, string packagePath, string? materialDonor, bool subdivide = false, string? modelFbx = null, string? mapFile = null,
-        int cape = 0, int hair = 0, string? overrides = null)
+        int cape = 0, int hair = 0, string? overrides = null, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
         Stage("skeleton");
-        var rigs = new List<BorrowedRig>(); var notes = new List<string>();
-        foreach (var (kind, n) in new[] { (BorrowedRig.Kind.Cape, cape), (BorrowedRig.Kind.Hair, hair) })
-        {
-            if (n <= 0) continue;
-            (sk, var rig) = BorrowedRig.Graft(sk, kind, n, out string note, kind == BorrowedRig.Kind.Hair ? BorrowedRig.HairDrop(model) : 0);
-            notes.Add(note);
-            if (rig != null) rigs.Add(rig);
-        }
+        var notes = new List<string>();
+        (sk, var rigs) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(cape, hair, rigsMore), model, notes.Add);
         var picked = model.Selected(parts);
         if (subdivide) picked = Subdivision.Apply(picked);
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;

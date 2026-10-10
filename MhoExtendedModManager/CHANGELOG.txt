@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.220
+- Model tab: MFF swords on Bone_S_L / Bone_S_R (Kitty Pryde S01, Ikaris, Kid Omega, Red Guardian) are props, unticked, instead of floating beside the body.
+- Model tab: Add Rigs ▾ replaces the Cape and Hair lists: one menu with a list per kind (Cape, Hair, Coat, Dress, Loincloth, Tail, Chains, Wings), several at once; the button shows what's added. Mods saved before keep their cape and hair.
+- Model tab: borrowed rigs beyond capes and hair: Coat (Blade, Nick Fury), Dress (Angela, Emma Frost, Black Cat), Loincloth (Iron Fist, Scarlet Witch, Doctor Strange), Tail (Nightcrawler, Squirrel Girl), Chains (Luke Cage) and Wings (Black Bolt), each a stock hero whose bones of that kind are keyframed in nearly every animation. The model's own coat, skirt, strips or tail ride them and move in every animation. From the command line: MFF_RIGS=Coat:1,Tail:1.
+
 0.37.219
 - Model tab: Browse for a Model opens in your Models Folder (Settings → Model → Change Models Folder), else where you last picked a model; it always opened the app's own data\model\fbx folder.
 - The data folder: the FBX copies Blender makes of .blend and XPS models (data\model\converted) now remember their file and are cleared at start once it's gone, or after 30 days unused when they're not in the model list; their thumbnails go with them.

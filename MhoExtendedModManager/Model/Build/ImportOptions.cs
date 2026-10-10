@@ -43,6 +43,8 @@ sealed record ImportOptions
     public int Hair { get; init; }
     /// <summary>Borrowed cape (Cape ▾: 1-3; 0.17.0: built like the hair, <see cref="HairAnims"/>). MFF_CAPE.</summary>
     public int Cape { get; init; }
+    /// <summary>Other borrowed rigs (coat, dress, loincloth, tail, chains, wings: BorrowedRig.Kind, donor number). MFF_RIGS ("Coat:1,Tail:2").</summary>
+    public IReadOnlyList<(BorrowedRig.Kind Kind, int Number)> Rigs { get; init; } = [];
     /// <summary>FBX edits (0.16.0): animation name → an FBX whose clip replaces it in the built mod (<see cref="AnimEdits"/>).</summary>
     public IReadOnlyDictionary<string, string>? AnimFbx { get; init; }
     /// <summary>Only the package (the Mod Manager's Model tab puts it into its draft): no mod folder or .zip.</summary>
@@ -76,6 +78,7 @@ sealed record ImportOptions
             SourceFbx = Env("MFF_SOURCE_FBX") is { Length: > 0 } sf ? sf : null,
             Hair = int.TryParse(Env("MFF_HAIR"), out int hn) ? hn : 0,
             Cape = int.TryParse(Env("MFF_CAPE"), out int cn) ? cn : 0,
+            Rigs = BorrowedRig.ParsePicks(Env("MFF_RIGS")),
             // MFF_ANIM_FBX=name=file.fbx;name2=file2.fbx (the command line's FBX edits)
             AnimFbx = Env("MFF_ANIM_FBX") is { Length: > 0 } ae ? ae.Split(';', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split('=', 2)).Where(x => x.Length == 2).ToDictionary(x => x[0], x => x[1], StringComparer.OrdinalIgnoreCase) : null,
         };
@@ -91,6 +94,7 @@ sealed record ImportOptions
         + (ModelFbx != null ? ", edited" : "")
         + (Cape > 0 ? ", " + BorrowedRig.Title(BorrowedRig.Kind.Cape, Cape) : "")
         + (Hair > 0 ? ", " + BorrowedRig.Title(BorrowedRig.Kind.Hair, Hair) : "")
+        + string.Concat(Rigs.Select(x => ", " + BorrowedRig.Title(x.Kind, x.Number)))
         + (AnimFbx is { Count: > 0 } af ? $", {af.Count} animation(s) edited" : "")
         + (Math.Abs(Size - 1) > 1e-4 ? $", size {Size * 100:0} %" : "");
 }

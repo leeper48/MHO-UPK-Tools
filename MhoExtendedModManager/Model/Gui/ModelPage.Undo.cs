@@ -12,9 +12,9 @@ sealed partial class ModelPage
 {
     // --- undo / redo (0.12.0, Kurt) ---------------------------------------------------------------------------------------------
     /// <summary>What Undo / Redo restores: the ticked parts, Smooth, the material and the bone map file (its text; null = none).</summary>
-    sealed record UiState(bool[] Parts, bool Subdivide, int Material, string? Map, int Cape = 0, int Hair = 0, string Edits = "", string? Overrides = null, float Size = 1)
+    sealed record UiState(bool[] Parts, bool Subdivide, int Material, string? Map, string Rigs = "", string Edits = "", string? Overrides = null, float Size = 1)
     {
-        public bool Same(UiState o) => Parts.SequenceEqual(o.Parts) && Subdivide == o.Subdivide && Material == o.Material && Map == o.Map && Cape == o.Cape && Hair == o.Hair && Edits == o.Edits && Overrides == o.Overrides && Math.Abs(Size - o.Size) < 1e-4;
+        public bool Same(UiState o) => Parts.SequenceEqual(o.Parts) && Subdivide == o.Subdivide && Material == o.Material && Map == o.Map && Rigs == o.Rigs && Edits == o.Edits && Overrides == o.Overrides && Math.Abs(Size - o.Size) < 1e-4;
     }
     readonly Stack<UiState> undo = new(), redo = new();
     UiState? committed;
@@ -22,7 +22,7 @@ sealed partial class ModelPage
     bool restoring;
 
     UiState Capture() => new(parts.Rows.Cast<DataGridViewRow>().Select(r => r.Cells["use"].Value is true).ToArray(), smooth.Checked,
-        Math.Max(0, material.SelectedIndex), MapPath() is string p && File.Exists(p) ? File.ReadAllText(p) : null, Math.Max(0, capeBox.SelectedIndex), Math.Max(0, hairBox.SelectedIndex), EnsureEdits().Serialize(),
+        Math.Max(0, material.SelectedIndex), MapPath() is string p && File.Exists(p) ? File.ReadAllText(p) : null, RigsText(), EnsureEdits().Serialize(),
         OverridesFile() is string ov ? File.ReadAllText(ov) : null, sizeSlider.Value);
 
     /// <summary>Called as the preview rebuilds (after the short delay, so quick clicks are one step): a change since the
@@ -49,8 +49,7 @@ sealed partial class ModelPage
             if ((parts.Rows[i].Cells["use"].Value is true) != s.Parts[i]) parts.Rows[i].Cells["use"].Value = s.Parts[i];
         if (smooth.Checked != s.Subdivide) smooth.Checked = s.Subdivide;
         if (material.SelectedIndex != s.Material) material.SelectedIndex = s.Material;
-        if (capeBox.SelectedIndex != s.Cape) capeBox.SelectedIndex = s.Cape;
-        if (hairBox.SelectedIndex != s.Hair) hairBox.SelectedIndex = s.Hair;
+        if (RigsText() != s.Rigs) SetRigsText(s.Rigs);
         if (Math.Abs(sizeSlider.Value - s.Size) > 1e-4) { sizeSlider.Value = s.Size; preview.Size = s.Size; }
         if (MapPath() is string path)
         {

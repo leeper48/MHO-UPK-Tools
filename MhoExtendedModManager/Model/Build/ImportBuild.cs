@@ -81,18 +81,9 @@ sealed class ImportBuild
         {
             m = MffModel.Load(Source.ResolveModelFile(mff));
             sourceName = m.Folder;
-            if (o.Cape > 0)
-            {
-                (sk, var capeRig) = BorrowedRig.Graft(sk, BorrowedRig.Kind.Cape, o.Cape, out string note, 0);
-                log("cape:    " + note);
-                if (capeRig != null) rigs.Add(capeRig);
-            }
-            if (o.Hair > 0)
-            {
-                (sk, hairRig) = BorrowedRig.Graft(sk, BorrowedRig.Kind.Hair, o.Hair, out string note, BorrowedRig.HairDrop(m));
-                log("hair:    " + note);
-                if (hairRig != null) rigs.Add(hairRig);
-            }
+            (sk, var grafted) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(o.Cape, o.Hair, o.Rigs), m, log);
+            rigs.AddRange(grafted);
+            hairRig = grafted.FirstOrDefault(x => x.Part == BorrowedRig.Kind.Hair);
             var picked = m.Selected(o.Parts);
             // a prop target (a weapon or shield picked under Model ▾): with no parts named, the part most like it
             if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, sk) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
@@ -101,14 +92,14 @@ sealed class ImportBuild
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.Apply(r, o.ModelFbx, log); }
-        if ((o.Hair > 0 || o.Cape > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed cape / hair is left out");
+        if ((o.Hair > 0 || o.Cape > 0 || o.Rigs.Count > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed rigs are left out");
         MaterialOverrides.Apply(r, o.MaterialOverrides, line => log("  " + line));   // the Materials tab's files
         builtBones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
         foreach (var rig in rigs)
         {
             rig.Paired = r.ChainPairs.Count(c => BorrowedRig.Pattern(rig.Part).IsMatch(c.MhoRoot));
             rig.MeasureBody(builtBones, r);
-            log($"{(rig.Part == BorrowedRig.Kind.Cape ? "cape:  " : "hair:  ")}  {rig.Paired} model chain(s) ride {rig.Label}");
+            log($"{rig.Part.ToString().ToLowerInvariant()}:  {rig.Paired} model chain(s) ride {rig.Label}");
         }
         pkg = AnimPackage.Open(package);
         int e = MeshExport(pkg);

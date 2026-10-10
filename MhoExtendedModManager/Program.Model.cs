@@ -37,7 +37,7 @@ static partial class Program
                 // (Bone_w, BoneW…, Bone_ultimate…): model, part, vertices, size (cm), and whether it was ticked before (body)
                 if (rest.Count < 2) { Console.WriteLine("--weapon-bone-census <models folder> [max]"); return 1; }
                 int max = rest.Count > 2 && int.TryParse(rest[2], out int mx) ? mx : int.MaxValue, seen = 0, hit = 0;
-                var rx = new System.Text.RegularExpressions.Regex(@"· (bone_?w(_?\d+)?|bone_?ultimate\d*)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var rx = new System.Text.RegularExpressions.Regex(@"· (bone_?w(_?\d+)?|bone_?ultimate\d*|bone_s_[lr])$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 foreach (string dir in Directory.EnumerateDirectories(rest[1]).Order())
                 {
                     if (seen++ >= max) break;
@@ -59,6 +59,66 @@ static partial class Program
                     catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(dir)}	ERROR {ex.GetType().Name}: {ex.Message}"); }
                 }
                 Console.WriteLine($"{hit} of {seen} models have parts on weapon bones");
+                return 0;
+            }
+            case "--rig-graft-test":
+            {
+                // --rig-graft-test <target package> (read only): every borrowed rig kind and donor grafted onto the target's
+                // skeleton: bones added and the motion library's size, or why not
+                if (rest.Count < 2) { Console.WriteLine("--rig-graft-test <target package>"); return 1; }
+                string target = MhoExtendedModManager.Model.BasePackage.Resolve(rest[1], true);
+                var baseSk = MhoExtendedModManager.Model.MhoSkeleton.Load(target, null);
+                foreach (var kind in Enum.GetValues<MhoExtendedModManager.Model.BorrowedRig.Kind>())
+                    for (int n = 1; n <= MhoExtendedModManager.Model.BorrowedRig.Donors(kind).Length; n++)
+                    {
+                        var sw = System.Diagnostics.Stopwatch.StartNew();
+                        try
+                        {
+                            var (sk, rig) = MhoExtendedModManager.Model.BorrowedRig.Graft(baseSk, kind, n, out string note);
+                            Console.WriteLine($"{kind} {n} ({Path.GetFileNameWithoutExtension(MhoExtendedModManager.Model.BorrowedRig.Donors(kind)[n - 1])[17..^3]}): {(rig != null ? "OK" : "NOT USED")} {note} ({sw.ElapsedMilliseconds} ms)");
+                        }
+                        catch (Exception ex) { Console.WriteLine($"{kind} {n}: ERROR {ex.GetType().Name}: {ex.Message}"); }
+                    }
+                return 0;
+            }
+            case "--rig-census":
+            {
+                // --rig-census <CookedPCConsole> (read only): every hero base package's extra bone chains by kind (cape, hair, coat,
+                // skirt, chain, whip, wing, tail …): bones, how many of its animations key them (hand-animated: borrowable like
+                // the cape and hair), and how many the physics asset simulates instead
+                if (rest.Count < 2) { Console.WriteLine("--rig-census <CookedPCConsole>"); return 1; }
+                var kinds = new (string Kind, System.Text.RegularExpressions.Regex Rx)[]
+                {
+                    ("cape", new(@"cape|cloak", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                    ("hair", new(@"hair|bang|ponytail|braid", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                    ("coat", new(@"coat|jacket|trench", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                    ("skirt", new(@"skirt|dress|loin|robe|apron|tabard|kilt|cloth|sash", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                    ("chain", new(@"chain", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                    ("whip", new(@"whip|tentacle|tendril|lash|rope", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                    ("wing", new(@"wing", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                    ("tail", new(@"tail", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
+                };
+                foreach (string f in Directory.EnumerateFiles(rest[1], "UC__MarvelPlayer_*_SF.upk").Order())
+                {
+                    string stem = Path.GetFileNameWithoutExtension(f);
+                    if (stem.Split('_').Length != 5 || stem.Contains("bak", StringComparison.OrdinalIgnoreCase) || stem.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;   // UC__MarvelPlayer_<Hero>_SF only
+                    try
+                    {
+                        var sk = MhoExtendedModManager.Model.MhoSkeleton.Load(f, null);
+                        var names = sk.Bones.Select(b => b.Name).ToList();
+                        var found = kinds.Select(k => (k.Kind, Bones: names.Where(n => k.Rx.IsMatch(n) && !n.Contains("twist", StringComparison.OrdinalIgnoreCase)).ToList())).Where(x => x.Bones.Count > 0).ToList();
+                        if (found.Count == 0) continue;
+                        var anims = MhoExtendedModManager.Model.MhoAnim.For(f, names);
+                        var loaded = anims.Select(MhoExtendedModManager.Model.MhoAnim.Load).Where(x => x != null).ToList();
+                        foreach (var (kind, bones) in found)
+                        {
+                            int keyed = loaded.Count(an => bones.Any(b => an!.Tracks.TryGetValue(b, out var t) && t.RotationKeys.Count > 1));
+                            int sim = bones.Count(b => sk.Simulated.Contains(b));
+                            Console.WriteLine($"{stem[17..^3]}\t{kind}\t{bones.Count} bones\t{keyed}/{loaded.Count} anims keyed\t{sim} simulated\t{string.Join(" ", bones.Take(6))}");
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                }
                 return 0;
             }
             case "--mff-parts":

@@ -46,7 +46,7 @@ sealed partial class ModelPage
     {
         float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         // the declared widths (layout may have changed Width already), held as a minimum: the auto-sized source head shrank it to its arrow
-        foreach (var (d, w) in new[] { (sourceKind, 220), (buildFrom, 210), (capeBox, 150), (hairBox, 150) }) { d.MinimumSize = new Size((int)(w * s), 0); d.Width = (int)(w * s); }
+        foreach (var (d, w) in new[] { (sourceKind, 220), (buildFrom, 210) }) { d.MinimumSize = new Size((int)(w * s), 0); d.Width = (int)(w * s); }
         foreach (var g in new[] { parts, mapGrid })
             foreach (DataGridViewColumn c in g.Columns) if (c.AutoSizeMode != DataGridViewAutoSizeColumnMode.Fill) c.Width = (int)(c.Width * s);
     }
@@ -380,6 +380,8 @@ sealed partial class ModelPage
         public bool Subdivide { get; set; }
         public int Material { get; set; }
         public int Cape { get; set; }
+        /// <summary>The added rigs other than the cape and hair ("Coat:1,Tail:2"; null = none).</summary>
+        public string? Rigs { get; set; }
         public int Hair { get; set; }
         public bool FromStock { get; set; }
         /// <summary>Packages the tab built (names: the built bytes are the mod's own package once saved).</summary>
@@ -406,7 +408,7 @@ sealed partial class ModelPage
         var st = new State
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
-            Material = Math.Max(0, material.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex), Hair = Math.Max(0, hairBox.SelectedIndex),
+            Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
             FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
@@ -459,8 +461,7 @@ sealed partial class ModelPage
         if (want.Count > 0) foreach (DataGridViewRow r in parts.Rows) r.Cells["use"].Value = want.Contains((string)r.Cells["part"].Value);
         if (smooth.Enabled) smooth.Checked = st.Subdivide;
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
-        if (st.Cape < capeBox.Items.Count) capeBox.SelectedIndex = st.Cape;
-        if (st.Hair < hairBox.Items.Count) hairBox.SelectedIndex = st.Hair;
+        SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
         sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps;
         restoring2 = false;
         AssumeBuilt();

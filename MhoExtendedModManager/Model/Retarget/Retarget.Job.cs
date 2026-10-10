@@ -212,7 +212,7 @@ static partial class Retarget
                 foreach (var (a, b) in file.Primary())
                 {
                     if (Mff(a) < 0) errors.Add($"bones: no MFF bone named '{a}'");
-                    else if (sk.Find(b) < 0 && (BorrowedRig.Pattern(BorrowedRig.Kind.Cape).IsMatch(b) || BorrowedRig.Pattern(BorrowedRig.Kind.Hair).IsMatch(b))) { }   // borrowed, off now
+                    else if (sk.Find(b) < 0 && BorrowedRig.AnyPattern(b)) { }   // borrowed, off now
                     else if (sk.Find(b) < 0) errors.Add($"bones: '{a}' → no MHO bone named '{b}' in {sk.Name}");
                     else r.Map[m.Bones[Mff(a)].Name] = sk.Bones[sk.Find(b)].Name;
                 }
@@ -223,7 +223,7 @@ static partial class Retarget
                     if (Mff(c.Mff) < 0) { errors.Add($"chains: no MFF bone named '{c.Mff}'"); continue; }
                     if (c.Mho == null) { if (c.Fit == "edited") keptUnpaired.Add(m.Bones[Mff(c.Mff)].Name); continue; }
                     // a borrowed cape / hair bone the file names while that option is off now: that chain is just left unpaired
-                    if (sk.Find(c.Mho) < 0 && (BorrowedRig.Pattern(BorrowedRig.Kind.Cape).IsMatch(c.Mho) || BorrowedRig.Pattern(BorrowedRig.Kind.Hair).IsMatch(c.Mho))) continue;
+                    if (sk.Find(c.Mho) < 0 && BorrowedRig.AnyPattern(c.Mho)) continue;
                     if (sk.Find(c.Mho) < 0) { errors.Add($"chains: '{c.Mff}' → no MHO bone named '{c.Mho}' in {sk.Name}"); continue; }
                     if (r.Map.ContainsKey(m.Bones[Mff(c.Mff)].Name)) { errors.Add($"chains: '{c.Mff}' is also mapped in bones (a chain starts at an unmapped bone)"); continue; }
                     forcedChains.Add((m.Bones[Mff(c.Mff)].Name, sk.Bones[sk.Find(c.Mho)].Name));

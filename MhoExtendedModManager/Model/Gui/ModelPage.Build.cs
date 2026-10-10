@@ -27,7 +27,7 @@ sealed partial class ModelPage
         var options = new ImportOptions { Parts = string.Join(",", picked), Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
             MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
             MaterialOverrides = OverridesFile(),
-            Hair = Math.Max(0, hairBox.SelectedIndex), Cape = Math.Max(0, capeBox.SelectedIndex),
+            Hair = HairChoice, Cape = CapeChoice, Rigs = OtherRigs(),
             ModelFbx = EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
             AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
             Size = sizeSlider.Value, NoMod = true };
@@ -155,7 +155,8 @@ sealed partial class ModelPage
         if (HasSource)
         {
             sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))
-              .Append('|').Append(material.SelectedIndex).Append('|').Append(smooth.Checked).Append('|').Append(hairBox.SelectedIndex).Append('|').Append(capeBox.SelectedIndex);
+              .Append('|').Append(material.SelectedIndex).Append('|').Append(smooth.Checked).Append('|').Append(HairChoice).Append('|').Append(CapeChoice);
+            if (OtherRigs().Count > 0) sb.Append('|').Append(OtherRigsText());   // (only then: builds from before keep their print)
             sb.Append('|').Append(Content(MapPath())).Append('|').Append(Content(OverridesPath())).Append('|').Append(Stamp(unrigged));
             var ed = EnsureEdits();
             sb.Append('|').Append(Stamp(ed.ModelFbx));
@@ -334,7 +335,8 @@ sealed partial class ModelPage
         string name = m?.Folder ?? ImportBuild.SourceName(sfbx!);
         string? mapFile = MapPath() is string mp && File.Exists(mp) ? mp : null;
         string? ovr = OverridesFile();
-        int hairChoice = sfbx == null ? Math.Max(0, hairBox.SelectedIndex) : 0, capeChoice = sfbx == null ? Math.Max(0, capeBox.SelectedIndex) : 0;
+        int hairChoice = sfbx == null ? HairChoice : 0, capeChoice = sfbx == null ? CapeChoice : 0;
+        var moreRigs = sfbx == null ? OtherRigs() : [];
         var exportEdits = AnimEdits.Parse(EnsureEdits().Serialize());
         string outDir = UniqueDir(Path.Combine(Settings.Home, "fbx", $"{name} on {Path.GetFileNameWithoutExtension(pkg.Key)}{(onlyAnim != null ? " - " + FbxExport.SafeName(onlyAnim) : "")}"));
         building = true; UpdateStatus(); status.Text = "Exporting FBX…";
@@ -353,7 +355,7 @@ sealed partial class ModelPage
                     MaterialOverrides.Apply(r, ovr);
                     FbxExport.Run(r, package, outDir, onlyAnim != null ? [onlyAnim] : [], line => BeginInvoke(() => Log(line)), FbxExport.EditsAdjust(exportEdits), exact: onlyAnim != null);
                 }
-                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice, overrides: ovr);
+                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice, overrides: ovr, rigsMore: moreRigs);
             });
             lastZip = Path.Combine(outDir, "model.fbx");   // Open Folder shows the latest output (a build's .ZIP or this)
             // in a new Blender scene (0.16.2), else the folder
