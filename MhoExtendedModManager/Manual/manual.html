@@ -153,6 +153,7 @@ function mhoNext(dir) {
 <li><a href="#w-model">Put Your Own Model on a Costume</a></li>
 <li><a href="#w-size">Make a Character Bigger or Smaller</a></li>
 <li><a href="#w-npc">Put a Model on an NPC, Enemy or Team-Up</a></li>
+<li><a href="#w-rigs">Give a Model a Moving Coat, Dress, Tail or Wings</a></li>
 <li><a href="#w-prop">Swap a Costume's Weapon or Shield</a></li>
 <li><a href="#w-own">Recolor or Hide an NPC's or Team-Up's Effects</a></li>
 <li><a href="#w-blender">Edit the Model, an Animation or a Texture in Blender</a></li>
@@ -316,6 +317,18 @@ function mhoNext(dir) {
 <p>Team-ups and many NPCs store their animations so that they set every bone's position; the build changes them to work like a hero's, so the new model keeps its own shape (the log's <code>anim:</code> line).</p>
 <figure><img src="img/editor-model-character.jpg" alt="Captain America Classic's package holds Cap and his shield: Model ▾ picks which one a build replaces (here Cap; the shield is marked Prop in the list)."><figcaption>Captain America Classic's package holds Cap and his shield: Model ▾ picks which one a build replaces (here Cap; the shield is marked Prop in the list).</figcaption></figure>
 <figure><img src="img/editor-model-npc.jpg" alt="The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider."><figcaption>The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-rigs">Give a Model a Moving Coat, Dress, Tail or Wings</h3>
+<ol class="steps">
+<li>On the Model tab, pick a source whose model has the part (a long coat, a dress or skirt, loincloth strips, a tail, chains or wings) and a target hero that has no bones for it.</li>
+<li>On the <b>Parts</b> tab, open <b>Add Rigs ▾</b> and pick the kind and a donor number: <b>Coat 1</b> moves like Blade's coat, <b>Dress 1</b> like Angela's, <b>Tail 1</b> like Nightcrawler's, <b>Wings 1</b> like Angel's (point at an item for the others). Several kinds can be on at once; the button shows them.</li>
+<li>The preview shows the part moving in every animation; the log says how many of the model's strips ride the added bones (<code>4 model chain(s) ride Coat 1</code>). None means the model's part is too far from them: try another donor.</li>
+<li><b>Build into Mod</b>, Save Changes, Apply Changes. The build copies the hero's animations into the mod with the added motion (a base package as the target).</li>
+<li>A kind the hero already has bones for shows as <b>Hero's Own</b> and stays as it is. <b>Remove All</b> takes every added rig off.</li>
+</ol>
+<figure><img src="img/editor-model-rigs.jpg" alt="Ghost Rider's long coat on Daredevil with Rigs: Coat 1: the log says 19 bones were added and 4 of the model's chains ride them."><figcaption>Ghost Rider's long coat on Daredevil with Rigs: Coat 1: the log says 19 bones were added and 4 of the model's chains ride them.</figcaption></figure>
 </div>
 
 <div class="walk">

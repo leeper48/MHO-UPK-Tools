@@ -27,7 +27,15 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.221 (Kurt, 2026-10-10): Add Rigs ▾ (coats, dresses, loincloths, tails, chains, wings).</summary>
+    static Notice AddRigs() => new(
+        "0.37.221-add-rigs", "0.37.221",
+        "Model tab: Add Rigs ▾ (on the Parts tab, in place of the Cape and Hair lists) gives a model moving parts its target hero has no bones for: a cape, long hair, a coat, a dress, a loincloth, a tail, chains or wings. The model's own coat tails, skirt, strips or wings ride the added bones and move in every animation, with motion from heroes whose part is hand-animated (Blade's coat, Angela's dress, Iron Fist's loincloth, Nightcrawler's tail, Angel's wings …). Several can be on at once." + nl + nl +
+        "MFF swords on Kitty Pryde's sword bones (and Ikaris', Kid Omega's, Red Guardian's) start unticked instead of floating beside the body." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-rigs");
 
     /// <summary>0.37.219 (Kurt, 2026-10-08): weapons and shields as Model targets, costumes that show their hero's model,
     /// better default parts, the Models Folder.</summary>
