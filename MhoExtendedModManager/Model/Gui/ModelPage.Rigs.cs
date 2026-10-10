@@ -55,7 +55,7 @@ sealed partial class ModelPage
         BorrowedRig.Kind.Loincloth => "Loincloth or sash strips that hang front and back: Loincloth 1-3 move like Iron Fist's, Scarlet Witch's and Doctor Strange's.",
         BorrowedRig.Kind.Tail => "A tail: Tail 1 and 2 move like Nightcrawler's and Squirrel Girl's.",
         BorrowedRig.Kind.Chains => "Hanging chains: Chains 1 moves like Luke Cage's.",
-        _ => "Wings: Wings 1 moves like Black Bolt's (his cape webbing: small wing beats).",
+        _ => "Wings: Wings 1-4 move like Angel's feathered wings, Archangel's metal ones, Wasp's insect wings and Black Bolt's cape webbing (small beats).",
     };
 
     const string RigsTip = "Adds moving parts a base hero doesn't have: a cape, long hair, a coat, a dress, a loincloth, a tail, chains or wings. For each, bones are added so the model's own strips, strands or tail ride them, and every animation gets motion matched from an MHO hero whose part of that kind is hand-animated (for each frame, the one whose body moves most alike). Several can be on at once. A hero with bones of its own for a kind always keeps them and their motion, so that kind can't be added. Build includes them when the target is a base package (its animation sets are copied into the mod with the added motion); so do Full Export and Open in Blender.";

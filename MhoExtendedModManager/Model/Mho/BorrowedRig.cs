@@ -76,7 +76,7 @@ sealed class BorrowedRig
     /// <summary>The donors of each kind, by number (--rig-census, animations keyed: Coat 1 = Blade 72/76, 2 = Nick Fury 62/64;
     /// Dress 1 = Angela 75/80, 2 = Emma Frost 118/133, 3 = Black Cat 68/71; Loincloth 1 = Iron Fist 95/98,
     /// 2 = Scarlet Witch 103/112, 3 = Doctor Strange 82/95; Tail 1 = Nightcrawler 100/110, 2 = Squirrel Girl 96/112; Chains 1 = Luke
-    /// Cage 75/110; Wings 1 = Black Bolt 74/77).</summary>
+    /// Cage 75/110; Wings 1-4 = the Angel, Archangel and Wasp team-ups, Black Bolt).</summary>
     public static string[] Donors(Kind k) => k switch
     {
         Kind.Cape => CapeDonors,
@@ -86,7 +86,10 @@ sealed class BorrowedRig
         Kind.Loincloth => ["UC__MarvelPlayer_IronFist_SF.upk", "UC__MarvelPlayer_ScarletWitch_SF.upk", "UC__MarvelPlayer_DoctorStrange_SF.upk"],
         Kind.Tail => ["UC__MarvelPlayer_Nightcrawler_SF.upk", "UC__MarvelPlayer_SquirrelGirl_SF.upk"],
         Kind.Chains => ["UC__MarvelPlayer_LukeCage_SF.upk"],
-        _ => ["UC__MarvelPlayer_BlackBolt_SF.upk"],
+        // wings (phase 3, --rig-census on team-ups and enemies): Angel 37/39, Archangel 27/27 (the same rig, metal), Wasp 24/24
+        // (insect), Black Bolt 74/77 (his cape webbing: small beats). Falcon's (20/27) hang on his jetpack bones: they can't
+        // stand alone.
+        _ => ["UC__MarvelTeamUp_Angel_SF.upk", "UC__MarvelTeamUp_ArchAngel_SF.upk", "UC__MarvelTeamUp_Wasp_SF.upk", "UC__MarvelPlayer_BlackBolt_SF.upk"],
     };
 
     /// <summary>Every rig asked for (cape, hair, then the rest in turn) grafted on: the skeleton and the rigs, each logged.</summary>

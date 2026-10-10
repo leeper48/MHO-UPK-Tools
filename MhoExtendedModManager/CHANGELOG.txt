@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.221
+- Model tab, Add Rigs ▾ → Wings: real wing donors from the team-ups: Wings 1 Angel (feathered), 2 Archangel (metal), 3 Wasp (insect), 4 Black Bolt (his cape webbing, as Wings 1 was). Angel's wings flap through the run and stay spread at idle.
+
 0.37.220
 - Model tab: MFF swords on Bone_S_L / Bone_S_R (Kitty Pryde S01, Ikaris, Kid Omega, Red Guardian) are props, unticked, instead of floating beside the body.
 - Model tab: Add Rigs ▾ replaces the Cape and Hair lists: one menu with a list per kind (Cape, Hair, Coat, Dress, Loincloth, Tail, Chains, Wings), several at once; the button shows what's added. Mods saved before keep their cape and hair.

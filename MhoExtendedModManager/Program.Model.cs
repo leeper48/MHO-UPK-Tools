@@ -86,7 +86,9 @@ static partial class Program
                 // --rig-census <CookedPCConsole> (read only): every hero base package's extra bone chains by kind (cape, hair, coat,
                 // skirt, chain, whip, wing, tail …): bones, how many of its animations key them (hand-animated: borrowable like
                 // the cape and hair), and how many the physics asset simulates instead
-                if (rest.Count < 2) { Console.WriteLine("--rig-census <CookedPCConsole>"); return 1; }
+                if (rest.Count < 2) { Console.WriteLine("--rig-census <CookedPCConsole> [file pattern, default UC__MarvelPlayer_*_SF.upk] [kind]"); return 1; }
+                string pattern = rest.Count > 2 ? rest[2] : "UC__MarvelPlayer_*_SF.upk";
+                string? onlyKind = rest.Count > 3 ? rest[3] : null;
                 var kinds = new (string Kind, System.Text.RegularExpressions.Regex Rx)[]
                 {
                     ("cape", new(@"cape|cloak", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
@@ -98,15 +100,17 @@ static partial class Program
                     ("wing", new(@"wing", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
                     ("tail", new(@"tail", System.Text.RegularExpressions.RegexOptions.IgnoreCase)),
                 };
-                foreach (string f in Directory.EnumerateFiles(rest[1], "UC__MarvelPlayer_*_SF.upk").Order())
+                foreach (string f in Directory.EnumerateFiles(rest[1], pattern).Order())
                 {
                     string stem = Path.GetFileNameWithoutExtension(f);
-                    if (stem.Split('_').Length != 5 || stem.Contains("bak", StringComparison.OrdinalIgnoreCase) || stem.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;   // UC__MarvelPlayer_<Hero>_SF only
+                    if (stem.Contains("bak", StringComparison.OrdinalIgnoreCase) || stem.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (rest.Count <= 2 && stem.Split('_').Length != 5) continue;   // the default: UC__MarvelPlayer_<Hero>_SF only
                     try
                     {
                         var sk = MhoExtendedModManager.Model.MhoSkeleton.Load(f, null);
                         var names = sk.Bones.Select(b => b.Name).ToList();
-                        var found = kinds.Select(k => (k.Kind, Bones: names.Where(n => k.Rx.IsMatch(n) && !n.Contains("twist", StringComparison.OrdinalIgnoreCase)).ToList())).Where(x => x.Bones.Count > 0).ToList();
+                        var found = kinds.Where(k => onlyKind == null || k.Kind.Equals(onlyKind, StringComparison.OrdinalIgnoreCase))
+                            .Select(k => (k.Kind, Bones: names.Where(n => k.Rx.IsMatch(n) && !n.Contains("twist", StringComparison.OrdinalIgnoreCase)).ToList())).Where(x => x.Bones.Count > 0).ToList();
                         if (found.Count == 0) continue;
                         var anims = MhoExtendedModManager.Model.MhoAnim.For(f, names);
                         var loaded = anims.Select(MhoExtendedModManager.Model.MhoAnim.Load).Where(x => x != null).ToList();
@@ -114,7 +118,7 @@ static partial class Program
                         {
                             int keyed = loaded.Count(an => bones.Any(b => an!.Tracks.TryGetValue(b, out var t) && t.RotationKeys.Count > 1));
                             int sim = bones.Count(b => sk.Simulated.Contains(b));
-                            Console.WriteLine($"{stem[17..^3]}\t{kind}\t{bones.Count} bones\t{keyed}/{loaded.Count} anims keyed\t{sim} simulated\t{string.Join(" ", bones.Take(6))}");
+                            Console.WriteLine($"{stem}\t{kind}\t{bones.Count} bones\t{keyed}/{loaded.Count} anims keyed\t{sim} simulated\t{string.Join(" ", bones.Take(6))}");
                         }
                     }
                     catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
