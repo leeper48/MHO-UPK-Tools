@@ -100,23 +100,8 @@ static class PowerBorrow
         var donorComps = Components(src, sd, out _, out _);
         var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [src.PathOf(src.Exports[sd])] = dst.PathOf(dst.Exports[td]) };
         var refs = new List<int>();
-        // Effect sets (Kurt, 2026-10-10: Haymaker froze Daredevil): the donor's components can belong to numbered FX sets
-        // (Haymaker's three swings: FxSetIndex 1-3), the target's to combo steps (Daredevil's Assault and Battery: the
-        // PeriodicActivationCount 1-5 of his five swings). The target's power never asks for a donor set, so nothing played.
-        // A combo target gets the donor's sets laid over its steps in turn (step k plays set (k-1) mod N), each component copied
-        // per step with that step's count; a target with neither keeps the donor's first set, played every time.
-        static int Int(Package p, int exp, string prop)
-        {
-            byte[] b = p.ReadExportBytes(p.Exports[exp]).ToArray();
-            return TagWalker.Walk(p, b, 16)?.FirstOrDefault(x => x.Name.Equals(prop, StringComparison.OrdinalIgnoreCase) && x.Size == 4) is { } t
-                ? BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt)) : 0;
-        }
-        var sets = donorComps.Where(r => r > 0).Select(r => Int(src, r - 1, "FxSetIndex")).Where(v => v != 0).Distinct().Order().ToList();
-        int steps = sets.Count == 0 ? 0 : Components(dst, td, out _, out _).Where(r => r > 0).Select(r => Int(dst, r - 1, "PeriodicActivationCount")).DefaultIfEmpty(0).Max();
-        if (sets.Count > 0)
-            log.Add(steps > 0 ? $"  the donor's {sets.Count} effect set(s) laid over the target's {steps} combo step(s)"
-                              : $"  the donor's effect set {sets[0]} kept (of {sets.Count}; the target has no combo steps)");
-        var setEdits = new Dictionary<int, int>();   // copied component -> its combo step (0: the set index cleared)
+        // (Tested in game 2026-10-10, Cosmic Haymaker on Daredevil: the donor's FxSetIndex sets and its PowerFxPhysicsWeight
+        // copy as they are; the freeze was costumes with their own animation list, see Build.)
         foreach (int r in donorComps)
         {
             if (r <= 0) continue;
@@ -124,37 +109,18 @@ static class PowerBorrow
             string cls = src.ClassOf(e);
             if (!voice && cls.Equals("PowerFxSound", StringComparison.OrdinalIgnoreCase) && e.ObjectName.Contains("voice", StringComparison.OrdinalIgnoreCase))
             { log.Add($"  {e.ObjectName} ({cls}): left out (the donor hero's voice)"); continue; }
-            // physics blending for the donor's own floppy bones (Captain Marvel's sash and hair: her costume lists
-            // physicsfloppybones); on Daredevil, who lists none, Haymaker left him stuck in one pose (Kurt, 2026-10-10)
-            if (cls.Equals("PowerFxPhysicsWeight", StringComparison.OrdinalIgnoreCase))
-            { log.Add($"  {e.ObjectName} ({cls}): left out (the donor hero's own physics bones)"); continue; }
-            int set =Int(src, r - 1, "FxSetIndex");
-            var copies = new List<(string Name, int Step)>();
-            if (set == 0) copies.Add(("borrowed_" + e.ObjectName, -1));
-            else if (steps > 0)
-            {
-                int rank = sets.IndexOf(set);
-                for (int k = 1; k <= steps; k++)
-                    if ((k - 1) % sets.Count == rank) copies.Add((copies.Count == 0 ? "borrowed_" + e.ObjectName : $"borrowed_{e.ObjectName}_step{k}", k));
-                if (copies.Count == 0) { log.Add($"  {e.ObjectName} ({cls}): left out (effect set {set}: more sets than combo steps)"); continue; }
-            }
-            else if (set == sets[0]) copies.Add(("borrowed_" + e.ObjectName, 0));
-            else { log.Add($"  {e.ObjectName} ({cls}): left out (effect set {set})"); continue; }
-            foreach (var (name, step) in copies)
-            {
-            td = Find(dst, targetDefault);
+            string name = "borrowed_" + e.ObjectName;
             int existing = Find(dst, dst.PathOf(dst.Exports[td]) + "." + name);
-            if (existing >= 0) { refs.Add(existing + 1); if (step >= 0) setEdits[existing + 1] = step; log.Add($"  {e.ObjectName} ({cls}): already in from an earlier borrow"); continue; }
+            if (existing >= 0) { refs.Add(existing + 1); log.Add($"  {e.ObjectName} ({cls}): already in from an earlier borrow"); continue; }
             var copy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out string said);
             if (copy == null && said.Contains("the target has no copy of it"))
-            { log.Add($"  {e.ObjectName} ({cls}): left out (its class is the donor package's own, and this package has none)"); break; }
+            { log.Add($"  {e.ObjectName} ({cls}): left out (its class is the donor package's own, and this package has none)"); continue; }
             copy = copy
                 ?? throw new InvalidDataException($"{e.ObjectName} ({cls}) couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not supported")).Select(l => l.Trim())));
             dst = Package.FromBytes(copy.Output);
+            td = Find(dst, targetDefault);
             refs.Add(copy.RootRef);
-            if (step >= 0) setEdits[copy.RootRef] = step;
-            log.Add($"  {e.ObjectName} ({cls}) → {dst.PathOf(dst.Exports[copy.RootRef - 1])}{(step > 0 ? $" (combo step {step})" : step == 0 ? " (every time)" : "")}");
-            }
+            log.Add($"  {e.ObjectName} ({cls}) → {dst.PathOf(dst.Exports[copy.RootRef - 1])}");
         }
         // the target's default lists the copies (its own components stay in the package, unused)
         td = Find(dst, targetDefault);
@@ -165,26 +131,8 @@ static class PowerBorrow
         byte[] nd = [.. d.AsSpan(0, tag.ValueAt), .. value, .. d.AsSpan(tag.ValueAt + tag.Size)];
         BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
         var rep = new Dictionary<int, Func<long, byte[]>> { [td] = _ => nd };
-        // the set index becomes the combo step (same IntProperty, renamed), or 0 (played every time)
-        var addNames = new List<string>();
-        foreach (var (comp, step) in setEdits)
-        {
-            byte[] b = dst.ReadExportBytes(dst.Exports[comp - 1]).ToArray();
-            var t = TagWalker.Walk(dst, b, 16)?.FirstOrDefault(x => x.Name.Equals("FxSetIndex", StringComparison.OrdinalIgnoreCase) && x.Size == 4);
-            if (t == null) continue;   // an earlier borrow's copy, already a combo step
-            if (step > 0)
-            {
-                int ni = Array.FindIndex(dst.Names, x => x.Equals("PeriodicActivationCount", StringComparison.OrdinalIgnoreCase));
-                if (ni < 0) { if (addNames.Count == 0) addNames.Add("PeriodicActivationCount"); ni = dst.Names.Length; }
-                BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(t.Start), ni);
-                BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(t.Start + 4), 0);
-            }
-            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(t.ValueAt), Math.Max(step, 0));
-            byte[] nb = b;
-            rep[comp - 1] = _ => nb;
-        }
-        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
-        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
         if (problems.Count > 0) throw new InvalidDataException("the target's component list: " + string.Join("; ", problems.Take(3)));
         var back = Package.FromBytes(output);
         var now = Components(back, Find(back, targetDefault), out _, out _);
