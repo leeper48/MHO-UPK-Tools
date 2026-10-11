@@ -29,6 +29,8 @@ static class DataCleanup
         if (!dryRun) Add("model thumbnails of models that are gone or not shown for 30 days (data\\model\\thumbs)", Model.Thumbs.Prune(30));
         // Costume packages with their hero's model copied in, for the Model tab (InheritedMesh): made again in a second when needed.
         Add("Model tab copies of costumes with their hero's model (data\\model\\inherit)", Folder(Path.Combine(Model.Settings.Home, "inherit"), dryRun));
+        // Images taken out of FBX files that embed them: written again when the model is read.
+        Add("images taken out of FBX files (data\\model\\embedded)", Folder(Path.Combine(Model.Settings.Home, "embedded"), dryRun));
         // The editor's work folders a killed run left (library\model-work-…, power-colors-…, voice-…, anim-work-…, costume-move-…).
         if (library != null && Directory.Exists(library))
         {

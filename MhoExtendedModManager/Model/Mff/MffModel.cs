@@ -243,6 +243,7 @@ sealed class MffModel
         model.Profile = profile?.Family;
         var originalOf = profile?.Rename.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.Ordinal) ?? [];
         texIndex ??= new TextureIndex(Path.GetDirectoryName(file)!);
+        texIndex.AddEmbedded(scene, file);
 
         // Node world transforms (row-vector System.Numerics = transpose of Assimp's column-vector matrices).
         var global = new Dictionary<Node, Matrix4x4>();
@@ -734,9 +735,11 @@ sealed class TextureIndex
     static Dictionary<string, string>? shared;
     static readonly object gate = new();
     readonly Dictionary<string, string> local;
+    readonly string folder;
 
     public TextureIndex(string modelFolder)
     {
+        folder = modelFolder;
         // the folder and two levels below it (rips from elsewhere keep their textures in subfolders: Captain Carter's
         // "Marvel Strike Force Captain Carter\Captain Carter\Char_CaptainCarter_D.png"); the folder's own file first
         local = Directory.EnumerateFiles(modelFolder, "*", new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true })
@@ -796,6 +799,57 @@ sealed class TextureIndex
     static string Near(string name) => Regex.Replace(name.ToLowerInvariant(), @"(?<=[a-z])0?1(?=_|$)", "");
 
     string? Get(string file) => local.GetValueOrDefault(file.ToLowerInvariant()) ?? Shared.GetValueOrDefault(file.ToLowerInvariant());
+
+    /// <summary>
+    /// A texture an FBX material names (Kurt, 2026-10-12, a user's MUA2 model: two meshes, a .jpg each, assigned in Blender,
+    /// and neither found): by file name among the indexed folders first, then the path the FBX stores as it is (absolute, or
+    /// relative to the FBX's folder: textures kept anywhere on disk), then an embedded image ("*0" or its own name).
+    /// </summary>
+    string? FromFbx(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        string name = Path.GetFileName(path.Replace('/', '\\'));
+        if ((Get(name) ?? GetStem(Path.GetFileNameWithoutExtension(name))) is string hit) return hit;
+        if (local.GetValueOrDefault(path.ToLowerInvariant()) is string embedded) return embedded;
+        if (!ImageExt.Contains(Path.GetExtension(name).ToLowerInvariant())) return null;
+        try
+        {
+            string direct = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(folder, path));
+            return File.Exists(direct) ? direct : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException) { return null; }
+    }
+
+    /// <summary>The FBX's embedded images (Blender's Embed Textures), written once to data\model\embedded\&lt;fbx&gt; (cleared at
+    /// a normal start) and indexed under their own names and "*&lt;n&gt;", as Assimp names them in the materials.</summary>
+    public void AddEmbedded(Scene scene, string file)
+    {
+        if (!scene.HasTextures) return;
+        string dir;
+        try
+        {
+            string key = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(file).ToLowerInvariant())))[..8];
+            dir = Path.Combine(MhoExtendedModManager.Model.Settings.Home, "embedded", $"{Path.GetFileNameWithoutExtension(file)}_{key}");
+            Directory.CreateDirectory(dir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
+        for (int i = 0; i < scene.TextureCount; i++)
+        {
+            var t = scene.Textures[i];
+            if (!t.IsCompressed || t.CompressedData is not { Length: > 0 } data) continue;   // raw texels (rare in FBX): not handled
+            string ext = "." + (t.CompressedFormatHint ?? "").Trim('.').ToLowerInvariant();
+            if (ext == ".jpeg") ext = ".jpg";
+            if (!ImageExt.Contains(ext)) continue;   // TGA / DDS: System.Drawing can't read them
+            string own = Path.GetFileName((t.Filename ?? "").Replace('/', '\\'));
+            string stem = own.Length > 0 ? Path.GetFileNameWithoutExtension(own) : $"embedded{i}";
+            string path = Path.Combine(dir, stem + ext);
+            try { if (!File.Exists(path) || new FileInfo(path).Length != data.Length) File.WriteAllBytes(path, data); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+            local.TryAdd((stem + ext).ToLowerInvariant(), path);
+            if (own.Length > 0) local.TryAdd(own.ToLowerInvariant(), path);
+            local.TryAdd($"*{i}", path);
+        }
+    }
 
     /// <summary>The character's own sheets for a model folder (hero_blackpanther01[_S02] → blackpanther, blackpanther01,
     /// hero_blackpanther01, then numbered _02, _03 …): (diffuse, spec, alpha), in that order.</summary>
@@ -859,7 +913,7 @@ sealed class TextureIndex
     {
         var t = new Textures { Diffuse = Get(material + ".png"), Spec = Get(material + "_sp.png"), Alpha = Get(material + "_alpha.png") };
         if (t.Diffuse == null && mat is { HasTextureDiffuse: true })
-            t.Diffuse = Get(Path.GetFileName(mat.TextureDiffuse.FilePath ?? "")) ?? GetStem(Path.GetFileNameWithoutExtension(mat.TextureDiffuse.FilePath ?? ""));
+            t.Diffuse = FromFbx(mat.TextureDiffuse.FilePath);
         if (t.Diffuse == null && material.Length > 0 && NearNames.TryGetValue(Near(material), out var nearName))
         {
             t.Guessed = true;
@@ -871,12 +925,12 @@ sealed class TextureIndex
         if (t.Diffuse == null && material.Length > 0 && Loose(material, ColourSuffix, out bool exactColour) is string lc) { t.Diffuse = lc; t.Guessed = !exactColour; }
         // the model's own normal map: <material>_n / _normal / _nrm, the FBX material's normal slot, or a loose match as above
         t.Normal = GetStem(material + "_n") ?? GetStem(material + "_normal") ?? GetStem(material + "_nrm");
-        if (t.Normal == null && mat is { HasTextureNormal: true } && Path.GetFileNameWithoutExtension(mat.TextureNormal.FilePath ?? "") is { Length: > 0 } ns) t.Normal = GetStem(ns);
+        if (t.Normal == null && mat is { HasTextureNormal: true }) t.Normal = FromFbx(mat.TextureNormal.FilePath);
         if (t.Normal == null && material.Length > 0) t.Normal = Loose(material, NormalSuffix, out _);
         t.SpecMho = SpecChannels.Find(sfx => GetStem(material + "_mhospec" + sfx));
         t.SpecColor = GetStem(material + "_speccolor");
         t.Glow = GetStem(material + "_glow") ?? GetStem(material + "_emissive") ?? GetStem(material + "_emit");
-        if (t.Glow == null && mat is { HasTextureEmissive: true } && Path.GetFileNameWithoutExtension(mat.TextureEmissive.FilePath ?? "") is { Length: > 0 } es) t.Glow = GetStem(es);
+        if (t.Glow == null && mat is { HasTextureEmissive: true }) t.Glow = FromFbx(mat.TextureEmissive.FilePath);
         // Other maps of this material: <material>_<word>.png (e.g. _mask, _fx), not other models' files that share the prefix.
         var extra = new Regex("^" + Regex.Escape(material.ToLowerInvariant()) + "_(?!sp\\.|alpha\\.|glow\\.|emissive\\.|emit\\.)[a-z]+\\.png$");
         foreach (var k in local.Keys.Concat(Shared.Keys))

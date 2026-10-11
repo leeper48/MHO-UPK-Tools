@@ -121,6 +121,31 @@ static partial class Program
                 Console.WriteLine($"{meshes.Count} shared model(s) in {atRisk.Count} package(s); {mats.Count} shared material instance / physics asset path(s) → {rest[1]}");
                 return 0;
             }
+            case "--enemy-powers":
+            {
+                // --enemy-powers [mod] (read only): the library's mods with power packages only enemy powers use (PowerUsage)
+                string? egr = settings.ResolvedGameRoot(data);
+                if (egr == null || !Settings.IsGameRoot(egr)) { Console.WriteLine("game folder not found"); return 1; }
+                var esw = System.Diagnostics.Stopwatch.StartNew();
+                var emap = PowerUsage.Index(egr);
+                Console.WriteLine($"{emap.Count} power classes in use ({esw.Elapsed.TotalSeconds:0} s)");
+                int eh = 0;
+                foreach (var m in lib.Mods.Where(x => rest.Count < 2 || x.Name.Contains(rest[1], StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                    foreach (var u in PowerUsage.EnemyOnly(m, emap)) { eh++; Console.WriteLine($"{m.Name}{(m.Enabled ? "" : " (off)")}: {u.File} ← {string.Join(", ", u.Users)}"); }
+                Console.WriteLine($"{eh} enemy-only package(s)");
+                return 0;
+            }
+            case "--remove-packages":
+            {
+                // --remove-packages <mod> <file,...> [--copy <new name>]: the mod without those packages, in place or as a new mod
+                var rm = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                if (rm == null) { Console.WriteLine("--remove-packages <mod> <file,...> [--copy <new name>]"); return 1; }
+                int ci = rest.IndexOf("--copy");
+                string? copy = ci >= 0 && ci + 1 < rest.Count ? rest[ci + 1] : null;
+                string? saved = ModPackages.Remove(lib, rm, rest[2].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), copy, out string? rerr);
+                Console.WriteLine(saved != null ? $"saved: {saved}" : "not saved: " + rerr);
+                return saved != null ? 0 : 1;
+            }
             case "--make-unique":
             {
                 // --make-unique <mod> <out dir> [--only <file,...>] [--tag T]   (writes only into <out dir>): the mod's character
@@ -133,6 +158,15 @@ static partial class Program
                 string? Opt(string name) { int i = rest.IndexOf(name); return i >= 0 && i + 1 < rest.Count ? rest[i + 1] : null; }
                 var shipped = (Opt("--only")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? um.Manifest.UpkReplacements.ToArray())
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (rest.Contains("--save-copy") && Opt("--save-copy") is string copyName)
+                {
+                    // --make-unique <mod> <out dir> --save-copy <new name>: made unique as a new mod (the original untouched)
+                    var clog = new List<string>();
+                    var cdone = UniqueNames.Apply(lib, um, ucook, clog, out string? cerr, copyName);
+                    clog.ForEach(x => Console.WriteLine("  " + x));
+                    Console.WriteLine(cdone == null ? "NOT SAVED: " + cerr : $"saved as \"{copyName}\": {string.Join(", ", cdone)}");
+                    return cdone != null ? 0 : 1;
+                }
                 if (rest.Contains("--save"))
                 {
                     // --make-unique <mod> <out dir> --save: the real thing (UniqueNames.Apply: saved like an edit); scratch libraries only
@@ -154,7 +188,7 @@ static partial class Program
                 int built = 0;
                 foreach (string f in shipped)
                 {
-                    if (!UniqueNames.Kinds.Any(k => f.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase))) continue;
+                    if (!UniqueNames.Covers(f)) continue;
                     string mf = Path.Combine(um.Folder, f);
                     if (!File.Exists(mf)) { Console.WriteLine($"{f}: not in the mod"); continue; }
                     var plan = UniqueNames.PlanFor(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, tag);

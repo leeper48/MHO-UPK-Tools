@@ -139,6 +139,7 @@ static partial class Program
                     var w = new Dictionary<int, float>(); float tot = 0;
                     foreach (var sec in pt.Sections) foreach (var vw in sec.Weights) foreach (var x in vw) { w[x.Bone] = w.GetValueOrDefault(x.Bone) + x.Weight; tot += x.Weight; }
                     Console.WriteLine($"{pt.Name}: {pt.Verts} verts, {(pt.IsProp ? "prop" : pt.IsAlternate ? "swap" : !pt.Weighted ? "unrigged" : "body")}, {(pt.DefaultOn ? "ticked" : "off")}, own material {pt.OwnMaterial}; box {lo.X:0} {lo.Y:0} {lo.Z:0} .. {hi.X:0} {hi.Y:0} {hi.Z:0}; materials {string.Join(", ", pt.Sections.Select(x => x.Material).Distinct())}");
+                    foreach (var x in pt.Sections.DistinctBy(x => x.Material)) Console.WriteLine($"    texture {x.Material}: {x.Tex.Diffuse ?? "(none found)"}{(x.Tex.Guessed ? " (guessed)" : "")}");
                     foreach (var (b, v) in w.OrderByDescending(kv => kv.Value).Take(5)) Console.WriteLine($"    {v / tot:P0} {Chain(b)} (rig of {mm.RigSize(b)} bones)");
                     // vertex islands far from their bones (a floating piece): connected pieces, each with its dominant bone and gap
                     foreach (var sec in pt.Sections)

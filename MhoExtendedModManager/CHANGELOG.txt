@@ -1,6 +1,17 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.236
+- Make Unique also renames a costume's weapon and prop classes when an enemy, NPC or team-up defines the same one (the Taskmaster boss held and threw a Taskmaster mod's shield: the boss's shield class has the same name as the hero's, and the hero's, loaded first, was used).
+
+0.37.235
+- OVERLAP and Make Unique cover power packages too: a Captain Carter over Taskmaster changed the shield texture in Taskmaster's Shield Bounce, and the Taskmaster boss's own Shield Toss (and Magneto's Shrapnel Aura), which use the same texture, showed Carter's shield. The game files' shared names are read once (a minute or so) and kept in the data folder.
+
+0.37.234
+- Saving in the editor makes the mod's characters unique by itself (Model tab builds too), so mods made here don't get the OVERLAP warning.
+- The OVERLAP warning also flags power packages only enemies use (a Captain Carter over Taskmaster replaced the Taskmaster boss's Shield Toss, so the boss threw her shield): click it, or right-click → Remove Enemy-Only Packages, to take them out of the mod or out of a copy (the original kept, to switch back).
+- Model tab: an FBX's textures are found where the FBX says they are (any folder on disk), and textures embedded in the FBX are read (a two-mesh model with a .jpg per part found neither).
+
 0.37.233
 - Mods that change a model other game files also carry get a yellow ⚠ OVERLAP warning pill (Jessica Jones is in her team-up, her summon and the Avengers Tower NPC; Carnage in his own file and his team-up): the game shows whichever copy loads first, so near other players or hub NPCs the mod could show the game's look. Click the pill, or right-click → Make Unique, to give the mod's copy names of its own (only the mod's package files change; streamed textures keep their names; still installs in MHModManager). Then Apply.
 - Moving a costume to another hero makes the moved model unique too (Rescue on Iron Man Extremis could show the game's Rescue near her team-up).

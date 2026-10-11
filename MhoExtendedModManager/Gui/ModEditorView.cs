@@ -246,7 +246,15 @@ sealed partial class ModEditorView : UserControl
             if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
             Dialog.Show(this, "The power colors couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
+        string? uniqueWork;
+        try { uniqueWork = MakeDraftUnique(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException)
+        {
+            foreach (string? w in new[] { work, powerWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+            Dialog.Show(this, "The mod's models couldn't be made unique: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
+        if (uniqueWork != null) try { Directory.Delete(uniqueWork, true); } catch (IOException) { }
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
         foreach (string? bw in new[] { borrowWorkSave, saved != null ? borrowWork : null })
@@ -258,6 +266,36 @@ sealed partial class ModEditorView : UserControl
         SavedName = saved;
         OfferAuthorName();
         Saved?.Invoke(saved);
+    }
+
+    /// <summary>
+    /// Every Save makes the mod's character packages unique (Kurt, 2026-10-11: mods made here never get the OVERLAP warning):
+    /// a changed model or material instance that other stock packages also carry gets paths of its own (UniqueNames), so a
+    /// stock copy loaded first can't show instead (a Model tab build into Jessica's team-up is jessica_jones.jessicajones_tv,
+    /// like her agent's and NPC's). A package already unique, or one that ships every copy, is left as it is. The work folder.
+    /// </summary>
+    string? MakeDraftUnique(List<string> log)
+    {
+        if (game == null) return null;
+        var files = draft.Packages.Where(p => UniqueNames.Covers(p.File) && File.Exists(p.Source)).ToList();
+        if (files.Count == 0) return null;
+        var shared = UniqueNames.Shared(UniqueNames.Folder(game.Cooked));
+        var shipped = draft.Packages.Select(p => p.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string tag = UniqueNames.Tag(draft.Name), work = Path.Combine(lib.DataFolder, "make-unique-" + Guid.NewGuid().ToString("N")[..8]);
+        bool any = false;
+        foreach (var (file, src) in files)
+        {
+            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag);
+            if (!plan.Changes) continue;
+            Directory.CreateDirectory(work);
+            string dst = Path.Combine(work, file);
+            File.WriteAllBytes(dst, UniqueNames.Build(src, plan));
+            int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+            draft.Packages[k] = (file, dst);
+            log.AddRange(plan.Notes.Select(n => $"unique: {file}: {n}"));
+            any = true;
+        }
+        return any ? work : null;
     }
 
     /// <summary>A new mod saved with an author while no author name is set: offers to keep it for new mods (once per name).</summary>

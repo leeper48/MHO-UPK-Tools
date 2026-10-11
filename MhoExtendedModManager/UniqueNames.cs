@@ -24,43 +24,87 @@ static class UniqueNames
 
     /// <summary>The character package kinds a model can be shared between.</summary>
     public static readonly string[] Kinds = ["MarvelPlayer", "MarvelTeamUp", "MarvelAgent", "MarvelNPC", "MarvelVanityPet"];
-    static readonly string[] Classes = ["skeletalmesh", "materialinstanceconstant", "physicsasset", "material", "texture2d"];
+    static readonly string[] Classes = ["skeletalmesh", "materialinstanceconstant", "physicsasset", "material", "texture2d", "staticmesh", "particlesystem"];
 
-    /// <summary>Groups every character uses as they are (base materials, effects, engine, shared animation): never renamed.</summary>
-    public static bool Library(string path) => path.StartsWith("chbasematerial", StringComparison.OrdinalIgnoreCase) || path.StartsWith("vfx_", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("engine", StringComparison.OrdinalIgnoreCase) || path.StartsWith("biped_lib", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("marvelgamecontent", StringComparison.OrdinalIgnoreCase);
+    /// <summary>The packages Make Unique looks at: characters (Kinds) and powers (UC__Power…: Kurt, 2026-10-11, a Captain Carter
+    /// mod changed vfx_taskmaster.textures.tex_taskmaster_shield in Taskmaster's Shield Bounce packages, and the boss's stock
+    /// Shield Toss, which carries the same path, threw her shield).</summary>
+    public static bool Covers(string file) => file.EndsWith("_SF.upk", StringComparison.OrdinalIgnoreCase)
+        && (file.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase) || Kinds.Any(k => file.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase)));
+
+    static readonly string[] FixedLibraries = ["chbasematerial", "engine", "biped_lib", "marvelgamecontent", "vfx_shared"];
+    /// <summary>Top-level groups carried by more packages than this are libraries (vfx_shared_textures, vfx_ubervfx: in
+    /// thousands), never renamed. A hero's own effects group is in all its power packages (vfx_taskmaster: over 40), so only groups past 1,000 count.</summary>
+    const int LibraryPackages = 1000;
+    static HashSet<string> libraryGroups = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Groups everything uses as they are (base materials, shared effects, engine, shared animation): never renamed.</summary>
+    public static bool Library(string path)
+    {
+        string top = path.Split('.')[0];
+        if (FixedLibraries.Any(l => top.StartsWith(l, StringComparison.OrdinalIgnoreCase))) return true;
+        lock (gate) return libraryGroups.Contains(top);
+    }
+
+    sealed class Saved
+    {
+        public string Stamp { get; set; } = "";
+        public Dictionary<string, List<string>> Paths { get; set; } = [];
+        public List<string> Libraries { get; set; } = [];
+    }
 
     static readonly object gate = new();
     static (string Folder, Dictionary<string, List<string>> Paths)? index;
 
-    /// <summary>Path|class (lower case) → the stock character packages carrying it, for paths in more than one (built once per
-    /// folder and session from the export tables: about 40 s cold, a second warm).</summary>
+    /// <summary>Path|class (lower case) → the stock character and power packages carrying it, for paths in more than one
+    /// (library groups left out). Built from the export tables once per folder version (a minute or two cold) and kept in
+    /// data\shared_paths.json.</summary>
     public static Dictionary<string, List<string>> Shared(string folder)
     {
         lock (gate)
         {
             if (index is { } ix && ix.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)) return ix.Paths;
-            var files = Directory.EnumerateFiles(folder, "UC__*_SF.upk").Select(Path.GetFileName).OfType<string>()
-                .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
-                .Where(f => Kinds.Any(k => f.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase))).ToList();
+            var infos = new DirectoryInfo(folder).EnumerateFiles("UC__*_SF.upk")
+                .Where(f => !f.Name.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Name.Contains("copy", StringComparison.OrdinalIgnoreCase) && Covers(f.Name)).ToList();
+            string stamp = $"{Path.GetFullPath(folder).ToLowerInvariant()}|{infos.Count}|{infos.Sum(f => f.Length)}|{(infos.Count == 0 ? 0 : infos.Max(f => f.LastWriteTimeUtc.Ticks))}|v4";
+            string cache = Path.Combine(Settings.Home, "shared_paths.json");
+            try
+            {
+                if (File.Exists(cache) && System.Text.Json.JsonSerializer.Deserialize<Saved>(File.ReadAllText(cache)) is { } sv && sv.Stamp == stamp)
+                {
+                    libraryGroups = new(sv.Libraries, StringComparer.OrdinalIgnoreCase);
+                    var loaded = new Dictionary<string, List<string>>(sv.Paths, StringComparer.OrdinalIgnoreCase);
+                    index = (folder, loaded);
+                    return loaded;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { }
             var seen = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<string>>(StringComparer.OrdinalIgnoreCase);
-            Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) }, f =>
+            var groupFiles = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentDictionary<string, byte>>(StringComparer.OrdinalIgnoreCase);
+            Parallel.ForEach(infos, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) }, fi =>
             {
                 try
                 {
-                    var p = Package.Open(Path.Combine(folder, f));
+                    var p = Package.Open(fi.FullName);
                     foreach (var e in p.Exports)
                     {
                         string c = p.ClassOf(e).ToLowerInvariant();
-                        if (Classes.Contains(c)) seen.GetOrAdd($"{p.PathOf(e)}|{c}", _ => []).Add(f);
+                        if (c == "class" && e.ObjectName.StartsWith("marvelattachment_", StringComparison.OrdinalIgnoreCase))
+                        { seen.GetOrAdd($"{p.PathOf(e)}|class", _ => []).Add(fi.Name); continue; }
+                        if (!Classes.Contains(c)) continue;
+                        string path = p.PathOf(e);
+                        seen.GetOrAdd($"{path}|{c}", _ => []).Add(fi.Name);
+                        groupFiles.GetOrAdd(path.Split('.')[0], _ => new(StringComparer.OrdinalIgnoreCase)).TryAdd(fi.Name, 0);
                     }
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
             });
-            var paths = seen.Where(kv => kv.Value.Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+            libraryGroups = groupFiles.Where(kv => kv.Value.Count > LibraryPackages).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var paths = seen.Where(kv => (kv.Key.EndsWith("|class", StringComparison.OrdinalIgnoreCase) || !libraryGroups.Contains(kv.Key.Split('.')[0])) && kv.Value.Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
                 .ToDictionary(kv => kv.Key, kv => kv.Value.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
             index = (folder, paths);
+            try { File.WriteAllText(cache, System.Text.Json.JsonSerializer.Serialize(new Saved { Stamp = stamp, Paths = paths, Libraries = [.. libraryGroups] })); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             return paths;
         }
     }
@@ -104,7 +148,39 @@ static class UniqueNames
             if (!groups.TryGetValue(top, out var why)) groups[top] = why = [];
             why.Add($"{path} ({pkg.ClassOf(e)}; stock copy also in {string.Join(", ", others.Select(o => o[4..^7]))})");
         }
-        if (groups.Count == 0) { notes.Add("nothing changed that another package also carries"); return new(file, renames, splits, notes) { Shared = found }; }
+        // Attachment classes (Kurt, 2026-10-11: the Taskmaster boss held and threw Carter's shield after the mesh was renamed):
+        // a class is found by its path too, and Taskmaster's player package defines marvelattachment_taskmastershield, as the
+        // boss's does; loaded first, the player's class (its default naming the mod's shield) is the one the boss uses. A shared
+        // attachment class whose mesh differs from the stock class's (changed, or already renamed) gets the tag, with its default.
+        var classRenames = new List<(int Class, int Default, string Name, List<string> Others)>();
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            var e = pkg.Exports[i];
+            if (!pkg.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("marvelattachment_", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!shared.TryGetValue($"{pkg.PathOf(e)}|class", out var carriers)) continue;
+            // only other characters' packages (a boss, an agent, an NPC, a team-up, a pet): the hero's power packages define
+            // the same class on purpose (Taskmaster's Basic Shot and Coup de Grace: his guns), and resolve to the hero's
+            var others = carriers.Where(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(c)
+                && !c.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase) && !c.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (others.Count == 0) continue;
+            string dname = "default__" + e.ObjectName;
+            int d = Array.FindIndex(pkg.Exports, x => x.ObjectName.Equals(dname, StringComparison.OrdinalIgnoreCase) && x.OuterIndex == e.OuterIndex);
+            if (d < 0) continue;
+            var mine = MeshOf(pkg, d);
+            int sd = stock == null ? -1 : Array.FindIndex(stock.Exports, x => x.ObjectName.Equals(dname, StringComparison.OrdinalIgnoreCase));
+            var theirs = sd >= 0 ? MeshOf(stock!, sd) : null;
+            bool differs = mine == null || theirs == null || !mine.Value.Path.Equals(theirs.Value.Path, StringComparison.OrdinalIgnoreCase) || !mine.Value.Bytes.AsSpan().SequenceEqual(theirs.Value.Bytes);
+            if (differs) classRenames.Add((i, d, e.ObjectName, others));
+        }
+        foreach (var (c, d, name, others) in classRenames)
+        {
+            if (pkg.Exports.Any(x => x.ObjectName.Equals($"{name}_{tag}", StringComparison.OrdinalIgnoreCase))) continue;
+            renames.Add(new(c, pkg.PathOf(pkg.Exports[c]), $"{name}_{tag}", "attachment class shared with " + string.Join(", ", others.Select(o => o[4..^7]))));
+            renames.Add(new(d, pkg.PathOf(pkg.Exports[d]), $"default__{name}_{tag}", "its default"));
+            notes.Add($"class {name} → {name}_{tag}: its mesh isn't the stock one, and {string.Join(", ", others.Select(o => o[4..^7]))} define the same class");
+            found.Add((pkg.PathOf(pkg.Exports[c]), "Class", others));
+        }
+        if (groups.Count == 0) { if (classRenames.Count == 0) notes.Add("nothing changed that another package also carries"); return new(file, renames, splits, notes) { Shared = found }; }
         // streamed textures (big mips in a .tfc, found by path) keep the stock path: their group is split
         var streamed = new HashSet<int>();
         for (int i = 0; i < pkg.Exports.Length; i++)
@@ -125,6 +201,21 @@ static class UniqueNames
         return new(file, renames, splits, notes) { Shared = found };
     }
 
+    /// <summary>The first ModelMesh of an attachment class default (path, bytes), or null.</summary>
+    static (string Path, byte[] Bytes)? MeshOf(Package pkg, int defaultExport)
+    {
+        try
+        {
+            byte[] b = pkg.ReadExportBytes(pkg.Exports[defaultExport]).ToArray();
+            var t = TagWalker.Walk(pkg, b, 4)?.FirstOrDefault(x => x.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase));
+            if (t == null || t.Size < 8) return null;
+            int r = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt + 4));
+            if (r <= 0 || r > pkg.Exports.Length) return null;
+            return (pkg.PathOf(pkg.Exports[r - 1]), pkg.ReadExportBytes(pkg.Exports[r - 1]).ToArray());
+        }
+        catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or ArgumentOutOfRangeException) { return null; }
+    }
+
     /// <summary>Where the stock character packages are read: the clean game files when set, else the game's.</summary>
     public static string Folder(string cooked) => StockFiles.Clean is string c && Directory.Exists(c) ? c : cooked;
 
@@ -134,7 +225,7 @@ static class UniqueNames
     /// package files' sizes and times. Reads the mod's packages and the stock ones: call off the UI thread.</summary>
     public static List<Plan> Plans(Mod m, string cooked)
     {
-        var files = m.Manifest.UpkReplacements.Where(f => Kinds.Any(k => f.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase))).ToList();
+        var files = m.Manifest.UpkReplacements.Where(Covers).ToList();
         if (files.Count == 0) return [];
         string stamp = string.Join("|", files.Select(f => Path.Combine(m.Folder, f)).Where(File.Exists).Select(f => $"{f}:{new FileInfo(f).Length}:{File.GetLastWriteTimeUtc(f).Ticks}"));
         lock (plansCache) if (plansCache.TryGetValue(m.Folder, out var hit) && hit.Stamp == stamp) return hit.Plans;
@@ -172,7 +263,7 @@ static class UniqueNames
     /// old folder to the Recycle Bin, place, on/off, tags kept). The mod's packages then differ from what's in the game: Apply
     /// puts them in. Returns the packages changed, or null with <paramref name="error"/>.
     /// </summary>
-    public static List<string>? Apply(ModLibrary lib, Mod m, string cooked, List<string> log, out string? error)
+    public static List<string>? Apply(ModLibrary lib, Mod m, string cooked, List<string> log, out string? error, string? copyName = null)
     {
         error = null;
         var plans = Plans(m, cooked);
@@ -192,7 +283,8 @@ static class UniqueNames
                 log.AddRange(p.Notes.Select(n => $"{p.File}: {n}"));
                 done.Add(p.File);
             }
-            if (ModWriter.Save(lib, d, m, out error) == null) return null;
+            if (copyName != null) d.Name = copyName;   // a new mod; the original kept as it is
+            if (ModWriter.Save(lib, d, copyName != null ? null : m, out error) == null) return null;
             lock (plansCache) plansCache.Remove(m.Folder);
             return done;
         }
