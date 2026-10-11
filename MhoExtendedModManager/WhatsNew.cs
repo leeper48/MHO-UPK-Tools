@@ -19,6 +19,13 @@ static class WhatsNew
     /// <summary>The Model tab is out for everyone (Kurt decides; then also uncomment its manual section and add a notice).</summary>
     public const bool ModelTabReleased = true;   // (Kurt, 2026-10-04: the next push is live with the Model tab)
 
+    /// <summary>The Powers tab's Borrowed Look (a power taking another hero's power look): tabled 2026-10-11 (Kurt: user bugs
+    /// first; the census found copy gaps, see PowerBorrow.cs), only with "PreviewFeatures": true. A mod that has borrows
+    /// still rebuilds them at Save. Releasing it: set this, uncomment the manual's two Borrowed Look parts, add the
+    /// changelog lines and a notice.</summary>
+    public static bool PowerBorrow => PowerBorrowReleased || Settings.Load().PreviewFeatures;
+    public const bool PowerBorrowReleased = false;
+
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
 
     static readonly string nl = Environment.NewLine;

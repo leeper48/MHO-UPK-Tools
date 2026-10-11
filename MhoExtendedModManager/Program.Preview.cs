@@ -410,6 +410,124 @@ static partial class Program
                     }
                 return 0;
             }
+            case "--power-borrow-census":
+            {
+                // --power-borrow-census <report.txt> [--hero <target hero>] [--donor <donor hero>] [--per-hero N] [--keep-timing | --both]
+                //   [--threads N] [--seed S]   (read only: builds in memory from the stock copies, writes only the report)
+                // Borrows built for many pairs (each hero power with an animation as a target; donors: every power of --donor,
+                // else one random power of another hero), sorted into built / built with notes / failed (Kurt, 2026-10-10:
+                // three bugs showed only on new pairs). In-game problems (a freeze) aren't seen here; the report picks pairs to play.
+                if (rest.Count < 2) { Console.WriteLine("--power-borrow-census <report.txt> [--hero H] [--donor H] [--per-hero N] [--keep-timing | --both] [--threads N] [--seed S]"); return 1; }
+                string? cgr = settings.ResolvedGameRoot(data);
+                string? ccook = cgr != null && Settings.IsGameRoot(cgr) ? Settings.Cooked(cgr) : null;
+                if (ccook == null) { Console.WriteLine("game folder not found"); return 1; }
+                string? Opt(string name) { int i = rest.IndexOf(name); return i >= 0 && i + 1 < rest.Count ? rest[i + 1] : null; }
+                string? onlyHero = Opt("--hero"), onlyDonor = Opt("--donor");
+                int perHero = int.TryParse(Opt("--per-hero"), out int ph) ? ph : int.MaxValue;
+                int threads = int.TryParse(Opt("--threads"), out int th0) ? th0 : Math.Max(1, Environment.ProcessorCount / 2);
+                var rng = new Random(int.TryParse(Opt("--seed"), out int seed) ? seed : 1);
+                var modes = rest.Contains("--both") ? new[] { false, true } : rest.Contains("--keep-timing") ? new[] { true } : new[] { false };
+                var cdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(cgr!, "Data", "Game", "Calligraphy.sip")));
+                _ = cdb.Assets;   // built once, before the threads
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var heroes = Directory.EnumerateFiles(ccook, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileNameWithoutExtension).OfType<string>()
+                    .Where(f => f.Split('_').Length == 5 && !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .Select(f => f.Split('_')[3]).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToList();
+                var powers = new Dictionary<string, List<Fx.PowerList.Power>>(StringComparer.OrdinalIgnoreCase);
+                foreach (string h in heroes)
+                {
+                    try { var l = Fx.PowerList.For(cdb, h, ccook, []).Where(p => p.Animations.Count > 0).ToList(); if (l.Count > 0) powers[h] = l; }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or KeyNotFoundException) { Console.WriteLine($"  {h}: powers not read ({ex.Message})"); }
+                }
+                Console.WriteLine($"{powers.Count} heroes, {powers.Values.Sum(l => l.Count)} powers with an animation ({sw.Elapsed.TotalSeconds:0} s)");
+                var pairs = new List<(string TH, Fx.PowerList.Power T, string DH, Fx.PowerList.Power D, bool Keep)>();
+                foreach (var (h, list) in powers.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (onlyHero != null && !h.Equals(onlyHero, StringComparison.OrdinalIgnoreCase)) continue;
+                    foreach (var t in list.Take(perHero))
+                    {
+                        var donors = new List<(string, Fx.PowerList.Power)>();
+                        if (onlyDonor != null) { if (powers.TryGetValue(onlyDonor, out var dl)) donors.AddRange(dl.Select(d => (onlyDonor, d))); }
+                        else
+                        {
+                            var others = powers.Keys.Where(k => !k.Equals(h, StringComparison.OrdinalIgnoreCase)).ToList();
+                            string dh = others[rng.Next(others.Count)];
+                            donors.Add((dh, powers[dh][rng.Next(powers[dh].Count)]));
+                        }
+                        foreach (var (dh, d) in donors) foreach (bool keep in modes) pairs.Add((h, t, dh, d, keep));
+                    }
+                }
+                Console.WriteLine($"{pairs.Count} pair(s), {threads} thread(s)");
+                var results = new (string Status, string Detail, List<string> Notes, int Packages, int Costumes, int Anims)[pairs.Count];
+                var fxLocal = new ThreadLocal<Fx.FxGame>(() => new Fx.FxGame(ccook, []));
+                int doneCount = 0;
+                Parallel.For(0, pairs.Count, new ParallelOptions { MaxDegreeOfParallelism = threads }, i =>
+                {
+                    var (thName, t, dhName, d, keep) = pairs[i];
+                    var log = new List<string>();
+                    try
+                    {
+                        var plan = PowerBorrow.Plan(cdb, fxLocal.Value!, t.Prototype, d.Prototype, log);
+                        var tp = plan.FirstOrDefault(x => x.Role == "power") ?? throw new InvalidDataException("no power pair in the plan");
+                        string th = PowerBorrow.HeroPackage(ccook, thName, t.Prototype, tp.TargetClass, []) ?? throw new InvalidDataException("target hero package not found");
+                        string dh = PowerBorrow.HeroPackage(ccook, dhName, d.Prototype, tp.DonorClass, []) ?? throw new InvalidDataException("donor hero package not found");
+                        var built = PowerBorrow.Build(plan, StockFiles.For(ccook, $"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}",
+                            StockFiles.For(ccook, $"UC__MarvelPlayer_{dh}_SF.upk"), log, true, keep, f => StockFiles.For(ccook, f), ccook);
+                        foreach (var (f, bytes) in built) _ = MhoPackageModifier.Package.FromBytes(bytes);   // every package reads back
+                        var notes = log.Where(l => l.Contains("left out") || l.Contains("not found") || l.Contains("nothing of the donor's") || l.Contains("plays no animation")).Select(l => l.Trim()).ToList();
+                        results[i] = (notes.Count > 0 ? "notes" : "ok", "", notes, built.Count, log.Count(l => l.Contains("own animation list")), log.Count(l => l.StartsWith("anims: ") && l.Contains(" s")));
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or KeyNotFoundException or MhoPackageModifier.PackageFormatException or ArgumentOutOfRangeException or IndexOutOfRangeException or NullReferenceException)
+                    {
+                        results[i] = ("failed", $"{ex.GetType().Name}: {ex.Message.Split('\n')[0].Trim()}", [], 0, 0, 0);
+                    }
+                    int n = Interlocked.Increment(ref doneCount);
+                    if (n % 25 == 0) Console.WriteLine($"  {n} of {pairs.Count} ({sw.Elapsed.TotalSeconds:0} s)");
+                });
+                // the report
+                var rep = new List<string> { $"Power borrow census, {DateTime.Now:yyyy-MM-dd HH:mm}, {pairs.Count} pair(s) in {sw.Elapsed.TotalMinutes:0.0} min", "" };
+                string Pair(int i) { var p = pairs[i]; return $"{p.TH}: {p.T.Name} ← {p.DH}: {p.D.Name} ({(p.Keep ? "keep timing" : "whole power")})  [{p.T.Prototype} ← {p.D.Prototype}]"; }
+                int ok = results.Count(r => r.Status == "ok"), nt = results.Count(r => r.Status == "notes"), fl = results.Count(r => r.Status == "failed");
+                rep.Add($"Built: {ok}   Built with notes: {nt}   Failed: {fl}");
+                rep.Add("");
+                // failures and notes grouped by their message with names taken out
+                static string Shape(string s) => System.Text.RegularExpressions.Regex.Replace(s, @"[A-Za-z0-9_]*[0-9_][A-Za-z0-9_.]*", "…");
+                rep.Add("FAILED, by reason");
+                foreach (var g in Enumerable.Range(0, pairs.Count).Where(i => results[i].Status == "failed").GroupBy(i => Shape(results[i].Detail)).OrderByDescending(g => g.Count()))
+                {
+                    rep.Add($"  {g.Count()} × {g.Key}");
+                    foreach (int i in g.Take(3)) rep.Add($"      {Pair(i)}\n        {results[i].Detail}");
+                }
+                rep.Add("");
+                rep.Add("NOTES, by kind");
+                foreach (var g in Enumerable.Range(0, pairs.Count).SelectMany(i => results[i].Notes.Select(n => (i, n))).GroupBy(x => Shape(x.n)).OrderByDescending(g => g.Count()))
+                {
+                    rep.Add($"  {g.Count()} × {g.Key}");
+                    foreach (var (i, n) in g.Take(2)) rep.Add($"      {Pair(i)}\n        {n}");
+                }
+                rep.Add("");
+                // pairs worth playing: one or two of each kind the build can't judge
+                rep.Add("TO PLAY IN GAME (picked from the built ones)");
+                void Pick(string what, Func<int, bool> when, int n = 2)
+                {
+                    var hit = Enumerable.Range(0, pairs.Count).Where(i => results[i].Status != "failed" && when(i)).Take(n).ToList();
+                    rep.Add($"  {what}: {(hit.Count == 0 ? "none in this run" : "")}");
+                    foreach (int i in hit) rep.Add($"      {Pair(i)}");
+                }
+                Pick("whole power, costumes with their own animation list changed", i => !pairs[i].Keep && results[i].Costumes > 0);
+                Pick("whole power, a combo target (several animations)", i => !pairs[i].Keep && pairs[i].T.Animations.Count > 2);
+                Pick("whole power, a combo donor onto a single-animation power", i => !pairs[i].Keep && pairs[i].D.Animations.Count > 2 && pairs[i].T.Animations.Count == 1);
+                Pick("whole power, no animation borrowed (the donor plays none)", i => !pairs[i].Keep && results[i].Anims == 0);
+                Pick("keep timing", i => pairs[i].Keep);
+                Pick("built with notes (something left out)", i => results[i].Status == "notes");
+                rep.Add("");
+                rep.Add("EVERY PAIR");
+                for (int i = 0; i < pairs.Count; i++)
+                    rep.Add($"  {results[i].Status,-7} {Pair(i)}{(results[i].Status == "failed" ? "\n          " + results[i].Detail : $"  ({results[i].Packages} package(s), {results[i].Costumes} costume list(s), {results[i].Anims} animation(s))")}");
+                File.WriteAllLines(rest[1], rep);
+                Console.WriteLine($"Built: {ok}   Built with notes: {nt}   Failed: {fl}   ({sw.Elapsed.TotalMinutes:0.0} min) → {rest[1]}");
+                return 0;
+            }
             case "--power-borrow":
             {
                 // --power-borrow <out dir> <target pkg>|<target default>=<donor pkg>|<donor default> ... [--anims <hero pkg> <hero class> <donor hero pkg>]

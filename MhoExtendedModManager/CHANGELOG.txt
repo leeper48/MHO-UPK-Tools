@@ -1,21 +1,8 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
-0.37.229
-- Borrowed Look: costumes with an animation list of their own (Daredevil Modern, Netflix and others) get the borrowed animations too; they don't play their hero's list, so a borrowed power froze them in one pose. The borrow then changes those costume packages as well.
-
-0.37.225
-- Borrowed Look: powers whose package carries its own copy of a game class (Captain Marvel's Cosmic Haymaker and its hit effect) can lend their look (it stopped with "its class is defined in the package").
-
-0.37.224
-- Borrowed Look: heroes whose package has another name than their powers' folder (Captain Marvel's is Ms. Marvel's) can lend and borrow a look (it stopped with "Could not find file").
-
-0.37.223
-- Powers tab: Borrowed Look. A power can take another hero's power look: the whole power (its animation, effects, sounds and projectile look, the animation fitted to this power's timing), or this power's timing with only what the other's effects draw (for powers built differently). The window suggests which. Only the look changes, only this hero's power packages; the other hero is untouched. The preview shows it at once; a color on the same power recolors the borrowed look.
-
 0.37.222
 - The 3D preview plays only the effects a power's class lists (a package can keep effects nothing uses).
-- Borrowing a power's look from another hero (command line for now, the Powers tab comes next): --power-borrow <out> <target power> <donor power> copies the donor's animation, effects, sounds and projectile look onto the target power, the animation fitted to the target's length.
 
 0.37.221
 - Model tab, Add Rigs ▾ → Wings: real wing donors from the team-ups: Wings 1 Angel (feathered), 2 Archangel (metal), 3 Wasp (insect), 4 Black Bolt (his cape webbing, as Wings 1 was). Angel's wings flap through the run and stay spread at idle.

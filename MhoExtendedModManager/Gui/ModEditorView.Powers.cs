@@ -95,7 +95,7 @@ sealed partial class ModEditorView
         sliders.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         foreach (var sl in new[] { hueSlider, satSlider, brightSlider, opacitySlider }) { sl.ValueChanged += SliderChanged; sl.Dock = DockStyle.Fill; sl.Margin = new Padding(0); sliders.Controls.Add(sl); }
         right.Controls.Add(sliders, 0, 2);
-        right.Controls.Add(BorrowSection(), 0, 3);
+        if (WhatsNew.PowerBorrow) right.Controls.Add(BorrowSection(), 0, 3);   // tabled, preview only (WhatsNew.PowerBorrowReleased)
         Ui.Tip(opacitySlider, "How visible the power's effects are: 100 % as the game has it, lower fades them, 0 % switches them off (nothing draws). Unlike Brightness, it fades smoke and dust too instead of leaving them as a dark cloud. Double-click: back to 100 %.");
         Ui.Tip(hueSlider, "Turns the power's colors around the color wheel (the brightness of each color is kept). Double-click: back to the game's.");
         Ui.Tip(satSlider, "How strong the power's colors are: 0 % is grey, 100 % as the game has it. Double-click: back to 100 %.");

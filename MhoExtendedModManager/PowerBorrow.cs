@@ -331,7 +331,10 @@ static class PowerBorrow
         {
             string hf = Path.GetFileName(targetHeroPackage);
             string heroPath = startFrom?.Invoke(hf) ?? targetHeroPackage;
-            if (done.TryGetValue(hf, out var hb)) { heroPath = Path.Combine(Path.GetTempPath(), "mhoextmm_borrow_" + hf); File.WriteAllBytes(heroPath, hb); }
+            var temps = new List<string>();
+            try
+            {
+            if (done.TryGetValue(hf, out var hb)) temps.Add(heroPath = WriteTemp(hf, hb));
             done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log);
             log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {hf} ({targetHeroClass})");
             // costumes with an animation list of their own don't play the hero's: the borrowed sets are imported into theirs
@@ -346,17 +349,20 @@ static class PowerBorrow
                     .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase)))
                 {
                     string start = done.TryGetValue(cf, out var cb) ? WriteTemp(cf, cb) : startFrom?.Invoke(cf) ?? StockFiles.For(cooked, cf);
+                    if (done.ContainsKey(cf)) temps.Add(start);
                     if (!File.Exists(start)) continue;
                     if (AnimSwap.AddImportedSets(start, cf[4..^7], sets, log) is { } costume) done[cf] = costume;
                 }
             }
+            }
+            finally { foreach (string t in temps) try { File.Delete(t); } catch (IOException) { } }
         }
         return done;
     }
 
     static string WriteTemp(string file, byte[] bytes)
     {
-        string path = Path.Combine(Path.GetTempPath(), "mhoextmm_borrow_" + file);
+        string path = Path.Combine(Path.GetTempPath(), $"mhoextmm_borrow_{Guid.NewGuid():N}_{file}");   // unique: builds can run side by side (the census)
         File.WriteAllBytes(path, bytes);
         return path;
     }
