@@ -67,12 +67,15 @@ sealed partial class ModEditorView
         paletteNote.Text = "Reading…";
         var g = game;
         string data = lib.DataFolder;
+        // a borrowed look: its colors are the borrowed package's (the draft's, as built), not the stock one's
+        var borrowedPaths = BorrowOf(p.Prototype) is { } bo ? bo.Packages.Select(f => draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)))
+            .Where(x => x.Source != null).ToDictionary(x => x.File, x => x.Source, StringComparer.OrdinalIgnoreCase) : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         Task.Run(() =>
         {
             powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
             var originals = new Originals(data, g);
             var files = (agentCls != null ? PowerRecolor.PackagesOfAgent(powerDb, p.Prototype, agentCls, g.Cooked) : PowerRecolor.PackagesOf(powerDb, p.Prototype, hero!, g.Cooked))
-                .Select(f => originals.Find(f) ?? StockFiles.For(g.Cooked, f)).ToList();
+                .Select(f => borrowedPaths.TryGetValue(f, out var bp) ? bp : originals.Find(f) ?? StockFiles.For(g.Cooked, f)).ToList();
             return PowerRecolor.Palette(files, g.Cooked);
         }).ContinueWith(t =>
         {

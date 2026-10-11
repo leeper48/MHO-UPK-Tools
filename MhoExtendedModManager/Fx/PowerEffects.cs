@@ -340,10 +340,13 @@ sealed class PowerEffects
         var chain = g.ClassChain(cls);
         var tex = new FxTextures([.. look, .. g.AlwaysLoaded()], g.Cooked);
         foreach (var p in pkgs)
+        {
+            var unlisted = Unlisted(p);
             for (int i = 0; i < p.T.Exports.Count; i++)
             {
                 string cname = p.T.ClassOf(p.T.Exports[i]);
                 string epath = p.T.PathOf(i + 1);
+                if (unlisted.Contains(epath)) continue;   // a component its default no longer lists (a borrowed power's replaced ones)
                 if (Other(fx, tex, p, i, cname, epath, cls, seen, look, g)) continue;
                 string? kindOf = Kinds.FirstOrDefault(k => cname.StartsWith(k, StringComparison.OrdinalIgnoreCase));
                 if (kindOf == null) continue;
@@ -390,8 +393,41 @@ sealed class PowerEffects
                 fx.Effects.Add(new Effect(p.T.Exports[i].ObjectName, data, sockets, offset, point, atTarget, stop, attached) { Kind = kindName, Shift = shiftV, Turn = turnR, OnHit = powerHit });
                 AddLooks(fx, tex, look, g, data);
             }
+        }
         fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
         return fx;
+    }
+
+    /// <summary>
+    /// Effect components a class default no longer lists (Kurt, 2026-10-10: a power borrowed from another hero lists copies of
+    /// the donor's; the target's own stay in the package, unused). The game plays what the default's Components list names, so
+    /// those are left out here too. Only defaults that have a list are checked.
+    /// </summary>
+    static HashSet<string> Unlisted(FxPkg p)
+    {
+        var listed = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < p.T.Exports.Count; i++)
+        {
+            string path = p.T.PathOf(i + 1);
+            if (!path.StartsWith("marvelgamecontent.default__", StringComparison.OrdinalIgnoreCase) || path.Count(c => c == '.') != 1) continue;
+            var comps = FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props.FirstOrDefault(x => x.Name.Equals("Components", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase));
+            if (comps == null || comps.ValueAt <= 0) continue;
+            int n = BitConverter.ToInt32(p.Bytes, comps.ValueAt);
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int k = 0; k < n && comps.ValueAt + 8 + 4 * k <= p.Bytes.Length; k++)
+                if (BitConverter.ToInt32(p.Bytes, comps.ValueAt + 4 + 4 * k) is int r && r > 0) set.Add(p.T.PathOf(r));
+            listed[path] = set;
+        }
+        var unlisted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (listed.Count == 0) return unlisted;
+        for (int i = 0; i < p.T.Exports.Count; i++)
+        {
+            string path = p.T.PathOf(i + 1);
+            int dot = path.LastIndexOf('.');
+            if (path.Count(c => c == '.') != 2 || dot < 0) continue;
+            if (listed.TryGetValue(path[..dot], out var set) && !set.Contains(path)) unlisted.Add(path);
+        }
+        return unlisted;
     }
 
     /// <summary>

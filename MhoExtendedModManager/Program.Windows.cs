@@ -117,6 +117,30 @@ static partial class Program
             Gui.Dialog.Snapshot(args[1]);
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--borrow-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: the Powers tab's Borrow a Power's Look window (Iceman's Chillblain, Human Torch picked), to a PNG.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            var st = Settings.Load();
+            string? root = st.ResolvedGameRoot(Settings.LibraryData(st.LibraryPath));
+            if (root == null) { Console.WriteLine("game folder not found"); return 1; }
+            var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(root, "Data", "Game", "Calligraphy.sip")));
+            using var f = new Gui.BorrowPowerForm(db, Settings.Cooked(root), @"Powers\Player\Iceman\BasicBeam.prototype", "Chillblain",
+                new PowerBorrowEntry { Donor = @"Powers\Player\HumanTorch\ChanneledEnergyBeam.prototype", KeepTiming = true })
+            { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(6000);   // the powers and the suggestion read in the background
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[1]);
+                f.Close();
+            });
+            Application.Run(f);
+            return 0;
+        }
         if (args.Length == 3 && args[0].Equals("--adjust-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: the Model tab's Adjust Colors window on an image, with a few values set, to a PNG (off-screen).

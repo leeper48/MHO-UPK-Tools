@@ -56,7 +56,7 @@ sealed partial class StorePreview
             animator.Pose(null, 0);
             LoadProps();
             var m = mod; string? cooked2 = CookedFolder;
-            var pkgs = m == null ? [] : m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))).ToList();
+            var pkgs = m == null ? [] : ModPackages(m);
             int req2 = request;
             Task.Run(() => { using var busy = Busy.Begin("3D view: reading the animations"); try { return ModAnimations.For(r, l.Bones, pkgs, cooked2); } catch { return []; } }).ContinueWith(t =>
             {

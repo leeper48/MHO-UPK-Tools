@@ -32,8 +32,9 @@ sealed class AnimSwapEntry
 static class AnimSwap
 {
     /// <summary>One swap: the costume's animation <paramref name="Slot"/> becomes the donor package's sequence
-    /// <paramref name="DonorSequence"/> (an export of <paramref name="DonorSet"/>).</summary>
-    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence);
+    /// <paramref name="DonorSequence"/> (an export of <paramref name="DonorSet"/>); <paramref name="Rate"/> &gt; 0 sets the copy's
+    /// own play rate (a borrowed power's animation fitted to the length of the one it replaces), else Build's rateScale.</summary>
+    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0);
 
     /// <summary>
     /// An in-game test for the hero's alternate sets (2026-10-04, a user: Jean Grey's Phoenix animations; CostumeAnims.Aliases):
@@ -449,7 +450,8 @@ static class AnimSwap
                         ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
                 BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), NameIdx(slot));
                 BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt + 4), 0);
-                if (Math.Abs(rateScale - 1) > 1e-5) d = MhoExtendedModManager.Model.StepRate.WithRate(pkg, d, rateScale, NameIdx);
+                float rate = swaps.FirstOrDefault(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase))?.Rate is float own && own > 0 ? own : rateScale;
+                if (Math.Abs(rate - 1) > 1e-5) d = MhoExtendedModManager.Model.StepRate.WithRate(pkg, d, rate, NameIdx);
                 byte[] dd = d;
                 replace[seq - 1] = _ => dd;
             }
@@ -498,6 +500,80 @@ static class AnimSwap
         var problems = PackageRebuilder.Verify(pkg, output, replace.Keys.ToList(), [], written, addNames, addImports);
         if (problems.Count > 0) throw new InvalidDataException("the edited package didn't verify: " + string.Join("; ", problems.Take(3)));
         log.Add($"{swaps.Count} animation(s) swapped; {newSets.Count} set(s) added to the costume's list");
+        return output;
+    }
+
+    /// <summary>
+    /// A costume with an animation list of its own (Daredevil Modern: blink, interactive, daredevil_as, the rework sets) doesn't
+    /// play its hero's list (Kurt, 2026-10-10: Cosmic Haymaker borrowed onto Daredevil froze him: its animations were only in
+    /// the hero's list). The sets in <paramref name="setPaths"/> (in the hero's base package, which loads before its
+    /// costumes) are appended to that list as imports, as the costume imports the hero's own sets. Null when the costume
+    /// has no list of its own (it plays the hero's) or lists them all already.
+    /// </summary>
+    public static byte[]? AddImportedSets(string costumePath, string costumeClass, IReadOnlyList<string> setPaths, List<string> log)
+    {
+        var pkg = Package.Open(costumePath);
+        string compPath = $"marvelgamecontent.default__{costumeClass.ToLowerInvariant()}.initialskeletalmesh";
+        int comp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+        if (comp < 0) return null;
+        byte[] cd = pkg.ReadExportBytes(pkg.Exports[comp]).ToArray();
+        var tags = TagWalker.Walk(pkg, cd, 16) ?? throw new InvalidDataException($"{Path.GetFileName(costumePath)}: the mesh component's properties don't read");
+        var at = tags.FirstOrDefault(x => x.Name.Equals("AnimSets", StringComparison.OrdinalIgnoreCase));
+        if (at == null) return null;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt));
+        var listed = Enumerable.Range(0, n).Select(k => BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt + 4 + 4 * k)))
+            .Select(RefPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string RefPath(int r)
+        {
+            var parts = new List<string>();
+            for (int guard = 0; r != 0 && guard < 64; guard++)
+                if (r > 0) { parts.Add(pkg.Exports[r - 1].ObjectName); r = pkg.Exports[r - 1].OuterIndex; }
+                else { parts.Add(pkg.Imports[-r - 1].ObjectName); r = pkg.Imports[-r - 1].OuterIndex; }
+            parts.Reverse();
+            return string.Join('.', parts);
+        }
+        var todo = setPaths.Where(p => !listed.Contains(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (todo.Count == 0) return null;
+        var addNames = new List<string>();
+        int NameIdx(string nm)
+        {
+            int i = Array.FindIndex(pkg.Names, x => x.Equals(nm, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            int j = addNames.FindIndex(x => x.Equals(nm, StringComparison.OrdinalIgnoreCase));
+            if (j < 0) { addNames.Add(nm); j = addNames.Count - 1; }
+            return pkg.Names.Length + j;
+        }
+        var addImports = new List<NewImport>();
+        int ImportOf(string path)
+        {
+            string[] parts = path.Split('.');
+            int outer = 0;
+            for (int k = 0; k < parts.Length; k++)
+            {
+                bool last = k == parts.Length - 1;
+                string cn = last ? "AnimSet" : "Package", cp = last ? "Engine" : "Core";
+                int found = Array.FindIndex(pkg.Imports, im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals(cn, StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer);
+                if (found >= 0) { outer = -1 - found; continue; }
+                int added = addImports.FindIndex(im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.ClassName == cn && im.OuterIndex == outer);
+                if (added < 0)
+                {
+                    foreach (string nm in new[] { cp, cn, parts[k] }) NameIdx(nm);
+                    addImports.Add(new NewImport(cp, cn, outer, parts[k]));
+                    added = addImports.Count - 1;
+                }
+                outer = -(pkg.Imports.Length + added + 1);
+            }
+            return outer;
+        }
+        byte[] add = [.. todo.Select(ImportOf).SelectMany(BitConverter.GetBytes)];
+        byte[] ncd = [.. cd.AsSpan(0, at.End), .. add, .. cd.AsSpan(at.End)];
+        BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.ValueAt), n + todo.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.Start + 16), at.Size + add.Length);
+        var replace = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => ncd };
+        byte[] output = PackageRebuilder.Rebuild(pkg, replace, [], out var written, addNames, addImports);
+        var problems = PackageRebuilder.Verify(pkg, output, replace.Keys.ToList(), [], written, addNames, addImports);
+        if (problems.Count > 0) throw new InvalidDataException($"{Path.GetFileName(costumePath)} didn't verify: " + string.Join("; ", problems.Take(3)));
+        log.Add($"anims: {string.Join(", ", todo)} added to {Path.GetFileName(costumePath)}'s own animation list ({n} set(s) before)");
         return output;
     }
 

@@ -152,6 +152,79 @@ static partial class Program
                 }
                 return bad == 0 ? 0 : 1;
             }
+            case "--power-borrow-test":
+            {
+                // --power-borrow-test <mod> <target power .prototype> <donor power .prototype> [--keep-timing] [--color]
+                // (scratch MHO_EXTMM_HOME only: it saves the mod three times): a borrow on (with a color on the same power),
+                // saved; saved again unchanged (nothing stacks); taken off, saved (the mod as it was)
+                string? bhome = Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
+                if (bhome == null || Path.GetFullPath(bhome).Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("Set MHO_EXTMM_HOME to a scratch folder (a copy of a library), never the real one."); return 2; }
+                var bm = rest.Count > 3 ? lib.Find(rest[1]) : null;
+                string? bgr2 = settings.ResolvedGameRoot(data);
+                if (bm == null || bgr2 == null) { Console.WriteLine("--power-borrow-test <mod> <target power> <donor power> [--keep-timing] [--color]"); return 1; }
+                var bgame = new GameState(bgr2, data);
+                Fx.GameData? bdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(bgr2, "Data", "Game", "Calligraphy.sip")));
+                string tp = rest[2].Replace('/', '\\'), dp = rest[3].Replace('/', '\\');
+                bool keep = rest.Contains("--keep-timing"), color = rest.Contains("--color");
+                int bfails = 0;
+                void BCheck(string what, bool ok) { if (!ok) bfails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}"); }
+                string model = Path.Combine(lib.DataFolder, "model-work-" + Guid.NewGuid().ToString("N")[..8]);
+                Directory.CreateDirectory(model);
+                var blog = new List<string>();
+                int start = bm.Manifest.UpkReplacements.Count;
+                string? Save(Mod m, Action<ModDraft> change, out ModLibrary l2)
+                {
+                    var d = ModDraft.From(m);
+                    change(d);
+                    string work = Path.Combine(lib.DataFolder, "power-borrow-" + Guid.NewGuid().ToString("N")[..8]);
+                    var built = PowerBorrow.Rebuild(d, m, lib, bgame, bdb!, work, model, blog);
+                    string? cw = PowerColorBuild.Apply(d, m, lib, bgame, ref bdb, blog, () => model, built.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
+                    string? saved = ModWriter.Save(lib, d, m, out string? err);
+                    foreach (string? w in new[] { work, cw }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+                    if (err != null) Console.WriteLine("    save: " + err);
+                    l2 = ModLibrary.Load(data);
+                    return saved;
+                }
+                // the target power package's state: borrowed components listed / beams drawing the donor's; recolor groups
+                (bool Borrowed, int Recolor) State(Mod m)
+                {
+                    var e = m.Manifest.PowerBorrows?.FirstOrDefault();
+                    string? f = e?.Packages.FirstOrDefault(x => x.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase) || x.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase));
+                    if (f == null || !File.Exists(Path.Combine(m.Folder, f))) return (false, 0);
+                    var pk = MhoPackageModifier.Package.Open(Path.Combine(m.Folder, f));
+                    bool b = keep ? pk.Exports.Any(x => x.ObjectName.StartsWith("vfx_torch", StringComparison.OrdinalIgnoreCase) || x.ObjectName.Contains("borrowed_", StringComparison.OrdinalIgnoreCase) || pk.PathOf(x).Contains("humantorch", StringComparison.OrdinalIgnoreCase))
+                                  : pk.Exports.Any(x => x.ObjectName.StartsWith("borrowed_", StringComparison.OrdinalIgnoreCase));
+                    return (b, pk.Exports.Count(x => x.ObjectName.EndsWith("_recolor_fx", StringComparison.OrdinalIgnoreCase)));
+                }
+                // 1. on
+                string? s1 = Save(bm, d =>
+                {
+                    d.PowerBorrows.Add(new PowerBorrowEntry { Power = tp, Name = Path.GetFileNameWithoutExtension(tp), Donor = dp, DonorName = Path.GetFileNameWithoutExtension(dp), KeepTiming = keep });
+                    if (color) d.PowerColors.Add(new PowerColorEntry { Power = tp, Name = Path.GetFileNameWithoutExtension(tp), Hue = 120 });
+                }, out var l1);
+                blog.ForEach(x => Console.WriteLine("    " + x)); blog.Clear();
+                var m1 = l1.Find(rest[1])!;
+                var e1 = m1.Manifest.PowerBorrows?.FirstOrDefault();
+                var st1 = State(m1);
+                BCheck($"borrow saved ({e1?.Packages.Count} package(s): {string.Join(", ", e1?.Packages ?? [])})", s1 != null && e1 != null && e1.Packages.Count > 0);
+                BCheck("every built package in the mod", e1 != null && e1.Packages.All(f => m1.Manifest.UpkReplacements.Contains(f, StringComparer.OrdinalIgnoreCase) && File.Exists(Path.Combine(m1.Folder, f))));
+                BCheck($"the power package holds the borrowed look{(color ? $" and the color ({st1.Recolor} recolor group(s))" : "")}", st1.Borrowed && (!color || st1.Recolor > 0));
+                if (rest.Contains("--keep")) { try { Directory.Delete(model, true); } catch (IOException) { } Console.WriteLine(bfails == 0 ? "PASS (borrow kept)" : $"{bfails} FAILED"); return bfails == 0 ? 0 : 1; }
+                // 2. saved again, unchanged
+                string? s2 = Save(m1, _ => { }, out var l2b);
+                blog.Clear();
+                var m2 = l2b.Find(rest[1])!;
+                var st2 = State(m2);
+                BCheck($"saved again unchanged: still borrowed, {st2.Recolor} recolor group(s) (was {st1.Recolor})", s2 != null && st2.Borrowed && st2.Recolor == st1.Recolor);
+                // 3. off
+                string? s3 = Save(m2, d => { d.PowerBorrows.Clear(); foreach (var c in d.PowerColors) { c.Hue = 0; c.Saturation = 1; c.Brightness = 1; } }, out var l3);
+                blog.ForEach(x => Console.WriteLine("    " + x));
+                var m3 = l3.Find(rest[1])!;
+                BCheck($"borrow off: no PowerBorrows, packages back ({m3.Manifest.UpkReplacements.Count} = {start})", s3 != null && m3.Manifest.PowerBorrows == null && m3.Manifest.UpkReplacements.Count == start);
+                try { Directory.Delete(model, true); } catch (IOException) { }
+                Console.WriteLine(bfails == 0 ? "PASS" : $"{bfails} FAILED");
+                return bfails == 0 ? 0 : 1;
+            }
             case "--power-color-test":
             {
                 // Test (a scratch library only: MHO_EXTMM_HOME): a power color saved into a mod (PowerColorBuild.Apply + ModWriter.Save),

@@ -66,6 +66,9 @@ sealed class ModManifest
     public List<VoiceOffEntry>? VoiceOff { get; set; }
     /// <summary>Extension: power colours set in the editor (the packages they built are ordinary package replacements). Null when none.</summary>
     public List<PowerColorEntry>? PowerColors { get; set; }
+    /// <summary>Extension: power looks borrowed from other heroes' powers in the editor (the packages they built are ordinary
+    /// package replacements). Null when none.</summary>
+    public List<PowerBorrowEntry>? PowerBorrows { get; set; }
     /// <summary>Extension: animations swapped in the editor (the swaps are in the packages; this says where they came from). Null when none.</summary>
     public List<AnimSwapEntry>? AnimSwaps { get; set; }
     /// <summary>Extension: for a costume moved to another costume or hero, the prototype it came from ("TeamUps/Rescue",

@@ -7,6 +7,28 @@ namespace MhoExtendedModManager;
 /// <summary>A power's colour change (the editor's Powers tab), kept in the manifest (PowerColors) so it can be changed again:
 /// the power (its prototype path), its name, the colour, and the packages built for it (recoloured stock power packages, in
 /// the mod's packages).</summary>
+/// <summary>A power's look borrowed from another hero's power (the Powers tab's Borrow Look; PowerBorrow).</summary>
+sealed class PowerBorrowEntry
+{
+    /// <summary>The power that takes the look (its prototype), and its name.</summary>
+    public string Power { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>The power the look comes from, and its name ("Human Torch: Burning Volley").</summary>
+    public string Donor { get; set; } = "";
+    public string DonorName { get; set; } = "";
+    /// <summary>Keep the target's components and timing, take only what they draw (powers built differently: a beam from a
+    /// channeled beam); false: the donor's components, animation and projectile look.</summary>
+    public bool KeepTiming { get; set; }
+    /// <summary>The donor's animation played at the rate that fits it to the target's own (whole-power borrows).</summary>
+    public bool Fit { get; set; } = true;
+    /// <summary>The hero parts of the two heroes' base packages (UC__MarvelPlayer_&lt;hero&gt;_SF): not always the prototype
+    /// folder's name (Captain Marvel's is MsMarvel). Null: worked out at the build.</summary>
+    public string? Hero { get; set; }
+    public string? DonorHero { get; set; }
+    /// <summary>The packages it built (power, projectile, the hero's base package for its animations).</summary>
+    public List<string> Packages { get; set; } = [];
+}
+
 sealed class PowerColorEntry
 {
     public string Power { get; set; } = "";

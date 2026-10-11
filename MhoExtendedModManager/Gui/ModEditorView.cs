@@ -229,11 +229,18 @@ sealed partial class ModEditorView : UserControl
     {
         Collect();
         draft.Strings = stringsPage.Collect();
-        string? work, powerWork;
+        string? work, powerWork, borrowWorkSave = null;
         try { work = ApplyVoice(); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, "The voice lines couldn't be changed: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         var powerLog = new List<string>();
-        try { powerWork = ApplyPowerColors(powerLog); }
+        HashSet<string> borrowed;
+        try { (borrowed, borrowWorkSave) = ApplyPowerBorrows(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+            Dialog.Show(this, "The borrowed power looks couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
+        try { powerWork = ApplyPowerColors(powerLog, borrowed); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
         {
             if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
@@ -242,6 +249,9 @@ sealed partial class ModEditorView : UserControl
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
+        foreach (string? bw in new[] { borrowWorkSave, saved != null ? borrowWork : null })
+            if (bw != null) try { Directory.Delete(bw, true); } catch (IOException) { }
+        if (saved != null) borrowWork = null;
         if (saved != null && voiceWork != null) try { Directory.Delete(voiceWork, true); voiceWork = null; } catch (IOException) { }
         if (saved != null && animWork != null) try { Directory.Delete(animWork, true); animWork = null; } catch (IOException) { }
         if (saved == null) { Dialog.Show(this, error ?? "", "Can't Save Yet"); return; }

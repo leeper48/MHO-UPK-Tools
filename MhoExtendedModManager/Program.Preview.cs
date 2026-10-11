@@ -367,6 +367,139 @@ static partial class Program
                 foreach (string l in pdb.Dump(pdb.Prototype(pe.Id).Data, 200)) Console.WriteLine(l);
                 return 0;
             }
+            case "--fx-component":
+            {
+                // --fx-component <package> <component path part> (read only): a power / projectile effect component's properties
+                if (rest.Count < 3) { Console.WriteLine("--fx-component <package> <path part>"); return 1; }
+                var cp = MhoPackageModifier.Package.Open(rest[1]);
+                for (int i = 0; i < cp.Exports.Length; i++)
+                {
+                    string path = cp.PathOf(cp.Exports[i]);
+                    if (!path.Contains(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    byte[] b = cp.ReadExportBytes(cp.Exports[i]).ToArray();
+                    Console.WriteLine($"{path} ({cp.ClassOf(cp.Exports[i])})");
+                    foreach (var t in MhoPackageModifier.TagWalker.Walk(cp, b, 16) ?? [])
+                    {
+                        string v = t.Type.ToLowerInvariant() switch
+                        {
+                            "nameproperty" or "byteproperty" => MhoPackageModifier.TagWalker.NameAt(cp, b, t.ValueAt) ?? "?",
+                            "boolproperty" => b[t.ValueAt - 1].ToString(),
+                            "floatproperty" => BitConverter.ToSingle(b, t.ValueAt).ToString("0.###"),
+                            "intproperty" => BitConverter.ToInt32(b, t.ValueAt).ToString(),
+                            "objectproperty" => BitConverter.ToInt32(b, t.ValueAt) is int r && r > 0 ? cp.PathOf(cp.Exports[r - 1]) : r.ToString(),
+                            _ => $"({t.Size} bytes)",
+                        };
+                        Console.WriteLine($"    {t.Name} {t.Type} = {v}");
+                    }
+                }
+                return 0;
+            }
+            case "--anim-lengths":
+            {
+                // --anim-lengths <package> [name part] (read only): every AnimSequence's name, length (seconds), frames and play rate
+                if (rest.Count < 2) { Console.WriteLine("--anim-lengths <package> [name part]"); return 1; }
+                var lp = AnimExportCli.Packages.Package.Open(rest[1]);
+                string part = rest.Count > 2 ? rest[2] : "";
+                foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(lp))
+                    foreach (var seq in set.Sequences.Where(q => q.IsExport))
+                    {
+                        string n = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(lp, seq.ExportIndex);
+                        if (part.Length > 0 && !n.Contains(part, StringComparison.OrdinalIgnoreCase)) continue;
+                        var pr = lp.TryReadProperties(seq.ExportIndex);
+                        Console.WriteLine($"{lp.GetExportName(set.ExportIndex)}	{n}	{pr?.GetFloat("SequenceLength"):0.###} s	{pr?.GetInt("NumFrames")} frames	rate {(pr != null && pr.Find("RateScale") != null ? pr.GetFloat("RateScale") : 1):0.###}");
+                    }
+                return 0;
+            }
+            case "--power-borrow":
+            {
+                // --power-borrow <out dir> <target pkg>|<target default>=<donor pkg>|<donor default> ... [--anims <hero pkg> <hero class> <donor hero pkg>]
+                // (writes only into <out dir>; the game's packages are read from the stock copies): each target default's
+                // components become copies of the donor's, and with --anims the donor's power animations go into the hero's package
+                if (rest.Count < 3) { Console.WriteLine("--power-borrow <out dir> <target pkg>|<target default>=<donor pkg>|<donor default> ... [--anims <hero pkg> <hero class> <donor hero pkg>]"); return 1; }
+                string? bgr = settings.ResolvedGameRoot(data);
+                string? bcook = bgr != null && Settings.IsGameRoot(bgr) ? Settings.Cooked(bgr) : null;
+                if (bcook == null) { Console.WriteLine("game folder not found"); return 1; }
+                string outDir = rest[1];
+                Directory.CreateDirectory(outDir);
+                string Stock(string f) => File.Exists(f) ? f : StockFiles.For(bcook, f.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? f : f + ".upk");
+                // the automatic form: two power prototypes (Powers\Player\Iceman\RapidFire.prototype …); --no-fit keeps the donor's speed
+                if (rest[2].EndsWith(".prototype", StringComparison.OrdinalIgnoreCase) && rest.Count > 3)
+                {
+                    var plog = new List<string>();
+                    try
+                    {
+                        var pdb2 = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(bgr!, "Data", "Game", "Calligraphy.sip")));
+                        var pgame = new Fx.FxGame(bcook, []);
+                        string tp = rest[2].Replace('/', '\\'), dp = rest[3].Replace('/', '\\');
+                        var plan = PowerBorrow.Plan(pdb2, pgame, tp, dp, plog);
+                        var ppw = plan.FirstOrDefault(x => x.Role == "power");
+                        string th = PowerBorrow.HeroPackage(bcook, null, tp, ppw?.TargetClass, ppw == null ? [] : PowerBorrow.AnimNames(ppw.TargetFile, $"marvelgamecontent.default__{ppw.TargetClass}".ToLowerInvariant()))
+                            ?? throw new InvalidDataException("the target power's hero package wasn't found");
+                        string dh = PowerBorrow.HeroPackage(bcook, null, dp, ppw?.DonorClass, ppw == null ? [] : PowerBorrow.AnimNames(ppw.DonorFile, $"marvelgamecontent.default__{ppw.DonorClass}".ToLowerInvariant()))
+                            ?? throw new InvalidDataException("the donor power's hero package wasn't found");
+                        plog.Add($"hero packages: UC__MarvelPlayer_{th}_SF ← UC__MarvelPlayer_{dh}_SF");
+                        var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook);
+                        plog.ForEach(Console.WriteLine);
+                        foreach (var (f, bytes) in built)
+                        {
+                            var st = MhoPackageModifier.Package.Open(Stock(f)); var nw = MhoPackageModifier.Package.FromBytes(bytes);
+                            bool guid = File.ReadAllBytes(Stock(f)).AsSpan(st.GenerationsAt - 16, 16).SequenceEqual(bytes.AsSpan(nw.GenerationsAt - 16, 16));
+                            File.WriteAllBytes(Path.Combine(outDir, f), bytes);
+                            Console.WriteLine($"wrote {Path.Combine(outDir, f)} ({bytes.Length:N0} bytes; GUID {(guid ? "the stock package's" : "CHANGED")})");
+                        }
+                        return 0;
+                    }
+                    catch (InvalidDataException ex) { plog.ForEach(Console.WriteLine); Console.WriteLine("ERROR: " + ex.Message); return 1; }
+                }
+                int ai = rest.IndexOf("--anims");
+                var pairs = rest.Skip(2).Take((ai < 0 ? rest.Count : ai) - 2).ToList();
+                var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                var donorAnims = new List<string>();
+                var blog = new List<string>();
+                try
+                {
+                    foreach (string pr in pairs)
+                    {
+                        var sides = pr.Split('=');
+                        var t = sides[0].Split('|'); var dn = sides[1].Split('|');
+                        string tFile = Path.GetFileName(Stock(t[0]));
+                        byte[] cur = done.TryGetValue(tFile, out var b) ? b : File.ReadAllBytes(Stock(t[0]));
+                        done[tFile] = PowerBorrow.Graft(cur, t[1], Stock(dn[0]), dn[1], blog);
+                        donorAnims.AddRange(PowerBorrow.AnimNames(Stock(dn[0]), dn[1]));
+                    }
+                    if (ai > 0 && rest.Count > ai + 3 && donorAnims.Count > 0)
+                    {
+                        string heroPkg = Stock(rest[ai + 1]), heroClass = rest[ai + 2], donorHero = Stock(rest[ai + 3]);
+                        var ap = AnimExportCli.Packages.Package.Open(donorHero);
+                        var swaps = new List<AnimSwap.Swap>();
+                        foreach (string an in donorAnims.Distinct(StringComparer.OrdinalIgnoreCase))
+                        {
+                            AnimSwap.Swap? found = null;
+                            foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap))
+                                foreach (var seq in set.Sequences.Where(q => q.IsExport))
+                                    if (found == null && AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex).Equals(an, StringComparison.OrdinalIgnoreCase))
+                                        found = new AnimSwap.Swap(an, donorHero, set.ExportIndex, seq.ExportIndex);
+                            if (found != null) swaps.Add(found); else blog.Add($"anims: {an} not found in {Path.GetFileName(donorHero)}");
+                        }
+                        if (swaps.Count > 0)
+                        {
+                            done[Path.GetFileName(heroPkg)] = AnimSwap.Build(heroPkg, heroClass, swaps, blog);
+                            blog.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {Path.GetFileName(heroPkg)} ({heroClass})");
+                        }
+                    }
+                }
+                catch (InvalidDataException ex) { blog.ForEach(Console.WriteLine); Console.WriteLine("ERROR: " + ex.Message); return 1; }
+                blog.ForEach(Console.WriteLine);
+                foreach (var (f, bytes) in done)
+                {
+                    // the GUID stays the stock package's (the game checks it)
+                    var st = MhoPackageModifier.Package.Open(Stock(f)); var nw = MhoPackageModifier.Package.FromBytes(bytes);
+                    bool guid = File.ReadAllBytes(Stock(f)).AsSpan(st.GenerationsAt - 16, 16).SequenceEqual(bytes.AsSpan(nw.GenerationsAt - 16, 16));
+                    File.WriteAllBytes(Path.Combine(outDir, f), bytes);
+                    Console.WriteLine($"wrote {Path.Combine(outDir, f)} ({bytes.Length:N0} bytes; GUID {(guid ? "the stock package's" : "CHANGED")})");
+                }
+                return 0;
+            }
             case "--power-fx":
             {
                 // Read-only: what the 3D preview plays for a power class (its own; the MHO Hero Creator's --power-fx summary).

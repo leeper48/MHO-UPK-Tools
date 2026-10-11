@@ -100,7 +100,7 @@ sealed partial class StorePreview
         // The hero whose animations these are: UC__MarvelPlayer_<Hero>_… (a moved costume plays its target hero's).
         string? hero = HeroOf.Package(r.Package, cooked);
         if (hero == null) return;
-        var modFiles = mod.Manifest.UpkReplacements.Where(f => SkipModFile?.Invoke(f) != true).Select(f => Path.Combine(mod.Folder, f)).ToList();
+        var modFiles = ModPackages(mod, skip: true).Select(x => x.Path).ToList();
         int req = fxRequest;
         var a = animator; var l = shownLoaded;
         string meshFile = r.File, meshName = r.Name;
@@ -153,6 +153,30 @@ sealed partial class StorePreview
     /// <summary>The editor's Powers tab: the mod's packages the preview leaves out (the recoloured ones it built before, so a
     /// colour being changed isn't shown on top of the old one).</summary>
     public Func<string, bool>? SkipModFile { get; set; }
+
+    /// <summary>Packages the editor has built but not saved yet (a borrowed power look: Kurt, 2026-10-10), file → path: they
+    /// take the place of the saved mod's (or join them) wherever the preview reads the mod's packages.</summary>
+    public Func<IReadOnlyDictionary<string, string>>? OverrideFiles { get; set; }
+
+    /// <summary>The mod's packages as the preview reads them: its own files, the editor's overrides in their place;
+    /// <paramref name="skip"/> leaves out SkipModFile's.</summary>
+    List<(string File, string Path)> ModPackages(Mod m, bool skip = false)
+    {
+        var over = OverrideFiles?.Invoke() ?? new Dictionary<string, string>();
+        var list = m.Manifest.UpkReplacements.Where(f => !skip || SkipModFile?.Invoke(f) != true)
+            .Select(f => (f, over.TryGetValue(f, out var o) ? o : Path.Combine(m.Folder, f))).ToList();
+        foreach (var (f, p) in over) if (!list.Any(x => x.f.Equals(f, StringComparison.OrdinalIgnoreCase))) list.Add((f, p));
+        return list;
+    }
+
+    /// <summary>The overrides changed: the model, its animations and the effects read again.</summary>
+    public void ReloadOverrides()
+    {
+        if (mod is not { } m) return;
+        modStamp = "";
+        mod = null;
+        Mod = m;
+    }
     string fxPower = "";
 
     /// <summary>The colour of the power playing changed (Powers tab): shown at once.</summary>
@@ -225,7 +249,7 @@ sealed partial class StorePreview
         ClearEffects();
         if (ownFxPackage is not string pkgFile || animator == null || mod == null || !MeshOk || CookedFolder is not string cooked) return;
         var r = meshes[meshIndex];
-        var modFiles = mod.Manifest.UpkReplacements.Where(f => SkipModFile?.Invoke(f) != true).Select(f => Path.Combine(mod.Folder, f)).ToList();
+        var modFiles = ModPackages(mod, skip: true).Select(x => x.Path).ToList();
         int req = fxRequest;
         var a = animator; var l = shownLoaded;
         string meshFile = r.File, meshName = r.Name, proto = ownProto ?? "";
@@ -330,7 +354,7 @@ sealed partial class StorePreview
         string? cooked = CookedFolder;
         if (!on && rig.Count == 0) return;
         // (in the background: the hero's base package may be read for its props)
-        var modPkgs = mod == null ? [] : mod.Manifest.UpkReplacements.Select(f => (f, Path.Combine(mod.Folder, f))).ToList();
+        var modPkgs = mod == null ? [] : ModPackages(mod);
         Task.Run(() => (on ? PropRig.Attached(main, all, cooked) : []).Select(w =>
         {
             try
@@ -421,7 +445,7 @@ sealed partial class StorePreview
         if (mod == null || !MeshOk || CookedFolder is not string cooked) { powersLoaded = true; return; }
         string? hero = HeroOfMesh();
         if (hero == null) { powersLoaded = true; return; }
-        var modFiles = mod.Manifest.UpkReplacements.Select(f => Path.Combine(mod.Folder, f)).ToList();
+        var modFiles = ModPackages(mod).Select(x => x.Path).ToList();
         var names = allAnims.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
@@ -510,7 +534,7 @@ sealed partial class StorePreview
         var motionRefs = rig.MotionRefs(playing != null && ai0 >= 0 && ai0 < anims.Count ? anims[ai0].Name : null);
         int ai = animBox.SelectedIndex - 1;
         string? anim = playing != null && ai >= 0 && ai < anims.Count ? anims[ai].Name : null;
-        var modFiles = mod.Manifest.UpkReplacements.Select(f => Path.Combine(mod.Folder, f)).ToList();
+        var modFiles = ModPackages(mod).Select(x => x.Path).ToList();
         string key = hero + "|" + mod.Folder;
         var dbTask = GameDb(cooked);
         if (!powerIndexCache.TryGetValue(key, out var idxTask))

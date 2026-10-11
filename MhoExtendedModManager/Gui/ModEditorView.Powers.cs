@@ -66,6 +66,7 @@ sealed partial class ModEditorView
             // Packages built for colors before are left out of the preview: the color shown is the one being set, on the stock files.
             var built = editing.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             powerPreview.SkipModFile = f => built.Contains(f);
+            powerPreview.OverrideFiles = () => borrowFiles;   // borrowed looks built since the last save
             powerPreview.HeroPowersLoaded += FillPowers;
             // Its buttons (made when a model loads) take the app's button look; the theme pass that gives it them in the
             // main window has run already here.
@@ -94,6 +95,7 @@ sealed partial class ModEditorView
         sliders.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         foreach (var sl in new[] { hueSlider, satSlider, brightSlider, opacitySlider }) { sl.ValueChanged += SliderChanged; sl.Dock = DockStyle.Fill; sl.Margin = new Padding(0); sliders.Controls.Add(sl); }
         right.Controls.Add(sliders, 0, 2);
+        right.Controls.Add(BorrowSection(), 0, 3);
         Ui.Tip(opacitySlider, "How visible the power's effects are: 100 % as the game has it, lower fades them, 0 % switches them off (nothing draws). Unlike Brightness, it fades smoke and dust too instead of leaving them as a dark cloud. Double-click: back to 100 %.");
         Ui.Tip(hueSlider, "Turns the power's colors around the color wheel (the brightness of each color is kept). Double-click: back to the game's.");
         Ui.Tip(satSlider, "How strong the power's colors are: 0 % is grey, 100 % as the game has it. Double-click: back to 100 %.");
@@ -362,6 +364,7 @@ sealed partial class ModEditorView
             if (p.Animations.Count > 0) powerPreview?.PlayPower(p.Prototype);
         }
         ShowShared(p);
+        ShowBorrow(p);
         LoadPalette(p);
         ShowMapRows();
     }
@@ -413,13 +416,22 @@ sealed partial class ModEditorView
             e.Graphics.FillEllipse(sw, e.Bounds.Right - s - 2 * pad, e.Bounds.Y + (e.Bounds.Height - s) / 2, s, s);
         }
         var tr = Rectangle.FromLTRB(ir.Right + 2 * pad, e.Bounds.Y, e.Bounds.Right - (int)(28 * S), e.Bounds.Bottom);
+        if (BorrowOf(p.Prototype) is { } borrow)
+        {
+            // a borrowed look: the name, and under it whose look (subtle)
+            var top = Rectangle.FromLTRB(tr.Left, tr.Top, tr.Right, tr.Top + tr.Height / 2 + (int)(2 * S));
+            var bottom = Rectangle.FromLTRB(tr.Left, top.Bottom - (int)(4 * S), tr.Right, tr.Bottom);
+            TextRenderer.DrawText(e.Graphics, p.Name, Ui.Regular(10f), top, Ui.Text, TextFormatFlags.Bottom | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(e.Graphics, "Looks like " + borrow.DonorName, Ui.Regular(8.5f), bottom, Ui.Subtle, TextFormatFlags.Top | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            return;
+        }
         TextRenderer.DrawText(e.Graphics, p.Name, Ui.Regular(10f), tr, Ui.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
 
     /// <summary>Before saving: the power colors into the draft's packages (PowerColorBuild.Apply). Returns the work folder.</summary>
-    string? ApplyPowerColors(List<string> log)
+    string? ApplyPowerColors(List<string> log, IReadOnlySet<string>? borrowed = null)
     {
         if (game == null) { if (draft.PowerColors.Any(e => !e.Color.IsNone)) throw new InvalidDataException("the game folder isn't set"); return null; }
-        return PowerColorBuild.Apply(draft, editing, lib, game, ref powerDb, log, () => WorkFolder);
+        return PowerColorBuild.Apply(draft, editing, lib, game, ref powerDb, log, () => WorkFolder, borrowed);
     }
 }

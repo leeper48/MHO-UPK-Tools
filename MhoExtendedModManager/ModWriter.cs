@@ -46,6 +46,7 @@ sealed class ModDraft
     public string? MovedFrom;
     public List<VoiceShiftEntry> VoiceShifts = [];
     public List<PowerColorEntry> PowerColors = [];
+    public List<PowerBorrowEntry> PowerBorrows = [];
     public List<string> PostImages = [];
     /// <summary>The Model tab's work (bone maps, FBX edits, its choices, the package before the model): a folder copied into
     /// the mod as Model\ on Save (null: the mod's own Model folder stays as it is).</summary>
@@ -100,6 +101,7 @@ sealed class ModDraft
         d.MovedFrom = m.Manifest.MovedFrom;
         d.VoiceShifts = m.Manifest.VoiceShifts?.ToList() ?? [];
         d.PowerColors = m.Manifest.PowerColors?.ToList() ?? [];
+        d.PowerBorrows = m.Manifest.PowerBorrows?.ToList() ?? [];
         var log = m.Manifest.Changelog ?? [];
         d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
         d.Changelog = log.Select(e => new ChangelogEntry { Version = e.Version, Changes = e.Changes }).ToList();
@@ -177,6 +179,7 @@ static class ModWriter
             manifest.MovedFrom = string.IsNullOrEmpty(d.MovedFrom) ? null : d.MovedFrom;
             manifest.VoiceShifts = d.VoiceShifts.Count > 0 ? d.VoiceShifts : null;
             manifest.PowerColors = d.PowerColors.Count > 0 ? d.PowerColors : null;
+            manifest.PowerBorrows = d.PowerBorrows.Count > 0 ? d.PowerBorrows : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };
             for (int k = 0; k < lists.Length; k++)
@@ -375,7 +378,7 @@ static class ModelWork
         // (2026-10-07: the other work folders a killed run left were never swept: power colors, voice, animations, moves)
         foreach (var d in Directory.GetDirectories(library))
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "^(model-work|power-colors|voice-work|voice-edit|voice-shift|anim-work|costume-move)-[0-9a-f]{8}$")) continue;
+            if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "^(model-work|power-colors|power-borrow|voice-work|voice-edit|voice-shift|anim-work|costume-move)-[0-9a-f]{8}$")) continue;
             try { Directory.Delete(d, true); n++; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }

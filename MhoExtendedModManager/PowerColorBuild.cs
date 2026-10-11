@@ -10,7 +10,7 @@ static class PowerColorBuild
     /// </summary>
     /// <param name="modelFolder">The draft's Model work folder (the editor's), where an own-effects recolor keeps the package
     /// it started from (Model\color_base); null: one is made here.</param>
-    public static string? Apply(ModDraft draft, Mod? editing, ModLibrary lib, GameState game, ref Fx.GameData? powerDb, List<string> log, Func<string>? modelFolder = null)
+    public static string? Apply(ModDraft draft, Mod? editing, ModLibrary lib, GameState game, ref Fx.GameData? powerDb, List<string> log, Func<string>? modelFolder = null, IReadOnlySet<string>? borrowed = null)
     {
         var before = editing?.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var beforeOwn = editing?.Manifest.PowerColors?.Where(e => IsOwn(e.Power)).SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
@@ -52,7 +52,8 @@ static class PowerColorBuild
         {
             // The mod's own copy of that package (not one built here before) is the one recolored; else the stock original.
             int k = draft.Packages.FindIndex(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase));
-            string? source = k >= 0 && !before.Contains(f) ? draft.Packages[k].Source : originals.Find(f);
+            // (a package a borrowed look built this Save: recolored as borrowed, PowerBorrow.Rebuild)
+            string? source = k >= 0 && (!before.Contains(f) || borrowed?.Contains(f) == true) ? draft.Packages[k].Source : originals.Find(f);
             if (IsOwn(e.Power))
             {
                 // A character's own effects (an NPC or enemy package: its glows, trails): the package also holds the Model tab's
@@ -78,7 +79,7 @@ static class PowerColorBuild
             draft.Packages[k] = (f, start);
             log.Add($"{f}: its own effects back to the game's colors");
         }
-        draft.Packages.RemoveAll(p => before.Contains(p.File) && !beforeOwn.Contains(p.File) && !kept.Contains(p.File));
+        draft.Packages.RemoveAll(p => before.Contains(p.File) && !beforeOwn.Contains(p.File) && !kept.Contains(p.File) && borrowed?.Contains(p.File) != true);
         draft.PowerColors.RemoveAll(e => e.Color.IsNone);
         return work;
     }
