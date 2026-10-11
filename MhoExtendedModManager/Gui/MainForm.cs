@@ -395,6 +395,8 @@ sealed partial class MainForm : Form
         };
         header.ConflictClicked += () => { for (int i = 0; i < tabs.Count; i++) if (tabs.TitleAt(i).StartsWith("Conflicts")) { tabs.Select(i); break; } };
         list.UpdateClicked += m => UpdateFromNexus(m);
+        list.SharedFor = UniqueNames.Reason;
+        list.SharedClicked += MakeUnique;
 
         // ---- Right: the selected mod
         var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 4, 8, 0) };
@@ -794,6 +796,7 @@ sealed partial class MainForm : Form
         FillList(keep);
         UpdateUndo();
         if (!readOnly && game != null && game.HasStockList) CountPending();
+        CheckShared();
     }
 
     static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On First"), ("update", "Updates First")];

@@ -78,6 +78,10 @@ sealed class ModListBox : ListBox
     /// <summary>Stock pictures for mods without one of their own (StockCatalog.DefaultIconFor); null: none.</summary>
     public StockCatalog? Catalog { get; set; }
     public event Action<Mod>? UpdateClicked;
+    /// <summary>A mod whose changed model another stock package also carries (UniqueNames): the reason, for the yellow
+    /// "OVERLAP" pill's tooltip; null: no pill.</summary>
+    public Func<Mod, string?>? SharedFor { get; set; }
+    public event Action<Mod>? SharedClicked;
     /// <summary>What a padlock click would lock the mod to (ModLibrary.CanLock); None hides the padlock of an unlocked mod.</summary>
     public Func<Mod, ModLock>? CanLock { get; set; }
     int hover = -1;
@@ -89,6 +93,7 @@ sealed class ModListBox : ListBox
     readonly Dictionary<int, (Rectangle Badges, List<(Rectangle Rect, string Tag)> Chips)> regions = [];
     // Where each card's Update pill and Nexus mark were drawn (item index).
     readonly Dictionary<int, (Rectangle Pill, Rectangle Mark)> nexusParts = [];
+    readonly Dictionary<int, Rectangle> sharedPills = [];
     readonly Font pillFont = Ui.Heavy(7.5f), markFont = Ui.Heavy(6.5f);
     readonly ToolTip tips;
     readonly System.Windows.Forms.Timer tipTimer = new() { Interval = 450 };
@@ -129,6 +134,7 @@ sealed class ModListBox : ListBox
     float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
     static readonly Color NexusOrange = Color.FromArgb(230, 140, 60);
     public static readonly Color ConflictAmber = Color.FromArgb(242, 170, 60);
+    public static readonly Color OverlapYellow = Color.FromArgb(250, 214, 60);
 
     protected override void OnMeasureItem(MeasureItemEventArgs e)
     {
@@ -355,6 +361,31 @@ sealed class ModListBox : ListBox
             badgesLeft = pill.Left;
         }
         nexusParts[e.Index] = (pill, mark);
+        // A changed model that other stock packages also carry (the stock copy can show near other players): a yellow
+        // "OVERLAP" warning pill with a ! in a triangle (Kurt, 2026-10-11; click: Make Unique).
+        var shared = Rectangle.Empty;
+        if (SharedFor?.Invoke(m) != null)
+        {
+            const string label = "OVERLAP";
+            var ts = TextRenderer.MeasureText(g, label, pillFont, Size.Empty, TextFormatFlags.NoPadding);
+            int ph = (int)(16 * S), tri = (int)(11 * S), pw = ts.Width + tri + (int)(16 * S);
+            shared = new Rectangle(badgesLeft - pw - (int)(6 * S), check.Top + check.Height / 2 - ph / 2, pw, ph);
+            using (var path = Ui.Round(shared, ph / 2f))
+            using (var f = new SolidBrush(OverlapYellow)) g.FillPath(f, path);
+            // the warning triangle: dark outline on the yellow, a ! inside
+            float tx = shared.Left + 6 * S, ty = shared.Top + (ph - tri) / 2f;
+            var corners = new[] { new PointF(tx + tri / 2f, ty), new PointF(tx + tri, ty + tri), new PointF(tx, ty + tri) };
+            using (var pen = new Pen(Ui.OnColor, Math.Max(1.2f, 1.3f * S)) { LineJoin = LineJoin.Round }) g.DrawPolygon(pen, corners);
+            using (var bang = new Pen(Ui.OnColor, Math.Max(1.2f, 1.4f * S)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                g.DrawLine(bang, tx + tri / 2f, ty + tri * 0.36f, tx + tri / 2f, ty + tri * 0.64f);
+                g.DrawLine(bang, tx + tri / 2f, ty + tri * 0.82f, tx + tri / 2f, ty + tri * 0.83f);
+            }
+            var text = new Rectangle((int)(tx + tri + 3 * S), shared.Top, shared.Right - (int)(tx + tri + 3 * S) - (int)(6 * S), ph);
+            TextRenderer.DrawText(g, label, pillFont, text, Ui.OnColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            badgesLeft = shared.Left;
+        }
+        sharedPills[e.Index] = shared;
 
         var nameRect = new Rectangle(textLeft, card.Y + (int)(5 * S), badgesLeft - textLeft, (int)(20 * S));
         Ui.DrawModName(g, m, nameFont, nameRect, m.Enabled ? Ui.Text : Color.FromArgb(200, 200, 205), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
@@ -448,6 +479,8 @@ sealed class ModListBox : ListBox
             return m.Lock != ModLock.None ? $"Locked at the {(m.Lock == ModLock.Top ? "top" : "bottom")}: it stays in the locked run there (drag or the arrows reorder it among the other locked mods), and other mods can't pass it. Click to unlock."
                  : LockOffer(m) is var l && l != ModLock.None ? $"Click to lock it at the {(l == ModLock.Top ? "top" : "bottom")}: it keeps its place, and new or moved mods can't pass it."
                  : null;
+        if (sharedPills.TryGetValue(i, out var sp) && sp.Contains(p) && SharedFor?.Invoke(m) is string why)
+            return why + " Click to Make Unique: the mod's own copy gets paths of its own (asks first).";
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(p) || np.Mark.Contains(p)))
         {
             string have = (m.NexusLink?.Version ?? m.Manifest.Version ?? "?").TrimStart('v', 'V');
@@ -492,6 +525,8 @@ sealed class ModListBox : ListBox
             SelectedIndex = i; anchor = i; ClearMarks(); CheckClicked?.Invoke(m); return;
         }
         if (LockRect(b).Contains(e.Location) && LockOffer(m) != ModLock.None) { SelectedIndex = i; LockClicked?.Invoke(m); return; }
+        if (sharedPills.TryGetValue(i, out var sp) && sp.Contains(e.Location) && SharedFor?.Invoke(m) != null)
+        { SelectedIndex = i; SharedClicked?.Invoke(m); return; }
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(e.Location) || np.Mark.Contains(e.Location)) && UpdateFor?.Invoke(m) != null)
         { SelectedIndex = i; UpdateClicked?.Invoke(m); return; }
         if (regions.TryGetValue(i, out var r))

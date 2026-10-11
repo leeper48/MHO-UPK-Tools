@@ -171,6 +171,7 @@ sealed partial class MainForm
         menu.Items.Insert(at++, new ToolStripMenuItem("Create Post", null, (_, _) => CreatePost(m)));
         menu.Items.Insert(at++, NexusMenu(m));
         menu.Items.Insert(at++, CardPictureMenu(m));
+        if (UniqueNames.Reason(m) != null) menu.Items.Insert(at++, new ToolStripMenuItem("Make Unique", null, (_, _) => MakeUnique(m)) { Enabled = !readOnly, ToolTipText = "A stock copy of this mod's changed model is in other packages and can show instead; this gives the mod's copy paths of its own." });
         if (SingleCostume(m) != null)
         {
             var move = new ToolStripMenuItem("Move to Another Costume") { Enabled = !readOnly };

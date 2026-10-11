@@ -143,6 +143,7 @@ function mhoNext(dir) {
 <ul class="toc">
 <li><a href="#w-install">Install a Mod and Put It in the Game</a></li>
 <li><a href="#w-order">Decide Which Mod Wins</a></li>
+<li><a href="#w-unique">Keep a Mod's Look Near Other Players</a></li>
 <li><a href="#w-powers">Watch a Hero's Powers in the 3D Preview</a></li>
 <li><a href="#w-icon">Make a Costume's Icons from the 3D Model</a></li>
 <li><a href="#w-text">Change a Costume's Name or Text</a></li>
@@ -187,6 +188,16 @@ function mhoNext(dir) {
 <li>Apply Changes.</li>
 </ol>
 <p>See <a href="#list">The mod list</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-unique">Keep a Mod's Look Near Other Players</h3>
+<ol class="steps">
+<li>A mod with a yellow <b>⚠ OVERLAP</b> pill changes a model the game also keeps in other files (a team-up's character is often also a summon or an NPC). Hover the pill to see which.</li>
+<li>Click <b>OVERLAP</b> (or right-click the card → <b>Make Unique</b>) and confirm.</li>
+<li>Apply Changes. The mod now keeps its look even when someone nearby loads the game's copy.</li>
+</ol>
+<p>See <a href="#shared">OVERLAP</a>.</p>
 </div>
 
 <div class="walk">
@@ -459,6 +470,7 @@ function mhoNext(dir) {
 <li><b>Padlocks:</b> a mod at the top or bottom can be locked there (the padlock under its checkbox). Several mods can be locked in a row at each end. A locked mod moves only among the mods locked at the same end (drag, the arrows or Ctrl+arrows reorder them there); other mods can't pass the locks, and new mods land inside them.</li>
 <li><b>Conflicts:</b> a stripe on the card's left edge. Red: part of this mod loses to a higher one. Amber: it only wins. The selected mod's partners are outlined, and the <b>Conflicts</b> tab says who wins what.</li>
 <li><b>Nexus:</b> an orange N on the picture means the mod is linked to a Nexus page, a green ↑ and an <b>↑ UPDATE</b> pill mean Nexus has a newer version.</li>
+<li id="shared"><b>⚠ OVERLAP</b> (a yellow warning pill): the mod changes a model that other game files also carry under the same name. Many characters are in several files: Jessica Jones is in her team-up, her summon (Luke Cage's talent) and the Avengers Tower NPC; Angel is in his team-up and in Cyclops' own file. The game uses whichever copy loads first, so near other players, their summons and team-ups, or hub NPCs, the mod can show the game's look instead of its own. Click the pill (or right-click the card → <b>Make Unique</b>) to give the mod's copy names of its own: only the mod's own package files change (saved like an edit), textures the game streams keep their names, and the mod still installs in MHModManager. Then Apply Changes. A mod that ships every file carrying the model doesn't get the pill. Moving a costume to another hero does this by itself.</li>
 <li><b>Moved costumes:</b> a mod made with <a href="#costume">Move to Another Costume</a> ends in <span style="color:#f2aa3c">(on Classic)</span> in amber: that part is the app's, not the mod's name.</li>
 <li><b>All</b> turns every mod the list shows on (or off, if they're all on).</li>
 <li><b>Undo / Redo</b> (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) step back through list changes: on/off, order, locks, tags, notes. They don't touch the game: to take a mod's changes out of the game, turn it off and Apply Changes, which puts the originals back.</li>

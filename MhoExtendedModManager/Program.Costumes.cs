@@ -12,6 +12,163 @@ static partial class Program
     {
         switch (cmd)
         {
+            case "--shared-models":
+            {
+                // --shared-models <report.txt> [kind ...] (read only; the clean game files, else the game's): character models,
+                // material instances and physics assets that several stock packages carry under the same path (Kurt, 2026-10-11,
+                // a user: a modded Jessica Jones team-up showed the stock model in hubs; her agent, NPC and team-up packages each
+                // hold jessica_jones.jessicajones_tv, and the game uses whichever copy loads first). Kinds: the UC__<kind>_ part,
+                // default MarvelPlayer MarvelTeamUp MarvelAgent MarvelNPC MarvelVanityPet.
+                if (rest.Count < 2) { Console.WriteLine("--shared-models <report.txt> [kind ...]"); return 1; }
+                string? sgr = settings.ResolvedGameRoot(data);
+                string? scook = sgr != null && Settings.IsGameRoot(sgr) ? Settings.Cooked(sgr) : null;
+                if (scook == null) { Console.WriteLine("game folder not found"); return 1; }
+                string folder = settings.CleanGameFiles is string cg && Directory.Exists(cg) ? cg : scook;
+                var kinds = rest.Count > 2 ? rest.Skip(2).ToList() : ["MarvelPlayer", "MarvelTeamUp", "MarvelAgent", "MarvelNPC", "MarvelVanityPet"];
+                var files = Directory.EnumerateFiles(folder, "UC__*_SF.upk").Select(Path.GetFileName).OfType<string>()
+                    .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .Where(f => kinds.Any(k => f.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase))).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                Console.WriteLine($"{files.Count} package(s) in {folder}");
+                string[] classes = ["skeletalmesh", "materialinstanceconstant", "physicsasset", "material", "texture2d"];
+                // path|class -> (package, size)
+                var seen = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<(string File, int Size)>>(StringComparer.OrdinalIgnoreCase);
+                var sw2 = System.Diagnostics.Stopwatch.StartNew();
+                int n2 = 0, bad = 0;
+                Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) }, f =>
+                {
+                    try
+                    {
+                        var p = MhoPackageModifier.Package.Open(Path.Combine(folder, f));
+                        foreach (var e in p.Exports)
+                        {
+                            string c = p.ClassOf(e).ToLowerInvariant();
+                            if (!classes.Contains(c)) continue;
+                            seen.GetOrAdd($"{p.PathOf(e)}|{c}", _ => []).Add((f, e.SerialSize));
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { Interlocked.Increment(ref bad); }
+                    if (Interlocked.Increment(ref n2) % 250 == 0) Console.WriteLine($"  {n2} of {files.Count} ({sw2.Elapsed.TotalSeconds:0} s)");
+                });
+                static string Kind(string f) => f.Split('_', StringSplitOptions.RemoveEmptyEntries) is { Length: > 1 } s ? s[1] : f;
+                // libraries every character shares (base materials, effects): the same object everywhere, not a model
+                static bool Library(string path) => path.StartsWith("chbasematerial", StringComparison.OrdinalIgnoreCase) || path.StartsWith("vfx_", StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith("engine", StringComparison.OrdinalIgnoreCase) || path.StartsWith("biped_lib", StringComparison.OrdinalIgnoreCase);
+                var shared = seen.Where(kv => kv.Value.Select(x => x.File).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+                    .Select(kv => (Path: kv.Key.Split('|')[0], Class: kv.Key.Split('|')[1], Copies: kv.Value.ToList())).ToList();
+                var rep = new List<string> { $"Shared models census, {DateTime.Now:yyyy-MM-dd HH:mm}: {files.Count} packages ({string.Join(", ", kinds)}) in {folder}, {sw2.Elapsed.TotalSeconds:0} s{(bad > 0 ? $", {bad} unreadable" : "")}", "" };
+                var meshes = shared.Where(s => s.Class == "skeletalmesh" && !Library(s.Path)).OrderByDescending(s => s.Copies.Count).ThenBy(s => s.Path).ToList();
+                // packages whose own model is also in another package: a mod of them can be shadowed
+                var atRisk = meshes.SelectMany(m => m.Copies.Select(c => (c.File, m.Path))).GroupBy(x => x.File, StringComparer.OrdinalIgnoreCase).ToList();
+                rep.Add($"Skeletal meshes carried by more than one package: {meshes.Count} (in {atRisk.Count} packages)");
+                foreach (var g in atRisk.GroupBy(x => Kind(x.Key)).OrderByDescending(g => g.Count()))
+                    rep.Add($"  {g.Key}: {g.Count()} package(s) share a model with another package");
+                rep.Add("");
+                rep.Add("BY MODEL (most copies first; sizes differ = not the same data)");
+                foreach (var m in meshes)
+                {
+                    int sizes = m.Copies.Select(c => c.Size).Distinct().Count();
+                    rep.Add($"  {m.Path}  ×{m.Copies.Count}{(sizes > 1 ? $"  ({sizes} different sizes)" : "")}");
+                    foreach (var c in m.Copies.OrderBy(c => c.File, StringComparer.OrdinalIgnoreCase)) rep.Add($"      {c.File}  {c.Size:N0} B");
+                }
+                rep.Add("");
+                var mats = shared.Where(s => s.Class is "materialinstanceconstant" or "physicsasset" && !Library(s.Path)).OrderByDescending(s => s.Copies.Count).ThenBy(s => s.Path).ToList();
+                rep.Add($"MATERIAL INSTANCES AND PHYSICS ASSETS carried by more than one package: {mats.Count} (base-material and effect libraries left out)");
+                foreach (var m in mats.Take(400))
+                    rep.Add($"  {m.Class,-26} {m.Path}  ×{m.Copies.Count}: {string.Join(", ", m.Copies.Select(c => c.File[4..^7]).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).Take(6))}{(m.Copies.Count > 6 ? " …" : "")}");
+                rep.Add("");
+                rep.Add("BY PACKAGE (team-ups, agents, NPCs, pets and costumes whose model another package also carries)");
+                foreach (var g in atRisk.OrderBy(g => Kind(g.Key)).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+                    rep.Add($"  {g.Key}: {string.Join(", ", g.Select(x => x.Path).Distinct())}  (also in {string.Join(", ", meshes.Where(m => g.Any(x => x.Path == m.Path)).SelectMany(m => m.Copies.Select(c => c.File)).Where(f => !f.Equals(g.Key, StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).Select(f => f[4..^7]).Take(8))})");
+                // the library's mods: a shared object the mod changed (its bytes differ from the stock copy in the same package)
+                // while it doesn't ship every package carrying it: in game the first copy loaded wins, so the stock one can show
+                var sharedByPath = shared.Where(s => !Library(s.Path) && s.Class is "skeletalmesh" or "materialinstanceconstant")
+                    .ToDictionary(s => $"{s.Path}|{s.Class}", s => s.Copies.Select(c => c.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+                var exposed = new List<string>();
+                int checkedMods = 0;
+                foreach (var m in lib.Mods.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    var own = m.Manifest.UpkReplacements.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var lines = new List<string>();
+                    foreach (string f in own.Where(f => files.Contains(f, StringComparer.OrdinalIgnoreCase)))
+                    {
+                        string mf = Path.Combine(m.Folder, f);
+                        if (!File.Exists(mf)) continue;
+                        MhoPackageModifier.Package mp, sp;
+                        try { mp = MhoPackageModifier.Package.Open(mf); sp = MhoPackageModifier.Package.Open(Path.Combine(folder, f)); }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+                        var stockByPath = new Dictionary<string, MhoPackageModifier.ExportEntry>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var e in sp.Exports) stockByPath.TryAdd($"{sp.PathOf(e)}|{sp.ClassOf(e).ToLowerInvariant()}", e);
+                        foreach (var e in mp.Exports)
+                        {
+                            string key = $"{mp.PathOf(e)}|{mp.ClassOf(e).ToLowerInvariant()}";
+                            if (!sharedByPath.TryGetValue(key, out var carriers)) continue;
+                            bool changed = !stockByPath.TryGetValue(key, out var se) || !mp.ReadExportBytes(e).AsSpan().SequenceEqual(sp.ReadExportBytes(se));
+                            if (!changed) continue;
+                            var missing = carriers.Where(c => !own.Contains(c)).ToList();
+                            if (missing.Count == 0) continue;
+                            lines.Add($"      {key.Replace('|', ' ')} changed in {f[4..^7]}; also in {string.Join(", ", missing.Select(x => x[4..^7]))}");
+                        }
+                    }
+                    checkedMods++;
+                    if (lines.Count > 0) { exposed.Add($"  {m.Name}{(m.Enabled ? "" : " (off)")}"); exposed.AddRange(lines.Distinct()); }
+                }
+                rep.Insert(2, "");
+                rep.Insert(2, $"Mods in the library ({checkedMods} checked) that change a shared model or material instance without shipping every package that carries it: {exposed.Count(l => !l.StartsWith("      "))} (details at the end)");
+                rep.Add("");
+                rep.Add("LIBRARY MODS EXPOSED (changed bytes; a package rewritten by another tool can differ without a real change)");
+                rep.AddRange(exposed);
+                File.WriteAllLines(rest[1], rep);
+                Console.WriteLine($"{meshes.Count} shared model(s) in {atRisk.Count} package(s); {mats.Count} shared material instance / physics asset path(s) → {rest[1]}");
+                return 0;
+            }
+            case "--make-unique":
+            {
+                // --make-unique <mod> <out dir> [--only <file,...>] [--tag T]   (writes only into <out dir>): the mod's character
+                // packages with their changed shared content renamed (UniqueNames); --only: as if the mod shipped only those packages
+                var um = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                string? ugr = settings.ResolvedGameRoot(data);
+                string? ucook = ugr != null && Settings.IsGameRoot(ugr) ? Settings.Cooked(ugr) : null;
+                if (um == null || ucook == null) { Console.WriteLine("--make-unique <mod> <out dir> [--only <file,...>] [--tag T]"); return 1; }
+                string ufolder = settings.CleanGameFiles is string ucg && Directory.Exists(ucg) ? ucg : ucook;
+                string? Opt(string name) { int i = rest.IndexOf(name); return i >= 0 && i + 1 < rest.Count ? rest[i + 1] : null; }
+                var shipped = (Opt("--only")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? um.Manifest.UpkReplacements.ToArray())
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (rest.Contains("--save"))
+                {
+                    // --make-unique <mod> <out dir> --save: the real thing (UniqueNames.Apply: saved like an edit); scratch libraries only
+                    string? uhome = Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
+                    if (uhome == null || Path.GetFullPath(uhome).Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("Set MHO_EXTMM_HOME to a scratch folder (a copy of a library), never the real one."); return 2; }
+                    var ulog = new List<string>();
+                    var done = UniqueNames.Apply(lib, um, ucook, ulog, out string? uerr);
+                    ulog.ForEach(x => Console.WriteLine("  " + x));
+                    Console.WriteLine(done == null ? "NOT SAVED: " + uerr : $"saved: {string.Join(", ", done)}");
+                    var again = UniqueNames.Plans(ModLibrary.Load(data).Find(rest[1])!, ucook);
+                    Console.WriteLine($"after: {again.Count} package(s) still to change{(again.Count == 0 ? " (OK)" : "")}");
+                    return done != null && again.Count == 0 ? 0 : 1;
+                }
+                string tag = Opt("--tag") ?? UniqueNames.Tag(um.Name);
+                var usw = System.Diagnostics.Stopwatch.StartNew();
+                var sharedIx = UniqueNames.Shared(ufolder);
+                Console.WriteLine($"shared paths: {sharedIx.Count} ({usw.Elapsed.TotalSeconds:0} s); tag {tag}");
+                Directory.CreateDirectory(rest[2]);
+                int built = 0;
+                foreach (string f in shipped)
+                {
+                    if (!UniqueNames.Kinds.Any(k => f.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase))) continue;
+                    string mf = Path.Combine(um.Folder, f);
+                    if (!File.Exists(mf)) { Console.WriteLine($"{f}: not in the mod"); continue; }
+                    var plan = UniqueNames.PlanFor(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, tag);
+                    Console.WriteLine($"{f}:");
+                    plan.Notes.ForEach(n => Console.WriteLine("  " + n));
+                    if (!plan.Changes) continue;
+                    byte[] bytes = UniqueNames.Build(mf, plan);
+                    File.WriteAllBytes(Path.Combine(rest[2], f), bytes);
+                    built++;
+                    Console.WriteLine($"  wrote {Path.Combine(rest[2], f)} ({bytes.Length:N0} bytes, verified, GUID kept)");
+                }
+                Console.WriteLine($"{built} package(s) made unique");
+                return 0;
+            }
             case "--costume-move":
             {
                 // Read-only (phase 1): what moving a costume mod onto another costume of the same hero would do.

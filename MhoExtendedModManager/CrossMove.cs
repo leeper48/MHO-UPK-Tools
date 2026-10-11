@@ -550,6 +550,11 @@ static class CrossMove
             byte[] built = Build(modPkg, meshName, stock, target.Class, baseHero, log, sounds: false, sourceClass: source.Class, cooked: game.Cooked, autoOff: autoOff);
             string file = Path.Combine(work, target.Package);
             File.WriteAllBytes(file, built);
+            // The grafted model keeps the source's path (rescue.rescue on Iron Man Extremis), which other stock packages
+            // also carry (Rescue's team-up): whichever loads first would show. Made unique (Kurt, 2026-10-11).
+            var unique = UniqueNames.PlanFor(file, stock, target.Package, UniqueNames.Shared(UniqueNames.Folder(game.Cooked)),
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { target.Package }, UniqueNames.Tag(NewName(mod, target)));
+            if (unique.Changes) { File.WriteAllBytes(file, UniqueNames.Build(file, unique)); log.AddRange(unique.Notes.Select(n => "unique: " + n)); }
             var d = ModDraft.From(mod);
             d.Name = NewName(mod, target);
             d.Packages = [(target.Package, file)];

@@ -264,32 +264,8 @@ static class CostumeMove
             byte[] guid = File.ReadAllBytes(stock).AsSpan(sp.GenerationsAt - 16, 16).ToArray();
             var pkg = Package.Open(pk.SourcePath);
             var renames = pk.Renames.ToDictionary(r => r.Export, r => r.NewName);
-            var addNames = renames.Values.Concat(pk.Splits.Select(x => x.NewName)).Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(n => !pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
-            int NameIdx(string n) { int k = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase)); return k >= 0 ? k : pkg.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase)); }
-            // Each split adds a group object: a copy of the original group's entry (same class, flags) under the new name.
-            var add = new List<NewExport>();
-            var outers = new Dictionary<int, int>();
-            foreach (var spl in pk.Splits)
-            {
-                byte[] entry = pkg.Body.AsSpan(pkg.ExportEntryStart[spl.Group], pkg.ExportEntryEnd[spl.Group] - pkg.ExportEntryStart[spl.Group]).ToArray();
-                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), NameIdx(spl.NewName));
-                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 0);
-                byte[] groupData = pkg.ReadExportBytes(pkg.Exports[spl.Group]);
-                int newRef = pkg.Exports.Length + add.Count + 1;
-                add.Add(new NewExport(spl.Group, 0, _ => groupData) { Entry = entry });
-                foreach (int j in spl.Moved) outers[j] = newRef;
-            }
-            byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), add, out var data, addNames, null, renames, outers);
-            guid.CopyTo(output, pkg.GenerationsAt - 16);
-            var problems = PackageRebuilder.Verify(pkg, output, [], add, data, addNames, null, renames, outers);
-            var back = Package.FromBytes(output);
-            if (!output.AsSpan(back.GenerationsAt - 16, 16).SequenceEqual(guid)) problems.Add("the GUID isn't the target's");
-            foreach (var (i, n) in renames)
-                if (!back.Exports[i].ObjectName.Equals(n, StringComparison.OrdinalIgnoreCase)) problems.Add($"export {i + 1} is '{back.Exports[i].ObjectName}', expected '{n}'");
-            foreach (var spl in pk.Splits)
-                foreach (int j in spl.Moved)
-                    if (!back.PathOf(back.Exports[j]).StartsWith(spl.NewName + ".", StringComparison.OrdinalIgnoreCase)) problems.Add($"export {j + 1} isn't under {spl.NewName}");
+            var problems = new List<string>();
+            byte[] output = RenameAndSplit(pkg, renames, pk.Splits, problems, guid);
             if (problems.Count > 0) throw new InvalidDataException($"{pk.TargetFile}: " + string.Join("; ", problems));
             string path = Path.Combine(outDir, pk.TargetFile);
             string tmp = path + ".tmp";
@@ -299,6 +275,43 @@ static class CostumeMove
             written.Add(path);
         }
         return written;
+    }
+
+    /// <summary>
+    /// The package with exports renamed (new names appended to the name table, every other byte kept) and groups split (a new
+    /// group object, a copy of the original's entry under the new name, takes the moved children; the rest, streamed textures,
+    /// stay), read back and verified into <paramref name="problems"/> (PackageRebuilder.Verify, the names, the new outers).
+    /// With <paramref name="guid"/>, the package takes that GUID (a costume move: the target's). Shared with Make Unique.
+    /// </summary>
+    internal static byte[] RenameAndSplit(Package pkg, Dictionary<int, string> renames, IReadOnlyList<Split> splits, List<string> problems, byte[]? guid = null)
+    {
+        var addNames = renames.Values.Concat(splits.Select(x => x.NewName)).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(n => !pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
+        int NameIdx(string n) { int k = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase)); return k >= 0 ? k : pkg.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase)); }
+        // Each split adds a group object: a copy of the original group's entry (same class, flags) under the new name.
+        var add = new List<NewExport>();
+        var outers = new Dictionary<int, int>();
+        foreach (var spl in splits)
+        {
+            byte[] entry = pkg.Body.AsSpan(pkg.ExportEntryStart[spl.Group], pkg.ExportEntryEnd[spl.Group] - pkg.ExportEntryStart[spl.Group]).ToArray();
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), NameIdx(spl.NewName));
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 0);
+            byte[] groupData = pkg.ReadExportBytes(pkg.Exports[spl.Group]);
+            int newRef = pkg.Exports.Length + add.Count + 1;
+            add.Add(new NewExport(spl.Group, 0, _ => groupData) { Entry = entry });
+            foreach (int j in spl.Moved) outers[j] = newRef;
+        }
+        byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), add, out var data, addNames, null, renames, outers);
+        guid?.CopyTo(output, pkg.GenerationsAt - 16);
+        problems.AddRange(PackageRebuilder.Verify(pkg, output, [], add, data, addNames, null, renames, outers));
+        var back = Package.FromBytes(output);
+        if (guid != null && !output.AsSpan(back.GenerationsAt - 16, 16).SequenceEqual(guid)) problems.Add("the GUID isn't the target's");
+        foreach (var (i, n) in renames)
+            if (!back.Exports[i].ObjectName.Equals(n, StringComparison.OrdinalIgnoreCase)) problems.Add($"export {i + 1} is '{back.Exports[i].ObjectName}', expected '{n}'");
+        foreach (var spl in splits)
+            foreach (int j in spl.Moved)
+                if (!back.PathOf(back.Exports[j]).StartsWith(spl.NewName + ".", StringComparison.OrdinalIgnoreCase)) problems.Add($"export {j + 1} isn't under {spl.NewName}");
+        return output;
     }
 
     /// <summary>

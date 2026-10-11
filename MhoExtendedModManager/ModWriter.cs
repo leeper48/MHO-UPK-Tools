@@ -378,7 +378,7 @@ static class ModelWork
         // (2026-10-07: the other work folders a killed run left were never swept: power colors, voice, animations, moves)
         foreach (var d in Directory.GetDirectories(library))
         {
-            if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "^(model-work|power-colors|power-borrow|voice-work|voice-edit|voice-shift|anim-work|costume-move)-[0-9a-f]{8}$")) continue;
+            if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d), "^(model-work|power-colors|power-borrow|voice-work|voice-edit|voice-shift|anim-work|costume-move|make-unique)-[0-9a-f]{8}$")) continue;
             try { Directory.Delete(d, true); n++; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }

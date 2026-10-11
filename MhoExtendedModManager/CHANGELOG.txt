@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.233
+- Mods that change a model other game files also carry get a yellow ⚠ OVERLAP warning pill (Jessica Jones is in her team-up, her summon and the Avengers Tower NPC; Carnage in his own file and his team-up): the game shows whichever copy loads first, so near other players or hub NPCs the mod could show the game's look. Click the pill, or right-click → Make Unique, to give the mod's copy names of its own (only the mod's package files change; streamed textures keep their names; still installs in MHModManager). Then Apply.
+- Moving a costume to another hero makes the moved model unique too (Rescue on Iron Man Extremis could show the game's Rescue near her team-up).
+
 0.37.222
 - The 3D preview plays only the effects a power's class lists (a package can keep effects nothing uses).
 

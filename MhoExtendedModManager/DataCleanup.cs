@@ -33,7 +33,7 @@ static class DataCleanup
         if (library != null && Directory.Exists(library))
         {
             var dirs = Directory.GetDirectories(library).Where(d => System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(d),
-                "^(model-work|power-colors|power-borrow|voice-work|voice-edit|voice-shift|anim-work|costume-move)-[0-9a-f]{8}$")).ToList();
+                "^(model-work|power-colors|power-borrow|voice-work|voice-edit|voice-shift|anim-work|costume-move|make-unique)-[0-9a-f]{8}$")).ToList();
             long size = dirs.Sum(d => Size(d));
             int n = dryRun ? dirs.Count : ModelWork.SweepOrphans(library);
             if (n > 0) done.Add(new Result("editor work folders left by a closed or crashed run (library)", n, size));
