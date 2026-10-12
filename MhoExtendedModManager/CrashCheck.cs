@@ -20,7 +20,14 @@ namespace MhoExtendedModManager;
 /// </summary>
 static class CrashCheck
 {
-    public sealed record Issue(bool Crash, string Package, string Mesh, string Text);
+    public sealed record Issue(bool Crash, string Package, string Mesh, string Text)
+    {
+        /// <summary>A mirror table that doesn't match the bones (MirrorTables fixes it).</summary>
+        public bool Mirror { get; init; }
+    }
+
+    /// <summary>The mod has a mirror table to fix (from the cache).</summary>
+    public static bool HasMirrorIssue(Mod m) { lock (cache) return cache.TryGetValue(m.Folder, out var hit) && hit.Issues.Any(i => i.Mirror); }
 
     static readonly Dictionary<string, (string Stamp, List<Issue> Issues)> cache = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, int?> stockBones = new(StringComparer.OrdinalIgnoreCase);
@@ -65,11 +72,13 @@ static class CrashCheck
             // the game's own mesh at this path in the same file (the costume's original): more bones than it
             int? own = StockBones(StockFiles.For(cooked, file), path);
             if (own is int o && n > o)
-                issues.Add(new(false, file, mesh, $"{n} bones, {n - o} more than the game's own mesh ({o}). Added bones run on most characters, but crash where another copy of this model is loaded (see below)."));
+                issues.Add(new(false, file, mesh, $"{n} bones, {n - o} more than the game's own mesh ({o}). Added bones run on most characters; they crash only where another copy of this model with fewer bones is loaded."));
             // other copies of this path: the game's other character packages, and the mod's other packages
             var fewer = new List<string>();
             if (shared.TryGetValue(path + "|skeletalmesh", out var others))
-                foreach (string of in others.Where(x => !x.Equals(file, StringComparison.OrdinalIgnoreCase)))
+                // (a file the mod ships itself: its own copy counts, checked just below; Kurt, 2026-10-12: Rogue's mod ships
+                // her illusion's package too, 220 bones in both, and was flagged against the game's 161)
+                foreach (string of in others.Where(x => !x.Equals(file, StringComparison.OrdinalIgnoreCase) && !packages.Any(p => p.File.Equals(x, StringComparison.OrdinalIgnoreCase))))
                     if (StockBones(StockFiles.For(cooked, of), path) is int ob && ob < n) fewer.Add($"{Short(of)} ({ob} bones)");
             foreach (var x in meshes.Where(x => x.Path.Equals(path, StringComparison.OrdinalIgnoreCase) && !x.File.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Bones.Count < n))
                 fewer.Add($"{Short(x.File)} in this mod ({x.Bones.Count} bones)");
@@ -81,7 +90,7 @@ static class CrashCheck
             {
                 int count = BitConverter.ToInt32(pkg.Bytes, mt.ValueAt);
                 if (count > 0 && count != n)
-                    issues.Add(new(true, file, mesh, $"its mirror table has {count} entries for {n} bones. Mirroring an animation reads past the end of it (Array.h:575)."));
+                    issues.Add(new(true, file, mesh, $"its mirror table has {count} entries for {n} bones. Mirroring an animation reads past the end of it (Array.h:575). Fix Mirror Tables gives every bone an entry.") { Mirror = true });
             }
             var sockets = Fx.FxSockets.Of(filePath, pkg.T.Exports[export].ObjectName);
             var boneSet = bones.ToHashSet();

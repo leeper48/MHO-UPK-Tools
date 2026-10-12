@@ -51,6 +51,17 @@ sealed partial class ModelPage
                 uf != null ? options with { SourceFbx = RigFor(uf, pkg.Key), Parts = "all" } : options, line => BeginInvoke(() => Log(line))));
             if (result != null)
             {
+                // added bones (a cape, dress, wings): the mirror table gets an entry for each (else mirroring an animation
+                // reads past its end: the Array.h:575 crash; Kurt, 2026-10-12)
+                try
+                {
+                    if (await Task.Run(() => MhoExtendedModManager.MirrorTables.Fix(result.Package)) is { } mf)
+                    {
+                        File.WriteAllBytes(result.Package, mf.Bytes);
+                        foreach (string c in mf.Changes) Log("Mirror table: " + c);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException) { Log("Mirror table: " + ex.Message); }
                 await TimeSteps(result.Package, pkg.Key);
                 if (uf != null) KeepRig(uf, pkg.Key);   // the mod keeps the rig of a hero it's built onto
                 host.SetPackage(pkg.Key, result.Package);

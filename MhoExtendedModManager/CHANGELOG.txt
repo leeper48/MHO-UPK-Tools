@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.262
+- CRASH RISK: Fix Mirror Tables. A model whose mirror table doesn't have one entry per bone (added bones for a cape, dress, wings or loincloth, or Blender's leftover _end bones) gets an entry for every bone: an added left bone mirrors its right partner, others themselves. From the pill's window for an installed mod; the Model tab's Build into Mod does it by itself.
+- CRASH RISK no longer counts the game's copy of a model in a file the mod replaces too (Rogue Modern VU ships her illusion's and pet's packages, with the same bones: it was flagged against the game's originals).
+
 0.37.261
 - New: a red CRASH RISK pill on mods whose models can crash the game (an Array.h:575 error): a model with more bones than another copy of the same model in another game file (added bones for a cape, dress, wings or loincloth on a character who is also a summon, illusion, team-up or NPC), or a mirror table that doesn't match the bones. Click it for the findings and Make Unique, which fixes the first kind. The filter is:crash shows them; the Model tab's Build into Mod lists the checks in its log.
 - The Mods tab's power buttons are no longer clipped.

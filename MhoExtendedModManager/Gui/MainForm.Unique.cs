@@ -55,11 +55,37 @@ sealed partial class MainForm
     {
         if (CrashCheck.Details(m) is not string details) return;
         bool unique = !readOnly && UniqueNames.Reason(m) != null;
-        string advice = unique
-            ? "\n\nMake Unique gives this mod's models paths of their own, so no other copy shares their animation table. Mirror tables that don't match the bones can't be fixed here yet: let the mod's creator know."
-            : "\n\nLet the mod's creator know: fewer added bones, or a model path of its own, avoids it.";
-        int pick = unique ? Dialog.Choose(this, details + advice, "Crash Risk", "Make Unique", "Close") : Dialog.Choose(this, details + advice, "Crash Risk", "Close");
-        if (unique && pick == 0) await MakeUnique(m);
+        bool mirror = !readOnly && CrashCheck.HasMirrorIssue(m);
+        var advice = new List<string>();
+        if (mirror) advice.Add("Fix Mirror Tables gives every bone of these models a mirror entry (an added left bone mirrors its right partner, others themselves).");
+        if (unique) advice.Add("Make Unique gives this mod's models paths of their own, so no other copy shares their animation table.");
+        if (advice.Count == 0) advice.Add("Let the mod's creator know: fewer added bones, or a model path of its own, avoids it.");
+        else advice.Add("Only this mod's own package files change (saved like an edit; the old folder goes to the Recycle Bin). It's a good idea to let the mod's creator know too, so they can update it officially.");
+        var labels = new List<string>();
+        if (mirror) labels.Add("Fix Mirror Tables");
+        if (unique) labels.Add("Make Unique");
+        labels.Add("Close");
+        int pick = Dialog.Choose(this, details + "\n\n" + string.Join(" ", advice), "Crash Risk", [.. labels]);
+        string? chosen = pick >= 0 && pick < labels.Count ? labels[pick] : null;
+        if (chosen == "Fix Mirror Tables") FixMirrorTables(m);
+        else if (chosen == "Make Unique") await MakeUnique(m);
+    }
+
+    /// <summary>The mod's mirror tables made one entry per bone (MirrorTables), saved like an edit.</summary>
+    async void FixMirrorTables(Mod m)
+    {
+        if (readOnly || lib == null) return;
+        var l = lib;
+        var log = new List<string>();
+        string? error = null;
+        UseWaitCursor = true;
+        status.Text = $"Fixing the Mirror Tables of \"{m.Name}\"…";
+        var done = await Task.Run(() => MirrorTables.Apply(l, m, log, out error));
+        UseWaitCursor = false;
+        if (done == null) { Dialog.Show(this, error ?? "The mirror tables couldn't be fixed.", "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        note = $"Mirror tables fixed in \"{m.Name}\" ({string.Join(", ", done)}){(m.Enabled ? ": Apply Changes puts them in the game" : "")}";
+        Reload();
+        SelectMod(m.FolderName);
     }
 
     /// <summary>The pill's click: Make Unique for a shared model, then the enemy-only power packages.</summary>

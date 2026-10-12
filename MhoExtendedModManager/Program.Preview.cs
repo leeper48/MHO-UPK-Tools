@@ -644,6 +644,31 @@ static partial class Program
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
                 return 0;
             }
+            case "--mirror-fix-mod":
+            {
+                // Test (a scratch MHO_EXTMM_HOME only): a mod's mirror tables fixed and saved as the CRASH RISK dialog does.
+                if (rest.Count < 2) { Console.WriteLine("--mirror-fix-mod <mod> (scratch MHO_EXTMM_HOME)"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") is not string home || home.Replace('\\', '/').Contains("publish/data", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("scratch MHO_EXTMM_HOME only"); return 1; }
+                if (lib.Find(rest[1]) is not { } fm) { Console.WriteLine("no such mod"); return 1; }
+                var flog = new List<string>();
+                var fdone = MirrorTables.Apply(lib, fm, flog, out string? ferr);
+                flog.ForEach(x => Console.WriteLine("  " + x));
+                Console.WriteLine(fdone == null ? "not changed: " + ferr : "saved: " + string.Join(", ", fdone));
+                return fdone == null ? 1 : 0;
+            }
+            case "--mirror-fix":
+            {
+                // A package's skeletal meshes with their mirror tables one entry per bone (MirrorTables.Fix), written to <out>
+                // (never into the game folder). --mirror-fix <package.upk> <out.upk>
+                if (rest.Count < 3) { Console.WriteLine("--mirror-fix <package.upk> <out.upk>"); return 1; }
+                Model.Protected.CheckWrite(rest[2]);
+                var fixedPkg = MirrorTables.Fix(rest[1]);
+                if (fixedPkg == null) { Console.WriteLine("nothing to fix"); return 0; }
+                fixedPkg.Value.Changes.ForEach(c => Console.WriteLine("  " + c));
+                File.WriteAllBytes(rest[2], fixedPkg.Value.Bytes);
+                Console.WriteLine("wrote " + rest[2]);
+                return 0;
+            }
             case "--crash-check":
             {
                 // Read-only: the crash checks (CrashCheck) on a mod, or every mod with "all": added bones, other copies of a
