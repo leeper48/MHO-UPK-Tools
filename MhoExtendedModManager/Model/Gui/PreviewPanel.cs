@@ -70,22 +70,12 @@ sealed partial class PreviewPanel : UserControl
         edits = Ui.FlatButton("Single Animation ▾", ShowEditsMenu, "The animation picked here and Blender: export just it (Export FBX: … Only, Open … in Blender: the model and this one animation, quick), bring edits back (an FBX's animation in place of it, and / or its mesh with its weights in place of the model's; kept in the edits folder, built into the mod) and revert them. The buttons on the right export all the animations.");
         compare = Ui.FlatButton("Compare", ToggleCompare, "Show the base hero's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the MFF model).");
         look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Bones on or off, and the Light, Glow and Lens sliders. Remembered.");
-        frameHead = Ui.FlatButton("Head", () => FrameShot(Framing.Shot.HeadShoulders), "Frame the head and shoulders.");
-        frameBust = Ui.FlatButton("Bust", () => FrameShot(Framing.Shot.Bust), "Frame head and chest.");
-        frameFull = Ui.FlatButton("Full Body", () => FrameShot(Framing.Shot.Full), "Frame the whole character.");
-        fullScreen = Ui.FlatButton("⛶", ToggleFull, "Full screen: the preview fills the screen (F11). Esc (after pausing), F11 or this button come back.");
+        (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);   // (shared with the Mods tab's preview)
+        fullScreen = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
         powersButton = Ui.FlatButton("Power FXs", () => { P.Powers = !P.Powers; SaveP(); ApplyLook(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's power packages). Lit when on; remembered.");
         Icons.Make(loop, "Loop", Icons.Loop, S);
         Icons.Make(look, "Look", Icons.Look, S);
         Icons.Make(reset, "Reset View", Icons.ResetView, S);
-        foreach (var b in new[] { frameHead, frameBust, frameFull, fullScreen })
-        {
-            b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size((int)(34 * S), (int)(30 * S));
-        }
-        Ui.IconPainters.AddOrUpdate(frameFull, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.Full));
-        Ui.IconPainters.AddOrUpdate(frameHead, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.HeadShoulders));
-        Ui.IconPainters.AddOrUpdate(frameBust, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.Bust));
-        Ui.IconPainters.AddOrUpdate(fullScreen, (g, r, c) => FullScreenIcon(g, r, c, fullForm != null));
         Ui.Tip(anims, "The base hero's own animations (from its base package, in the game's order). Rest Pose = the bind pose the mesh is built in. A power button below shows only that power's.");
         Ui.Tip(frame, "The animation's frame: drag to scrub (pauses).");
         Ui.Tip(light, "Light strength (double-click: 100 %). Remembered.");
@@ -167,31 +157,19 @@ sealed partial class PreviewPanel : UserControl
         Ui.Lit(powersButton, P.Powers);
     }
 
-    /// <summary>Look ▾: the toggles (the menu stays open while toggling) and the Light / Glow / Lens sliders.</summary>
+    /// <summary>Look ▾: the toggles (the menu stays open while toggling) and the Light / Glow / Lens sliders (PreviewControls,
+    /// as the Mods tab's), with this tab's Bones and Weights.</summary>
     void ShowLookMenu()
     {
         if (lookMenu == null)
         {
-            lookMenu = new ContextMenuStrip { ShowCheckMargin = true, ShowImageMargin = false };
-            void Item(string text, string tip, Func<bool> get, Action set)
-            {
-                var it = new ToolStripMenuItem(text) { ToolTipText = tip };
-                it.Click += (_, _) => { set(); SaveP(); it.Checked = get(); ApplyLook(); };
-                lookMenu.Opening += (_, _) => it.Checked = get();
-                lookMenu.Items.Add(it);
-            }
-            Item("Spec", "Specular highlights (shine).", () => P.Spec, () => P.Spec = !P.Spec);
-            Item("Reflect", "Metal reflections.", () => P.Reflect, () => P.Reflect = !P.Reflect);
-            Item("Glow", "Glowing (emissive) parts.", () => P.Glow, () => P.Glow = !P.Glow);
-            Item("Bloom", "A soft halo around the brightest parts (glow, the hottest highlights), as the game draws it.", () => P.Bloom, () => P.Bloom = !P.Bloom);
-            Item("Props", "The base hero's weapons and props (what its powers attach), held on their bones; they switch with the powers.", () => P.Props, () => { P.Props = !P.Props; LoadProps(); });
-            Item("Power FXs", "The effects of the power an animation belongs to.", () => P.Powers, () => { P.Powers = !P.Powers; LoadEffects(); });
-            Item("Bones", "The skeleton over the model; the Bone Map tab's selected row in orange.", () => showBones, () => ShowBones = !showBones);
-            Item("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting.", () => showWeights, () => ShowWeights = !showWeights);
-            lookMenu.Items.Add(new ToolStripSeparator());
-            foreach (var sl in new Control[] { light, glowSlider, lens })
-                lookMenu.Items.Add(new ToolStripControlHost(sl) { AutoSize = false, Size = new Size((int)(260 * S), (int)(26 * S)), Margin = new Padding((int)(6 * S), 2, (int)(6 * S), 2) });
-            lookMenu.Closing += (_, e) => { if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true; };
+            var items = PreviewControls.StandardLook(
+                () => P.Spec, () => P.Spec = !P.Spec, () => P.Reflect, () => P.Reflect = !P.Reflect, () => P.Glow, () => P.Glow = !P.Glow,
+                () => P.Bloom, () => P.Bloom = !P.Bloom, () => P.Props, () => { P.Props = !P.Props; LoadProps(); },
+                () => P.Powers, () => { P.Powers = !P.Powers; LoadEffects(); });
+            items.Add(new("Bones", "The skeleton over the model; the Bone Map tab's selected row in orange.", () => showBones, () => ShowBones = !showBones));
+            items.Add(new("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting.", () => showWeights, () => ShowWeights = !showWeights));
+            lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens], S, () => { SaveP(); ApplyLook(); });
         }
         Ui.ShowUnder(lookMenu, look);
     }
@@ -458,108 +436,12 @@ sealed partial class PreviewPanel : UserControl
         ShowPose();
     }
 
-    Form? fullForm;
-    Control? homeParent;
-    int homeIndex;
+    readonly PreviewControls.FullScreen full = new();   // (shared with the Mods tab's preview)
 
     /// <summary>Into or out of full screen: this panel moves into a borderless window on its monitor and back (F11).</summary>
-    public void ToggleFull()
-    {
-        if (fullForm != null)
-        {
-            var f = fullForm;
-            fullForm = null;
-            if (homeParent != null && !homeParent.IsDisposed)
-            {
-                Parent = homeParent;
-                homeParent.Controls.SetChildIndex(this, homeIndex);
-            }
-            f.Close(); f.Dispose();
-            fullScreen.Invalidate();
-            FindForm()?.Activate();
-            return;
-        }
-        if (Parent == null) return;
-        var owner = FindForm();
-        homeParent = Parent;
-        homeIndex = homeParent.Controls.GetChildIndex(this);
-        var form = new Form
-        {
-            FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = Screen.FromControl(this).Bounds,
-            ShowInTaskbar = false, Text = "Preview", BackColor = Ui.GradientTop, KeyPreview = true, Padding = new Padding(10),
-        };
-        form.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !PausePlayback()) ToggleFull(); }   // Esc: pause first, then back
-            else if (e.KeyData == Keys.P) { e.Handled = true; TogglePlayback(); }
-        };
-        form.FormClosing += (_, e) => { if (fullForm == form && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; ToggleFull(); } };
-        fullForm = form;
-        Parent = form;
-        form.Show(owner);
-        view.Focus();
-        fullScreen.Invalidate();
-    }
+    public void ToggleFull() => full.Toggle(this, "Preview", PausePlayback, () => TogglePlayback(), view, new Padding(10), () => fullScreen.Invalidate());
 
-    public bool IsFull => fullForm != null;
-
-    /// <summary>A framing button's icon: a figure cropped as the shot frames it (whole body, head and shoulders, head and chest).</summary>
-    internal static void PersonIcon(Graphics g, Rectangle r, Color c, Framing.Shot shot)
-    {
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        float m = r.Width * 0.18f;
-        var box = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
-        float w = box.Width, h = box.Height, cx = box.X + w / 2;
-        var clip = g.Clip;
-        g.SetClip(box);
-        using var br = new SolidBrush(c);
-        void Head(float cy, float rad) => g.FillEllipse(br, cx - rad, cy - rad, 2 * rad, 2 * rad);
-        void Block(RectangleF b, float radius) { using var p = RoundRect(b, radius); g.FillPath(br, p); }
-        switch (shot)
-        {
-            case Framing.Shot.Full:
-                Head(box.Y + h * 0.12f, h * 0.12f);
-                Block(new RectangleF(cx - w * 0.17f, box.Y + h * 0.27f, w * 0.34f, h * 0.36f), w * 0.08f);
-                g.FillRectangle(br, cx - w * 0.15f, box.Y + h * 0.58f, w * 0.12f, h * 0.42f);
-                g.FillRectangle(br, cx + w * 0.03f, box.Y + h * 0.58f, w * 0.12f, h * 0.42f);
-                break;
-            case Framing.Shot.HeadShoulders:
-                Head(box.Y + h * 0.36f, h * 0.26f);
-                Block(new RectangleF(cx - w * 0.5f, box.Y + h * 0.72f, w, h * 1.2f), w * 0.35f);
-                break;
-            default:   // bust
-                Head(box.Y + h * 0.22f, h * 0.18f);
-                Block(new RectangleF(cx - w * 0.36f, box.Y + h * 0.46f, w * 0.72f, h * 1.2f), w * 0.25f);
-                break;
-        }
-        g.Clip = clip;
-    }
-
-    static GraphicsPath RoundRect(RectangleF r, float radius)
-    {
-        float d = Math.Max(0.1f, Math.Min(radius * 2, Math.Min(r.Width, r.Height)));
-        var p = new GraphicsPath();
-        p.AddArc(r.X, r.Y, d, d, 180, 90);
-        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-        p.CloseFigure();
-        return p;
-    }
-
-    /// <summary>The full screen button's icon: four corners pointing out, or a cross while full screen (back).</summary>
-    static void FullScreenIcon(Graphics g, Rectangle r, Color c, bool full)
-    {
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        float m = r.Width * 0.27f, l = r.Width * 0.16f;
-        var b = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
-        using var pen = new Pen(c, Math.Max(1.6f, r.Width / 16f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-        if (full) { g.DrawLine(pen, b.Left, b.Top, b.Right, b.Bottom); g.DrawLine(pen, b.Right, b.Top, b.Left, b.Bottom); return; }
-        g.DrawLines(pen, new[] { new PointF(b.Left, b.Top + l), new PointF(b.Left, b.Top), new PointF(b.Left + l, b.Top) });
-        g.DrawLines(pen, new[] { new PointF(b.Right - l, b.Top), new PointF(b.Right, b.Top), new PointF(b.Right, b.Top + l) });
-        g.DrawLines(pen, new[] { new PointF(b.Right, b.Bottom - l), new PointF(b.Right, b.Bottom), new PointF(b.Right - l, b.Bottom) });
-        g.DrawLines(pen, new[] { new PointF(b.Left + l, b.Bottom), new PointF(b.Left, b.Bottom), new PointF(b.Left, b.Bottom - l) });
-    }
+    public bool IsFull => full.IsFull;
 
     // --- skeleton overlay (0.12.0, Kurt: the skeleton over the model, the active bones highlighted) -----------------------------
     bool showBones;
@@ -730,5 +612,5 @@ sealed partial class PreviewPanel : UserControl
         g.SmoothingMode = mode;
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) { timer.Dispose(); fullForm?.Dispose(); } base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { timer.Dispose(); full.Dispose(); } base.Dispose(disposing); }
 }

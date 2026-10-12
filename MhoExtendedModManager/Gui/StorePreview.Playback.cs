@@ -91,16 +91,9 @@ sealed partial class StorePreview
             foreach (var b in new[] { playBtn, loopBtn, restBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
             powersBtn = Ui.FlatButton("Power FXs", () => { PreviewViews.Powers = !PreviewViews.Powers; ApplyShading(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's or the mod's power packages). Lit when on; remembered on this PC.");
             powersBtn.AutoSize = false; powersBtn.Padding = new Padding(0); powersBtn.Visible = false; Controls.Add(powersBtn);
-            frameFullBtn = Ui.FlatButton("Full Body", () => FrameShot(Framing.Shot.Full), "Frame the whole character (as Create from 3D does). Saved as this mesh's view.");
-            frameHeadBtn = Ui.FlatButton("Head", () => FrameShot(Framing.Shot.HeadShoulders), "Frame the head and shoulders. Saved as this mesh's view.");
-            frameBustBtn = Ui.FlatButton("Bust", () => FrameShot(Framing.Shot.Bust), "Frame head and chest. Saved as this mesh's view.");
-            foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
-            Ui.IconPainters.AddOrUpdate(frameFullBtn, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.Full));
-            Ui.IconPainters.AddOrUpdate(frameHeadBtn, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.HeadShoulders));
-            Ui.IconPainters.AddOrUpdate(frameBustBtn, (g, r, c) => PersonIcon(g, r, c, Framing.Shot.Bust));
-            fullBtn = Ui.FlatButton("⛶", ToggleFull, "Full screen: the 3D view fills the screen with its controls beside it (F11). Esc, F11 or ✕ come back.");
-            fullBtn.AutoSize = false; fullBtn.Padding = new Padding(0); fullBtn.Visible = false; Controls.Add(fullBtn);
-            Ui.IconPainters.AddOrUpdate(fullBtn, (g, r, c) => FullScreenIcon(g, r, c, IsFull));
+            (frameHeadBtn, frameBustBtn, frameFullBtn) = PreviewControls.FramingButtons(FrameShot, S, "Saved as this mesh's view.");   // (shared)
+            fullBtn = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
+            foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn, fullBtn }) { b.Visible = false; Controls.Add(b); }
             // Frame (Kurt: like the icon maker's): where the animation is; dragging it pauses and scrubs.
             frameSlider = new LightSlider { Visible = false, Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null, Enabled = false, Home = () => 0, Format = v => playing == null ? "—" : $"{v:0} / {playFrames:0}" };
             frameSlider.ValueChanged += ScrubTo;
@@ -381,93 +374,19 @@ sealed partial class StorePreview
         rig.Update(viewer, animator);
     }
 
-    /// <summary>A framing button's icon: a figure cropped as the shot frames it (whole body, head and shoulders, head and chest).</summary>
-    static void PersonIcon(Graphics g, Rectangle r, Color c, Framing.Shot shot)
-    {
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        float m = r.Width * 0.18f;
-        var box = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
-        float w = box.Width, h = box.Height, cx = box.X + w / 2;
-        var clip = g.Clip;
-        g.SetClip(box);
-        using var br = new SolidBrush(c);
-        void Head(float cy, float rad) => g.FillEllipse(br, cx - rad, cy - rad, 2 * rad, 2 * rad);
-        void Block(RectangleF b, float radius) { using var p = RoundRect(b, radius); g.FillPath(br, p); }
-        switch (shot)
-        {
-            case Framing.Shot.Full:
-                Head(box.Y + h * 0.12f, h * 0.12f);
-                Block(new RectangleF(cx - w * 0.17f, box.Y + h * 0.27f, w * 0.34f, h * 0.36f), w * 0.08f);
-                g.FillRectangle(br, cx - w * 0.15f, box.Y + h * 0.58f, w * 0.12f, h * 0.42f);
-                g.FillRectangle(br, cx + w * 0.03f, box.Y + h * 0.58f, w * 0.12f, h * 0.42f);
-                break;
-            case Framing.Shot.HeadShoulders:
-                Head(box.Y + h * 0.36f, h * 0.26f);
-                Block(new RectangleF(cx - w * 0.5f, box.Y + h * 0.72f, w, h * 1.2f), w * 0.35f);
-                break;
-            default:   // bust
-                Head(box.Y + h * 0.22f, h * 0.18f);
-                Block(new RectangleF(cx - w * 0.36f, box.Y + h * 0.46f, w * 0.72f, h * 1.2f), w * 0.25f);
-                break;
-        }
-        g.Clip = clip;
-    }
-
-    static GraphicsPath RoundRect(RectangleF r, float radius)
-    {
-        float d = Math.Max(0.1f, Math.Min(radius * 2, Math.Min(r.Width, r.Height)));
-        var p = new GraphicsPath();
-        p.AddArc(r.X, r.Y, d, d, 180, 90);
-        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-        p.CloseFigure();
-        return p;
-    }
-
-    /// <summary>The full screen button's icon: four corners pointing out, or a cross while full screen (back).</summary>
-    static void FullScreenIcon(Graphics g, Rectangle r, Color c, bool full)
-    {
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        float m = r.Width * 0.27f, l = r.Width * 0.16f;
-        var b = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
-        using var pen = new Pen(c, Math.Max(1.6f, r.Width / 16f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-        if (full) { g.DrawLine(pen, b.Left, b.Top, b.Right, b.Bottom); g.DrawLine(pen, b.Right, b.Top, b.Left, b.Bottom); return; }
-        g.DrawLines(pen, new[] { new PointF(b.Left, b.Top + l), new PointF(b.Left, b.Top), new PointF(b.Left + l, b.Top) });
-        g.DrawLines(pen, new[] { new PointF(b.Right - l, b.Top), new PointF(b.Right, b.Top), new PointF(b.Right, b.Top + l) });
-        g.DrawLines(pen, new[] { new PointF(b.Right, b.Bottom - l), new PointF(b.Right, b.Bottom), new PointF(b.Right - l, b.Bottom) });
-        g.DrawLines(pen, new[] { new PointF(b.Left + l, b.Bottom), new PointF(b.Left, b.Bottom), new PointF(b.Left, b.Bottom - l) });
-    }
-
-    /// <summary>Look ▾: the look toggles and the Light / Lens sliders; stays open while toggling.</summary>
+    /// <summary>Look ▾: the look toggles and the Light / Glow / Lens sliders (PreviewControls, as the Model tab's); stays open
+    /// while toggling.</summary>
     void ShowLookMenu()
     {
         if (lookBtn == null || lightSlider == null || lensSlider == null || glowSlider == null) return;
-        if (lookMenu == null)
-        {
-            lookMenu = new ContextMenuStrip { ShowCheckMargin = true, ShowImageMargin = false };
-            ToolStripMenuItem Item(string text, string tip, Func<bool> get, Action set)
-            {
-                var it = new ToolStripMenuItem(text) { ToolTipText = tip };
-                it.Click += (_, _) => { set(); it.Checked = get(); ApplyShading(); };
-                lookMenu.Opening += (_, _) => it.Checked = get();
-                return it;
-            }
-            lookMenu.Items.Add(Item("Spec", "Specular highlights (shine) the materials set.", () => PreviewViews.Spec, () => PreviewViews.Spec = !PreviewViews.Spec));
-            lookMenu.Items.Add(Item("Reflect", "Reflections of the materials' own environment images.", () => PreviewViews.Reflect, () => PreviewViews.Reflect = !PreviewViews.Reflect));
-            lookMenu.Items.Add(Item("Glow", "Glowing (emissive) parts.", () => PreviewViews.Glow, () => PreviewViews.Glow = !PreviewViews.Glow));
-            lookMenu.Items.Add(Item("Bloom", "A soft halo around the brightest parts (glow, the hottest highlights), as the game draws it.", () => PreviewViews.Bloom, () => PreviewViews.Bloom = !PreviewViews.Bloom));
-            lookMenu.Items.Add(Item("Props", "The weapons and props the game attaches to the character, held on their bones.", () => PreviewViews.Props, () => { PreviewViews.Props = !PreviewViews.Props; LoadProps(); }));
-            lookMenu.Items.Add(new ToolStripSeparator());
-            foreach (var sl in new Control[] { lightSlider, glowSlider, lensSlider })
-            {
-                sl.Visible = true;
-                var host = new ToolStripControlHost(sl) { AutoSize = false, Size = new Size((int)(260 * S), (int)(26 * S)), Margin = new Padding((int)(6 * S), 2, (int)(6 * S), 2) };
-                lookMenu.Items.Add(host);
-            }
-            // Clicking a toggle keeps the menu open (several at once); a click outside closes it.
-            lookMenu.Closing += (_, e) => { if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true; };
-        }
+        lookMenu ??= PreviewControls.LookMenu(PreviewControls.StandardLook(
+            () => PreviewViews.Spec, () => PreviewViews.Spec = !PreviewViews.Spec,
+            () => PreviewViews.Reflect, () => PreviewViews.Reflect = !PreviewViews.Reflect,
+            () => PreviewViews.Glow, () => PreviewViews.Glow = !PreviewViews.Glow,
+            () => PreviewViews.Bloom, () => PreviewViews.Bloom = !PreviewViews.Bloom,
+            () => PreviewViews.Props, () => { PreviewViews.Props = !PreviewViews.Props; LoadProps(); },
+            () => PreviewViews.Powers, () => { PreviewViews.Powers = !PreviewViews.Powers; LoadEffects(); }),
+            [lightSlider, glowSlider, lensSlider], S, ApplyShading);
         lightSlider.Visible = lensSlider.Visible = glowSlider.Visible = true;   // (hidden with the other 3D controls while a picture shows)
         Ui.ShowUnder(lookMenu, lookBtn);
     }
@@ -484,42 +403,8 @@ sealed partial class StorePreview
     /// <summary>Into or out of full screen: this control moves into a borderless window on the app's monitor and back.</summary>
     public void ToggleFull()
     {
-        if (fullForm != null)
-        {
-            var f = fullForm;
-            fullForm = null;
-            if (homeParent != null && !homeParent.IsDisposed)
-            {
-                Parent = homeParent;
-                homeParent.Controls.SetChildIndex(this, homeIndex);
-            }
-            f.Close();
-            f.Dispose();
-            Invalidate();
-            FindForm()?.Activate();
-            return;
-        }
-        if (!show3D || viewer == null || Parent == null) return;
-        var owner = FindForm();
-        homeParent = Parent;
-        homeIndex = homeParent.Controls.GetChildIndex(this);
-        var screen = Screen.FromControl(this).Bounds;
-        var form = new Form
-        {
-            FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = screen, ShowInTaskbar = false,
-            Text = mod == null ? "Preview" : $"Preview: {mod.Name}", BackColor = Ui.GradientTop, KeyPreview = true,
-        };
-        form.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !PausePlayback()) ToggleFull(); }   // Esc: pause first, then back
-            else if (e.KeyData == Keys.P) { e.Handled = true; TogglePlayback(); }
-        };
-        form.FormClosing += (_, e) => { if (fullForm == form && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; ToggleFull(); } };   // Alt+F4: back, not closed
-        fullForm = form;
-        Parent = form;
-        form.Show(owner);
-        viewer.Focus();
-        Invalidate();
+        if (!full.IsFull && (!show3D || viewer == null || Parent == null)) return;
+        full.Toggle(this, mod == null ? "Preview" : $"Preview: {mod.Name}", PausePlayback, () => TogglePlayback(), viewer, Padding.Empty, () => { Invalidate(); fullBtn?.Invalidate(); });
     }
 
     void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; rig.SetParentAnimation(null); playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); if (propRules.Count > 0) { propRules = []; rig.SetRules(propRules, 0, 0); } }

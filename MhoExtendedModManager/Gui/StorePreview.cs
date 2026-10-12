@@ -72,11 +72,9 @@ sealed partial class StorePreview : Control
     ContextMenuStrip? lookMenu;
     Rectangle viewRect;
     Button? frameFullBtn, frameHeadBtn, frameBustBtn;   // framings (Kurt: as in Create from 3D)
-    Form? fullForm;
-    Control? homeParent;
-    int homeIndex;
+    readonly PreviewControls.FullScreen full = new();   // (shared with the Model tab's preview)
     /// <summary>The preview is in its full-screen window.</summary>
-    public bool IsFull => fullForm != null;
+    public bool IsFull => full.IsFull;
     bool paused = true;
     double playTime, lastTick;
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.254
+- The 3D previews share their view controls: Look ▾ has the same toggles in the Mods tab, the Editor's Powers tab and the Model tab (Spec, Reflect, Glow, Bloom, Props, Power FXs; the Model tab adds Bones and Weights), and the framing and full screen buttons work the same way everywhere.
+
 0.37.253
 - 3D previews: a prop that moves with the character's skeleton (Taskmaster's bow, Punisher's flamethrower) now takes the character's posed bones, as the game does, instead of playing the animation on its own skeleton: Taskmaster's bow is drawn to the hand in Boomerang Arrow and Toxic Gas Arrow (0.37.251 and 0.37.252 turned it too far). It also follows the shape of a replaced model's hands.
 
