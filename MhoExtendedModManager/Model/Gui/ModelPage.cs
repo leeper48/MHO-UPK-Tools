@@ -244,6 +244,8 @@ sealed partial class ModelPage : UserControl
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "part", HeaderText = "Part", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, ReadOnly = true });
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "kind", HeaderText = "Kind", Width = 80, ReadOnly = true });
         parts.Columns.Add(new DataGridViewTextBoxColumn { Name = "verts", HeaderText = "Vertices", Width = 96, ReadOnly = true });
+        parts.Columns.Add(new DataGridViewCheckBoxColumn { Name = "own", HeaderText = "Own Material", Width = 110, ReadOnly = true,
+            ToolTipText = "This part gets a material of its own (\"<material> @ <part>\" on the Materials tab), for parts that share one: its own color map, game material and slot. Undo (Ctrl+Z) takes it back." });
         parts.AllowUserToAddRows = false; parts.AllowUserToDeleteRows = false; parts.RowHeadersVisible = false;
         parts.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         Ui.StyleGrid(parts);
@@ -341,6 +343,8 @@ sealed partial class ModelPage : UserControl
         {
             if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "use")
                 SetUse([parts.Rows[e.RowIndex]], parts.Rows[e.RowIndex].Cells["use"].Value is not true);
+            if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "own")
+                ToggleOwnMaterial(parts.Rows[e.RowIndex]);
         };
         parts.KeyDown += (_, e) =>
         {

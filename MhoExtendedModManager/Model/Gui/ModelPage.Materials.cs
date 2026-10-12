@@ -113,6 +113,30 @@ sealed partial class ModelPage
 
     Button? matSlotUp, matSlotDown, matGame;
 
+    /// <summary>The Parts tab's Own Material (Kurt, 2026-10-12, a user's MUA2 model: two meshes on one material): the part
+    /// gets a material of its own (MaterialOverrides.OwnPartMaterials), so its maps, game material and slot can differ.</summary>
+    void ToggleOwnMaterial(DataGridViewRow row)
+    {
+        if (OverridesPath() is not string path || row.Cells["part"].Value is not string part) return;
+        var ov = File.Exists(path) ? MaterialOverrides.Load(path) : new MaterialOverrides();
+        var own = ov.OwnPartMaterials ?? [];
+        bool on = !own.Contains(part, StringComparer.OrdinalIgnoreCase);
+        if (on) own.Add(part); else own.RemoveAll(x => x.Equals(part, StringComparison.OrdinalIgnoreCase));
+        ov.OwnPartMaterials = own.Count > 0 ? own : null;
+        ov.Save(path);
+        row.Cells["own"].Value = on;
+        Log($"Parts: {part} {(on ? "gets a material of its own" : "shares its material again")}");
+        SchedulePreview();
+    }
+
+    /// <summary>The Parts tab's Own Material ticks from the overrides (after each preview).</summary>
+    void ShowOwnParts()
+    {
+        var own = OverridesFile() is string p ? MaterialOverrides.Load(p).OwnPartMaterials ?? [] : [];
+        foreach (DataGridViewRow r in parts.Rows)
+            if (r.Cells["part"].Value is string part) r.Cells["own"].Value = own.Contains(part, StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>Game Material ▾: the selected material's game material (MaterialOverrides.Entry.Template).</summary>
     void ShowGameMaterialMenu()
     {
@@ -208,6 +232,7 @@ sealed partial class ModelPage
         }
         finally { fillingMat = false; }
         ShowSlotSwaps(MaterialOverrides.Ordered(shownMaterials.Select(x => x.Material).Distinct(), OverridesFile()));
+        ShowOwnParts();
         MatSelectionChanged();
     }
 

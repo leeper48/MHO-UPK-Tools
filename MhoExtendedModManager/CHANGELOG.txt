@@ -1,8 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.246
+- Model tab, Parts: Own Material gives a part a material of its own when several share one (a body and its clothes on one material): it shows on the Materials tab as "<material> @ <part>" with its own maps, game material and slot.
+
 0.37.244
-- The mod list: Group → Overlap puts the mods with the OVERLAP warning first; the filter word is:overlap shows only those.
+- The mod list: Group → Overlap puts the mods with the OVERLAP warning first; the filter word is:overlap shows only those. Group → Conflicts: Overridden (part of the mod loses to a higher one), then Wins Its Conflicts, then No Conflicts.
 
 0.37.242
 - Model tab, Materials: Game Material ▾ picks which of the game's materials each material is built from: Automatic (as before), Cloth and Skin, Metal, Glow, or The Costume's Own. Each material can have its own (a body in cloth, armor in metal); the Slot column shows the choice, and the preview follows it.

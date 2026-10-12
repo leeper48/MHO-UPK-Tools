@@ -800,7 +800,7 @@ sealed partial class MainForm : Form
     }
 
     static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On First"), ("update", "Updates First")];
-    static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author"), ("overlap", "Overlap")];
+    static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author"), ("overlap", "Overlap"), ("conflict", "Conflicts")];
 
     /// <summary>The list shows the priority order as it is: the priority buttons and padlocks work only then.</summary>
     bool ReorderView => settings.ListSort == "priority" && settings.ListGroup == "none";
@@ -847,14 +847,16 @@ sealed partial class MainForm : Form
 
         var items = new List<object>();
         string grouping = settings.ListGroup;
-        if (grouping is "tag" or "author" or "overlap")
+        if (grouping is "tag" or "author" or "overlap" or "conflict")
         {
-            // Overlap (Kurt, 2026-10-12): the mods with the OVERLAP warning, then the rest
-            string none = grouping == "tag" ? "Untagged" : grouping == "overlap" ? "No Overlap" : "(No Author)";
+            // Overlap (Kurt, 2026-10-12): the mods with the OVERLAP warning, then the rest. Conflicts: the cards' stripe, red
+            // (part of the mod loses to a higher one) first, then amber (it wins every shared change), then the rest.
+            string none = grouping == "tag" ? "Untagged" : grouping == "overlap" ? "No Overlap" : grouping == "conflict" ? "No Conflicts" : "(No Author)";
             List<string> KeysOf(Mod m) => grouping == "tag" ? (m.Tags.Count > 0 ? m.Tags : [none])
                 : grouping == "overlap" ? [OverlapReason(m) != null ? "Overlap" : none]
+                : grouping == "conflict" ? [list.Overridden.Contains(m) ? "Overridden" : conflicted.Contains(m) ? "Wins Its Conflicts" : none]
                 : [string.IsNullOrWhiteSpace(m.Manifest.Author) ? none : m.Manifest.Author.Trim()];
-            foreach (string k in modList.SelectMany(KeysOf).Distinct(cmp).OrderBy(k => k == none ? 1 : 0).ThenBy(k => k, cmp))
+            foreach (string k in modList.SelectMany(KeysOf).Distinct(cmp).OrderBy(k => k == none ? 1 : 0).ThenBy(k => grouping == "conflict" ? (k == "Overridden" ? "0" : "1") : k, cmp))
             {
                 var members = modList.Where(m => KeysOf(m).Contains(k, cmp)).ToList();
                 string gk = grouping + ":" + k;

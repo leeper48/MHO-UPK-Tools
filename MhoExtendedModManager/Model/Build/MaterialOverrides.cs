@@ -43,6 +43,12 @@ sealed class MaterialOverrides
     /// <summary>The game material slot order the user set (material names, slot 0 first; Kurt, 2026-10-12: a costume's
     /// condition swaps keep slots by number, ConditionSwaps); null = the model's own order.</summary>
     public List<string>? SlotOrder { get; set; }
+    /// <summary>Parts that get their own material (Kurt, 2026-10-12, a user's MUA2 model: two meshes on one material): each
+    /// one's sections take the material "&lt;material&gt; @ &lt;part&gt;", with its own rows, maps, game material and slot.</summary>
+    public List<string>? OwnPartMaterials { get; set; }
+
+    /// <summary>The name of a part's own material.</summary>
+    public static string PartMaterial(string material, string part) => $"{material} @ {part}";
 
     /// <summary><paramref name="materials"/> in the slot order of the overrides at <paramref name="path"/> (materials it doesn't
     /// name keep their own order after the named ones).</summary>
@@ -67,7 +73,7 @@ sealed class MaterialOverrides
         Protected.CheckWrite(path);
         foreach (var k in Materials.Where(kv => kv.Value.Empty).Select(kv => kv.Key).ToList()) Materials.Remove(k);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        if (Materials.Count == 0 && SlotOrder is not { Count: > 0 }) { if (File.Exists(path)) File.Delete(path); return; }
+        if (Materials.Count == 0 && SlotOrder is not { Count: > 0 } && OwnPartMaterials is not { Count: > 0 }) { if (File.Exists(path)) File.Delete(path); return; }
         File.WriteAllText(path, JsonSerializer.Serialize(this, Json));
     }
 
@@ -77,6 +83,18 @@ sealed class MaterialOverrides
     {
         if (path == null || !File.Exists(path)) return;
         var o = Load(path);
+        // parts with a material of their own: their sections renamed (each part's sections share one copy of the maps)
+        if (o.OwnPartMaterials is { Count: > 0 } own)
+        {
+            var copies = new Dictionary<string, Textures>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in r.Sections.Where(s => s.Part.Length > 0 && own.Contains(s.Part, StringComparer.OrdinalIgnoreCase) && !s.Material.Contains(" @ ")))
+            {
+                string name = PartMaterial(s.Material, s.Part);
+                if (!copies.TryGetValue(name, out var t)) copies[name] = t = s.Tex.Copy();
+                s.Material = name; s.Tex = t;
+            }
+            if (copies.Count > 0) log?.Invoke($"own materials: {string.Join(", ", copies.Keys)}");
+        }
         string dir = Path.GetDirectoryName(Path.GetFullPath(path))!;
         string? Full(string? rel) => rel == null ? null : Path.Combine(dir, rel);
         var made = new Dictionary<string, Textures>(StringComparer.OrdinalIgnoreCase);

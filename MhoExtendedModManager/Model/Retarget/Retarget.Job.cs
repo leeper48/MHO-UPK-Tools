@@ -933,7 +933,7 @@ static partial class Retarget
                     // joints moved onto the animations' offsets (TranslationBind) carry the skin with them, by its weights
                     foreach (var (jb, jw) in w[v]) pp[v] += jw * jointShift[jb];
                 }
-                r.Sections.Add(new RefSection { Material = s.Material, Tex = s.Tex, Pos = pp, Normal = nn, Uv = s.Uv, Tris = (int[])s.Tris.Clone(), Weights = w });
+                r.Sections.Add(new RefSection { Material = s.Material, Tex = s.Tex, Pos = pp, Normal = nn, Uv = s.Uv, Tris = (int[])s.Tris.Clone(), Weights = w, Part = parts.First(p => p.Sections.Contains(s)).Name });
             }
         }
 

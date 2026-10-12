@@ -295,7 +295,7 @@ static class FbxReimport
             if (dot > 0 && int.TryParse(matName[(dot + 1)..], out _)) matName = matName[..dot];   // Blender's ".001"
             var tex = texFor(matName, mat);
             if (tex.Diffuse == null) notes.Add($"{mesh.Name}: no texture found for material '{matName}'");
-            sections.Add(new RefSection { Material = matName, Tex = tex, Pos = pos, Normal = nrm, Uv = uv, Tris = tris.ToArray(), Weights = weights });
+            sections.Add(new RefSection { Material = matName, Tex = tex, Pos = pos, Normal = nrm, Uv = uv, Tris = tris.ToArray(), Weights = weights, Part = mesh.Name });
         }
         if (movedToParent.Count > 0) notes.Add($"{movedToParent.Count} weighted bone(s) in the FBX aren't in this skeleton: their weights went to their nearest parent it has (they move with it, not on their own)");
         if (boneMissing > 0) notes.Add($"{boneMissing} weighted bone(s) in the FBX aren't in the MHO skeleton and have no parent in it: their weights were dropped");

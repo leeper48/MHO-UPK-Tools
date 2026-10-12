@@ -23,6 +23,8 @@ sealed class RefSection
     public required Vector2[] Uv;
     public required int[] Tris;           // MHO winding (clockwise about the normal)
     public required (int Bone, float Weight)[][] Weights;   // MHO bone indices, ≤ 4, sum 1
+    /// <summary>The model part it came from (its own material on the Parts tab: MaterialOverrides.OwnPartMaterials).</summary>
+    public string Part = "";
 }
 
 /// <summary>The MFF model on the MHO skeleton: the result of <see cref="Retarget.Run"/>.</summary>

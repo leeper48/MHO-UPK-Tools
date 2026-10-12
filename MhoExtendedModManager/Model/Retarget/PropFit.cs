@@ -211,7 +211,7 @@ static class PropFit
                 nn[v] = n.LengthSquared() > 0 ? Vector3.Normalize(n) : n;
                 w[v] = [(bone, 1f)];
             }
-            r.Sections.Add(new RefSection { Material = s.Material, Tex = s.Tex, Pos = pp, Normal = nn, Uv = s.Uv, Tris = (int[])s.Tris.Clone(), Weights = w });
+            r.Sections.Add(new RefSection { Material = s.Material, Tex = s.Tex, Pos = pp, Normal = nn, Uv = s.Uv, Tris = (int[])s.Tris.Clone(), Weights = w, Part = list.First(p => p.Sections.Contains(s)).Name });
         }
         r.Scale = scale;
         return r;

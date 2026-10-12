@@ -310,7 +310,7 @@ function mhoNext(dir) {
 <li>Open the mod in the Editor and go to <b>Model</b>. (The first time, <b>Settings → Model</b> sets the folders it reads.)</li>
 <li>Under <b>Source</b>, choose <b>MFF Repository</b> and pick a character from your MFF rip, or <b>Single Model</b> and <b>Browse for a Model</b>: an FBX, OBJ, DAE (Collada), STL, Blender file (.blend) or XNALara / XPS model (.xps, .mesh, .mesh.ascii). It can be rigged with the game's bones, Mixamo's or another skeleton, or not rigged at all (it's rigged for you in Blender). An MFF character's model is recognized and read with its folder. Its textures are found beside it, in its subfolders, or in folders next to its folder (such as <code>Textures</code>).</li>
 <li>Under <b>Target</b>, pick the costume package it goes on. (While something loads or builds in the background, the ring beside the status line turns; the one in the top bar shows anything running in the app. Point at it to see what.) The preview shows your model on the hero's skeleton; play animations to check it moves well.</li>
-<li>Untick parts you don't want under <b>Parts</b>. If something bends wrongly, the <b>Bone Map</b> says which hero bone drives what. <b>Materials</b> lists each material's maps.</li>
+<li>Untick parts you don't want under <b>Parts</b>. When several parts share one material (a body and its clothes on one texture sheet), tick <b>Own Material</b> on a part to give it a material of its own: it shows on the Materials tab as <i>&lt;material&gt; @ &lt;part&gt;</i>, with its own maps (Replace File), game material and slot. If something bends wrongly, the <b>Bone Map</b> says which hero bone drives what. <b>Materials</b> lists each material's maps.</li>
 <li>To make the character bigger or smaller in game, move <b>Size in Game</b> (under Material).</li>
 <li>Click <b>Build into Mod</b>, then Save Changes, then turn the mod on and Apply Changes. (If you change something and forget to build, leaving the Model tab or Save Changes asks: <b>Build Now</b> / <b>Build and Save</b>.)</li>
 </ol>
@@ -486,7 +486,7 @@ function mhoNext(dir) {
 <tr><td><code>is:overlap</code></td><td>mods with the OVERLAP warning</td></tr>
 <tr><td><code>is:nexus</code>, <code>is:update</code></td><td>linked to Nexus, with an update on Nexus</td></tr>
 </table>
-<p><b>Sort</b> (priority, name, author, tag, on first, updates first) and <b>Group</b> (none, tag, author, overlap: the mods with the <a href="#shared">OVERLAP</a> warning first) are remembered. Priority buttons, drag and padlocks only work in the plain priority view.</p>
+<p><b>Sort</b> (priority, name, author, tag, on first, updates first) and <b>Group</b> (none, tag, author, overlap: the mods with the <a href="#shared">OVERLAP</a> warning first; conflicts: Overridden (part of the mod loses to a higher one), then Wins Its Conflicts, then No Conflicts) are remembered. Priority buttons, drag and padlocks only work in the plain priority view.</p>
 
 <h2 id="details">A Mod's Details</h2>
 <p>The header shows the name and version, the author, what it changes, its tags (click to change them), the <b>Enabled</b> pill (click to turn it on or off) and its badges. For a mod made for one costume, <b>Costume: … ▾</b> shows which, and opens <a href="#costume">Move to Another Costume</a>.</p>
