@@ -22,7 +22,12 @@ interface IPreviewPrefs
 /// mesh and its package's meshes, the mod's packages (read before the game's), the costume class (its own effects), and the
 /// condition material swaps for a power (null: none).</summary>
 sealed record PreviewContext(string? Hero, string? Cooked, MeshRef? MainRef, IReadOnlyList<MeshRef> PackageMeshes,
-    IReadOnlyList<(string File, string Path)> ModPackages, Func<string?> Entity, Func<string, Func<Fx.GameData, string, ModelView.Look?[]?>?>? SwapsFor);
+    IReadOnlyList<(string File, string Path)> ModPackages, Func<string?> Entity, Func<string, Func<Fx.GameData, string, ModelView.Look?[]?>?>? SwapsFor)
+{
+    /// <summary>The packages the props are read from (null: ModPackages; the Powers tab leaves its rebuilt power packages
+    /// out of ModPackages, not out of the props).</summary>
+    public IReadOnlyList<(string File, string Path)>? PropPackages { get; init; }
+}
 
 /// <summary>
 /// One 3D preview (phase 3 of the preview merge, Kurt 2026-10-12: "the Model, Powers and Mods home previewer should handle
@@ -43,6 +48,9 @@ sealed partial class Preview3D : UserControl
     readonly LightSlider lens = new() { Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = 50, Height = 26, Format = v => $"{v:0} mm" };
     readonly Label fxLabel = new() { AutoSize = true, Margin = new Padding(6, 8, 0, 0) };
     readonly Control bar;
+    readonly Control powerBlock;
+    readonly TableLayoutPanel rootTable;
+    Control? powerHost, wantedHost;
     ContextMenuStrip? lookMenu;
     readonly IPreviewPrefs prefs;
 
@@ -56,7 +64,8 @@ sealed partial class Preview3D : UserControl
     {
         Loop = () => prefs.Loop,
         Moved = (f, ended) => { FxAdvance(playTime, ended); Pose(f); },
-        StateChanged = () => { play.Text = IsPlaying ? "❚❚" : "▶"; view.Moving = IsPlaying; },   // smaller frames while playing (ModelView.Moving)
+        StateChanged = () => { play.Text = IsPlaying ? "❚❚" : "▶"; view.Moving = IsPlaying; if (!IsPlaying) PlaybackMoved?.Invoke(); },   // smaller frames while playing (ModelView.Moving)
+        CanRun = () => CanRun?.Invoke() ?? true,
     };
     BoneAnimation? anim => player?.Anim;
     float frames => player?.Frames ?? 0;
@@ -79,6 +88,19 @@ sealed partial class Preview3D : UserControl
     public List<PreviewControls.LookItem> ExtraLook { get; } = [];
     /// <summary>The playback bar (the host's buttons sit in it).</summary>
     public Control Bar => bar;
+    /// <summary>Whether playback may run now; false pauses it (the Mods tab: a picture shows, or the preview is hidden).</summary>
+    public Func<bool>? CanRun { get; set; }
+    /// <summary>The light slider's double-click value (the Mods tab: the mod's own light).</summary>
+    public Func<float>? LightHome { get; set; }
+    /// <summary>Reset View (the Mods tab: back to the mod author's view); null = the default framing.</summary>
+    public Action? ResetViewAction { get; set; }
+    /// <summary>The camera was turned, zoomed, moved or framed (the Mods tab keeps it per mesh).</summary>
+    public event Action? ViewChanged;
+    /// <summary>An animation was picked: its name (null: rest pose), and whether the user picked it (false: the preview
+    /// restored or picked it itself).</summary>
+    public event Action<string?, bool>? AnimationPicked;
+    /// <summary>Playback paused or the frame slider let go (the Mods tab saves the animation and the frame).</summary>
+    public event Action? PlaybackMoved;
 
     /// <param name="prefs">Where the look and playback switches are kept.</param>
     /// <param name="barButtons">The host's buttons on the playback bar, before Look ▾ (the Model tab's edits and Compare).</param>
@@ -88,7 +110,7 @@ sealed partial class Preview3D : UserControl
         BackColor = Color.Transparent;
         play = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses).");
         loop = Ui.FlatButton("⟳ Loop", () => { prefs.Loop = !prefs.Loop; prefs.Save(); Ui.Lit(loop!, prefs.Loop); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
-        reset = Ui.FlatButton("Reset View", () => view.ResetView(), "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
+        reset = Ui.FlatButton("Reset View", () => { if (ResetViewAction != null) ResetViewAction(); else view.ResetView(); }, "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props and Power FXs on or off, and the Light, Glow and Lens sliders. Remembered.");
         (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);
         fullScreen = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
@@ -103,7 +125,7 @@ sealed partial class Preview3D : UserControl
         Ui.Tip(lens, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter; the model stays the same size (double-click: 50 mm). Remembered.");
         Ui.Tip(fxLabel, "The power the animation belongs to and how many of its effects play.");
         fxLabel.ForeColor = Ui.Subtle;
-        light.Value = prefs.Light; light.Home = () => 1; view.Brightness = prefs.Light;
+        light.Value = prefs.Light; light.Home = () => LightHome?.Invoke() ?? 1; view.Brightness = prefs.Light;
         lens.Value = prefs.Lens; lens.Home = () => 50; view.FocalLength = prefs.Lens;
         glowSlider.Value = prefs.GlowStrength; glowSlider.Home = () => 1; view.GlowStrength = prefs.GlowStrength;
         light.ValueChanged += () => view.Brightness = light.Value;
@@ -113,6 +135,8 @@ sealed partial class Preview3D : UserControl
         glowSlider.ValueChanged += () => view.GlowStrength = glowSlider.Value;
         glowSlider.Committed += () => { prefs.GlowStrength = glowSlider.Value; prefs.Save(); };
         frame.ValueChanged += ScrubTo;
+        frame.Committed += () => PlaybackMoved?.Invoke();
+        view.ViewChanged += () => ViewChanged?.Invoke();
         frame.Enabled = false; frame.Format = _ => "–";
         anims.SelectedIndexChanged += (_, _) => AnimationChosen();
         Ui.Lit(loop, prefs.Loop);
@@ -128,7 +152,9 @@ sealed partial class Preview3D : UserControl
         bar = Strip(anims, [play, loop, .. barButtons, look, reset, frameHead, frameBust, frameFull, fullScreen]);
         root.Controls.Add(bar, 0, 1);
         root.Controls.Add(frame, 0, 2);
-        root.Controls.Add(PowerBlock(), 0, 3);   // Power FXs + the power buttons
+        powerBlock = PowerBlock();
+        root.Controls.Add(powerBlock, 0, 3);   // Power FXs + the power buttons
+        rootTable = root;
         Controls.Add(root);
     }
 
@@ -140,6 +166,16 @@ sealed partial class Preview3D : UserControl
         if (fill != null) { fill.Dock = DockStyle.Fill; fill.Margin = new Padding(0, 2, 6, 0); t.Controls.Add(fill, 0, 0); }
         for (int i = 0; i < buttons.Length; i++) { buttons[i].Margin = new Padding(0, 0, 6, 0); t.Controls.Add(buttons[i], i + 1, 0); }
         return t;
+    }
+
+    /// <summary>The look switches, sliders and Loop read again (the Mods tab: another mod's light, lens and glow).</summary>
+    public void ReloadPrefs()
+    {
+        light.Value = prefs.Light; view.Brightness = prefs.Light;
+        lens.Value = prefs.Lens; view.FocalLength = prefs.Lens;
+        glowSlider.Value = prefs.GlowStrength; view.GlowStrength = prefs.GlowStrength;
+        Ui.Lit(loop, prefs.Loop);
+        ApplyLook();
     }
 
     // --- look -------------------------------------------------------------------------------------------------------------------
@@ -203,8 +239,13 @@ sealed partial class Preview3D : UserControl
         FillAnims();
         int pick = Math.Max(0, keep != null ? animList.FindIndex(a => a.Name == keep) + 1 : 0);
         int before = anims.SelectedIndex;
-        anims.SelectedIndex = pick;
-        if (anims.SelectedIndex == before) AnimationChosen();   // same index: the list fires no change, load it anyway
+        quietPick = true;   // (the preview's own pick, not the user's)
+        try
+        {
+            anims.SelectedIndex = pick;
+            if (anims.SelectedIndex == before) AnimationChosen();   // same index: the list fires no change, load it anyway
+        }
+        finally { quietPick = false; }
         if (keepView != null) view.ViewState = keepView;
         if (pick > 0 && anim != null && seconds > 0)
         {
@@ -214,8 +255,30 @@ sealed partial class Preview3D : UserControl
             if (play) Player.Play();
         }
         LoadProps();
-        if (!samePowers || heroPowers.Count == 0) LoadHeroPowers();
+        if (animations.Count > 0 && (!samePowers || heroPowers.Count == 0)) LoadHeroPowers();
     }
+
+    /// <summary>
+    /// The shown character's animations, read after it (the Mods tab reads them in the background): the list filled, the
+    /// hero's power buttons read, and <paramref name="select"/> picked at <paramref name="atSeconds"/> (restored, so not a
+    /// user's pick), playing with <paramref name="play"/>.
+    /// </summary>
+    public void SetAnimations(List<AnimRef> animations, string? select, double? atSeconds, bool play)
+    {
+        allAnims = animList = animations;
+        powerFilter = null; effectOnly = null;
+        FillAnims();
+        LoadHeroPowers();
+        int want = select == null ? -1 : animList.FindIndex(a => a.Name.Equals(select, StringComparison.OrdinalIgnoreCase));
+        if (want < 0) return;
+        quietPick = true;
+        try { anims.SelectedIndex = want + 1; } finally { quietPick = false; }
+        if (atSeconds is double t && anim != null && seconds > 0) { playTime = Math.Clamp((float)t, 0, seconds); FxReplay(playTime); Pose(frames > 0 ? playTime / seconds * frames : 0); }
+        if (play && anim != null) Player.Play();
+    }
+    bool quietPick;
+    /// <summary>The next animation opens at this share of its length (PlayPower: compare powers at the same moment).</summary>
+    double? keepFraction;
 
     /// <summary>Another mesh and animator for the same character (the Model tab's Compare): the animation, frame and camera kept.</summary>
     public void SwapCharacter(ModMeshes.Loaded mesh, MeshAnimator animator)
@@ -276,8 +339,8 @@ sealed partial class Preview3D : UserControl
         bool wasPlaying = IsPlaying;
         int sel = anims.SelectedIndex;
         FillAnims();
-        anims.SelectedIndex = Math.Min(sel, anims.Items.Count - 1);
-        AnimationChosen();
+        quietPick = true;
+        try { anims.SelectedIndex = Math.Min(sel, anims.Items.Count - 1); AnimationChosen(); } finally { quietPick = false; }
         if (anim != null && seconds > 0) { playTime = at * seconds; FxReplay(playTime); Pose(at * frames); if (wasPlaying) TogglePlay(); }
     }
 
@@ -302,16 +365,53 @@ sealed partial class Preview3D : UserControl
             a = ModAnimations.Load(animList[i]);
             a = TransformAnimation != null ? TransformAnimation(animList[i], a) : a;
         }
-        Player.Set(a);
+        Player.Set(a, keepFraction is double kf && a != null ? kf * MeshAnimator.Span(a).Seconds : 0);
+        keepFraction = null;
         frame.Enabled = a != null;
         float fr = frames; frame.Format = v => fr > 0 ? $"{v * fr:0} / {fr:0}" : "–";
         rig.SetParentAnimation(a);
         LoadEffects();
         LoadPropSwitches();
-        Pose(0);
+        Pose(frames > 0 && seconds > 0 ? playTime / seconds * frames : 0);
         RefreshPowerButtons();
+        AnimationPicked?.Invoke(CurrentAnimation, !quietPick);
         if (autoPlay) { autoPlay = false; if (a != null) TogglePlay(); }
     }
+
+    /// <summary>Picks an animation by name (the editor's Animations tab): every animation back in the drop-down, that one
+    /// selected and, with <paramref name="play"/>, playing. False when the shown character has no animation of that name.</summary>
+    public bool PlayAnimation(string name, bool play = true)
+    {
+        if (powerFilter != null || animList.Count != allAnims.Count) { powerFilter = null; effectOnly = null; animList = allAnims; FillAnims(); RefreshPowerButtons(); }
+        int i = animList.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (i < 0) return false;
+        autoPlay = play;
+        if (anims.SelectedIndex == i + 1) AnimationChosen();   // (the same one again: from the start)
+        else anims.SelectedIndex = i + 1;
+        return true;
+    }
+
+    /// <summary>Plays an animation from anywhere on the shown character (the Animations tab's picker: try another character's
+    /// before using it). It shows at the top of the drop-down until the character's own list is shown again.</summary>
+    public bool PlayRef(AnimRef a, bool play = true)
+    {
+        powerFilter = null; effectOnly = null;
+        animList = [a, .. allAnims.Where(x => !ReferenceEquals(x, a))];
+        FillAnims();
+        autoPlay = play;
+        if (anims.SelectedIndex == 1) AnimationChosen(); else anims.SelectedIndex = 1;
+        return true;
+    }
+
+    /// <summary>The animation playing (null: rest pose), where it is (seconds), and its length.</summary>
+    public BoneAnimation? Playing => anim;
+    public double Time { get => playTime; set { if (anim == null) return; playTime = (float)Math.Clamp(value, 0, seconds); FxReplay(playTime); Pose(frames > 0 && seconds > 0 ? playTime / seconds * frames : 0); } }
+    public float Seconds => seconds;
+    public float Frames => frames;
+    /// <summary>Pauses (holding the frame) or plays on.</summary>
+    public void Pause() => player?.Pause();
+    public void Play() { if (anim != null) TogglePlayIfPaused(); }
+    void TogglePlayIfPaused() { if (!IsPlaying) TogglePlay(); }
 
     // --- playback -----------------------------------------------------------------------------------------------------------------
     void TogglePlay()
@@ -375,16 +475,55 @@ sealed partial class Preview3D : UserControl
         Framing.Apply(view, animator, anim != null, shot, centerHead: true);
         if (anim == null) animator.Pose(null, 0);
         ShowPose();
+        ViewChanged?.Invoke();   // (kept as a drag's view is)
     }
 
     readonly PreviewControls.FullScreen full = new();
 
     /// <summary>Into or out of full screen: this control moves into a borderless window on its monitor and back (F11).</summary>
-    public void ToggleFull() => full.Toggle(this, "Preview", PausePlayback, () => TogglePlayback(), view, new Padding(10), () => fullScreen.Invalidate());
+    public void ToggleFull()
+    {
+        bool goingFull = !full.IsFull;
+        if (goingFull && powerHost != null) AttachPowerBlock(null);   // (the power buttons come along)
+        full.Toggle(this, FullTitle, PausePlayback, () => TogglePlayback(), view, new Padding(10), () => fullScreen.Invalidate());
+        if (!goingFull && wantedHost != null) AttachPowerBlock(wantedHost);
+    }
+
+    /// <summary>The full screen window's title.</summary>
+    public string FullTitle { get; set; } = "Preview";
 
     public bool IsFull => full.IsFull;
 
+    // --- the power block's place ---------------------------------------------------------------------------------------------------
+    /// <summary>
+    /// Puts the power block (Power FXs, the caption, the power buttons) into <paramref name="host"/> (docked to fill it), or
+    /// back under the frame slider (null). The Mods tab keeps its caption and pictures between the view and the powers.
+    /// </summary>
+    public void PlacePowerBlock(Control? host) { wantedHost = host; if (!full.IsFull) AttachPowerBlock(host); }
+
+    void AttachPowerBlock(Control? host)
+    {
+        if (powerHost == host) return;
+        powerBlock.Parent?.Controls.Remove(powerBlock);
+        if (host == null) rootTable.Controls.Add(powerBlock, 0, 3);
+        else { powerBlock.Dock = DockStyle.Fill; host.Controls.Add(powerBlock); }
+        powerHost = host;
+    }
+
+    /// <summary>The power block shown (off in the editor's Powers and Animations tabs: their own lists pick).</summary>
+    public bool ShowPowerBlock { get => powerBlock.Visible; set => powerBlock.Visible = value; }
+    /// <summary>The power block's height as laid out (the host sizes its place for it).</summary>
+    public int PowerBlockHeight(int width) => powerBlock.GetPreferredSize(new Size(width, 0)).Height + powerBlock.Margin.Vertical;
+
     // --- checks ---------------------------------------------------------------------------------------------------------------------
+    /// <summary>Checks: the controls as a user clicks them.</summary>
+    internal Button PlayButton => play;
+    internal Button ResetButton => reset;
+    internal LightSlider FrameSlider => frame;
+    internal LightSlider LightSlider => light;
+    internal DropDown AnimationBox => anims;
+    internal bool Paused => !IsPlaying;
+    internal void ShowPoseForTest() => ShowPose();
     /// <summary>The power line under the view (checks).</summary>
     public string EffectsNote => fxLabel.Text + $" · props {rig.Count}";
     /// <summary>The material swap drawn now (checks): "n of m section(s)", else "none".</summary>

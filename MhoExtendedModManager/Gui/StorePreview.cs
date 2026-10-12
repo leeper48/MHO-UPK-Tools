@@ -20,88 +20,16 @@ sealed partial class StorePreview : Control
     List<MeshRef> meshes = [];
     bool show3D;
     int meshIndex;
-    ModelView? viewer;
     readonly Dictionary<string, ModMeshes.Loaded?> meshCache = [];
     Rectangle meshPrev, meshNext;
-    // Animation (Kurt: pick one for the 3D view): the mesh's animations, the one playing, and the drop-down.
-    List<AnimRef> anims = [];
     string? wantedAnim;                           // from the pick's "@animation" part
-    double? keepFraction;                         // Powers tab: the next animation opens at this fraction of its length (PlayPower)
-    double? restoreTime;                          // the saved frame (seconds) to show when the animation being restored has loaded
     string? shownMesh;                            // the mesh the 3D view holds (kept while a picture shows, so going back keeps pose and camera)
-    AnimPlayer? player;
-    /// <summary>The playback (shared with the Model tab's preview): the animation, where it is, paused or playing, the timer.</summary>
-    AnimPlayer Player => player ??= new AnimPlayer
-    {
-        Loop = () => PreviewViews.Loop,
-        Moved = PlayMoved,
-        StateChanged = UpdateButtons,
-        CanRun = () => { if (show3D && Visible) return true; SaveAnim(); return false; },   // hidden: hold the frame
-    };
-    AnimExportCli.Animation.BoneAnimation? playing => player?.Anim;
-    MeshAnimator? animator;
-    float playFrames => player?.Frames ?? 0;
-    float playSeconds => player?.Seconds ?? 0;
-    DropDown? animBox;
-    bool fillingAnims;
-    // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
-    Button? playBtn, loopBtn, restBtn;
-    // Power effects (Kurt, 2026-09-30; ported from the MHO Hero Creator): the effects of the power an animation belongs to,
-    // played with it. The game data is read once (in the background); each power's effects when its animation is picked.
-    Button? powersBtn;
-    PreviewEffects? effects;
-    /// <summary>The power effects (shared with the Model tab's preview): the caption is painted in the 3D caption.</summary>
-    PreviewEffects Effects => effects ??= new PreviewEffects(rig, this)
-    {
-        Shown = () => viewer != null && animator != null && shownLoaded != null ? (viewer, animator, shownLoaded) : null,
-        Playing = () => playing,
-        Seconds = () => playSeconds,
-        Frames = () => playFrames,
-        Time = () => PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime,
-        ShowPose = () => { ShowPose(); Invalidate(); },
-        RebuildRig = RebuildRig,
-        NoteChanged = Invalidate,
-        Running = () => Visible && show3D,
-        CookedFor = () => CookedFolder,
-        ColorFor = colorFor,
-    };
-    Fx.PowerEffects.Player? fxPlayer => effects?.Player;
-    string fxNote => effects?.Note ?? "";   // "Shockwave · 5 Effects" in the 3D caption
-    static Task<Fx.GameData?>? fxDb;
-    readonly PropRig rig = new();
-    ModMeshes.Loaded? shownLoaded;       // the character as loaded (without props)
-    LightSlider? lightSlider, lensSlider, glowSlider, frameSlider;
-    bool settingFrame;   // the frame slider follows playback without scrubbing
-    // Full screen (Kurt, 2026-09-30): the whole preview moves into a borderless window covering the app's monitor, the 3D
-    // view filling it with the controls in a column on the right; Esc, F11 or the button bring it back.
-    Button? fullBtn;
-    // Compact 3D controls (Kurt, 2026-09-30: room for more): playback in a bar over the view's bottom and framing in its top
-    // right corner, both shown while the mouse is over the view (always in full screen); the look toggles and the Light /
-    // Lens sliders in a Look ▾ menu; under the view only the caption and Look ▾ · Reset View · ⛶.
-    Panel? playBar;
-    // Power buttons (Kurt, 2026-09-30: like the MHO Hero Creator's 3D View): the hero's powers as icons in the strip under
-    // the preview while the 3D view shows (the Power Icons button switches back to the pictures); a click filters the
-    // animations to that power's and plays its first, with its effects; a second click shows them all again.
-    List<Fx.PowerList.Power> heroPowers = [];
-    List<AnimRef> allAnims = [];
-    bool autoPlay, powersLoaded;
-    string? powerFilter;
-    readonly List<(Rectangle Rect, int Index)> powerRects = [];
-    Rectangle powerLeft, powerRight;
-    int powerScroll, hoverPower = -1, heroPowersRequest;
-    Button? lookBtn;
-    ContextMenuStrip? lookMenu;
-    Rectangle viewRect;
-    Button? frameFullBtn, frameHeadBtn, frameBustBtn;   // framings (Kurt: as in Create from 3D)
-    readonly PreviewControls.FullScreen full = new();   // (shared with the Model tab's preview)
     /// <summary>The preview is in its full-screen window.</summary>
-    public bool IsFull => full.IsFull;
-    bool paused => player?.Paused ?? true;
-    double playTime { get => player?.Time ?? 0; set => Player.Time = value; }
+    public bool IsFull => p3?.IsFull ?? false;
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
     static string? AnimPart(string? key) { int at = key?.IndexOf('@') ?? -1; return at < 0 ? null : key![(at + 1)..]; }
     bool MeshOk => meshIndex >= 0 && meshIndex < meshes.Count;
-    string CurrentMeshKey() => !MeshOk ? "" : meshes[meshIndex].Key + (playing != null && animBox?.SelectedIndex > 0 && animBox.SelectedIndex - 1 < anims.Count ? "@" + anims[animBox.SelectedIndex - 1].Name : "");
+    string CurrentMeshKey() => !MeshOk ? "" : meshes[meshIndex].Key + (p3?.Playing != null && p3.CurrentAnimation is string a ? "@" + a : "");
     int Offset => meshes.Count > 0 ? 1 : 0;   // strip tile 0 is "3D" when the mod has meshes
     int Tiles => items.Count + Offset;
     /// <summary>The game's CookedPCConsole (textures streamed from the .tfc caches).</summary>
@@ -150,10 +78,8 @@ sealed partial class StorePreview : Control
             }
             SaveAnim();   // leaving this mod: its animation and frame are kept for next time
             mod = value; modStamp = stamp;
-            items = []; meshes = []; index = -1; meshIndex = 0; scroll = 0; show3D = false; shownMesh = null;
-            if (viewer != null) viewer.Visible = false;
-            StopAnimation(); anims = []; animator = null; wantedAnim = null;
-            HideAnimControls();
+            Hide3D(); resumeOnReveal = false;
+            items = []; meshes = []; index = -1; meshIndex = 0; scroll = 0; show3D = false; shownMesh = null; wantedAnim = null;
             var old = image; image = null; old?.Dispose();
             Invalidate();
             if (value == null) return;
@@ -253,46 +179,35 @@ sealed partial class StorePreview : Control
         var title = new Rectangle(pad, (int)(4 * S), Width - 2 * pad, (int)(20 * S));
         TextRenderer.DrawText(g, "PREVIEW", titleFont, title, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
 
-        // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below.
+        // Card at the store images' 300:420 aspect, as wide as the column allows; caption and strip below; the power block
+        // (Power FXs and the hero's power buttons, the shared 3D preview's) at the bottom while 3D shows (Kurt, 2026-09-30).
         bool full = IsFull && show3D;
-        // The pictures strip is always there; the power block (Powers toggle + two rows of power buttons) sits at the bottom
-        // (Kurt, 2026-09-30), kept while the hero's powers load and dropped when the hero has none.
-        bool powerBlock = PowerStrip && show3D && HeroOfMesh() != null && (!powersLoaded || heroPowers.Count > 0);
-        bool showStrip = Tiles > 1 && !full && !Always3D;   // (the Powers page: the 3D view only, Kurt)
+        bool powerBlock = PowerStrip && show3D && p3 != null && HeroOfMesh() != null && (!p3.PowersLoaded || p3.HeroPowers.Count > 0);
+        bool showStrip = Tiles > 1 && !Always3D;   // (the Powers page: the 3D view only, Kurt)
         int stripH = showStrip ? ThumbSize + (int)(12 * S) : 0;
-        int pbh = animBox?.Height ?? (int)(26 * S), pgap = (int)(6 * S);
-        int powersH = powerBlock && !full ? pbh + pgap + 2 * ThumbSize + pgap + (int)(4 * S) : 0;
-        int captionH = (int)((show3D ? 44 : 40) * S);   // (3D: the button row moved into the playback bar)
-        int panelW = (int)(320 * S);
-        Rectangle card;
-        if (full)
+        int powersH = powerBlock && !full ? p3!.PowerBlockHeight(Width - 2 * pad) + pad : 0;
+        int captionH = (int)(40 * S);
+        int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
+        int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH - powersH;
+        if (h > maxH && maxH > 0) { h = maxH; if (!show3D) w = (int)(h * 300f / 420f); }   // the 3D view uses the column's whole width; pictures keep their shape
+        if (w <= 0 || h <= 0) return;
+        var card = new Rectangle((Width - w) / 2, title.Bottom + (int)(4 * S), w, h);
+        if (powerArea != null)
         {
-            // Full screen: the 3D view fills everything left of a controls column.
-            card = Rectangle.FromLTRB(pad, title.Bottom + (int)(4 * S), Width - panelW - 2 * pad, Height - pad);
-            if (card.Width <= 0 || card.Height <= 0) return;
+            var pa = new Rectangle(pad, Height - powersH, Width - 2 * pad, Math.Max(0, powersH - pad));
+            if (powerArea.Bounds != pa) powerArea.Bounds = pa;
+            bool on = powerBlock && !full;
+            if (powerArea.Visible != on) powerArea.Visible = on;
         }
-        else
+        if (show3D && p3 != null)
         {
-            int w = Width - 2 * pad, h = (int)(w * 420f / 300f);
-            int maxH = Height - title.Bottom - (int)(8 * S) - captionH - stripH - powersH;
-            if (h > maxH && maxH > 0) { h = maxH; if (!show3D) w = (int)(h * 300f / 420f); }   // the 3D view uses the column's whole width; pictures keep their shape
-            if (w <= 0 || h <= 0) return;
-            card = new Rectangle((Width - w) / 2, title.Bottom + (int)(4 * S), w, h);
-        }
-        // Where the caption and the 3D controls go: under the card, or the column on the right when full screen.
-        int ctlX = full ? card.Right + pad : card.X, ctlW = full ? panelW : card.Width;
-        // The caption under the card leaves room on the right for the ⛶ button (Kurt: lower right, under the view).
-        int capX = full ? ctlX : pad, capW = full ? panelW : Width - 2 * pad, capY = full ? card.Top : card.Bottom + (int)(4 * S);
-        if (show3D && viewer != null)
-        {
-            // The 3D view fills the card; the caption steps through the meshes.
-            var inner = Rectangle.Inflate(card, -(int)(2 * S), -(int)(2 * S));
-            // The playback bar (frame slider, animation, ▶, Loop) is always shown, under the view inside the card (Kurt:
-            // it kept disappearing as a hover overlay).
-            if (animBox != null) inner.Height -= (int)(22 * S) + animBox.Height + 3 * (int)(4 * S);
-            if (viewer.Bounds != inner) viewer.Bounds = inner;
-            viewRect = inner;
-            if (!viewer.Visible) viewer.Visible = true;
+            // The 3D preview (the view, its playback bar and frame slider) fills the card (not while it's full screen).
+            if (!full)
+            {
+                var inner = Rectangle.Inflate(card, -(int)(2 * S), -(int)(2 * S));
+                if (p3.Bounds != inner) p3.Bounds = inner;
+                if (!p3.Visible) p3.Visible = true;
+            }
             using (var path = Ui.Round(card, 5 * S)) using (var fill = new SolidBrush(Ui.Card)) g.FillPath(fill, path);
         }
         else using (var path = Ui.Round(card, 5 * S))
@@ -314,12 +229,12 @@ sealed partial class StorePreview : Control
                 TextRenderer.DrawText(g, text, smallFont, card, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.WordBreak);
             }
         }
-        // Caption (3D): "◀ mesh ▶", then the package and whose choice it is.
+        // Caption (3D): "◀ mesh ▶", then the package and whose choice it is (and the power playing when there's no power block).
         meshPrev = meshNext = Rectangle.Empty;
         if (mod != null && show3D && meshIndex >= 0 && meshIndex < meshes.Count)
         {
             var r = meshes[meshIndex];
-            var cap = new Rectangle(capX, capY, capW, (int)(18 * S));
+            var cap = new Rectangle(pad, card.Bottom + (int)(4 * S), Width - 2 * pad, (int)(18 * S));
             if (meshes.Count > 1)
             {
                 meshPrev = new Rectangle(cap.X, cap.Y, (int)(24 * S), cap.Height);
@@ -330,45 +245,12 @@ sealed partial class StorePreview : Control
             var mid = Rectangle.FromLTRB(cap.X + (int)(26 * S), cap.Y, cap.Right - (int)(26 * S), cap.Bottom);
             TextRenderer.DrawText(g, meshes.Count > 1 ? $"{r.Name}  ({meshIndex + 1} of {meshes.Count})" : r.Name, smallFont, mid, Ui.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             string whose = mod.LocalPreview != null && MeshPart(mod.LocalPreview) == r.Key ? "User Pick" : mod.Manifest.PreviewImage != null && MeshPart(mod.Manifest.PreviewImage) == r.Key ? "The Mod's Choice" : "3D View";
+            string note = !powerBlock && p3 != null ? p3.EffectsCaption : "";
             cap.Offset(0, (int)(18 * S));
-            TextRenderer.DrawText(g, $"3D  ·  {r.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}  ·  {whose}{(fxNote.Length > 0 ? "  ·  " + fxNote : "")}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            if (animBox != null && playBtn != null && loopBtn != null && restBtn != null && playBar != null && lookBtn != null && fullBtn != null && frameSlider != null)
-            {
-                int bh = animBox.Height, gap = (int)(4 * S), wPlay = (int)(30 * S), wIcon = (int)(34 * S);
-                int y = cap.Bottom + (int)(4 * S);
-                string label = full ? "Back" : "Full Screen";
-                if (fullBtn.Text != label) { fullBtn.Text = label; fullBtn.Invalidate(); }
-                if (powersBtn != null)
-                {
-                    // The Powers toggle heads the power block: the bottom of the panel, or under the Look row when full screen.
-                    var pw2 = full ? new Rectangle(ctlX, y + (int)(6 * S), (int)(92 * S), bh) : new Rectangle(pad, Height - powersH, (int)(92 * S), bh);
-                    if (powersBtn.Bounds != pw2) powersBtn.Bounds = pw2;
-                    if (powersBtn.Visible != powerBlock) powersBtn.Visible = powerBlock;
-                }
-                // The playback bar under the view, always shown.
-                int barH = (int)(22 * S) + bh + 3 * gap;
-                var bar = new Rectangle(viewRect.X, viewRect.Bottom, viewRect.Width, barH);
-                if (playBar.Bounds != bar) playBar.Bounds = bar;
-                int iw = bar.Width - 2 * gap;
-                var fsb = new Rectangle(gap, gap, iw, (int)(22 * S)); if (frameSlider.Bounds != fsb) frameSlider.Bounds = fsb;
-                // the row: animation (what's left), ▶, Loop, Look ▾, Reset View, Head, Bust, Full Body, ⛶ (right to left)
-                var row = new List<(Control C, int W)> { (playBtn, wPlay), (loopBtn, wIcon), (lookBtn, wIcon), (restBtn, wIcon) };
-                if (frameFullBtn != null && frameHeadBtn != null && frameBustBtn != null) row.AddRange([(frameHeadBtn, wIcon), (frameBustBtn, wIcon), (frameFullBtn, wIcon)]);
-                row.Add((fullBtn, wIcon));
-                int rowY = fsb.Bottom + gap, x = gap + iw;
-                for (int k = row.Count - 1; k >= 0; k--)
-                {
-                    x -= row[k].W;
-                    var rb = new Rectangle(x, rowY, row[k].W, bh); if (row[k].C.Bounds != rb) row[k].C.Bounds = rb;
-                    if (!row[k].C.Visible) row[k].C.Visible = true;
-                    x -= gap;
-                }
-                var ab = new Rectangle(gap, rowY, Math.Max((int)(80 * S), x - gap), bh); if (animBox.Bounds != ab) animBox.Bounds = ab;
-                if (!playBar.Visible) playBar.Visible = true;
-            }
+            TextRenderer.DrawText(g, $"3D  ·  {r.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}  ·  {whose}{(note.Length > 0 ? "  ·  " + note : "")}", smallFont, cap, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         }
         // Caption: the texture, where it's from, and whose choice it is.
-        else if (mod != null && index >= 0 && index < items.Count)
+        if (mod != null && !show3D && index >= 0 && index < items.Count)
         {
             var c = items[index];
             var cap = new Rectangle(pad, card.Bottom + (int)(4 * S), Width - 2 * pad, (int)(18 * S));
@@ -380,61 +262,6 @@ sealed partial class StorePreview : Control
         // The strip: thumbnails, with arrows when they don't all fit.
         thumbRects.Clear();
         leftArrow = rightArrow = strip = Rectangle.Empty;
-        powerRects.Clear(); powerLeft = powerRight = Rectangle.Empty;
-        if (mod != null && powerBlock && powersBtn != null)
-        {
-            var hb = powersBtn.Bounds;
-            string head = !powersLoaded ? "Loading Powers…" : powerFilter != null && heroPowers.FirstOrDefault(p => p.Prototype == powerFilter) is { } fp ? fp.Name + " (Click Again for All)" : $"{heroPowers.Count} Powers: Click One to Play It";
-            var ht = Rectangle.FromLTRB(hb.Right + pgap, hb.Top, full ? ctlX + ctlW : Width - pad, hb.Bottom);
-            TextRenderer.DrawText(g, head, smallFont, ht, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        }
-        if (mod != null && show3D && heroPowers.Count > 0 && powerBlock && powersBtn != null)
-        {
-            if (full)
-            {
-                // Full screen: every power as a grid in the column, under the Powers toggle.
-                int gx = card.Right + pad, gy = powersBtn.Bottom + pgap, cell = ThumbSize, gp = pgap;
-                int per = Math.Max(1, (panelW + gp) / (cell + gp));
-                for (int k = 0; k < heroPowers.Count; k++)
-                {
-                    var r = new Rectangle(gx + k % per * (cell + gp), gy + k / per * (cell + gp), cell, cell);
-                    if (r.Bottom > Height - pad) break;
-                    DrawPower(g, r, k);
-                }
-            }
-            else
-            {
-                // Two rows under the Powers toggle, scrolled sideways together when they don't fit.
-                int ptop = powersBtn.Bottom + pgap, aw = (int)(16 * S), step = ThumbSize + pgap, areaH = 2 * ThumbSize + pgap;
-                int cols = (heroPowers.Count + 1) / 2;
-                var pstrip = new Rectangle(pad, ptop, Width - 2 * pad, areaH);
-                int ptotal = cols * step - pgap;
-                if (ptotal > pstrip.Width)
-                {
-                    powerLeft = new Rectangle(pad, ptop, aw, areaH);
-                    powerRight = new Rectangle(Width - pad - aw, ptop, aw, areaH);
-                    pstrip = new Rectangle(powerLeft.Right + (int)(4 * S), ptop, powerRight.Left - powerLeft.Right - (int)(8 * S), areaH);
-                    powerScroll = Math.Clamp(powerScroll, 0, Math.Max(0, ptotal - pstrip.Width));
-                    foreach (var (ar, left, on) in new[] { (powerLeft, true, powerScroll > 0), (powerRight, false, powerScroll < ptotal - pstrip.Width) })
-                    {
-                        using var ab = new SolidBrush(on ? Ui.Text : Color.FromArgb(70, 255, 255, 255));
-                        float cx = ar.X + ar.Width / 2f, cy = ar.Y + ar.Height / 2f, aa = 5 * S;
-                        g.FillPolygon(ab, left ? [new PointF(cx + aa / 2, cy - aa), new PointF(cx - aa / 2, cy), new PointF(cx + aa / 2, cy + aa)]
-                                               : [new PointF(cx - aa / 2, cy - aa), new PointF(cx + aa / 2, cy), new PointF(cx - aa / 2, cy + aa)]);
-                    }
-                }
-                else { powerScroll = 0; pstrip = new Rectangle(pad, ptop, Math.Max(0, ptotal), areaH); }
-                var pclip = g.Clip;
-                g.SetClip(pstrip);
-                for (int k = 0; k < heroPowers.Count; k++)
-                {
-                    var r = new Rectangle(pstrip.X + k % cols * step - powerScroll, ptop + k / cols * step, ThumbSize, ThumbSize);
-                    if (r.Right < pstrip.Left || r.Left > pstrip.Right) continue;
-                    DrawPower(g, r, k);
-                }
-                g.Clip = pclip;
-            }
-        }
         if (!showStrip || mod == null) return;
         int top = card.Bottom + captionH - (int)(2 * S), arrowW = (int)(16 * S);
         strip = new Rectangle(pad, top, Width - 2 * pad, ThumbSize);
@@ -551,9 +378,6 @@ sealed partial class StorePreview : Control
     {
         base.OnMouseClick(e);
         if (mod == null) return;
-        if (powerLeft.Contains(e.Location)) { powerScroll = Math.Max(0, powerScroll - (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
-        if (powerRight.Contains(e.Location)) { powerScroll += (ThumbSize + (int)(6 * S)) * 3; Invalidate(); return; }
-        if (e.Button == MouseButtons.Left && powerRects.FirstOrDefault(x => x.Rect.Contains(e.Location)) is { Rect.Width: > 0 } hit) { PowerClicked(hit.Index); return; }
         if (leftArrow.Contains(e.Location)) { scroll = Math.Max(0, scroll - (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
         if (rightArrow.Contains(e.Location)) { scroll = Math.Min(MaxScroll, scroll + (ThumbSize + (int)(6 * S)) * 3); Invalidate(); return; }
         if (e.Button == MouseButtons.Left && (meshPrev.Contains(e.Location) || meshNext.Contains(e.Location)) && meshes.Count > 1)
@@ -599,7 +423,6 @@ sealed partial class StorePreview : Control
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         base.OnMouseWheel(e);
-        if (!powerLeft.IsEmpty && powerRects.Count > 0 && e.Y >= powerLeft.Top && e.Y <= powerLeft.Bottom) { powerScroll = Math.Max(0, powerScroll - Math.Sign(e.Delta) * (ThumbSize + (int)(6 * S))); Invalidate(); return; }
         if (strip.IsEmpty || MaxScroll == 0) return;
         scroll = Math.Clamp(scroll - Math.Sign(e.Delta) * (ThumbSize + (int)(6 * S)), 0, MaxScroll);
         Invalidate();
@@ -608,23 +431,6 @@ sealed partial class StorePreview : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        int pk = powerRects.FirstOrDefault(x => x.Rect.Contains(e.Location)) is { Rect.Width: > 0 } ph ? ph.Index : -1;
-        if (pk >= heroPowers.Count) pk = -1;   // 0.37.49 crash: areas from the last paint while the list reloads
-        if (pk >= 0 || hoverPower >= 0)
-        {
-            Cursor = pk >= 0 || powerLeft.Contains(e.Location) || powerRight.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
-            if (pk != hoverPower)
-            {
-                hoverPower = pk; Invalidate();
-                if (pk >= 0)
-                {
-                    var pw = heroPowers[pk];
-                    Ui.ShowTip(tips, $"{pw.Name}\n{string.Join(", ", pw.Animations)}\n{(powerFilter == pw.Prototype ? "Click to show all animations again." : "Click to play it with its effects (the animation list shows only this power's).")}", this, (int)(14 * S), (int)(20 * S), 8000);
-                }
-                else tips.Hide(this);
-            }
-            if (pk >= 0) return;
-        }
         int i = ThumbAt(e.Location);
         Cursor = i >= 0 || leftArrow.Contains(e.Location) || rightArrow.Contains(e.Location) || meshPrev.Contains(e.Location) || meshNext.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
         if (i == hoverThumb) return;
@@ -640,11 +446,11 @@ sealed partial class StorePreview : Control
         else tips.Hide(this);
     }
 
-    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoverThumb = -1; hoverPower = -1; tips.Hide(this); Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hoverThumb = -1; tips.Hide(this); Invalidate(); }
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); player?.Dispose(); effects?.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); }   // (the 3D preview and the power area are children: disposed with it)
         base.Dispose(disposing);
     }
 }

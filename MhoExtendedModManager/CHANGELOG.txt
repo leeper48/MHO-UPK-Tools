@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.259
+- The Mods tab's 3D preview (and the Editor's Powers and Animations tabs) is now the same preview as the Model tab's: the playback bar, then the Frame slider, the power buttons as real buttons in rows with the power playing beside the Power FXs toggle, and the same full screen. Everything the Mods tab keeps per mod stays: its light, lens and glow, the camera and animation per mesh, the pictures.
+
 0.37.256
 - The Model tab's 3D preview plays power effects with the same engine as the Mods tab: powers that bring in other characters show them there too (Captain America's Avengers Assemble, Taskmaster's afterimages), and effects with no animation run on their own.
 

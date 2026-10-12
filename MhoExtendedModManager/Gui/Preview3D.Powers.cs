@@ -20,9 +20,10 @@ sealed partial class Preview3D
         Time = () => playTime,
         ShowPose = ShowPose,
         RebuildRig = RebuildRig,
-        NoteChanged = () => fxLabel.Text = effects?.Note ?? "",
+        NoteChanged = () => { fxLabel.Text = effects?.Note ?? ""; CaptionChanged?.Invoke(); },
         Running = () => Visible,
         CookedFor = () => ctx?.Cooked,
+        ColorFor = colorFor,
     };
     Fx.PowerEffects.Player? fxPlayer => effects?.Player;
     int heroPowersRequest;
@@ -33,8 +34,43 @@ sealed partial class Preview3D
     readonly WrapPanel powerStrip = new() { BackColor = Color.Transparent, Margin = new Padding(0), Dock = DockStyle.Fill };
     readonly List<Button> powerButtons = [];
 
-    /// <summary>The hero's powers shown as buttons.</summary>
+    /// <summary>The hero's powers shown as buttons, and with them those that have effects but no animation (procs, passives:
+    /// the editor's colors); loaded (HeroPowersLoaded) after the animations.</summary>
     public IReadOnlyList<Fx.PowerList.Power> HeroPowers => heroPowers;
+    public IReadOnlyList<Fx.PowerList.Power> AllHeroPowers => allHeroPowers;
+    List<Fx.PowerList.Power> allHeroPowers = [];
+    public bool PowersLoaded { get; private set; }
+    public event Action? HeroPowersLoaded;
+
+    /// <summary>The editor's Powers tab: a power's colour (by prototype path or "own:&lt;file&gt;"; null = the game's).</summary>
+    public Func<string, PowerColor?>? ColorFor { get => colorFor; set { colorFor = value; if (effects != null) effects.ColorFor = value; } }
+    Func<string, PowerColor?>? colorFor;
+    /// <summary>The editor's Powers tab: effects play even with Power FXs off (they're what's being coloured).</summary>
+    public bool ForceEffects { get; set; }
+    /// <summary>Effects read by the host instead (the Powers tab: a character's own effects, an NPC's power); true = handled.</summary>
+    public Func<bool>? CustomEffects { get; set; }
+    /// <summary>The shared effects (the host's own readers load through it).</summary>
+    public PreviewEffects EffectsPlayer => Effects;
+    /// <summary>The caption changed (the Mods tab paints it in its own caption too).</summary>
+    public event Action? CaptionChanged;
+    /// <summary>The caption: the power and its effects ("Shockwave · 5 Effects").</summary>
+    public string EffectsCaption => effects?.Note ?? "";
+    /// <summary>The colour of the power playing changed (the Powers tab): shown at once.</summary>
+    public void RefreshPowerColor() => effects?.RefreshColor();
+
+    /// <summary>Shows a power of the hero (as its button): its animations only, the main one picked at the share of its length
+    /// the last one was at; paused unless <paramref name="play"/>.</summary>
+    public bool PlayPower(string prototype, bool play = false)
+    {
+        int k = heroPowers.FindIndex(p => p.Prototype.Equals(prototype, StringComparison.OrdinalIgnoreCase));
+        if (k < 0) return false;
+        // The frame slider keeps its place (Kurt, 2026-10-03: compare powers at the same moment)
+        if (anim != null && seconds > 0) keepFraction = Fraction;
+        if (powerFilter == heroPowers[k].Prototype) PowerClicked(k);   // (filtering already: back to all, then again)
+        PowerClicked(k);
+        if (!play) { autoPlay = false; Pause(); }
+        return true;
+    }
 
     /// <summary>Buttons in rows, wrapped to the width it's given; its preferred height fits them (a FlowLayoutPanel set to
     /// AutoSize asked its table for an unbounded width and the whole preview column collapsed).</summary>
@@ -78,7 +114,7 @@ sealed partial class Preview3D
     void ClearPowers()
     {
         heroPowersRequest++;
-        heroPowers = []; powerFilter = null;
+        heroPowers = []; allHeroPowers = []; powerFilter = null;
         foreach (var b in powerButtons) b.Dispose();   // (disposed while still in the strip, then cleared)
         powerButtons.Clear();
         powerStrip.Controls.Clear();
@@ -89,18 +125,23 @@ sealed partial class Preview3D
     {
         ClearPowers();
         int req = heroPowersRequest;
-        if (ctx is not { Cooked: string cooked, Hero: string hero } c) return;
+        PowersLoaded = false;
+        if (ctx is not { Cooked: string cooked, Hero: string hero } c) { PowersLoaded = true; return; }
         var names = allAnims.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var modFiles = c.ModPackages.Select(x => x.Path).ToList();
         PowerPreview.GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
-            if (dbt.Result is not { } db) return new List<Fx.PowerList.Power>();
-            return PowerPreview.Powers(db, hero, cooked, modFiles, names).Play;
+            using var busy = Busy.Begin("3D view: listing the powers");
+            if (dbt.Result is not { } db) return (Play: new List<Fx.PowerList.Power>(), All: new List<Fx.PowerList.Power>());
+            return PowerPreview.Powers(db, hero, cooked, modFiles, names);
         })).Unwrap().ContinueWith(t =>
         {
             if (IsDisposed || req != heroPowersRequest || t.Status != TaskStatus.RanToCompletion) return;
-            heroPowers = t.Result;
+            heroPowers = t.Result.Play;
+            allHeroPowers = t.Result.All;
+            PowersLoaded = true;
             FillPowerButtons(cooked);
+            HeroPowersLoaded?.Invoke();
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
@@ -192,9 +233,10 @@ sealed partial class Preview3D
     /// </summary>
     void LoadEffects()
     {
+        if (CustomEffects?.Invoke() == true) return;
         ClearEffects();
         // an effect-only power clicked plays its effects whatever Power FXs says (they're all it shows)
-        if (!prefs.Powers && effectOnly == null || anim == null || animator == null || ctx is not { Cooked: string cooked, Hero: string hero, MainRef: MeshRef main } c) { ShowPose(); return; }
+        if (!(prefs.Powers || ForceEffects) && effectOnly == null || anim == null || animator == null || ctx is not { Cooked: string cooked, Hero: string hero, MainRef: MeshRef main } c) { ShowPose(); return; }
         int ai = anims.SelectedIndex - 1;
         if (ai < 0 || ai >= animList.Count) return;
         string name = animList[ai].Name;
@@ -229,7 +271,7 @@ sealed partial class Preview3D
     void LoadProps()
     {
         if (animator == null || shownLoaded == null || ctx?.MainRef is not MeshRef main) return;
-        Props.Load(main, ctx.PackageMeshes, ctx.Cooked, ctx.ModPackages, prefs.Props, LoadPropSwitches);
+        Props.Load(main, ctx.PackageMeshes, ctx.Cooked, ctx.PropPackages ?? ctx.ModPackages, prefs.Props, LoadPropSwitches);
     }
 
     /// <summary>The character with its props and the power's, as one mesh; the view and the pose kept (framed by the character alone).</summary>

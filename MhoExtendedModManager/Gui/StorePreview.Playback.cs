@@ -1,178 +1,121 @@
 using MhoPackageModifier;
-using System.Drawing.Drawing2D;
 using MhoPackageModifier.Gui;
 
 namespace MhoExtendedModManager.Gui;
 
-/// <summary>The preview's 3D view: loading a mesh, the animation list and playback, the Look menu, framing and full screen.</summary>
+/// <summary>The preview's 3D view: the shared 3D preview (Preview3D, as the Model tab's), with what the Mods tab adds: the mod's
+/// meshes, its light, lens and glow, the camera and the animation kept per mesh on this PC (PreviewViews), and pictures.</summary>
 sealed partial class StorePreview
 {
+    Preview3D? p3;
+    /// <summary>Holds the power block under the pictures strip (Preview3D.PlacePowerBlock).</summary>
+    Panel? powerArea;
+
+    /// <summary>The 3D preview, made the first time a mesh shows.</summary>
+    Preview3D P3()
+    {
+        if (p3 != null) return p3;
+        p3 = new Preview3D(new ModPrefs(this)) { Visible = false, BackColor = Ui.Card };
+        p3.View.Background = Ui.Card; p3.View.BackColor = Ui.Card;
+        p3.CanRun = () => { if (show3D && Visible) return true; SaveAnim(); return false; };   // hidden: hold the frame
+        p3.LightHome = () => mod == null ? 1f : PreviewViews.AuthorLight(mod);
+        p3.ResetViewAction = ResetView;
+        p3.ColorFor = colorFor;
+        p3.ForceEffects = forceEffects;
+        p3.ShowPowerBlock = powerStrip;
+        p3.CustomEffects = () => { if (ownFxPackage == null) return false; LoadOwnEffects(); return true; };
+        p3.ViewChanged += () => { if (mod != null && MeshOk && show3D) PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), p3.View.ViewState); };
+        p3.AnimationPicked += (name, user) =>
+        {
+            if (mod == null || !MeshOk) return;
+            if (name != null && StartView(meshes[meshIndex]) == null) p3.View.ZoomOut(1.25f);   // room for reaching and lunging
+            // A restored animation is shown as it was left, not a new pick (no undo step, the preview choice unchanged).
+            if (user) Picked?.Invoke(mod, CurrentMeshKey());
+            SaveAnim();
+            Invalidate();
+        };
+        p3.PlaybackMoved += SaveAnim;
+        p3.HeroPowersLoaded += () => { HeroPowersLoaded?.Invoke(); Invalidate(); };
+        p3.CaptionChanged += Invalidate;
+        powerArea = new Panel { BackColor = Color.Transparent, Visible = false };
+        Controls.Add(p3);
+        Controls.Add(powerArea);
+        p3.PlacePowerBlock(powerArea);
+        return p3;
+    }
+
+    /// <summary>The Mods tab's look switches: the toggles and Loop for every mod (PreviewViews), the light, lens and glow per mod.</summary>
+    sealed class ModPrefs(StorePreview owner) : IPreviewPrefs
+    {
+        public bool Spec { get => PreviewViews.Spec; set => PreviewViews.Spec = value; }
+        public bool Reflect { get => PreviewViews.Reflect; set => PreviewViews.Reflect = value; }
+        public bool Glow { get => PreviewViews.Glow; set => PreviewViews.Glow = value; }
+        public bool Bloom { get => PreviewViews.Bloom; set => PreviewViews.Bloom = value; }
+        public bool Props { get => PreviewViews.Props; set => PreviewViews.Props = value; }
+        public bool Powers { get => PreviewViews.Powers; set => PreviewViews.Powers = value; }
+        public bool Loop { get => PreviewViews.Loop; set => PreviewViews.Loop = value; }
+        public float Light { get => owner.mod == null ? 1 : PreviewViews.Light(owner.mod); set { if (owner.mod != null) PreviewViews.SetLight(owner.mod, value); } }
+        public float Lens { get => owner.mod == null ? ModelView.DefaultFocalLength : PreviewViews.Lens(owner.mod); set { if (owner.mod != null) PreviewViews.SetLens(owner.mod, value); } }
+        public float GlowStrength { get => owner.mod == null ? 1 : PreviewViews.GlowStrength(owner.mod); set { if (owner.mod != null) PreviewViews.SetGlowStrength(owner.mod, value); } }
+        public void Save() { }   // (PreviewViews saves as it's set)
+    }
+
     /// <summary>Shows meshes[meshIndex] in the 3D view (read in the background; the last few are kept).</summary>
     void LoadMesh()
     {
         if (mod == null || meshIndex < 0 || meshIndex >= meshes.Count) return;
-        if (viewer == null)
-        {
-            viewer = new ModelView { Background = Ui.Card, BackColor = Ui.Card, Visible = false };
-            viewer.ViewChanged += () => { if (mod != null && meshIndex >= 0 && meshIndex < meshes.Count) PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState); };
-            Controls.Add(viewer);
-        }
+        var view = P3();
         var r = meshes[meshIndex];
-        viewer.Visible = true;
+        view.Visible = true;
         SaveAnim();
         shownMesh = null;
-        StopAnimation(); ClearEffects(); anims = []; animator = null; FillAnims();
-        if (mod != null) { float lv = PreviewViews.Light(mod); viewer.Brightness = lv; if (lightSlider != null) lightSlider.Value = lv; }   // this mod's light
-        if (mod != null) { float fl = PreviewViews.Lens(mod); viewer.FocalLength = fl; if (lensSlider != null) lensSlider.Value = fl; }    // and lens
-        if (mod != null) { float gl = PreviewViews.GlowStrength(mod); viewer.GlowStrength = gl; if (glowSlider != null) glowSlider.Value = gl; }    // and glow
+        view.ShowMessage("Loading the 3D view…");
+        view.ReloadPrefs();   // this mod's light, lens and glow
         Invalidate();
-        if (meshCache.TryGetValue(r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File) + (overridesOff ? "|plain" : ""), out var hit) && hit != null) { Show(hit); return; }
-        viewer.ShowMessage("Loading the 3D view…");
+        string key = r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File) + (overridesOff ? "|plain" : "");
+        if (meshCache.TryGetValue(key, out var hit) && hit != null) { Show(hit); return; }
         int req = ++request;
         string? cooked = CookedFolder;
-        string key = r.File + "|" + r.Export + "|" + Ui.FileStamp(r.File) + (overridesOff ? "|plain" : "");
         bool plain = overridesOff;
         Task.Run(() => { using var busy = Busy.Begin("3D view: loading the model"); try { var l = ModMeshes.Load(r, cooked, out string why, componentMaterials: !plain); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
         {
-            if (IsDisposed || req != request || viewer == null) return;
+            if (IsDisposed || req != request || p3 == null) return;
             var (loaded, why) = t.Result;
             if (meshCache.Count > 3) meshCache.Clear();   // with their mipmapped maps, a few are enough
             meshCache[key] = loaded;
-            if (loaded == null) viewer.ShowMessage($"{r.Name} can't be shown in 3D ({why}).");
+            if (loaded == null) p3.ShowMessage($"{r.Name} can't be shown in 3D ({why}).");
             else Show(loaded);
         }, TaskScheduler.FromCurrentSynchronizationContext());
 
         void Show(ModMeshes.Loaded l)
         {
-            viewer!.ShowMesh(l);
-            if (mod != null && StartView(r) is { } saved) viewer.ViewState = saved;
+            if (p3 == null || mod == null) return;
+            var animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents);
+            string? cooked2 = CookedFolder;
+            // The hero whose animations these are: UC__MarvelPlayer_<Hero>_… (a moved costume plays its target hero's).
+            string? hero = HeroOf.Package(r.Package, cooked2);
+            var ctx = new PreviewContext(hero, cooked2, r, meshes, ModPackages(mod, skip: true), () => Model.ConditionSwaps.ClassOf(r.Package), c => SwapsFor(c, r))
+            { PropPackages = ModPackages(mod) };
+            p3.FullTitle = $"Preview: {mod.Name}";
+            p3.ShowCharacter(l, animator, [], ctx, null, 0, false, StartView(r), samePowers: false);
             shownMesh = r.Key;
-            shownLoaded = l;
-            rig.Clear();
-            animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents);
-            // Posed at once (rest): a new animator's positions and bone matrices are all zero until its first pose, and the
-            // props redraw "the last pose" when they arrive; with no animation restored (Unworthy Thor, Thor Infinity War)
-            // the whole model collapsed to a point and vanished.
-            animator.Pose(null, 0);
-            LoadProps();
-            var m = mod; string? cooked2 = CookedFolder;
-            var pkgs = m == null ? [] : ModPackages(m);
+            Invalidate();
+            var m = mod;
+            var pkgs = ModPackages(m);
             int req2 = request;
             Task.Run(() => { using var busy = Busy.Begin("3D view: reading the animations"); try { return ModAnimations.For(r, l.Bones, pkgs, cooked2); } catch { return []; } }).ContinueWith(t =>
             {
-                if (IsDisposed || req2 != request || mod?.FolderName != m?.FolderName) return;   // (a reload of the same mod is a new object)
-                anims = allAnims = t.Result;
-                FillAnims();
+                if (IsDisposed || req2 != request || p3 == null || mod?.FolderName != m.FolderName || p3.Animator != animator) return;   // (a reload of the same mod is a new object)
+                // This PC's last animation and frame for the mesh, else the pick's "@animation".
+                var saved = PreviewViews.GetAnim(PreviewViews.Key(mod, r));
+                string? name = saved?.Name ?? wantedAnim;
+                double? at = saved?.Name != null && name != null && saved.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ? saved.Time : null;
+                p3.SetAnimations(t.Result, name, at, false);
                 AnimationsLoaded?.Invoke();
                 OwnAfterAnimations();
-                LoadHeroPowers();
-                // This PC's last animation and frame for the mesh, else the pick's "@animation".
-                var saved = mod == null ? null : PreviewViews.GetAnim(PreviewViews.Key(mod, r));
-                string? name = saved?.Name ?? wantedAnim;
-                int want = name == null ? -1 : anims.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (want >= 0 && animBox != null) { restoreTime = saved != null && want >= 0 && anims[want].Name.Equals(saved.Name, StringComparison.OrdinalIgnoreCase) ? saved.Time : null; animBox.SelectedIndex = want + 1; }
+                Invalidate();
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
-    }
-
-    /// <summary>The animation drop-down: "Rest Pose", then the mesh's animations (shown under the 3D caption).</summary>
-    void FillAnims()
-    {
-        if (animBox == null)
-        {
-            animBox = new DropDown { Font = Ui.Regular(9f), Visible = false, MaxDropDownItems = 24 };
-            Ui.Tip(animBox, "Play one of this mesh's animations in the 3D view (it loops). Remembered with the mesh for this mod.");
-            animBox.SelectedIndexChanged += (_, _) => { if (!fillingAnims) PlaySelected(); };
-            Controls.Add(animBox);
-            playBtn = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses). It loads paused on its first frame.");
-            loopBtn = Ui.FlatButton("⟳ Loop", () => { PreviewViews.Loop = !PreviewViews.Loop; UpdateButtons(); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
-            restBtn = Ui.FlatButton("Reset View", ResetView, "Back to the mod's own view of the model, or the default one (your turned, zoomed or panned view is saved per mesh; this forgets it).");
-            Icons.Make(loopBtn, "Loop", Icons.Loop, S); Icons.Make(restBtn, "Reset View", Icons.ResetView, S);
-            foreach (var b in new[] { playBtn, loopBtn, restBtn }) { b.AutoSize = false; b.Padding = new Padding(0); b.Visible = false; Controls.Add(b); }
-            powersBtn = Ui.FlatButton("Power FXs", () => { PreviewViews.Powers = !PreviewViews.Powers; ApplyShading(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's or the mod's power packages). Lit when on; remembered on this PC.");
-            powersBtn.AutoSize = false; powersBtn.Padding = new Padding(0); powersBtn.Visible = false; Controls.Add(powersBtn);
-            (frameHeadBtn, frameBustBtn, frameFullBtn) = PreviewControls.FramingButtons(FrameShot, S, "Saved as this mesh's view.");   // (shared)
-            fullBtn = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
-            foreach (var b in new[] { frameFullBtn, frameHeadBtn, frameBustBtn, fullBtn }) { b.Visible = false; Controls.Add(b); }
-            // Frame (Kurt: like the icon maker's): where the animation is; dragging it pauses and scrubs.
-            frameSlider = new LightSlider { Visible = false, Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null, Enabled = false, Home = () => 0, Format = v => playing == null ? "—" : $"{v:0} / {playFrames:0}" };
-            frameSlider.ValueChanged += ScrubTo;
-            frameSlider.Committed += SaveAnim;
-            Ui.Tip(frameSlider, "The animation's frame: drag to scrub through it (it pauses), or use the arrow keys (Shift: 5 frames, Home / End: first / last). ▶ plays on from there.");
-            Controls.Add(frameSlider);
-            lightSlider = new LightSlider { Visible = false, Min = 0f, Home = () => mod == null ? 1f : PreviewViews.AuthorLight(mod) };
-            lightSlider.ValueChanged += () => { if (viewer != null) viewer.Brightness = lightSlider.Value; };
-            lightSlider.Committed += () => { if (mod != null) PreviewViews.SetLight(mod, lightSlider.Value); };
-            Ui.Tip(lightSlider, "Light brightness in the 3D view for this mod (drag, or the mouse wheel; double-click: back to the mod's own level, else 100%). Remembered per mod on this PC; Export can put it into the mod.");
-            Controls.Add(lightSlider);
-            lensSlider = new LightSlider { Visible = false, Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = ModelView.DefaultFocalLength, Format = v => $"{v:0} mm", Home = () => ModelView.DefaultFocalLength };
-            lensSlider.ValueChanged += () => { if (viewer != null) viewer.FocalLength = lensSlider.Value; };
-            lensSlider.Committed += () => { if (mod != null) PreviewViews.SetLens(mod, lensSlider.Value); };
-            Ui.Tip(lensSlider, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter; the model stays the same size (double-click: 50 mm). Remembered per mod on this PC.");
-            glowSlider = new LightSlider { Visible = false, Label = "Glow", Min = 0f, Max = 2f, Home = () => 1f };
-            glowSlider.Value = mod == null ? 1f : PreviewViews.GlowStrength(mod);
-            glowSlider.ValueChanged += () => { if (viewer != null) viewer.GlowStrength = glowSlider.Value; };
-            glowSlider.Committed += () => { if (mod != null) PreviewViews.SetGlowStrength(mod, glowSlider.Value); };
-            Ui.Tip(glowSlider, "How strong the glowing (emissive) parts are in the 3D view: 100 % is the materials' own (double-click: back to 100 %). Remembered per mod on this PC.");
-            Controls.Remove(lightSlider);   // all three live in the Look ▾ menu
-            // The playback bar over the view's bottom (shown while the mouse is over the view).
-            playBar = new Panel { Visible = false, BackColor = Color.FromArgb(24, 26, 34) };
-            foreach (Control c in new Control[] { frameSlider, animBox, playBtn, loopBtn }) { playBar.Controls.Add(c); c.Visible = true; }
-            // Look, Reset View, the framing buttons and ⛶ on the animation's row (Kurt, 2026-10-04: the list was twice as wide
-            // as it needs): moved into the bar once Look ▾ is made (below)
-            Controls.Add(playBar);
-            lookBtn = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow and Props on or off, and the Light and Lens sliders. Remembered on this PC.");
-            Icons.Make(lookBtn, "Look", Icons.Look, S);
-            foreach (var b in new Control?[] { lookBtn, restBtn, frameHeadBtn, frameBustBtn, frameFullBtn, fullBtn }) if (b != null) { b.Parent?.Controls.Remove(b); playBar.Controls.Add(b); b.Visible = true; }
-        }
-        fillingAnims = true;
-        animBox.BeginUpdate();
-        animBox.Items.Clear();
-        string? filterName = powerFilter == null ? null : heroPowers.FirstOrDefault(p => p.Prototype == powerFilter)?.Name;
-        animBox.Items.Add(filterName != null ? $"Rest Pose  ·  {anims.Count} of {allAnims.Count} animations ({filterName})"
-            : anims.Count > 0 ? $"Rest Pose  ·  {anims.Count} animations" : show3D ? "Rest Pose  ·  (looking for animations…)" : "Rest Pose");
-        foreach (var a in anims) animBox.Items.Add(a.Name);
-        animBox.SelectedIndex = 0;
-        animBox.EndUpdate();
-        fillingAnims = false;
-        animBox.Enabled = anims.Count > 0;
-        UpdateButtons();
-        Invalidate();
-    }
-
-    /// <summary>The buttons' state: play shows ▶ or ❚❚; loop is filled (accent) when on; both need an animation.</summary>
-    void UpdateButtons()
-    {
-        ApplyShading();
-        if (viewer != null) viewer.Moving = playing != null && !paused;   // smaller frames while playing (ModelView.Moving)
-        if (playBtn == null || loopBtn == null) return;
-        bool has = playing != null;
-        playBtn.Text = has && !paused ? "❚❚" : "▶";
-        playBtn.Enabled = has; loopBtn.Enabled = has;
-        bool on = PreviewViews.Loop;
-        loopBtn.Tag = on ? "accent" : "flat";
-        loopBtn.BackColor = on ? Ui.Accent : Ui.Bar; loopBtn.ForeColor = on ? Color.White : Ui.Text;
-        loopBtn.FlatAppearance.BorderColor = on ? Ui.Accent : Ui.Line;
-        loopBtn.FlatAppearance.MouseOverBackColor = on ? Ui.AccentHover : Ui.CardHover;
-        loopBtn.Invalidate(); playBtn.Invalidate();
-    }
-
-    /// <summary>The Spec / Reflect / Glow toggles into the 3D view, and their look (accent when on, like Loop).</summary>
-    void ApplyShading()
-    {
-        if (viewer != null) { viewer.ShowSpec = PreviewViews.Spec; viewer.ShowReflections = PreviewViews.Reflect; viewer.ShowGlow = PreviewViews.Glow; viewer.ShowBloom = PreviewViews.Bloom; }
-        if (lookMenu != null)
-            foreach (ToolStripItem it in lookMenu.Items)
-                if (it is ToolStripMenuItem mi)
-                    mi.Checked = mi.Text switch { "Spec" => PreviewViews.Spec, "Reflect" => PreviewViews.Reflect, "Glow" => PreviewViews.Glow, "Props" => PreviewViews.Props, "Powers" => PreviewViews.Powers, _ => mi.Checked };
-        if (powersBtn != null) Ui.Lit(powersBtn, PreviewViews.Powers);
-    }
-
-    void TogglePlay()
-    {
-        if (playing == null) return;
-        Player.Toggle();   // (played once to the end: starts over)
-        UpdateButtons();
     }
 
     /// <summary>The view a mesh starts from: the one turned to on this PC, else the mod author's (manifest PreviewViews).</summary>
@@ -182,217 +125,66 @@ sealed partial class StorePreview
     /// <summary>Back to the mod author's view when it has one, else the default framing; this PC's view is forgotten.</summary>
     void ResetView()
     {
-        if (viewer == null || mod == null || meshIndex < 0 || meshIndex >= meshes.Count) return;
+        if (p3 == null || mod == null || meshIndex < 0 || meshIndex >= meshes.Count) return;
         var r = meshes[meshIndex];
         PreviewViews.Set(PreviewViews.Key(mod, r), null);
-        if (mod.Manifest.PreviewViews is { } pv && pv.TryGetValue(r.Key, out var author)) viewer.ViewState = author;
-        else viewer.ResetView();
-    }
-
-    void PlaySelected()
-    {
-        if (animBox == null || mod == null || animator == null || viewer == null) return;
-        int i = animBox.SelectedIndex - 1;
-        StopAnimation();
-        if (i < 0 || i >= anims.Count)
-        {
-            ClearEffects();
-            animator.Pose(null, 0); ShowPose();
-            ShowFrame(0);
-            if (!fillingAnims && MeshOk) { Picked?.Invoke(mod, meshes[meshIndex].Key); SaveAnim(); }
-            return;
-        }
-        var a = anims[i];
-        int req = request;
-        Task.Run(() => ModAnimations.Load(a)).ContinueWith(t =>
-        {
-            if (IsDisposed || req != request || animBox == null || animBox.SelectedIndex - 1 != i || t.Result == null) return;
-            var (_, secs) = MeshAnimator.Span(t.Result);
-            if (mod != null && MeshOk && StartView(meshes[meshIndex]) == null) viewer.ZoomOut(1.25f);   // room for reaching and lunging
-            bool restoring = restoreTime != null;
-            Player.Set(t.Result, restoreTime ?? (keepFraction is double kf ? kf * secs : 0)); restoreTime = null; keepFraction = null;   // (paused)
-            rig.SetParentAnimation(playing);
-            animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); ShowPose();
-            ShowFrame(playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0);
-            UpdateButtons();
-            LoadEffects();
-            LoadPropSwitches();
-            if (autoPlay) { autoPlay = false; if (paused) TogglePlay(); }
-            // A restored animation is shown as it was left, not a new pick (no undo step, the preview choice unchanged).
-            if (mod != null && MeshOk && !restoring) Picked?.Invoke(mod, CurrentMeshKey());
-            SaveAnim();
-        }, TaskScheduler.FromCurrentSynchronizationContext());
+        if (mod.Manifest.PreviewViews is { } pv && pv.TryGetValue(r.Key, out var author)) p3.View.ViewState = author;
+        else p3.View.ResetView();
     }
 
     /// <summary>The shown mesh's animations (all of them, also while a power button filters the drop-down).</summary>
-    public IReadOnlyList<AnimRef> AllAnimations => allAnims;
+    public IReadOnlyList<AnimRef> AllAnimations => p3?.AllAnimations ?? [];
     /// <summary>The shown mesh's animations are loaded (AllAnimations).</summary>
     public event Action? AnimationsLoaded;
 
     /// <summary>Picks an animation by name (the editor's Animations tab): every animation back in the drop-down, that one
     /// selected and, with <paramref name="play"/>, playing. False when the shown mesh has no animation of that name.</summary>
-    public bool PlayAnimation(string name, bool play = true)
-    {
-        if (animBox == null) return false;
-        if (powerFilter != null || anims.Count != allAnims.Count) { powerFilter = null; anims = allAnims; FillAnims(); }
-        int i = anims.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        if (i < 0) return false;
-        autoPlay = play;
-        if (animBox.SelectedIndex == i + 1) PlaySelected();   // (the same one again: from the start)
-        else animBox.SelectedIndex = i + 1;
-        return true;
-    }
+    public bool PlayAnimation(string name, bool play = true) => p3 != null && p3.PlayAnimation(name, play);
 
     /// <summary>Plays an animation from anywhere on the shown model (the Animations tab's picker: try another character's
     /// before using it). It shows at the top of the drop-down until the mesh's own list is shown again.</summary>
-    public bool PlayRef(AnimRef a, bool play = true)
-    {
-        if (animBox == null) return false;
-        powerFilter = null;
-        anims = [a, .. allAnims.Where(x => !ReferenceEquals(x, a))];
-        FillAnims();
-        autoPlay = play;
-        if (animBox.SelectedIndex == 1) PlaySelected(); else animBox.SelectedIndex = 1;
-        return true;
-    }
-
-    /// <summary>The frame slider moved by the user: pause and show that frame.</summary>
-    void ScrubTo()
-    {
-        if (settingFrame || frameSlider == null || playing == null || animator == null || viewer == null || playFrames <= 0) return;
-        Player.Scrub(frameSlider.Value / playFrames * playSeconds);
-        UpdateButtons();
-        FxReplay(playTime);
-        animator.Pose(playing, frameSlider.Value);
-        ShowPose();
-    }
-
-    /// <summary>The frame slider follows the animation (set without scrubbing).</summary>
-    void ShowFrame(float frame)
-    {
-        if (frameSlider == null) return;
-        settingFrame = true;
-        frameSlider.Enabled = playing != null;
-        frameSlider.Max = Math.Max(1, playFrames);
-        frameSlider.Value = playing == null ? 0 : Math.Clamp(frame, 0, Math.Max(1, playFrames));
-        settingFrame = false;
-        frameSlider.Invalidate();
-    }
-
-    /// <summary>A moment of the playing animation (AnimPlayer): posed, the effects moved on, the frame slider following.</summary>
-    void PlayMoved(float frame, bool ended)
-    {
-        if (playing == null || animator == null || viewer == null) return;
-        animator.Pose(playing, frame);
-        FxAdvance(playTime, ended);
-        ShowPose();
-        ShowFrame(frame);
-    }
+    public bool PlayRef(AnimRef a, bool play = true) => p3 != null && p3.PlayRef(a, play);
 
     /// <summary>A picture shows: the 3D view is hidden but kept (mesh, animation paused where it was, camera).</summary>
     void Hide3D()
     {
-        if (viewer != null) viewer.Visible = false;
-        if (playing != null && !paused) resumeOnReveal = true;
-        Pause();
-        HideAnimControls();
+        if (p3 == null) return;
+        if (p3.IsFull) p3.ToggleFull();   // a picture (or another mod without 3D) shows: back from full screen
+        if (p3.IsPlaying) resumeOnReveal = true;
+        p3.Pause();
+        SaveAnim();
+        p3.Visible = false;
+        if (powerArea != null) powerArea.Visible = false;
     }
     bool resumeOnReveal;
 
     /// <summary>Back to 3D on the mesh the view still holds: shown as it was left. False when it has to be loaded.</summary>
     bool Reveal3D()
     {
-        if (viewer == null || !MeshOk || shownMesh != meshes[meshIndex].Key) return false;
-        viewer.Visible = true;
-        UpdateButtons();
-        if (resumeOnReveal && playing != null && paused) TogglePlay();   // it was playing: carry on
+        if (p3 == null || !MeshOk || shownMesh != meshes[meshIndex].Key) return false;
+        p3.Visible = true;
+        if (resumeOnReveal && p3.Playing != null) p3.Play();   // it was playing: carry on
         resumeOnReveal = false;
         Invalidate();
         return true;
     }
 
-    void Pause() { player?.Pause(); UpdateButtons(); SaveAnim(); }
-
     /// <summary>P (Kurt, 2026-10-04: the 3D views' play / pause key): plays or pauses the shown animation; false when the 3D
     /// view has no animation picked (P then does nothing).</summary>
-    public bool TogglePlayback()
-    {
-        if (playing == null || !show3D) return false;
-        TogglePlay();
-        // the arrow keys then scrub (Kurt, 2026-10-06): the frame slider takes the keyboard
-        if (frameSlider is { Visible: true, Enabled: true } fs) fs.Focus();
-        return true;
-    }
+    public bool TogglePlayback() => show3D && p3 != null && p3.TogglePlayback();
 
     /// <summary>Esc (Kurt): pauses a playing animation; false when nothing was playing (Esc then does its usual job).</summary>
-    public bool PausePlayback()
-    {
-        if (playing == null || paused || !show3D) return false;
-        Pause();
-        return true;
-    }
+    public bool PausePlayback() => show3D && p3 != null && p3.PausePlayback();
+
+    /// <summary>Into or out of full screen (the 3D view; F11).</summary>
+    public void ToggleFull() { if (p3 != null && (show3D || p3.IsFull)) p3.ToggleFull(); }
 
     /// <summary>Stores the shown mesh's animation and the frame it's on (preview_views.json), so it comes back as it was.</summary>
     void SaveAnim()
     {
-        if (mod == null || shownMesh == null || animBox == null || fillingAnims) return;
-        int i = animBox.SelectedIndex - 1;
-        if (i >= 0 && playing == null) return;   // still loading
-        double t = playSeconds <= 0 ? 0 : PreviewViews.Loop ? playTime % playSeconds : Math.Min(playTime, playSeconds);   // a loop's clock runs on
-        PreviewViews.SetAnim(PreviewViews.Key(mod, shownMesh), i >= 0 && i < anims.Count ? anims[i].Name : null, t);
+        if (mod == null || shownMesh == null || p3 == null) return;
+        if (p3.CurrentAnimation != null && p3.Playing == null) return;   // still loading
+        double t = p3.Seconds <= 0 ? 0 : Math.Min(p3.Time, p3.Seconds);
+        PreviewViews.SetAnim(PreviewViews.Key(mod, shownMesh), p3.CurrentAnimation, t);
     }
-
-    void HideAnimControls()
-    {
-        // (Not the playback bar's own controls: hiding the bar hides them, and nothing showed them again: Kurt's
-        // "animation filter and scrub bar keep disappearing".)
-        foreach (Control? c in new Control?[] { restBtn, lightSlider, lensSlider, glowSlider, powersBtn, fullBtn, frameFullBtn, frameHeadBtn, frameBustBtn, playBar, lookBtn }) if (c != null) c.Visible = false;
-        if (IsFull) ToggleFull();   // a picture (or another mod without 3D) shows: back from full screen
-    }
-
-    /// <summary>The pose last made by the animator, with the props on their bones.</summary>
-    void ShowPose()
-    {
-        if (viewer == null || animator == null) return;
-        if (fxPlayer != null) { viewer.Effects = fxPlayer.Quads(); viewer.EffectTris = fxPlayer.Tris(); }
-        else if (viewer.Effects.Count > 0 || viewer.EffectTris.Count > 0) { viewer.Effects = []; viewer.EffectTris = []; }
-        // Props shown at this moment of the animation (a power's rules have their times).
-        rig.At(playing == null || playSeconds <= 0 ? 0 : PreviewViews.Loop ? playTime % playSeconds : Math.Min(playTime, playSeconds));
-        rig.Update(viewer, animator);
-    }
-
-    /// <summary>Look ▾: the look toggles and the Light / Glow / Lens sliders (PreviewControls, as the Model tab's); stays open
-    /// while toggling.</summary>
-    void ShowLookMenu()
-    {
-        if (lookBtn == null || lightSlider == null || lensSlider == null || glowSlider == null) return;
-        lookMenu ??= PreviewControls.LookMenu(PreviewControls.StandardLook(
-            () => PreviewViews.Spec, () => PreviewViews.Spec = !PreviewViews.Spec,
-            () => PreviewViews.Reflect, () => PreviewViews.Reflect = !PreviewViews.Reflect,
-            () => PreviewViews.Glow, () => PreviewViews.Glow = !PreviewViews.Glow,
-            () => PreviewViews.Bloom, () => PreviewViews.Bloom = !PreviewViews.Bloom,
-            () => PreviewViews.Props, () => { PreviewViews.Props = !PreviewViews.Props; LoadProps(); },
-            () => PreviewViews.Powers, () => { PreviewViews.Powers = !PreviewViews.Powers; LoadEffects(); }),
-            [lightSlider, glowSlider, lensSlider], S, ApplyShading);
-        lightSlider.Visible = lensSlider.Visible = glowSlider.Visible = true;   // (hidden with the other 3D controls while a picture shows)
-        Ui.ShowUnder(lookMenu, lookBtn);
-    }
-
-    /// <summary>A framing button: aims the camera like Create from 3D, and keeps it as this mesh's view (as a drag does).</summary>
-    void FrameShot(Framing.Shot shot)
-    {
-        if (viewer == null || !MeshOk || mod == null) return;
-        if (animator != null) { Framing.Apply(viewer, animator, playing != null, shot, centerHead: true); if (playing == null) { animator.Pose(null, 0); } }
-        else Framing.Apply(viewer, null, false, shot);
-        PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), viewer.ViewState);
-    }
-
-    /// <summary>Into or out of full screen: this control moves into a borderless window on the app's monitor and back.</summary>
-    public void ToggleFull()
-    {
-        if (!full.IsFull && (!show3D || viewer == null || Parent == null)) return;
-        full.Toggle(this, mod == null ? "Preview" : $"Preview: {mod.Name}", PausePlayback, () => TogglePlayback(), viewer, Padding.Empty, () => { Invalidate(); fullBtn?.Invalidate(); });
-    }
-
-    void StopAnimation() { resumeOnReveal = false; player?.Stop(); rig.SetParentAnimation(null); UpdateButtons(); ShowFrame(0); Props.ClearRules(); }
 }
