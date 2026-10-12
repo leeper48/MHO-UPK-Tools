@@ -284,7 +284,7 @@ sealed partial class MainForm : Form
         groupButton.Click += (_, _) => Ui.ShowUnder(GroupMenu(), groupButton);
         filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
         allVisible.Click += (_, _) => SetAllVisible();
-        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   is:overlap   (Nexus updates, linked mods, conflicts, OVERLAP warnings)");
+        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   is:overlap   is:crash   (Nexus updates, linked mods, conflicts, OVERLAP and CRASH RISK warnings)");
         tips.SetToolTip(sortButton, "Order the list by priority, name, author, tag, on first, or Nexus updates first. Priority buttons and padlocks work in the priority order only.");
         tips.SetToolTip(groupButton, "Group the list by tag or author. Click a group's header to fold it.");
         // Nexus strip (Kurt: status and actions by the list, not in Settings): status (click = the next step), Check for Updates, Find My Mods, ▾.
@@ -397,6 +397,8 @@ sealed partial class MainForm : Form
         list.UpdateClicked += m => UpdateFromNexus(m);
         list.SharedFor = OverlapReason;
         list.SharedClicked += OverlapClicked;
+        list.CrashFor = CrashCheck.Reason;
+        list.CrashClicked += CrashClicked;
 
         // ---- Right: the selected mod
         var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 4, 8, 0) };
@@ -813,7 +815,7 @@ sealed partial class MainForm : Form
         if (t.StartsWith("is:", StringComparison.OrdinalIgnoreCase))
             return t[3..].ToLowerInvariant() switch { "on" => m.Enabled, "off" => !m.Enabled, "locked" => m.Lock != ModLock.None, "untagged" => m.Tags.Count == 0,
                 "update" => current?.nexus is NexusCache c && NexusUpdates.UpdateFor(m, c) != null, "nexus" => m.NexusModId != null,
-                "conflict" => current?.conflicted.Contains(m) == true, "overlap" => OverlapReason(m) != null, _ => true };
+                "conflict" => current?.conflicted.Contains(m) == true, "overlap" => OverlapReason(m) != null, "crash" => CrashCheck.Reason(m) != null, _ => true };
         if (t.StartsWith("tag:", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#'))
         {
             string x = t.StartsWith('#') ? t[1..] : t[4..];

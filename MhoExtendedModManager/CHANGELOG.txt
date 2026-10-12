@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.261
+- New: a red CRASH RISK pill on mods whose models can crash the game (an Array.h:575 error): a model with more bones than another copy of the same model in another game file (added bones for a cape, dress, wings or loincloth on a character who is also a summon, illusion, team-up or NPC), or a mirror table that doesn't match the bones. Click it for the findings and Make Unique, which fixes the first kind. The filter is:crash shows them; the Model tab's Build into Mod lists the checks in its log.
+- The Mods tab's power buttons are no longer clipped.
+
 0.37.259
 - The Mods tab's 3D preview (and the Editor's Powers and Animations tabs) is now the same preview as the Model tab's: the playback bar, then the Frame slider, the power buttons as real buttons in rows with the power playing beside the Power FXs toggle, and the same full screen. Everything the Mods tab keeps per mod stays: its light, lens and glow, the camera and animation per mesh, the pictures.
 

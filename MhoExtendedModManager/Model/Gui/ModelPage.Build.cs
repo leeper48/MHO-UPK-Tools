@@ -60,6 +60,7 @@ sealed partial class ModelPage
                 ok = true;
                 SaveState();
                 Log($"Done: {pkg.Key} is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
+                await LogCrashChecks(pkg.Key, result.Package);
             }
             else Log("The build stopped: see the package problems above.");
         }
@@ -67,6 +68,19 @@ sealed partial class ModelPage
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
         return ok;
+    }
+
+    /// <summary>The crash checks on a build (CrashCheck: added bones, other copies of the model, the mirror table, sockets) in
+    /// the log (Kurt, 2026-10-12: a loincloth's added bones crashed on one hero, not another). Save's Make Unique gives the
+    /// model a path of its own, which takes care of the shared copies.</summary>
+    async Task LogCrashChecks(string file, string package)
+    {
+        if (Settings.Current.CookedFolder is not string cooked) return;
+        List<MhoExtendedModManager.CrashCheck.Issue> issues;
+        try { issues = await Task.Run(() => MhoExtendedModManager.CrashCheck.For([(file, package)], cooked)); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException) { return; }
+        foreach (var i in issues.OrderByDescending(i => i.Crash))
+            Log($"{(i.Crash ? "CRASH RISK" : "Note")}: {i.Mesh}: {i.Text}" + (i.Crash && i.Text.Contains("Make Unique") ? " Save Changes does that for this mod." : ""));
     }
 
     /// <summary>

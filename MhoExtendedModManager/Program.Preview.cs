@@ -644,6 +644,38 @@ static partial class Program
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
                 return 0;
             }
+            case "--crash-check":
+            {
+                // Read-only: the crash checks (CrashCheck) on a mod, or every mod with "all": added bones, other copies of a
+                // model with fewer bones, mirror tables, sockets. --crash-check <mod | all | package.upk ...>
+                if (rest.Count < 2) { Console.WriteLine("--crash-check <mod | all>"); return 1; }
+                string? cgr = settings.ResolvedGameRoot(data);
+                string? ccook = cgr != null && Settings.IsGameRoot(cgr) ? Settings.Cooked(cgr) : null;
+                if (ccook == null) { Console.WriteLine("game folder not found"); return 1; }
+                StockFiles.Init(new GameState(cgr!, lib.DataFolder), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                if (rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase))
+                {
+                    // package files (a build, a made-unique copy): checked as one mod's packages
+                    foreach (var i in CrashCheck.For(rest.Skip(1).Select(f => (Path.GetFileName(f), f)).ToList(), ccook))
+                        Console.WriteLine($"  {(i.Crash ? "CRASH RISK" : "warning   ")} {i.Package} | {i.Mesh}: {i.Text}");
+                    Console.WriteLine("checked");
+                    return 0;
+                }
+                var which = rest[1].Equals("all", StringComparison.OrdinalIgnoreCase) ? lib.Mods.ToList() : lib.Find(rest[1]) is { } one ? [one] : new List<Mod>();
+                if (which.Count == 0) { Console.WriteLine("no such mod"); return 1; }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                int risky = 0, warned = 0;
+                foreach (var m in which)
+                {
+                    var issues = CrashCheck.Check(m, ccook);
+                    if (issues.Count == 0) continue;
+                    if (issues.Any(i => i.Crash)) risky++; else warned++;
+                    Console.WriteLine($"== {m.Name}");
+                    foreach (var i in issues.OrderByDescending(i => i.Crash)) Console.WriteLine($"  {(i.Crash ? "CRASH RISK" : "warning   ")} {i.Package} | {i.Mesh}: {i.Text}");
+                }
+                Console.WriteLine($"{which.Count} mod(s) checked in {sw.Elapsed.TotalSeconds:0.0} s: {risky} with a crash risk, {warned} with warnings only");
+                return 0;
+            }
             case "--fx-placement-census":
             {
                 // Read-only test: every hero's power buttons, each effect with where the preview plays it (kind, on the one

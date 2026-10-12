@@ -26,12 +26,14 @@ sealed partial class MainForm
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
                 try { PowerUsage.Check(m, root); }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+                try { CrashCheck.Check(m, cooked); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
             }
         }).ContinueWith(_ =>
         {
             if (IsDisposed || run != sharedCheck) return;
             // grouped or filtered by overlap: the list is made again now that it's known
-            BeginInvoke(() => { if (settings.ListGroup == "overlap" || filter.Text.Contains("is:overlap", StringComparison.OrdinalIgnoreCase)) FillList(Selected?.FolderName); else list.Invalidate(); });
+            BeginInvoke(() => { if (settings.ListGroup == "overlap" || filter.Text.Contains("is:overlap", StringComparison.OrdinalIgnoreCase) || filter.Text.Contains("is:crash", StringComparison.OrdinalIgnoreCase)) FillList(Selected?.FolderName); else list.Invalidate(); });
         });
     }
 
@@ -43,6 +45,22 @@ sealed partial class MainForm
         (null, string b) => b,
         (string a, string b) => a + "\n\n" + b,
     };
+
+    /// <summary>
+    /// The CRASH RISK pill's click (Kurt, 2026-10-12: added bones for a loincloth crashed on one hero and not another): every
+    /// finding of CrashCheck, and Make Unique when another copy of a model is what makes it a risk (the mod's copy then gets a
+    /// path of its own, and its own animation table).
+    /// </summary>
+    async void CrashClicked(Mod m)
+    {
+        if (CrashCheck.Details(m) is not string details) return;
+        bool unique = !readOnly && UniqueNames.Reason(m) != null;
+        string advice = unique
+            ? "\n\nMake Unique gives this mod's models paths of their own, so no other copy shares their animation table. Mirror tables that don't match the bones can't be fixed here yet: let the mod's creator know."
+            : "\n\nLet the mod's creator know: fewer added bones, or a model path of its own, avoids it.";
+        int pick = unique ? Dialog.Choose(this, details + advice, "Crash Risk", "Make Unique", "Close") : Dialog.Choose(this, details + advice, "Crash Risk", "Close");
+        if (unique && pick == 0) await MakeUnique(m);
+    }
 
     /// <summary>The pill's click: Make Unique for a shared model, then the enemy-only power packages.</summary>
     async void OverlapClicked(Mod m)

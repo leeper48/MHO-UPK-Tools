@@ -82,6 +82,9 @@ sealed class ModListBox : ListBox
     /// "OVERLAP" pill's tooltip; null: no pill.</summary>
     public Func<Mod, string?>? SharedFor { get; set; }
     public event Action<Mod>? SharedClicked;
+    /// <summary>A crash risk in the mod's models (CrashCheck): a red "CRASH RISK" pill; its click shows the findings.</summary>
+    public Func<Mod, string?>? CrashFor { get; set; }
+    public event Action<Mod>? CrashClicked;
     /// <summary>What a padlock click would lock the mod to (ModLibrary.CanLock); None hides the padlock of an unlocked mod.</summary>
     public Func<Mod, ModLock>? CanLock { get; set; }
     int hover = -1;
@@ -93,7 +96,7 @@ sealed class ModListBox : ListBox
     readonly Dictionary<int, (Rectangle Badges, List<(Rectangle Rect, string Tag)> Chips)> regions = [];
     // Where each card's Update pill and Nexus mark were drawn (item index).
     readonly Dictionary<int, (Rectangle Pill, Rectangle Mark)> nexusParts = [];
-    readonly Dictionary<int, Rectangle> sharedPills = [];
+    readonly Dictionary<int, Rectangle> sharedPills = [], crashPills = [];
     readonly Font pillFont = Ui.Heavy(7.5f), markFont = Ui.Heavy(6.5f);
     readonly ToolTip tips;
     readonly System.Windows.Forms.Timer tipTimer = new() { Interval = 450 };
@@ -134,6 +137,29 @@ sealed class ModListBox : ListBox
     static readonly Color NexusOrange = Color.FromArgb(230, 140, 60);
     public static readonly Color ConflictAmber = Color.FromArgb(242, 170, 60);
     public static readonly Color OverlapYellow = Color.FromArgb(250, 214, 60);
+    public static readonly Color CrashRed = Color.FromArgb(235, 72, 72);
+
+    /// <summary>A warning pill left of <paramref name="left"/> (moved past it): a ! in a triangle, then the label.</summary>
+    Rectangle WarningPill(Graphics g, string label, Color fill, Color ink, ref int left, Rectangle check)
+    {
+        var ts = TextRenderer.MeasureText(g, label, pillFont, Size.Empty, TextFormatFlags.NoPadding);
+        int ph = (int)(16 * S), tri = (int)(11 * S), pw = ts.Width + tri + (int)(16 * S);
+        var r = new Rectangle(left - pw - (int)(6 * S), check.Top + check.Height / 2 - ph / 2, pw, ph);
+        using (var path = Ui.Round(r, ph / 2f))
+        using (var f = new SolidBrush(fill)) g.FillPath(f, path);
+        float tx = r.Left + 6 * S, ty = r.Top + (ph - tri) / 2f;
+        var corners = new[] { new PointF(tx + tri / 2f, ty), new PointF(tx + tri, ty + tri), new PointF(tx, ty + tri) };
+        using (var pen = new Pen(ink, Math.Max(1.2f, 1.3f * S)) { LineJoin = LineJoin.Round }) g.DrawPolygon(pen, corners);
+        using (var bang = new Pen(ink, Math.Max(1.2f, 1.4f * S)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+        {
+            g.DrawLine(bang, tx + tri / 2f, ty + tri * 0.36f, tx + tri / 2f, ty + tri * 0.64f);
+            g.DrawLine(bang, tx + tri / 2f, ty + tri * 0.82f, tx + tri / 2f, ty + tri * 0.83f);
+        }
+        var text = new Rectangle((int)(tx + tri + 3 * S), r.Top, r.Right - (int)(tx + tri + 3 * S) - (int)(6 * S), ph);
+        TextRenderer.DrawText(g, label, pillFont, text, ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        left = r.Left;
+        return r;
+    }
 
     protected override void OnMeasureItem(MeasureItemEventArgs e)
     {
@@ -361,7 +387,9 @@ sealed class ModListBox : ListBox
         }
         nexusParts[e.Index] = (pill, mark);
         // A changed model that other stock packages also carry (the stock copy can show near other players): a yellow
-        // "OVERLAP" warning pill with a ! in a triangle (Kurt, 2026-10-11; click: Make Unique).
+        // "OVERLAP" warning pill with a ! in a triangle (Kurt, 2026-10-11; click: Make Unique). A model that can crash the
+        // game (CrashCheck): the same pill in red, "CRASH RISK".
+        crashPills[e.Index] = CrashFor?.Invoke(m) != null ? WarningPill(g, "CRASH RISK", CrashRed, Color.White, ref badgesLeft, check) : Rectangle.Empty;
         var shared = Rectangle.Empty;
         if (SharedFor?.Invoke(m) != null)
         {
@@ -480,6 +508,8 @@ sealed class ModListBox : ListBox
                  : null;
         if (sharedPills.TryGetValue(i, out var sp) && sp.Contains(p) && SharedFor?.Invoke(m) is string why)
             return why + " Click to Make Unique: the mod's own copy gets paths of its own (asks first).";
+        if (crashPills.TryGetValue(i, out var cp) && cp.Contains(p) && CrashFor?.Invoke(m) is string risk)
+            return risk + "\n\nClick for every finding and what can be done.";
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(p) || np.Mark.Contains(p)))
         {
             string have = (m.NexusLink?.Version ?? m.Manifest.Version ?? "?").TrimStart('v', 'V');
@@ -526,6 +556,8 @@ sealed class ModListBox : ListBox
         if (LockRect(b).Contains(e.Location) && LockOffer(m) != ModLock.None) { SelectedIndex = i; LockClicked?.Invoke(m); return; }
         if (sharedPills.TryGetValue(i, out var sp) && sp.Contains(e.Location) && SharedFor?.Invoke(m) != null)
         { SelectedIndex = i; SharedClicked?.Invoke(m); return; }
+        if (crashPills.TryGetValue(i, out var cp) && cp.Contains(e.Location) && CrashFor?.Invoke(m) != null)
+        { SelectedIndex = i; CrashClicked?.Invoke(m); return; }
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(e.Location) || np.Mark.Contains(e.Location)) && UpdateFor?.Invoke(m) != null)
         { SelectedIndex = i; UpdateClicked?.Invoke(m); return; }
         if (regions.TryGetValue(i, out var r))
