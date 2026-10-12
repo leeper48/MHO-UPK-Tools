@@ -329,66 +329,42 @@ sealed partial class StorePreview
     }
 
     /// <summary>
-    /// The props the game attaches to the shown character (PropRig.Attached: other meshes of the mod's packages that a
-    /// marvelattachment names), loaded in the background and shown with it; none when the Props toggle is off. The view
-    /// (camera) stays as it was; the character's framing isn't changed by a prop.
+    /// The props the game attaches to the shown character (PropRig.Attached: what its attachment classes name, from the
+    /// mod's packages or its hero's base package), loaded in the background and shown with it; none when the Props toggle is
+    /// off. Shared with the Model tab (PreviewProps).
     /// </summary>
     void LoadProps()
     {
         if (viewer == null || animator == null || shownLoaded == null || !MeshOk) return;
-        var main = meshes[meshIndex];
-        var l = shownLoaded;
-        var a = animator;
-        int req = request;
-        bool on = PreviewViews.Props;
-        var all = meshes.ToList();
-        string? cooked = CookedFolder;
-        if (!on && rig.Count == 0) return;
-        // (in the background: the hero's base package may be read for its props)
-        var modPkgs = mod == null ? [] : ModPackages(mod);
-        Task.Run(() => on ? PowerPreview.BaseProps(main, all, cooked, modPkgs) : [])   // shared with the Model tab
-            .ContinueWith(t =>
-            {
-                if (IsDisposed || req != request || viewer == null || animator != a || shownLoaded != l) return;
-                baseProps = t.Result;
-                RebuildRig();
-                // The playing animation's rules and the props' own animations again, now that the props are here: read
-                // before them, the animated props found none (Blade's bike showed without its ride animation, turned 90°,
-                // or not at all; Kurt, 2026-10-03).
-                if (playing != null) LoadPropSwitches();
-            }, TaskScheduler.FromCurrentSynchronizationContext());
+        Props.Load(meshes[meshIndex], meshes, CookedFolder, mod == null ? [] : ModPackages(mod), PreviewViews.Props, LoadPropSwitches);
     }
 
-    // The character's own props (LoadProps) and the ones the playing power brings from its own package (LoadPropSwitches:
-    // Jean Grey's, Luke Cage's and Magneto's thrown cars are defined in their power packages).
-    List<PowerPreview.BaseProp> baseProps = [];
-    List<(PropRig.Prop W, ModMeshes.Loaded M)> powerProps = [];
-    Dictionary<string, AnimExportCli.Animation.BoneAnimation> propSeqs = new(StringComparer.OrdinalIgnoreCase);
+    PreviewProps? props;
+    /// <summary>The character's props and the power's (shared with the Model tab); the power's animated actors join the rig.</summary>
+    PreviewProps Props => props ??= new PreviewProps(rig, this)
+    {
+        Shown = () => viewer != null && animator != null && shownLoaded != null ? (viewer, animator, shownLoaded) : null,
+        Playing = () => playing,
+        Seconds = () => playSeconds,
+        ShowPose = ShowPose,
+        AddMore = AddActors,
+    };
 
     /// <summary>The character with its props and the power's, as one mesh; the view and the pose kept.</summary>
-    void RebuildRig()
+    void RebuildRig() => Props.Rebuild();
+
+    /// <summary>The power's animated actors: scale, turn (UE3 rotator), offset, then at the hero or the target; when they show.</summary>
+    void AddActors(PropRig r)
     {
-        if (viewer == null || animator == null || shownLoaded == null) return;
-        rig.Clear();
-        // (a prop rigged to the character's skeleton is held at the root: its bind pose is already in place)
-        rig.SetParentAnimation(playing);
-        PowerPreview.AddProps(rig, animator, baseProps, powerProps);
-        // The power's animated actors: scale, turn (UE3 rotator), offset, then at the hero or the target; when they show.
-        if (fxPlayer != null)
-            foreach (var (s, m, an, seq) in fxActors)
-            {
-                float own = seq == null ? 0 : MeshAnimator.Span(seq).Seconds;
-                if (fxPlayer.ActorWindow(s, own) is not { } win) continue;
-                var place = System.Numerics.Matrix4x4.CreateScale(s.Scale) * Fx.PowerEffects.Player.UeRotation(s.Turn.X, s.Turn.Y, s.Turn.Z)
-                    * System.Numerics.Matrix4x4.CreateTranslation(s.Shift + (s.AtTarget ? fxTarget : System.Numerics.Vector3.Zero));
-                rig.AddActor(m, an, seq, win.Start, win.End, place);
-            }
-        rig.SetRules(propRules, propContact, playSeconds);
-        rig.SetMotions(propSeqs);
-        var keep = viewer.ViewState;
-        viewer.ShowMesh(rig.Combine(shownLoaded), shownLoaded.Positions.Length);   // framed (and the saved view measured) by the character alone
-        viewer.ViewState = keep;
-        ShowPose();
+        if (fxPlayer == null) return;
+        foreach (var (s, m, an, seq) in fxActors)
+        {
+            float own = seq == null ? 0 : MeshAnimator.Span(seq).Seconds;
+            if (fxPlayer.ActorWindow(s, own) is not { } win) continue;
+            var place = System.Numerics.Matrix4x4.CreateScale(s.Scale) * Fx.PowerEffects.Player.UeRotation(s.Turn.X, s.Turn.Y, s.Turn.Z)
+                * System.Numerics.Matrix4x4.CreateTranslation(s.Shift + (s.AtTarget ? fxTarget : System.Numerics.Vector3.Zero));
+            r.AddActor(m, an, seq, win.Start, win.End, place);
+        }
     }
 
     /// <summary>One power button: its icon on a card; accent border while one of its animations plays, tinted while it filters.</summary>
@@ -490,43 +466,16 @@ sealed partial class StorePreview
         Invalidate();
     }
 
-    List<ModMeshes.PropRule> propRules = [];
-    float propContact;
-    int propSwitchRequest;
-
     /// <summary>
     /// The props for the animation picked (Kurt: Punisher's sawed-off shotgun, not his pistols): the power playing it
-    /// (PowerIndex) switches weapon slots (its power package's PowerFxMeshAttachment), read in the background; the
-    /// rest pose shows what's always held.
+    /// switches weapon slots (PreviewProps.LoadSwitches); the rest pose shows what's always held.
     /// </summary>
     void LoadPropSwitches()
     {
-        int req = ++propSwitchRequest;
-        if (!PreviewViews.Props || mod == null || !MeshOk || CookedFolder is not string cooked || animBox == null || HeroOfMesh() is not string hero)
-        {
-            if (propRules.Count > 0 || powerProps.Count > 0) { propRules = []; bool had = powerProps.Count > 0; powerProps = []; if (had) RebuildRig(); else { rig.SetRules(propRules, 0, 0); ShowPose(); } }
-            return;
-        }
-        var have = baseProps.Select(x => x.W).ToList();
-        int ai0 = animBox.SelectedIndex - 1;
-        var motionRefs = rig.MotionRefs(playing != null && ai0 >= 0 && ai0 < anims.Count ? anims[ai0].Name : null);
-        int ai = animBox.SelectedIndex - 1;
+        string? cooked = CookedFolder;
+        string? hero = mod != null && MeshOk && animBox != null ? HeroOfMesh() : null;
+        int ai = animBox == null ? -1 : animBox.SelectedIndex - 1;
         string? anim = playing != null && ai >= 0 && ai < anims.Count ? anims[ai].Name : null;
-        var modFiles = ModPackages(mod).Select(x => x.Path).ToList();
-        var dbTask = GameDb(cooked);
-        var idxTask = PowerPreview.PowerIndex(hero, cooked, modFiles);
-        float seconds = playSeconds;
-        Task.WhenAll(idxTask, dbTask).ContinueWith(done => idxTask.Status != TaskStatus.RanToCompletion ? PowerPreview.Switches.None
-                : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, anim, cooked, have, motionRefs, seconds))   // shared
-            .ContinueWith(t =>
-            {
-                if (IsDisposed || req != propSwitchRequest || t.Status != TaskStatus.RanToCompletion) return;
-                (propRules, propContact) = (t.Result.Rules, t.Result.Contact);
-                propSeqs = t.Result.Seqs;
-                bool rebuild = powerProps.Count > 0 || t.Result.Extra.Count > 0;
-                powerProps = t.Result.Extra;
-                if (rebuild) RebuildRig();
-                else { rig.SetRules(propRules, propContact, playSeconds); rig.SetMotions(propSeqs); ShowPose(); }
-            }, TaskScheduler.FromCurrentSynchronizationContext());
+        Props.LoadSwitches(PreviewViews.Props, cooked, hero, anim, mod == null ? [] : ModPackages(mod).Select(x => x.Path).ToList());
     }
 }

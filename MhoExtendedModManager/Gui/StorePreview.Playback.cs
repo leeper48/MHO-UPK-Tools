@@ -407,5 +407,5 @@ sealed partial class StorePreview
         full.Toggle(this, mod == null ? "Preview" : $"Preview: {mod.Name}", PausePlayback, () => TogglePlayback(), viewer, Padding.Empty, () => { Invalidate(); fullBtn?.Invalidate(); });
     }
 
-    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; rig.SetParentAnimation(null); playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); if (propRules.Count > 0) { propRules = []; rig.SetRules(propRules, 0, 0); } }
+    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; rig.SetParentAnimation(null); playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); Props.ClearRules(); }
 }
