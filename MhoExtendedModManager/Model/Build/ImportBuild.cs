@@ -164,19 +164,36 @@ sealed class ImportBuild
         // get their own names, next to the earlier one's
         string namePrefix = MaterialOut.PrefixFor(mp);
         if (namePrefix != "mff_") log($"material: the package already holds an earlier Model build (its objects are kept, unused); this build's are named {namePrefix}…");
-        if (donor != null)
-        {
-            template = namePrefix + "template_mat";
-            basePackage = MaterialChoice.CopyDonor(mp, donor, o.ValuesFrom, o.Glow, log, template);
-        }
         string texDir = Path.Combine(outDir, "textures");
         Protected.CheckWrite(texDir);
         Directory.CreateDirectory(texDir);
-        bool guessGlow = donor == MaterialChoice.Glow && !ownGlow;
-        var mffMats = mats.Select(name => MffMaterialFor(name, texDir) is var mm && mm.Glow == null && guessGlow && !r.Sections.First(x => x.Material == name).Tex.GlowOff ? mm with { GuessGlow = true } : mm).ToList();
-        var madeMats = MaterialOut.Build(basePackage, template, mffMats, texDir, o.Spec, o.Reflect, namePrefix);
-        foreach (var n in madeMats.Notes) log("material: " + n);
-        return (madeMats.Package, mats.Select(x => madeMats.MaterialRef[x]).ToList());
+        // Each material's game material (the Materials tab's Game Material ▾; Kurt, 2026-10-12): automatic = the choice above.
+        // One group per game material, each with its own template copy and its own name prefix (their stand-in textures share
+        // names otherwise); the package grows group by group (every step only appends, so earlier references stay).
+        string? DonorOf(string name) => r.Sections.First(x => x.Material == name).Tex.Template is string key && MaterialChoice.Templates.FirstOrDefault(t => t.Key == key) is { Key: not null } t
+            ? (t.Key == "base" ? "base" : t.Donor) : donor ?? "base";
+        string baseTemplate = template;
+        var groups = mats.GroupBy(DonorOf).ToList();
+        var refs = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int gi = 0; gi < groups.Count; gi++)
+        {
+            string gDonor = groups[gi].Key!;
+            string prefix = gi == 0 ? namePrefix : $"{namePrefix}m{gi + 1}_";
+            string gTemplate = baseTemplate;
+            if (gDonor != "base")
+            {
+                gTemplate = prefix + "template_mat";
+                basePackage = MaterialChoice.CopyDonor(MpmPackage.FromBytes(basePackage), gDonor, o.ValuesFrom, o.Glow, log, gTemplate);
+            }
+            if (groups.Count > 1) log($"material: {string.Join(", ", groups[gi])} → {(gDonor == "base" ? "the costume's own material" : gDonor.Split(':').Last())}");
+            bool guessGlow = gDonor == MaterialChoice.Glow && !ownGlow;
+            var mffMats = groups[gi].Select(name => MffMaterialFor(name, texDir) is var mm && mm.Glow == null && guessGlow && !r.Sections.First(x => x.Material == name).Tex.GlowOff ? mm with { GuessGlow = true } : mm).ToList();
+            var madeMats = MaterialOut.Build(basePackage, gTemplate, mffMats, texDir, o.Spec, o.Reflect, prefix);
+            foreach (var n in madeMats.Notes) log("material: " + n);
+            basePackage = madeMats.Package;
+            foreach (var (k, v) in madeMats.MaterialRef) refs[k] = v;
+        }
+        return (basePackage, mats.Select(x => refs[x]).ToList());
     }
 
     /// <summary>An MFF material's maps: colour, _sp (left out for Spec "neutral"), and a normal map generated from the colour

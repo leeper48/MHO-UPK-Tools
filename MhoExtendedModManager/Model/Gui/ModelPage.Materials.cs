@@ -41,7 +41,7 @@ sealed partial class ModelPage
         matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "material", HeaderText = "Material", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 35, ReadOnly = true });
         matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "map", HeaderText = "Map", AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells, ReadOnly = true });   // (a fixed 70 clipped at 150 %: Kurt)
         matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "from", HeaderText = "From", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 65, ReadOnly = true });
-        matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "slot", HeaderText = "Slot", AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells, ReadOnly = true, ToolTipText = "The game material slot this material is built into (0 first). Slot Up / Slot Down change it." });
+        matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "slot", HeaderText = "Slot", AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells, ReadOnly = true, ToolTipText = "The game material slot this material is built into (0 first; Slot Up / Slot Down change it), and the game material it's built from (Game Material ▾)." });
         matGrid.AllowUserToAddRows = false; matGrid.AllowUserToDeleteRows = false; matGrid.RowHeadersVisible = false;
         matGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; matGrid.MultiSelect = false;
         matGrid.ShowCellToolTips = true;
@@ -90,11 +90,12 @@ sealed partial class ModelPage
         Icons.Make(matLayout, "Layout", Icons.Layout, sc);
         matExport = Ui.FlatButton("Export Maps", () => _ = ExportMaps(null), "Saves every material's maps as PNG files into a folder you pick, the ones the importer makes too (generated normal and spec maps, MHO spec maps converted or made from your tags, glow maps): <material>.png, _n, _sp, _mhospec (with its gray channel files), _speccolor, _glow, _alpha. The names the FBX import reads, so they can be edited and used again.");
         Icons.Make(matExport, "Export Maps", Icons.Export, sc);
+        matGame = Ui.FlatButton("Game Material ▾", ShowGameMaterialMenu, "Which of the game's materials the selected material is built from: Automatic (picked from the maps: metal maps or an MHO spec map → Metal, a glow map → Glow, else Cloth and Skin), Cloth and Skin, Metal, Glow, or The Costume's Own. Each material can have its own: a body in cloth with armor in metal. The game can't make new shaders, so these are copies of materials it already has. Undo (Ctrl+Z) takes a change back. Needs a source model (picked on the left): it's used when the model is built, so with only the package's own textures listed it's grayed out.");
         matSlotUp = Ui.FlatButton("Slot Up", () => MoveSlot(-1), "Moves the selected material one game material slot earlier (Slot column). The costume's own effects can name slots by number: Hulk's revive visual keeps the pants slot, Doctor Doom's force field tells body from cape; the line under the buttons says which slots this costume's effects keep. Undo (Ctrl+Z) takes it back.");
         matSlotDown = Ui.FlatButton("Slot Down", () => MoveSlot(1), "Moves the selected material one game material slot later (Slot column). See Slot Up.");
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         EditButton();
-        foreach (var b in new[] { matUse, matEdit, matAdjust, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport, matSlotUp, matSlotDown }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
+        foreach (var b in new[] { matUse, matEdit, matAdjust, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport, matGame, matSlotUp, matSlotDown }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
         // what the preview shows (Kurt, 2026-10-04: moved here from Look ▾): the model lit, or one map on its own
         var showMap = new DropDown { Width = (int)(200 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), Margin = new Padding(0, 0, 0, 0) };
         showMap.Items.AddRange([.. ShowMapChoices.Select(x => (object)x.Label)]);
@@ -110,7 +111,21 @@ sealed partial class ModelPage
         return Column("", head, matGrid);
     }
 
-    Button? matSlotUp, matSlotDown;
+    Button? matSlotUp, matSlotDown, matGame;
+
+    /// <summary>Game Material ▾: the selected material's game material (MaterialOverrides.Entry.Template).</summary>
+    void ShowGameMaterialMenu()
+    {
+        if (SelectedMap() is not { } sel || OverridesPath() is not string path || matGame == null) return;
+        string? now = File.Exists(path) && MaterialOverrides.Load(path).Materials.TryGetValue(sel.Material, out var e) ? e.Template : null;
+        var menu = new ContextMenuStrip();
+        void Add(string? key, string label, string tip) => menu.Items.Add(new ToolStripMenuItem(label, null, (_, _) => ChangeOverrides((_, en) => en.Template = key, sel.Material, $"{sel.Material} built from {label}"))
+            { Checked = now == key, ToolTipText = tip });
+        Add(null, "Automatic", "Picked from the maps, as before: metal maps or an MHO spec map → Metal, a glow map → Glow, else Cloth and Skin.");
+        foreach (var t in MaterialChoice.Templates) Add(t.Key, t.Label, t.Tip);
+        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+        Ui.ShowUnder(menu, matGame);
+    }
     readonly Label matSlotsNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 4), MaximumSize = new Size(900, 0), Visible = false };
     int slotSwapsRun;
 
@@ -137,7 +152,8 @@ sealed partial class ModelPage
     {
         if (matSlotUp != null) { matSlotUp.Enabled = order.Count > 1; matSlotDown!.Enabled = order.Count > 1; }
         string? cooked = MhoExtendedModManager.StockFiles.Cooked;
-        if (ChosenPackage is not CharacterList.Item it || cooked == null) { matSlotsNote.Visible = false; return; }
+        // (no source model: nothing is built, so there's no slot order to compare: the package's own textures are listed)
+        if (ChosenPackage is not CharacterList.Item it || cooked == null || order.Count == 0) { matSlotsNote.Visible = false; return; }
         int run = ++slotSwapsRun;
         string cls = ConditionSwaps.ClassOf(it.Key);
         Task.Run(() => ConditionSwaps.For(MhoExtendedModManager.UniqueNames.Folder(cooked), cls)).ContinueWith(t =>
@@ -181,7 +197,7 @@ sealed partial class ModelPage
             foreach (var kind in MapKinds)
             {
                 var (from, path) = Describe(kind, tex, e);
-                int i = matGrid.Rows.Add(mat, kind, from, kind == MapKinds[0] ? slotOrder.IndexOf(mat).ToString() : "");
+                int i = matGrid.Rows.Add(mat, kind, from, kind == MapKinds[0] ? $"{slotOrder.IndexOf(mat)} · {MaterialChoice.TemplateLabel(e?.Template)}" : "");
                 matGrid.Rows[i].Tag = (mat, kind);
                 matGrid.Rows[i].Cells["from"].ToolTipText = path ?? from;
                 if (from.StartsWith("Your file", StringComparison.Ordinal)) matGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.OverrideAmber;
@@ -247,6 +263,7 @@ sealed partial class ModelPage
         Ui.Lit(matAdjust, sel?.Kind == "Color" && e?.Adjust is { IsNone: false });
         matChannels.Enabled = any && sel!.Value.Kind == "MHO Spec";
         matExport.Enabled = shownMaterials.Count > 0;
+        if (matGame != null) matGame.Enabled = any;
         matLayout.Enabled = any && sel!.Value.Kind == "MHO Spec" && tx?.SpecMho != null;
         matFlip.Enabled = any && sel!.Value.Kind == "Normal" && shownMaterials.FirstOrDefault(m => m.Material == sel.Value.Material).Tex?.Normal != null;
         Ui.Lit(matFlip, e?.FlipGreen == true && sel?.Kind == "Normal");

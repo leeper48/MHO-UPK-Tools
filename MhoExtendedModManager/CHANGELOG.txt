@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.244
+- The mod list: Group → Overlap puts the mods with the OVERLAP warning first; the filter word is:overlap shows only those.
+
+0.37.242
+- Model tab, Materials: Game Material ▾ picks which of the game's materials each material is built from: Automatic (as before), Cloth and Skin, Metal, Glow, or The Costume's Own. Each material can have its own (a body in cloth, armor in metal); the Slot column shows the choice, and the preview follows it.
+
 0.37.238
 - 3D previews (Mods tab, the Editor's Powers and Model tabs): powers with effects but no animation have power buttons too (on the Powers tab, picking one in the list plays it) (Doctor Doom's The Will of Doom was missing); they play over the idle, with their effects even while Power FXs is off (they're all such a power shows).
 - 3D previews: a power that changes the character's materials for a moment shows it (Doctor Doom's force field, Hulk's revive, Rogue's healing shields), on the slots the game puts it on; the Model tab's preview follows the Materials tab's Slot order. An effect shader the preview can't run (Doom's force field) shows as a green glow over the model.

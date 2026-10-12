@@ -27,7 +27,12 @@ sealed partial class MainForm
                 try { PowerUsage.Check(m, root); }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
             }
-        }).ContinueWith(_ => { if (!IsDisposed && run == sharedCheck) BeginInvoke(() => list.Invalidate()); });
+        }).ContinueWith(_ =>
+        {
+            if (IsDisposed || run != sharedCheck) return;
+            // grouped or filtered by overlap: the list is made again now that it's known
+            BeginInvoke(() => { if (settings.ListGroup == "overlap" || filter.Text.Contains("is:overlap", StringComparison.OrdinalIgnoreCase)) FillList(Selected?.FolderName); else list.Invalidate(); });
+        });
     }
 
     /// <summary>The OVERLAP pill's reasons: a shared model (Make Unique) and / or enemy-only power packages.</summary>

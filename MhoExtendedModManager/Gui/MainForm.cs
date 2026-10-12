@@ -284,7 +284,7 @@ sealed partial class MainForm : Form
         groupButton.Click += (_, _) => Ui.ShowUnder(GroupMenu(), groupButton);
         filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
         allVisible.Click += (_, _) => SetAllVisible();
-        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   (Nexus updates, linked mods, conflicts)");
+        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   is:overlap   (Nexus updates, linked mods, conflicts, OVERLAP warnings)");
         tips.SetToolTip(sortButton, "Order the list by priority, name, author, tag, on first, or Nexus updates first. Priority buttons and padlocks work in the priority order only.");
         tips.SetToolTip(groupButton, "Group the list by tag or author. Click a group's header to fold it.");
         // Nexus strip (Kurt: status and actions by the list, not in Settings): status (click = the next step), Check for Updates, Find My Mods, ▾.
@@ -800,7 +800,7 @@ sealed partial class MainForm : Form
     }
 
     static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On First"), ("update", "Updates First")];
-    static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author")];
+    static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author"), ("overlap", "Overlap")];
 
     /// <summary>The list shows the priority order as it is: the priority buttons and padlocks work only then.</summary>
     bool ReorderView => settings.ListSort == "priority" && settings.ListGroup == "none";
@@ -813,7 +813,7 @@ sealed partial class MainForm : Form
         if (t.StartsWith("is:", StringComparison.OrdinalIgnoreCase))
             return t[3..].ToLowerInvariant() switch { "on" => m.Enabled, "off" => !m.Enabled, "locked" => m.Lock != ModLock.None, "untagged" => m.Tags.Count == 0,
                 "update" => current?.nexus is NexusCache c && NexusUpdates.UpdateFor(m, c) != null, "nexus" => m.NexusModId != null,
-                "conflict" => current?.conflicted.Contains(m) == true, _ => true };
+                "conflict" => current?.conflicted.Contains(m) == true, "overlap" => OverlapReason(m) != null, _ => true };
         if (t.StartsWith("tag:", StringComparison.OrdinalIgnoreCase) || t.StartsWith('#'))
         {
             string x = t.StartsWith('#') ? t[1..] : t[4..];
@@ -847,10 +847,13 @@ sealed partial class MainForm : Form
 
         var items = new List<object>();
         string grouping = settings.ListGroup;
-        if (grouping is "tag" or "author")
+        if (grouping is "tag" or "author" or "overlap")
         {
-            string none = grouping == "tag" ? "Untagged" : "(No Author)";
-            List<string> KeysOf(Mod m) => grouping == "tag" ? (m.Tags.Count > 0 ? m.Tags : [none]) : [string.IsNullOrWhiteSpace(m.Manifest.Author) ? none : m.Manifest.Author.Trim()];
+            // Overlap (Kurt, 2026-10-12): the mods with the OVERLAP warning, then the rest
+            string none = grouping == "tag" ? "Untagged" : grouping == "overlap" ? "No Overlap" : "(No Author)";
+            List<string> KeysOf(Mod m) => grouping == "tag" ? (m.Tags.Count > 0 ? m.Tags : [none])
+                : grouping == "overlap" ? [OverlapReason(m) != null ? "Overlap" : none]
+                : [string.IsNullOrWhiteSpace(m.Manifest.Author) ? none : m.Manifest.Author.Trim()];
             foreach (string k in modList.SelectMany(KeysOf).Distinct(cmp).OrderBy(k => k == none ? 1 : 0).ThenBy(k => k, cmp))
             {
                 var members = modList.Where(m => KeysOf(m).Contains(k, cmp)).ToList();

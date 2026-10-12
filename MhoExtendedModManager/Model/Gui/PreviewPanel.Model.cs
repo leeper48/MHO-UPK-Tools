@@ -219,7 +219,15 @@ sealed partial class PreviewPanel
             foreach (int t in s.Tris) idx.Add(start + t);
             for (int t = 0; t < s.Tris.Length / 3; t++) triSec.Add(si);
             string key = s.Material;
-            if (!lookCache.TryGetValue(key, out var look)) lookCache[key] = look = LookFor(s.Tex, metalStyle, glowOn);
+            // a material's own Game Material (the Materials tab) over the model-wide choice
+            var (ms, go) = s.Tex.Template switch
+            {
+                "metal" => (true, false),
+                "glow" => (true, s.Tex.GlowFile == null),
+                "default" or "base" => (false, false),
+                _ => (metalStyle, glowOn),
+            };
+            if (!lookCache.TryGetValue(key, out var look)) lookCache[key] = look = LookFor(s.Tex, ms, go);
             looks.Add(look);
         }
         Stage("sections + materials (looks)");

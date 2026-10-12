@@ -34,7 +34,9 @@ sealed class MaterialOverrides
         public Dictionary<string, string>? ColorTags { get; set; }
         /// <summary>The color map's hue / saturation / brightness and levels (the Adjust Colors window); null = as it is.</summary>
         public ColorAdjust? Adjust { get; set; }
-        public bool Empty => Color == null && Normal == null && Spec == null && Alpha == null && !FlipGreen && SpecRecipe == null && SpecMho == null && SpecColor == null && SpecLayout == null && Glow == null && !GlowOff && ColorTags is not { Count: > 0 } && Adjust is not { IsNone: false };
+        /// <summary>The game material it's built from (MaterialChoice.Templates key; null = automatic; Kurt, 2026-10-12).</summary>
+        public string? Template { get; set; }
+        public bool Empty => Template == null && Color == null && Normal == null && Spec == null && Alpha == null && !FlipGreen && SpecRecipe == null && SpecMho == null && SpecColor == null && SpecLayout == null && Glow == null && !GlowOff && ColorTags is not { Count: > 0 } && Adjust is not { IsNone: false };
     }
 
     public Dictionary<string, Entry> Materials { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -94,11 +96,12 @@ sealed class MaterialOverrides
                     SpecLayout = e.SpecLayout ?? (e.SpecMho == null ? s.Tex.SpecLayout : null),
                     Glow = Full(e.Glow) ?? s.Tex.Glow, GlowOff = e.GlowOff,
                     ColorTags = e.ColorTags is { Count: > 0 } ct ? ct.Select(kv => (kv.Key, kv.Value)).ToList() : s.Tex.ColorTags,
+                    Template = e.Template ?? s.Tex.Template,
                 };
                 t.Extra.AddRange(s.Tex.Extra);
                 made[s.Material] = t;
                 log?.Invoke($"material {s.Material}: " + string.Join(", ", new[] { ("color", e.Color), ("normal", e.Normal), ("spec", e.Spec), ("MHO spec", e.SpecMho), ("spec color", e.SpecColor), ("alpha", e.Alpha), ("glow", e.Glow) }
-                    .Where(x => x.Item2 != null).Select(x => $"{x.Item1} from {Path.GetFileName(x.Item2)}").Concat(e.FlipGreen ? ["OpenGL normal map (green flipped)"] : []).Concat(e.SpecRecipe != null ? [$"spec generated: {SpecMapGen.Label(e.SpecRecipe)}"] : []).Concat(e.GlowOff ? ["no glow"] : []).Concat(e.SpecLayout != null ? [$"MHO spec layout: {SpecLayouts.ById(e.SpecLayout)?.Label}"] : []).Concat(e.ColorTags is { Count: > 0 } ctg ? [$"{ctg.Count} color group(s) tagged"] : []).Concat(e.Adjust is { IsNone: false } ca ? [$"color map adjusted: {ca.Describe()}"] : [])));
+                    .Where(x => x.Item2 != null).Select(x => $"{x.Item1} from {Path.GetFileName(x.Item2)}").Concat(e.FlipGreen ? ["OpenGL normal map (green flipped)"] : []).Concat(e.SpecRecipe != null ? [$"spec generated: {SpecMapGen.Label(e.SpecRecipe)}"] : []).Concat(e.GlowOff ? ["no glow"] : []).Concat(e.SpecLayout != null ? [$"MHO spec layout: {SpecLayouts.ById(e.SpecLayout)?.Label}"] : []).Concat(e.ColorTags is { Count: > 0 } ctg ? [$"{ctg.Count} color group(s) tagged"] : []).Concat(e.Adjust is { IsNone: false } ca ? [$"color map adjusted: {ca.Describe()}"] : []).Concat(e.Template != null ? [$"game material: {MaterialChoice.TemplateLabel(e.Template)}"] : [])));
             }
             s.Tex = t;
         }

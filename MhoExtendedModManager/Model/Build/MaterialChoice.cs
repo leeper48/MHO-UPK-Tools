@@ -24,6 +24,19 @@ static class MaterialChoice
 
     public static bool IsAutomatic(string donor) => donor is Default or Metal or Glow;
 
+    /// <summary>The Materials tab's Game Material choices (Kurt, 2026-10-12, a user's two-material MUA2 model: one material
+    /// per part, each its own kind): key, label, the instance copied (null for "base": the target costume's own), what it's
+    /// for. All chbasematerial instances whose static switches the game's shader cache has (a new combination can't be made).</summary>
+    public static readonly (string Key, string Label, string? Donor, string Tip)[] Templates =
+    [
+        ("default", "Cloth and Skin", Default, "Punisher Modern's material: the plain one most models get (cloth, skin, leather)."),
+        ("metal", "Metal", Metal, "Angela's armor material: its own reflection image and spec color, for metal and shiny armor."),
+        ("glow", "Glow", Glow, "Angela's weapon material: her armor's with a glow slot (a glow map of its own, or the bright spots of the color map)."),
+        ("base", "The Costume's Own", null, "The target costume's own material (its first material instance), with this material's maps."),
+    ];
+
+    public static string TemplateLabel(string? key) => key == null ? "Automatic" : Templates.FirstOrDefault(t => t.Key == key).Label ?? key;
+
     /// <summary>The instance to copy: the requested one ("base" = null = the base mesh's own), else by metal / glow share.</summary>
     public static string? Donor(string? requested, float metalShare, float glowShare) => requested is { Length: > 0 } v
         ? (v.Equals("base", StringComparison.OrdinalIgnoreCase) ? null : v)

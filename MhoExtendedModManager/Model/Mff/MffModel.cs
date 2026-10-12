@@ -61,6 +61,9 @@ sealed class Bone
 sealed class Textures
 {
     public string? Diffuse, Spec, Alpha;
+    /// <summary>The game material this material is built from (the Materials tab's Game Material ▾: "default", "metal",
+    /// "glow", "base"); null = automatic (MaterialChoice by the maps).</summary>
+    public string? Template;
     /// <summary>The color map before the Materials tab's Adjust Colors (Diffuse is then the adjusted copy); null when not
     /// adjusted. Color tags were picked on it, so what's made from them (their spec and glow maps) reads it.</summary>
     public string? DiffuseSource;
