@@ -104,9 +104,10 @@ sealed partial class PreviewPanel
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
             if (dbt.Result is not { } db) return new List<Fx.PowerList.Power>();
-            var all = Fx.PowerList.For(db, hero, cooked, []);
+            var all = Fx.PowerList.For(db, hero, cooked, [], effectOnly: true);
             foreach (var p in all) if (p.Icon != null) Fx.PowerList.Icon(p.Icon, cooked);   // decoded here, off the UI thread
-            return all.Where(p => p.Animations.Any(names.Contains)).ToList();
+            // with the powers that have effects but no animation (Kurt, 2026-10-12: The Will of Doom): they play over the idle
+            return all.Where(p => p.Animations.Count == 0 || p.Animations.Any(names.Contains)).ToList();
         })).Unwrap().ContinueWith(t =>
         {
             if (IsDisposed || req != heroPowersRequest || t.Status != TaskStatus.RanToCompletion) return;
@@ -163,6 +164,21 @@ sealed partial class PreviewPanel
     {
         if (k < 0 || k >= heroPowers.Count) return;
         var pw = heroPowers[k];
+        if (pw.Animations.Count == 0)
+        {
+            // effects only: the idle plays with them (again: back to all)
+            bool again = effectOnly == pw.Prototype;
+            effectOnly = again ? null : pw.Prototype;
+            powerFilter = again ? null : pw.Prototype;
+            animList = allAnims; FillAnims();
+            int idle = allAnims.FindIndex(a => a.Name.Equals("idle", StringComparison.OrdinalIgnoreCase));
+            if (idle < 0) idle = allAnims.FindIndex(a => a.Name.Contains("idle", StringComparison.OrdinalIgnoreCase));
+            if (!again) { autoPlay = true; if (anims.SelectedIndex == Math.Max(0, idle) + 1) LoadEffects(); else anims.SelectedIndex = Math.Max(0, idle) + 1; }
+            else LoadEffects();
+            RefreshPowerButtons();
+            return;
+        }
+        effectOnly = null;
         string? current = anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count ? animList[anims.SelectedIndex - 1].Name : null;
         if (powerFilter == pw.Prototype)
         {
@@ -186,6 +202,10 @@ sealed partial class PreviewPanel
     public IReadOnlyList<Fx.PowerList.Power> HeroPowers => heroPowers;
     /// <summary>The power line under the view (checks).</summary>
     public string EffectsNote => fxLabel.Text + $" · props {rig.Count}";
+    /// <summary>The material swap drawn now (checks): "n of m section(s)", else "none".</summary>
+    public string SwapNote => view.LookOverride is { } lo ? $"{lo.Count(x => x != null)} of {lo.Length} section(s)" : "none";
+    /// <summary>The view's picture (checks).</summary>
+    public Bitmap ViewShot() { var b = new Bitmap(Math.Max(1, view.Width), Math.Max(1, view.Height)); view.DrawToBitmap(b, new Rectangle(0, 0, b.Width, b.Height)); return b; }
     /// <summary>Clicks a power button by name (checks).</summary>
     public bool ClickPower(string name)
     {
@@ -196,7 +216,60 @@ sealed partial class PreviewPanel
     }
 
     // --- power effects ---------------------------------------------------------------------------------------------------------
-    void ClearEffects() { fxRequest++; fxPlayer = null; fxLabel.Text = ""; view.Effects = []; view.EffectTris = []; }
+    void ClearEffects() { fxRequest++; fxPlayer = null; fxLabel.Text = ""; view.Effects = []; view.EffectTris = []; view.LookOverride = null; }
+
+    /// <summary>An effect-only power picked (no animation of its own): its effects play over the idle.</summary>
+    string? effectOnly;
+    /// <summary>The Model tab: the target costume's class (marvelplayer_drdoom_classic: a costume shown with its hero's model
+    /// still has its own effects), and the build's slot order for a list of material names (MaterialOverrides.Ordered).</summary>
+    public Func<string?>? TargetClass { get; set; }
+    public Func<IReadOnlyList<string>, List<string>>? SlotOrder { get; set; }
+
+    /// <summary>
+    /// A power's condition material swaps on the shown model (Kurt, 2026-10-12: Doctor Doom's force field, Hulk's revive): each
+    /// section's slot is its material's place in the build's slot order (the target's own model: its section's material index),
+    /// and a swap for the target costume draws its material on the slots it doesn't keep. Read in the background.
+    /// </summary>
+    void LoadSwaps(string power, int req)
+    {
+        if (Cooked is not string cooked || shown is not { } sh) return;
+        string cls = TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(sh.PackagePath);
+        List<int>? slots = null;
+        if (!sh.TargetOnly && sh.SectionNames.Count > 0)
+        {
+            var distinct = sh.SectionNames.Distinct().ToList();
+            var order = SlotOrder?.Invoke(distinct) ?? distinct;
+            slots = sh.SectionNames.Select(n => order.IndexOf(n)).ToList();
+        }
+        var main = sh.MainRef;
+        GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
+        {
+            if (dbt.Result is not { } db) return (ModelView.Look?[]?)null;
+            var notes = new List<string>();
+            ModelView.Look?[]? merged = null;
+            foreach (string c in MhoExtendedModManager.Model.ConditionSwaps.ConditionsOf(db, power))
+            {
+                string file = $"UC__{c}_SF.upk", path = MhoExtendedModManager.StockFiles.For(cooked, file);
+                if (!File.Exists(path)) continue;
+                try
+                {
+                    var swaps = MhoExtendedModManager.Model.ConditionSwaps.Read(MhoPackageModifier.Package.Open(path), file);
+                    var looks = slots != null ? ModMeshes.SwapLooks(slots, path, swaps, cls, cooked, notes) : main != null ? ModMeshes.SwapLooks(main, path, swaps, cls, cooked, notes) : null;
+                    if (looks == null) continue;
+                    merged ??= new ModelView.Look?[looks.Length];
+                    for (int k = 0; k < looks.Length && k < merged.Length; k++) if (looks[k] != null) merged[k] = looks[k];
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+            }
+            return merged;
+        })).Unwrap().ContinueWith(t =>
+        {
+            if (IsDisposed || req != fxRequest || t.Status != TaskStatus.RanToCompletion || t.Result is not { } looks) return;
+            view.LookOverride = looks;
+            fxLabel.Text += fxLabel.Text.Length > 0 ? " · Material Swap" : "Material Swap";
+            ShowPose();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
 
     /// <summary>
     /// The effects of the power the animation belongs to (Power FXs on): the hero's power packages name it (PowerIndex), the
@@ -205,24 +278,31 @@ sealed partial class PreviewPanel
     void LoadEffects()
     {
         ClearEffects();
-        if (!P.Powers || anim == null || animator == null || Cooked is not string cooked || Hero() is not string hero || shown?.MainRef is not MeshRef main) { ShowPose(); return; }
+        // an effect-only power clicked plays its effects whatever Power FXs says (they're all it shows; as the Mods tab)
+        if (!P.Powers && effectOnly == null || anim == null || animator == null || Cooked is not string cooked || Hero() is not string hero || shown?.MainRef is not MeshRef main) { ShowPose(); return; }
         int ai = anims.SelectedIndex - 1;
         if (ai < 0 || ai >= animList.Count) return;
         string name = animList[ai].Name;
         int req = fxRequest;
         var a = animator; var l = shownLoaded;
+        string? only = effectOnly;
+        string? entity = TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(shown.PackagePath);
+        string? swapPower = null;
         fxLabel.Text = "Reading Powers…";
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
             var db = dbt.Result;
             if (db == null) return ((Fx.PowerEffects?)null, "", (Dictionary<string, (string, Matrix4x4)>?)null, (Func<Fx.PowerEffects.Effect, bool>?)null);
+            if (only != null)
+                return (Fx.PowerEffects.For(new Fx.FxGame(cooked, []), db, only, hero, entity: entity), Path.GetFileNameWithoutExtension(only), Fx.FxSockets.Of(main.File, main.Name), (Func<Fx.PowerEffects.Effect, bool>?)(_ => true));
             var idx = Fx.PowerIndex.For(hero, cooked, [], db);
             if (!idx.TryGetValue(name, out var powers) || powers.Count == 0) return (null, "", null, null);
             var byClass = Fx.PowerIndex.PrototypesByClass(db);
             var hit = powers.Select(p => (p.Class, Proto: byClass.TryGetValue(p.Class, out var list) ? list.FirstOrDefault() : null)).FirstOrDefault(x => x.Proto != null);
             if (hit.Proto == null) return (null, "", null, null);
-            var fx = Fx.PowerEffects.For(new Fx.FxGame(cooked, []), db, hit.Proto, hero);
+            var fx = Fx.PowerEffects.For(new Fx.FxGame(cooked, []), db, hit.Proto, hero, entity: entity);
             var phaseFn = Fx.PowerEffects.Player.PhaseFor(name, idx.Where(kv => kv.Value.Any(p => p.Class == hit.Class)).Select(kv => kv.Key));
+            swapPower = hit.Proto;
             return (fx, Path.GetFileNameWithoutExtension(hit.Proto), Fx.FxSockets.Of(main.File, main.Name), phaseFn);
         })).Unwrap().ContinueWith(t =>
         {
@@ -240,6 +320,7 @@ sealed partial class PreviewPanel
             FxReplay(playTime);
             animator.Pose(anim, seconds > 0 ? playTime / seconds * frames : 0);
             ShowPose();
+            if ((only ?? swapPower) is string sp) LoadSwaps(sp, req);
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 

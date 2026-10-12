@@ -105,6 +105,25 @@ sealed class PowerEffects
     }
 
     /// <summary>A power prototype's PowerUnrealClass (its Unreal class name), or null.</summary>
+    /// <summary>Whether an effect's EntityRequired names the character shown (entityNow) and its EntityExcluded doesn't.</summary>
+    static bool ForEntityNow(FxPkg p, FxProps.Prop required, FxProps.Prop? excluded)
+    {
+        if (entityNow == null) return false;
+        List<string> Names(FxProps.Prop t)
+        {
+            var list = new List<string>();
+            int n = BitConverter.ToInt32(p.Bytes, t.ValueAt);
+            for (int k = 0; k < n && 4 + 8 * k + 8 <= t.Size; k++)
+            {
+                int ni = BitConverter.ToInt32(p.Bytes, t.ValueAt + 4 + 8 * k);
+                if (ni >= 0 && ni < p.T.Names.Count) list.Add(p.T.Names[ni].Text);
+            }
+            return list;
+        }
+        return Names(required).Contains(entityNow, StringComparer.OrdinalIgnoreCase)
+            && (excluded is not { Size: > 4 } ex || !Names(ex).Contains(entityNow, StringComparer.OrdinalIgnoreCase));
+    }
+
     public static string? UnrealClassOf(GameData db, string powerPath) =>
         db.Find(powerPath) is { } pe ? db.Prototype(pe.Id).Data.Groups.SelectMany(g => g.Simple.Select(f => (N: db.FieldName(g.Blueprint, f.Id), f)))
             .Where(x => x.N == "PowerUnrealClass" && x.f.Type == 'A').Select(x => db.Assets.TryGetValue(x.f.Value.Raw, out var a) ? a.Asset.Name : null).FirstOrDefault(x => x != null) : null;
@@ -114,7 +133,21 @@ sealed class PowerEffects
     /// (<paramref name="triggered"/>) those of every class it sets off (combos, procs, conditions: PowerClosure; Lightning
     /// Strike's own class has none, everything shown is its triggered powers'), its contact time and returning missiles.
     /// </summary>
-    public static PowerEffects For(FxGame g, GameData db, string powerPath, string? hero, bool triggered = true)
+    /// <summary>The character the effects are for (a costume class: marvelplayer_drdoom_classic), while For runs: effects only
+    /// for certain characters (EntityRequired) play when they name it (Kurt, 2026-10-12: The Will of Doom's force field is
+    /// one per Doom costume); null = left out, as before.</summary>
+    [ThreadStatic] static string? entityNow;
+
+    /// <param name="entity">The costume class shown (marvelplayer_drdoom_classic): its own versions of effects play.</param>
+    public static PowerEffects For(FxGame g, GameData db, string powerPath, string? hero, bool triggered = true, string? entity = null)
+    {
+        string? keep = entityNow;
+        entityNow = entity?.ToLowerInvariant();
+        try { return ForEntity(g, db, powerPath, hero, triggered); }
+        finally { entityNow = keep; }
+    }
+
+    static PowerEffects ForEntity(FxGame g, GameData db, string powerPath, string? hero, bool triggered)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var extra = new List<FxPkg>();
@@ -359,7 +392,8 @@ sealed class PowerEffects
                 FxProps.Prop? P(string n) => props.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
                 // Only for some entities (EntityRequired: Unibeam's Hulkbuster variants): the preview can't tell, so left out
                 // (as the props' rules are); the plain version plays.
-                if (P("EntityRequired") is { Size: > 4 } er && BitConverter.ToInt32(p.Bytes, er.ValueAt) > 0) { fx.Notes.Add($"{p.T.Exports[i].ObjectName}: only for certain characters (left out)"); continue; }
+                if (P("EntityRequired") is { Size: > 4 } er && BitConverter.ToInt32(p.Bytes, er.ValueAt) > 0 && !ForEntityNow(p, er, P("EntityExcluded")))
+                { fx.Notes.Add($"{p.T.Exports[i].ObjectName}: only for certain characters (left out)"); continue; }
                 int sysRef = P("ParticleSystemTemplate") is { Size: 4 } sp ? BitConverter.ToInt32(p.Bytes, sp.ValueAt) : 0;
                 if (Resolve(p, sysRef, look, g) is not { } sysAt) { if (sysRef != 0) fx.Notes.Add($"{p.T.Exports[i].ObjectName}: its particle system {p.T.PathOf(sysRef)} isn't in a package the view reads"); continue; }
                 ParticleData? data;

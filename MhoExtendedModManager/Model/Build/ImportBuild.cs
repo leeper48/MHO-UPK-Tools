@@ -108,12 +108,21 @@ sealed class ImportBuild
         payloadOffset = props.PayloadOffset;
         baseN = SkelNative.Read(data, props.PayloadOffset, props.GetBool("bhasvertexcolors"));
         // Sections by MFF material.
-        mats = r.Sections.Select(x => x.Material).Distinct().ToList();
+        mats = MaterialOverrides.Ordered(r.Sections.Select(x => x.Material).Distinct(), o.MaterialOverrides);   // the Materials tab's slot order
         enc = r.Sections.Select(x => new EncSection
         {
             Material = mats.IndexOf(x.Material), Pos = x.Pos, Normal = x.Normal, Tris = x.Tris, Weights = x.Weights,
             Uv = x.Uv.Select(u => new Vector2(u.X, 1 - u.Y)).ToArray(),   // FBX bottom-left → texture top-left
         }).ToList();
+        // The costume's condition swaps that keep slots by number (Hulk's revive skin / pants, Doom's force field body / cape):
+        // the new model's slots in order, so the Materials tab's Slot Up / Down can match them (ConditionSwaps)
+        try
+        {
+            if (MhoExtendedModManager.StockFiles.Cooked is string cooked)
+                foreach (var sw in ConditionSwaps.For(MhoExtendedModManager.UniqueNames.Folder(cooked), ConditionSwaps.ClassOf(package)))
+                    log($"slots: {ConditionSwaps.Describe(sw, mats)}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>"hero_x on UC__..." for data\fbx\hero_x on UC__...\model.fbx, else the file's name.</summary>

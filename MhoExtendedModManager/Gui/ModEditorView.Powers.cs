@@ -345,8 +345,9 @@ sealed partial class ModEditorView
         if (opacitySlider != null) opacitySlider.Value = e?.Opacity ?? 1;
         fillingPower = false;
         powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored")
-            // (a proc, passive or talent: its effects play in the game during other powers, there's nothing to play here)
-            + (p.Animations.Count == 0 ? " · No Animation of Its Own: Its Effects Show During Other Powers" : "");
+            // (no animation of its own: The Will of Doom, procs, passives: the preview plays its effects over the idle, as the
+            // Mods tab and the Model tab do; Kurt, 2026-10-12)
+            + (p.Animations.Count == 0 ? " · No Animation of Its Own: Its Effects Play Over the Idle" : "");
         if (agentOwner.TryGetValue(p.Prototype, out var owner))
         {
             if (powerPreview != null) powerPreview.OverridesOff = false;
@@ -361,7 +362,7 @@ sealed partial class ModEditorView
         else
         {
             if (powerPreview != null) powerPreview.OverridesOff = false;
-            if (p.Animations.Count > 0) powerPreview?.PlayPower(p.Prototype);
+            powerPreview?.PlayPower(p.Prototype);
         }
         ShowShared(p);
         ShowBorrow(p);

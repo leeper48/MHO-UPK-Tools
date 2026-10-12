@@ -41,6 +41,7 @@ sealed partial class ModelPage
         matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "material", HeaderText = "Material", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 35, ReadOnly = true });
         matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "map", HeaderText = "Map", AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells, ReadOnly = true });   // (a fixed 70 clipped at 150 %: Kurt)
         matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "from", HeaderText = "From", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 65, ReadOnly = true });
+        matGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "slot", HeaderText = "Slot", AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells, ReadOnly = true, ToolTipText = "The game material slot this material is built into (0 first). Slot Up / Slot Down change it." });
         matGrid.AllowUserToAddRows = false; matGrid.AllowUserToDeleteRows = false; matGrid.RowHeadersVisible = false;
         matGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; matGrid.MultiSelect = false;
         matGrid.ShowCellToolTips = true;
@@ -89,9 +90,11 @@ sealed partial class ModelPage
         Icons.Make(matLayout, "Layout", Icons.Layout, sc);
         matExport = Ui.FlatButton("Export Maps", () => _ = ExportMaps(null), "Saves every material's maps as PNG files into a folder you pick, the ones the importer makes too (generated normal and spec maps, MHO spec maps converted or made from your tags, glow maps): <material>.png, _n, _sp, _mhospec (with its gray channel files), _speccolor, _glow, _alpha. The names the FBX import reads, so they can be edited and used again.");
         Icons.Make(matExport, "Export Maps", Icons.Export, sc);
+        matSlotUp = Ui.FlatButton("Slot Up", () => MoveSlot(-1), "Moves the selected material one game material slot earlier (Slot column). The costume's own effects can name slots by number: Hulk's revive visual keeps the pants slot, Doctor Doom's force field tells body from cape; the line under the buttons says which slots this costume's effects keep. Undo (Ctrl+Z) takes it back.");
+        matSlotDown = Ui.FlatButton("Slot Down", () => MoveSlot(1), "Moves the selected material one game material slot later (Slot column). See Slot Up.");
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         EditButton();
-        foreach (var b in new[] { matUse, matEdit, matAdjust, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
+        foreach (var b in new[] { matUse, matEdit, matAdjust, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport, matSlotUp, matSlotDown }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
         // what the preview shows (Kurt, 2026-10-04: moved here from Look ▾): the model lit, or one map on its own
         var showMap = new DropDown { Width = (int)(200 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), Margin = new Padding(0, 0, 0, 0) };
         showMap.Items.AddRange([.. ShowMapChoices.Select(x => (object)x.Label)]);
@@ -101,10 +104,49 @@ sealed partial class ModelPage
         var showRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 6) };
         showRow.Controls.Add(new Label { Text = "Preview Shows", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
         showRow.Controls.Add(showMap);
-        var head = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, RowCount = 2, BackColor = Color.Transparent, Margin = new Padding(0) };
-        head.Controls.Add(showRow, 0, 0); head.Controls.Add(buttons, 0, 1);
+        var head = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, RowCount = 3, BackColor = Color.Transparent, Margin = new Padding(0) };
+        head.Controls.Add(showRow, 0, 0); head.Controls.Add(buttons, 0, 1); head.Controls.Add(matSlotsNote, 0, 2);
         MatSelectionChanged();
         return Column("", head, matGrid);
+    }
+
+    Button? matSlotUp, matSlotDown;
+    readonly Label matSlotsNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 4), MaximumSize = new Size(900, 0), Visible = false };
+    int slotSwapsRun;
+
+    /// <summary>The selected material one slot earlier (-1) or later (1) in the game material order (MaterialOverrides.SlotOrder).</summary>
+    void MoveSlot(int step)
+    {
+        if (SelectedMap() is not { } sel || OverridesPath() is not string path) return;
+        var order = MaterialOverrides.Ordered(shownMaterials.Select(x => x.Material).Distinct(), OverridesFile());
+        int at = order.FindIndex(m => m.Equals(sel.Material, StringComparison.OrdinalIgnoreCase)), to = at + step;
+        if (at < 0 || to < 0 || to >= order.Count) return;
+        (order[at], order[to]) = (order[to], order[at]);
+        var ov = File.Exists(path) ? MaterialOverrides.Load(path) : new MaterialOverrides();
+        ov.SlotOrder = order;
+        ov.Save(path);
+        Log($"Materials: {sel.Material} to slot {to} ({string.Join(", ", order.Select((m, k) => $"{k} {m}"))})");
+        FillMaterials();
+        SelectMaterialRow(sel.Material);
+        SchedulePreview();
+    }
+
+    /// <summary>The target costume's condition swaps that keep slots by number, against the slot order (read in the background:
+    /// the first time the condition packages are read, ~10 s).</summary>
+    void ShowSlotSwaps(List<string> order)
+    {
+        if (matSlotUp != null) { matSlotUp.Enabled = order.Count > 1; matSlotDown!.Enabled = order.Count > 1; }
+        string? cooked = MhoExtendedModManager.StockFiles.Cooked;
+        if (ChosenPackage is not CharacterList.Item it || cooked == null) { matSlotsNote.Visible = false; return; }
+        int run = ++slotSwapsRun;
+        string cls = ConditionSwaps.ClassOf(it.Key);
+        Task.Run(() => ConditionSwaps.For(MhoExtendedModManager.UniqueNames.Folder(cooked), cls)).ContinueWith(t =>
+        {
+            if (IsDisposed || run != slotSwapsRun || t.Status != TaskStatus.RanToCompletion) return;
+            var swaps = t.Result;
+            matSlotsNote.Visible = swaps.Count > 0;
+            matSlotsNote.Text = swaps.Count == 0 ? "" : "This costume's effects keep slots by number (Slot Up / Slot Down to match): " + string.Join("; ", swaps.Select(s => ConditionSwaps.Describe(s, order)));
+        }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     /// <summary>Ctrl+click on the model in the Materials tab: that material's first row (the color map) selected and shown.</summary>
@@ -132,13 +174,14 @@ sealed partial class ModelPage
         matGrid.Rows.Clear();
         if (!HasSource && packageMaps != null) FillPackageMaps();   // no source: the shown package's own textures
         var ov = OverridesFile() is string p ? MaterialOverrides.Load(p) : new MaterialOverrides();
-        foreach (var (mat, tex) in shownMaterials)
+        var slotOrder = MaterialOverrides.Ordered(shownMaterials.Select(x => x.Material).Distinct(), OverridesFile());
+        foreach (var (mat, tex) in shownMaterials.OrderBy(x => slotOrder.IndexOf(x.Material)))
         {
             ov.Materials.TryGetValue(mat, out var e);
             foreach (var kind in MapKinds)
             {
                 var (from, path) = Describe(kind, tex, e);
-                int i = matGrid.Rows.Add(mat, kind, from);
+                int i = matGrid.Rows.Add(mat, kind, from, kind == MapKinds[0] ? slotOrder.IndexOf(mat).ToString() : "");
                 matGrid.Rows[i].Tag = (mat, kind);
                 matGrid.Rows[i].Cells["from"].ToolTipText = path ?? from;
                 if (from.StartsWith("Your file", StringComparison.Ordinal)) matGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.OverrideAmber;
@@ -148,6 +191,7 @@ sealed partial class ModelPage
         if (keep >= 0 && keep < matGrid.Rows.Count) matGrid.CurrentCell = matGrid.Rows[keep].Cells["material"];
         }
         finally { fillingMat = false; }
+        ShowSlotSwaps(MaterialOverrides.Ordered(shownMaterials.Select(x => x.Material).Distinct(), OverridesFile()));
         MatSelectionChanged();
     }
 

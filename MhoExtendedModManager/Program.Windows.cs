@@ -187,6 +187,34 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
+        if (args.Length == 4 && args[0].Equals("--power-preview-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test (off-screen window, reads only): the Mods tab's preview of a mod, a power button clicked by name, and what it
+            // shows. --power-preview-test <mod> <power name part> <out.png>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            var st = Settings.Load();
+            var plib = ModLibrary.Load(Settings.LibraryData(st.LibraryPath)!);
+            var pm = plib.Find(args[1]);
+            string? pgr = st.ResolvedGameRoot(plib.DataFolder);
+            if (pm == null || pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("no such mod, or no game folder"); return 1; }
+            var pgame = new GameState(pgr, plib.DataFolder);
+            StockFiles.Init(pgame, st.CleanGameFiles, Path.Combine(plib.DataFolder, "originals"));
+            using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = new Size(520, 900), ShowInTaskbar = false };
+            var sp = new Gui.StorePreview { Dock = DockStyle.Fill, CookedFolder = pgame.Cooked, Catalog = new StockCatalog(plib, pgame), Always3D = true };
+            f.Controls.Add(sp);
+            int code = 1;
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                sp.Mod = pm;
+                var (log, shot) = await sp.PowerTest(args[2]);
+                log.ForEach(Console.WriteLine);
+                if (shot != null) { shot.Save(args[3]); Console.WriteLine("picture: " + args[3]); code = 0; }
+                f.Close();
+            });
+            Application.Run(f);
+            return code;
+        }
         if (args.Length >= 4 && args[0].Equals("--anim-render", StringComparison.OrdinalIgnoreCase))
         {
             // Test: a mod's first mesh posed at a few points of an animation, rendered by the 3D view to one PNG

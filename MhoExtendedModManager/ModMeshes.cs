@@ -103,12 +103,15 @@ static class ModMeshes
 
     /// <summary>Reads a mesh (highest detail, bind pose) and its section textures; null with a reason when it can't be read.</summary>
     /// <summary>A material (an instance) whose parent chain is a hologram material (name containing "hologram").</summary>
-    static bool IsHologram(Package mpm, int mat)
+    static bool IsHologram(Package mpm, int mat) => ChainHas(mpm, mat, "hologram");
+
+    /// <summary>A material whose name or a parent's (up the instance chain) contains <paramref name="word"/>.</summary>
+    static bool ChainHas(Package mpm, int mat, string word)
     {
         for (int r = mat, depth = 0; r != 0 && depth < 6; depth++)
         {
             string name = r > 0 ? mpm.Exports[r - 1].ObjectName : mpm.RefName(r);
-            if (name.Contains("hologram", StringComparison.OrdinalIgnoreCase)) return true;
+            if (name.Contains(word, StringComparison.OrdinalIgnoreCase)) return true;
             if (r < 0) return false;
             byte[] d = mpm.ReadExportBytes(mpm.Exports[r - 1]).ToArray();
             var t = TagWalker.Walk(mpm, d, 4)?.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase) && x.Size == 4);
@@ -649,6 +652,57 @@ static class ModMeshes
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
         lock (ruleCache) ruleCache[powerPackage] = result;
         return result;
+    }
+
+    /// <summary>
+    /// A power's condition material swaps on a mesh (Kurt, 2026-10-12: Doctor Doom's force field from The Will of Doom): per
+    /// section, the replacement material's look when a swap for <paramref name="costumeClass"/> covers its slot (the slot =
+    /// the section's material index; a swap keeps the slots it lists), else null. Null when no swap applies.
+    /// </summary>
+    public static Gui.ModelView.Look?[]? SwapLooks(MeshRef r, string conditionFile, IReadOnlyList<Model.ConditionSwaps.Swap> swaps, string costumeClass, string? cacheFolder, List<string> notes)
+    {
+        if (!swaps.Any(s => s.ReplacementRef > 0 && s.AppliesTo(costumeClass))) return null;
+        var pkg = AnimPackage.Open(r.File);
+        var mesh = SkeletalMeshReader.TryRead(pkg, r.Export, _ => { });
+        if (mesh?.HighestDetail is not { } lod) return null;
+        return SwapLooks([.. lod.Sections.Select(x => x.MaterialIndex)], conditionFile, swaps, costumeClass, cacheFolder, notes);
+    }
+
+    /// <summary>As above for sections given by their slot (the Model tab's preview: a model not built yet, its sections in the
+    /// build's slot order).</summary>
+    public static Gui.ModelView.Look?[]? SwapLooks(IReadOnlyList<int> sectionSlots, string conditionFile, IReadOnlyList<Model.ConditionSwaps.Swap> swaps, string costumeClass, string? cacheFolder, List<string> notes)
+    {
+        var use = swaps.Where(s => s.ReplacementRef > 0 && s.AppliesTo(costumeClass)).ToList();
+        if (use.Count == 0) return null;
+        Package cond;
+        try { cond = Package.Open(conditionFile); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { notes.Add("condition: " + ex.Message); return null; }
+        var looks = new Gui.ModelView.Look?[sectionSlots.Count];
+        var cache = new Dictionary<int, Gui.ModelView.Map?>();
+        bool any = false;
+        for (int s = 0; s < sectionSlots.Count; s++)
+        {
+            int slot = sectionSlots[s];
+            foreach (var sw in use)
+            {
+                if (sw.Excluded.Contains(slot)) continue;
+                looks[s] = LookFor(cond, sw.ReplacementRef, cacheFolder, cache, notes, s);
+                // An effect shader (parent chvfxmaterials.*: Doctor Doom's chvfxmaterial_forcfield_withimpacts) keeps the
+                // character's own maps and draws its effect in the shader, which the preview can't run, so it would look
+                // unchanged (Kurt, 2026-10-12): shown as a glow over the maps instead, green for a force field, else cyan.
+                if (looks[s] is { } fxLook && ModMaterials.Read(cond, sw.ReplacementRef) is { } mi && ChainHas(cond, sw.ReplacementRef, "chvfxmaterial"))
+                {
+                    var tint = mi.Parent?.Contains("forc", StringComparison.OrdinalIgnoreCase) == true || sw.Replacement.Contains("forcefield", StringComparison.OrdinalIgnoreCase)
+                        ? new Vector3(0.35f, 1f, 0.5f) : new Vector3(0.3f, 0.85f, 1f);
+                    var glow = fxLook.Diffuse?.Recolored(c => tint * (0.3f + 0.8f * (0.299f * c.X + 0.587f * c.Y + 0.114f * c.Z)));
+                    fxLook.Diffuse = fxLook.Diffuse?.Recolored(c => c * 0.45f);
+                    fxLook.EmissiveTex = glow; fxLook.UseEmissive = glow != null; fxLook.EmissiveMult = 1.1f;
+                    fxLook.UseRim = true; fxLook.Rim = tint * 1.6f;
+                }
+                if (looks[s] != null) { any = true; notes.Add($"slot {slot}: {sw.Name} → {sw.Replacement.Split('.').Last()}"); }
+            }
+        }
+        return any ? looks : null;
     }
 
     /// <summary>For --material-probe: each section of a mesh (highest detail) with its material reference.</summary>

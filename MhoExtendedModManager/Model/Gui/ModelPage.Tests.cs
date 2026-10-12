@@ -6,6 +6,8 @@ sealed partial class ModelPage
 {
     /// <summary>Test (--model-tab-test): the tab's own controls driven as a user would: the MFF character, one of the mod's
     /// packages, Build into Mod. The built file, or null when nothing was built into the draft.</summary>
+    internal PreviewPanel PreviewForTest => preview;
+
     internal async Task<string?> TestBuild(string mff, string package, Action<string> say)
     {
         if (!await TestPick(mff, package, say)) return null;

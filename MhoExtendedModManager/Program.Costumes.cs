@@ -121,6 +121,91 @@ static partial class Program
                 Console.WriteLine($"{meshes.Count} shared model(s) in {atRisk.Count} package(s); {mats.Count} shared material instance / physics asset path(s) → {rest[1]}");
                 return 0;
             }
+            case "--condition-swaps":
+            {
+                // --condition-swaps [costume class] (read only): the condition material swaps that keep slots by number
+                // (ConditionSwaps), all of them or a costume's (marvelplayer_hulk_christmas)
+                string? sgr = settings.ResolvedGameRoot(data);
+                if (sgr == null || !Settings.IsGameRoot(sgr)) { Console.WriteLine("game folder not found"); return 1; }
+                var ssw = System.Diagnostics.Stopwatch.StartNew();
+                string sfolder = UniqueNames.Folder(Settings.Cooked(sgr));
+                var all = MhoExtendedModManager.Model.ConditionSwaps.All(sfolder);
+                var list = rest.Count > 1 ? MhoExtendedModManager.Model.ConditionSwaps.For(sfolder, rest[1]) : all;
+                Console.WriteLine($"{all.Count} slot-specific swap(s) ({ssw.Elapsed.TotalSeconds:0} s); {list.Count} shown");
+                foreach (var s in list) Console.WriteLine($"  {s.Package[..^4]} {s.Name}: keeps slot(s) {string.Join(", ", s.Excluded)} → {s.Replacement}; for {string.Join(", ", s.Required)}{(s.Excludes.Count > 0 ? $" (not {string.Join(", ", s.Excludes)})" : "")}");
+                return 0;
+            }
+            case "--swap-probe":
+            {
+                // --swap-probe <package.upk> <power prototype> (read only): the power's conditions and their material swaps on
+                // the package's character model, slot by slot, as the 3D preview draws them
+                if (rest.Count < 3) { Console.WriteLine("--swap-probe <package.upk> <power prototype>"); return 1; }
+                string? pgr = settings.ResolvedGameRoot(data);
+                if (pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string pcook = Settings.Cooked(pgr);
+                var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
+                string pfile = Path.GetFileName(rest[1]);
+                var mesh = ModMeshes.List([(pfile, rest[1])], anyPackage: true).FirstOrDefault();
+                if (mesh == null) { Console.WriteLine("no character model in " + pfile); return 1; }
+                string pcls = rest.Count > 3 ? rest[3].ToLowerInvariant() : MhoExtendedModManager.Model.ConditionSwaps.ClassOf(pfile);   // [costume class]: a costume that shows its hero's model
+                Console.WriteLine($"model {mesh.Name} ({pcls})");
+                var pfx = Fx.PowerEffects.For(new Fx.FxGame(pcook, []), pdb, rest[2].Replace('/', '\\'), null, entity: pcls);
+                Console.WriteLine($"effects for this costume: {pfx.Effects.Count} ({string.Join(", ", pfx.Effects.Select(e => e.Name).Distinct().Take(8))})");
+                pfx.Notes.ForEach(n => Console.WriteLine("  note: " + n));
+                foreach (string c in MhoExtendedModManager.Model.ConditionSwaps.ConditionsOf(pdb, rest[2].Replace('/', '\\')))
+                {
+                    string cf = $"UC__{c}_SF.upk", cp = StockFiles.For(pcook, cf);
+                    var swaps = MhoExtendedModManager.Model.ConditionSwaps.Read(MhoPackageModifier.Package.Open(cp), cf);
+                    Console.WriteLine($"condition {c}: {swaps.Count} swap(s), {swaps.Count(s => s.AppliesTo(pcls))} for this costume");
+                    var notes = new List<string>();
+                    var looks = ModMeshes.SwapLooks(mesh, cp, swaps, pcls, pcook, notes);
+                    notes.ForEach(n => Console.WriteLine("  " + n));
+                    Console.WriteLine(looks == null ? "  (nothing drawn)" : $"  {looks.Count(l => l != null)} of {looks.Length} section(s) drawn with a swap");
+                }
+                return 0;
+            }
+            case "--class-census":
+            {
+                // --class-census <class> <report.txt> [file prefix ...] (read only; the clean game files): every export of that
+                // class in the stock packages (default UC__*), with its properties as text (TagWalker), grouped by property set
+                if (rest.Count < 3) { Console.WriteLine("--class-census <class> <report.txt> [file prefix ...]"); return 1; }
+                string? kgr = settings.ResolvedGameRoot(data);
+                string? kcook = kgr != null && Settings.IsGameRoot(kgr) ? Settings.Cooked(kgr) : null;
+                if (kcook == null) { Console.WriteLine("game folder not found"); return 1; }
+                string kfolder = UniqueNames.Folder(kcook);
+                string cls = rest[1];
+                var prefixes = rest.Count > 3 ? rest.Skip(3).ToList() : ["UC__"];
+                var kfiles = Directory.EnumerateFiles(kfolder, "*.upk").Select(Path.GetFileName).OfType<string>()
+                    .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase) && prefixes.Any(px => f.StartsWith(px, StringComparison.OrdinalIgnoreCase))).ToList();
+                var found = new System.Collections.Concurrent.ConcurrentBag<(string File, string Path, string Props)>();
+                var ksw = System.Diagnostics.Stopwatch.StartNew();
+                Parallel.ForEach(kfiles, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) }, f =>
+                {
+                    try
+                    {
+                        var p = MhoPackageModifier.Package.Open(Path.Combine(kfolder, f));
+                        for (int i = 0; i < p.Exports.Length; i++)
+                        {
+                            if (!p.ClassOf(p.Exports[i]).Equals(cls, StringComparison.OrdinalIgnoreCase)) continue;
+                            byte[] b = p.ReadExportBytes(p.Exports[i]).ToArray();
+                            var tags = MhoPackageModifier.TagWalker.Walk(p, b, 16) ?? MhoPackageModifier.TagWalker.Walk(p, b, 4) ?? MhoPackageModifier.TagWalker.Walk(p, b, 8);
+                            string props = tags == null ? "(properties not read)" : string.Join("; ", tags.Select(t => t.Name + (t.Size == 4 && MhoPackageModifier.TagWalker.NameAt(p, b, t.ValueAt) is null ? $"={BitConverter.ToInt32(b, t.ValueAt)}" : t.Size == 8 && MhoPackageModifier.TagWalker.NameAt(p, b, t.ValueAt) is string nm ? $"={nm}" : $"[{t.Size}]")));
+                            found.Add((f, p.PathOf(p.Exports[i]), props));
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                });
+                var krep = new List<string> { $"{cls}: {found.Count} export(s) in {found.Select(x => x.File).Distinct().Count()} of {kfiles.Count} package(s) ({ksw.Elapsed.TotalSeconds:0} s)", "" };
+                krep.Add("BY PROPERTY NAMES");
+                foreach (var g in found.GroupBy(x => string.Join(", ", System.Text.RegularExpressions.Regex.Matches(x.Props, @"(^|; )([a-z0-9_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Select(m => m.Groups[2].Value))).OrderByDescending(g => g.Count()))
+                    krep.Add($"  {g.Count()} × {g.Key}");
+                krep.Add("");
+                krep.Add("EVERY EXPORT");
+                foreach (var x in found.OrderBy(x => x.File, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Path)) krep.Add($"  {x.File[..^4]}  {x.Path}  {x.Props}");
+                File.WriteAllLines(rest[2], krep);
+                Console.WriteLine(krep[0] + " → " + rest[2]);
+                return 0;
+            }
             case "--enemy-powers":
             {
                 // --enemy-powers [mod] (read only): the library's mods with power packages only enemy powers use (PowerUsage)

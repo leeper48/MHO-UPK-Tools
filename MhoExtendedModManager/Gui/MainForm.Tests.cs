@@ -209,6 +209,31 @@ sealed partial class MainForm
     }
 
     /// <summary>
+    /// --model-power-test (scratch library only): the editor on <paramref name="modName"/>, its Model tab, a power button of
+    /// its preview clicked by name; what the preview shows then (caption, material swap) and its picture.
+    public async Task<int> ModelPowerTest(string modName, string power, string png, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m);
+        pages.Select(1);
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+        if (tab < 0) { say("no Model tab"); return 1; }
+        editor.SelectTab(tab);
+        for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+        if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
+        var pv = page.PreviewForTest;
+        for (int i = 0; i < 1200 && pv.HeroPowers.Count == 0; i++) { await Task.Delay(100); Application.DoEvents(); }
+        say($"{pv.HeroPowers.Count} power button(s)");
+        if (!pv.ClickPower(power)) { say("no power " + power); CloseEditor(); return 1; }
+        for (int i = 0; i < 100; i++) { await Task.Delay(100); Application.DoEvents(); }
+        say("caption: " + pv.EffectsNote);
+        say("material swap: " + pv.SwapNote);
+        using (var shot = pv.ViewShot()) shot.Save(png);
+        say("picture: " + png);
+        CloseEditor();
+        return 0;
+    }
+
     /// --model-tab-test (scratch library only): the editor on <paramref name="modName"/>, its Model tab, an MFF character built
     /// onto one of the mod's packages, Save Changes; then the saved mod must have that package changed and a Model folder.
     /// </summary>

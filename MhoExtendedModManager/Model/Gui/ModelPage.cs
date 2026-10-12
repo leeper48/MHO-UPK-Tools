@@ -98,6 +98,9 @@ sealed partial class ModelPage : UserControl
         mapWeights = Ui.FlatButton("Weights", () => preview.ShowWeights = !preview.ShowWeights, "Weight paint: colour the model by how much the selected row's bones move it, as Blender does (blue 0 → cyan → green → yellow → red 1). Pick rows to see each bone; Smooth Weights shows its effect at once.");
         preview.BonePicked += SelectBoneRow;
         preview.MaterialPicked += SelectMaterialRow;
+        // condition material swaps in the preview (Kurt, 2026-10-12): the target costume and the build's slot order
+        preview.TargetClass = () => ChosenPackage is CharacterList.Item it ? ConditionSwaps.ClassOf(it.Key) : null;
+        preview.SlotOrder = names => MaterialOverrides.Ordered(names, OverridesFile());
         modelTabs.SelectedChanged += i => preview.PickMaterials = modelTabs.TitleAt(i) == "Materials";
         preview.Override = (ar, orig) => EnsureEdits().Anims.TryGetValue(ar.Name, out var f) && File.Exists(f) ? AnimEdits.ForGame(f, ar, orig) : null;
         preview.IsOverridden = n => edits.Anims.ContainsKey(n);

@@ -12,6 +12,31 @@ sealed partial class StorePreview
     /// animation loads paused on frame 0; Play advances it and moves the mesh; Pause holds it; without Loop it stops on
     /// its last frame; Reset View forgets the saved camera.
     /// </summary>
+    /// <summary>--power-preview-test: the 3D view shown, a power button clicked by name, then what the preview did (its
+    /// caption, effects, material swap, animation), and the view's picture.</summary>
+    internal async Task<(List<string> Log, Bitmap? Shot)> PowerTest(string powerName)
+    {
+        var log = new List<string>();
+        async Task Wait(Func<bool> until, int ms = 20000) { for (int t = 0; t < ms && !until(); t += 50) { await Task.Delay(50); Application.DoEvents(); } }
+        await Wait(() => mod != null && meshes.Count > 0 && thumbRects.Any(t => t.Index == 0));
+        if (mod == null || meshes.Count == 0) { log.Add("no mesh"); return (log, null); }
+        if (!show3D && thumbRects.Any(t => t.Index == 0)) OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, thumbRects.First(t => t.Index == 0).Rect.X + 4, thumbRects.First(t => t.Index == 0).Rect.Y + 4, 0));
+        await Wait(() => show3D && animator != null && powersLoaded);
+        log.Add($"3D: {show3D}, mesh {(MeshOk ? meshes[meshIndex].Name + " in " + meshes[meshIndex].Package : "none")}, {heroPowers.Count} power button(s)");
+        int k = heroPowers.FindIndex(p => p.Name.Contains(powerName, StringComparison.OrdinalIgnoreCase));
+        if (k < 0) { log.Add("no power button named " + powerName); return (log, null); }
+        log.Add($"clicking {heroPowers[k].Name} ({heroPowers[k].Prototype}), {heroPowers[k].Animations.Count} animation(s)");
+        PowerClicked(k);
+        await Wait(() => fxPlayer != null && !fxNote.StartsWith("Reading"), 20000);
+        await Task.Delay(3000); Application.DoEvents();
+        log.Add($"caption: {fxNote}");
+        log.Add($"effects: {fxPlayer?.ToString() ?? "none"}; agent power {agentPower ?? "-"}; own package {ownFxPackage ?? "-"}; playing {playing?.Name ?? "-"}");
+        log.Add($"material swap: {(viewer?.LookOverride is { } lo ? $"{lo.Count(x => x != null)} of {lo.Length} section(s)" : "none")}");
+        Bitmap? shot = null;
+        if (viewer != null) { shot = new Bitmap(Math.Max(1, viewer.Width), Math.Max(1, viewer.Height)); viewer.DrawToBitmap(shot, new Rectangle(0, 0, shot.Width, shot.Height)); }
+        return (log, shot);
+    }
+
     internal async Task<List<string>> SelfTest()
     {
         var log = new List<string>();

@@ -158,6 +158,9 @@ sealed class ModelView : UserControl
     int[] idx = [];
     int[] triSection = [];
     Look?[] looks = [];
+    /// <summary>Per section, a look drawn instead of the material's own (a power's condition material swap: Doctor Doom's
+    /// force field, Hulk's revive; Kurt, 2026-10-12); null entries and a null array draw the material's.</summary>
+    public Look?[]? LookOverride { get; set; }
     float windingSign = 1f;
     Vector3 center; float radius = 1;
     string message = "";
@@ -740,7 +743,7 @@ sealed class ModelView : UserControl
             if (nOut.LengthSquared() < 1e-20f) continue;
             bool front = Vector3.Dot(nOut, eye - pos[a]) > 0;
             int s = t / 3 < triSection.Length ? triSection[t / 3] : 0;
-            var look = s < looks.Length ? looks[s] : null;
+            var look = LookOverride is { } lo && s < lo.Length && lo[s] != null ? lo[s] : s < looks.Length ? looks[s] : null;
             if (look?.Ghost == true) continue;   // drawn as effect triangles (PropRig)
             if (!front && look?.TwoSided != true) continue;
             float sArea = MathF.Abs((sx[b] - sx[a]) * (sy[c] - sy[a]) - (sx[c] - sx[a]) * (sy[b] - sy[a]));
@@ -835,7 +838,7 @@ sealed class ModelView : UserControl
         if (back) N = -N;
         var tuv = uv[a] * b0 + uv[b] * b1 + uv[c] * b2;
         int s = tri < triSection.Length ? triSection[tri] : 0;
-        var look = s < looks.Length ? looks[s] : null;
+        var look = LookOverride is { } lo && s < lo.Length && lo[s] != null ? lo[s] : s < looks.Length ? looks[s] : null;
         float ratio = triRatio[tri];
 
         var diff = look?.Diffuse is { } dm ? dm.Sample(tuv.X, tuv.Y, Lod(ratio, dm)) : new Vector4(0.62f, 0.62f, 0.64f, 1);

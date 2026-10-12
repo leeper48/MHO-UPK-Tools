@@ -38,6 +38,18 @@ sealed class MaterialOverrides
     }
 
     public Dictionary<string, Entry> Materials { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The game material slot order the user set (material names, slot 0 first; Kurt, 2026-10-12: a costume's
+    /// condition swaps keep slots by number, ConditionSwaps); null = the model's own order.</summary>
+    public List<string>? SlotOrder { get; set; }
+
+    /// <summary><paramref name="materials"/> in the slot order of the overrides at <paramref name="path"/> (materials it doesn't
+    /// name keep their own order after the named ones).</summary>
+    public static List<string> Ordered(IEnumerable<string> materials, string? path)
+    {
+        var list = materials.ToList();
+        if (path == null || !File.Exists(path) || Load(path).SlotOrder is not { Count: > 0 } order) return list;
+        return list.OrderBy(m => order.FindIndex(o => o.Equals(m, StringComparison.OrdinalIgnoreCase)) is int k && k >= 0 ? k : order.Count + list.IndexOf(m)).ToList();
+    }
 
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -53,7 +65,7 @@ sealed class MaterialOverrides
         Protected.CheckWrite(path);
         foreach (var k in Materials.Where(kv => kv.Value.Empty).Select(kv => kv.Key).ToList()) Materials.Remove(k);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        if (Materials.Count == 0) { if (File.Exists(path)) File.Delete(path); return; }
+        if (Materials.Count == 0 && SlotOrder is not { Count: > 0 }) { if (File.Exists(path)) File.Delete(path); return; }
         File.WriteAllText(path, JsonSerializer.Serialize(this, Json));
     }
 

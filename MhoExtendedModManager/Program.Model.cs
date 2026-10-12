@@ -224,6 +224,24 @@ static partial class Program
                 Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
                 return code;
             }
+            case "--model-power-test":
+            {
+                // --model-power-test <mod> <power name part> <out.png> (scratch MHO_EXTMM_HOME): the Model tab's preview, a power clicked
+                if (rest.Count < 4 || Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("--model-power-test <mod> <power> <out.png> (scratch MHO_EXTMM_HOME)"); return 1; }
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                Application.EnableVisualStyles();
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    main.WindowState = FormWindowState.Normal; main.Bounds = new Rectangle(-6000, -6000, 1700, 1000);   // off screen, full size
+                    try { code = await main.ModelPowerTest(rest[1], rest[2], rest[3], Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                return code;
+            }
             case "--model-tab-timing":
             {
                 if (rest.Count < 2 || Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("--model-tab-timing <mod> (scratch MHO_EXTMM_HOME)"); return 1; }
