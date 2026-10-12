@@ -41,10 +41,10 @@ sealed partial class StorePreview : Control
     // Power effects (Kurt, 2026-09-30; ported from the MHO Hero Creator): the effects of the power an animation belongs to,
     // played with it. The game data is read once (in the background); each power's effects when its animation is picked.
     Button? powersBtn;
-    Fx.PowerEffects.Player? fxPlayer;
+    readonly PowerPreview.Clock fxClock = new();   // the effects in time (shared with the Model tab's preview)
+    Fx.PowerEffects.Player? fxPlayer { get => fxClock.Player; set => fxClock.Player = value; }
     string fxNote = "";                  // "Shockwave · 5 Effects" in the 3D caption
     Dictionary<string, (string Bone, System.Numerics.Matrix4x4 Local)> fxSockets = new();
-    double fxTime;                       // where the effects are (seconds into the animation)
     int fxRequest;
     static Task<Fx.GameData?>? fxDb;
     readonly PropRig rig = new();

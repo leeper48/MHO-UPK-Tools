@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.247
+- The 3D previews (Mods tab, the Editor's Powers and Model tabs) share one power engine: the same power buttons, the same power for an animation, the same effects, captions and material swaps everywhere (the Model tab's copy had drifted). The game data is read once for all of them.
+- The Model tab's 3D preview and Create from 3D turn props as the game does (a prop's own offset rotation): Ghost Rider sat 90° across his bike there; the Mods tab's preview already did.
+
 0.37.246
 - Model tab, Parts: Own Material gives a part a material of its own when several share one (a body and its clothes on one material): it shows on the Materials tab as "<material> @ <part>" with its own maps, game material and slot.
 

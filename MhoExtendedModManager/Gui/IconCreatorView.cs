@@ -37,7 +37,7 @@ sealed class IconCreatorView : UserControl
     readonly CheckedListBox propList = new() { CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.None };
     // Props shown with the character (Kurt: a character holding a sword or hammer): each loaded mesh and the bone it's held on.
     readonly List<(MeshRef Ref, ModMeshes.Loaded Mesh, int Bone, string BoneName)> props = [];
-    readonly List<(MeshRef Ref, string? Bone)> propChoices = [];
+    readonly List<(MeshRef Ref, string? Bone, System.Numerics.Matrix4x4 Offset)> propChoices = [];
     readonly PropRig rig = new();   // the props' geometry, shared with the main preview
     readonly LightSlider frameSlider = new() { Label = "Frame", Min = 0, Max = 1, Step = 1, Mark = null };
     readonly LightSlider lightSlider = new() { Min = 0f };
@@ -551,7 +551,9 @@ sealed class IconCreatorView : UserControl
         foreach (var m in meshes.Where(m => m.Key != main.Key || m.File != main.File))
         {
             string? bone = attached.TryGetValue(m.Name, out var a) ? a.Bone : null;
-            propChoices.Add((m, bone));
+            // the attachment's offset rotation (Ghost Rider's bike: yaw 90°), as the previews hold it
+            var offset = a != null ? ModMeshes.Rotator(a.OffsetRotation.Pitch, a.OffsetRotation.Yaw, a.OffsetRotation.Roll) : System.Numerics.Matrix4x4.Identity;
+            propChoices.Add((m, bone, offset));
             bool on = setup?.Props != null ? setup.Props.Contains(m.Key, StringComparer.OrdinalIgnoreCase) : bone != null && m.File.Equals(main.File, StringComparison.OrdinalIgnoreCase);
             propList.Items.Add($"{m.Name}{(bone != null ? $"  ·  {bone}" : "")}", on);
         }
@@ -566,7 +568,8 @@ sealed class IconCreatorView : UserControl
         if (loaded == null || animator == null) return;
         var want = propList.CheckedIndices.Cast<int>().Where(i => i < propChoices.Count).Select(i => propChoices[i]).ToList();
         props.Clear();
-        foreach (var (r, bone) in want)
+        var offsets = new List<System.Numerics.Matrix4x4>();
+        foreach (var (r, bone, off) in want)
         {
             var m = await Task.Run(() => { try { return ModMeshes.Load(r, cooked, out _); } catch { return null; } });
             if (IsDisposed || req != request) return;
@@ -574,9 +577,10 @@ sealed class IconCreatorView : UserControl
             // The bone the game names, else the right hand (palm, hand or wrist, as the skeleton has it).
             int b = PropRig.BoneFor(animator, bone);
             props.Add((r, m, b, animator.BoneNames.ElementAt(b)));
+            offsets.Add(off);
         }
         rig.Clear();
-        foreach (var (_, m, b, _) in props) rig.Add(m, b);
+        for (int k = 0; k < props.Count; k++) rig.Add(props[k].Item2, props[k].Item3, [], false, "", offset: offsets[k]);
         var keep = view.ViewState;
         view.ShowMesh(rig.Combine(loaded), loaded.Positions.Length);
         view.ViewState = keep; SyncTurn();

@@ -18,9 +18,9 @@ namespace MhoExtendedModManager.Model.Gui;
 sealed partial class PreviewPanel
 {
     readonly PropRig rig = new();
-    Fx.PowerEffects.Player? fxPlayer;
+    readonly PowerPreview.Clock fxClock = new();
+    Fx.PowerEffects.Player? fxPlayer { get => fxClock.Player; set => fxClock.Player = value; }
     Dictionary<string, (string Bone, Matrix4x4 Local)> fxSockets = new();
-    double fxTime;
     int fxRequest, heroPowersRequest, propSwitchRequest;
     List<Fx.PowerList.Power> heroPowers = [];
     string? powerFilter;
@@ -52,16 +52,10 @@ sealed partial class PreviewPanel
     }
     readonly List<Button> powerButtons = [];
 
-    static Task<Fx.GameData?>? gameDb;
     static string? Cooked => Settings.Current.CookedFolder;
 
-    /// <summary>The game data (Calligraphy.sip), read once in the background for every power lookup.</summary>
-    static Task<Fx.GameData?> GameDb(string cooked)
-    {
-        if (gameDb != null) return gameDb;
-        string sip = Path.GetFullPath(Path.Combine(cooked, "..", "..", "..", "Data", "Game", "Calligraphy.sip"));
-        return gameDb = Task.Run(() => { try { return File.Exists(sip) ? new Fx.GameData(Fx.SipArchive.Load(sip)) : null; } catch (Exception ex) when (ex is IOException or InvalidDataException) { return (Fx.GameData?)null; } });
-    }
+    /// <summary>The game data, shared with the Mods tab's preview (PowerPreview).</summary>
+    static Task<Fx.GameData?> GameDb(string cooked) => PowerPreview.GameDb(cooked);
 
     /// <summary>The hero of the base package (UC__MarvelPlayer_&lt;Hero&gt;_…), else null (team-ups).</summary>
     string? Hero()
@@ -104,10 +98,7 @@ sealed partial class PreviewPanel
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
             if (dbt.Result is not { } db) return new List<Fx.PowerList.Power>();
-            var all = Fx.PowerList.For(db, hero, cooked, [], effectOnly: true);
-            foreach (var p in all) if (p.Icon != null) Fx.PowerList.Icon(p.Icon, cooked);   // decoded here, off the UI thread
-            // with the powers that have effects but no animation (Kurt, 2026-10-12: The Will of Doom): they play over the idle
-            return all.Where(p => p.Animations.Count == 0 || p.Animations.Any(names.Contains)).ToList();
+            return PowerPreview.Powers(db, hero, cooked, [], names).Play;   // (shared: the buttons the Mods tab shows)
         })).Unwrap().ContinueWith(t =>
         {
             if (IsDisposed || req != heroPowersRequest || t.Status != TaskStatus.RanToCompletion) return;
@@ -148,16 +139,7 @@ sealed partial class PreviewPanel
             Ui.Lit(powerButtons[k], powerFilter == heroPowers[k].Prototype || (current != null && heroPowers[k].Animations.Contains(current, StringComparer.OrdinalIgnoreCase)));
     }
 
-    /// <summary>The animation a power button plays: one ending in "_loop", else the plain one beside a "_start", else the first
-    /// (as the Mod Manager's StorePreview.PreferredAnim).</summary>
-    static int PreferredAnim(IReadOnlyList<string> names)
-    {
-        int loopAt = names.ToList().FindIndex(n => n.EndsWith("_loop", StringComparison.OrdinalIgnoreCase));
-        if (loopAt >= 0) return loopAt;
-        for (int i = 0; i < names.Count; i++)
-            if (names.Any(n => n.Equals(names[i] + "_start", StringComparison.OrdinalIgnoreCase))) return i;
-        return 0;
-    }
+    static int PreferredAnim(IReadOnlyList<string> names) => PowerPreview.PreferredAnim(names);
 
     /// <summary>A power button: its animations only (its loop / first plays), or all again when it was filtering.</summary>
     void PowerClicked(int k)
@@ -171,9 +153,8 @@ sealed partial class PreviewPanel
             effectOnly = again ? null : pw.Prototype;
             powerFilter = again ? null : pw.Prototype;
             animList = allAnims; FillAnims();
-            int idle = allAnims.FindIndex(a => a.Name.Equals("idle", StringComparison.OrdinalIgnoreCase));
-            if (idle < 0) idle = allAnims.FindIndex(a => a.Name.Contains("idle", StringComparison.OrdinalIgnoreCase));
-            if (!again) { autoPlay = true; if (anims.SelectedIndex == Math.Max(0, idle) + 1) LoadEffects(); else anims.SelectedIndex = Math.Max(0, idle) + 1; }
+            int idle = PowerPreview.IdleIndex(allAnims.Select(a => a.Name).ToList());
+            if (!again) { autoPlay = true; if (anims.SelectedIndex == idle + 1) LoadEffects(); else anims.SelectedIndex = idle + 1; }
             else LoadEffects();
             RefreshPowerButtons();
             return;
@@ -216,7 +197,7 @@ sealed partial class PreviewPanel
     }
 
     // --- power effects ---------------------------------------------------------------------------------------------------------
-    void ClearEffects() { fxRequest++; fxPlayer = null; fxLabel.Text = ""; view.Effects = []; view.EffectTris = []; view.LookOverride = null; }
+    void ClearEffects() { fxRequest++; fxClock.Clear(); fxLabel.Text = ""; view.Effects = []; view.EffectTris = []; view.LookOverride = null; }
 
     /// <summary>An effect-only power picked (no animation of its own): its effects play over the idle.</summary>
     string? effectOnly;
@@ -243,26 +224,7 @@ sealed partial class PreviewPanel
         }
         var main = sh.MainRef;
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
-        {
-            if (dbt.Result is not { } db) return (ModelView.Look?[]?)null;
-            var notes = new List<string>();
-            ModelView.Look?[]? merged = null;
-            foreach (string c in MhoExtendedModManager.Model.ConditionSwaps.ConditionsOf(db, power))
-            {
-                string file = $"UC__{c}_SF.upk", path = MhoExtendedModManager.StockFiles.For(cooked, file);
-                if (!File.Exists(path)) continue;
-                try
-                {
-                    var swaps = MhoExtendedModManager.Model.ConditionSwaps.Read(MhoPackageModifier.Package.Open(path), file);
-                    var looks = slots != null ? ModMeshes.SwapLooks(slots, path, swaps, cls, cooked, notes) : main != null ? ModMeshes.SwapLooks(main, path, swaps, cls, cooked, notes) : null;
-                    if (looks == null) continue;
-                    merged ??= new ModelView.Look?[looks.Length];
-                    for (int k = 0; k < looks.Length && k < merged.Length; k++) if (looks[k] != null) merged[k] = looks[k];
-                }
-                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
-            }
-            return merged;
-        })).Unwrap().ContinueWith(t =>
+            dbt.Result is { } db ? PowerPreview.Swaps(db, power, cooked, new Dictionary<string, string>(), cls, slots, main) : null)).Unwrap().ContinueWith(t =>
         {
             if (IsDisposed || req != fxRequest || t.Status != TaskStatus.RanToCompletion || t.Result is not { } looks) return;
             view.LookOverride = looks;
@@ -287,77 +249,39 @@ sealed partial class PreviewPanel
         var a = animator; var l = shownLoaded;
         string? only = effectOnly;
         string? entity = TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(shown.PackagePath);
-        string? swapPower = null;
         fxLabel.Text = "Reading Powers…";
         GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
-        {
-            var db = dbt.Result;
-            if (db == null) return ((Fx.PowerEffects?)null, "", (Dictionary<string, (string, Matrix4x4)>?)null, (Func<Fx.PowerEffects.Effect, bool>?)null);
-            if (only != null)
-                return (Fx.PowerEffects.For(new Fx.FxGame(cooked, []), db, only, hero, entity: entity), Path.GetFileNameWithoutExtension(only), Fx.FxSockets.Of(main.File, main.Name), (Func<Fx.PowerEffects.Effect, bool>?)(_ => true));
-            var idx = Fx.PowerIndex.For(hero, cooked, [], db);
-            if (!idx.TryGetValue(name, out var powers) || powers.Count == 0) return (null, "", null, null);
-            var byClass = Fx.PowerIndex.PrototypesByClass(db);
-            var hit = powers.Select(p => (p.Class, Proto: byClass.TryGetValue(p.Class, out var list) ? list.FirstOrDefault() : null)).FirstOrDefault(x => x.Proto != null);
-            if (hit.Proto == null) return (null, "", null, null);
-            var fx = Fx.PowerEffects.For(new Fx.FxGame(cooked, []), db, hit.Proto, hero, entity: entity);
-            var phaseFn = Fx.PowerEffects.Player.PhaseFor(name, idx.Where(kv => kv.Value.Any(p => p.Class == hit.Class)).Select(kv => kv.Key));
-            swapPower = hit.Proto;
-            return (fx, Path.GetFileNameWithoutExtension(hit.Proto), Fx.FxSockets.Of(main.File, main.Name), phaseFn);
-        })).Unwrap().ContinueWith(t =>
+            dbt.Result is not { } db ? null
+            : only != null ? PowerPreview.ForPower(db, only, hero, cooked, [], entity, main.File, main.Name)
+            : PowerPreview.ForAnimation(db, hero, cooked, [], name, entity, main.File, main.Name))).Unwrap().ContinueWith(t =>
         {
             if (IsDisposed || req != fxRequest || animator != a || anim == null) return;
-            var (fx, power, sockets, phaseFn) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, "", null, null);
-            if (fx == null) { fxLabel.Text = ""; return; }
-            fxSockets = sockets ?? new();
-            var phase = phaseFn ?? Fx.PowerEffects.Player.PhaseOf(name);
+            if (t.Status != TaskStatus.RanToCompletion || t.Result is not { } fx) { fxLabel.Text = ""; return; }
+            fxSockets = fx.Sockets;
             // The target of effects at the world position: the ground 250 units in front (characters face +X).
             float ground = l == null || l.Positions.Length == 0 ? 0 : l.Positions.Min(v => v.Z);
-            fxPlayer = new Fx.PowerEffects.Player(fx, Socket, new Vector3(250, 0, ground), phase) { AnimSeconds = Math.Max(0.1f, seconds) };
-            view.EffectStrength = 0.10f;   // as the Mod Manager (PreviewViews.FxPower)
-            int n = fx.Effects.Count(e => phase(e));
-            fxLabel.Text = $"{Ui.TitleCase(System.Text.RegularExpressions.Regex.Replace(power, "(?<=[a-z])(?=[A-Z])", " "))} · {n} Effect{(n == 1 ? "" : "s")}";
+            fxPlayer = new Fx.PowerEffects.Player(fx.Effects, Socket, new Vector3(250, 0, ground), fx.Phase) { AnimSeconds = Math.Max(0.1f, seconds) };
+            view.EffectStrength = PreviewViews.FxPower;   // as the Mods tab
+            fxLabel.Text = fx.Label;
             FxReplay(playTime);
             animator.Pose(anim, seconds > 0 ? playTime / seconds * frames : 0);
             ShowPose();
-            if ((only ?? swapPower) is string sp) LoadSwaps(sp, req);
+            LoadSwaps(fx.Power, req);
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     /// <summary>A socket's place in the pose last made: the mesh's socket on its bone, else a bone of that name, else null.</summary>
-    Matrix4x4? Socket(string name)
-    {
-        if (animator == null) return null;
-        // "<socket>@bone": the socket's turn at its bone's origin (an effect whose local-space start already holds the socket's
-        // offset: PowerEffects.Player)
-        if (name.EndsWith("@bone", StringComparison.Ordinal) && fxSockets.TryGetValue(name[..^5], out var sb) && animator.BoneIndex(sb.Bone) is int bb && bb >= 0)
-        { var turn = sb.Local; turn.Translation = Vector3.Zero; return turn * animator.BoneMatrix(bb); }
-        if (fxSockets.TryGetValue(name, out var sk) && animator.BoneIndex(sk.Bone) is int b && b >= 0) return sk.Local * animator.BoneMatrix(b);
-        int bi = animator.BoneIndex(name);
-        return bi >= 0 ? animator.BoneMatrix(bi) : null;
-    }
+    Matrix4x4? Socket(string name) => PowerPreview.Socket(name, fxSockets, animator);
 
     /// <summary>The effects moved on to <paramref name="t"/> (started over when time went back: a loop).</summary>
-    void FxAdvance(double t, bool ended)
-    {
-        if (fxPlayer == null) return;
-        if (t < fxTime - 1e-6) { fxPlayer.Reset(); fxTime = 0; }
-        float dt = (float)(t - fxTime);
-        if (dt > 0 || ended) fxPlayer.Step(Math.Max(0, dt), ended);
-        fxTime = t;
-    }
+    void FxAdvance(double t, bool ended) => fxClock.Advance(t, ended);
 
     /// <summary>The effects as they are at <paramref name="t"/>: played from the start in 1/30 s steps, posing for the sockets.</summary>
     void FxReplay(double t)
     {
-        if (fxPlayer == null || anim == null || animator == null) return;
-        fxPlayer.Reset(); fxTime = 0;
-        for (double x = 0; x + 1e-6 < t; x += 1.0 / 30)
-        {
-            animator.Pose(anim, seconds > 0 ? (float)(x / seconds * frames) : 0);
-            fxPlayer.Step(1f / 30, false);
-            fxTime = x + 1.0 / 30;
-        }
+        if (anim == null || animator == null) return;
+        var a = anim; var an = animator;
+        fxClock.Replay(t, x => an.Pose(a, seconds > 0 ? (float)(x / seconds * frames) : 0));
     }
 
     // --- props -------------------------------------------------------------------------------------------------------------------
@@ -408,8 +332,10 @@ sealed partial class PreviewPanel
         if (animator == null || shownLoaded == null) return;
         rig.Clear();
         rig.SetParentAnimation(anim);
-        foreach (var (w, m, an, refs) in baseProps) rig.Add(m, w.UseParentAnim ? -1 : PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, an, refs, w.UseParentAnim);
-        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class);
+        // each prop with its attachment's offset rotation (Kurt, 2026-10-12: Ghost Rider sat 90° across his bike here, not on
+        // the Mods tab: the bikes' OffsetRotation is yaw 16384)
+        foreach (var (w, m, an, refs) in baseProps) rig.Add(m, w.UseParentAnim ? -1 : PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, an, refs, w.UseParentAnim, w.Offset);
+        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, offset: w.Offset);
         rig.SetRules(propRules, propContact, seconds);
         rig.SetMotions(propSeqs);
         var keep = view.ViewState;
