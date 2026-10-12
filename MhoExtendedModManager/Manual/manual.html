@@ -144,6 +144,7 @@ function mhoNext(dir) {
 <li><a href="#w-install">Install a Mod and Put It in the Game</a></li>
 <li><a href="#w-order">Decide Which Mod Wins</a></li>
 <li><a href="#w-unique">Keep a Mod's Look Near Other Players</a></li>
+<li><a href="#w-crash">Fix a Mod That Can Crash the Game</a></li>
 <li><a href="#w-powers">Watch a Hero's Powers in the 3D Preview</a></li>
 <li><a href="#w-icon">Make a Costume's Icons from the 3D Model</a></li>
 <li><a href="#w-text">Change a Costume's Name or Text</a></li>
@@ -157,10 +158,11 @@ function mhoNext(dir) {
 <li><a href="#w-npc">Put a Model on an NPC, Enemy or Team-Up</a></li>
 <li><a href="#w-rigs">Give a Model a Moving Coat, Dress, Tail or Wings</a></li>
 <li><a href="#w-prop">Swap a Costume's Weapon or Shield</a></li>
-<li><a href="#w-own">Recolor or Hide an NPC's or Team-Up's Effects</a></li>
+<li><a href="#w-own">Recolor or Hide a Character's Own Effects</a></li>
 <li><a href="#w-blender">Edit the Model, an Animation or a Texture in Blender</a></li>
 <li><a href="#w-textures">Edit a Model's Textures in Your Image Editor</a></li>
 <li><a href="#w-adjust">Change a Model's Colors Without an Image Editor</a></li>
+<li><a href="#w-materials">Choose How Each Part of a Model Looks in Game</a></li>
 <li><a href="#w-layout">Fit the App to Your Screen</a></li>
 <li><a href="#w-nexus">Update Your Mods from Nexus</a></li>
 <li><a href="#w-share">Share Your Mod</a></li>
@@ -184,6 +186,7 @@ function mhoNext(dir) {
 <p>When two mods change the same file (two Storm costume mods for the same costume, say), the one higher in the list wins.</p>
 <ol class="steps">
 <li>Look for the colored stripe on a card's left edge: red means part of that mod loses to a higher one, amber means it only wins. Select the mod and open its <b>Conflicts</b> tab to see who wins what.</li>
+<li>To see every mod that shares files side by side, pick <b>Group ▾ → Conflicts</b>.</li>
 <li>Drag the card you want to win above the other (or select it and use ⤒ ▲ ▼ ⤓, or <kbd>Ctrl+Up</kbd> / <kbd>Ctrl+Down</kbd>).</li>
 <li>Apply Changes.</li>
 </ol>
@@ -197,7 +200,21 @@ function mhoNext(dir) {
 <li>Click <b>OVERLAP</b> (or right-click the card → <b>Make Unique</b>) and confirm.</li>
 <li>Apply Changes. The mod now keeps its look even when someone nearby loads the game's copy.</li>
 </ol>
+<p><b>Group ▾ → Overlap</b> lists every mod with an OVERLAP pill together. A model that only an enemy's power shares (a boss summoning a copy) counts too.</p>
+<figure><img src="img/list-pills.jpg" alt="The mod list with the yellow OVERLAP and red CRASH RISK pills on the cards that need them."><figcaption>The mod list with the yellow OVERLAP and red CRASH RISK pills on the cards that need them.</figcaption></figure>
 <p>See <a href="#shared">OVERLAP</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-crash">Fix a Mod That Can Crash the Game</h3>
+<ol class="steps">
+<li>A red <b>⚠ CRASH RISK</b> pill on a card means a model in the mod can crash the game (an <i>Array.h:575</i> error): it has more bones than another copy of the same model in the game (added bones for a cape, a dress, wings or a loincloth), or its mirror table doesn't have one entry per bone. Type <kbd>is:crash</kbd> in the filter to list every such mod.</li>
+<li>Click the pill. The window lists each finding and offers what fixes it: <b>Make Unique</b> (the mod's model gets a path of its own) and / or <b>Fix Mirror Tables</b> (every bone gets a mirror entry).</li>
+<li>Click the button. Only the mod's own package files change, saved like an edit; the pill goes away when nothing is left.</li>
+<li>Apply Changes. It's a good idea to let the mod's creator know too, so they can update it officially.</li>
+</ol>
+<figure><img src="img/crash.jpg" alt="The Crash Risk window for a Doctor Strange costume: its model has more bones than the game's copies used by his Mirror Image and Projection, and Make Unique fixes it."><figcaption>The Crash Risk window for a Doctor Strange costume: its model has more bones than the game's copies used by his Mirror Image and Projection, and Make Unique fixes it.</figcaption></figure>
+<p>Models built on the Model tab are checked and fixed by Build into Mod and Save Changes. See <a href="#crash">CRASH RISK</a>.</p>
 </div>
 
 <div class="walk">
@@ -207,6 +224,8 @@ function mhoNext(dir) {
 <li>At the bottom of the preview, click one of the hero's <b>power buttons</b>. Its animation plays with the power's effects: beams reach toward a target in front of the hero at the height they aim, missiles fly there and burst where they land, and what a power does to the one it hits (a stun, a burn, an impact) plays there.</li>
 <li>Press <kbd>P</kbd> to pause. The <b>Frame</b> slider takes the focus, so the arrow keys step through the animation one frame at a time; <kbd>P</kbd> again plays on from there.</li>
 <li>Turn the effects off and on with <b>Power FXs</b> above the buttons. Click the power again to see all the hero's animations.</li>
+<li>An effect too faint to see? Open <b>Look ▾</b> (the eye) and raise <b>Effects</b> (10 % by default; remembered for every 3D preview).</li>
+<li>Powers with effects but no animation (procs, passives, Doctor Doom's The Will of Doom) have buttons too: their effects play over the idle. A power that changes the character's materials for a moment (Doom's force field) shows it on the model.</li>
 </ol>
 <figure><img src="img/preview-power.jpg" alt="Storm's Electrocute in the 3D preview: the lightning beam reaches the target in front of her and strikes there."><figcaption>Storm's Electrocute in the 3D preview: the lightning beam reaches the target in front of her and strikes there.</figcaption></figure>
 <p>See <a href="#preview">Preview</a>.</p>
@@ -369,7 +388,7 @@ function mhoNext(dir) {
 </div>
 
 <div class="walk">
-<h3 id="w-own">Recolor or Hide an NPC's or Team-Up's Effects</h3>
+<h3 id="w-own">Recolor or Hide a Character's Own Effects</h3>
 <ol class="steps">
 <li>The mod needs the character's package (the Model tab's <b>From the Game</b> adds it, or a model built onto it).</li>
 <li>Go to <b>Powers</b>. At the end of the list: <b>&lt;Name&gt;: Own Effects</b> (its glows and trails, such as the Sinister clones' red glow), then that character's own powers.</li>
@@ -379,6 +398,8 @@ function mhoNext(dir) {
 <li>Save Changes, Apply Changes.</li>
 </ol>
 <figure><img src="img/editor-own-effects.jpg" alt="The Powers tab on the Sinister clones: Clone Colossus's own effects in the 3D view, with the color and Opacity sliders."><figcaption>The Powers tab on the Sinister clones: Clone Colossus's own effects in the 3D view, with the color and Opacity sliders.</figcaption></figure>
+<p><b>Heroes too:</b> a hero whose own package carries always-on effects (Ghost Rider's flaming skull) has <b>&lt;Hero&gt;: Own Effects</b> in a costume mod's Powers list. A costume that takes them from its hero (Ghost Rider's Modern VU) shows the hero's entry; Save adds the hero's package (the game's copy) with its color, and the color reaches every costume of the hero that uses those effects.</p>
+<figure><img src="img/editor-hero-own.jpg" alt="Ghost Rider: Own Effects on the Powers tab, with the color sliders for his flaming skull."><figcaption>Ghost Rider: Own Effects on the Powers tab, with the color sliders for his flaming skull.</figcaption></figure>
 <p>See <a href="#powers">Power colors</a>.</p>
 </div>
 
@@ -417,6 +438,18 @@ function mhoNext(dir) {
 <li>Build into Mod (with a source), then Save Changes and Apply Changes.</li>
 </ol>
 <figure><img src="img/editor-model-adjust.jpg" alt="The Adjust Colors window: the color map before and after, with hue, saturation, brightness and levels."><figcaption>The Adjust Colors window: the color map before and after, with hue, saturation, brightness and levels.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-materials">Choose How Each Part of a Model Looks in Game</h3>
+<ol class="steps">
+<li>Open the mod in the Editor, go to <b>Model</b>, pick a source and the target package, then the <b>Materials</b> tab.</li>
+<li>Several parts on one texture sheet that should look different (skin and armor)? Under <b>Parts</b>, tick <b>Own Material</b> on a part: it gets a material of its own, <i>&lt;material&gt; @ &lt;part&gt;</i>.</li>
+<li>Pick a material and choose its <b>Game Material ▾</b>: Automatic, Cloth and Skin, Metal, Glow or The Costume's Own. <b>Preview Shows</b> picks which maps the preview draws.</li>
+<li>The costume's effects (a force field, a glow) keep material slots by number: use <b>Slot Up</b> / <b>Slot Down</b> so each lands on the right part (the note above the list says which).</li>
+<li>Build into Mod, Save Changes, Apply Changes.</li>
+</ol>
+<figure><img src="img/editor-model-materials.jpg" alt="The Model tab's Materials page: Black Dwarf on Doctor Doom, with Preview Shows, Game Material and the slot note for Doom's force field."><figcaption>The Model tab's Materials page: Black Dwarf on Doctor Doom, with Preview Shows, Game Material and the slot note for Doom's force field.</figcaption></figure>
 </div>
 
 <div class="walk">

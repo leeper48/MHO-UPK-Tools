@@ -53,7 +53,17 @@ sealed partial class MainForm
     /// </summary>
     async void CrashClicked(Mod m)
     {
-        if (CrashCheck.Details(m) is not string details) return;
+        if (CrashDialog(m, readOnly) is not var (text, labels)) return;
+        int pick = Dialog.Choose(this, text, "Crash Risk", [.. labels]);
+        string? chosen = pick >= 0 && pick < labels.Count ? labels[pick] : null;
+        if (chosen == "Fix Mirror Tables") FixMirrorTables(m);
+        else if (chosen == "Make Unique") await MakeUnique(m);
+    }
+
+    /// <summary>The CRASH RISK window's text and buttons (the findings, then what can be done), or null with no findings.</summary>
+    internal static (string Text, List<string> Labels)? CrashDialog(Mod m, bool readOnly)
+    {
+        if (CrashCheck.Details(m) is not string details) return null;
         bool unique = !readOnly && UniqueNames.Reason(m) != null;
         bool mirror = !readOnly && CrashCheck.HasMirrorIssue(m);
         var advice = new List<string>();
@@ -65,10 +75,7 @@ sealed partial class MainForm
         if (mirror) labels.Add("Fix Mirror Tables");
         if (unique) labels.Add("Make Unique");
         labels.Add("Close");
-        int pick = Dialog.Choose(this, details + "\n\n" + string.Join(" ", advice), "Crash Risk", [.. labels]);
-        string? chosen = pick >= 0 && pick < labels.Count ? labels[pick] : null;
-        if (chosen == "Fix Mirror Tables") FixMirrorTables(m);
-        else if (chosen == "Make Unique") await MakeUnique(m);
+        return (details + "\n\n" + string.Join(" ", advice), labels);
     }
 
     /// <summary>The mod's mirror tables made one entry per bone (MirrorTables), saved like an edit.</summary>

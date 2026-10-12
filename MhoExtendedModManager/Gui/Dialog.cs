@@ -63,6 +63,24 @@ static class Dialog
         return owner != null ? f.ShowDialog(owner) : f.ShowDialog();
     }
 
+    /// <summary>A Choose window rendered to a PNG (the manual's screenshots: --crash-snapshot), not shown on screen.</summary>
+    public static void SnapshotChoose(string png, string text, string caption, params string[] labels)
+    {
+        DialogResult[] results = [DialogResult.OK, DialogResult.Yes, DialogResult.Retry, DialogResult.Ignore, DialogResult.Abort];
+        var choices = labels.Select((l, i) => (l, i == labels.Length - 1 ? DialogResult.Cancel : results[i])).ToArray();
+        using var f = new DialogForm(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, false, choices);
+        f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000);
+        f.Shown += (_, _) => f.BeginInvoke(async () =>
+        {
+            await Task.Delay(400);
+            using var b = new Bitmap(f.Width, f.Height);
+            f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+            b.Save(png);
+            f.Close();
+        });
+        f.ShowDialog();
+    }
+
     /// <summary>--dialog-snapshot: a question, a log (Install) and an error, as PNGs (layout check).</summary>
     public static void Snapshot(string dir)
     {

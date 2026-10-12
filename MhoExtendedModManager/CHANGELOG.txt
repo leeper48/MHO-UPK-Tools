@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.271
+- What's New notice for this release (crash checks, OVERLAP, one 3D preview for every tab, material slots, hero Own Effects). Manual: new walkthroughs Fix a Mod That Can Crash the Game and Choose How Each Part of a Model Looks in Game; Own Effects now covers heroes (Ghost Rider); Effects slider and effect-only powers in the preview walkthrough.
+
 0.37.270
 - Powers tab: a costume whose always-on effects are its hero's (Ghost Rider ModernVU) shows the hero's Own Effects entry straight away, with its colors; Save adds the hero's package by itself when a color is set. The costume's own entry, which could never keep a color, is gone.
 

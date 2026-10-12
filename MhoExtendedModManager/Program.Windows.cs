@@ -187,6 +187,25 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--crash-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // The CRASH RISK window for a mod, rendered off screen (the manual's screenshots). --crash-snapshot <mod> <out.png>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            var cst = Settings.Load();
+            var clib = ModLibrary.Load(Settings.LibraryData(cst.LibraryPath)!);
+            string? cgr = cst.ResolvedGameRoot(clib.DataFolder);
+            if (clib.Find(args[1]) is not { } cm || cgr == null || !Settings.IsGameRoot(cgr)) { Console.WriteLine("no such mod, or no game folder"); return 1; }
+            var cgame = new GameState(cgr, clib.DataFolder);
+            StockFiles.Init(cgame, cst.CleanGameFiles, Path.Combine(clib.DataFolder, "originals"));
+            CrashCheck.Check(cm, cgame.Cooked);
+            UniqueNames.Plans(cm, cgame.Cooked);
+            if (Gui.MainForm.CrashDialog(cm, false) is not var (text, labels)) { Console.WriteLine("no crash findings"); return 1; }
+            Gui.Dialog.SnapshotChoose(args[2], text, "Crash Risk", [.. labels]);
+            Console.WriteLine("picture: " + args[2]);
+            return 0;
+        }
         if (args.Length == 4 && args[0].Equals("--power-preview-test", StringComparison.OrdinalIgnoreCase))
         {
             // Test (off-screen window, reads only): the Mods tab's preview of a mod, a power button clicked by name, and what it

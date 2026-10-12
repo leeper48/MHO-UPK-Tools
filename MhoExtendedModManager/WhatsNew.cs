@@ -34,7 +34,18 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.270 (Kurt, 2026-10-12): crash checks, OVERLAP, one 3D preview, material slots, hero Own Effects.</summary>
+    static Notice CrashChecks() => new(
+        "0.37.271-crash-checks", "0.37.271",
+        "[!]A red CRASH RISK pill now marks mods whose models can crash the game (the Array.h:575 error): added bones (a cape, dress, wings or loincloth) on a model the game also keeps elsewhere with fewer bones, or a mirror table that doesn't match the bones. Click it: Make Unique and Fix Mirror Tables fix them in the mod." + nl + nl +
+        "A yellow OVERLAP pill marks mods that change a model, effect or texture other game files share (the game shows whichever loads first, so near other players or NPCs the mod's look can be lost), and power packages only enemies use. Click it to Make Unique. Mods saved in the editor are made unique by themselves. The list's Group ▾ has Overlap and Conflicts." + nl + nl +
+        "One 3D preview everywhere (Mods, Powers, Animations and Model tabs): the same controls, power buttons for every power (also effect-only ones such as The Will of Doom), the material changes powers make (Doom's force field), effects on props (Ghost Rider's bike wheels), bows drawn to the hand, and Look ▾ → Effects to make faint effects stronger." + nl + nl +
+        "Model tab, Materials: Slot, Game Material ▾ and Own Material for models with several materials; an FBX's textures are found wherever it points, or read from inside it." + nl + nl +
+        "Powers tab: Ghost Rider's flaming skull (and other heroes' always-on effects) can be recolored or hidden with Own Effects." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "crash");
 
     /// <summary>0.37.221 (Kurt, 2026-10-10): Add Rigs ▾ (coats, dresses, loincloths, tails, chains, wings).</summary>
     static Notice AddRigs() => new(
