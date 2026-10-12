@@ -37,8 +37,10 @@ sealed class Settings
     public List<string> Folded { get; set; } = new();
     public bool RememberWindow { get; set; }
 
-    public sealed class PreviewPrefs
+    public sealed class PreviewPrefs : MhoExtendedModManager.Gui.IPreviewPrefs
     {
+        /// <summary>Saved with the rest of the settings (the shared 3D preview calls it).</summary>
+        public void Save() => Current.Save();
         public bool Loop { get; set; } = true;
         public bool Spec { get; set; } = true;
         public bool Reflect { get; set; } = true;

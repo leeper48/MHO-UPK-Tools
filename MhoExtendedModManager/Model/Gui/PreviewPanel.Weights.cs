@@ -77,12 +77,5 @@ sealed partial class PreviewPanel
     }
 
     /// <summary>Shows the current character again (weights on / off, another bone picked), keeping the camera and the pose.</summary>
-    void RefreshDisplay()
-    {
-        if (shownLoaded == null || animator == null) return;
-        var keep = view.ViewState;
-        if (rig.Count > 0) RebuildRig();
-        else { view.ShowMesh(Display(shownLoaded)); view.ViewState = keep; ShowPose(); }
-        view.ViewState = keep;
-    }
+    void RefreshDisplay() => p3.RefreshDisplay();
 }

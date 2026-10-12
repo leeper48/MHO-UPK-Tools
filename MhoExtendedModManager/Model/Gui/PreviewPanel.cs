@@ -20,38 +20,17 @@ namespace MhoExtendedModManager.Model.Gui;
 /// </summary>
 sealed partial class PreviewPanel : UserControl
 {
-    readonly ModelView view = new() { Dock = DockStyle.Fill };
-    readonly DropDown anims = new() { Dock = DockStyle.Fill };
-    readonly Button play, loop, reset, compare, look, frameHead, frameBust, frameFull, fullScreen, powersButton, edits;
-    readonly LightSlider frame = new() { Dock = DockStyle.Fill, Label = "Frame", Min = 0, Max = 1, Step = 0, Mark = null, Height = 26 };
-    readonly LightSlider light = new() { Label = "Light", Height = 26 };
-    readonly LightSlider glowSlider = new() { Label = "Glow", Min = 0f, Max = 2f, Height = 26 };
-    readonly LightSlider lens = new() { Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = 50, Height = 26, Format = v => $"{v:0} mm" };
-    readonly Label fxLabel = new() { AutoSize = true, Margin = new Padding(6, 8, 0, 0) };
-    ContextMenuStrip? lookMenu;
+    // The 3D preview itself (shared with the Mods tab's preview: Preview3D); this panel adds the Model tab's own: Compare,
+    // Single Animation ▾ (edits), the bones overlay, the weight paint and the prepared models (PreviewPanel.Model.cs).
+    readonly Preview3D p3;
+    readonly Button compare, edits;
+    ModelView view => p3.View;
+    MeshAnimator? animator => p3.Animator;
+    ModMeshes.Loaded? shownLoaded => p3.Mesh;
 
-    MeshAnimator? animator, mffAnimator, stockAnimator;
+    MeshAnimator? mffAnimator, stockAnimator;
     Prepared? shown;
-    /// <summary>The character mesh in the view (the model, or the base hero's own while comparing).</summary>
-    ModMeshes.Loaded? shownLoaded;
     bool comparing, targetOnly;
-    /// <summary>The animations in the drop-down (a power button filters them) and all of the hero's.</summary>
-    List<AnimRef> animList = new(), allAnims = new();
-    AnimPlayer? player;
-    /// <summary>The playback (shared with the Mods tab's preview): the animation, where it is, paused or playing, the timer.</summary>
-    AnimPlayer Player => player ??= new AnimPlayer
-    {
-        Loop = () => P.Loop,
-        Moved = (f, ended) => { FxAdvance(playTime, ended); Pose(f); },
-        StateChanged = () => { play.Text = isPlaying ? "❚❚" : "▶"; view.Moving = isPlaying; },   // smaller frames while playing (ModelView.Moving)
-    };
-    BoneAnimation? anim => player?.Anim;
-    float frames => player?.Frames ?? 0;
-    float seconds => player?.Seconds ?? 0;
-    float playTime { get => (float)(player?.Time ?? 0); set => Player.Time = value; }
-    bool isPlaying => player is { Paused: false };
-    bool settingFrame, autoPlay;
-    int loadId;
 
     /// <summary>Edits from Blender (0.16.0): the imported animation for a name (null = the game's), whether a name has one,
     /// and the Single Animation ▾ menu (filled by the main window).</summary>
@@ -59,76 +38,47 @@ sealed partial class PreviewPanel : UserControl
     public Func<string, bool>? IsOverridden;
     public Action<ContextMenuStrip>? FillEditsMenu;
     /// <summary>The animation picked in the drop-down (null = rest pose).</summary>
-    public string? CurrentAnimation => anims.SelectedIndex > 0 ? anims.SelectedItem as string : null;
+    public string? CurrentAnimation => p3.CurrentAnimation;
     /// <summary>Every animation of the shown model (not only the power filter's).</summary>
-    public IReadOnlyList<string> AnimationNames => allAnims.Select(a => a.Name).ToList();
+    public IReadOnlyList<string> AnimationNames => p3.AllAnimations.Select(a => a.Name).ToList();
     /// <summary>The animations Full Export writes: the hero's and the costume's own, not the shared ones every hero plays
     /// (blink, interactions: sets in Startup / MarvelGame).</summary>
-    public int OwnAnimationCount => allAnims.Count(a => !a.Package.StartsWith("startup", StringComparison.OrdinalIgnoreCase) && !a.Package.StartsWith("marvelgame", StringComparison.OrdinalIgnoreCase));
+    public int OwnAnimationCount => p3.AllAnimations.Count(a => !a.Package.StartsWith("startup", StringComparison.OrdinalIgnoreCase) && !a.Package.StartsWith("marvelgame", StringComparison.OrdinalIgnoreCase));
 
     static Settings.PreviewPrefs P => Settings.Current.Preview;
     static void SaveP() => Settings.Current.Save();
     float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
+    static string? Cooked => Settings.Current.CookedFolder;
+
+    /// <summary>The Model tab: the target costume's class (marvelplayer_drdoom_classic: a costume shown with its hero's model
+    /// still has its own effects), and the build's slot order for a list of material names (MaterialOverrides.Ordered).</summary>
+    public Func<string?>? TargetClass { get; set; }
+    public Func<IReadOnlyList<string>, List<string>>? SlotOrder { get; set; }
 
     public PreviewPanel()
     {
         BackColor = Color.Transparent;
-        play = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses).");
-        loop = Ui.FlatButton("⟳ Loop", () => { P.Loop = !P.Loop; SaveP(); Ui.Lit(loop!, P.Loop); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
-        reset = Ui.FlatButton("Reset View", () => view.ResetView(), "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         edits = Ui.FlatButton("Single Animation ▾", ShowEditsMenu, "The animation picked here and Blender: export just it (Export FBX: … Only, Open … in Blender: the model and this one animation, quick), bring edits back (an FBX's animation in place of it, and / or its mesh with its weights in place of the model's; kept in the edits folder, built into the mod) and revert them. The buttons on the right export all the animations.");
         compare = Ui.FlatButton("Compare", ToggleCompare, "Show the base hero's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the MFF model).");
-        look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Bones on or off, and the Light, Glow and Lens sliders. Remembered.");
-        (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);   // (shared with the Mods tab's preview)
-        fullScreen = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
-        powersButton = Ui.FlatButton("Power FXs", () => { P.Powers = !P.Powers; SaveP(); ApplyLook(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's power packages). Lit when on; remembered.");
-        Icons.Make(loop, "Loop", Icons.Loop, S);
-        Icons.Make(look, "Look", Icons.Look, S);
-        Icons.Make(reset, "Reset View", Icons.ResetView, S);
-        Ui.Tip(anims, "The base hero's own animations (from its base package, in the game's order). Rest Pose = the bind pose the mesh is built in. A power button below shows only that power's.");
-        Ui.Tip(frame, "The animation's frame: drag to scrub (pauses).");
-        Ui.Tip(light, "Light strength (double-click: 100 %). Remembered.");
-        Ui.Tip(glowSlider, "How strong the glowing (emissive) parts are (double-click: 100 %). Remembered.");
-        Ui.Tip(lens, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter; the model stays the same size (double-click: 50 mm). Remembered.");
-        Ui.Tip(fxLabel, "The power the animation belongs to and how many of its effects play.");
-        fxLabel.ForeColor = Ui.Subtle;
-        light.Value = P.Light; light.Home = () => 1; view.Brightness = P.Light;
-        lens.Value = P.Lens; lens.Home = () => 50; view.FocalLength = P.Lens;
-        glowSlider.Value = P.GlowStrength; glowSlider.Home = () => 1; view.GlowStrength = P.GlowStrength;
-        light.ValueChanged += () => view.Brightness = light.Value;
-        light.Committed += () => { P.Light = light.Value; SaveP(); };
-        lens.ValueChanged += () => view.FocalLength = lens.Value;
-        lens.Committed += () => { P.Lens = lens.Value; SaveP(); };
-        glowSlider.ValueChanged += () => view.GlowStrength = glowSlider.Value;
-        glowSlider.Committed += () => { P.GlowStrength = glowSlider.Value; SaveP(); };
-        frame.ValueChanged += ScrubTo;
-        frame.Enabled = false; frame.Format = _ => "–";
-        anims.SelectedIndexChanged += (_, _) => AnimationChosen();
-        Ui.Lit(loop, P.Loop);
-        showBones = P.Bones;
-        ApplyLook();
-
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent, Margin = new Padding(0) };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 3; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.Controls.Add(view, 0, 0);
         edits.AutoSize = true; edits.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        // one row (Kurt, 2026-10-04: the animation list was twice as wide as it needs; Look, Reset View, the framing and full
-        // screen buttons beside it): the list takes what the buttons leave
-        var playBar = Strip(anims, play, loop, edits, compare, look, reset, frameHead, frameBust, frameFull, fullScreen);
-        root.Controls.Add(playBar, 0, 1);                                   // the playback bar under the view
+        p3 = new Preview3D(P, edits, compare) { Dock = DockStyle.Fill };
+        p3.TransformAnimation = Transform;
+        p3.IsOverridden = n => IsOverridden?.Invoke(n) == true;
+        p3.DisplayMesh = Display;
+        p3.MeshShown += MeasureBones;
+        p3.ExtraLook.Add(new("Bones", "The skeleton over the model; the Bone Map tab's selected row in orange.", () => showBones, () => ShowBones = !showBones));
+        p3.ExtraLook.Add(new("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting.", () => showWeights, () => ShowWeights = !showWeights));
+        showBones = P.Bones;
         // a narrow window: the menu's caption shortens so the animation drop-down keeps at least 160 px (0.16.5)
-        playBar.SizeChanged += (_, _) =>
+        var bar = p3.Bar;
+        bar.SizeChanged += (_, _) =>
         {
             if (!string.IsNullOrEmpty(edits.AccessibleName)) return;   // (an icon now: nothing to shorten)
-            int others = new Control[] { play, loop, compare, look, reset, frameHead, frameBust, frameFull, fullScreen }.Sum(c => c.Width) + (int)(11 * 6 * S);
-            string want = playBar.Width - others - TextRenderer.MeasureText("Single Animation ▾", edits.Font).Width - (int)(30 * S) >= (int)(160 * S) ? "Single Animation ▾" : "Single ▾";
+            int others = bar.Controls.OfType<Control>().Where(c => c != edits && c is Button).Sum(c => c.Width) + (int)(11 * 6 * S);
+            string want = bar.Width - others - TextRenderer.MeasureText("Single Animation ▾", edits.Font).Width - (int)(30 * S) >= (int)(160 * S) ? "Single Animation ▾" : "Single ▾";
             if (edits.Text != want) edits.Text = want;
         };
-        root.Controls.Add(frame, 0, 2);
-        root.Controls.Add(PowerBlock(), 0, 3);                                                // Power FXs + the power buttons
-        Controls.Add(root);
+        Controls.Add(p3);
         view.ShowMessage("Pick a character and a base hero");
         // the skeleton overlay, painted after the view's own frame (its canvas is the view's only child)
         view.Controls[0].Paint += (_, e) => PaintBones(e.Graphics, view.Controls[0].ClientSize);
@@ -148,38 +98,44 @@ sealed partial class PreviewPanel : UserControl
         Ui.Tip(view.Controls[0], "Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to frame. Ctrl+click a bone to pick it in the Bone Map tab; on the Materials tab, Ctrl+click the model to pick that material.");
     }
 
-    static Control Strip(Control? fill, params Control[] buttons)
+    /// <summary>An animation as the Model tab plays it: an FBX in its place (0.16.0, the import's own tracks), and a borrowed
+    /// cape's tracks made for it unless the FBX animates those bones (the base hero's own mesh ignores them in Compare).</summary>
+    BoneAnimation? Transform(AnimRef ar, BoneAnimation? anim)
     {
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = buttons.Length + 1, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0) };
-        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < buttons.Length; i++) t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        if (fill != null) { fill.Dock = DockStyle.Fill; fill.Margin = new Padding(0, 2, 6, 0); t.Controls.Add(fill, 0, 0); }
-        for (int i = 0; i < buttons.Length; i++) { buttons[i].Margin = new Padding(0, 0, 6, 0); t.Controls.Add(buttons[i], i + 1, 0); }
-        return t;
+        BoneAnimation? imported = Override?.Invoke(ar, anim);
+        if (imported != null) anim = imported;
+        if (anim != null && shown != null)
+            foreach (var r in shown.Rigs)
+                if (imported == null || !shown.Bones.Where(b => r.Bones.IsMatch(b.Name)).All(b => imported.Tracks.ContainsKey(b.Name))) anim = r.Apply(anim, shown.Bones);
+        return anim;
     }
 
-    /// <summary>The look switches into the view and the buttons that show them.</summary>
-    void ApplyLook()
+    /// <summary>The hero of the base package (UC__MarvelPlayer_&lt;Hero&gt;_…), else null (team-ups).</summary>
+    string? Hero()
     {
-        view.ShowSpec = P.Spec; view.ShowReflections = P.Reflect; view.ShowGlow = P.Glow; view.ShowBloom = P.Bloom;
-        Ui.Lit(powersButton, P.Powers);
+        if (shown == null) return null;
+        var parts = Path.GetFileNameWithoutExtension(shown.PackagePath).Split('_', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 3 && parts[0].Equals("UC", StringComparison.OrdinalIgnoreCase) && parts[1].StartsWith("MarvelPlayer", StringComparison.OrdinalIgnoreCase) ? parts[2] : null;
     }
 
-    /// <summary>Look ▾: the toggles (the menu stays open while toggling) and the Light / Glow / Lens sliders (PreviewControls,
-    /// as the Mods tab's), with this tab's Bones and Weights.</summary>
-    void ShowLookMenu()
+    /// <summary>
+    /// A power's condition material swaps on the shown model (Kurt, 2026-10-12: Doctor Doom's force field, Hulk's revive): each
+    /// section's slot is its material's place in the build's slot order (the target's own model: its section's material index),
+    /// and a swap for the target costume draws its material on the slots it doesn't keep.
+    /// </summary>
+    Func<Fx.GameData, string, ModelView.Look?[]?>? SwapsFor(string cooked)
     {
-        if (lookMenu == null)
+        if (shown is not { } sh) return null;
+        string cls = TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(sh.PackagePath);
+        List<int>? slots = null;
+        if (!sh.TargetOnly && sh.SectionNames.Count > 0)
         {
-            var items = PreviewControls.StandardLook(
-                () => P.Spec, () => P.Spec = !P.Spec, () => P.Reflect, () => P.Reflect = !P.Reflect, () => P.Glow, () => P.Glow = !P.Glow,
-                () => P.Bloom, () => P.Bloom = !P.Bloom, () => P.Props, () => { P.Props = !P.Props; LoadProps(); },
-                () => P.Powers, () => { P.Powers = !P.Powers; LoadEffects(); });
-            items.Add(new("Bones", "The skeleton over the model; the Bone Map tab's selected row in orange.", () => showBones, () => ShowBones = !showBones));
-            items.Add(new("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting.", () => showWeights, () => ShowWeights = !showWeights));
-            lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens], S, () => { SaveP(); ApplyLook(); });
+            var distinct = sh.SectionNames.Distinct().ToList();
+            var order = SlotOrder?.Invoke(distinct) ?? distinct;
+            slots = sh.SectionNames.Select(n => order.IndexOf(n)).ToList();
         }
-        Ui.ShowUnder(lookMenu, look);
+        var main = sh.MainRef;
+        return (db, power) => PowerPreview.Swaps(db, power, cooked, new Dictionary<string, string>(), cls, slots, main);
     }
 
     /// <summary>Test: the camera (ModelView.ViewState).</summary>
@@ -204,12 +160,10 @@ sealed partial class PreviewPanel : UserControl
     {
         // a rebuild shows "Loading…" between two models: what was shown is held for the next Show (Kurt, 2026-10-04: Smooth
         // Weights re-framed the camera and stopped playback; the camera and the place in the animation are kept now)
-        if (animator != null) { heldView = view.ViewState; heldPlaying = isPlaying; heldAt = seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0; }
-        loadId++; frameBones = null;
-        player?.Stop(); animator = mffAnimator = stockAnimator = null; shown = null; shownLoaded = null;
-        ClearEffects(); rig.Clear(); ClearPowers();
-        view.Moving = false;
-        view.ShowMessage(text);
+        if (animator != null) { heldView = view.ViewState; heldPlaying = p3.IsPlaying; heldAt = p3.Fraction; }
+        frameBones = null;
+        mffAnimator = stockAnimator = null; shown = null;
+        p3.ShowMessage(text);
     }
 
     // --- showing a model -----------------------------------------------------------------------------------------------------
@@ -218,14 +172,13 @@ sealed partial class PreviewPanel : UserControl
     {
         // What the reload keeps (0.10.17, Kurt): the animation by name, where in it (a share of its length), playing or
         // paused, and the camera; the frame only when the new list has that animation.
-        string? keep = anims.SelectedIndex > 0 ? anims.SelectedItem as string : null;
+        string? keep = p3.CurrentAnimation;
         bool live = animator != null;
-        float keepAt = live ? (seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0) : heldAt;
-        bool wasPlaying = live ? isPlaying : heldPlaying;
+        float keepAt = live ? p3.Fraction : heldAt;
+        bool wasPlaying = live ? p3.IsPlaying : heldPlaying;
         float[]? keepView = live ? view.ViewState : heldView;
         heldView = null; heldPlaying = false; heldAt = 0;
         bool samePackage = shown != null && shown.PackagePath.Equals(p.PackagePath, StringComparison.OrdinalIgnoreCase);
-        player?.Stop();
         shown = p;
         mffAnimator = new MeshAnimator(p.Bones, p.Mesh.Positions, p.Mesh.Normals, p.Mesh.Influences, p.Mesh.Tangents);
         stockAnimator = p.Stock is { } st ? new MeshAnimator(st.Bones.ToList(), st.Positions, st.Normals, st.Influences, st.Tangents) : null;
@@ -238,59 +191,14 @@ sealed partial class PreviewPanel : UserControl
         view.ModelScale = ShownScale;
         Ui.Tip(compare, p.TargetOnly ? "No source is picked: this is the target's own model. Pick a source on the left to put a model on it; Compare then switches between the two."
             : "Show the target's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the source's model).");
-        animator = comparing ? stockAnimator : mffAnimator;
-        animator!.Pose(null, 0);   // posed at once: a new animator's bones are all zero until its first pose (MEMM 0.37.37)
-        allAnims = p.Animations;
-        if (!samePackage) ClearPowers();
-        animList = powerFilter != null && heroPowers.FirstOrDefault(x => x.Prototype == powerFilter) is { } pw
-            ? [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))] : allAnims;
-        ShowMeshFramed(comparing ? p.Stock! : p.Mesh);
-        FillAnims();
-        int pick = Math.Max(0, keep != null ? animList.FindIndex(a => a.Name == keep) + 1 : 0);
-        int before = anims.SelectedIndex;
-        anims.SelectedIndex = pick;
-        if (anims.SelectedIndex == before) AnimationChosen();   // same index: the list fires no change, load it anyway
-        if (keepView != null) view.ViewState = keepView;
-        if (pick > 0 && anim != null && seconds > 0)
-        {
-            playTime = keepAt * seconds;
-            FxReplay(playTime);
-            Pose(keepAt * frames);
-            if (wasPlaying) Player.Play();
-        }
-        LoadProps();
-        if (!samePackage || heroPowers.Count == 0) LoadHeroPowers();
+        var ctx = new PreviewContext(Hero(), Cooked, p.MainRef, p.PackageMeshes, [], () => TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(p.PackagePath), SwapsFor);
+        p3.ShowCharacter(comparing ? p.Stock! : p.Mesh, (comparing ? stockAnimator : mffAnimator)!, p.Animations, ctx, keep, keepAt, wasPlaying, keepView, samePackage);
         Ui.Tip(view, p.Note);
         ShowCount++;
     }
 
-    void FillAnims()
-    {
-        anims.Items.Clear();
-        string? filterName = powerFilter == null ? null : heroPowers.FirstOrDefault(x => x.Prototype == powerFilter)?.Name;
-        anims.Items.Add(filterName != null ? $"Rest Pose · {animList.Count} of {allAnims.Count} animations ({filterName})" : $"Rest Pose · {animList.Count} animations");
-        foreach (var a in animList) anims.Items.Add(a.Name);
-        // an animation replaced by an FBX: marked ✎, in gold
-        anims.Format = o => o is string n && IsOverridden?.Invoke(n) == true ? n + "  ✎" : o?.ToString() ?? "";
-        anims.ItemColor = i => i > 0 && i < anims.Items.Count && anims.Items[i] is string n && IsOverridden?.Invoke(n) == true ? Color.FromArgb(240, 200, 90) : null;
-    }
-
     /// <summary>The animation reloaded (an edit imported or reverted), at the same place in it.</summary>
-    public void ReloadAnimation()
-    {
-        float at = seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0;
-        bool wasPlaying = isPlaying;
-        FillAnimsKeep();
-        AnimationChosen();
-        if (anim != null && seconds > 0) { playTime = at * seconds; FxReplay(playTime); Pose(at * frames); if (wasPlaying) TogglePlay(); }
-    }
-
-    void FillAnimsKeep()
-    {
-        int sel = anims.SelectedIndex;
-        FillAnims();
-        anims.SelectedIndex = Math.Min(sel, anims.Items.Count - 1);
-    }
+    public void ReloadAnimation() => p3.ReloadAnimation();
 
     void ShowEditsMenu()
     {
@@ -301,25 +209,33 @@ sealed partial class PreviewPanel : UserControl
     }
 
     /// <summary>The animation and where in it (checks): "name @ 0.35".</summary>
-    public string PlaybackState => $"{anims.SelectedItem} @ {frame.Value:0.00}";
+    public string PlaybackState => p3.PlaybackState;
     /// <summary>How many models have been shown (checks wait for a reload).</summary>
     public int ShowCount { get; private set; }
 
     /// <summary>A model is shown (checks wait for it).</summary>
-    public bool Ready => animator != null;
+    public bool Ready => p3.Ready;
 
     /// <summary>Picks the first animation whose name contains <paramref name="part"/> and poses it at a fraction of its length (checks).</summary>
-    public void PickAnimation(string part, float at)
-    {
-        int i = animList.FindIndex(a => a.Name.Contains(part, StringComparison.OrdinalIgnoreCase));
-        if (i < 0) return;
-        anims.SelectedIndex = i + 1;
-        playTime = at * seconds;
-        FxReplay(playTime);
-        Pose(at * frames);
-    }
+    public void PickAnimation(string part, float at) => p3.PickAnimation(part, at);
 
-    /// <summary>Turns Compare on (checks).</summary>
+    /// <summary>P / Esc (the main window's keys) and full screen, as the 3D preview does them.</summary>
+    public bool TogglePlayback() => p3.TogglePlayback();
+    public bool PausePlayback() => p3.PausePlayback();
+    public void ToggleFull() => p3.ToggleFull();
+    public bool IsFull => p3.IsFull;
+
+    /// <summary>The hero's powers shown as buttons (checks).</summary>
+    public IReadOnlyList<Fx.PowerList.Power> HeroPowers => p3.HeroPowers;
+    /// <summary>The power line under the view (checks).</summary>
+    public string EffectsNote => p3.EffectsNote;
+    /// <summary>The material swap drawn now (checks): "n of m section(s)", else "none".</summary>
+    public string SwapNote => p3.SwapNote;
+    /// <summary>The view's picture (checks).</summary>
+    public Bitmap ViewShot() => p3.ViewShot();
+    /// <summary>Clicks a power button by name (checks).</summary>
+    public bool ClickPower(string name) => p3.ClickPower(name);
+
     public void CompareOn() { if (!comparing) ToggleCompare(); }
 
     /// <summary>Swaps between the MFF model and the base hero's own mesh, keeping the animation, frame and camera.</summary>
@@ -334,107 +250,8 @@ sealed partial class PreviewPanel : UserControl
         if (shown == null || stockAnimator == null || mffAnimator == null) return;
         comparing = !comparing; Ui.Lit(compare, comparing);
         view.ModelScale = ShownScale;
-        var keepView = view.ViewState;
-        animator = comparing ? stockAnimator : mffAnimator;
-        ShowMeshFramed(comparing ? shown.Stock! : shown.Mesh);
-        view.ViewState = keepView;
-        RebuildRig();
-        Pose(frames > 0 ? frame.Value * frames : 0);
+        p3.SwapCharacter(comparing ? shown.Stock! : shown.Mesh, comparing ? stockAnimator : mffAnimator);
     }
-
-    // --- animation ------------------------------------------------------------------------------------------------------------
-    void AnimationChosen()
-    {
-        Player.Stop();
-        int i = anims.SelectedIndex - 1;
-        var anim = i >= 0 && i < animList.Count ? ModAnimations.Load(animList[i]) : null;
-        // an FBX in its place (0.16.0): the import's own tracks; a borrowed rig still gets its motion unless the FBX animates it
-        BoneAnimation? imported = i >= 0 && i < animList.Count ? Override?.Invoke(animList[i], anim) : null;
-        if (imported != null) anim = imported;
-        // a borrowed cape (prototype): its tracks made for this animation (the base hero's own mesh ignores them in Compare)
-        if (anim != null && shown != null)
-            foreach (var rig in shown.Rigs)
-                if (imported == null || !shown.Bones.Where(b => rig.Bones.IsMatch(b.Name)).All(b => imported.Tracks.ContainsKey(b.Name))) anim = rig.Apply(anim, shown.Bones);
-        Player.Set(anim);
-        frame.Enabled = anim != null;
-        float fr = frames; frame.Format = v => fr > 0 ? $"{v * fr:0} / {fr:0}" : "–";
-        rig.SetParentAnimation(anim);
-        LoadEffects();
-        LoadPropSwitches();
-        Pose(0);
-        RefreshPowerButtons();
-        if (autoPlay) { autoPlay = false; if (anim != null) TogglePlay(); }
-    }
-
-    void TogglePlay()
-    {
-        if (anim == null || animator == null) return;
-        if (isPlaying) { Player.Pause(); return; }
-        if (playTime >= seconds) { playTime = 0; FxReplay(0); }
-        Player.Play();
-    }
-
-    /// <summary>P (Kurt, 2026-10-04): plays or pauses the picked animation; false when none is picked.</summary>
-    public bool TogglePlayback()
-    {
-        if (anim == null || animator == null) return false;
-        TogglePlay();
-        // the arrow keys then scrub, a frame at a time (Kurt, 2026-10-06): the frame slider takes the keyboard
-        frame.ArrowStep = frames > 0 ? 1f / frames : 0;
-        if (frame is { Visible: true, Enabled: true }) frame.Focus();
-        return true;
-    }
-
-    /// <summary>Esc: pauses a playing animation; false when nothing was playing.</summary>
-    public bool PausePlayback()
-    {
-        if (!isPlaying) return false;
-        TogglePlay();
-        return true;
-    }
-
-    void Pose(float f)
-    {
-        if (animator == null) return;
-        animator.Pose(anim, f);
-        ShowPose();
-        settingFrame = true; frame.Value = frames > 0 ? f / frames : 0; settingFrame = false;
-    }
-
-    /// <summary>The pose last made: the effects, then the props on their bones (or the plain mesh).</summary>
-    void ShowPose()
-    {
-        if (animator == null) return;
-        if (fxPlayer != null) { view.Effects = fxPlayer.Quads(); view.EffectTris = fxPlayer.Tris(); }
-        else if (view.Effects.Count > 0 || view.EffectTris.Count > 0) { view.Effects = []; view.EffectTris = []; }
-        rig.At(anim == null || seconds <= 0 ? 0 : Math.Min(playTime, seconds));
-        rig.Update(view, animator);
-    }
-
-    void ScrubTo()
-    {
-        if (settingFrame || anim == null) return;
-        Player.Scrub(frame.Value * seconds);
-        FxReplay(playTime);
-        Pose(frame.Value * frames);
-    }
-
-    // --- framing and full screen ----------------------------------------------------------------------------------------------
-    /// <summary>A framing button: aims the camera as the Mod Manager's preview does (head centred).</summary>
-    void FrameShot(Framing.Shot shot)
-    {
-        if (animator == null) return;
-        Framing.Apply(view, animator, anim != null, shot, centerHead: true);
-        if (anim == null) animator.Pose(null, 0);
-        ShowPose();
-    }
-
-    readonly PreviewControls.FullScreen full = new();   // (shared with the Mods tab's preview)
-
-    /// <summary>Into or out of full screen: this panel moves into a borderless window on its monitor and back (F11).</summary>
-    public void ToggleFull() => full.Toggle(this, "Preview", PausePlayback, () => TogglePlayback(), view, new Padding(10), () => fullScreen.Invalidate());
-
-    public bool IsFull => full.IsFull;
 
     // --- skeleton overlay (0.12.0, Kurt: the skeleton over the model, the active bones highlighted) -----------------------------
     bool showBones;
@@ -459,10 +276,8 @@ sealed partial class PreviewPanel : UserControl
 
     /// <summary>Shows a character mesh and keeps what the view frames it by (its bounds, display space: Y mirrored), so the
     /// overlay can use the same camera; props come back through RebuildRig.</summary>
-    void ShowMeshFramed(ModMeshes.Loaded mesh)
+    void MeasureBones(ModMeshes.Loaded mesh)
     {
-        shownLoaded = mesh;
-        view.ShowMesh(Display(mesh));
         frameBones = mesh.Bones;
         frameDrawn = new bool[mesh.Bones.Count];
         foreach (var inf in mesh.Influences)
@@ -605,5 +420,5 @@ sealed partial class PreviewPanel : UserControl
         g.SmoothingMode = mode;
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) { player?.Dispose(); full.Dispose(); } base.Dispose(disposing); }
+
 }
