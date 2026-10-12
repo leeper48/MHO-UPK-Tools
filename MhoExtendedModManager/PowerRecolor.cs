@@ -242,7 +242,7 @@ static class PowerRecolor
 
     /// <summary>Builds the recolored package from a stock copy; null when it has nothing to recolor (Crack the Sky's own class:
     /// its lightning is the powers it sets off). Throws on any problem; writes nothing.</summary>
-    public static byte[]? Build(string stockFile, PowerColor color, string cooked, Action<string> log)
+    public static byte[]? Build(string stockFile, PowerColor color, string cooked, Action<string> log, bool onlyOwnSystems = false)
     {
         var pkg = Package.Open(stockFile);
         string file = Path.GetFileName(stockFile);
@@ -254,16 +254,34 @@ static class PowerRecolor
         // 1 + 2. Color tables, distribution vectors and material color parameters: in a copy of the body, sizes unchanged.
         byte[] body = pkg.Body.ToArray();
         var t = new FxTables(pkg);
-        var (tables, objects, left) = RecolorTables(body, t, color.Apply);
+        // A hero's package (Kurt, 2026-10-12: Ghost Rider's flaming skull): only its always-on effects (OwnSystems: the head
+        // and neck flames his attachment spawns) and the flame-lit materials change; his powers' and dodge effects, his body
+        // and his bike stay. Null: the whole package (an NPC's or enemy's own effects, a power package).
+        HashSet<int>? allowed = null;
+        SortedSet<int>? onlySystems = null;
+        if (onlyOwnSystems)
+        {
+            var fxp = new FxPkg(Path.GetFileName(stockFile), pkg.Body, t);
+            onlySystems = OwnSystems(fxp, cls);
+            if (onlySystems.Count == 0) { log($"{Path.GetFileName(stockFile)}: no always-on effects of its own"); return null; }
+            allowed = Within(t, pkg.Body, onlySystems, fxp);
+            log($"{onlySystems.Count} always-on effect(s): {string.Join(", ", onlySystems.Select(i => t.Exports[i].ObjectName))}");
+        }
+        var (tables, objects, left) = RecolorTables(body, t, color.Apply, allowed);
         if (color.Opacity < 0.995f)
         {
             var (at, ao, al) = ScaleAlpha(body, t, color.Opacity);
             log($"opacity {color.Opacity * 100:0} %: {at} alpha table(s) and {ao} alpha value(s) scaled" + (al > 0 ? $"; {al} alpha curve(s) left as they are" : ""));
         }
+        if (allowed != null)   // (what the tables changed outside the chosen effects goes back)
+            for (int i = 0; i < t.Exports.Count; i++)
+                if (!allowed.Contains(i) && t.Exports[i].SerialSize > 0)
+                    pkg.Body.AsSpan(t.Exports[i].SerialOffset, t.Exports[i].SerialSize).CopyTo(body.AsSpan(t.Exports[i].SerialOffset));
         var tinted = new SortedSet<int>();
         for (int i = 0; i < t.Exports.Count; i++)
         {
             if (!t.ClassOf(t.Exports[i]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)) continue;
+            if (allowed != null && !allowed.Contains(i)) continue;
             foreach (var (_, at) in VectorParameters(body, t, i))
             {
                 var r = color.Apply(new Vector3(F(body, at), F(body, at + 4), F(body, at + 8)));
@@ -292,6 +310,7 @@ static class PowerRecolor
             for (int i = 0; i < pkg.Exports.Length; i++)
             {
                 if (!t.ClassOf(t.Exports[i]).Equals("ParticleLODLevel", StringComparison.OrdinalIgnoreCase)) continue;
+                if (allowed != null && !allowed.Contains(i)) continue;
                 byte[] d = changed.TryGetValue(i, out var f0) ? f0(0) : pkg.ReadExportBytes(pkg.Exports[i]).ToArray();
                 if (EmitterOff(pkg, d, offNames) is { } nd) { changed[i] = _ => nd; off++; }
             }
@@ -299,7 +318,7 @@ static class PowerRecolor
             // a hologram the character's mesh component puts on it (the Holo Wolverine team-up): taken off, so the mesh's
             // own materials show
             string compPath = $"marvelgamecontent.default__{cls}.initialskeletalmesh";
-            int comp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+            int comp = allowed != null ? -1 : Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
             if (comp >= 0)
             {
                 byte[] cd = changed.TryGetValue(comp, out var cf) ? cf(0) : pkg.ReadExportBytes(pkg.Exports[comp]).ToArray();
@@ -320,7 +339,7 @@ static class PowerRecolor
         // 3. The drawn textures (the preview's pick for each emitter's material), recolored.
         var fx = new FxPkg(file, pkg.Body, t);
         var tex = new FxTextures([fx], cooked);
-        var (picked, materials, systems) = PickTextures(pkg, t, fx, tex);
+        var (picked, materials, systems) = PickTextures(pkg, t, fx, tex, onlySystems);
         var items = new List<TextureImport.Replacement>();
         var recolored = new SortedSet<int>();
         string temp = Path.Combine(Path.GetTempPath(), "mhoextmm_recolor_" + Guid.NewGuid().ToString("N")[..8]);
@@ -380,12 +399,13 @@ static class PowerRecolor
 
     /// <summary>The effect textures the package's particle systems draw (FxTextures' pick, those in this package), the
     /// materials showing them (with their parents) and the particle systems.</summary>
-    static (SortedSet<int> Picked, SortedSet<int> Materials, SortedSet<int> Systems) PickTextures(Package pkg, FxTables t, FxPkg fx, FxTextures tex)
+    static (SortedSet<int> Picked, SortedSet<int> Materials, SortedSet<int> Systems) PickTextures(Package pkg, FxTables t, FxPkg fx, FxTextures tex, IReadOnlySet<int>? only = null)
     {
         var picked = new SortedSet<int>(); var materials = new SortedSet<int>(); var systems = new SortedSet<int>();
         for (int i = 0; i < t.Exports.Count; i++)
         {
             if (!t.ClassOf(t.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
+            if (only != null && !only.Contains(i)) continue;
             systems.Add(i);
             var data = ParticleData.Read(fx, i);
             if (data == null) continue;
@@ -409,7 +429,7 @@ static class PowerRecolor
     /// together, else by 15 degrees of hue and three saturation steps; each group shows its weighted mean tint. Groups under
     /// 1 % are dropped; the largest first, at most <paramref name="max"/>.
     /// </summary>
-    public static List<Swatch> Palette(IEnumerable<string> files, string cooked, int max = 16)
+    public static List<Swatch> Palette(IEnumerable<string> files, string cooked, int max = 16, bool onlyOwnSystems = false)
     {
         var groups = new Dictionary<int, (Vector3 Sum, float W, HashSet<string> From)>();
         void Add(Vector3 v, float w, string from)
@@ -429,15 +449,26 @@ static class PowerRecolor
             var pkg = Package.Open(f);
             byte[] body = pkg.Body.ToArray();
             var t = new FxTables(pkg);
-            RecolorTables(body, t, v => { Add(v, 1, "particles"); return v; });
+            var fx = new FxPkg(Path.GetFileName(f), pkg.Body, t);
+            // (a hero's own effects: only the always-on ones, as the recolor does)
+            SortedSet<int>? onlySystems = null; HashSet<int>? allowed = null;
+            if (onlyOwnSystems)
+            {
+                string cls = Path.GetFileNameWithoutExtension(f);
+                if (cls.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) cls = cls[4..];
+                if (cls.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) cls = cls[..^3];
+                onlySystems = OwnSystems(fx, cls.ToLowerInvariant());
+                allowed = Within(t, pkg.Body, onlySystems, fx);
+            }
+            RecolorTables(body, t, v => { Add(v, 1, "particles"); return v; }, allowed);
             for (int i = 0; i < t.Exports.Count; i++)
             {
                 if (!t.ClassOf(t.Exports[i]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)) continue;
+                if (allowed != null && !allowed.Contains(i)) continue;
                 foreach (var (_, at) in VectorParameters(body, t, i)) Add(new Vector3(F(body, at), F(body, at + 4), F(body, at + 8)), 1, "materials");
             }
-            var fx = new FxPkg(Path.GetFileName(f), pkg.Body, t);
             var tex = new FxTextures([fx], cooked);
-            foreach (int i in PickTextures(pkg, t, fx, tex).Picked)
+            foreach (int i in PickTextures(pkg, t, fx, tex, onlySystems).Picked)
             {
                 if (tex.Decoded(fx, i) is not { } d) continue;
                 byte[] p = d.Bgra;
@@ -492,6 +523,70 @@ static class PowerRecolor
         return o;
     }
 
+    /// <summary>
+    /// A character package's always-on particle systems in the package itself (what the preview's own effects play,
+    /// PowerEffects.Own): the templates its class default's attachment classes spawn (PEffectTemplates: Ghost Rider's
+    /// vfx_gr_bodyflames_head and _neck), and its own EntityFxParticle components with no ActivationPoint. 0-based exports.
+    /// </summary>
+    public static SortedSet<int> OwnSystems(FxPkg p, string cls)
+    {
+        var found = new SortedSet<int>();
+        int Find(string path) => p.Find(path);
+        List<FxProps.Prop> Props(int i) => FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props ?? [];
+        List<int> Refs(FxProps.Prop a)
+        {
+            int n = a.Size >= 4 ? BitConverter.ToInt32(p.Bytes, a.ValueAt) : 0;
+            return n >= 0 && a.Size == 4 + 4 * n ? Enumerable.Range(0, n).Select(k => BitConverter.ToInt32(p.Bytes, a.ValueAt + 4 + 4 * k)).ToList() : [];
+        }
+        void Add(int r) { if (r > 0 && p.T.ClassOf(p.T.Exports[r - 1]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) found.Add(r - 1); }
+        int def = Find("marvelgamecontent.default__" + cls);
+        if (def < 0) return found;
+        if (Props(def).FirstOrDefault(x => x.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is { } ac)
+            foreach (int r in Refs(ac).Where(r => r != 0))
+            {
+                string aname = r > 0 ? p.T.Exports[r - 1].ObjectName : p.T.Imports[-r - 1].ObjectName;
+                int ad = Find("marvelgamecontent.default__" + aname.ToLowerInvariant());
+                if (ad >= 0 && Props(ad).FirstOrDefault(x => x.Name.Equals("PEffectTemplates", StringComparison.OrdinalIgnoreCase)) is { } et)
+                    foreach (int sr in Refs(et)) Add(sr);
+            }
+        string prefix = "marvelgamecontent.default__" + cls + ".";
+        for (int i = 0; i < p.T.Exports.Count; i++)
+        {
+            if (!p.T.ClassOf(p.T.Exports[i]).Equals("EntityFxParticle", StringComparison.OrdinalIgnoreCase) || !p.T.PathOf(i + 1).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            var ep = Props(i);
+            if (ep.Any(x => x.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase))) continue;
+            if (ep.FirstOrDefault(x => x.Name.Equals("ParticleSystemTemplate", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } sp) Add(BitConverter.ToInt32(p.Bytes, sp.ValueAt));
+        }
+        return found;
+    }
+
+    /// <summary>The exports a recolor of <paramref name="systems"/> may change: everything inside them (their emitters, LOD
+    /// levels, modules, distributions), the materials their emitters draw with (and their parents), and the package's
+    /// flame-lit materials (a parent chain through a "flamelit" material: Ghost Rider's skull lit by his flame).</summary>
+    static HashSet<int> Within(FxTables t, byte[] b, SortedSet<int> systems, FxPkg fx)
+    {
+        var set = new HashSet<int>(systems);
+        for (int i = 0; i < t.Exports.Count; i++)
+            for (int o = t.Exports[i].Outer, guard = 0; o > 0 && guard < 32; o = t.Exports[o - 1].Outer, guard++)
+                if (systems.Contains(o - 1)) { set.Add(i); break; }
+        var mats = new SortedSet<int>();
+        foreach (int s in systems)
+            if (ParticleData.Read(fx, s) is { } data)
+                foreach (var em in data.Emitters) MaterialChain(t, b, em.Required.Ref("Material"), mats);
+        set.UnionWith(mats);
+        for (int i = 0; i < t.Exports.Count; i++)
+        {
+            if (!t.ClassOf(t.Exports[i]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)) continue;
+            var chain = new SortedSet<int>();
+            MaterialChain(t, b, i + 1, chain);
+            bool flameLit = chain.Any(c => t.Exports[c].ObjectName.Contains("flamelit", StringComparison.OrdinalIgnoreCase))
+                || (FxProps.Find(b, t, t.Exports[i])?.Props.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } pp
+                    && BitConverter.ToInt32(b, pp.ValueAt) is int pr && pr < 0 && t.Imports[-pr - 1].ObjectName.Contains("flamelit", StringComparison.OrdinalIgnoreCase));
+            if (flameLit) set.Add(i);
+        }
+        return set;
+    }
+
     /// <summary>A material and its parents (MIC → parent …) that are exports of this package.</summary>
     static void MaterialChain(FxTables t, byte[] b, int reference, SortedSet<int> into)
     {
@@ -529,13 +624,14 @@ static class PowerRecolor
 
     /// <summary>Every color module's RGB distributions recolored in place (sizes unchanged). Returns the lookup tables and
     /// distribution-object vectors changed, and the curves left (not baked: rare).</summary>
-    public static (int Tables, int Objects, int Left) RecolorTables(byte[] b, FxTables t, Func<Vector3, Vector3> apply)
+    public static (int Tables, int Objects, int Left) RecolorTables(byte[] b, FxTables t, Func<Vector3, Vector3> apply, IReadOnlySet<int>? only = null)
     {
         int tables = 0, objects = 0, left = 0;
         var doneObjects = new HashSet<int>();
         for (int i = 0; i < t.Exports.Count; i++)
         {
             if (!t.ClassOf(t.Exports[i]).StartsWith("ParticleModuleColor", StringComparison.OrdinalIgnoreCase)) continue;
+            if (only != null && !only.Contains(i)) continue;
             foreach (var prop in FxProps.Find(b, t, t.Exports[i])?.Props ?? [])
             {
                 if (!prop.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase)) continue;

@@ -24,6 +24,8 @@ static class PreviewViews
         public bool Props { get; set; } = true;
         /// <summary>Power effects played with a power's animation in the preview.</summary>
         public bool Powers { get; set; } = true;
+        /// <summary>The power effects' strength in the 3D previews (Look ▾ → Effects).</summary>
+        public float EffectStrength { get; set; } = DefaultFxPower;
         public Dictionary<string, float> Lights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>The 3D preview's lens (35 mm-equivalent focal length) per mod on this PC (Kurt, from a user).</summary>
         public Dictionary<string, float> Lenses { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -203,6 +205,12 @@ static class PreviewViews
         D.PowerPresets[k] = [c.Hue, c.Saturation, c.Brightness];
         Save();
     }
-    /// <summary>Power effects' strength in the preview (opacity / glow; 1 = the game's values): 10 % (Kurt; no slider).</summary>
-    public const float FxPower = 0.10f;
+    /// <summary>Power effects' strength in the 3D previews (opacity / glow; 1 = the game's values): 10 % unless changed (Kurt,
+    /// 2026-10-12: Look ▾ → Effects, as the default can be too faint to see), remembered on this PC for every preview.</summary>
+    public static float FxPower
+    {
+        get => D.EffectStrength > 0 ? D.EffectStrength : DefaultFxPower;
+        set { float v = Math.Clamp(value, 0.01f, 1f); if (Math.Abs(D.EffectStrength - v) < 1e-4f) return; D.EffectStrength = v; Save(); }
+    }
+    public const float DefaultFxPower = 0.10f;
 }

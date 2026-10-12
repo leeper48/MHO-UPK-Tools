@@ -1,6 +1,24 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.270
+- Powers tab: a costume whose always-on effects are its hero's (Ghost Rider ModernVU) shows the hero's Own Effects entry straight away, with its colors; Save adds the hero's package by itself when a color is set. The costume's own entry, which could never keep a color, is gone.
+
+0.37.268
+- Save asks first when an Own Effects color is set on a costume whose effects are its hero's (Ghost Rider ModernVU's flame): Add It and Save adds the hero's package and moves the color onto its Own Effects; Save Without It drops it.
+
+0.37.267
+- Powers tab: a costume that takes its always-on effects from its hero (Ghost Rider ModernVU: his flaming skull is in the base package) gets the Own Effects entry too; it says where they are, and Add It to This Mod adds that package so you can recolor or hide them.
+
+0.37.266
+- The Model tab's power buttons are no longer clipped either.
+
+0.37.265
+- 3D previews: Look ▾ has an Effects slider, how strong power effects are drawn (10 % by default; raise it when an effect is too faint to see). Remembered for every preview.
+
+0.37.264
+- Editor, Powers tab: a hero's or costume's package gets an Own Effects entry when it has always-on effects of its own. Ghost Rider's flaming skull can be recolored, or hidden with Opacity 0 %: only his head and neck flames and the skull's flame light change, not his powers, body or bike.
+
 0.37.262
 - CRASH RISK: Fix Mirror Tables. A model whose mirror table doesn't have one entry per bone (added bones for a cape, dress, wings or loincloth, or Blender's leftover _end bones) gets an entry for every bone: an added left bone mirrors its right partner, others themselves. From the pill's window for an installed mod; the Model tab's Build into Mod does it by itself.
 - CRASH RISK no longer counts the game's copy of a model in a file the mod replaces too (Rogue Modern VU ships her illusion's and pet's packages, with the same bones: it was flagged against the game's originals).

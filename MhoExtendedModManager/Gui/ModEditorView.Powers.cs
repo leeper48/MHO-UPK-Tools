@@ -191,7 +191,15 @@ sealed partial class ModEditorView
     List<Fx.PowerList.Power> OwnEffects()
     {
         var list = new List<Fx.PowerList.Power>();
-        foreach (var (file, _) in draft.Packages.Where(p => PowerColorBuild.HasOwnEffects(p.File)).OrderBy(p => p.File, StringComparer.OrdinalIgnoreCase))
+        var homes = new List<string>();
+        foreach (var (pf, src) in draft.Packages.Where(p => PowerColorBuild.HasOwnEffects(p.File)).OrderBy(p => p.File, StringComparer.OrdinalIgnoreCase))
+        {
+            // a costume with no always-on effects of its own (Ghost Rider ModernVU): its hero's entry instead, even before that
+            // package is in the mod (Save adds it; Kurt, 2026-10-12: the costume's own entry could never keep a color)
+            string? home = PowerColorBuild.IsHero(pf) ? PowerColorBuild.OwnHome(pf, src) : pf;
+            if (home != null && !homes.Contains(home, StringComparer.OrdinalIgnoreCase)) homes.Add(home);
+        }
+        foreach (string file in homes)
         {
             string stem = Path.GetFileNameWithoutExtension(file);
             string name = stem[(stem.IndexOf('_', 4) + 1)..];
@@ -214,6 +222,8 @@ sealed partial class ModEditorView
         {
             string f = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
             string text = $"Its color goes into {f} itself; a model built into it stays.";
+            if (!draft.Packages.Any(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)))
+                text = $"These effects are in {f} (this mod's costume takes them from it): Save adds that package to the mod (the game's copy) with their color. It then reaches the hero's costumes that use them.";
             powerShared.Text = text;
             // a character that extends another package's (the Sinister Medal pets: the mob clones' model and red glow)
             string? path = draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source;
@@ -262,6 +272,74 @@ sealed partial class ModEditorView
             powerShared.Text = $"Its color goes into {n} package(s) (its own and what it sets off: missiles, hotspots, conditions, summons)."
                 + (shared.Count > 0 ? "\nAlso changes, as they use the same effects: " + string.Join(", ", shared) + "." : "");
         }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>
+    /// Before saving (Kurt, 2026-10-12): an Own Effects color set on a costume whose always-on effects are its hero's (Ghost
+    /// Rider ModernVU: his flaming skull is in the base package) would do nothing, as the costume has none to recolor. Asks:
+    /// add the hero's package and move the color to its Own Effects (Add It and Save), save without it, or cancel. False:
+    /// cancelled.
+    /// </summary>
+    bool OwnColorsAtHome()
+    {
+        if (game == null) return true;
+        // a color on a hero's entry whose package isn't in the mod yet (the costume's effects are its hero's): the package is
+        // added (the game's clean copy)
+        var added = new List<string>();
+        foreach (var e in draft.PowerColors.Where(e => PowerColorBuild.IsOwn(e.Power) && !e.Color.IsNone).ToList())
+        {
+            string f = e.Power[PowerColorBuild.OwnPrefix.Length..];
+            if (draft.Packages.Any(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase))) continue;
+            if (!AddPackageFromGame(f)) return false;
+            added.Add(f);
+        }
+        if (added.Count > 0) { RefreshPackages(); powerCaption.Text = Ui.TitleCase($"Added {string.Join(", ", added)} for its own effects' color"); }
+        var moves = new List<(PowerColorEntry Entry, string File, string Parent)>();
+        foreach (var e in draft.PowerColors.Where(e => PowerColorBuild.IsOwn(e.Power) && !e.Color.IsNone).ToList())
+        {
+            string f = e.Power[PowerColorBuild.OwnPrefix.Length..];
+            if (!PowerColorBuild.IsHero(f)) continue;
+            string? src = draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source;
+            if (src == null || !File.Exists(src) || PowerColorBuild.OwnSystemsIn(src) > 0) continue;
+            if (PowerColorBuild.ParentPackage(src, game.Cooked) is string parent) moves.Add((e, f, parent));
+        }
+        if (moves.Count == 0) return true;
+        string list = string.Join("\n", moves.Select(m => $"{m.Entry.Name}: its effects are in {m.Parent}"));
+        int pick = Dialog.Choose(this, $"These colors won't be saved as they are: the costume has no always-on effects of its own, its hero's package has them, and this mod doesn't hold it.\n\n{list}\n\nAdd It and Save adds that package (the game's copy) and puts the color on its Own Effects (it then reaches the hero's costumes that use those effects).",
+            "Own Effects Not in This Mod", "Add It and Save", "Save Without It", "Cancel");
+        if (pick == 2 || pick < 0) return false;
+        foreach (var (e, f, parent) in moves)
+        {
+            if (pick == 1) { draft.PowerColors.Remove(e); continue; }
+            if (!AddPackageFromGame(parent)) return false;
+            string power = PowerColorBuild.OwnPrefix + parent;
+            draft.PowerColors.RemoveAll(x => x != e && x.Power.Equals(power, StringComparison.OrdinalIgnoreCase));   // (one color for that package: this one)
+            e.Power = power;
+            e.Name = OwnEffects().FirstOrDefault(o => o.Prototype.Equals(power, StringComparison.OrdinalIgnoreCase))?.Name ?? e.Name;
+        }
+        RefreshPackages();
+        FillPowers();
+        // the entry that holds the color now, selected (Kurt, 2026-10-12: the costume's entry stayed selected, showing the game's
+        // colors, and the values looked lost)
+        if (pick == 0 && moves.Count > 0)
+        {
+            string moved = moves[0].Entry.Power;
+            int at = powerList.Items.Cast<Fx.PowerList.Power>().ToList().FindIndex(x => x.Prototype.Equals(moved, StringComparison.OrdinalIgnoreCase));
+            if (at >= 0) powerList.SelectedIndex = at;
+            powerCaption.Text = Ui.TitleCase($"Color moved to {moves[0].Entry.Name}");
+        }
+        return true;
+    }
+
+    /// <summary>A game package (the clean original) into the mod's packages; false (with a message) when there's no clean copy.</summary>
+    bool AddPackageFromGame(string f)
+    {
+        if (game == null) return false;
+        if (draft.Packages.Any(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase))) return true;
+        string? source = new Originals(lib.DataFolder, game).Find(f) ?? (StockFiles.For(game.Cooked, f) is var st && File.Exists(st) ? st : null);
+        if (source == null) { Dialog.Show(this, $"{f}: no clean original of this package (the game's copy is changed).", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+        draft.Packages.Add((f, source));
+        return true;
     }
 
     /// <summary>Add It to This Mod: the parent package (the game's original copy) into the mod's packages, then its Own Effects

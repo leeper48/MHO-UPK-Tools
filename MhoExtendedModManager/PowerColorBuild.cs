@@ -63,7 +63,8 @@ static class PowerColorBuild
                 source = OwnStart(draft, editing, f, k, beforeOwn.Contains(f), ModelFolder());
             }
             if (source == null) throw new InvalidDataException($"{f}: no clean original of this power package (the game's copy is changed)");
-            byte[]? bytes = PowerRecolor.Build(source, e.Color, game.Cooked, l => log.Add($"{e.Name}: {l}"));
+            // (a hero's package: only its always-on effects, the rest of it is the hero; Ghost Rider's flaming skull)
+            byte[]? bytes = PowerRecolor.Build(source, e.Color, game.Cooked, l => log.Add($"{e.Name}: {l}"), onlyOwnSystems: IsOwn(e.Power) && IsHero(f));
             if (bytes == null) { e.Packages.Remove(f); continue; }   // nothing in it to recolor: not part of the mod
             string file = Path.Combine(work, f);
             File.WriteAllBytes(file, bytes);
@@ -113,7 +114,9 @@ static class PowerColorBuild
             var imp = pkg.Imports[-super - 1];
             if (!imp.ClassName.Equals("Class", StringComparison.OrdinalIgnoreCase)) return null;
             string parent = imp.ObjectName;
-            if (!(parent.StartsWith("marvelagent_", StringComparison.OrdinalIgnoreCase) || parent.StartsWith("marvelnpc_", StringComparison.OrdinalIgnoreCase))) return null;
+            // (a hero's costume extends the hero: Ghost Rider ModernVU → marvelplayer_ghostrider, whose package keeps his flames)
+            if (!(parent.StartsWith("marvelagent_", StringComparison.OrdinalIgnoreCase) || parent.StartsWith("marvelnpc_", StringComparison.OrdinalIgnoreCase)
+                || parent.StartsWith("marvelplayer_", StringComparison.OrdinalIgnoreCase))) return null;
             string want = $"UC__{parent}_SF.upk";
             return Directory.EnumerateFiles(cooked, want).Select(Path.GetFileName).FirstOrDefault(f => f!.Equals(want, StringComparison.OrdinalIgnoreCase));
         }
@@ -128,11 +131,66 @@ static class PowerColorBuild
         return stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
     }
 
-    /// <summary>An NPC, enemy, team-up or hero audio package: its own effects can be recolored (a team-up's hologram too).</summary>
+    /// <summary>An NPC, enemy, team-up or hero audio package: its own effects can be recolored (a team-up's hologram too). A
+    /// hero's (or costume's) package too, limited to its always-on effects (Kurt, 2026-10-12: Ghost Rider's flaming skull, which
+    /// no material setting reaches: his attachment's particle systems).</summary>
     public static bool HasOwnEffects(string file) =>
         file.StartsWith("UC__MarvelAgent_", StringComparison.OrdinalIgnoreCase) || file.StartsWith("UC__MarvelNPC_", StringComparison.OrdinalIgnoreCase)
         || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase)
-        || file.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase);   // (Jean Grey's: her Phoenix form's flames and wings, 2026-10-07)
+        || file.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase)   // (Jean Grey's: her Phoenix form's flames and wings, 2026-10-07)
+        || IsHero(file) && HeroHasOwn(file);
+
+    static readonly Dictionary<string, string?> ownHome = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Where a hero or costume package's always-on effects are: the file itself when it has them, else its hero's package when
+    /// the costume's class extends it and that has them (Ghost Rider ModernVU → UC__MarvelPlayer_GhostRider_SF.upk: his
+    /// flaming skull), else null. Read once per package (call off the UI thread the first time).
+    /// </summary>
+    public static string? OwnHome(string file, string path)
+    {
+        if (!IsHero(file) || !File.Exists(path)) return null;
+        string key = path + "|" + File.GetLastWriteTimeUtc(path).Ticks;
+        lock (ownHome) if (ownHome.TryGetValue(key, out var hit)) return hit;
+        string? home = null;
+        if (OwnSystemsIn(path) > 0) home = file;
+        else if (StockFiles.Cooked is string cooked && ParentPackage(path, cooked) is string parent && StockFiles.For(cooked, parent) is string pp && File.Exists(pp) && OwnSystemsIn(pp) > 0) home = parent;
+        lock (ownHome) ownHome[key] = home;
+        return home;
+    }
+
+    /// <summary>How many always-on effects a hero package itself has (PowerRecolor.OwnSystems).</summary>
+    public static int OwnSystemsIn(string path)
+    {
+        try { return PowerRecolor.OwnSystems(Fx.FxPkg.Open(path), Path.GetFileNameWithoutExtension(path)[4..^3].ToLowerInvariant()).Count; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentOutOfRangeException) { return 0; }
+    }
+
+    /// <summary>A hero's or costume's package (UC__MarvelPlayer_…, not the audio ones).</summary>
+    public static bool IsHero(string file) => file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) && !file.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase);
+
+    static readonly Dictionary<string, bool> heroOwn = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The hero package has always-on effects of its own (the game's copy, read once per file).</summary>
+    static bool HeroHasOwn(string file)
+    {
+        lock (heroOwn) if (heroOwn.TryGetValue(file, out bool hit)) return hit;
+        bool has = false;
+        try
+        {
+            if (StockFiles.Cooked is string cooked && StockFiles.For(cooked, file) is string path && File.Exists(path))
+            {
+                string cls = Path.GetFileNameWithoutExtension(file)[4..^3].ToLowerInvariant();
+                has = PowerRecolor.OwnSystems(Fx.FxPkg.Open(path), cls).Count > 0;
+                // a costume whose class extends the hero's (Ghost Rider's ModernVU: no attachments of its own, so his flaming skull
+                // comes from the base package; Kurt, 2026-10-12): the entry is offered, and it points at the package that has them
+                if (!has && ParentPackage(path, cooked) is string parent && StockFiles.For(cooked, parent) is string pp && File.Exists(pp))
+                    has = PowerRecolor.OwnSystems(Fx.FxPkg.Open(pp), parent[4..^7].ToLowerInvariant()).Count > 0;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+        lock (heroOwn) heroOwn[file] = has;
+        return has;
+    }
 
     /// <summary>
     /// The package an own-effects recolor starts from. The mod's saved copy that an earlier recolor made: the copy kept before

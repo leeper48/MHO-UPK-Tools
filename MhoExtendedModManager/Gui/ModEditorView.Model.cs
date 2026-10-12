@@ -90,6 +90,7 @@ sealed partial class ModEditorView : IModelHost
                 if (!ok) { Dialog.Show(this, "The build didn't finish, so nothing was saved: see the Model tab's log.", "Not Saved", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             }
         }
+        if (!OwnColorsAtHome()) return;
         Save();
     }
 

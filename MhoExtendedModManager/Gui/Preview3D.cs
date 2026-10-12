@@ -46,6 +46,7 @@ sealed partial class Preview3D : UserControl
     readonly LightSlider light = new() { Label = "Light", Height = 26 };
     readonly LightSlider glowSlider = new() { Label = "Glow", Min = 0f, Max = 2f, Height = 26 };
     readonly LightSlider lens = new() { Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = 50, Height = 26, Format = v => $"{v:0} mm" };
+    readonly LightSlider effectsSlider = new() { Label = "Effects", Min = 0.01f, Max = 1f, Step = 0.01f, Mark = PreviewViews.DefaultFxPower, Height = 26, Format = v => $"{v * 100:0} %" };
     readonly Label fxLabel = new() { AutoSize = true, Margin = new Padding(6, 8, 0, 0) };
     readonly Control bar;
     readonly Control powerBlock;
@@ -123,6 +124,10 @@ sealed partial class Preview3D : UserControl
         Ui.Tip(light, "Light strength (double-click: 100 %). Remembered.");
         Ui.Tip(glowSlider, "How strong the glowing (emissive) parts are (double-click: 100 %). Remembered.");
         Ui.Tip(lens, "The camera's lens (35 mm equivalent): short is wide with strong perspective, long is flatter; the model stays the same size (double-click: 50 mm). Remembered.");
+        Ui.Tip(effectsSlider, "How strong the power effects are drawn (their opacity and glow; 100 % = the game's values, which look much brighter here than in game). Raise it when an effect is too faint to see (double-click: 10 %). Remembered for every 3D preview.");
+        effectsSlider.Value = PreviewViews.FxPower; effectsSlider.Home = () => PreviewViews.DefaultFxPower; view.EffectStrength = PreviewViews.FxPower;
+        effectsSlider.ValueChanged += () => { view.EffectStrength = effectsSlider.Value; view.Invalidate(); };
+        effectsSlider.Committed += () => PreviewViews.FxPower = effectsSlider.Value;
         Ui.Tip(fxLabel, "The power the animation belongs to and how many of its effects play.");
         fxLabel.ForeColor = Ui.Subtle;
         light.Value = prefs.Light; light.Home = () => LightHome?.Invoke() ?? 1; view.Brightness = prefs.Light;
@@ -145,7 +150,10 @@ sealed partial class Preview3D : UserControl
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent, Margin = new Padding(0) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 3; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int i = 0; i < 2; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        // the power block's row: an exact height for its button rows (an auto-sized row measured them as one row and the
+        // second was clipped; Kurt, 2026-10-12), set in FitPowerRow
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         root.Controls.Add(view, 0, 0);
         // one row (Kurt, 2026-10-04: the animation list was twice as wide as it needs; Look, Reset View, the framing and full
         // screen buttons beside it): the list takes what the buttons leave
@@ -156,6 +164,7 @@ sealed partial class Preview3D : UserControl
         root.Controls.Add(powerBlock, 0, 3);   // Power FXs + the power buttons
         rootTable = root;
         Controls.Add(root);
+        root.SizeChanged += (_, _) => FitPowerRow();
     }
 
     static Control Strip(Control? fill, Control[] buttons)
@@ -174,6 +183,7 @@ sealed partial class Preview3D : UserControl
         light.Value = prefs.Light; view.Brightness = prefs.Light;
         lens.Value = prefs.Lens; view.FocalLength = prefs.Lens;
         glowSlider.Value = prefs.GlowStrength; view.GlowStrength = prefs.GlowStrength;
+        effectsSlider.Value = PreviewViews.FxPower; view.EffectStrength = PreviewViews.FxPower;
         Ui.Lit(loop, prefs.Loop);
         ApplyLook();
     }
@@ -196,7 +206,7 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Bloom, () => prefs.Bloom = !prefs.Bloom, () => prefs.Props, () => { prefs.Props = !prefs.Props; LoadProps(); },
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); });
             items.AddRange(ExtraLook);
-            lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens], S, () => { prefs.Save(); ApplyLook(); });
+            lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });
         }
         Ui.ShowUnder(lookMenu, look);
     }
@@ -508,10 +518,21 @@ sealed partial class Preview3D : UserControl
         if (host == null) rootTable.Controls.Add(powerBlock, 0, 3);
         else { powerBlock.Dock = DockStyle.Fill; host.Controls.Add(powerBlock); }
         powerHost = host;
+        FitPowerRow();
     }
 
     /// <summary>The power block shown (off in the editor's Powers and Animations tabs: their own lists pick).</summary>
-    public bool ShowPowerBlock { get => powerBlock.Visible; set => powerBlock.Visible = value; }
+    public bool ShowPowerBlock { get => powerBlock.Visible; set { powerBlock.Visible = value; FitPowerRow(); } }
+
+    /// <summary>The power block's row in this control: as tall as its button rows at the width it has (none when the host
+    /// holds the block, or it's hidden).</summary>
+    void FitPowerRow()
+    {
+        if (rootTable == null || rootTable.RowStyles.Count < 4) return;
+        float h = powerHost == null && powerBlock.Visible ? PowerBlockHeight(Math.Max(1, rootTable.ClientSize.Width - powerBlock.Margin.Horizontal)) : 0;
+        var rs = rootTable.RowStyles[3];
+        if (rs.SizeType != SizeType.Absolute || Math.Abs(rs.Height - h) > 0.5f) { rs.SizeType = SizeType.Absolute; rs.Height = h; }
+    }
     /// <summary>The power block's height as laid out (the host sizes its place for it).</summary>
     public int PowerBlockHeight(int width)
     {

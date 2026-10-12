@@ -48,11 +48,12 @@ sealed partial class ModEditorView
             // a character's own effects: the package as the mod has it (the one kept before an earlier recolor, if any)
             string f = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
             string? path = editing != null && Path.Combine(editing.Folder, ModelWork.Folder, "color_base", f) is var kb && File.Exists(kb) ? kb
-                : draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source;
+                : draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source
+                  ?? (StockFiles.For(game.Cooked, f) is var gf && File.Exists(gf) ? gf : null);   // (a hero's package Save will add: the game's copy)
             if (path == null) { paletteNote.Text = ""; return; }
             paletteNote.Text = "Reading…";
             var gc = game;
-            Task.Run(() => PowerRecolor.Palette([path], gc.Cooked)).ContinueWith(t =>
+            Task.Run(() => PowerRecolor.Palette([path], gc.Cooked, onlyOwnSystems: PowerColorBuild.IsHero(f))).ContinueWith(t =>
             {
                 if (IsDisposed || req != paletteRequest) return;
                 if (t.Status != TaskStatus.RanToCompletion) { paletteNote.Text = "Its Colors Couldn't Be Read"; return; }

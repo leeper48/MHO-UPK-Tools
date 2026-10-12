@@ -118,6 +118,7 @@ sealed partial class Preview3D
         foreach (var b in powerButtons) b.Dispose();   // (disposed while still in the strip, then cleared)
         powerButtons.Clear();
         powerStrip.Controls.Clear();
+        FitPowerRow();
     }
 
     /// <summary>The hero's powers for the power buttons (in the background; their icons decoded there too).</summary>
@@ -166,6 +167,7 @@ sealed partial class Preview3D
         }
         Ui.RestyleButtons(powerStrip);
         powerStrip.ResumeLayout();
+        FitPowerRow();
         RefreshPowerButtons();
     }
 

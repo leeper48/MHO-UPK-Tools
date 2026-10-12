@@ -644,6 +644,27 @@ static partial class Program
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
                 return 0;
             }
+            case "--own-homes":
+            {
+                // Read-only: for every hero / costume package of the game, where its always-on effects are (PowerColorBuild.OwnHome:
+                // itself, its hero's package, or none). --own-homes
+                string? hgr = settings.ResolvedGameRoot(data);
+                if (hgr == null || !Settings.IsGameRoot(hgr)) { Console.WriteLine("game folder not found"); return 1; }
+                StockFiles.Init(new GameState(hgr, lib.DataFolder), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string hcook = Settings.Cooked(hgr);
+                int own = 0, parent = 0, none = 0;
+                foreach (string f in Directory.EnumerateFiles(hcook, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileName).OfType<string>()
+                    .Where(f => PowerColorBuild.IsHero(f) && !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f))
+                {
+                    string? path = StockFiles.For(hcook, f);
+                    string? home = path == null ? null : PowerColorBuild.OwnHome(f, path);
+                    if (home == null) { none++; continue; }
+                    if (home.Equals(f, StringComparison.OrdinalIgnoreCase)) { own++; Console.WriteLine($"own     {f}"); }
+                    else { parent++; Console.WriteLine($"parent  {f} → {home}"); }
+                }
+                Console.WriteLine($"{own} with always-on effects of their own, {parent} taking them from their hero's package, {none} without");
+                return 0;
+            }
             case "--mirror-fix-mod":
             {
                 // Test (a scratch MHO_EXTMM_HOME only): a mod's mirror tables fixed and saved as the CRASH RISK dialog does.
@@ -922,7 +943,9 @@ static partial class Program
                 try
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
-                    byte[]? built = PowerRecolor.Build(stock, color, Settings.Cooked(rgr), l => Console.WriteLine("  " + l));
+                    // --own: only the package's always-on effects (a hero's: Ghost Rider's flaming skull); --opacity N (0-1)
+                    if (rest.IndexOf("--opacity") is int oi and > 0 && oi + 1 < rest.Count) color = color with { Opacity = float.Parse(rest[oi + 1], System.Globalization.CultureInfo.InvariantCulture) };
+                    byte[]? built = PowerRecolor.Build(stock, color, Settings.Cooked(rgr), l => Console.WriteLine("  " + l), onlyOwnSystems: rest.Contains("--own"));
                     if (built == null) { Console.WriteLine("nothing to recolor in it; no file written"); return 0; }
                     File.WriteAllBytes(rout, built);
                     Console.WriteLine($"built and verified: {rout} ({built.Length:N0} bytes, {sw.ElapsedMilliseconds} ms) from {stock}");
