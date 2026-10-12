@@ -513,7 +513,14 @@ sealed partial class Preview3D : UserControl
     /// <summary>The power block shown (off in the editor's Powers and Animations tabs: their own lists pick).</summary>
     public bool ShowPowerBlock { get => powerBlock.Visible; set => powerBlock.Visible = value; }
     /// <summary>The power block's height as laid out (the host sizes its place for it).</summary>
-    public int PowerBlockHeight(int width) => powerBlock.GetPreferredSize(new Size(width, 0)).Height + powerBlock.Margin.Vertical;
+    public int PowerBlockHeight(int width)
+    {
+        // (measured part by part: the table's own preferred size measured the button rows at an unbounded width, one row,
+        // and the Mods tab clipped the second; Kurt, 2026-10-12)
+        int head = Math.Max(powersButton.Height + powersButton.Margin.Vertical, fxLabel.PreferredHeight + fxLabel.Margin.Vertical);
+        int rows = powerStrip.GetPreferredSize(new Size(Math.Max(1, width), 0)).Height;
+        return powerBlock.Margin.Vertical + head + rows + (int)(4 * S);
+    }
 
     // --- checks ---------------------------------------------------------------------------------------------------------------------
     /// <summary>Checks: the controls as a user clicks them.</summary>
@@ -523,7 +530,6 @@ sealed partial class Preview3D : UserControl
     internal LightSlider LightSlider => light;
     internal DropDown AnimationBox => anims;
     internal bool Paused => !IsPlaying;
-    internal void ShowPoseForTest() => ShowPose();
     /// <summary>The power line under the view (checks).</summary>
     public string EffectsNote => fxLabel.Text + $" · props {rig.Count}";
     /// <summary>The material swap drawn now (checks): "n of m section(s)", else "none".</summary>

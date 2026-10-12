@@ -106,12 +106,4 @@ sealed class PreviewProps
                 else { rig.SetRules(rules, contact, Seconds()); rig.SetMotions(seqs); ShowPose(); }
             }, TaskScheduler.FromCurrentSynchronizationContext());
     }
-
-    /// <summary>The power's switches dropped (the animation stopped): only what's always held shows.</summary>
-    public void ClearRules()
-    {
-        if (rules.Count == 0) return;
-        rules = [];
-        rig.SetRules(rules, 0, 0);
-    }
 }
