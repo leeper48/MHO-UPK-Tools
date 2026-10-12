@@ -29,11 +29,19 @@ sealed partial class StorePreview : Control
     double? keepFraction;                         // Powers tab: the next animation opens at this fraction of its length (PlayPower)
     double? restoreTime;                          // the saved frame (seconds) to show when the animation being restored has loaded
     string? shownMesh;                            // the mesh the 3D view holds (kept while a picture shows, so going back keeps pose and camera)
-    AnimExportCli.Animation.BoneAnimation? playing;
+    AnimPlayer? player;
+    /// <summary>The playback (shared with the Model tab's preview): the animation, where it is, paused or playing, the timer.</summary>
+    AnimPlayer Player => player ??= new AnimPlayer
+    {
+        Loop = () => PreviewViews.Loop,
+        Moved = PlayMoved,
+        StateChanged = UpdateButtons,
+        CanRun = () => { if (show3D && Visible) return true; SaveAnim(); return false; },   // hidden: hold the frame
+    };
+    AnimExportCli.Animation.BoneAnimation? playing => player?.Anim;
     MeshAnimator? animator;
-    float playFrames, playSeconds;
-    readonly System.Diagnostics.Stopwatch playClock = new();
-    readonly System.Windows.Forms.Timer playTimer = new() { Interval = 33 };
+    float playFrames => player?.Frames ?? 0;
+    float playSeconds => player?.Seconds ?? 0;
     DropDown? animBox;
     bool fillingAnims;
     // Play / pause (an animation loads paused on its first frame), loop (remembered), reset view (the default camera).
@@ -88,8 +96,8 @@ sealed partial class StorePreview : Control
     readonly PreviewControls.FullScreen full = new();   // (shared with the Model tab's preview)
     /// <summary>The preview is in its full-screen window.</summary>
     public bool IsFull => full.IsFull;
-    bool paused = true;
-    double playTime, lastTick;
+    bool paused => player?.Paused ?? true;
+    double playTime { get => player?.Time ?? 0; set => Player.Time = value; }
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
     static string? AnimPart(string? key) { int at = key?.IndexOf('@') ?? -1; return at < 0 ? null : key![(at + 1)..]; }
     bool MeshOk => meshIndex >= 0 && meshIndex < meshes.Count;
@@ -636,7 +644,7 @@ sealed partial class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); playTimer.Dispose(); effects?.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); player?.Dispose(); effects?.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
         base.Dispose(disposing);
     }
 }

@@ -28,8 +28,6 @@ sealed partial class PreviewPanel : UserControl
     readonly LightSlider glowSlider = new() { Label = "Glow", Min = 0f, Max = 2f, Height = 26 };
     readonly LightSlider lens = new() { Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = 50, Height = 26, Format = v => $"{v:0} mm" };
     readonly Label fxLabel = new() { AutoSize = true, Margin = new Padding(6, 8, 0, 0) };
-    readonly System.Windows.Forms.Timer timer = new() { Interval = 30 };
-    readonly Stopwatch clock = new();
     ContextMenuStrip? lookMenu;
 
     MeshAnimator? animator, mffAnimator, stockAnimator;
@@ -39,8 +37,19 @@ sealed partial class PreviewPanel : UserControl
     bool comparing, targetOnly;
     /// <summary>The animations in the drop-down (a power button filters them) and all of the hero's.</summary>
     List<AnimRef> animList = new(), allAnims = new();
-    BoneAnimation? anim;
-    float frames, seconds, playTime;
+    AnimPlayer? player;
+    /// <summary>The playback (shared with the Mods tab's preview): the animation, where it is, paused or playing, the timer.</summary>
+    AnimPlayer Player => player ??= new AnimPlayer
+    {
+        Loop = () => P.Loop,
+        Moved = (f, ended) => { FxAdvance(playTime, ended); Pose(f); },
+        StateChanged = () => { play.Text = isPlaying ? "❚❚" : "▶"; view.Moving = isPlaying; },   // smaller frames while playing (ModelView.Moving)
+    };
+    BoneAnimation? anim => player?.Anim;
+    float frames => player?.Frames ?? 0;
+    float seconds => player?.Seconds ?? 0;
+    float playTime { get => (float)(player?.Time ?? 0); set => Player.Time = value; }
+    bool isPlaying => player is { Paused: false };
     bool settingFrame, autoPlay;
     int loadId;
 
@@ -95,7 +104,6 @@ sealed partial class PreviewPanel : UserControl
         frame.ValueChanged += ScrubTo;
         frame.Enabled = false; frame.Format = _ => "–";
         anims.SelectedIndexChanged += (_, _) => AnimationChosen();
-        timer.Tick += (_, _) => Tick();
         Ui.Lit(loop, P.Loop);
         showBones = P.Bones;
         ApplyLook();
@@ -196,9 +204,9 @@ sealed partial class PreviewPanel : UserControl
     {
         // a rebuild shows "Loading…" between two models: what was shown is held for the next Show (Kurt, 2026-10-04: Smooth
         // Weights re-framed the camera and stopped playback; the camera and the place in the animation are kept now)
-        if (animator != null) { heldView = view.ViewState; heldPlaying = timer.Enabled; heldAt = seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0; }
+        if (animator != null) { heldView = view.ViewState; heldPlaying = isPlaying; heldAt = seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0; }
         loadId++; frameBones = null;
-        timer.Stop(); animator = mffAnimator = stockAnimator = null; anim = null; shown = null; shownLoaded = null;
+        player?.Stop(); animator = mffAnimator = stockAnimator = null; shown = null; shownLoaded = null;
         ClearEffects(); rig.Clear(); ClearPowers();
         view.Moving = false;
         view.ShowMessage(text);
@@ -213,11 +221,11 @@ sealed partial class PreviewPanel : UserControl
         string? keep = anims.SelectedIndex > 0 ? anims.SelectedItem as string : null;
         bool live = animator != null;
         float keepAt = live ? (seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0) : heldAt;
-        bool wasPlaying = live ? timer.Enabled : heldPlaying;
+        bool wasPlaying = live ? isPlaying : heldPlaying;
         float[]? keepView = live ? view.ViewState : heldView;
         heldView = null; heldPlaying = false; heldAt = 0;
         bool samePackage = shown != null && shown.PackagePath.Equals(p.PackagePath, StringComparison.OrdinalIgnoreCase);
-        timer.Stop(); anim = null; playTime = 0;
+        player?.Stop();
         shown = p;
         mffAnimator = new MeshAnimator(p.Bones, p.Mesh.Positions, p.Mesh.Normals, p.Mesh.Influences, p.Mesh.Tangents);
         stockAnimator = p.Stock is { } st ? new MeshAnimator(st.Bones.ToList(), st.Positions, st.Normals, st.Influences, st.Tangents) : null;
@@ -248,7 +256,7 @@ sealed partial class PreviewPanel : UserControl
             playTime = keepAt * seconds;
             FxReplay(playTime);
             Pose(keepAt * frames);
-            if (wasPlaying) { clock.Restart(); timer.Start(); play.Text = "❚❚"; view.Moving = true; }
+            if (wasPlaying) Player.Play();
         }
         LoadProps();
         if (!samePackage || heroPowers.Count == 0) LoadHeroPowers();
@@ -271,7 +279,7 @@ sealed partial class PreviewPanel : UserControl
     public void ReloadAnimation()
     {
         float at = seconds > 0 ? Math.Clamp(playTime / seconds, 0, 1) : 0;
-        bool wasPlaying = timer.Enabled;
+        bool wasPlaying = isPlaying;
         FillAnimsKeep();
         AnimationChosen();
         if (anim != null && seconds > 0) { playTime = at * seconds; FxReplay(playTime); Pose(at * frames); if (wasPlaying) TogglePlay(); }
@@ -337,9 +345,9 @@ sealed partial class PreviewPanel : UserControl
     // --- animation ------------------------------------------------------------------------------------------------------------
     void AnimationChosen()
     {
-        timer.Stop(); clock.Reset(); playTime = 0; play.Text = "▶"; view.Moving = false;
+        Player.Stop();
         int i = anims.SelectedIndex - 1;
-        anim = i >= 0 && i < animList.Count ? ModAnimations.Load(animList[i]) : null;
+        var anim = i >= 0 && i < animList.Count ? ModAnimations.Load(animList[i]) : null;
         // an FBX in its place (0.16.0): the import's own tracks; a borrowed rig still gets its motion unless the FBX animates it
         BoneAnimation? imported = i >= 0 && i < animList.Count ? Override?.Invoke(animList[i], anim) : null;
         if (imported != null) anim = imported;
@@ -347,7 +355,7 @@ sealed partial class PreviewPanel : UserControl
         if (anim != null && shown != null)
             foreach (var rig in shown.Rigs)
                 if (imported == null || !shown.Bones.Where(b => rig.Bones.IsMatch(b.Name)).All(b => imported.Tracks.ContainsKey(b.Name))) anim = rig.Apply(anim, shown.Bones);
-        (frames, seconds) = anim != null ? MeshAnimator.Span(anim) : (0, 0);
+        Player.Set(anim);
         frame.Enabled = anim != null;
         float fr = frames; frame.Format = v => fr > 0 ? $"{v * fr:0} / {fr:0}" : "–";
         rig.SetParentAnimation(anim);
@@ -361,9 +369,9 @@ sealed partial class PreviewPanel : UserControl
     void TogglePlay()
     {
         if (anim == null || animator == null) return;
-        if (timer.Enabled) { timer.Stop(); clock.Reset(); play.Text = "▶"; view.Moving = false; return; }
+        if (isPlaying) { Player.Pause(); return; }
         if (playTime >= seconds) { playTime = 0; FxReplay(0); }
-        clock.Restart(); timer.Start(); play.Text = "❚❚"; view.Moving = true;   // smaller frames while playing (ModelView.Moving)
+        Player.Play();
     }
 
     /// <summary>P (Kurt, 2026-10-04): plays or pauses the picked animation; false when none is picked.</summary>
@@ -380,23 +388,9 @@ sealed partial class PreviewPanel : UserControl
     /// <summary>Esc: pauses a playing animation; false when nothing was playing.</summary>
     public bool PausePlayback()
     {
-        if (!timer.Enabled) return false;
+        if (!isPlaying) return false;
         TogglePlay();
         return true;
-    }
-
-    void Tick()
-    {
-        if (anim == null || seconds <= 0) { timer.Stop(); return; }
-        playTime += (float)clock.Elapsed.TotalSeconds; clock.Restart();
-        bool ended = false;
-        if (playTime >= seconds)
-        {
-            if (P.Loop) playTime %= seconds;
-            else { playTime = seconds; timer.Stop(); play.Text = "▶"; view.Moving = false; ended = true; }
-        }
-        FxAdvance(playTime, ended);
-        Pose(playTime / seconds * frames);
     }
 
     void Pose(float f)
@@ -420,8 +414,7 @@ sealed partial class PreviewPanel : UserControl
     void ScrubTo()
     {
         if (settingFrame || anim == null) return;
-        if (timer.Enabled) { timer.Stop(); clock.Reset(); play.Text = "▶"; view.Moving = false; }
-        playTime = frame.Value * seconds;
+        Player.Scrub(frame.Value * seconds);
         FxReplay(playTime);
         Pose(frame.Value * frames);
     }
@@ -612,5 +605,5 @@ sealed partial class PreviewPanel : UserControl
         g.SmoothingMode = mode;
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) { timer.Dispose(); full.Dispose(); } base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { player?.Dispose(); full.Dispose(); } base.Dispose(disposing); }
 }

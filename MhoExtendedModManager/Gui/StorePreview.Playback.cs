@@ -171,10 +171,7 @@ sealed partial class StorePreview
     void TogglePlay()
     {
         if (playing == null) return;
-        if (paused && !PreviewViews.Loop && playTime >= playSeconds) playTime = 0;   // played once to the end: start over
-        paused = !paused;
-        if (!paused) { lastTick = playClock.Elapsed.TotalSeconds; playClock.Start(); if (!playTimer.Enabled) { playTimer.Tick -= PlayTick; playTimer.Tick += PlayTick; playTimer.Start(); } }
-        else playTimer.Stop();
+        Player.Toggle();   // (played once to the end: starts over)
         UpdateButtons();
     }
 
@@ -210,12 +207,10 @@ sealed partial class StorePreview
         Task.Run(() => ModAnimations.Load(a)).ContinueWith(t =>
         {
             if (IsDisposed || req != request || animBox == null || animBox.SelectedIndex - 1 != i || t.Result == null) return;
-            playing = t.Result;
-            (playFrames, playSeconds) = MeshAnimator.Span(playing);
+            var (_, secs) = MeshAnimator.Span(t.Result);
             if (mod != null && MeshOk && StartView(meshes[meshIndex]) == null) viewer.ZoomOut(1.25f);   // room for reaching and lunging
-            paused = true;
             bool restoring = restoreTime != null;
-            playTime = Math.Clamp(restoreTime ?? (keepFraction is double kf ? kf * playSeconds : 0), 0, playSeconds); restoreTime = null; keepFraction = null;
+            Player.Set(t.Result, restoreTime ?? (keepFraction is double kf ? kf * secs : 0)); restoreTime = null; keepFraction = null;   // (paused)
             rig.SetParentAnimation(playing);
             animator.Pose(playing, playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0); ShowPose();
             ShowFrame(playSeconds > 0 ? (float)(playTime / playSeconds * playFrames) : 0);
@@ -265,8 +260,8 @@ sealed partial class StorePreview
     void ScrubTo()
     {
         if (settingFrame || frameSlider == null || playing == null || animator == null || viewer == null || playFrames <= 0) return;
-        if (!paused) { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); }
-        playTime = frameSlider.Value / playFrames * playSeconds;
+        Player.Scrub(frameSlider.Value / playFrames * playSeconds);
+        UpdateButtons();
         FxReplay(playTime);
         animator.Pose(playing, frameSlider.Value);
         ShowPose();
@@ -284,20 +279,12 @@ sealed partial class StorePreview
         frameSlider.Invalidate();
     }
 
-    void PlayTick(object? sender, EventArgs e)
+    /// <summary>A moment of the playing animation (AnimPlayer): posed, the effects moved on, the frame slider following.</summary>
+    void PlayMoved(float frame, bool ended)
     {
-        if (playing == null || animator == null || viewer == null) { StopAnimation(); return; }
-        if (!show3D || !Visible) { Pause(); return; }   // hidden: hold the frame
-        if (paused) return;
-        double now = playClock.Elapsed.TotalSeconds;
-        playTime += now - lastTick; lastTick = now;
-        float frame;
-        if (playSeconds <= 0 || playFrames <= 0) frame = 0;
-        else if (PreviewViews.Loop) frame = (float)(playTime % playSeconds / playSeconds * playFrames);
-        else if (playTime >= playSeconds) { playTime = playSeconds; frame = playFrames; paused = true; playTimer.Stop(); UpdateButtons(); }
-        else frame = (float)(playTime / playSeconds * playFrames);
+        if (playing == null || animator == null || viewer == null) return;
         animator.Pose(playing, frame);
-        FxAdvance(PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime, ended: !PreviewViews.Loop && playTime >= playSeconds);
+        FxAdvance(playTime, ended);
         ShowPose();
         ShowFrame(frame);
     }
@@ -324,7 +311,7 @@ sealed partial class StorePreview
         return true;
     }
 
-    void Pause() { playTimer.Stop(); playClock.Reset(); paused = true; UpdateButtons(); SaveAnim(); }
+    void Pause() { player?.Pause(); UpdateButtons(); SaveAnim(); }
 
     /// <summary>P (Kurt, 2026-10-04: the 3D views' play / pause key): plays or pauses the shown animation; false when the 3D
     /// view has no animation picked (P then does nothing).</summary>
@@ -407,5 +394,5 @@ sealed partial class StorePreview
         full.Toggle(this, mod == null ? "Preview" : $"Preview: {mod.Name}", PausePlayback, () => TogglePlayback(), viewer, Padding.Empty, () => { Invalidate(); fullBtn?.Invalidate(); });
     }
 
-    void StopAnimation() { resumeOnReveal = false; playTimer.Stop(); playing = null; rig.SetParentAnimation(null); playClock.Reset(); paused = true; playTime = 0; UpdateButtons(); ShowFrame(0); Props.ClearRules(); }
+    void StopAnimation() { resumeOnReveal = false; player?.Stop(); rig.SetParentAnimation(null); UpdateButtons(); ShowFrame(0); Props.ClearRules(); }
 }
