@@ -41,11 +41,24 @@ sealed partial class StorePreview : Control
     // Power effects (Kurt, 2026-09-30; ported from the MHO Hero Creator): the effects of the power an animation belongs to,
     // played with it. The game data is read once (in the background); each power's effects when its animation is picked.
     Button? powersBtn;
-    readonly PowerPreview.Clock fxClock = new();   // the effects in time (shared with the Model tab's preview)
-    Fx.PowerEffects.Player? fxPlayer { get => fxClock.Player; set => fxClock.Player = value; }
-    string fxNote = "";                  // "Shockwave · 5 Effects" in the 3D caption
-    Dictionary<string, (string Bone, System.Numerics.Matrix4x4 Local)> fxSockets = new();
-    int fxRequest;
+    PreviewEffects? effects;
+    /// <summary>The power effects (shared with the Model tab's preview): the caption is painted in the 3D caption.</summary>
+    PreviewEffects Effects => effects ??= new PreviewEffects(rig, this)
+    {
+        Shown = () => viewer != null && animator != null && shownLoaded != null ? (viewer, animator, shownLoaded) : null,
+        Playing = () => playing,
+        Seconds = () => playSeconds,
+        Frames = () => playFrames,
+        Time = () => PreviewViews.Loop && playSeconds > 0 ? playTime % playSeconds : playTime,
+        ShowPose = () => { ShowPose(); Invalidate(); },
+        RebuildRig = RebuildRig,
+        NoteChanged = Invalidate,
+        Running = () => Visible && show3D,
+        CookedFor = () => CookedFolder,
+        ColorFor = colorFor,
+    };
+    Fx.PowerEffects.Player? fxPlayer => effects?.Player;
+    string fxNote => effects?.Note ?? "";   // "Shockwave · 5 Effects" in the 3D caption
     static Task<Fx.GameData?>? fxDb;
     readonly PropRig rig = new();
     ModMeshes.Loaded? shownLoaded;       // the character as loaded (without props)
@@ -623,7 +636,7 @@ sealed partial class StorePreview : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { SaveAnim(); playTimer.Dispose(); fxIdleTimer.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
+        if (disposing) { SaveAnim(); playTimer.Dispose(); effects?.Dispose(); image?.Dispose(); foreach (var t in thumbs.Values) t?.Dispose(); tips.Dispose(); viewer?.Dispose(); animBox?.Dispose(); playBtn?.Dispose(); loopBtn?.Dispose(); restBtn?.Dispose(); lightSlider?.Dispose(); lensSlider?.Dispose(); glowSlider?.Dispose(); frameSlider?.Dispose(); }
         base.Dispose(disposing);
     }
 }

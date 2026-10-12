@@ -18,10 +18,23 @@ namespace MhoExtendedModManager.Model.Gui;
 sealed partial class PreviewPanel
 {
     readonly PropRig rig = new();
-    readonly PowerPreview.Clock fxClock = new();
-    Fx.PowerEffects.Player? fxPlayer { get => fxClock.Player; set => fxClock.Player = value; }
-    Dictionary<string, (string Bone, Matrix4x4 Local)> fxSockets = new();
-    int fxRequest, heroPowersRequest;
+    PreviewEffects? effects;
+    /// <summary>The power effects (shared with the Mods tab's preview: actors, idle effects, swaps), the caption in fxLabel.</summary>
+    PreviewEffects Effects => effects ??= new PreviewEffects(rig, this)
+    {
+        Shown = () => animator != null && shownLoaded != null ? (view, animator, shownLoaded) : null,
+        Playing = () => anim,
+        Seconds = () => seconds,
+        Frames = () => frames,
+        Time = () => playTime,
+        ShowPose = ShowPose,
+        RebuildRig = RebuildRig,
+        NoteChanged = () => fxLabel.Text = effects?.Note ?? "",
+        Running = () => Visible,
+        CookedFor = () => Cooked,
+    };
+    Fx.PowerEffects.Player? fxPlayer => effects?.Player;
+    int heroPowersRequest;
     List<Fx.PowerList.Power> heroPowers = [];
     string? powerFilter;
     readonly WrapPanel powerStrip = new() { BackColor = Color.Transparent, Margin = new Padding(0), Dock = DockStyle.Fill };
@@ -197,7 +210,7 @@ sealed partial class PreviewPanel
     }
 
     // --- power effects ---------------------------------------------------------------------------------------------------------
-    void ClearEffects() { fxRequest++; fxClock.Clear(); fxLabel.Text = ""; view.Effects = []; view.EffectTris = []; view.LookOverride = null; }
+    void ClearEffects() => Effects.Clear();
 
     /// <summary>An effect-only power picked (no animation of its own): its effects play over the idle.</summary>
     string? effectOnly;
@@ -209,11 +222,11 @@ sealed partial class PreviewPanel
     /// <summary>
     /// A power's condition material swaps on the shown model (Kurt, 2026-10-12: Doctor Doom's force field, Hulk's revive): each
     /// section's slot is its material's place in the build's slot order (the target's own model: its section's material index),
-    /// and a swap for the target costume draws its material on the slots it doesn't keep. Read in the background.
+    /// and a swap for the target costume draws its material on the slots it doesn't keep.
     /// </summary>
-    void LoadSwaps(string power, int req)
+    Func<Fx.GameData, string, ModelView.Look?[]?>? SwapsFor(string cooked)
     {
-        if (Cooked is not string cooked || shown is not { } sh) return;
+        if (shown is not { } sh) return null;
         string cls = TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(sh.PackagePath);
         List<int>? slots = null;
         if (!sh.TargetOnly && sh.SectionNames.Count > 0)
@@ -223,19 +236,13 @@ sealed partial class PreviewPanel
             slots = sh.SectionNames.Select(n => order.IndexOf(n)).ToList();
         }
         var main = sh.MainRef;
-        GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
-            dbt.Result is { } db ? PowerPreview.Swaps(db, power, cooked, new Dictionary<string, string>(), cls, slots, main) : null)).Unwrap().ContinueWith(t =>
-        {
-            if (IsDisposed || req != fxRequest || t.Status != TaskStatus.RanToCompletion || t.Result is not { } looks) return;
-            view.LookOverride = looks;
-            fxLabel.Text += fxLabel.Text.Length > 0 ? " · Material Swap" : "Material Swap";
-            ShowPose();
-        }, TaskScheduler.FromCurrentSynchronizationContext());
+        return (db, power) => PowerPreview.Swaps(db, power, cooked, new Dictionary<string, string>(), cls, slots, main);
     }
 
     /// <summary>
     /// The effects of the power the animation belongs to (Power FXs on): the hero's power packages name it (PowerIndex), the
-    /// game data gives the power with what it sets off (PowerEffects.For), then they play from the animation's time.
+    /// game data gives the power with what it sets off (PowerEffects.For), then they play from the animation's time
+    /// (PreviewEffects, shared with the Mods tab).
     /// </summary>
     void LoadEffects()
     {
@@ -245,44 +252,18 @@ sealed partial class PreviewPanel
         int ai = anims.SelectedIndex - 1;
         if (ai < 0 || ai >= animList.Count) return;
         string name = animList[ai].Name;
-        int req = fxRequest;
-        var a = animator; var l = shownLoaded;
         string? only = effectOnly;
         string? entity = TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(shown.PackagePath);
-        fxLabel.Text = "Reading Powers…";
-        GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
-            dbt.Result is not { } db ? null
+        Effects.Load(cooked, true, db => db == null ? null
             : only != null ? PowerPreview.ForPower(db, only, hero, cooked, [], entity, main.File, main.Name)
-            : PowerPreview.ForAnimation(db, hero, cooked, [], name, entity, main.File, main.Name))).Unwrap().ContinueWith(t =>
-        {
-            if (IsDisposed || req != fxRequest || animator != a || anim == null) return;
-            if (t.Status != TaskStatus.RanToCompletion || t.Result is not { } fx) { fxLabel.Text = ""; return; }
-            fxSockets = fx.Sockets;
-            // The target of effects at the world position: the ground 250 units in front (characters face +X).
-            float ground = l == null || l.Positions.Length == 0 ? 0 : l.Positions.Min(v => v.Z);
-            fxPlayer = new Fx.PowerEffects.Player(fx.Effects, Socket, new Vector3(250, 0, ground), fx.Phase) { AnimSeconds = Math.Max(0.1f, seconds) };
-            view.EffectStrength = PreviewViews.FxPower;   // as the Mods tab
-            fxLabel.Text = fx.Label;
-            FxReplay(playTime);
-            animator.Pose(anim, seconds > 0 ? playTime / seconds * frames : 0);
-            ShowPose();
-            LoadSwaps(fx.Power, req);
-        }, TaskScheduler.FromCurrentSynchronizationContext());
+            : PowerPreview.ForAnimation(db, hero, cooked, [], name, entity, main.File, main.Name), SwapsFor(cooked));
     }
-
-    /// <summary>A socket's place in the pose last made: the mesh's socket on its bone, else a bone of that name, else null.</summary>
-    Matrix4x4? Socket(string name) => PowerPreview.Socket(name, fxSockets, animator, rig);
 
     /// <summary>The effects moved on to <paramref name="t"/> (started over when time went back: a loop).</summary>
-    void FxAdvance(double t, bool ended) => fxClock.Advance(t, ended);
+    void FxAdvance(double t, bool ended) => effects?.Advance(t, ended);
 
     /// <summary>The effects as they are at <paramref name="t"/>: played from the start in 1/30 s steps, posing for the sockets.</summary>
-    void FxReplay(double t)
-    {
-        if (anim == null || animator == null) return;
-        var a = anim; var an = animator;
-        fxClock.Replay(t, x => an.Pose(a, seconds > 0 ? (float)(x / seconds * frames) : 0));
-    }
+    void FxReplay(double t) => effects?.Replay(t);
 
     // --- props (shared with the Mods tab's preview: PreviewProps) ----------------------------------------------------------------
     PreviewProps? props;
@@ -293,6 +274,7 @@ sealed partial class PreviewPanel
         Seconds = () => seconds,
         ShowPose = ShowPose,
         Display = Display,
+        AddMore = r => effects?.AddActors(r),
     };
 
     /// <summary>The base hero's props (PropRig.Attached: what its attachment classes name, from its base package), loaded in
