@@ -171,6 +171,34 @@ sealed class MeshAnimator
     /// <summary>False: the root's X / Y moves with the animation (an animated actor leaping in); true (the hero): in place.</summary>
     public bool InPlace { get; set; } = true;
 
+    int[]? parentMap;
+    MeshAnimator? mappedTo;
+
+    /// <summary>
+    /// Posed as the game poses a prop on the character's skeleton (bAttachUseParentAnim: UE3's parent anim component copies
+    /// the parent's posed bones by name): each bone the character has takes the character's posed bone; one it lacks keeps
+    /// its rest pose under its parent. The prop's own skeleton (Taskmaster's bow is Hawkeye's, 94 bones) isn't animated
+    /// itself (Kurt, 2026-10-12: playing the animation on it turned the bow 87° in Boomerang Arrow, the string off the hand
+    /// in Toxic Gas Arrow).
+    /// </summary>
+    public void PoseFrom(MeshAnimator character)
+    {
+        if (mappedTo != character) { parentMap = [.. bones.Select(b => character.BoneIndex(b.Name))]; mappedTo = character; }
+        for (int i = 0; i < bones.Count; i++)
+        {
+            var b = bones[i];
+            int j = parentMap![i];
+            if (j >= 0) posed[i] = character.posed[j];
+            else
+            {
+                var local = Matrix4x4.CreateFromQuaternion(Unit(b.Orientation)) * Matrix4x4.CreateTranslation(b.Position);
+                posed[i] = b.ParentIndex >= 0 && b.ParentIndex < i ? local * posed[b.ParentIndex] : local;
+            }
+            skin[i] = restModelToBone[i] * posed[i];
+        }
+        Skin();
+    }
+
     public MeshAnimator(IReadOnlyList<MeshBone> bones, Vector3[] positions, Vector3[] normals, IReadOnlyList<VertexInfluence> influences, Vector4[]? tangents = null)
     {
         this.bones = bones; restPos = positions; restNrm = normals; this.influences = influences;
@@ -233,6 +261,11 @@ sealed class MeshAnimator
             posed[i] = b.ParentIndex >= 0 && b.ParentIndex < i ? local * posed[b.ParentIndex] : local;
             skin[i] = restModelToBone[i] * posed[i];
         }
+        Skin();
+    }
+
+    void Skin()
+    {
         for (int v = 0; v < restPos.Length; v++)
         {
             var inf = v < influences.Count ? influences[v] : default;

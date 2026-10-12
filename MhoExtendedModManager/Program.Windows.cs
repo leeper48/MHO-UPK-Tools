@@ -200,7 +200,7 @@ static partial class Program
             if (pm == null || pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("no such mod, or no game folder"); return 1; }
             var pgame = new GameState(pgr, plib.DataFolder);
             StockFiles.Init(pgame, st.CleanGameFiles, Path.Combine(plib.DataFolder, "originals"));
-            using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = new Size(520, 900), ShowInTaskbar = false };
+            using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = new Size(1100, 1500), ShowInTaskbar = false };
             var sp = new Gui.StorePreview { Dock = DockStyle.Fill, CookedFolder = pgame.Cooked, Catalog = new StockCatalog(plib, pgame), Always3D = true };
             f.Controls.Add(sp);
             int code = 1;
@@ -254,7 +254,8 @@ static partial class Program
                             bool animated = !w.UseParentAnim && w.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase);
                             var pa = animated ? ModAnimations.For(w.Ref, pm.Bones, rpk, rc, minBones: 1) : null;
                             if (w.UseParentAnim) rrig.SetParentAnimation(ba);
-                            rrig.Add(pm, w.UseParentAnim ? -1 : PropRig.BoneFor(anim8, w.Bone), w.Slots, w.OnDemand && Environment.GetEnvironmentVariable("MHO_RENDER_ALLPROPS") != "1", w.Class, animated || w.UseParentAnim ? new MeshAnimator(pm.Bones, pm.Positions, pm.Normals, pm.Influences, pm.Tangents) { InPlace = !animated } : null, pa, w.UseParentAnim, w.Offset);
+                            var ranim = animated || w.UseParentAnim ? new MeshAnimator(pm.Bones, pm.Positions, pm.Normals, pm.Influences, pm.Tangents) { InPlace = !animated } : null;
+                            rrig.Add(pm, w.UseParentAnim ? -1 : PropRig.BoneFor(anim8, w.Bone), w.Slots, w.OnDemand && Environment.GetEnvironmentVariable("MHO_RENDER_ALLPROPS") != "1", w.Class, ranim, pa, w.UseParentAnim, w.Offset);
                             Console.WriteLine($"  prop {w.Ref.Name} on {w.Bone}{(w.OnDemand ? " (on demand)" : "")}{(animated ? $", animated ({pa!.Count} animations)" : "")}");
                             if (Environment.GetEnvironmentVariable("MHO_PROP_ROOT") == "1" && pm.Bones.Count > 0) Console.WriteLine($"    rest root {pm.Bones[0].Name} {pm.Bones[0].Position}");
                             if (Environment.GetEnvironmentVariable("MHO_PROP_BONES") == "1" && w.UseParentAnim && ba != null)

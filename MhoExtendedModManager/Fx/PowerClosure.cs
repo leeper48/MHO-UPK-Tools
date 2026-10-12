@@ -24,6 +24,27 @@ static class PowerClosure
     {
         /// <summary>Steps from the power (0: itself, 1: named by it …).</summary>
         public int Depth { get; init; }
+        /// <summary>Made by a power that targets its caster (TargetingStyle / TargetingReach Self): it's summoned where the hero
+        /// is, not at the target (Ghost Rider's Ride leaves its fire trail, GhostRiderRideBikeTrailArea, under the bike).</summary>
+        public bool AtCaster { get; init; }
+    }
+
+    /// <summary>The power targets its caster: its TargetingStyle or TargetingReach (own or inherited) is a Self prototype.</summary>
+    public static bool TargetsSelf(GameData db, ulong id)
+    {
+        if (OldPlacement) return false;
+        for (int k = 0; k < 10 && id != 0; k++)
+        {
+            Calligraphy.Data d;
+            try { d = db.Prototype(id).Data; } catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { return false; }
+            foreach (var g in d.Groups)
+                foreach (var f in g.Simple)
+                    if (f.Type == 'P' && db.FieldName(g.Blueprint, f.Id) is "TargetingStyle" or "TargetingReach")
+                        return db.Prototypes.TryGetValue(f.Value.Raw, out var t) && Path.GetFileNameWithoutExtension(t.Path).Equals("Self", StringComparison.OrdinalIgnoreCase);
+            if (!d.HasParent) return false;
+            id = d.Parent;
+        }
+        return false;
     }
 
     /// <summary>
@@ -77,6 +98,9 @@ static class PowerClosure
         return false;
     }
 
+    /// <summary>Test (--fx-placement-census): MHO_FX_OLDPLACE=1 turns the self-target rule off, to compare.</summary>
+    internal static readonly bool OldPlacement = Environment.GetEnvironmentVariable("MHO_FX_OLDPLACE") == "1";
+
     static readonly Dictionary<string, List<Art>> cache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The power itself first, then what it reaches (breadth first, <paramref name="maxDepth"/> steps): each
@@ -90,11 +114,12 @@ static class PowerClosure
         if (start != null)
         {
             var seen = new HashSet<ulong> { start.Id };
-            var queue = new Queue<(ulong Id, int Depth, bool Via)>();
-            queue.Enqueue((start.Id, 0, false));
+            bool rootSelf = TargetsSelf(db, start.Id);
+            var queue = new Queue<(ulong Id, int Depth, bool Via, bool AtCaster)>();
+            queue.Enqueue((start.Id, 0, false, false));
             while (queue.Count > 0)
             {
-                var (id, depth, via) = queue.Dequeue();
+                var (id, depth, via, atCaster) = queue.Dequeue();
                 var e = db.Prototypes[id];
                 var d = db.Prototype(id).Data;
                 foreach (var g in d.Groups)
@@ -104,12 +129,23 @@ static class PowerClosure
                         {
                             bool isPower = db.FieldName(g.Blueprint, f.Id) == "PowerUnrealClass";
                             var (hostile, generic) = isPower ? (IsHostile(db, id), false) : Target(db, id);
-                            list.Add(new Art(e.Path, a.Asset.Name, isPower, via, hostile, generic) { Depth = depth });
+                            // (a condition inside a power that targets its caster is the caster's: Ride's wheel trails on Ghost
+                            // Rider's bike, not on an enemy; Kurt 2026-10-12)
+                            // (not through a summon or missile: there "self" is that entity, out at the target)
+                            if (!isPower && !via && TargetsSelf(db, id)) (hostile, generic) = (false, false);
+                            list.Add(new Art(e.Path, a.Asset.Name, isPower, via, hostile, generic) { Depth = depth, AtCaster = atCaster });
                         }
                 if (depth >= maxDepth) continue;
+                // (what a self-targeted power summons stays where the hero is: the start of an entity branch decides)
+                // (only when the power clicked targets its caster too: a ride, a smoke screen; a summon set off by a ranged
+                // power stays at the target)
+                bool self = rootSelf && !via && e.Path.StartsWith(@"Powers\", StringComparison.OrdinalIgnoreCase) && TargetsSelf(db, id);
                 foreach (ulong r in Refs(db, d))
                     if (r != 0 && seen.Add(r) && db.Prototypes.TryGetValue(r, out var re) && Follow(re.Path))
-                        queue.Enqueue((r, depth + 1, via || re.Path.StartsWith(@"Entity\", StringComparison.OrdinalIgnoreCase) || EntityLike(re.Path)));
+                    {
+                        bool entity = re.Path.StartsWith(@"Entity\", StringComparison.OrdinalIgnoreCase) || EntityLike(re.Path);
+                        queue.Enqueue((r, depth + 1, via || entity, via ? atCaster : entity && self));
+                    }
             }
         }
         lock (cache) cache[powerPath] = list;

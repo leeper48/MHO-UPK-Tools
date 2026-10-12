@@ -1,6 +1,23 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.253
+- 3D previews: a prop that moves with the character's skeleton (Taskmaster's bow, Punisher's flamethrower) now takes the character's posed bones, as the game does, instead of playing the animation on its own skeleton: Taskmaster's bow is drawn to the hand in Boomerang Arrow and Toxic Gas Arrow (0.37.251 and 0.37.252 turned it too far). It also follows the shape of a replaced model's hands.
+
+0.37.252
+- 3D previews: Taskmaster's bow also follows the draw in Toxic Gas Arrow (the string at the drawing hand, not outside the elbow): a prop on the character's skeleton reads its own bones' animation the way the game does, in every animation.
+
+0.37.251
+- 3D previews: a prop that moves with the character's skeleton (Taskmaster's bow, Punisher's flamethrower) is turned as in the game: Taskmaster's bow was edge-on, turned 87°; now its string runs to the drawing hand.
+
+0.37.250
+- 3D previews: a power that targets the hero (a ride, an aura, a shield, a stealth or a body glow) now plays its own conditions on the hero, not on an enemy at the target point: Ghost Rider's Ride shows its wheel fire trails on the bike, and Ant-Man's shrink, Invisible Woman's invisibility and the Phoenix trails show on the hero. What such a power summons (Ride's fire trail, Storm's storms, smoke screens, summoned pets) appears where the hero is. 138 of the 1,740 hero powers show differently.
+- Tooltips go above the cursor when there's no room below: near the bottom of the screen a tooltip covered the power button under it.
+
+0.37.249
+- 3D previews: a power's effects that sit on a prop's socket now play there: Ghost Rider's Burn the Treads spins fire at the bike's wheels, not under the middle of the bike. This works for any prop socket the character doesn't have itself.
+- The Model tab's preview loads props the same way as the Mods tab: rides play their own animation where it puts them, and the props a power brings keep their offset rotation.
+
 0.37.247
 - The 3D previews (Mods tab, the Editor's Powers and Model tabs) share one power engine: the same power buttons, the same power for an animation, the same effects, captions and material swaps everywhere (the Model tab's copy had drifted). The game data is read once for all of them.
 - The Model tab's 3D preview and Create from 3D turn props as the game does (a prop's own offset rotation): Ghost Rider sat 90° across his bike there; the Mods tab's preview already did.

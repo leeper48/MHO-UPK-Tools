@@ -91,7 +91,43 @@ sealed class PropRig
         return Math.Max(0, b);
     }
 
-    public void Clear() { props.Clear(); motion.Clear(); offsets.Clear(); visible = []; actors.Clear(); }
+    public void Clear() { props.Clear(); motion.Clear(); offsets.Clear(); visible = []; actors.Clear(); sockets.Clear(); }
+
+    // Each prop's own sockets with a rest-pose animator for a prop that has none (Ghost Rider's Charge Up Bike plays its wheel
+    // spin at the bike's socket_rear_wheel: at the character's origin before, Kurt 2026-10-12)
+    readonly List<(Dictionary<string, (string Bone, Matrix4x4 Local)> Map, MeshAnimator? RestPose)> sockets = [];
+    static readonly Dictionary<string, Dictionary<string, (string Bone, Matrix4x4 Local)>> socketCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A prop mesh's sockets (Fx.FxSockets), read once per mesh.</summary>
+    public static Dictionary<string, (string Bone, Matrix4x4 Local)> SocketsOf(MeshRef r)
+    {
+        string key = r.File + "|" + r.Name;
+        lock (socketCache)
+            if (socketCache.TryGetValue(key, out var d)) return d;
+        var read = Fx.FxSockets.Of(r.File, r.Name);
+        lock (socketCache) socketCache[key] = read;
+        return read;
+    }
+
+    /// <summary>A shown prop's socket in the pose last shown (mesh transform, offset, bone; an animated prop's own pose), or null.</summary>
+    public Matrix4x4? Socket(string name, MeshAnimator animator)
+    {
+        for (int i = 0; i < props.Count && i < sockets.Count; i++)
+        {
+            if (i < visible.Length && !visible[i]) continue;
+            var (map, rest) = sockets[i];
+            if (!map.TryGetValue(name, out var s)) continue;
+            var mo = motion[i];
+            var an = mo != null && (mo.Seq != null || mo.ParentAnim) ? mo.Anim : rest;
+            if (an == null) continue;
+            int b = an.BoneIndex(s.Bone);
+            if (b < 0) continue;
+            var (m, bone, _, _, _) = props[i];
+            var mat = m.MeshTransform * offsets[i] * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone));
+            return s.Local * an.BoneMatrix(b) * mat;
+        }
+        return null;
+    }
     readonly List<Matrix4x4> offsets = [];
 
     /// <summary>
@@ -119,9 +155,17 @@ sealed class PropRig
         actors.Add(new ActorItem { Mesh = mesh, Anim = anim, Seq = seq, Frames = frames, Seconds = seconds, Start = start, End = end, Place = mesh.MeshTransform * place });
     }
     public void Add(ModMeshes.Loaded mesh, int bone) => Add(mesh, bone, [], false, "");
-    public void Add(ModMeshes.Loaded mesh, int bone, IReadOnlyList<string> slots, bool onDemand, string cls, MeshAnimator? anim = null, List<AnimRef>? anims = null, bool parentAnim = false, Matrix4x4? offset = null)
+    public void Add(ModMeshes.Loaded mesh, int bone, IReadOnlyList<string> slots, bool onDemand, string cls, MeshAnimator? anim = null, List<AnimRef>? anims = null, bool parentAnim = false, Matrix4x4? offset = null,
+        Dictionary<string, (string Bone, Matrix4x4 Local)>? propSockets = null)
     {
         props.Add((mesh, bone, slots, onDemand, cls));
+        MeshAnimator? rest = null;
+        if (propSockets is { Count: > 0 } && mesh.Bones.Count > 0)
+        {
+            rest = new MeshAnimator(mesh.Bones, mesh.Positions, mesh.Normals, mesh.Influences, mesh.Tangents);
+            rest.Pose(null, 0);
+        }
+        sockets.Add((propSockets ?? new(), rest));
         offsets.Add(offset ?? Matrix4x4.Identity);
         motion.Add(anim != null ? new Motion { Anim = anim, Anims = anims ?? [], ParentAnim = parentAnim, Seq = parentAnim ? parentSeq : null, Frames = parentAnim && parentSeq != null ? MeshAnimator.Span(parentSeq).Frames : 0 } : null);
         At(0);
@@ -271,7 +315,9 @@ sealed class PropRig
             Vector3[] sp = m.Positions, sn = m.Normals; Vector4[] st = m.Tangents;
             if (mo != null && (mo.Seq != null || mo.ParentAnim))
             {
-                mo.Anim.Pose(mo.Seq, mo.Seq != null && animSeconds > 0 ? (float)(Math.Clamp(lastSeconds / animSeconds, 0, 1) * mo.Frames) : 0);
+                // (on the character's skeleton: its posed bones, as the game copies them; else its own animation)
+                if (mo.ParentAnim) mo.Anim.PoseFrom(animator);
+                else mo.Anim.Pose(mo.Seq, mo.Seq != null && animSeconds > 0 ? (float)(Math.Clamp(lastSeconds / animSeconds, 0, 1) * mo.Frames) : 0);
                 sp = mo.Anim.Positions; sn = mo.Anim.Normals; st = mo.Anim.Tangents;
             }
             for (int v = 0; v < m.Positions.Length; v++, at++)

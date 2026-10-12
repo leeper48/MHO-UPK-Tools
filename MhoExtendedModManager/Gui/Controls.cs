@@ -233,7 +233,7 @@ sealed class DetailsHeader : Control
         bool hand = (pill.Contains(e.Location) || tagArea.Contains(e.Location) || conflictRect.Contains(e.Location) || costumeRect.Contains(e.Location)) && Mod != null;
         Cursor = hand ? Cursors.Hand : Cursors.Default;
         string? tip = costumeRect.Contains(e.Location) ? "The costume this mod is for. Click to move it to another costume of the same hero (as a new mod; this one isn't changed)." : null;
-        if (tip != shownTip) { shownTip = tip; if (tip == null) Ui.Tips.Hide(this); else Ui.Tips.Show(tip, this, e.X + 12, e.Y + 18, 8000); }
+        if (tip != shownTip) { shownTip = tip; if (tip == null) Ui.Tips.Hide(this); else Ui.ShowTip(Ui.Tips, tip, this, 12, 18, 8000); }
     }
     string? shownTip;
     protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (shownTip != null) { shownTip = null; Ui.Tips.Hide(this); } }

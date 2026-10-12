@@ -644,6 +644,36 @@ static partial class Program
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
                 return 0;
             }
+            case "--fx-placement-census":
+            {
+                // Read-only test: every hero's power buttons, each effect with where the preview plays it (kind, on the one
+                // hit, sockets / root / the target). Run twice (MHO_FX_OLDPLACE=1 for the rules before) and compare.
+                // --fx-placement-census <out.txt> [hero …]
+                if (rest.Count < 2) { Console.WriteLine("--fx-placement-census <out.txt> [hero …]"); return 1; }
+                string? pgr = settings.ResolvedGameRoot(data);
+                string? pcook = pgr != null && Settings.IsGameRoot(pgr) ? Settings.Cooked(pgr) : null;
+                if (pcook == null) { Console.WriteLine("game folder not found"); return 1; }
+                var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr!, "Data", "Game", "Calligraphy.sip")));
+                var game = new Fx.FxGame(pcook, []);
+                var heroes = rest.Count > 2 ? rest.Skip(2).ToList()
+                    : Directory.EnumerateFiles(pcook, "UC__MarvelPlayer_*_SF.upk").Select(f => Path.GetFileNameWithoutExtension(f)[17..^3]).Where(h => h.All(char.IsLetter)).ToList();
+                var lines = new List<string>();
+                foreach (string hero in heroes)
+                    foreach (var pw in Fx.PowerList.For(db, hero, pcook, [], effectOnly: true))
+                    {
+                        lines.Add($"== {hero} {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)})");
+                        try
+                        {
+                            var fx = Fx.PowerEffects.For(game, db, pw.Prototype, hero);
+                            foreach (var e in fx.Effects)
+                                lines.Add($"  {e.Kind} {(e.OnHit ? "[hit] " : "")}{e.Name} {e.System.Name} at {(e.OnHit ? "hit" : e.AtTarget ? "target" : string.Join("/", e.Sockets.DefaultIfEmpty("root")))}{(e.TriggeredBy != null ? " by " + e.TriggeredBy : "")}");
+                        }
+                        catch (Exception ex) { lines.Add("  error: " + ex.Message); }
+                    }
+                File.WriteAllLines(rest[1], lines);
+                Console.WriteLine($"{heroes.Count} heroes, {lines.Count(l => l.StartsWith("=="))} powers, {lines.Count(l => !l.StartsWith("=="))} effects → {rest[1]}");
+                return 0;
+            }
             case "--anim-power":
             {
                 // Read-only: the power an animation of a hero belongs to, and what the 3D preview would play for it.
@@ -918,6 +948,7 @@ static partial class Program
                 // and by how much (degrees between them). --singlekey-census <file.upk> …
                 int tracks = 0, flipped = 0, storedWins = 0, mirroredWins = 0;
                 var byBone = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var boneWins = new Dictionary<string, (int Stored, int Mirrored)>(StringComparer.OrdinalIgnoreCase);
                 var examples = new List<string>();
                 foreach (string path in rest.Skip(1))
                 {
@@ -963,6 +994,8 @@ static partial class Program
                                     float Near(System.Numerics.Quaternion q) => known.Min(k => 2 * MathF.Acos(Math.Clamp(MathF.Abs(System.Numerics.Quaternion.Dot(System.Numerics.Quaternion.Normalize(q), k)), 0, 1)));
                                     float nd = Near(d), nc = Near(c);
                                     if (nd < nc) storedWins++; else if (nc < nd) mirroredWins++;
+                                    var bw = boneWins.GetValueOrDefault(bone);
+                                    boneWins[bone] = nd < nc ? (bw.Stored + 1, bw.Mirrored) : nc < nd ? (bw.Stored, bw.Mirrored + 1) : bw;
                                 }
                                 byBone[bone] = byBone.GetValueOrDefault(bone) + 1;
                                 if (examples.Count < 12) examples.Add($"{Path.GetFileName(path)} {an} {bone}: {deg:0}° apart");
@@ -972,7 +1005,8 @@ static partial class Program
                 }
                 Console.WriteLine($"{tracks} single-key tracks of posed bones; the bind-pose rule picks the mirrored reading (2°+ apart) on {flipped}");
                 Console.WriteLine($"  of those, closer to the same bone's multi-key poses: the stored reading {storedWins}, the mirrored one {mirroredWins}");
-                foreach (var (b, n) in byBone.OrderByDescending(x => x.Value).Take(15)) Console.WriteLine($"  {b}: {n}");
+                foreach (var (b, n) in byBone.OrderByDescending(x => x.Value).Take(400))
+                    Console.WriteLine($"  {b}: {n}" + (boneWins.TryGetValue(b, out var w) ? $" (closer to its multi-key poses: stored {w.Stored}, mirrored {w.Mirrored})" : " (no multi-key poses)"));
                 foreach (var e in examples) Console.WriteLine("  e.g. " + e);
                 return 0;
             }

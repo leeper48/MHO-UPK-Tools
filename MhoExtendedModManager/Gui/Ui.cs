@@ -72,6 +72,30 @@ static class Ui
     const TextFormatFlags TipFlags = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
     static (int Pad, int Max) TipMetrics(int dpi) { float sc = dpi / 96f; return ((int)(7 * sc), (int)(380 * sc)); }
 
+    /// <summary>
+    /// Where a tooltip goes on screen: below and right of the cursor (<paramref name="dx"/>, <paramref name="dy"/>), else above
+    /// it when there's no room below, kept inside the screen. Windows otherwise pushes a tip that runs past the bottom back up
+    /// over the cursor, so the button under it couldn't be clicked (Kurt, 2026-10-12: the power buttons at the bottom).
+    /// </summary>
+    public static Point TipScreen(string text, int dpi, Point cursor, int dx, int dy)
+    {
+        var size = MeasureTip(text, dpi);
+        var wa = Screen.FromPoint(cursor).WorkingArea;
+        int gap = (int)(6 * dpi / 96f);
+        int x = cursor.X + dx, y = cursor.Y + dy;
+        if (y + size.Height > wa.Bottom) y = cursor.Y - size.Height - gap;
+        if (x + size.Width > wa.Right) x = wa.Right - size.Width;
+        return new Point(Math.Max(wa.Left, x), Math.Max(wa.Top, y));
+    }
+
+    /// <summary>Shows a tooltip for a control near the cursor (<see cref="TipScreen"/>), at a point in its client area.</summary>
+    public static void ShowTip(ToolTip tips, string text, Control c, int dx, int dy, int duration)
+    {
+        var at = TipScreen(text, c.DeviceDpi, Cursor.Position, dx, dy);
+        var origin = c.PointToScreen(Point.Empty);
+        tips.Show(text, c, at.X - origin.X, at.Y - origin.Y, duration);
+    }
+
     /// <summary>A tooltip's size: its title (bold) over its text, wrapped at 380 px (scaled).</summary>
     static Size MeasureTip(string t, int dpi)
     {
@@ -209,8 +233,8 @@ static class Ui
             // (measured: Show's point is taken from the window's outer corner, not its client area: a form's title bar put the
             // tip over the cursor)
             var outer = parent.Parent == null ? parent.Bounds : parent.Parent.RectangleToScreen(parent.Bounds);
-            var cur = Cursor.Position;
-            shownBy.Show(shownText, parent, cur.X - outer.X, cur.Y - outer.Y + (int)(22 * Dpi(parent.DeviceDpi)), Tips.AutoPopDelay);
+            var at = TipScreen(shownText ?? "", parent.DeviceDpi, Cursor.Position, 0, (int)(22 * Dpi(parent.DeviceDpi)));
+            shownBy.Show(shownText, parent, at.X - outer.X, at.Y - outer.Y, Tips.AutoPopDelay);
             shownOn = parent;
         }
 
@@ -835,9 +859,8 @@ static class Ui
         {
             cellTimer.Stop();
             if (cellTip == null || g.IsDisposed || !g.IsHandleCreated) return;
-            var p = g.PointToClient(Cursor.Position);
             float s = Dpi(g.DeviceDpi);
-            cellTips.Show(cellTip, g, p.X + (int)(14 * s), p.Y + (int)(20 * s), 20000);
+            ShowTip(cellTips, cellTip, g, (int)(14 * s), (int)(20 * s), 20000);
         };
         g.CellMouseEnter += (_, e) =>
         {

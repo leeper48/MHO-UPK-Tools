@@ -600,7 +600,7 @@ sealed partial class StorePreview : Control
                 if (pk >= 0)
                 {
                     var pw = heroPowers[pk];
-                    tips.Show($"{pw.Name}\n{string.Join(", ", pw.Animations)}\n{(powerFilter == pw.Prototype ? "Click to show all animations again." : "Click to play it with its effects (the animation list shows only this power's).")}", this, e.X + (int)(14 * S), e.Y + (int)(20 * S), 8000);
+                    Ui.ShowTip(tips, $"{pw.Name}\n{string.Join(", ", pw.Animations)}\n{(powerFilter == pw.Prototype ? "Click to show all animations again." : "Click to play it with its effects (the animation list shows only this power's).")}", this, (int)(14 * S), (int)(20 * S), 8000);
                 }
                 else tips.Hide(this);
             }
@@ -611,12 +611,12 @@ sealed partial class StorePreview : Control
         if (i == hoverThumb) return;
         hoverThumb = i; Invalidate();
         if (i >= 0 && i < Offset && mod != null)
-            tips.Show($"3D view of the mod's meshes ({meshes.Count}).\nDrag to turn, wheel to zoom, double-click to frame; ◀ ▶ under it step through the meshes.\nClick to show it here (remembered for this mod).", this, e.X + (int)(14 * S), e.Y + (int)(20 * S), 8000);
+            Ui.ShowTip(tips, $"3D view of the mod's meshes ({meshes.Count}).\nDrag to turn, wheel to zoom, double-click to frame; ◀ ▶ under it step through the meshes.\nClick to show it here (remembered for this mod).", this, (int)(14 * S), (int)(20 * S), 8000);
         else if (i >= 0 && mod != null)
         {
             var c = items[i - Offset];
             string whose = mod.Manifest.PreviewImage == c.Key ? "\nThe mod's choice." : "";
-            tips.Show($"{c.Texture}\n{c.Source}{whose}\nClick to show it here (remembered for this mod)." + (mod.LocalPreview != null ? "\nRight-click: back to the mod's choice." : ""), this, e.X + (int)(14 * S), e.Y + (int)(20 * S), 8000);
+            Ui.ShowTip(tips, $"{c.Texture}\n{c.Source}{whose}\nClick to show it here (remembered for this mod)." + (mod.LocalPreview != null ? "\nRight-click: back to the mod's choice." : ""), this, (int)(14 * S), (int)(20 * S), 8000);
         }
         else tips.Hide(this);
     }

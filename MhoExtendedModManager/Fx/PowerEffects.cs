@@ -170,6 +170,7 @@ sealed class PowerEffects
         {
             var (hostileOwn, genericOwn) = PowerClosure.Target(db, own.Id);
             hostileOwn |= PowerClosure.IsHostile(db, own.Id);
+            if (PowerClosure.TargetsSelf(db, own.Id)) (hostileOwn, genericOwn) = (false, false);   // a self-targeted power's own conditions are the caster's
             for (int k = 0; k < fx.Effects.Count; k++)
                 if (!fx.Effects[k].OnHit && CondOnHit(fx.Effects[k], false, hostileOwn, genericOwn, ownClass ?? ""))
                     fx.Effects[k] = fx.Effects[k] with { OnHit = true };
@@ -192,9 +193,11 @@ sealed class PowerEffects
             string by = Path.GetFileNameWithoutExtension(art.Prototype);
             // (a debuff's look is put on the one hit too: MarvelConditionEffect_DebuffDamage, vfx_debuff_ …)
             // (a power set off through a missile, hotspot or summon goes off where that is: Shrieking Arrow's explosion hits)
+            // (a self-targeted power's summon: its entity effects play where the hero is, not at the target: Ride's fire trail)
             foreach (var e in more.Effects)
-                fx.Effects.Add(e with { TriggeredBy = by, OnHit = e.OnHit || CondOnHit(e, art.ViaEntity, art.Hostile, art.Generic, art.Class)
-                    || (art.ViaEntity && e.Kind == "power" && !e.AtTarget) });
+                fx.Effects.Add(e with { TriggeredBy = by, AtTarget = e.AtTarget && !(art.AtCaster && e.Kind == "entity"),
+                    OnHit = e.OnHit || CondOnHit(e, art.ViaEntity, art.Hostile, art.Generic, art.Class)
+                    || (art.ViaEntity && !art.AtCaster && e.Kind == "power" && !e.AtTarget) });
             foreach (var kv in more.Looks) fx.Looks[kv.Key] = kv.Value;
             foreach (var kv in more.Meshes) fx.Meshes[kv.Key] = kv.Value;
             foreach (var dc in more.Decals) fx.Decals.Add(dc with { TriggeredBy = by });

@@ -271,7 +271,7 @@ sealed partial class PreviewPanel
     }
 
     /// <summary>A socket's place in the pose last made: the mesh's socket on its bone, else a bone of that name, else null.</summary>
-    Matrix4x4? Socket(string name) => PowerPreview.Socket(name, fxSockets, animator);
+    Matrix4x4? Socket(string name) => PowerPreview.Socket(name, fxSockets, animator, rig);
 
     /// <summary>The effects moved on to <paramref name="t"/> (started over when time went back: a loop).</summary>
     void FxAdvance(double t, bool ended) => fxClock.Advance(t, ended);
@@ -285,12 +285,11 @@ sealed partial class PreviewPanel
     }
 
     // --- props -------------------------------------------------------------------------------------------------------------------
-    List<(PropRig.Prop W, ModMeshes.Loaded M, MeshAnimator? A, List<AnimRef>? R)> baseProps = [];
+    List<PowerPreview.BaseProp> baseProps = [];
     List<(PropRig.Prop W, ModMeshes.Loaded M)> powerProps = [];
     Dictionary<string, BoneAnimation> propSeqs = new(StringComparer.OrdinalIgnoreCase);
     List<ModMeshes.PropRule> propRules = [];
     float propContact;
-    readonly Dictionary<string, Task<Dictionary<string, List<Fx.PowerIndex.PowerRef>>>> powerIndexCache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The base hero's props (PropRig.Attached: what its attachment classes name, from its base package), loaded in
     /// the background and held on their bones; none with Props off. The camera stays.</summary>
@@ -303,23 +302,11 @@ sealed partial class PreviewPanel
         var all = shown.PackageMeshes.ToList();
         string? cooked = Cooked;
         if (!on && rig.Count == 0 && baseProps.Count == 0) return;
-        Task.Run(() => (on ? PropRig.Attached(main, all, cooked) : []).Select(w =>
-        {
-            try
-            {
-                var lm = ModMeshes.Load(w.Ref, cooked, out _);
-                if (lm != null && w.UseParentAnim)
-                    return (W: w, Mesh: lm, A: new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents), R: (List<AnimRef>?)null);
-                if (lm != null && w.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase))
-                    return (W: w, Mesh: lm, A: new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents), R: ModAnimations.For(w.Ref, lm.Bones, [], cooked, minBones: 1));
-                return (W: w, Mesh: lm, A: (MeshAnimator?)null, R: (List<AnimRef>?)null);
-            }
-            catch { return (W: w, Mesh: (ModMeshes.Loaded?)null, A: (MeshAnimator?)null, R: (List<AnimRef>?)null); }
-        }).ToList())
+        Task.Run(() => on ? PowerPreview.BaseProps(main, all, cooked, []) : [])   // shared with the Mods tab
             .ContinueWith(t =>
             {
                 if (IsDisposed || req != propLoad || animator != a || shownLoaded != l || t.Status != TaskStatus.RanToCompletion) return;
-                baseProps = [.. t.Result.Where(x => x.Mesh != null).Select(x => (x.W, x.Mesh!, x.A, x.R))];
+                baseProps = t.Result;
                 RebuildRig();
                 LoadPropSwitches();
             }, TaskScheduler.FromCurrentSynchronizationContext());
@@ -334,8 +321,7 @@ sealed partial class PreviewPanel
         rig.SetParentAnimation(anim);
         // each prop with its attachment's offset rotation (Kurt, 2026-10-12: Ghost Rider sat 90° across his bike here, not on
         // the Mods tab: the bikes' OffsetRotation is yaw 16384)
-        foreach (var (w, m, an, refs) in baseProps) rig.Add(m, w.UseParentAnim ? -1 : PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, an, refs, w.UseParentAnim, w.Offset);
-        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, offset: w.Offset);
+        PowerPreview.AddProps(rig, animator, baseProps, powerProps);
         rig.SetRules(propRules, propContact, seconds);
         rig.SetMotions(propSeqs);
         var keep = view.ViewState;
@@ -362,39 +348,10 @@ sealed partial class PreviewPanel
         string? name = anim != null && ai >= 0 && ai < animList.Count ? animList[ai].Name : null;
         var motionRefs = rig.MotionRefs(name);
         var dbTask = GameDb(cooked);
-        if (!powerIndexCache.TryGetValue(hero, out var idxTask))
-            powerIndexCache[hero] = idxTask = dbTask.ContinueWith(t => t.Result is { } pdb ? Fx.PowerIndex.For(hero, cooked, [], pdb) : Fx.PowerIndex.For(hero, cooked, []));
+        var idxTask = PowerPreview.PowerIndex(hero, cooked, []);
         float secs = seconds;
-        Task.WhenAll(idxTask, dbTask).ContinueWith(done =>
-        {
-            if (name == null || idxTask.Status != TaskStatus.RanToCompletion || !idxTask.Result.TryGetValue(name, out var refs))
-                return (Rules: new List<ModMeshes.PropRule>(), Contact: 0f, Extra: new List<(PropRig.Prop, ModMeshes.Loaded)>(), Seqs: new Dictionary<string, BoneAnimation>(StringComparer.OrdinalIgnoreCase));
-            var files = refs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var rules = files.SelectMany(ModMeshes.PropRules).Distinct().ToList();
-            var extra = new List<(PropRig.Prop, ModMeshes.Loaded)>();
-            foreach (var r in rules.Where(r => r.Show && !have.Any(h => PropRig.Fills(h, r.Target))))
-                foreach (string f in files)
-                {
-                    var found = ModMeshes.Attachments(f).Where(x => PropRig.Fills(new PropRig.Prop(null!, x.Bone) { Slots = x.Slots, Class = x.Class }, r.Target)).ToList();
-                    if (found.Count == 0) continue;
-                    var inPkg = ModMeshes.List([(Path.GetFileName(f), f)], anyPackage: true);
-                    foreach (var x in found)
-                        if (!extra.Any(e => e.Item1.Class.Equals(x.Class, StringComparison.OrdinalIgnoreCase)) && inPkg.FirstOrDefault(m => m.Name.Equals(x.Mesh, StringComparison.OrdinalIgnoreCase)) is { } mr)
-                            try { if (ModMeshes.Load(mr, cooked, out _) is { } lm) extra.Add((new PropRig.Prop(mr, x.Bone) { Slots = x.Slots, OnDemand = true, Class = x.Class }, lm)); }
-                            catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
-                    break;
-                }
-            // the contact time: the power's AnimationContactTimePercent (else 0.4) of the animation
-            float pct = 0.4f;
-            if (dbTask.Status == TaskStatus.RanToCompletion && dbTask.Result is { } db)
-            {
-                var byClass = Fx.PowerIndex.PrototypesByClass(db);
-                if (refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).FirstOrDefault() is string proto) pct = Fx.PowerEffects.ContactPercentOf(db, proto);
-            }
-            var seqs = new Dictionary<string, BoneAnimation>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (cls, ar) in motionRefs) if (!seqs.ContainsKey(cls) && ModAnimations.Load(ar) is { } ba) seqs[cls] = ba;
-            return (Rules: rules, Contact: pct * secs, Extra: extra, Seqs: seqs);
-        })
+        Task.WhenAll(idxTask, dbTask).ContinueWith(done => idxTask.Status != TaskStatus.RanToCompletion ? PowerPreview.Switches.None
+            : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, name, cooked, have, motionRefs, secs))   // shared
         .ContinueWith(t =>
         {
             if (IsDisposed || req != propSwitchRequest || t.Status != TaskStatus.RanToCompletion) return;

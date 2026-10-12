@@ -125,8 +125,7 @@ sealed class ModListBox : ListBox
         {
             tipTimer.Stop();
             if (tipText == null || !IsHandleCreated) return;
-            var p = PointToClient(MousePosition);
-            tips.Show(tipText, this, p.X + (int)(14 * S), p.Y + (int)(20 * S), 15000);
+            Ui.ShowTip(tips, tipText, this, (int)(14 * S), (int)(20 * S), 15000);
             tipShown = true;
         };
     }

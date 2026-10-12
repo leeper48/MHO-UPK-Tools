@@ -96,9 +96,11 @@ static class PowerPreview
 
     /// <summary>A socket's place in the pose last made: the mesh's socket on its bone, else a bone of that name, else null.
     /// "&lt;socket&gt;@bone": the socket's turn at its bone's origin (an effect whose local start already holds the offset).</summary>
-    public static Matrix4x4? Socket(string name, Dictionary<string, (string Bone, Matrix4x4 Local)> sockets, MeshAnimator? animator)
+    public static Matrix4x4? Socket(string name, Dictionary<string, (string Bone, Matrix4x4 Local)> sockets, MeshAnimator? animator, PropRig? rig = null)
     {
         if (animator == null) return null;
+        // a socket of a prop (the character has none of that name): Ghost Rider's bike's wheels
+        if (!sockets.ContainsKey(name) && !name.EndsWith("@bone", StringComparison.Ordinal) && rig?.Socket(name, animator) is { } ps) return ps;
         if (name.EndsWith("@bone", StringComparison.Ordinal) && sockets.TryGetValue(name[..^5], out var sb) && animator.BoneIndex(sb.Bone) is int bb && bb >= 0)
         { var turn = sb.Local; turn.Translation = Vector3.Zero; return turn * animator.BoneMatrix(bb); }
         if (sockets.TryGetValue(name, out var sk) && animator.BoneIndex(sk.Bone) is int b && b >= 0) return sk.Local * animator.BoneMatrix(b);
@@ -123,6 +125,101 @@ static class PowerPreview
         int i = list.FindIndex(n => n.Equals("idle", StringComparison.OrdinalIgnoreCase));
         if (i < 0) i = list.FindIndex(n => n.Contains("idle", StringComparison.OrdinalIgnoreCase));
         return Math.Max(0, i);
+    }
+
+    // --- props ------------------------------------------------------------------------------------------------------------
+
+    /// <summary>One of the character's own props, loaded: the attachment, its mesh, and for an animated prop its animator and
+    /// animations.</summary>
+    public sealed record BaseProp(PropRig.Prop W, ModMeshes.Loaded Mesh, MeshAnimator? Anim, List<AnimRef>? Refs)
+    {
+        public Dictionary<string, (string Bone, Matrix4x4 Local)> Sockets { get; init; } = new();
+    }
+
+    /// <summary>
+    /// The character's props (PropRig.Attached: what its attachment classes name), loaded (call off the UI thread). A prop that
+    /// follows the character's animation gets an animator for it; an animated prop (a ride) gets its own animations and is
+    /// posed where they put it (Cyclops's bike rests 24 units back and 11.5 up; its ride animation moves it onto the attach
+    /// point: in place it sat behind and below him, Kurt 2026-10-03).
+    /// </summary>
+    public static List<BaseProp> BaseProps(MeshRef main, IReadOnlyList<MeshRef> all, string? cooked, IEnumerable<(string File, string Path)> modPackages)
+    {
+        var pkgs = modPackages.ToList();
+        var list = new List<BaseProp>();
+        foreach (var w in PropRig.Attached(main, all, cooked))
+        {
+            try
+            {
+                if (ModMeshes.Load(w.Ref, cooked, out _) is not { } lm) continue;
+                var sk = PropRig.SocketsOf(w.Ref);
+                if (w.UseParentAnim) list.Add(new(w, lm, new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents), null) { Sockets = sk });
+                else if (w.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase))
+                    list.Add(new(w, lm, new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false }, ModAnimations.For(w.Ref, lm.Bones, pkgs, cooked, minBones: 1)) { Sockets = sk });
+                else list.Add(new(w, lm, null, null) { Sockets = sk });
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException or MhoPackageModifier.PackageFormatException) { }
+        }
+        return list;
+    }
+
+    /// <summary>The character with its props and the power's props in the rig, each held with its attachment's offset
+    /// rotation (Ghost Rider's bike: yaw 90°).</summary>
+    public static void AddProps(PropRig rig, MeshAnimator animator, IEnumerable<BaseProp> baseProps, IEnumerable<(PropRig.Prop W, ModMeshes.Loaded M)> powerProps)
+    {
+        foreach (var p in baseProps) rig.Add(p.Mesh, p.W.UseParentAnim ? -1 : PropRig.BoneFor(animator, p.W.Bone), p.W.Slots, p.W.OnDemand, p.W.Class, p.Anim, p.Refs, p.W.UseParentAnim, p.W.Offset, p.Sockets);
+        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, offset: w.Offset, propSockets: PropRig.SocketsOf(w.Ref));
+    }
+
+    static readonly Dictionary<string, Task<Dictionary<string, List<Fx.PowerIndex.PowerRef>>>> indexes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The hero's power index (animation → the powers playing it), read once per hero and set of packages.</summary>
+    public static Task<Dictionary<string, List<Fx.PowerIndex.PowerRef>>> PowerIndex(string hero, string cooked, IReadOnlyList<string> modFiles)
+    {
+        string key = hero + "|" + cooked + "|" + string.Join("|", modFiles);
+        lock (indexes)
+        {
+            if (indexes.TryGetValue(key, out var t)) return t;
+            return indexes[key] = GameDb(cooked).ContinueWith(d => d.Result is { } db ? Fx.PowerIndex.For(hero, cooked, modFiles, db) : Fx.PowerIndex.For(hero, cooked, modFiles));
+        }
+    }
+
+    /// <summary>What a power does to the props while its animation plays: the rules (show / hide weapon slots, from its power
+    /// packages' PowerFxMeshAttachment), when (its contact time), props it shows that the character doesn't have (a thrown car,
+    /// from the power's own package), and the animated props' own animations of this name.</summary>
+    public sealed record Switches(List<ModMeshes.PropRule> Rules, float Contact, List<(PropRig.Prop W, ModMeshes.Loaded M)> Extra, Dictionary<string, AnimExportCli.Animation.BoneAnimation> Seqs)
+    {
+        public static Switches None => new([], 0, [], new(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The prop switches for <paramref name="anim"/> (call off the UI thread).</summary>
+    public static Switches SwitchesFor(Fx.GameData? db, Dictionary<string, List<Fx.PowerIndex.PowerRef>> index, string? anim, string cooked, IReadOnlyList<PropRig.Prop> have, IEnumerable<(string Class, AnimRef Ref)> motionRefs, float seconds)
+    {
+        if (anim == null || !index.TryGetValue(anim, out var refs)) return Switches.None;
+        var files = refs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var rules = files.SelectMany(ModMeshes.PropRules).Distinct().ToList();
+        var extra = new List<(PropRig.Prop, ModMeshes.Loaded)>();
+        foreach (var r in rules.Where(r => r.Show && !have.Any(h => PropRig.Fills(h, r.Target))))
+            foreach (string f in files)
+            {
+                var found = ModMeshes.Attachments(f).Where(x => PropRig.Fills(new PropRig.Prop(null!, x.Bone) { Slots = x.Slots, Class = x.Class }, r.Target)).ToList();
+                if (found.Count == 0) continue;
+                var inPkg = ModMeshes.List([(Path.GetFileName(f), f)], anyPackage: true);
+                foreach (var x in found)
+                    if (!extra.Any(e => e.Item1.Class.Equals(x.Class, StringComparison.OrdinalIgnoreCase)) && inPkg.FirstOrDefault(m => m.Name.Equals(x.Mesh, StringComparison.OrdinalIgnoreCase)) is { } mr)
+                        try { if (ModMeshes.Load(mr, cooked, out _) is { } lm) extra.Add((new PropRig.Prop(mr, x.Bone) { Slots = x.Slots, OnDemand = true, Class = x.Class, Offset = ModMeshes.Rotator(x.OffsetRotation.Pitch, x.OffsetRotation.Yaw, x.OffsetRotation.Roll) }, lm)); }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
+                break;
+            }
+        // the contact time: the power's AnimationContactTimePercent (else 0.4) of the animation
+        float pct = 0.4f;
+        if (db != null)
+        {
+            var byClass = Fx.PowerIndex.PrototypesByClass(db);
+            if (refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).FirstOrDefault() is string proto) pct = Fx.PowerEffects.ContactPercentOf(db, proto);
+        }
+        var seqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (cls, ar) in motionRefs) if (!seqs.ContainsKey(cls) && ModAnimations.Load(ar) is { } ba) seqs[cls] = ba;
+        return new(rules, pct * seconds, extra, seqs);
     }
 
     /// <summary>Plays a power's effects in time: moved on as the animation plays (started over when time goes back: a loop),
