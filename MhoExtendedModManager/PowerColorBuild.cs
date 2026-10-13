@@ -17,8 +17,8 @@ static class PowerColorBuild
         var wanted = draft.PowerColors.Where(e => !e.Color.IsNone).ToList();
         if (wanted.Count == 0 && before.Count == 0) { draft.PowerColors.Clear(); return null; }
         string? hero = draft.Packages.Select(p => HeroOf.Package(p.File, game.Cooked)).FirstOrDefault(h => h != null);
-        if (wanted.Any(e => !IsOwn(e.Power) && e.Owner == null) && hero == null) throw new InvalidDataException("the mod has no hero package (UC__MarvelPlayer_…) to tell whose powers these are");
-        if (wanted.Any(e => !IsOwn(e.Power)) || before.Count > beforeOwn.Count)
+        if (wanted.Any(e => !IsOwn(e.Power) && !IsPackage(e.Power) && e.Owner == null) && hero == null) throw new InvalidDataException("the mod has no hero package (UC__MarvelPlayer_…) to tell whose powers these are");
+        if (wanted.Any(e => !IsOwn(e.Power) && !IsPackage(e.Power)) || before.Count > beforeOwn.Count)
             powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(game.Root, "Data", "Game", "Calligraphy.sip")));
         string ModelFolder()
         {
@@ -37,6 +37,7 @@ static class PowerColorBuild
         {
             e.Packages = [];
             foreach (string f in IsOwn(e.Power) ? [e.Power[OwnPrefix.Length..]]
+                : IsPackage(e.Power) ? [e.Power[PackagePrefix.Length..]]
                 : e.Owner != null ? PowerRecolor.PackagesOfAgent(powerDb!, e.Power, ClassOf(e.Owner), game.Cooked)
                 : PowerRecolor.PackagesOf(powerDb!, e.Power, hero!, game.Cooked))
             {
@@ -89,6 +90,18 @@ static class PowerColorBuild
     /// the package file.</summary>
     public const string OwnPrefix = "own:";
     public static bool IsOwn(string power) => power.StartsWith(OwnPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A Powers tab entry for a whole package added by hand (Add Package; a user, 2026-10-13: a power that falls off
+    /// the hero's list): "pkg:" and the package file. Everything in it is recolored, as a power's packages are.</summary>
+    public const string PackagePrefix = "pkg:";
+    public static bool IsPackage(string power) => power.StartsWith(PackagePrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A character's package (hero, costume, NPC, enemy, team-up, pet): Add Package refuses these (their own effects
+    /// have the Own Effects entry, which keeps the model).</summary>
+    public static bool IsCharacter(string file) =>
+        file.StartsWith("UC__MarvelPlayer", StringComparison.OrdinalIgnoreCase) || file.StartsWith("UC__MarvelAgent_", StringComparison.OrdinalIgnoreCase)
+        || file.StartsWith("UC__MarvelNPC_", StringComparison.OrdinalIgnoreCase) || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase)
+        || file.StartsWith("UC__MarvelVanityPet_", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The package whose character this package's class extends, when that's another NPC or enemy package of the game (Kurt,

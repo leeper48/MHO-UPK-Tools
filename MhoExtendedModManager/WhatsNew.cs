@@ -34,7 +34,16 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.272 (Kurt, 2026-10-13): same-named powers, Add Package, Keep Shared Paths.</summary>
+    static Notice UnibeamAndShared() => new(
+        "0.37.272-shared", "0.37.272",
+        "Power colors now reach every version of a power with the same name: Iron Man's plain Unibeam kept the game's colors (only its upgraded version changed), and Thor's Ragnarok leap was missed the same way. Re-save a mod that recolors such a power to update it." + nl + nl +
+        "Powers tab: Add Package adds one of the game's effect packages to the list under its file name, for a power that isn't listed. Its color recolors the whole package, for every character that uses it." + nl + nl +
+        "Editor → Overview: Keep Shared Paths, for mods that want to share the game's paths (a modded S.H.I.E.L.D. agent that should also change Nick Fury's summons). Save then doesn't make the mod unique. The note under it says what each choice does." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "keepshared");
 
     /// <summary>0.37.270 (Kurt, 2026-10-12): crash checks, OVERLAP, one 3D preview, material slots, hero Own Effects.</summary>
     static Notice CrashChecks() => new(

@@ -62,6 +62,10 @@ sealed class ModManifest
     /// <summary>Extension: the author's light level for the 3D preview (0.5–2), the one a user starts from (their own, kept on
     /// their PC, wins there). Null when not set.</summary>
     public float? PreviewLight { get; set; }
+    /// <summary>Extension: the author keeps the mod's paths shared with the game's other copies (Editor → Overview → Keep
+    /// Shared Paths): Save doesn't make it unique and it gets no OVERLAP warning (a user, 2026-10-13: Nick Fury's summoned
+    /// S.H.I.E.L.D. agents only showed a modded agent package's look while it shared the stock path). Null when off.</summary>
+    public bool? KeepShared { get; set; }
     /// <summary>Extension: voice lines turned off in the editor (so they can be turned on again). Null when none.</summary>
     public List<VoiceOffEntry>? VoiceOff { get; set; }
     /// <summary>Extension: power colours set in the editor (the packages they built are ordinary package replacements). Null when none.</summary>

@@ -64,11 +64,12 @@ sealed partial class MainForm
     internal static (string Text, List<string> Labels)? CrashDialog(Mod m, bool readOnly)
     {
         if (CrashCheck.Details(m) is not string details) return null;
-        bool unique = !readOnly && UniqueNames.Reason(m) != null;
+        bool unique = !readOnly && UniqueNames.Reason(m, evenKept: true) != null;
         bool mirror = !readOnly && CrashCheck.HasMirrorIssue(m);
         var advice = new List<string>();
         if (mirror) advice.Add("Fix Mirror Tables gives every bone of these models a mirror entry (an added left bone mirrors its right partner, others themselves).");
-        if (unique) advice.Add("Make Unique gives this mod's models paths of their own, so no other copy shares their animation table.");
+        if (unique) advice.Add("Make Unique gives this mod's models paths of their own, so no other copy shares their animation table."
+            + (m.Manifest.KeepShared == true ? " Its author keeps its paths shared on purpose (Keep Shared Paths): after Make Unique, characters that shared them (a summoner's copy of an agent, a team-up) show the game's look instead of this mod's." : ""));
         if (advice.Count == 0) advice.Add("Let the mod's creator know: fewer added bones, or a model path of its own, avoids it.");
         else advice.Add("Only this mod's own package files change (saved like an edit; the old folder goes to the Recycle Bin). It's a good idea to let the mod's creator know too, so they can update it officially.");
         var labels = new List<string>();
@@ -128,9 +129,10 @@ sealed partial class MainForm
     async Task<bool> MakeUnique(Mod m)
     {
         if (readOnly || lib == null || game == null) return false;
-        string? why = UniqueNames.Reason(m);
+        string? why = UniqueNames.Reason(m, evenKept: true);
         if (why == null) { Dialog.Show(this, $"\"{m.Name}\" doesn't change a model that another stock package also carries.", "Nothing to Make Unique"); return false; }
-        if (Dialog.Show(this, why + $"\n\nMake Unique gives \"{m.Name}\" paths of its own for what it changed, so no stock copy can take its place. Only this mod's own package files change (the folder is saved like an edit; the old one goes to the Recycle Bin). Streamed textures keep their stock path. The mod stays installable in MHModManager.\n\nIt's highly recommended to make it unique, and/or to let the mod's creator know so they can update it officially. Shall I proceed?",
+        if (Dialog.Show(this, why + $"\n\nMake Unique gives \"{m.Name}\" paths of its own for what it changed, so no stock copy can take its place. Only this mod's own package files change (the folder is saved like an edit; the old one goes to the Recycle Bin). Streamed textures keep their stock path. The mod stays installable in MHModManager.\n\nIt's highly recommended to make it unique, and/or to let the mod's creator know so they can update it officially. Shall I proceed?"
+                + (m.Manifest.KeepShared == true ? "\n\nNote: this mod's author ticked Keep Shared Paths, so it shares these paths on purpose. Impact of making it unique: characters that use the same paths from other files (summons, team-ups, NPCs) show the game's look instead of this mod's." : ""),
                 "Make Unique", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return false;
         var l = lib; string cooked = game.Cooked;
         UseWaitCursor = true;

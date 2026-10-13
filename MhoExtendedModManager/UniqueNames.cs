@@ -245,8 +245,11 @@ static class UniqueNames
     }
 
     /// <summary>The pill's reason, or null when nothing is exposed. From the cache only (null until <see cref="Plans"/> ran).</summary>
-    public static string? Reason(Mod m)
+    /// <param name="evenKept">Also for a mod whose author keeps its paths shared (Keep Shared Paths: no OVERLAP warning,
+    /// no Make Unique offered; the CRASH RISK window still offers it, as a crash outweighs the choice).</param>
+    public static string? Reason(Mod m, bool evenKept = false)
     {
+        if (!evenKept && m.Manifest.KeepShared == true) return null;
         List<Plan>? plans;
         lock (plansCache) plans = plansCache.TryGetValue(m.Folder, out var hit) ? hit.Plans : null;
         if (plans is not { Count: > 0 }) return null;

@@ -276,7 +276,7 @@ sealed partial class ModEditorView : UserControl
     /// </summary>
     string? MakeDraftUnique(List<string> log)
     {
-        if (game == null) return null;
+        if (game == null || draft.KeepShared) return null;   // (Overview → Keep Shared Paths)
         var files = draft.Packages.Where(p => UniqueNames.Covers(p.File) && File.Exists(p.Source)).ToList();
         if (files.Count == 0) return null;
         var shared = UniqueNames.Shared(UniqueNames.Folder(game.Cooked));
@@ -405,6 +405,21 @@ sealed partial class ModEditorView : UserControl
         p.Controls.Add(cardRow, 0, 7);
         p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         p.Controls.Add(previewRow, 0, 6);
+        // Keep Shared Paths (a user, 2026-10-13): some mods want the stock path shared (a modded S.H.I.E.L.D. agent package
+        // also changed Nick Fury's summoned agents, whose copy is in his own package; Make Unique took that away).
+        var keepShared = new CheckBox { Text = "Keep Shared Paths  ·  don't make this mod's models unique", AutoSize = true, Checked = draft.KeepShared, Margin = new Padding(0, 12, 0, 0) };
+        var keepNote = new Label { AutoSize = true, Tag = "subtle", Margin = new Padding(20, 2, 0, 0), MaximumSize = new Size((int)(900 * S), 0) };
+        void KeepNote() => keepNote.Text = keepShared.Checked
+            ? "On: Save leaves the mod's model, material and effect paths as the game's. Impact: wherever another file carries the same path (a summon, a team-up, an NPC, a boss's power), the game shows whichever copy loads first, so your look can spread to those characters (useful for a summoner's copy of an agent) or the game's look can show instead of yours near other players and in hubs. The OVERLAP warning isn't shown for this mod, and it travels with the mod. A CRASH RISK warning still shows."
+            : "Off (recommended): Save gives the mod's changed models, materials and effects paths of their own, so the game's copies elsewhere can't replace your look. Impact: other characters that share those paths keep the game's look, including summons, team-ups and NPCs whose copy lives in another file (Nick Fury's summoned agents stay stock when you change the agents' own package).";
+        KeepNote();
+        keepShared.CheckedChanged += (_, _) => { draft.KeepShared = keepShared.Checked; KeepNote(); };
+        Ui.Tip(keepShared, "On: Save leaves this mod's paths shared with the game's other copies (no Make Unique, no OVERLAP warning): your look can reach other characters that share them, or the game's can show instead of yours. Off: Save makes the mod's changed models unique. See the note under it.");
+        var keepBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0) };
+        keepBox.Controls.Add(keepShared); keepBox.Controls.Add(keepNote);
+        p.RowCount = 9;
+        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        p.Controls.Add(keepBox, 0, 8);
         p.Controls.Add(new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 0) }, 0, 4);
         descriptionBox.Text = draft.Description.Replace("\r\n", "\n").Replace("\n", "\r\n");
         changesBox.Text = draft.Changes.Replace("\r\n", "\n").Replace("\n", "\r\n");

@@ -18,6 +18,8 @@ sealed partial class ModEditorView
     Button? addParent;
     /// <summary>The NPCs' and enemies' own powers (Fx.AgentPowers), by package, once read; and each such power's package.</summary>
     readonly Dictionary<string, List<Fx.PowerList.Power>> agentPowers = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Packages added with Add Package this session (the ones with a color are in draft.PowerColors as "pkg:").</summary>
+    readonly List<string> addedPowerPackages = [];
     readonly Dictionary<string, string> agentOwner = new(StringComparer.OrdinalIgnoreCase);
     bool agentLoading;
     /// <summary>The package the selected own-effects entry's character extends (its model and most effects), when the mod
@@ -102,7 +104,8 @@ sealed partial class ModEditorView
         Ui.Tip(brightSlider, "How bright the power's colors are. Double-click: back to 100 %.");
         var reset = Ui.FlatButton("Game's Colors", () => SetColor(null), tip: "Take this power back to the game's own colors.");
         var all = Ui.FlatButton("Apply to All Powers", ApplyToAll, tip: "Give every power of the hero the color on the sliders (the game's colors take them all back).");
-        right.Controls.Add(Toolbar(reset, all, powerCaption), 0, 5);
+        var addPkg = Ui.FlatButton("Add Package", AddPowerPackage, tip: "Adds one of the game's effect packages (UC__Power…, a projectile, a hotspot, a condition effect) to the list under its file name, for a power that isn't listed or isn't fully recolored. Impact: everything in that package is recolored, for every hero, team-up or enemy that uses it, and the 3D preview doesn't show its color (check it in game).");
+        right.Controls.Add(Toolbar(reset, all, addPkg, powerCaption), 0, 5);
         // Five presets (as the MHO Hero Creator's): click = use on this power, right-click = store the sliders there.
         var presets = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Padding = new Padding(0, 2, 0, 2) };
         presets.Controls.Add(new Label { Text = "Presets", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 7, 8, 0) });
@@ -141,6 +144,10 @@ sealed partial class ModEditorView
             string file = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
             if (agentPowers.TryGetValue(file, out var list)) foreach (var ap in list) powerList.Items.Add(ap);
         }
+        // packages added by hand (Add Package), under their file names
+        foreach (string f in draft.PowerColors.Where(e => PowerColorBuild.IsPackage(e.Power)).Select(e => e.Power[PowerColorBuild.PackagePrefix.Length..])
+                     .Concat(addedPowerPackages).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+            powerList.Items.Add(new Fx.PowerList.Power(PowerColorBuild.PackagePrefix + f, f, null, []) { HasName = true });
         LoadAgentPowers();
         powerList.EndUpdate();
         var shown = powerList.Items.Cast<Fx.PowerList.Power>().ToList();
@@ -210,6 +217,35 @@ sealed partial class ModEditorView
         return list;
     }
 
+    /// <summary>
+    /// Add Package (a user, 2026-10-13: Iron Man's plain Unibeam package wasn't in the list): one of the game's effect packages
+    /// added to the Powers list under its file name; a color recolors the whole package, like a power's packages.
+    /// </summary>
+    void AddPowerPackage()
+    {
+        if (game == null) return;
+        using var d = new OpenFileDialog { Title = "Add a Power Package", InitialDirectory = game.Cooked, RestoreDirectory = true,
+            Filter = "Power packages (UC__Power*.upk)|UC__Power*.upk|All effect packages (UC__*.upk)|UC__*.upk" };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        string f = Path.GetFileName(d.FileName);
+        string? real = Directory.EnumerateFiles(game.Cooked, f).Select(Path.GetFileName).FirstOrDefault();
+        if (real == null || !Path.GetFullPath(Path.GetDirectoryName(d.FileName)!).TrimEnd('\\').Equals(Path.GetFullPath(game.Cooked).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+        {
+            Dialog.Show(this, "Pick a package in the game's CookedPCConsole folder: the mod replaces the game's file of that name.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (PowerColorBuild.IsCharacter(real))
+        {
+            Dialog.Show(this, $"{real} is a character's package. Add it on the Packages tab instead: its glows and trails then show as an Own Effects entry here, which keeps the character's model as it is.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        string key = PowerColorBuild.PackagePrefix + real;
+        if (!addedPowerPackages.Contains(real, StringComparer.OrdinalIgnoreCase)) addedPowerPackages.Add(real);
+        FillPowers();
+        int at = powerList.Items.Cast<Fx.PowerList.Power>().ToList().FindIndex(x => x.Prototype.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (at >= 0) powerList.SelectedIndex = at;
+    }
+
     /// <summary>Who else the selected power's recolor changes (its packages' other owners: a team-up's copy, Rogue …),
     /// worked out in the background.</summary>
     void ShowShared(Fx.PowerList.Power p)
@@ -218,6 +254,14 @@ sealed partial class ModEditorView
         int req = ++sharedRequest;
         if (addParent != null) addParent.Visible = false;
         parentToAdd = null;
+        if (PowerColorBuild.IsPackage(p.Prototype))
+        {
+            string pf = p.Prototype[PowerColorBuild.PackagePrefix.Length..];
+            powerShared.Text = $"Added by hand: its color goes into all of {pf} (every particle, effect texture and material color in it), and Save puts that package in the mod. "
+                + "Impact: every hero, team-up or enemy power that uses this package changes too, and the 3D preview doesn't show this color, so check it in game. "
+                + "To take it out: The Game's Colors, then Save.";
+            return;
+        }
         if (PowerColorBuild.IsOwn(p.Prototype))
         {
             string f = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
@@ -430,6 +474,11 @@ sealed partial class ModEditorView
         {
             if (powerPreview != null) powerPreview.OverridesOff = false;
             powerPreview?.PlayAgentPower(owner, p.Prototype, p.Animations);
+        }
+        else if (PowerColorBuild.IsPackage(p.Prototype))
+        {
+            powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored") + " · A Whole Package (Not Shown in the Preview)";
+            if (powerPreview != null) powerPreview.OverridesOff = false;
         }
         else if (PowerColorBuild.IsOwn(p.Prototype))
         {

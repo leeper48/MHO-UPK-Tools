@@ -43,6 +43,22 @@ sealed partial class ModEditorView
         paletteStrip.Controls.Clear();
         if (paletteCache.TryGetValue(p.Prototype, out var hit)) { ShowPalette(hit); return; }
         if (game == null) return;
+        if (PowerColorBuild.IsPackage(p.Prototype))
+        {
+            // a package added by hand: its colors as the game ships it
+            string pf = p.Prototype[PowerColorBuild.PackagePrefix.Length..];
+            var pg = game;
+            string pdata = lib.DataFolder;
+            paletteNote.Text = "Reading…";
+            Task.Run(() => (new Originals(pdata, pg).Find(pf) ?? StockFiles.For(pg.Cooked, pf)) is string pp && File.Exists(pp) ? PowerRecolor.Palette([pp], pg.Cooked) : []).ContinueWith(t =>
+            {
+                if (IsDisposed || req != paletteRequest) return;
+                if (t.Status != TaskStatus.RanToCompletion) { paletteNote.Text = "Its Colors Couldn't Be Read"; return; }
+                paletteCache[p.Prototype] = t.Result;
+                ShowPalette(t.Result);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
         if (PowerColorBuild.IsOwn(p.Prototype))
         {
             // a character's own effects: the package as the mod has it (the one kept before an earlier recolor, if any)

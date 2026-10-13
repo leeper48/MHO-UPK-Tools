@@ -120,8 +120,40 @@ static class PowerRecolor
     /// Slow, Taunt, DebuffDamage: every hero's) and left. One with a few (Thor's Death From Above: Beta Ray Bill's team-up
     /// copy too) is recolored; <see cref="SharedWith"/> names them so the editor can say so.
     /// </summary>
-    public static List<string> PackagesOf(GameData db, string power, string hero, string cooked) =>
-        PackagesOf(db, power, HeroPrototypes(db, hero, cooked), hero, cooked);
+    public static List<string> PackagesOf(GameData db, string power, string hero, string cooked)
+    {
+        var mine = HeroPrototypes(db, hero, cooked);
+        var list = new List<string>();
+        foreach (string p in Family(db, power, hero))
+            foreach (string f in PackagesOf(db, p, mine, hero, cooked))
+                if (!list.Contains(f, StringComparer.OrdinalIgnoreCase)) list.Add(f);
+        return list;
+    }
+
+    /// <summary>
+    /// A power and the hero's other powers with the same name (a user, 2026-10-13: Iron Man's Unibeam is two prototypes, UniBeam
+    /// with UC__PowerUniBeam_SF and its talent version UnibeamUpgraded with UC__PowerIronMan_UnibeamUpgraded_SF; the list shows
+    /// one button per name, so a color went only into the upgraded one's package and the plain Unibeam kept the game's).
+    /// Only powers in the same folder (Powers/Player/IronMan/: the plain UniBeam isn't on the avatar's power list).
+    /// </summary>
+    public static List<string> Family(GameData db, string power, string hero)
+    {
+        var list = new List<string> { power };
+        if (PowerList.Field(db, power, "DisplayName", 'S') is not { Found: true } dn || dn.Raw == 0) return list;
+        string norm = power.Replace('\\', '/');
+        string dir = norm.Contains('/') ? norm[..(norm.LastIndexOf('/') + 1)] : "";
+        if (!dir.StartsWith("Powers/", StringComparison.OrdinalIgnoreCase)) return list;
+        lock (family) if (family.TryGetValue(norm, out var hit)) return hit;
+        foreach (var e in db.Prototypes.Values)
+        {
+            string path = e.Path.Replace('\\', '/');
+            if (!path.StartsWith(dir, StringComparison.OrdinalIgnoreCase) || path.IndexOf('/', dir.Length) >= 0 || path.Equals(norm, StringComparison.OrdinalIgnoreCase)) continue;
+            if (PowerList.Field(db, e.Path, "DisplayName", 'S') is { Found: true } d2 && d2.Raw == dn.Raw && !list.Contains(e.Path)) list.Add(e.Path);
+        }
+        lock (family) family[norm] = list;
+        return list;
+    }
+    static readonly Dictionary<string, List<string>> family = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>An NPC's or enemy's power (Fx.AgentPowers): the same, with that character's powers as "its own".</summary>
     public static List<string> PackagesOfAgent(GameData db, string power, string cls, string cooked) =>
@@ -162,7 +194,8 @@ static class PowerRecolor
     /// <summary>Who else a power's recolor changes: the other owners of the packages it recolors (Beta Ray Bill (team-up),
     /// Deadpool …); empty when it's the hero's alone.</summary>
     public static List<string> SharedWith(GameData db, string power, string hero, string cooked) =>
-        SharedWith(db, power, HeroPrototypes(db, hero, cooked), hero, cooked);
+        [.. Family(db, power, hero).SelectMany(p => SharedWith(db, p, HeroPrototypes(db, hero, cooked), hero, cooked))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>An NPC's or enemy's power: who else its recolor changes.</summary>
     public static List<string> SharedWithAgent(GameData db, string power, string cls, string cooked) =>

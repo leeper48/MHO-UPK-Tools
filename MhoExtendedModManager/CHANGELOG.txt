@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.272
+- Power colors: a power the game keeps under one name in several versions gets its color in all of them. Iron Man's Unibeam only recolored its talent-upgraded version (UC__PowerIronMan_UnibeamUpgraded_SF), so the plain Unibeam (UC__PowerUniBeam_SF) kept the game's colors in game; Thor's Ragnarok leap, Iron Man's Pulse Bolt missile and Deadpool's Flesh Wound sword attack were missed the same way.
+- Powers tab: Add Package adds one of the game's effect packages to the list under its file name, for a power that isn't listed. Its color recolors the whole package (every hero, team-up or enemy power using it changes too); the window and the manual say so.
+- Editor → Overview: Keep Shared Paths. For mods that want to share the game's paths (a modded S.H.I.E.L.D. agent package also changing Nick Fury's summoned agents): Save doesn't make the mod unique and it gets no OVERLAP warning. The note under it says what each choice does. A CRASH RISK window still offers Make Unique, and says what it changes for such a mod.
+
 0.37.271
 - What's New notice for this release (crash checks, OVERLAP, one 3D preview for every tab, material slots, hero Own Effects). Manual: new walkthroughs Fix a Mod That Can Crash the Game and Choose How Each Part of a Model Looks in Game; Own Effects now covers heroes (Ghost Rider); Effects slider and effect-only powers in the preview walkthrough.
 

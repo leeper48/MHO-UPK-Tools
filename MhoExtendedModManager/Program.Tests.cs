@@ -239,7 +239,9 @@ static partial class Program
                 var pgame = new GameState(pgr, data);
                 Fx.GameData? pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
                 string hero = pm.Manifest.UpkReplacements.Select(f => f.Split('_', StringSplitOptions.RemoveEmptyEntries)).First(x => x.Length >= 4 && x[1].Equals("MarvelPlayer", StringComparison.OrdinalIgnoreCase))[2];
-                var power = Fx.PowerList.For(pdb, hero, pgame.Cooked, [], effectOnly: true).FirstOrDefault(x => x.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                // (pkg:<file>: a whole package added by hand, the Powers tab's Add Package)
+                var power = rest[2].StartsWith(PowerColorBuild.PackagePrefix, StringComparison.OrdinalIgnoreCase) ? new Fx.PowerList.Power(rest[2], rest[2][PowerColorBuild.PackagePrefix.Length..], null, [])
+                    : Fx.PowerList.For(pdb, hero, pgame.Cooked, [], effectOnly: true).FirstOrDefault(x => x.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
                 int pfails = 0;
                 void PCheck(string what, bool ok) { if (!ok) pfails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {what}"); }
                 PCheck($"power '{rest[2]}' of {hero} found", power != null);

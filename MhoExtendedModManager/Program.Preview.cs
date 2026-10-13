@@ -907,8 +907,11 @@ static partial class Program
                     Console.WriteLine($"{pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): {used.Count} package(s)");
                     if (PowerRecolor.SharedWith(qdb, pw.Prototype, rest[1], qcook) is { Count: > 0 } sh) Console.WriteLine("    also changes: " + string.Join(", ", sh));
                     var classes = new List<(string Class, string Proto)>();
-                    if (Fx.PowerEffects.UnrealClassOf(qdb, pw.Prototype) is string own) classes.Add((own, pw.Prototype));
-                    foreach (var art in Fx.PowerClosure.Of(qdb, pw.Prototype)) if (!string.IsNullOrEmpty(art.Class)) classes.Add((art.Class, art.Prototype));
+                    foreach (string fp in PowerRecolor.Family(qdb, pw.Prototype, rest[1]))   // (with the hero's same-named powers)
+                    {
+                        if (Fx.PowerEffects.UnrealClassOf(qdb, fp) is string own) classes.Add((own, fp));
+                        foreach (var art in Fx.PowerClosure.Of(qdb, fp)) if (!string.IsNullOrEmpty(art.Class)) classes.Add((art.Class, art.Prototype));
+                    }
                     foreach (var (cls, proto) in classes.DistinctBy(x => x.Class, StringComparer.OrdinalIgnoreCase))
                     {
                         string f = $"UC__{cls}_SF.upk";

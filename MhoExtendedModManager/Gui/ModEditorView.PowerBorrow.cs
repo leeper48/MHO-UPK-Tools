@@ -31,7 +31,7 @@ sealed partial class ModEditorView
     /// <summary>The selected power's borrow, in the caption and the buttons (a hero's power with an animation only).</summary>
     void ShowBorrow(Fx.PowerList.Power p)
     {
-        bool can = !PowerColorBuild.IsOwn(p.Prototype) && !agentOwner.ContainsKey(p.Prototype) && p.Animations.Count > 0 && PowerBorrow.HeroOf(p.Prototype) != null;
+        bool can = !PowerColorBuild.IsOwn(p.Prototype) && !PowerColorBuild.IsPackage(p.Prototype) && !agentOwner.ContainsKey(p.Prototype) && p.Animations.Count > 0 && PowerBorrow.HeroOf(p.Prototype) != null;
         var e = BorrowOf(p.Prototype);
         if (borrowButton != null) borrowButton.Enabled = can && !borrowBuilding;
         if (borrowRemove != null) borrowRemove.Enabled = e != null && !borrowBuilding;
