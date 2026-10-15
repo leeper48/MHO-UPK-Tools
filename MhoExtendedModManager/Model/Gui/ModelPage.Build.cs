@@ -235,7 +235,7 @@ sealed partial class ModelPage
         Log($"Blender: installing the MHO Actions add-on ({Path.GetFileName(BlenderLaunch.BundledAddon())}) into {exe}…");
         string? failed = await Task.Run(() => BlenderLaunch.InstallAddon(exe));
         if (failed == null) Log("Blender: the MHO Actions add-on is installed and enabled.");
-        else { Log("Blender: the add-on wasn't installed: " + failed); Dialog.Show(this, $"The MHO Actions add-on wasn't installed: {failed}\n\nThe scene will be built without it. You can install the add-on by hand: Blender → Edit → Preferences → Get Extensions → Install from Disk, the file {BlenderLaunch.BundledAddon()}.", "Add-On Not Installed", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        else { Log("Blender: the add-on wasn't installed: " + failed); Dialog.Show(this, $"The MHO Actions add-on wasn't installed: {failed}\n\nThe scene will be built without it.\n\nTo install the add-on by hand: Blender → Edit → Preferences → Get Extensions → Install from Disk, then pick the file:\n  {BlenderLaunch.BundledAddon()}", "Add-On Not Installed", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         UpdateStatus();
     }
 
@@ -327,7 +327,7 @@ sealed partial class ModelPage
         if (openInBlender && BlenderLaunch.Find() == null)
         {
             if (Environment.GetEnvironmentVariable("MFF_GUI_NOASK") == "1") { Log("Blender: none found."); return; }
-            int pick = Dialog.Choose(this, "No Blender was found (none under Program Files\\Blender Foundation, and none chosen in Settings).\n\nPick blender.exe if it's installed somewhere else, or get Blender (5.0 or newer, for the MHO Actions add-on) and try again.",
+            int pick = Dialog.Choose(this, "No Blender was found (none under Program Files\\Blender Foundation, and none chosen in Settings).\n\n  • Pick blender.exe if it's installed somewhere else.\n  • Or get Blender (5.0 or newer, for the MHO Actions add-on) and try again.",
                 "Blender Not Found", "Choose blender.exe", "Get Blender", "Cancel");
             if (pick == 1) { Process.Start(new ProcessStartInfo("https://www.blender.org/download/") { UseShellExecute = true }); return; }
             if (pick != 0) return;
@@ -339,8 +339,8 @@ sealed partial class ModelPage
         // the MHO Actions add-on, offered (optional) when that Blender lacks it (0.16.7, Kurt)
         if (openInBlender && Environment.GetEnvironmentVariable("MFF_GUI_NOASK") != "1" && !Settings.Current.SkipAddonOffer && BlenderLaunch.Find() is string bexe && BlenderLaunch.CanOfferAddon(bexe))
         {
-            int pick = Dialog.Choose(this, $"{Path.GetFileName(Path.GetDirectoryName(bexe))} doesn't have the MHO Actions add-on. It's optional: without it the scene is built with Blender's own FBX import, and Ctrl+S still sends your changes back.\n\n" +
-                "With it you also get the action library (anims\\anim.blend), a Root pose track, and its tools (Batch Export Animations, Offset, the weight tools and more).\n\nInstall it into this Blender now? Your Blender preferences are kept.",
+            int pick = Dialog.Choose(this, $"{Path.GetFileName(Path.GetDirectoryName(bexe))} doesn't have the MHO Actions add-on.\n\n  • It's optional: Without it the scene is built with Blender's own FBX import, and Ctrl+S still sends your changes back.\n" +
+                "  • With it you also get the action library (anims\\anim.blend), a Root pose track, and its tools (Batch Export Animations, Offset, the weight tools and more).\n\nInstall it into this Blender now? Your Blender preferences are kept.",
                 "MHO Actions Add-On (Optional)", "Install and Continue", "Continue Without", "Don't Ask Again", "Cancel");
             if (pick == 3) return;
             if (pick == 2) { Settings.Current.SkipAddonOffer = true; Settings.Current.Save(); Log("Blender: the add-on won't be offered again (Settings ▾ → Model → Install the MHO Actions Add-On does it any time)."); }

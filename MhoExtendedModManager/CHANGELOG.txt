@@ -1,6 +1,27 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.277
+- Make Unique (and the editor's Save) leaves a group as it is when renaming it would break an import: something in it that another game file takes by name and no other file has. None of the mods tested so far hit this; it's the same kind of break as 0.37.276's black planes.
+
+0.37.276
+- Power colors: fixed black planes in game (a user's recolored Nova Pulsar powers). Some effects carry no materials of their own and take them by name from another package (the Richard Rider versions of Nova's Pulsar effects take theirs from the base effect packages). The recolor moved those materials to a group of its own, so the effects found nothing and drew black. Anything another game file takes by name now stays where it is, recolored in place. Mods made before: open them in the Editor and save once to rebuild their power colors.
+
+0.37.275
+- Right-click → Make Unique is offered for a mod that shares its paths on purpose too (Keep Shared Paths, or after Undo Make Unique), as a way back; it unticks Keep Shared Paths.
+
+0.37.274
+- A blue SHARED pill marks a mod that shares its paths on purpose (Keep Shared Paths, or after Undo Make Unique), where the OVERLAP pill would be: hover for what's shared, click for what it means and Make Unique after all. After Undo Make Unique the card had no pill at all.
+- Making a mod unique on purpose (the pill or right-click) unticks Keep Shared Paths.
+- Easier to read: Apply Changes' Checks and plan, and the Make Unique, Undo Make Unique, Crash Risk and Shared Paths windows, are in sections with bullet lists and white space. Every popup's text was checked: The word after a colon starts with a capital.
+
+0.37.273
+- Make Unique leaves a hero's own copies shared: Jean Grey's and Emma Frost's illusions, afterimages and a hero's summons carry the costume's model too, and sharing its path is what shows them in the mod's look (a user's illusions went back to the game's model after Make Unique). The game data says which characters a hero's powers bring in. A model with more bones than the game's is still renamed, since sharing it with fewer bones can crash.
+- Undo Make Unique (right-click a card): Make Unique and the editor's Save keep the mod's packages from before the rename (in the mod's "Before Unique" folder, not exported). Undo puts them back while nothing has changed them since, and ticks Keep Shared Paths. It says what that changes first.
+- The Make Unique window says what it changes: which characters keep the game's look afterwards, and which stay shared.
+- Apply Changes checks the turned-on mods together: a model in copies with different bone counts across mods and the game (crash risk), and a model two turned-on mods both changed (only one shows), under Checks.
+- Make Unique's new names end in a short code made from the mod's whole name, so two mods whose names start alike can't give a model the same new name.
+
 0.37.272
 - Power colors: a power the game keeps under one name in several versions gets its color in all of them. Iron Man's Unibeam only recolored its talent-upgraded version (UC__PowerIronMan_UnibeamUpgraded_SF), so the plain Unibeam (UC__PowerUniBeam_SF) kept the game's colors in game; Thor's Ragnarok leap, Iron Man's Pulse Bolt missile and Deadpool's Flesh Wound sword attack were missed the same way.
 - Powers tab: Add Package adds one of the game's effect packages to the list under its file name, for a power that isn't listed. Its color recolors the whole package (every hero, team-up or enemy power using it changes too); the window and the manual say so.

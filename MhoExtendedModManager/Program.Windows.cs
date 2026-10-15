@@ -187,7 +187,7 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
-        if (args.Length == 3 && args[0].Equals("--crash-snapshot", StringComparison.OrdinalIgnoreCase))
+        if (args.Length == 3 && (args[0].Equals("--crash-snapshot", StringComparison.OrdinalIgnoreCase) || args[0].Equals("--unique-snapshot", StringComparison.OrdinalIgnoreCase)))
         {
             // The CRASH RISK window for a mod, rendered off screen (the manual's screenshots). --crash-snapshot <mod> <out.png>
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
@@ -201,8 +201,10 @@ static partial class Program
             StockFiles.Init(cgame, cst.CleanGameFiles, Path.Combine(clib.DataFolder, "originals"));
             CrashCheck.Check(cm, cgame.Cooked);
             UniqueNames.Plans(cm, cgame.Cooked);
-            if (Gui.MainForm.CrashDialog(cm, false) is not var (text, labels)) { Console.WriteLine("no crash findings"); return 1; }
-            Gui.Dialog.SnapshotChoose(args[2], text, "Crash Risk", [.. labels]);
+            // (--unique-snapshot <mod> <out.png>: the Make Unique window instead)
+            if (args[0].Equals("--unique-snapshot", StringComparison.OrdinalIgnoreCase)) Gui.Dialog.SnapshotChoose(args[2], Gui.MainForm.MakeUniqueText(cm), "Make Unique", "Yes", "No");
+            else if (Gui.MainForm.CrashDialog(cm, false) is not var (text, labels)) { Console.WriteLine("no crash findings"); return 1; }
+            else Gui.Dialog.SnapshotChoose(args[2], text, "Crash Risk", [.. labels]);
             Console.WriteLine("picture: " + args[2]);
             return 0;
         }

@@ -103,7 +103,7 @@ sealed partial class ModelPage
         bool useClip = hasClip, useMesh = hasMesh;
         if (hasClip && hasMesh)
         {
-            int pick = Dialog.Choose(this, $"{Path.GetFileName(dlg.FileName)} has an animation ({c.Clips[0].Name}, {c.Clips[0].Frames:0} frames) and a skinned mesh ({c.SkinnedMeshes} part(s)).\n\nThe animation replaces \"{anim}\". The mesh, with its weights (weight painting from Blender), replaces the model's for every animation. Take the mesh only if you changed it: an FBX exported from here carries the mesh too.",
+            int pick = Dialog.Choose(this, $"{Path.GetFileName(dlg.FileName)} has an animation ({c.Clips[0].Name}, {c.Clips[0].Frames:0} frames) and a skinned mesh ({c.SkinnedMeshes} part(s)).\n\n  • The animation replaces \"{anim}\".\n  • The mesh, with its weights (weight painting from Blender), replaces the model's for every animation.\n\nTake the mesh only if you changed it: An FBX exported from here carries the mesh too.",
                 "Import FBX", "Animation and Mesh", "Animation Only", "Mesh Only", "Cancel");
             if (pick == 3) return;
             useClip = pick != 2; useMesh = pick != 1;

@@ -104,7 +104,7 @@ sealed partial class ModEditorView
         Ui.Tip(brightSlider, "How bright the power's colors are. Double-click: back to 100 %.");
         var reset = Ui.FlatButton("Game's Colors", () => SetColor(null), tip: "Take this power back to the game's own colors.");
         var all = Ui.FlatButton("Apply to All Powers", ApplyToAll, tip: "Give every power of the hero the color on the sliders (the game's colors take them all back).");
-        var addPkg = Ui.FlatButton("Add Package", AddPowerPackage, tip: "Adds one of the game's effect packages (UC__Power…, a projectile, a hotspot, a condition effect) to the list under its file name, for a power that isn't listed or isn't fully recolored. Impact: everything in that package is recolored, for every hero, team-up or enemy that uses it, and the 3D preview doesn't show its color (check it in game).");
+        var addPkg = Ui.FlatButton("Add Package", AddPowerPackage, tip: "Adds one of the game's effect packages (UC__Power…, a projectile, a hotspot, a condition effect) to the list under its file name, for a power that isn't listed or isn't fully recolored. Impact: Everything in that package is recolored, for every hero, team-up or enemy that uses it, and the 3D preview doesn't show its color (check it in game).");
         right.Controls.Add(Toolbar(reset, all, addPkg, powerCaption), 0, 5);
         // Five presets (as the MHO Hero Creator's): click = use on this power, right-click = store the sliders there.
         var presets = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Padding = new Padding(0, 2, 0, 2) };
@@ -231,12 +231,12 @@ sealed partial class ModEditorView
         string? real = Directory.EnumerateFiles(game.Cooked, f).Select(Path.GetFileName).FirstOrDefault();
         if (real == null || !Path.GetFullPath(Path.GetDirectoryName(d.FileName)!).TrimEnd('\\').Equals(Path.GetFullPath(game.Cooked).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
         {
-            Dialog.Show(this, "Pick a package in the game's CookedPCConsole folder: the mod replaces the game's file of that name.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Dialog.Show(this, "Pick a package in the game's CookedPCConsole folder: The mod replaces the game's file of that name.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         if (PowerColorBuild.IsCharacter(real))
         {
-            Dialog.Show(this, $"{real} is a character's package. Add it on the Packages tab instead: its glows and trails then show as an Own Effects entry here, which keeps the character's model as it is.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Dialog.Show(this, $"{real} is a character's package. Add it on the Packages tab instead: Its glows and trails then show as an Own Effects entry here, which keeps the character's model as it is.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         string key = PowerColorBuild.PackagePrefix + real;
@@ -257,8 +257,8 @@ sealed partial class ModEditorView
         if (PowerColorBuild.IsPackage(p.Prototype))
         {
             string pf = p.Prototype[PowerColorBuild.PackagePrefix.Length..];
-            powerShared.Text = $"Added by hand: its color goes into all of {pf} (every particle, effect texture and material color in it), and Save puts that package in the mod. "
-                + "Impact: every hero, team-up or enemy power that uses this package changes too, and the 3D preview doesn't show this color, so check it in game. "
+            powerShared.Text = $"Added by hand: Its color goes into all of {pf} (every particle, effect texture and material color in it), and Save puts that package in the mod. "
+                + "Impact: Every hero, team-up or enemy power that uses this package changes too, and the 3D preview doesn't show this color, so check it in game. "
                 + "To take it out: The Game's Colors, then Save.";
             return;
         }
@@ -349,7 +349,7 @@ sealed partial class ModEditorView
         }
         if (moves.Count == 0) return true;
         string list = string.Join("\n", moves.Select(m => $"{m.Entry.Name}: its effects are in {m.Parent}"));
-        int pick = Dialog.Choose(this, $"These colors won't be saved as they are: the costume has no always-on effects of its own, its hero's package has them, and this mod doesn't hold it.\n\n{list}\n\nAdd It and Save adds that package (the game's copy) and puts the color on its Own Effects (it then reaches the hero's costumes that use those effects).",
+        int pick = Dialog.Choose(this, $"These colors won't be saved as they are: The costume has no always-on effects of its own, its hero's package has them, and this mod doesn't hold it.\n\n{list}\n\n  • Add It and Save: Adds that package (the game's copy) and puts the color on its Own Effects. It then reaches the hero's costumes that use those effects.\n  • Save Without It: The color is dropped.",
             "Own Effects Not in This Mod", "Add It and Save", "Save Without It", "Cancel");
         if (pick == 2 || pick < 0) return false;
         foreach (var (e, f, parent) in moves)
@@ -381,7 +381,7 @@ sealed partial class ModEditorView
         if (game == null) return false;
         if (draft.Packages.Any(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase))) return true;
         string? source = new Originals(lib.DataFolder, game).Find(f) ?? (StockFiles.For(game.Cooked, f) is var st && File.Exists(st) ? st : null);
-        if (source == null) { Dialog.Show(this, $"{f}: no clean original of this package (the game's copy is changed).", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+        if (source == null) { Dialog.Show(this, $"{f}: No clean original of this package (the game's copy is changed).", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
         draft.Packages.Add((f, source));
         return true;
     }
@@ -392,7 +392,7 @@ sealed partial class ModEditorView
     {
         if (parentToAdd is not string f || game == null) return;
         string? source = new Originals(lib.DataFolder, game).Find(f) ?? (StockFiles.For(game.Cooked, f) is var st && File.Exists(st) ? st : null);
-        if (source == null) { Dialog.Show(this, $"{f}: no clean original of this package (the game's copy is changed).", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (source == null) { Dialog.Show(this, $"{f}: No clean original of this package (the game's copy is changed).", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (!draft.Packages.Any(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase))) draft.Packages.Add((f, source));
         RefreshPackages();
         if (addParent != null) addParent.Visible = false;

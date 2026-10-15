@@ -279,8 +279,8 @@ sealed partial class MainForm
     async void SignInNexus()
     {
         if (Dialog.Show(this, "Your browser opens Nexus Mods' sign-in page. Sign in there and allow MHO Extended Mod Manager; then come back here.\n\n" +
-                "The app only uses the sign-in to download the updates you choose (Nexus gives apps download links for Premium members only). " +
-                "Your password is never seen by the app, and the sign-in stays on this PC, encrypted for your Windows user. Sign out any time from this menu.",
+                "  • The app only uses the sign-in to download the updates you choose (Nexus gives apps download links for Premium members only).\n" +
+                "  • Your password is never seen by the app.\n  • The sign-in stays on this PC, encrypted for your Windows user.\n\nSign out any time from this menu.",
                 "Sign In with Nexus", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
         nexusBusy = "Waiting for the Nexus Sign-In in Your Browser…"; UpdateNexusStatus();
         try
@@ -289,7 +289,7 @@ sealed partial class MainForm
             nexusBusy = null; UpdateNexusStatus();
             Activate();
             Dialog.Show(this, login.Premium ? $"Signed in as {login.UserName} (Premium): Update now downloads and installs with one click." :
-                $"Signed in as {login.UserName}. Nexus gives apps download links only for Premium members, so updates still open the mod's Files page, and the app installs the file from your Downloads folder.",
+                $"Signed in as {login.UserName}.\n\nNexus gives apps download links only for Premium members, so updates still open the mod's Files page, and the app installs the file from your Downloads folder.",
                 "Signed In", MessageBoxButtons.OK, MessageBoxIcon.None);
         }
         catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or IOException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)

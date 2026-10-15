@@ -258,11 +258,25 @@ static partial class Program
                     string? uhome = Environment.GetEnvironmentVariable("MHO_EXTMM_HOME");
                     if (uhome == null || Path.GetFullPath(uhome).Contains(@"\publish\data", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("Set MHO_EXTMM_HOME to a scratch folder (a copy of a library), never the real one."); return 2; }
                     var ulog = new List<string>();
+                    var pre = um.Manifest.UpkReplacements.Where(f => File.Exists(Path.Combine(um.Folder, f))).ToDictionary(f => f, f => File.ReadAllBytes(Path.Combine(um.Folder, f)), StringComparer.OrdinalIgnoreCase);
                     var done = UniqueNames.Apply(lib, um, ucook, ulog, out string? uerr);
                     ulog.ForEach(x => Console.WriteLine("  " + x));
                     Console.WriteLine(done == null ? "NOT SAVED: " + uerr : $"saved: {string.Join(", ", done)}");
                     var again = UniqueNames.Plans(ModLibrary.Load(data).Find(rest[1])!, ucook);
                     Console.WriteLine($"after: {again.Count} package(s) still to change{(again.Count == 0 ? " (OK)" : "")}");
+                    var copies = UniqueNames.BeforeCopies(ModLibrary.Load(data).Find(rest[1])!);
+                    Console.WriteLine($"undo copies kept: {copies.Count} ({string.Join(", ", copies.Select(c => c.File))})");
+                    if (rest.Contains("--then-undo"))
+                    {
+                        // ... --save --then-undo: Undo Make Unique right after; the packages must come back byte for byte
+                        var before = pre.Where(kv => (done ?? []).Contains(kv.Key, StringComparer.OrdinalIgnoreCase)).ToList();
+                        var cur = ModLibrary.Load(data).Find(rest[1])!;
+                        var und = UniqueNames.Undo(ModLibrary.Load(data), cur, out string? derr);
+                        var back = ModLibrary.Load(data).Find(rest[1])!;
+                        bool same = und != null && before.All(kv => File.ReadAllBytes(Path.Combine(back.Folder, kv.Key)).AsSpan().SequenceEqual(kv.Value));
+                        Console.WriteLine(und == null ? "NOT UNDONE: " + derr : $"undone: {string.Join(", ", und)}; packages as before Make Unique: {same}; Keep Shared Paths: {back.Manifest.KeepShared == true}; undo copies left: {UniqueNames.BeforeCopies(back).Count}");
+                        return und != null && same && back.Manifest.KeepShared == true ? 0 : 1;
+                    }
                     return done != null && again.Count == 0 ? 0 : 1;
                 }
                 string tag = Opt("--tag") ?? UniqueNames.Tag(um.Name);
@@ -276,7 +290,7 @@ static partial class Program
                     if (!UniqueNames.Covers(f)) continue;
                     string mf = Path.Combine(um.Folder, f);
                     if (!File.Exists(mf)) { Console.WriteLine($"{f}: not in the mod"); continue; }
-                    var plan = UniqueNames.PlanFor(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, tag);
+                    var plan = UniqueNames.PlanFor(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, tag, rest.Contains("--no-own") ? null : UniqueNames.OwnFiles(f, ucook), ucook);
                     Console.WriteLine($"{f}:");
                     plan.Notes.ForEach(n => Console.WriteLine("  " + n));
                     if (!plan.Changes) continue;

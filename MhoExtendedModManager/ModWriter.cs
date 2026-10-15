@@ -52,6 +52,9 @@ sealed class ModDraft
     /// <summary>The Model tab's work (bone maps, FBX edits, its choices, the package before the model): a folder copied into
     /// the mod as Model\ on Save (null: the mod's own Model folder stays as it is).</summary>
     public string? ModelFolder;
+    /// <summary>Make Unique's undo copies (UniqueNames.BeforeFolder): package file → its version before the rename, and the
+    /// SHA-256 of the renamed one (the undo is only offered while the package is still exactly that).</summary>
+    public Dictionary<string, (string Source, string After)> BeforeUnique = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The changelog as it will be saved: this version's changes (if any) on top of the earlier entries.</summary>
     public List<ChangelogEntry> FullChangelog()
@@ -82,6 +85,7 @@ sealed class ModDraft
     {
         var d = new ModDraft { Name = m.Name, Author = m.Manifest.Author ?? "", Version = m.Manifest.Version ?? "" };
         d.Packages = m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))).ToList();
+        foreach (var (f, src, after) in UniqueNames.BeforeCopies(m)) d.BeforeUnique[f] = (src, after);
         for (int k = 0; k < Applier.IconPackages.Length; k++)
             d.Textures[k] = Applier.IconPackages[k].List(m.Manifest).Select(r => (r.TextureName, Path.Combine(m.Folder, r.DdsFileName))).ToList();
         d.Strings = [.. m.Strings];
@@ -229,6 +233,15 @@ static class ModWriter
             // The Model tab's work (Model\): the editor's work folder, else the mod's own (both before the old folder goes)
             string? modelFrom = d.ModelFolder ?? (editing != null ? Path.Combine(editing.Folder, ModelWork.Folder) : null);
             if (modelFrom != null && Directory.Exists(modelFrom)) ModelWork.CopyInto(modelFrom, Path.Combine(temp, ModelWork.Folder));
+            // Make Unique's undo copies (Before Unique\), for packages still in the mod
+            foreach (var (file, (source, after)) in d.BeforeUnique)
+                if (d.Packages.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)) && File.Exists(source))
+                {
+                    string dir = Path.Combine(temp, UniqueNames.BeforeFolder);
+                    Directory.CreateDirectory(dir);
+                    File.Copy(source, Path.Combine(dir, file), overwrite: true);
+                    File.WriteAllText(Path.Combine(dir, file + ".sha256"), after);
+                }
             // Custom pictures the preview or card uses (Pictures\), copied before the old folder goes away too.
             foreach (var (file, source) in d.Pictures)
                 if ((ModPictures.Prefix + file).Equals(d.PreviewImage, StringComparison.OrdinalIgnoreCase) || (ModPictures.Prefix + file).Equals(d.CardPicture, StringComparison.OrdinalIgnoreCase))

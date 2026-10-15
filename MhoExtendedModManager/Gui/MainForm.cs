@@ -206,7 +206,7 @@ sealed partial class MainForm : Form
                 float v = p2 / 100f;
                 if (Math.Abs(settings.UiScale - v) < 0.001f) return;
                 settings.UiScale = v; settings.Save();
-                Dialog.Show(this, $"The UI scale is {p2} % from the next start: close the app and open it again.", "UI Scale", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Dialog.Show(this, $"The UI scale is {p2} % from the next start: Close the app and open it again.", "UI Scale", MessageBoxButtons.OK, MessageBoxIcon.Information);
             });
             scaleMenu.DropDownItems.Add(item);
         }
@@ -397,6 +397,8 @@ sealed partial class MainForm : Form
         list.UpdateClicked += m => UpdateFromNexus(m);
         list.SharedFor = OverlapReason;
         list.SharedClicked += OverlapClicked;
+        list.KeptFor = KeptReason;
+        list.KeptClicked += KeptClicked;
         list.CrashFor = CrashCheck.Reason;
         list.CrashClicked += CrashClicked;
 
@@ -559,8 +561,9 @@ sealed partial class MainForm : Form
             if (!settings.UpdateCheckAsked)
             {
                 settings.CheckUpdates = Dialog.Show(this, "Look for new versions of MHO Extended Mod Manager when it starts and every hour while it's open?" + Environment.NewLine + Environment.NewLine +
-                    "It asks GitHub (api.github.com) for the latest release; nothing about you, your game or your mods is sent. " +
-                    "You can change this in Settings, and Settings → Check for updates works either way.",
+                    "  • It asks GitHub (api.github.com) for the latest release." + Environment.NewLine +
+                    "  • Nothing about you, your game or your mods is sent." + Environment.NewLine + Environment.NewLine +
+                    "You can change this in Settings, and Settings → Check for Updates works either way.",
                     "Updates", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
                 settings.UpdateCheckAsked = true;
                 settings.Save();
@@ -677,7 +680,7 @@ sealed partial class MainForm : Form
     }
 
     void About() => Dialog.Show(this,
-        $"MHO Extended Mod Manager {Program.Version}\n\nMods for Marvel Heroes Omega: packages, icons, strings and sound packs, in the MHModManager mod format. " +
+        $"MHO Extended Mod Manager {Program.Version}\n\nMods for Marvel Heroes Omega: Packages, icons, strings and sound packs, in the MHModManager mod format.\n\n" +
         "Every change is written from verified originals, checked, and can be undone.\n\nSettings and mods: " + Settings.Home, "About");
 
     void BrowseGame()
@@ -729,7 +732,7 @@ sealed partial class MainForm : Form
             // Backups that are the original but dated later: offer the game's date (Kurt: only those, never one that isn't
             // the original).
             var late = BackupCheck.FixDates(game, dryRun: true);
-            if (late.Count > 0 && Dialog.Show(this, $"{late.Count} .bak file(s) are the game's original files but carry a later date, so they look modified. Give them the game's own date (2024-03-14)? Only the date changes; their contents stay exactly as they are. Backups that aren't the original keep their dates.",
+            if (late.Count > 0 && Dialog.Show(this, $"{late.Count} .bak file(s) are the game's original files but carry a later date, so they look modified.\n\nGive them the game's own date (2024-03-14)?\n\n  • Only the date changes: Their contents stay exactly as they are.\n  • Backups that aren't the original keep their dates.",
                     "Fix Backup Dates", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
                 var done = BackupCheck.FixDates(game, dryRun: false);
@@ -1097,7 +1100,7 @@ sealed partial class MainForm : Form
     {
         if (readOnly || lib == null || game == null) return;
         if (!game.HasStockList) { Dialog.Show(this, "There is no stock checksum list, so originals can't be verified. Reinstall the program to get it back (StockData folder).", "Can't Apply", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-        if (Process.GetProcessesByName("MarvelHeroesOmega").Length > 0) { Dialog.Show(this, "Close the game first: changes can only be applied while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (Process.GetProcessesByName("MarvelHeroesOmega").Length > 0) { Dialog.Show(this, "Close the game first: Changes can only be applied while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         var (l, g) = (lib, game);
         var originals = new Originals(l.DataFolder, g);
         UseWaitCursor = true;
@@ -1284,7 +1287,7 @@ sealed partial class MainForm : Form
         if (m.Manifest.Extra.Any())
         {
             var answer = Dialog.Show(this, $"{m.Name} replaces {m.Manifest.Extra.Count()} image(s) in other icon packages (an extension of the mod format).\n\n" +
-                "Yes: export everything. The old MHModManager still installs it, and simply skips those images.\nNo: export a legacy copy without them.", "Export", MessageBoxButtons.YesNoCancel);
+                "  • Yes: Export everything. The old MHModManager still installs it, and simply skips those images.\n  • No: Export a legacy copy without them.", "Export", MessageBoxButtons.YesNoCancel);
             if (answer == DialogResult.Cancel) return;
             legacy = answer == DialogResult.No;
         }
@@ -1303,8 +1306,8 @@ sealed partial class MainForm : Form
         if (!legacy && parts.Count > 0)
         {
             string what = parts.Count == 1 ? parts[0] : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
-            var a = Dialog.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far. The mod's own tags, note and preview go along anyway; automatic tags are worked out again by whoever installs it. " +
-                "Whoever installs it starts from your preview, view and light, and can still pick, turn and light their own.",
+            var a = Dialog.Show(this, $"Put {what} into the exported mod?\n\nThey are only on this PC so far.\n\n  • The mod's own tags, note and preview go along anyway; automatic tags are worked out again by whoever installs it.\n" +
+                "  • Whoever installs it starts from your preview, view and light, and can still pick, turn and light their own.",
                 "Export", MessageBoxButtons.YesNoCancel);
             if (a == DialogResult.Cancel) return;
             if (a == DialogResult.Yes) { addTags = mineTags; note = m.LocalNote; pick = m.LocalPreview; views = mineViews; light = mineLight; card = m.LocalCard; }
@@ -1340,7 +1343,7 @@ sealed partial class MainForm : Form
             : "Its folder goes to the Recycle Bin.";
         if (Dialog.Show(this, $"Remove \"{m.Name}\" from the library?{nl}{nl}{steps}", "Remove Mod", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         if (inGame && Process.GetProcessesByName("MarvelHeroesOmega").Length > 0)
-        { Dialog.Show(this, "Close the game first: the game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        { Dialog.Show(this, "Close the game first: The game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         var (l, g) = (lib, game);
         string name = m.Name;
         if (m.Enabled) { m.Enabled = false; l.SaveState(); }

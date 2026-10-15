@@ -48,7 +48,7 @@ sealed partial class ModelPage
         string? exe = ImageEditor.Find();
         if (exe == null)
         {
-            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nPick your editor's program in Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         string dir = Path.Combine(Path.GetDirectoryName(ovPath)!, Path.GetFileNameWithoutExtension(ovPath), "edit");

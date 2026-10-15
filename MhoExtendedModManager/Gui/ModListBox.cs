@@ -82,6 +82,11 @@ sealed class ModListBox : ListBox
     /// "OVERLAP" pill's tooltip; null: no pill.</summary>
     public Func<Mod, string?>? SharedFor { get; set; }
     public event Action<Mod>? SharedClicked;
+    /// <summary>A mod that shares those paths on purpose (Keep Shared Paths, or Undo Make Unique): the reason, for a muted
+    /// "SHARED" pill in place of OVERLAP (Kurt, 2026-10-14: after Undo Make Unique the pill was simply gone); null: none.</summary>
+    public Func<Mod, string?>? KeptFor { get; set; }
+    public event Action<Mod>? KeptClicked;
+    public static readonly Color SharedBlue = Color.FromArgb(120, 170, 215);
     /// <summary>A crash risk in the mod's models (CrashCheck): a red "CRASH RISK" pill; its click shows the findings.</summary>
     public Func<Mod, string?>? CrashFor { get; set; }
     public event Action<Mod>? CrashClicked;
@@ -96,7 +101,7 @@ sealed class ModListBox : ListBox
     readonly Dictionary<int, (Rectangle Badges, List<(Rectangle Rect, string Tag)> Chips)> regions = [];
     // Where each card's Update pill and Nexus mark were drawn (item index).
     readonly Dictionary<int, (Rectangle Pill, Rectangle Mark)> nexusParts = [];
-    readonly Dictionary<int, Rectangle> sharedPills = [], crashPills = [];
+    readonly Dictionary<int, Rectangle> sharedPills = [], crashPills = [], keptPills = [];
     readonly Font pillFont = Ui.Heavy(7.5f), markFont = Ui.Heavy(6.5f);
     readonly ToolTip tips;
     readonly System.Windows.Forms.Timer tipTimer = new() { Interval = 450 };
@@ -413,6 +418,20 @@ sealed class ModListBox : ListBox
             badgesLeft = shared.Left;
         }
         sharedPills[e.Index] = shared;
+        // shared on purpose: a muted pill, no warning triangle
+        var kept = Rectangle.Empty;
+        if (shared.IsEmpty && KeptFor?.Invoke(m) != null)
+        {
+            const string label = "SHARED";
+            var ts = TextRenderer.MeasureText(g, label, pillFont, Size.Empty, TextFormatFlags.NoPadding);
+            int ph = (int)(16 * S), pw = ts.Width + (int)(14 * S);
+            kept = new Rectangle(badgesLeft - pw - (int)(6 * S), check.Top + check.Height / 2 - ph / 2, pw, ph);
+            using (var path = Ui.Round(kept, ph / 2f))
+            using (var f = new SolidBrush(SharedBlue)) g.FillPath(f, path);
+            TextRenderer.DrawText(g, label, pillFont, kept, Ui.OnColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            badgesLeft = kept.Left;
+        }
+        keptPills[e.Index] = kept;
 
         var nameRect = new Rectangle(textLeft, card.Y + (int)(5 * S), badgesLeft - textLeft, (int)(20 * S));
         Ui.DrawModName(g, m, nameFont, nameRect, m.Enabled ? Ui.Text : Color.FromArgb(200, 200, 205), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
@@ -510,6 +529,8 @@ sealed class ModListBox : ListBox
             return why + " Click to Make Unique: the mod's own copy gets paths of its own (asks first).";
         if (crashPills.TryGetValue(i, out var cp) && cp.Contains(p) && CrashFor?.Invoke(m) is string risk)
             return risk + "\n\nClick for every finding and what can be done.";
+        if (keptPills.TryGetValue(i, out var kp) && kp.Contains(p) && KeptFor?.Invoke(m) is string kwhy)
+            return kwhy + "\n\nClick for what that means, and to make it unique after all.";
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(p) || np.Mark.Contains(p)))
         {
             string have = (m.NexusLink?.Version ?? m.Manifest.Version ?? "?").TrimStart('v', 'V');
@@ -558,6 +579,8 @@ sealed class ModListBox : ListBox
         { SelectedIndex = i; SharedClicked?.Invoke(m); return; }
         if (crashPills.TryGetValue(i, out var cp) && cp.Contains(e.Location) && CrashFor?.Invoke(m) != null)
         { SelectedIndex = i; CrashClicked?.Invoke(m); return; }
+        if (keptPills.TryGetValue(i, out var kp) && kp.Contains(e.Location) && KeptFor?.Invoke(m) != null)
+        { SelectedIndex = i; KeptClicked?.Invoke(m); return; }
         if (nexusParts.TryGetValue(i, out var np) && (np.Pill.Contains(e.Location) || np.Mark.Contains(e.Location)) && UpdateFor?.Invoke(m) != null)
         { SelectedIndex = i; UpdateClicked?.Invoke(m); return; }
         if (regions.TryGetValue(i, out var r))

@@ -34,7 +34,20 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.277 (Kurt, 2026-10-14): safer Make Unique, Undo, SHARED, mods checked together, recolor black planes fixed.</summary>
+    static Notice SafeUnique() => new(
+        "0.37.277-safe-unique", "0.37.277",
+        "[!]Power colors no longer cause black planes in game: Effects that take their materials from another game file (Nova's Pulsar powers on Richard Rider) kept them, but the recolor moved them. Open a recolored mod in the Editor and save it once to rebuild it." + nl + nl +
+        "Make Unique is safer:" + nl +
+        "  • A hero's own illusions, afterimages and summons (Jean Grey's and Emma Frost's illusions) stay shared, so they keep the mod's look, unless the mod added bones." + nl +
+        "  • Its window says what it changes before it does anything." + nl +
+        "  • Right-click → Undo Make Unique puts a mod back (for mods made unique from now on). A blue SHARED pill marks mods that share on purpose." + nl + nl +
+        "Apply Changes now checks your turned-on mods together: Models in copies with different bone counts (a crash risk) and models two mods both changed are listed under Checks." + nl + nl +
+        "Popups are easier to read: Sections, bullet lists and white space." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "shared");
 
     /// <summary>0.37.272 (Kurt, 2026-10-13): same-named powers, Add Package, Keep Shared Paths.</summary>
     static Notice UnibeamAndShared() => new(

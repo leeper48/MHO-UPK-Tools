@@ -247,6 +247,30 @@ static class PowerRecolor
     }
 
     static readonly Dictionary<string, HashSet<string>> heroProtos = new(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string, HashSet<string>> heroFiles = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The package files of everything the hero's powers use or bring in: their own classes and what they set off, summons
+    /// included (Jean Grey's Telepathic Illusion agents, one per costume; Doctor Strange's Projections; Nick Fury's S.H.I.E.L.D.
+    /// agents). "UC__&lt;class&gt;_SF.upk", cached per hero.
+    /// </summary>
+    public static HashSet<string> HeroFiles(GameData db, string hero, string cooked)
+    {
+        lock (heroFiles) if (heroFiles.TryGetValue(hero, out var hit)) return hit;
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string p in HeroPrototypes(db, hero, cooked))
+        {
+            try
+            {
+                if (PowerEffects.UnrealClassOf(db, p) is string c) set.Add($"UC__{c}_SF.upk");
+                if (p.StartsWith("Powers/", StringComparison.OrdinalIgnoreCase))
+                    foreach (var a in PowerClosure.Of(db, p)) if (!string.IsNullOrEmpty(a.Class)) set.Add($"UC__{a.Class}_SF.upk");
+            }
+            catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { }
+        }
+        lock (heroFiles) heroFiles[hero] = set;
+        return set;
+    }
 
     /// <summary>The prototypes that are the hero's: everything reached from its powers (power buttons, PowerClosure), and
     /// every prototype in a folder named after the hero (Powers/Player/SquirrelGirl/…, …/PetsAndSummons/DoctorStrange/…).</summary>
@@ -410,6 +434,18 @@ static class PowerRecolor
         foreach (int i in tinted) materials.Add(i);
         materials.RemoveWhere(m => m < 0);
         var moved = recolored.Concat(materials).Concat(systems).Distinct().OrderBy(x => x).ToList();
+        // An object another game package imports by path keeps that path (a user, 2026-10-14: the Richard Rider versions of
+        // Nova's Pulsar effects import their materials from the base packages; moved, the imports found nothing and drew black
+        // planes; confirmed in game: materials moved = black, nothing / textures / particle systems moved = fine). It stays
+        // recolored in place, as everything did before the move existed.
+        string folder = UniqueNames.Folder(cooked);
+        var importedHere = moved.Where(i => ImportIndex.ImportersOf(folder, t.PathOf(i + 1), t.ClassOf(t.Exports[i]), file).Count > 0).ToList();
+        foreach (int i in importedHere)
+        {
+            var by = ImportIndex.ImportersOf(folder, t.PathOf(i + 1), t.ClassOf(t.Exports[i]), file);
+            log($"{t.PathOf(i + 1)}: kept at its path, recolored in place (imported by {string.Join(", ", by.Take(3))}{(by.Count > 3 ? " …" : "")})");
+        }
+        moved.RemoveAll(importedHere.Contains);
         string top = cls + "_recolor_fx";
         // MHO_RECOLOR_NOMOVE=1 (test only): leave everything at its stock path, to tell a path problem from a color one.
         if (Environment.GetEnvironmentVariable("MHO_RECOLOR_NOMOVE") == "1") { log("test: nothing moved (MHO_RECOLOR_NOMOVE)"); moved.Clear(); }

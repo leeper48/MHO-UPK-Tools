@@ -87,7 +87,7 @@ sealed partial class ModEditorView : IModelHost
                 bool ok;
                 try { tabs.Select(modelTop); ok = await modelPage.BuildAsync(); }
                 finally { askingModel = false; }
-                if (!ok) { Dialog.Show(this, "The build didn't finish, so nothing was saved: see the Model tab's log.", "Not Saved", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                if (!ok) { Dialog.Show(this, "The build didn't finish, so nothing was saved: See the Model tab's log.", "Not Saved", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             }
         }
         if (!OwnColorsAtHome()) return;

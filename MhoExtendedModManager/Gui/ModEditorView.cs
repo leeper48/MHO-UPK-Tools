@@ -285,11 +285,13 @@ sealed partial class ModEditorView : UserControl
         bool any = false;
         foreach (var (file, src) in files)
         {
-            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag);
+            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag, UniqueNames.OwnFiles(file, game.Cooked), game.Cooked);
             if (!plan.Changes) continue;
             Directory.CreateDirectory(work);
             string dst = Path.Combine(work, file);
-            File.WriteAllBytes(dst, UniqueNames.Build(src, plan));
+            byte[] built = UniqueNames.Build(src, plan);
+            File.WriteAllBytes(dst, built);
+            draft.BeforeUnique[file] = (src, UniqueNames.Sha(built));   // (Make Unique's undo copy: the package before this rename)
             int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
             draft.Packages[k] = (file, dst);
             log.AddRange(plan.Notes.Select(n => $"unique: {file}: {n}"));
@@ -410,11 +412,11 @@ sealed partial class ModEditorView : UserControl
         var keepShared = new CheckBox { Text = "Keep Shared Paths  ·  don't make this mod's models unique", AutoSize = true, Checked = draft.KeepShared, Margin = new Padding(0, 12, 0, 0) };
         var keepNote = new Label { AutoSize = true, Tag = "subtle", Margin = new Padding(20, 2, 0, 0), MaximumSize = new Size((int)(900 * S), 0) };
         void KeepNote() => keepNote.Text = keepShared.Checked
-            ? "On: Save leaves the mod's model, material and effect paths as the game's. Impact: wherever another file carries the same path (a summon, a team-up, an NPC, a boss's power), the game shows whichever copy loads first, so your look can spread to those characters (useful for a summoner's copy of an agent) or the game's look can show instead of yours near other players and in hubs. The OVERLAP warning isn't shown for this mod, and it travels with the mod. A CRASH RISK warning still shows."
-            : "Off (recommended): Save gives the mod's changed models, materials and effects paths of their own, so the game's copies elsewhere can't replace your look. Impact: other characters that share those paths keep the game's look, including summons, team-ups and NPCs whose copy lives in another file (Nick Fury's summoned agents stay stock when you change the agents' own package).";
+            ? "On: Save leaves the mod's model, material and effect paths as the game's. Impact: Wherever another file carries the same path (a summon, a team-up, an NPC, a boss's power), the game shows whichever copy loads first, so your look can spread to those characters (useful for a summoner's copy of an agent) or the game's look can show instead of yours near other players and in hubs. The OVERLAP warning isn't shown for this mod, and it travels with the mod. A CRASH RISK warning still shows."
+            : "Off (recommended): Save gives the mod's changed models, materials and effects paths of their own, so the game's copies elsewhere can't replace your look. Impact: Other characters that share those paths keep the game's look, including summons, team-ups and NPCs whose copy lives in another file (Nick Fury's summoned agents stay stock when you change the agents' own package).";
         KeepNote();
         keepShared.CheckedChanged += (_, _) => { draft.KeepShared = keepShared.Checked; KeepNote(); };
-        Ui.Tip(keepShared, "On: Save leaves this mod's paths shared with the game's other copies (no Make Unique, no OVERLAP warning): your look can reach other characters that share them, or the game's can show instead of yours. Off: Save makes the mod's changed models unique. See the note under it.");
+        Ui.Tip(keepShared, "On: Save leaves this mod's paths shared with the game's other copies (no Make Unique, no OVERLAP warning): Your look can reach other characters that share them, or the game's can show instead of yours. Off: Save makes the mod's changed models unique. See the note under it.");
         var keepBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0) };
         keepBox.Controls.Add(keepShared); keepBox.Controls.Add(keepNote);
         p.RowCount = 9;

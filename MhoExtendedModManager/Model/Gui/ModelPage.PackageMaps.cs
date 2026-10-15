@@ -109,7 +109,7 @@ sealed partial class ModelPage
         if (m.InFile != null)
         {
             bool inMod = host.Packages.FirstOrDefault(p => p.File.Equals(m.InFile, StringComparison.OrdinalIgnoreCase)) is { File: not null } own && File.Exists(own.Path);
-            if (!inMod && Dialog.Choose(this, $"{m.Texture} is in {m.InFile}, the hero's base package the model takes its {m.Material} material from. Changing it adds that package to the mod (the game's copy with this texture changed); every costume of the hero that uses the texture shows the change.",
+            if (!inMod && Dialog.Choose(this, $"{m.Texture} is in {m.InFile}, the hero's base package the model takes its {m.Material} material from.\n\n  • Changing it adds that package to the mod (the game's copy with this texture changed).\n  • Every costume of the hero that uses the texture shows the change.",
                     "Texture in Another Package", "Add It and Change the Texture", "Cancel") != 0) return false;
             targetFile = m.InFile;
             sourcePath = inMod ? host.Packages.First(p => p.File.Equals(m.InFile, StringComparison.OrdinalIgnoreCase)).Path : m.InPath!;

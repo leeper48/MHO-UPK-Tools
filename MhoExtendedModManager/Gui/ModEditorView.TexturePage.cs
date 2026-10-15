@@ -146,7 +146,7 @@ sealed partial class ModEditorView
             }
             if (Selected() is not TexEntry e) return;
             if (creatorTarget == e.File + "|" + e.Name) { creator.Activated(); return; }
-            if (f.catalog?.Size(e.File, e.Name) is not { } size) { Dialog.Show(this, "The original's size isn't known: set the game folder first (the snapshot is made at the original's size).", "Textures"); return; }
+            if (f.catalog?.Size(e.File, e.Name) is not { } size) { Dialog.Show(this, "The original's size isn't known: Set the game folder first (the snapshot is made at the original's size).", "Textures"); return; }
             creatorTarget = e.File + "|" + e.Name;
             var p = f.catalog.Preview(e.File, e.Name);
             creator.SetTarget(f.editing?.FolderName ?? "new:" + f.draft.Name, e.Name, size.W, size.H, p is { } x ? TextureDecode.ToBitmap(x.Bgra, x.W, x.H) : null);
@@ -241,7 +241,7 @@ sealed partial class ModEditorView
             if (!chosen.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
             {
                 // An image: made into a .dds like the original (size, DXT1 / DXT5); the mod gets the .dds.
-                if (f.catalog == null) { Dialog.Show(this, "Set the game folder first: the original texture's size and format are needed to convert an image.", "Textures"); return; }
+                if (f.catalog == null) { Dialog.Show(this, "Set the game folder first: The original texture's size and format are needed to convert an image.", "Textures"); return; }
                 // named per texture too: one image used for two textures of different sizes (an icon and a portrait) made two
                 // conversions of one name, and the second overwrote the first before Save (2026-10-07)
                 string stem = ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(chosen));

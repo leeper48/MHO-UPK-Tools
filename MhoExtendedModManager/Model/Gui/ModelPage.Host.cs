@@ -183,9 +183,9 @@ sealed partial class ModelPage
         int meshes;
         try { meshes = MhoSkeleton.List(d.FileName).Count; }
         catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { Dialog.Show(this, $"{file} couldn't be read: {ex.Message}", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); FillPackages(); return; }
-        if (meshes == 0) { Dialog.Show(this, $"{file} has no skeletal mesh: there's no character in it to fit a model to.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); FillPackages(); return; }
+        if (meshes == 0) { Dialog.Show(this, $"{file} has no skeletal mesh: There's no character in it to fit a model to.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); FillPackages(); return; }
         if (cooked != null && !File.Exists(Path.Combine(cooked, file)))
-        { Dialog.Show(this, $"{file} isn't the name of a game package, so the game would never load it: a mod replaces a game package of the same name.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); FillPackages(); return; }
+        { Dialog.Show(this, $"{file} isn't the name of a game package, so the game would never load it: A mod replaces a game package of the same name.", "Package Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); FillPackages(); return; }
         bool fromGame = cooked != null && Path.GetFullPath(Path.GetDirectoryName(d.FileName)!).TrimEnd('\\').Equals(Path.GetFullPath(cooked).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
         string src = d.FileName;
         if (fromGame)

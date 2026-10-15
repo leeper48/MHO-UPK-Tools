@@ -101,11 +101,112 @@ static class CrashCheck
         return issues;
     }
 
+    static readonly Dictionary<string, List<(string Path, int Bones)>> fileMeshes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A package's skeletal meshes (path, bones), cached by the file's size and time.</summary>
+    static List<(string Path, int Bones)> MeshesIn(string file)
+    {
+        var fi = new FileInfo(file);
+        string key = $"{file}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}";
+        lock (fileMeshes) if (fileMeshes.TryGetValue(key, out var hit)) return hit;
+        var list = new List<(string, int)>();
+        try
+        {
+            var pkg = Fx.FxPkg.Open(file); var ap = AnimPackage.Open(file);
+            foreach (int i in ap.FindExportsOfClass(SkeletalMeshReader.ClassName))
+            {
+                if (i < 0 || i >= pkg.T.Exports.Count || !pkg.T.Exports[i].ObjectName.Equals(ap.GetExportName(i), StringComparison.OrdinalIgnoreCase)) continue;
+                SkeletalMesh? sm;
+                try { sm = SkeletalMeshReader.TryRead(ap, i); } catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { sm = null; }
+                if (sm != null) list.Add((pkg.T.PathOf(i + 1), sm.Bones.Count));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or UnauthorizedAccessException) { }
+        lock (fileMeshes) fileMeshes[key] = list;
+        return list;
+    }
+
+    /// <summary>
+    /// The turned-on mods checked together (a user, 2026-10-14: a crash after making a couple dozen mods unique; each mod's
+    /// own check only compares it with the game's files). For the file each package name puts in the game (the
+    /// highest-priority turned-on mod's), every model it carries is compared with the other copies of that path: other
+    /// turned-on mods' files, and the game's own files no mod replaces. Findings: two copies with different bone counts where
+    /// at least one is a mod's (a crash risk, Array.h:575: the game shares one animation table per path), and two different
+    /// mods carrying the same path (whichever loads first shows: one of them loses its look). Copies within one mod are its
+    /// author's choice (Rogue's mod ships her illusion's file too) and only count against other files. Read only; the first
+    /// run reads every turned-on package (cached by file after that).
+    /// </summary>
+    /// <summary>One finding of <see cref="Together"/>: the model's path and its copies (file, the mod's name or null for the
+    /// game's own, bones). Crash: copies with different bone counts; else two mods that both changed it.</summary>
+    public sealed record Finding(bool Crash, string Model, List<(string File, string? Mod, int Bones)> Copies);
+
+    public static List<Finding> Together(ModLibrary lib, string cooked)
+    {
+        var winners = lib.PackageWinners().Where(w => w.Key.EndsWith("_SF.upk", StringComparison.OrdinalIgnoreCase) && UniqueNames.Covers(w.Key)).ToList();
+        var shared = UniqueNames.Shared(UniqueNames.Folder(cooked));
+        var copies = new Dictionary<string, List<(string File, Mod? Mod, int Bones)>>(StringComparer.OrdinalIgnoreCase);
+        var replaced = winners.Select(w => w.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var (file, mod) in winners)
+        {
+            string path = Path.Combine(mod.Folder, file);
+            if (!File.Exists(path)) continue;
+            foreach (var (mp, bones) in MeshesIn(path))
+            {
+                if (!copies.TryGetValue(mp, out var list)) copies[mp] = list = [];
+                list.Add((file, mod, bones));
+            }
+        }
+        var found = new List<Finding>();
+        foreach (var (mp, list) in copies.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            // the game's own copies of this path in files no turned-on mod replaces
+            var all = list.ToList();
+            if (shared.TryGetValue(mp + "|skeletalmesh", out var stockFiles))
+                foreach (string sf in stockFiles.Where(f => !replaced.Contains(f)))
+                    if (StockBones(StockFiles.For(cooked, sf), mp) is int sb) all.Add((sf, null, sb));
+            // different bone counts with a mod's copy involved (a mod's copies among themselves are fine when they agree)
+            var crash = all.Where(a => a.Mod != null).SelectMany(a => all.Where(b => b.Bones != a.Bones && !(b.Mod == a.Mod && b.File == a.File)).Select(b => (a, b))).ToList();
+            if (crash.Count > 0)
+            {
+                var involved = crash.SelectMany(p => new[] { p.a, p.b }).DistinctBy(c => c.File, StringComparer.OrdinalIgnoreCase).ToList();
+                found.Add(new(true, mp, [.. involved.OrderByDescending(c => c.Bones).Select(c => (c.File, c.Mod?.Name, c.Bones))]));
+                continue;
+            }
+            // two mods that both changed it (a copy the same as the game's in its own file is no conflict)
+            var mods = list.Where(c => Changed(c.Mod!, c.File, mp, cooked)).Select(c => c.Mod).Distinct().ToList();
+            if (mods.Count > 1)
+                found.Add(new(false, mp, [.. list.Where(c => mods.Contains(c.Mod)).Select(c => (c.File, c.Mod?.Name, c.Bones))]));
+        }
+        return found;
+    }
+
+    /// <summary>The mod's copy of the model at <paramref name="path"/> in <paramref name="file"/> differs from the game's own
+    /// copy in that file (or the game's file has none).</summary>
+    static bool Changed(Mod mod, string file, string path, string cooked)
+    {
+        try
+        {
+            string mine = Path.Combine(mod.Folder, file);
+            string? stock = StockFiles.For(cooked, file);
+            if (stock == null || !File.Exists(stock)) return true;
+            var a = MhoPackageModifier.Package.Open(mine); var b = MhoPackageModifier.Package.Open(stock);
+            var ea = a.Exports.FirstOrDefault(e => a.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase));
+            var eb = b.Exports.FirstOrDefault(e => b.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase));
+            return ea == null || eb == null || !a.ReadExportBytes(ea).AsSpan().SequenceEqual(b.ReadExportBytes(eb));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { return true; }
+    }
+
+    /// <summary>The bone count of the skeletal mesh at <paramref name="path"/> in a package (null: none there), cached by the
+    /// file's size and time.</summary>
+    public static int? Bones(string? file, string path) => StockBones(file, path);
+
     /// <summary>The bone count of the skeletal mesh at <paramref name="path"/> in a game package (null: none there), cached.</summary>
     static int? StockBones(string? file, string path)
     {
         if (file == null || !File.Exists(file)) return null;
-        string key = file + "|" + path;
+        var fi = new FileInfo(file);
+        string key = $"{file}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{path}";
         lock (stockBones) if (stockBones.TryGetValue(key, out var hit)) return hit;
         int? n = null;
         try
@@ -120,7 +221,7 @@ static class CrashCheck
         return n;
     }
 
-    static string Short(string file) => file.StartsWith("UC__", StringComparison.OrdinalIgnoreCase) && file.EndsWith("_SF.upk", StringComparison.OrdinalIgnoreCase) ? file[4..^7] : file;
+    internal static string Short(string file) => file.StartsWith("UC__", StringComparison.OrdinalIgnoreCase) && file.EndsWith("_SF.upk", StringComparison.OrdinalIgnoreCase) ? file[4..^7] : file;
 
     /// <summary>The pill's text: the crash risks (and warnings), or null when there are none. From the cache only.</summary>
     public static string? Reason(Mod m)
@@ -137,6 +238,19 @@ static class CrashCheck
         List<Issue>? list;
         lock (cache) list = cache.TryGetValue(m.Folder, out var hit) ? hit.Issues : null;
         if (list is not { Count: > 0 } l) return null;
-        return string.Join("\n\n", l.OrderByDescending(i => i.Crash).Select(i => $"{(i.Crash ? "CRASH RISK" : "Warning")} · {Short(i.Package)} · {i.Mesh}: {i.Text}"));
+        var sb = new System.Text.StringBuilder();
+        foreach (var (crash, title) in new[] { (true, "CRASH RISK"), (false, "WARNINGS") })
+        {
+            var part = l.Where(i => i.Crash == crash).ToList();
+            if (part.Count == 0) continue;
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine(title);
+            foreach (var i in part)
+            {
+                sb.AppendLine($"  • {Short(i.Package)} · {i.Mesh}");
+                sb.AppendLine($"    {char.ToUpperInvariant(i.Text[0])}{i.Text[1..]}");
+            }
+        }
+        return sb.ToString().TrimEnd();
     }
 }

@@ -75,7 +75,7 @@ sealed class ApplyForm : Form
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         footer.ForeColor = Ui.Subtle;
-        if (checks) { footer.Text = "Some things need a look: see Checks at the top of the list. " + footer.Text; footer.ForeColor = Ui.Warn; }
+        if (checks) { footer.Text = "Some things need a look: See Checks at the top of the list. " + footer.Text; footer.ForeColor = Ui.Warn; }
         Ui.FitToScreen(this, 640, 460);
         AcceptButton = run == null ? headingBtn : apply;   // Enter confirms
         CancelButton = run == null ? headingBtn : cancel;
@@ -88,7 +88,7 @@ sealed class ApplyForm : Form
     {
         Directory.CreateDirectory(dir);
         const string plan = "3 file(s) to change:\n  UC__MarvelPlayer_Storm_Classic_SF.upk: Storm Classic Costume Visual Update's copy\n  ICO__MarvelUIIcons_SF.upk: icons rebuilt from stock with 12 replacement(s)\n  eng.all_7FFFFFFFFFFFFFFF.string: 2 string(s) from Jeff (Pet)\n351 file(s) already right.";
-        const string checks = "CHECKS\n• 27 game file(s) were changed by something other than this app (another tool, a mod that was deleted, a hand edit). No mod in your list names them, so Apply leaves them as they are:\n    MarvelGame.upk\n    UC__MarvelConditionEffect_Rogue_StolenPower_ColossusInvulnerability_90sXmen_SF.upk\n\nPLAN\n";
+        const string checks = "CHECKS\n\n⚠ CRASH RISK: 1 model(s)\nEach of these mods is fine on its own, but together they put a model in the game in copies with different bone counts. The game shares one animation table per model, so the copy with more bones can crash it (Array.h:575).\nTo fix it: Turn one of the mods off, or use Make Unique on the mod that changed the model. Apply still writes your list as it is.\n\n  • drstrange_fearitself.drstrange_fearitself\n      – 130 bones · \"Doctor Strange Space Suit\" (MarvelPlayer_DoctorStrange_FearItself)\n      – 114 bones · The game's MarvelAgent_DoctorStrangeMirrorImage_FearItself\n\nCHANGED OUTSIDE THIS APP: 2 game file(s)\nSomething other than this app changed these (another tool, a mod that was deleted, a hand edit). No mod in your list names them, so Apply leaves them as they are.\n\n  • MarvelGame.upk\n  • UC__MarvelConditionEffect_Rogue_StolenPower_ColossusInvulnerability_90sXmen_SF.upk\n\n\nPLAN\n";
         foreach (var (name, ok, warn) in new[] { ("apply_ask", (bool?)null, false), ("apply_error", false, false), ("apply_checks", (bool?)null, true) })
         {
             using var f = new ApplyForm(warn ? checks + plan : plan, checks: warn, run: () => Task.FromResult((ok ?? true,"UC__MarvelPlayer_Storm_Classic_SF.upk: Storm Classic Costume Visual Update's copy\n  no clean original (the live file isn't stock and no backup matches); stopping.\nStopped after 0 of 3.")));

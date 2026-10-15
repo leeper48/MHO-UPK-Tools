@@ -80,7 +80,7 @@ sealed partial class ModEditorView
     {
         var targets = CostumePackages();
         if (targets.Count == 0) { Dialog.Show(this, "A voice goes into a costume package (UC__MarvelPlayer_<Hero>_<Costume>_SF.upk). Add one on the Packages tab first.", "No Costume Package", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-        if (game == null) { Dialog.Show(this, "Set the game folder first (Settings → Change Game Folder): the voices come from the game's files.", "No Game Folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (game == null) { Dialog.Show(this, "Set the game folder first (Settings → Change Game Folder): The voices come from the game's files.", "No Game Folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         voiceStatus.ForeColor = Ui.Subtle; voiceStatus.Text = "Loading the game's voices…";
         List<VoiceSet.Source> all;
         string cooked = game.Cooked;

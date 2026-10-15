@@ -316,7 +316,8 @@ static class Applier
 
     public static void Print(Plan p)
     {
-        foreach (var s in p.Steps) Console.WriteLine($"  {s.File}: {s.What}");
+        static string Cap(string s) => s.Length > 0 ? char.ToUpperInvariant(s[0]) + s[1..] : s;
+        foreach (var s in p.Steps) Console.WriteLine($"  • {s.File}: {Cap(s.What)}");
         // Two kinds of skipped items (a user's 7 were all sound-pack lines, not files): sound-pack lines that can't be
         // added (the rest of the pack is), and files that are left exactly as they are.
         var lines = p.Problems.Where(IsSoundLine).ToList();
@@ -324,23 +325,23 @@ static class Applier
         if (files.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine("Left as they are (nothing is written to these; the game keeps its current copy):");
-            foreach (string x in files) Console.WriteLine($"  {x}");
-            Console.WriteLine("  Usually the game's copy was already changed before (by a mod or another tool) and there's no clean");
-            Console.WriteLine("  original to rebuild it from. Everything else still applies normally.");
+            Console.WriteLine("LEFT AS THEY ARE");
+            Console.WriteLine("Nothing is written to these: The game keeps its current copy. Usually it was already changed before (by a mod or another tool) and there's no clean original to rebuild it from. Everything else still applies normally.");
+            Console.WriteLine();
+            foreach (string x in files) Console.WriteLine($"  • {x}");
         }
         if (lines.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine("Sound-pack lines left out (the rest of each pack is added and works):");
-            foreach (string x in lines) Console.WriteLine($"  {x}");
-            Console.WriteLine("  Each new line copies an existing sound event; these name one that isn't in that sound bank (for");
-            Console.WriteLine("  example one added by another pack that isn't installed or turned on).");
+            Console.WriteLine("SOUND-PACK LINES LEFT OUT");
+            Console.WriteLine("The rest of each pack is added and works. Each new line copies an existing sound event; these name one that isn't in that sound bank (for example one added by another pack that isn't installed or turned on).");
+            Console.WriteLine();
+            foreach (string x in lines) Console.WriteLine($"  • {x}");
         }
         if (p.Problems.Count > 0) Console.WriteLine();
-        Console.WriteLine($"{p.Steps.Count} file(s) to change, {p.UpToDate} already right, {p.Problems.Count} skipped.");
+        Console.WriteLine($"{p.Steps.Count} file(s) to change · {p.UpToDate} already right · {p.Problems.Count} skipped");
         if (p.NotHandled.Count > 0)
-            Console.WriteLine($"Not applied by this version: the sound packs of {p.NotHandled.Count} enabled mod(s); the game keeps whatever is there now.");
+            Console.WriteLine($"Not applied by this version: The sound packs of {p.NotHandled.Count} enabled mod(s); the game keeps whatever is there now.");
     }
 
     /// <summary>Writes the plan. Stops at the first failure (the files done so far stay done; each is its own undo step).</summary>

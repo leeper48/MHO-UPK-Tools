@@ -172,7 +172,11 @@ sealed partial class MainForm
         menu.Items.Insert(at++, NexusMenu(m));
         menu.Items.Insert(at++, CardPictureMenu(m));
         if (PowerUsage.Cached(m).Count > 0) menu.Items.Insert(at++, new ToolStripMenuItem("Remove Enemy-Only Packages", null, (_, _) => RemoveEnemyPowers(m)) { Enabled = !readOnly, ToolTipText = "Power packages in this mod that only enemies use (no hero power): they change how those enemies look. Takes them out, here or in a copy." });
-        if (UniqueNames.Reason(m) != null) menu.Items.Insert(at++, new ToolStripMenuItem("Make Unique", null, (_, _) => _ = MakeUnique(m)) { Enabled = !readOnly, ToolTipText = "A stock copy of this mod's changed model is in other packages and can show instead; this gives the mod's copy paths of its own." });
+        // (also for a mod shared on purpose: Keep Shared Paths, or after Undo Make Unique; Kurt, 2026-10-14: a way back)
+        if (UniqueNames.Reason(m, evenKept: true) != null) menu.Items.Insert(at++, new ToolStripMenuItem("Make Unique", null, (_, _) => _ = MakeUnique(m)) { Enabled = !readOnly, ToolTipText = m.Manifest.KeepShared == true
+            ? "This mod shares its paths on purpose (Keep Shared Paths). Make Unique gives its copy paths of its own after all, and unticks Keep Shared Paths. You'll see what it changes first."
+            : "A stock copy of this mod's changed model is in other packages and can show instead; this gives the mod's copy paths of its own." });
+        if (UniqueNames.BeforeCopies(m).Count > 0) menu.Items.Insert(at++, new ToolStripMenuItem("Undo Make Unique", null, (_, _) => UndoUnique(m)) { Enabled = !readOnly, ToolTipText = "Puts this mod's packages back as they were before Make Unique renamed their models (their paths shared with the game's other copies again), and ticks Keep Shared Paths so Save doesn't rename them again. You'll be told what that changes first." });
         if (SingleCostume(m) != null)
         {
             var move = new ToolStripMenuItem("Move to Another Costume") { Enabled = !readOnly };
