@@ -21,7 +21,13 @@ static class Dialog
         Show(null, text, caption, buttons, icon);
 
     /// <summary>A question with buttons of its own (first = the main one, Enter; last = Esc). Returns the index clicked.</summary>
-    public static int Choose(IWin32Window? owner, string text, string caption, params string[] labels)
+    public static int Choose(IWin32Window? owner, string text, string caption, params string[] labels) => Choose(owner, text, caption, false, labels);
+
+    /// <summary>A warning with buttons of its own (Kurt, 2026-10-15: removing several mods at once needs a very visible
+    /// warning): the heading in the warning color, and the last button (Cancel) is the one Enter presses.</summary>
+    public static int ChooseDanger(IWin32Window? owner, string text, string caption, params string[] labels) => Choose(owner, text, caption, true, labels);
+
+    static int Choose(IWin32Window? owner, string text, string caption, bool danger, string[] labels)
     {
         if (Environment.GetEnvironmentVariable("MHO_EXTMM_TEST_DIALOGS") is { Length: > 0 } testLog)
         {
@@ -33,7 +39,8 @@ static class Dialog
         DialogResult[] results = [DialogResult.OK, DialogResult.Yes, DialogResult.Retry, DialogResult.Ignore, DialogResult.Abort];   // (not No: the dialog makes No the Esc button)
         if (labels.Length - 1 > results.Length) throw new ArgumentException("too many buttons", nameof(labels));
         var choices = labels.Select((l, i) => (l, i == labels.Length - 1 ? DialogResult.Cancel : results[i])).ToArray();
-        using var f = new DialogForm(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, false, choices);
+        using var f = new DialogForm(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.None,
+            danger ? (labels.Length >= 3 ? MessageBoxDefaultButton.Button3 : MessageBoxDefaultButton.Button2) : MessageBoxDefaultButton.Button1, danger ? Tone.Bad : Tone.Normal, false, choices);
         var r = owner != null ? f.ShowDialog(owner) : f.ShowDialog();
         int at = Array.IndexOf(results, r);
         return at >= 0 && at < labels.Length - 1 ? at : labels.Length - 1;

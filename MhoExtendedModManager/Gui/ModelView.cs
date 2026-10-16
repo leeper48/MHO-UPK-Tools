@@ -38,6 +38,16 @@ sealed class ModelView : UserControl
         /// <summary>For additive drawing: the alpha to use (1 when the texture's alpha is constant or unused).</summary>
         public bool AdditiveIgnoresAlpha => !AlphaVaries || AlphaUnused;
 
+        /// <summary>A dark power's look for an additive texture (DarkSwap.Shape): white, with the shape as alpha, drawn
+        /// blended, so the particle's dark colour shows as the game draws it after the swap.</summary>
+        public Map Dark(float opacity, bool crossSection)
+        {
+            var shape = DarkSwap.Shape(levels[0], ws[0], hs[0], opacity, crossSection);
+            var dst = new byte[shape.Length * 4];
+            for (int n = 0; n < shape.Length; n++) { dst[n * 4] = dst[n * 4 + 1] = dst[n * 4 + 2] = 255; dst[n * 4 + 3] = shape[n]; }
+            return new Map(dst, ws[0], hs[0]);
+        }
+
         /// <summary>A copy with every pixel's colour through <paramref name="f"/> (the power customizer's preview).</summary>
         public Map Recolored(Func<Vector3, Vector3> f)
         {

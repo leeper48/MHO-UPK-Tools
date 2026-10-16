@@ -81,6 +81,62 @@ static class ImportIndex
         }
     }
 
+    static (string Folder, Dictionary<string, string> Paths)? exported;
+
+    /// <summary>
+    /// "path|class" (lower case) → one game package that exports it, for textures and materials (2026-10-15: a dark power's
+    /// additive effects take their textures from the shared effect packages, vfx_shared_textures and the like, which a power
+    /// package imports). Built with every UC__ package's export table once per folder version, kept in
+    /// data\exported_paths.json.
+    /// </summary>
+    public static Dictionary<string, string> Exported(string folder)
+    {
+        lock (gate)
+        {
+            if (exported is { } ex && ex.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)) return ex.Paths;
+            var infos = new DirectoryInfo(folder).EnumerateFiles("UC__*_SF.upk")
+                .Where(f => !f.Name.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Name.Contains("copy", StringComparison.OrdinalIgnoreCase)).ToList();
+            string stamp = $"{Path.GetFullPath(folder).ToLowerInvariant()}|{infos.Count}|{infos.Sum(f => f.Length)}|{(infos.Count == 0 ? 0 : infos.Max(f => f.LastWriteTimeUtc.Ticks))}|e1";
+            string cache = Path.Combine(Settings.Home, "exported_paths.json");
+            try
+            {
+                if (File.Exists(cache) && System.Text.Json.JsonSerializer.Deserialize<SavedOne>(File.ReadAllText(cache)) is { } sv && sv.Stamp == stamp)
+                {
+                    var loaded = new Dictionary<string, string>(sv.Paths, StringComparer.OrdinalIgnoreCase);
+                    exported = (folder, loaded);
+                    return loaded;
+                }
+            }
+            catch (Exception e) when (e is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { }
+            string[] wanted = ["texture2d", "material", "materialinstanceconstant"];
+            var seen = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Parallel.ForEach(infos.OrderBy(f => f.Length), new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) }, fi =>
+            {
+                try
+                {
+                    var p = Package.Open(fi.FullName);
+                    foreach (var e in p.Exports)
+                    {
+                        string c = p.ClassOf(e).ToLowerInvariant();
+                        if (wanted.Contains(c)) seen.TryAdd($"{p.PathOf(e)}|{c}", fi.Name);
+                    }
+                }
+                catch (Exception e) when (e is IOException or InvalidDataException or PackageFormatException) { }
+            });
+            var paths = new Dictionary<string, string>(seen, StringComparer.OrdinalIgnoreCase);
+            exported = (folder, paths);
+            try { File.WriteAllText(cache, System.Text.Json.JsonSerializer.Serialize(new SavedOne { Stamp = stamp, Paths = paths })); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            return paths;
+        }
+    }
+
+    sealed class SavedOne
+    {
+        public string Stamp { get; set; } = "";
+        public Dictionary<string, string> Paths { get; set; } = [];
+    }
+
     /// <summary>The game packages other than <paramref name="file"/> that import this export's path (empty: none).</summary>
     public static List<string> ImportersOf(string folder, string path, string cls, string file) =>
         Imported(folder).TryGetValue($"{path}|{cls.ToLowerInvariant()}", out var list) ? [.. list.Where(f => !f.Equals(file, StringComparison.OrdinalIgnoreCase))] : [];

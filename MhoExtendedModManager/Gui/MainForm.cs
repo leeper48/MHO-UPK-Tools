@@ -1335,6 +1335,9 @@ sealed partial class MainForm : Form
     async void RemoveMod()
     {
         if (readOnly || lib == null || Selected is not Mod m) return;
+        // several marked cards (Ctrl / Shift + click) with the selected one among them: all of them (Kurt, 2026-10-15)
+        if (list.MarkedMods is { Count: > 1 } marked && marked.Any(x => x.FolderName.Equals(m.FolderName, StringComparison.OrdinalIgnoreCase)))
+        { RemoveMods(marked); return; }
         bool inGame = game != null && (m.Enabled || m.Manifest.UpkReplacements.Count + m.Manifest.Replacements.Count + m.Manifest.StoreReplacements.Count
             + m.Manifest.AchievementReplacements.Count + m.Manifest.Extra.Count() + m.Strings.Count + m.Manifest.AudioPacks.Count > 0);
         string nl = Environment.NewLine;
@@ -1373,6 +1376,59 @@ sealed partial class MainForm : Form
         if (!r.Ok) { Dialog.ShowLog(this, "Not Removed", $"Apply Changes stopped, so \"{name}\" wasn't removed (it's turned off).{nl}{nl}" + r.Log, Dialog.Tone.Bad); return; }
         if (r.Why != null) { Dialog.Show(this, r.Why, "Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         status.Text = Ui.TitleCase($"Removed \"{name}\"  ·  its folder is in the Recycle Bin");
+    }
+
+    /// <summary>
+    /// Remove several mods at once (Kurt, 2026-10-15: with a very visible warning that it removes several): the same steps as
+    /// one (turn them off, one Apply Changes, their folders to the Recycle Bin), after a warning that names every mod, in the
+    /// warning color, with Cancel as the default button. If Apply stops, nothing is removed.
+    /// </summary>
+    async void RemoveMods(List<Mod> mods)
+    {
+        if (readOnly || lib == null || mods.Count == 0) return;
+        string nl = Environment.NewLine;
+        bool inGame = game != null && mods.Any(m => m.Enabled || m.Manifest.UpkReplacements.Count + m.Manifest.Replacements.Count + m.Manifest.StoreReplacements.Count
+            + m.Manifest.AchievementReplacements.Count + m.Manifest.Extra.Count() + m.Strings.Count + m.Manifest.AudioPacks.Count > 0);
+        int on = mods.Count(m => m.Enabled);
+        string text = $"⚠ You're about to remove {mods.Count} mods at once, not just one.{nl}{nl}"
+            + $"THESE {mods.Count} MODS WILL BE REMOVED{nl}" + string.Join(nl, mods.Take(25).Select(m => $"  • {m.Name}{(m.Enabled ? "  (on)" : "")}")) + (mods.Count > 25 ? $"{nl}  • And {mods.Count - 25} more" : "") + nl + nl
+            + "WHAT HAPPENS" + nl
+            + (inGame ? $"  1. They're turned off{(on > 0 ? $" ({on} of them are on now)" : "")}.{nl}  2. Apply Changes runs once, so the game gets its original files back (other changes waiting in your list are applied too).{nl}  3. Their folders go to the Recycle Bin.{nl}{nl}The game must be closed." : "  • Their folders go to the Recycle Bin.")
+            + $"{nl}{nl}To keep any of them: Cancel, then click only the mods you want to remove (Ctrl + click takes a card out of the selection).";
+        if (Dialog.ChooseDanger(this, text, $"Remove {mods.Count} Mods", $"Remove {mods.Count} Mods", "Cancel") != 0) return;
+        if (inGame && Process.GetProcessesByName("MarvelHeroesOmega").Length > 0)
+        { Dialog.Show(this, "Close the game first: The game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        var (l, g) = (lib, game);
+        foreach (var m in mods.Where(m => m.Enabled)) m.Enabled = false;
+        l.SaveState();
+        UseWaitCursor = true;
+        status.Text = Ui.TitleCase($"Removing {mods.Count} Mods…");
+        (bool Ok, string Log, List<string> Failed) r;
+        try
+        {
+            r = await Task.Run(() =>
+            {
+                if (g != null)
+                {
+                    var originals = new Originals(l.DataFolder, g);
+                    var plan = Applier.MakePlan(l, g, originals);
+                    if (plan.Steps.Count > 0)
+                    {
+                        bool ok = false;
+                        string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
+                        if (!ok) return (false, log, new List<string>());
+                    }
+                }
+                var failed = new List<string>();
+                foreach (var m in mods) if (ModInstaller.Remove(m, l, g) is string why) failed.Add($"  • {m.Name}: {why}");
+                return (true, "", failed);
+            });
+        }
+        finally { UseWaitCursor = false; }
+        Reload();
+        if (!r.Ok) { Dialog.ShowLog(this, "Not Removed", $"Apply Changes stopped, so none of the {mods.Count} mods were removed (they're turned off).{nl}{nl}" + r.Log, Dialog.Tone.Bad); return; }
+        if (r.Failed.Count > 0) Dialog.Show(this, $"{mods.Count - r.Failed.Count} of {mods.Count} mods removed. These weren't:{nl}{nl}{string.Join(nl, r.Failed)}", "Not All Removed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        status.Text = Ui.TitleCase($"Removed {mods.Count - r.Failed.Count} Mods  ·  their folders are in the Recycle Bin");
     }
 
     async void MoveLibrary()

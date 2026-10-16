@@ -325,7 +325,7 @@ static class PowerRecolor
             log($"{onlySystems.Count} always-on effect(s): {string.Join(", ", onlySystems.Select(i => t.Exports[i].ObjectName))}");
         }
         var (tables, objects, left) = RecolorTables(body, t, color.Apply, allowed);
-        if (color.Opacity < 0.995f)
+        if (Math.Abs(color.Opacity - 1) >= 0.005f)   // (above 100 % too: dark, more solid effects, 2026-10-15)
         {
             var (at, ao, al) = ScaleAlpha(body, t, color.Opacity);
             log($"opacity {color.Opacity * 100:0} %: {at} alpha table(s) and {ao} alpha value(s) scaled" + (al > 0 ? $"; {al} alpha curve(s) left as they are" : ""));
@@ -453,6 +453,9 @@ static class PowerRecolor
         byte[] output = moved.Count == 0 ? stage : Move(Package.FromBytes(stage), moved, top, out mp);
         if (mp.Count > 0) throw new InvalidDataException($"{file}: " + string.Join("; ", mp.Take(5)));
         log($"{moved.Count} object(s) under {top} ({recolored.Count} texture(s), {materials.Count} material(s), {systems.Count} particle system(s)): no path shared with the stock effects");
+        // 5. A dark color: additive effects (which a dark color makes vanish) drawn translucent instead (DarkSwap)
+        if (DarkSwap.Wanted(color) && color.Opacity >= PowerColor.Invisible && !onlyOwnSystems && DarkSwap.Apply(output, file, cooked, color.Opacity, log) is { } dark)
+            output = dark;
 
         // Read back: every particle system still reads.
         var back = Package.FromBytes(output);

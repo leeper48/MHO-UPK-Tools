@@ -92,20 +92,24 @@ sealed partial class ModEditorView
         hueSlider = new LightSlider { Label = "Hue", Min = -180, Max = 180, Step = 1, Mark = 0, Format = v => $"{v:+0;-0;0}°", Home = () => 0, Dock = DockStyle.Top, Height = (int)(30 * S) };
         satSlider = new LightSlider { Label = "Saturation", Min = 0, Max = 2, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
         brightSlider = new LightSlider { Label = "Brightness", Min = 0, Max = 3, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
-        opacitySlider = new LightSlider { Label = "Opacity", Min = 0, Max = 1, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
-        var sliders = new TableLayoutPanel { ColumnCount = 1, RowCount = 4, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0), BackColor = Color.Transparent };
+        opacitySlider = new LightSlider { Label = "Opacity", Min = 0, Max = 10, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
+        var sliders = new TableLayoutPanel { ColumnCount = 1, RowCount = 5, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0), BackColor = Color.Transparent };
         sliders.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         foreach (var sl in new[] { hueSlider, satSlider, brightSlider, opacitySlider }) { sl.ValueChanged += SliderChanged; sl.Dock = DockStyle.Fill; sl.Margin = new Padding(0); sliders.Controls.Add(sl); }
+        // (Kurt, 2026-10-15: a user wanted dark powers; tested in game on Nova's Magneton Pulsar, 500 % was right)
+        sliders.Controls.Add(new Label { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 2, 0, 4), MaximumSize = new Size((int)(560 * S), 0),
+            Text = "Above 100 %, Opacity makes the effects more solid. For dark powers: Dark (Saturation 0 %, Brightness 0 %, Opacity 500 %). Impact: Additive glows, beams and sparks are redrawn with a translucent game material so they darken too; mesh and distortion parts can still fade. Check it in game." });
         right.Controls.Add(sliders, 0, 2);
         if (WhatsNew.PowerBorrow) right.Controls.Add(BorrowSection(), 0, 3);   // tabled, preview only (WhatsNew.PowerBorrowReleased)
-        Ui.Tip(opacitySlider, "How visible the power's effects are: 100 % as the game has it, lower fades them, 0 % switches them off (nothing draws). Unlike Brightness, it fades smoke and dust too instead of leaving them as a dark cloud. Double-click: back to 100 %.");
+        Ui.Tip(opacitySlider, "How visible the power's effects are: 100 % as the game has it, lower fades them, 0 % switches them off (nothing draws). Above 100 % they're more solid (their particles' and effect textures' alpha multiplied), for dark colors. Unlike Brightness, it fades smoke and dust too instead of leaving them as a dark cloud. Double-click: back to 100 %.");
         Ui.Tip(hueSlider, "Turns the power's colors around the color wheel (the brightness of each color is kept). Double-click: back to the game's.");
         Ui.Tip(satSlider, "How strong the power's colors are: 0 % is grey, 100 % as the game has it. Double-click: back to 100 %.");
         Ui.Tip(brightSlider, "How bright the power's colors are. Double-click: back to 100 %.");
         var reset = Ui.FlatButton("Game's Colors", () => SetColor(null), tip: "Take this power back to the game's own colors.");
         var all = Ui.FlatButton("Apply to All Powers", ApplyToAll, tip: "Give every power of the hero the color on the sliders (the game's colors take them all back).");
+        var dark = Ui.FlatButton("Dark", SetDark, tip: "Makes this power dark: Saturation 0 %, Brightness 0 %, Opacity 500 % (tested in game: dark, fairly solid). Impact: Translucent effects (fields, smoke) turn dark as they are; additive glows, beams and sparks are redrawn with a copy of a translucent game material on Save, so they darken too. Mesh and distortion parts can still fade, and the 3D preview doesn't show the redrawn ones. Check it in game; the sliders fine-tune it.");
         var addPkg = Ui.FlatButton("Add Package", AddPowerPackage, tip: "Adds one of the game's effect packages (UC__Power…, a projectile, a hotspot, a condition effect) to the list under its file name, for a power that isn't listed or isn't fully recolored. Impact: Everything in that package is recolored, for every hero, team-up or enemy that uses it, and the 3D preview doesn't show its color (check it in game).");
-        right.Controls.Add(Toolbar(reset, all, addPkg, powerCaption), 0, 5);
+        right.Controls.Add(Toolbar(reset, all, dark, addPkg, powerCaption), 0, 5);
         // Five presets (as the MHO Hero Creator's): click = use on this power, right-click = store the sliders there.
         var presets = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Padding = new Padding(0, 2, 0, 2) };
         presets.Controls.Add(new Label { Text = "Presets", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 7, 8, 0) });
@@ -495,6 +499,17 @@ sealed partial class ModEditorView
         ShowBorrow(p);
         LoadPalette(p);
         ShowMapRows();
+    }
+
+    /// <summary>The Dark button: the selected power dark and more solid (Saturation 0, Brightness 0, Opacity 500 %: the value
+    /// that looked right in game on Nova's Magneton Pulsar, 2026-10-15).</summary>
+    void SetDark()
+    {
+        if (powerList.SelectedItem is not Fx.PowerList.Power || satSlider == null || brightSlider == null || opacitySlider == null) return;
+        fillingPower = true;
+        satSlider.Value = 0; brightSlider.Value = 0; opacitySlider.Value = 5;
+        fillingPower = false;
+        SliderChanged();
     }
 
     void SliderChanged()

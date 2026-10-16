@@ -1,6 +1,34 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.286
+- The 3D preview draws translucent effects that add their light anyway (the game's add-blend function: Iron Man's repulsor beam, which Nova's Minor Beam uses, and "_ab" instances) as additive, as the game does; with a dark color they show dark there too.
+
+0.37.285
+- Remove several mods at once: mark them (Ctrl / Shift + click), then Remove or Del. A warning in red names every mod that will go, with Cancel as the default button; one Apply Changes for all of them, their folders to the Recycle Bin.
+- The 3D preview shows dark powers' additive effects as the game draws them after Save (dark, with the effect's shape) instead of leaving them out.
+
+0.37.284
+- Dark powers: beams are narrower (their profile falls off more steeply and isn't boosted; Minor Beam was still a wide plane).
+
+0.37.283
+- Dark powers: beams and trails keep their narrow core (the texture's profile across the beam, the same all along it) instead of a solid sheet as wide as the beam's plane. Additive textures that leave their alpha almost empty no longer come out as an empty shape (they made Minor Beam's beam invisible).
+
+0.37.282
+- Dark powers: beams and trails are drawn as solid dark bands (their textures are made to scroll along the beam, which the replacement material can't do; Minor Beam's beam stayed invisible).
+
+0.37.281
+- Dark powers also reach translucent effects that add their light anyway: materials that run their color through the game's add-blend function (Iron Man's repulsor beam, which Nova's Minor Beam uses) and "_ab" instances with the addblend switch on. Minor Beam's beam was invisible.
+
+0.37.280
+- Dark powers reach more effects: Textures and materials a power takes from the game's shared effect packages (MarvelGame.upk: the glows, tendrils, electric rings) are found too, and a solid beam with no shape texture is drawn as a solid dark band. On Nova Beam: 8 of its 10 additive materials (the 2 left are heat-haze distortion).
+
+0.37.279
+- Dark powers work on additive effects too (Nova Beam was invisible): with a dark color (Brightness 25 % or less), each additive sprite, beam or trail effect is drawn with a copy of one of the game's translucent effect materials, with the effect's own shape, so it darkens instead of vanishing. Mesh and distortion effects stay as they are.
+
+0.37.278
+- Powers tab: Dark makes a power dark (Saturation 0 %, Brightness 0 %, Opacity 500 %; tested in game on Nova's Magneton Pulsar). Opacity now goes up to 1000 %: above 100 % the effects are more solid. Dark colors darken only translucent effects (fields, smoke); additive glows and sparks fade instead, and the tab says so.
+
 0.37.277
 - Make Unique (and the editor's Save) leaves a group as it is when renaming it would break an import: something in it that another game file takes by name and no other file has. None of the mods tested so far hit this; it's the same kind of break as 0.37.276's black planes.
 

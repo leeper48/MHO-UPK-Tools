@@ -644,6 +644,52 @@ static partial class Program
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);
                 return 0;
             }
+            case "--swap-material":
+            {
+                // Test (writes only <out.upk>; 2026-10-15, dark power colors): every object property that names <from> (a
+                // material, by path) names <to> instead. --swap-material <in.upk> <from path> <to path> <out.upk>
+                if (rest.Count < 5) { Console.WriteLine("--swap-material <in.upk> <from path> <to path> <out.upk>"); return 1; }
+                var sp = MhoPackageModifier.Package.Open(rest[1]);
+                var st = new Fx.FxTables(sp);
+                int Ref(string path)
+                {
+                    for (int k = 0; k < st.Exports.Count; k++) if (st.PathOf(k + 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return k + 1;
+                    for (int k = 0; k < st.Imports.Count; k++) if (st.PathOf(-k - 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return -k - 1;
+                    return 0;
+                }
+                int from = Ref(rest[2]), to = Ref(rest[3]);
+                if (from == 0 || to == 0) { Console.WriteLine($"not found: {(from == 0 ? rest[2] : rest[3])}"); return 1; }
+                var swaps = new Dictionary<int, Func<long, byte[]>>();
+                int n = 0;
+                for (int k = 0; k < st.Exports.Count; k++)
+                {
+                    var e = st.Exports[k];
+                    var props = Fx.FxProps.Find(sp.Body, st, e)?.Props;
+                    if (props == null) continue;
+                    byte[]? d = null;
+                    foreach (var pr in props.Where(x => x.Type.Equals("ObjectProperty", StringComparison.OrdinalIgnoreCase) && x.Size == 4))
+                        if (BitConverter.ToInt32(sp.Body, pr.ValueAt) == from)
+                        {
+                            d ??= sp.ReadExportBytes(sp.Exports[k]).ToArray();
+                            BitConverter.GetBytes(to).CopyTo(d, pr.ValueAt - e.SerialOffset);
+                            n++;
+                            Console.WriteLine($"  {st.PathOf(k + 1)}.{pr.Name}");
+                        }
+                    if (d != null) { var dd = d; swaps[k] = _ => dd; }
+                }
+                File.WriteAllBytes(rest[4], MhoPackageModifier.PackageRebuilder.Rebuild(sp, swaps, [], out _));
+                Console.WriteLine($"{n} reference(s) swapped -> {rest[4]}");
+                return n > 0 ? 0 : 1;
+            }
+            case "--material-census":
+            {
+                // Read-only: every base material in the game's packages (blend mode, lighting, particle usage, parameters, how
+                // many packages and instances use it), and the darkening candidates for dark power colors. --material-census <out.tsv>
+                string? mgr = settings.ResolvedGameRoot(data);
+                string? mcook = mgr != null && Settings.IsGameRoot(mgr) ? Settings.Cooked(mgr) : null;
+                if (mcook == null || rest.Count < 2) { Console.WriteLine("--material-census <out.tsv> (needs the game folder)"); return 1; }
+                return Fx.MaterialCensus.Run(UniqueNames.Folder(mcook), rest[1], rest.Count > 2 ? rest[2] : null);
+            }
             case "--own-homes":
             {
                 // Read-only: for every hero / costume package of the game, where its always-on effects are (PowerColorBuild.OwnHome:

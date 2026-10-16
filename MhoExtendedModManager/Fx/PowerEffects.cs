@@ -255,6 +255,14 @@ sealed class PowerEffects
     }
 
     /// <summary>A material a mesh particle doesn't show as a surface: a DecalMaterial or one that uses distortion.</summary>
+    /// <summary>An emitter's look (texture, additive): a translucent material that adds its light anyway (the game's add-blend
+    /// function: Iron Man's repulsor beam; "_ab" instances) counts as additive, as the game draws it (Kurt, 2026-10-15).</summary>
+    static (Gui.ModelView.Map? Tex, bool Additive) Look(FxTextures tex, FxPkg p, int materialRef, bool subImages, string cooked)
+    {
+        var look = tex.ParticleMaterial(p, materialRef, subImages);
+        return look.Additive || !DarkSwap.AddBlendLook(tex, p, materialRef, cooked) ? look : (look.Tex, true);
+    }
+
     static bool NotDrawn(FxPkg p, int r, List<FxPkg> pkgs, FxGame g)
     {
         if (r == 0 || Resolve(p, r, pkgs, g) is not { } at) return false;
@@ -298,7 +306,7 @@ sealed class PowerEffects
             fx.Effects.Add(new Effect(name, data, sockets, Fl("ActivationOffset", 0), Pt("ActivationPoint", "power_on_start"), false, P("DeactivatesOnEnd") is not { } de || p.Bytes[de.ValueAt] != 0, true)
                 { BeamTarget = P("TargetSocket")?.Value ?? "target" });
             foreach (var em in data.Emitters)
-                try { fx.Looks[em] = tex.ParticleMaterial(em.Required.P, em.Required.Ref("Material"), false); }
+                try { fx.Looks[em] = Look(tex, em.Required.P, em.Required.Ref("Material"), false, g.Cooked); }
                 catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { fx.Looks[em] = (null, true); }
             return true;
         }
@@ -533,7 +541,7 @@ sealed class PowerEffects
             }).ToArray());
         }
         foreach (var em in data.Emitters)
-            try { fx.Looks[em] = tex.ParticleMaterial(em.Required.P, em.Required.Ref("Material"), em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1); }
+            try { fx.Looks[em] = Look(tex, em.Required.P, em.Required.Ref("Material"), em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1, g.Cooked); }
             catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { fx.Looks[em] = (null, true); fx.Notes.Add($"{em.Name}: {ex.Message}"); }
     }
 
@@ -785,6 +793,17 @@ sealed class PowerEffects
         PowerColor? color;
         readonly Dictionary<Gui.ModelView.Map, Gui.ModelView.Map> recolored = new();
 
+        readonly Dictionary<(Gui.ModelView.Map, bool), Gui.ModelView.Map> darkened = new();
+
+        /// <summary>A dark color: additive effects drawn as the saved packages draw them (DarkSwap: a translucent material with
+        /// the effect's shape), blended, instead of vanishing (Kurt, 2026-10-15).</summary>
+        bool Dark => color is { IsNone: false } c && DarkSwap.Wanted(c) && c.Opacity >= PowerColor.Invisible;
+
+        Gui.ModelView.Map DarkTex(Gui.ModelView.Map t, bool crossSection)
+        {
+            lock (darkened) { if (!darkened.TryGetValue((t, crossSection), out var r)) darkened[(t, crossSection)] = r = t.Dark(color!.Opacity, crossSection); return r; }
+        }
+
         Gui.ModelView.Map? Tex(Gui.ModelView.Map? t)
         {
             if (t == null || color is not { IsNone: false } c) return t;
@@ -792,7 +811,8 @@ sealed class PowerEffects
         }
 
         // (Opacity: the color and alpha faded together, so additive and blended effects both fade in the preview)
-        Vector4 Col(Vector4 v) => color is { IsNone: false } c ? new Vector4(c.Apply(new Vector3(v.X, v.Y, v.Z)) * c.Opacity, v.W * c.Opacity) : v;
+        // (above 100 % only the alpha grows, as in the game's files: the color isn't brightened)
+        Vector4 Col(Vector4 v) => color is { IsNone: false } c ? new Vector4(c.Apply(new Vector3(v.X, v.Y, v.Z)) * MathF.Min(c.Opacity, 1), MathF.Min(v.W * c.Opacity, 1)) : v;
 
         /// <summary>Moves the effects on by <paramref name="dt"/> seconds; <paramref name="ended"/>: the animation is over.</summary>
         public void Step(float dt, bool ended)
@@ -894,8 +914,10 @@ sealed class PowerEffects
                         // its slice of the texture (as a sub-image column).
                         const int per = 8;
                         int pieces = tiles * per;
+                        var bdraw = Tex(btex);
+                        if (Dark && badd) { bdraw = DarkTex(btex, btex != SolidBeam); badd = false; }
                         for (int k = 0; k < pieces; k++)
-                            list.Add(new Gui.ModelView.FxQuad(from + dir * ((k + 0.5f) / pieces), new Vector2(width, len / pieces), 0, bcol, Tex(btex), per, 1, k % per, 2, false, badd, dir) { SwapUV = true });
+                            list.Add(new Gui.ModelView.FxQuad(from + dir * ((k + 0.5f) / pieces), new Vector2(width, len / pieces), 0, bcol, bdraw, per, 1, k % per, 2, false, badd, dir) { SwapUV = true });
                         continue;
                     }
                     if (em.Kind is not ("sprite" or "physx")) continue;   // meshes: Tris()
@@ -916,7 +938,9 @@ sealed class PowerEffects
                         if (em.Required.Bool("bUseLocalSpace", false)) { pr = Vector3.TransformNormal(pr, sim.Origin); pu = Vector3.TransformNormal(pu, sim.Origin); }
                     }
                     var col = Col(sp.Color);
-                    list.Add(new Gui.ModelView.FxQuad(sp.Position, sp.Size, sp.Rotation, col, Tex(tex),
+                    var draw = Tex(tex);
+                    if (Dark && add) { draw = DarkTex(tex, false); add = false; }
+                    list.Add(new Gui.ModelView.FxQuad(sp.Position, sp.Size, sp.Rotation, col, draw,
                         em.Required.Int("SubImages_Horizontal", 1), em.Required.Int("SubImages_Vertical", 1), sp.Image,
                         align == "psa_velocity" ? 2 : align == "psa_rectangle" ? 1 : 0, lk.Contains("rotate_z"), add, sp.Velocity) { PlaneRight = pr, PlaneUp = pu });
                 }
