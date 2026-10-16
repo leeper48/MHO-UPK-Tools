@@ -142,6 +142,7 @@ function mhoNext(dir) {
 <p>Step-by-step guides for the things people do most. Each links to its full section for the details. Most buttons are icons: point at one to see its name.</p>
 <ul class="toc">
 <li><a href="#w-install">Install a Mod and Put It in the Game</a></li>
+<li><a href="#w-removemany">Remove Several Mods at Once</a></li>
 <li><a href="#w-order">Decide Which Mod Wins</a></li>
 <li><a href="#w-unique">Keep a Mod's Look Near Other Players</a></li>
 <li><a href="#w-crash">Fix a Mod That Can Crash the Game</a></li>
@@ -150,6 +151,7 @@ function mhoNext(dir) {
 <li><a href="#w-text">Change a Costume's Name or Text</a></li>
 <li><a href="#w-move">Wear a Mod on Another Costume or Hero</a></li>
 <li><a href="#w-colors">Recolor a Hero's Powers</a></li>
+<li><a href="#w-dark">Make a Power Dark</a></li>
 <!-- HIDDEN until Borrowed Look is released (WhatsNew.PowerBorrowReleased): <li><a href="#w-borrow">Give a Power Another Hero's Look</a></li> -->
 <li><a href="#w-anims">Give a Costume Another Character's Animations</a></li>
 <li><a href="#w-voice">Give a Costume Another Voice, or Shift It</a></li>
@@ -179,6 +181,17 @@ function mhoNext(dir) {
 </ol>
 <figure><img src="img/main.jpg" alt="The Mods tab: the mod list (left), the preview with its 3D view and power buttons (middle), the selected mod's details and note (right), and Apply Changes (bottom right)."><figcaption>The Mods tab: the mod list (left), the preview with its 3D view and power buttons (middle), the selected mod's details and note (right), and Apply Changes (bottom right).</figcaption></figure>
 <figure><img src="img/apply.jpg" alt="Apply Changes shows the plan first; nothing is written until you click Apply."><figcaption>Apply Changes shows the plan first; nothing is written until you click Apply.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-removemany">Remove Several Mods at Once</h3>
+<ol class="steps">
+<li>On the Mods tab, mark the mods: <kbd>Ctrl</kbd>+click each one, or click the first and <kbd>Shift</kbd>+click the last.</li>
+<li>Click Remove Mod (the bin) or press <kbd>Del</kbd>.</li>
+<li>Read the warning: it lists <b>every mod that will be removed</b>, and Cancel is the default button, so Enter removes nothing. To keep one, Cancel and <kbd>Ctrl</kbd>+click it out of the selection.</li>
+<li>Click <b>Remove N Mods</b>. They're turned off, Apply Changes runs once, and their folders go to the Recycle Bin (you can restore them from there).</li>
+</ol>
+<figure><img src="img/remove-many.jpg" alt="The warning for removing several mods: the mods it will remove, what happens, and Cancel as the default button."><figcaption>The warning for removing several mods: the mods it will remove, what happens, and Cancel as the default button.</figcaption></figure>
 </div>
 
 <div class="walk">
@@ -286,6 +299,19 @@ function mhoNext(dir) {
 <p>A power that's missing from the list, or doesn't change fully in game? <b>Add Package</b> adds one of the game's effect packages under its file name; its color recolors the whole package, for every character that uses it (the preview doesn't show it: check it in game). See <a href="#addpackage">Add Package</a>.</p>
 <figure><img src="img/editor-powers.jpg" alt="The Powers tab: the power in the 3D view with its effects, the hero's powers, and the color sliders and presets."><figcaption>The Powers tab: the power in the 3D view with its effects, the hero's powers, and the color sliders and presets.</figcaption></figure>
 <p>A power's colors change for every costume of that hero. See <a href="#powers">Power colors</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-dark">Make a Power Dark</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Powers</b>. Pick the power.</li>
+<li>Click <b>Dark</b>. It sets Saturation 0 %, Brightness 0 % and Opacity 500 %; move the sliders to fine-tune it (Opacity goes up to 1000 %: higher is more solid).</li>
+<li>Check the 3D preview: the effects show dark, as the game will draw them.</li>
+<li>Save Changes, then Apply Changes, and look at it in game.</li>
+</ol>
+<p><b>What it changes:</b> Translucent effects (energy fields, smoke) simply turn dark. Glows, beams and sparks that the game adds as light would vanish with a dark color, so Save redraws them with a copy of one of the game's translucent effect materials, keeping each effect's shape (beams keep their narrow core). Mesh effects and heat-haze distortion keep their own materials and can still fade.</p>
+<figure><img src="img/editor-powers-dark.jpg" alt="The Powers tab with Nova's Minor Beam made dark: Saturation and Brightness at 0 %, Opacity at 500 %, the Dark button, and the dark beam in the 3D preview."><figcaption>The Powers tab with Nova's Minor Beam made dark: Saturation and Brightness at 0 %, Opacity at 500 %, the Dark button, and the dark beam in the 3D preview.</figcaption></figure>
+<p>See <a href="#dark">Dark powers</a>.</p>
 </div>
 
 <!-- HIDDEN until Borrowed Look is released (WhatsNew.PowerBorrowReleased):

@@ -208,6 +208,20 @@ static partial class Program
             Console.WriteLine("picture: " + args[2]);
             return 0;
         }
+        if (args.Length >= 4 && args[0].Equals("--remove-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // The warning for removing several mods, rendered off screen (the manual's screenshot). --remove-snapshot <out.png> <mod> <mod> ...
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            var rst = Settings.Load();
+            var rlib = ModLibrary.Load(Settings.LibraryData(rst.LibraryPath)!);
+            var rmods = args.Skip(2).Select(n => rlib.Find(n)).OfType<Mod>().ToList();
+            if (rmods.Count < 2) { Console.WriteLine("give at least two mods of the library"); return 1; }
+            Gui.Dialog.SnapshotChoose(args[1], Gui.MainForm.RemoveManyText(rmods, true), $"Remove {rmods.Count} Mods", true, $"Remove {rmods.Count} Mods", "Cancel");
+            Console.WriteLine("picture: " + args[1]);
+            return 0;
+        }
         if (args.Length == 4 && args[0].Equals("--power-preview-test", StringComparison.OrdinalIgnoreCase))
         {
             // Test (off-screen window, reads only): the Mods tab's preview of a mod, a power button clicked by name, and what it

@@ -1389,15 +1389,28 @@ sealed partial class MainForm : Form
         string nl = Environment.NewLine;
         bool inGame = game != null && mods.Any(m => m.Enabled || m.Manifest.UpkReplacements.Count + m.Manifest.Replacements.Count + m.Manifest.StoreReplacements.Count
             + m.Manifest.AchievementReplacements.Count + m.Manifest.Extra.Count() + m.Strings.Count + m.Manifest.AudioPacks.Count > 0);
+        if (Dialog.ChooseDanger(this, RemoveManyText(mods, inGame), $"Remove {mods.Count} Mods", $"Remove {mods.Count} Mods", "Cancel") != 0) return;
+        if (inGame && Process.GetProcessesByName("MarvelHeroesOmega").Length > 0)
+        { Dialog.Show(this, "Close the game first: The game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        await RemoveManyNow(mods);
+    }
+
+    /// <summary>The warning for removing several mods (also the manual's screenshot: --remove-snapshot).</summary>
+    internal static string RemoveManyText(List<Mod> mods, bool inGame)
+    {
+        string nl = Environment.NewLine;
         int on = mods.Count(m => m.Enabled);
-        string text = $"⚠ You're about to remove {mods.Count} mods at once, not just one.{nl}{nl}"
+        return $"⚠ You're about to remove {mods.Count} mods at once, not just one.{nl}{nl}"
             + $"THESE {mods.Count} MODS WILL BE REMOVED{nl}" + string.Join(nl, mods.Take(25).Select(m => $"  • {m.Name}{(m.Enabled ? "  (on)" : "")}")) + (mods.Count > 25 ? $"{nl}  • And {mods.Count - 25} more" : "") + nl + nl
             + "WHAT HAPPENS" + nl
             + (inGame ? $"  1. They're turned off{(on > 0 ? $" ({on} of them are on now)" : "")}.{nl}  2. Apply Changes runs once, so the game gets its original files back (other changes waiting in your list are applied too).{nl}  3. Their folders go to the Recycle Bin.{nl}{nl}The game must be closed." : "  • Their folders go to the Recycle Bin.")
             + $"{nl}{nl}To keep any of them: Cancel, then click only the mods you want to remove (Ctrl + click takes a card out of the selection).";
-        if (Dialog.ChooseDanger(this, text, $"Remove {mods.Count} Mods", $"Remove {mods.Count} Mods", "Cancel") != 0) return;
-        if (inGame && Process.GetProcessesByName("MarvelHeroesOmega").Length > 0)
-        { Dialog.Show(this, "Close the game first: The game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+    }
+
+    async Task RemoveManyNow(List<Mod> mods)
+    {
+        if (lib == null) return;
+        string nl = Environment.NewLine;
         var (l, g) = (lib, game);
         foreach (var m in mods.Where(m => m.Enabled)) m.Enabled = false;
         l.SaveState();

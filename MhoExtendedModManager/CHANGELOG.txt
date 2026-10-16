@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.287
+- What's New notice for this release (dark powers, removing several mods at once). Manual: walkthroughs Make a Power Dark and Remove Several Mods at Once, with screenshots.
+
 0.37.286
 - The 3D preview draws translucent effects that add their light anyway (the game's add-blend function: Iron Man's repulsor beam, which Nova's Minor Beam uses, and "_ab" instances) as additive, as the game does; with a dark color they show dark there too.
 

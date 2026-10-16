@@ -71,11 +71,13 @@ static class Dialog
     }
 
     /// <summary>A Choose window rendered to a PNG (the manual's screenshots: --crash-snapshot), not shown on screen.</summary>
-    public static void SnapshotChoose(string png, string text, string caption, params string[] labels)
+    public static void SnapshotChoose(string png, string text, string caption, params string[] labels) => SnapshotChoose(png, text, caption, false, labels);
+
+    public static void SnapshotChoose(string png, string text, string caption, bool danger, params string[] labels)
     {
         DialogResult[] results = [DialogResult.OK, DialogResult.Yes, DialogResult.Retry, DialogResult.Ignore, DialogResult.Abort];
         var choices = labels.Select((l, i) => (l, i == labels.Length - 1 ? DialogResult.Cancel : results[i])).ToArray();
-        using var f = new DialogForm(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Normal, false, choices);
+        using var f = new DialogForm(text, caption, MessageBoxButtons.OKCancel, MessageBoxIcon.None, danger ? MessageBoxDefaultButton.Button2 : MessageBoxDefaultButton.Button1, danger ? Tone.Bad : Tone.Normal, false, choices);
         f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000);
         f.Shown += (_, _) => f.BeginInvoke(async () =>
         {

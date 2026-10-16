@@ -34,7 +34,16 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.287 (Kurt, 2026-10-16): dark powers, removing several mods at once.</summary>
+    static Notice DarkPowers() => new(
+        "0.37.287-dark-powers", "0.37.287",
+        "[!]Dark powers: Powers tab → Dark makes a power dark (Saturation 0 %, Brightness 0 %, Opacity 500 %; the sliders fine-tune it). Glows, beams and sparks that the game adds as light are redrawn with one of the game's translucent effect materials, so they darken instead of vanishing. Tested in game on Nova's Magneton Pulsar, Nova Beam and Minor Beam." + nl + nl +
+        "Opacity now goes up to 1000 %: above 100 % the effects are more solid. The 3D preview shows dark effects as the game draws them." + nl + nl +
+        "Remove several mods at once: mark them (Ctrl / Shift + click), then Remove or Del. A warning in red lists every mod that will go, and Cancel is the default button." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "dark");
 
     /// <summary>0.37.277 (Kurt, 2026-10-14): safer Make Unique, Undo, SHARED, mods checked together, recolor black planes fixed.</summary>
     static Notice SafeUnique() => new(

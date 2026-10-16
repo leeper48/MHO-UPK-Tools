@@ -157,8 +157,8 @@ sealed partial class ModEditorView
         var shown = powerList.Items.Cast<Fx.PowerList.Power>().ToList();
         int at = keep == null ? -1 : shown.FindIndex(p => p.Prototype == keep);
         // the manual's screenshots (MHO_EXTMM_SNAP_POWER: part of a power's name, e.g. "Own Effects"): that entry first
-        if (keep == null && Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_POWER") is { Length: > 0 } snapPower)
-            at = shown.FindIndex(p => p.Name.Contains(snapPower, StringComparison.OrdinalIgnoreCase));
+        if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_POWER") is { Length: > 0 } snapPower && shown.FindIndex(p => p.Name.Contains(snapPower, StringComparison.OrdinalIgnoreCase)) is int snapAt and >= 0)
+            at = snapAt;   // (also on the second fill: the agent powers arrive later)
         if (powerList.Items.Count > 0) powerList.SelectedIndex = Math.Max(0, at);
         if (powerList.Items.Count == 0) powerCaption.Text = "No Powers Found for This Hero";
     }
