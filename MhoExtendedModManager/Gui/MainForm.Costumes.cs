@@ -82,7 +82,7 @@ sealed partial class MainForm
         var (l, g, all) = (lib, game, costumes);
         var catalog = list.Catalog;
         var made0 = l.Mods.FirstOrDefault(x => x.Name.Equals(CrossMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
-        if (made0 != null) { SelectMod(made0.FolderName); status.Text = Ui.TitleCase($"\"{made0.Name}\" is made already"); return; }
+        if (made0 != null && !RebuildCopy(m, made0)) return;
         UseWaitCursor = true;
         CostumeMove.Plan plan;
         try { plan = await Task.Run(() => CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog)); }
@@ -98,7 +98,7 @@ sealed partial class MainForm
         status.Text = Ui.TitleCase($"Moving \"{m.Name}\" to {target.Title}…");
         string? error = null, made;
         var log = new List<string>();
-        try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error)); }
+        try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error, made0)); }
         finally { UseWaitCursor = false; }
         if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); Reload(); return; }
         if (log.Where(x => x.StartsWith("resized ")).Select(x => x[8..]).ToList() is { Count: > 0 } resizedImages)
@@ -110,12 +110,31 @@ sealed partial class MainForm
         status.Text = Ui.TitleCase($"Made \"{CrossMove.NewName(m, target)}\"") + (swap ? "  ·  Apply Changes to Put It in the Game" : "");
     }
 
+    /// <summary>
+    /// A moved copy of this mod on that slot exists already (2026-10-17: copies made before 0.37.292 can hang the game, and
+    /// moving again has to rebuild them): Rebuild It (true: the move replaces that copy in place, keeping its place, on/off,
+    /// tags, note and power colors), Show It or Cancel (false).
+    /// </summary>
+    bool RebuildCopy(Mod m, Mod copy)
+    {
+        int pick = Dialog.Choose(this,
+            $"\"{copy.Name}\" is made already.\n\n" +
+            $"• Rebuild It: Makes its packages again from \"{m.Name}\" with this version. It keeps its place in the list, on or off, its tags, note and power colors. Changes made to its packages since the move are replaced.\n" +
+            "• Show It: Selects it in the list.",
+            "Moved Copy Exists", "Rebuild It", "Show It", "Cancel");
+        if (pick == 0) return true;
+        if (pick == 1) { SelectMod(copy.FolderName); status.Text = Ui.TitleCase($"\"{copy.Name}\" is made already"); }
+        return false;
+    }
+
     /// <summary>The plan in the Move window, then the new mod (CostumeMove.CreateMod); optionally on, with the original off.</summary>
     async void MoveCostume(Mod m, string file, Costume source, Costume target)
     {
         if (readOnly || lib == null || game == null || costumes == null) return;
         var (l, g, all) = (lib, game, costumes);
         var catalog = list.Catalog;
+        var copy = l.Mods.FirstOrDefault(x => x.Name.Equals(CostumeMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
+        if (copy != null && !RebuildCopy(m, copy)) return;
         UseWaitCursor = true;
         CostumeMove.Plan plan;
         try { plan = await Task.Run(() => CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog)); }
@@ -130,7 +149,7 @@ sealed partial class MainForm
         UseWaitCursor = true;
         string? error = null, made;
         var resized = new List<string>();
-        try { made = await Task.Run(() => CostumeMove.CreateMod(l, m, plan, new Originals(l.DataFolder, g), out error, null, catalog, resized)); }
+        try { made = await Task.Run(() => CostumeMove.CreateMod(l, m, plan, new Originals(l.DataFolder, g), out error, copy, catalog, resized)); }
         finally { UseWaitCursor = false; }
         if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (resized.Count > 0) Dialog.Show(this, "These images weren't the target's size and were resized for the move:\n\n" + string.Join("\n", resized), "Moved, Images Resized", MessageBoxButtons.OK, MessageBoxIcon.Information);

@@ -65,6 +65,31 @@ static class CrashCheck
                 meshes.Add((file, pkg.T.PathOf(i + 1), sm.Bones.Select(b => b.Name.ToLowerInvariant()).ToList(), pkg, i, path));
             }
         }
+        // Streamed textures the game's texture cache can't find (2026-10-17: a costume move put Emma Frost's material_pass
+        // textures at a new path; their big mips are in CharTextures.tfc, listed by the old path, and Diamond Form hung the
+        // game waiting for them, then crashed). Found by path in TextureFileCacheManifest.bin.
+        var listed = TfcPaths(cooked);
+        if (listed.Count > 0)
+            foreach (var (file, path) in packages)
+            {
+                MhoPackageModifier.Package mp;
+                try { mp = MhoPackageModifier.Package.Open(path); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or UnauthorizedAccessException) { continue; }
+                var lost = new List<string>();
+                foreach (var e in mp.Exports)
+                {
+                    if (!mp.ClassOf(e).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) continue;
+                    // only a texture a costume move renamed: its path's group is <group>_on_<target>, and the cache lists it
+                    // under the original group (the game's own files have streamed textures the cache doesn't list at all)
+                    string tp = mp.PathOf(e);
+                    var mo = System.Text.RegularExpressions.Regex.Match(tp, @"^([^.]+)_on_[a-z0-9]+\.", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (!mo.Success || listed.Contains(tp) || !listed.Contains(mo.Groups[1].Value + tp[(mo.Length - 1)..])) continue;
+                    try { if (MhoPackageModifier.TextureInfo.Read(mp, e).Mips.Any(x => x.InSeparateFile)) lost.Add(tp); }
+                    catch (Exception ex) when (ex is MhoPackageModifier.PackageFormatException or InvalidDataException or ArgumentOutOfRangeException) { }
+                }
+                if (lost.Count > 0)
+                    issues.Add(new(true, file, lost[0], $"{lost.Count} texture(s) stream their larger sizes from the game's texture cache, but under a path the cache doesn't list ({string.Join(", ", lost.Take(3))}{(lost.Count > 3 ? " …" : "")}). The game hangs, then crashes, when it needs them (Diamond Form on a moved Emma Frost). If Move to Another Costume made this mod, move the original again: this version keeps those textures' paths."));
+            }
         foreach (var (file, path, bones, pkg, export, filePath) in meshes)
         {
             int n = bones.Count;
@@ -99,6 +124,21 @@ static class CrashCheck
                 issues.Add(new(false, file, mesh, $"{lost.Count} socket(s) on bones it doesn't have ({string.Join(", ", lost.Take(4))}{(lost.Count > 4 ? " …" : "")}): effects and props there show at the model's feet."));
         }
         return issues;
+    }
+
+    static readonly Dictionary<string, HashSet<string>> tfcPaths = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every texture path TextureFileCacheManifest.bin lists (cached per folder); empty when it can't be read.</summary>
+    static HashSet<string> TfcPaths(string cooked)
+    {
+        lock (tfcPaths)
+        {
+            if (tfcPaths.TryGetValue(cooked, out var hit)) return hit;
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try { foreach (var e in MhoPackageModifier.TfcCache.All(cooked)) set.Add(e.Path); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { set.Clear(); }
+            return tfcPaths[cooked] = set;
+        }
     }
 
     static readonly Dictionary<string, List<(string Path, int Bones)>> fileMeshes = new(StringComparer.OrdinalIgnoreCase);

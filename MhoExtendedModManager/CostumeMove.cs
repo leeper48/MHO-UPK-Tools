@@ -24,7 +24,13 @@ static class CostumeMove
     public sealed record Rename(int Export, string OldPath, string NewName, string Why);
     /// <summary>A content group whose streamed textures must keep their path: the rest of its direct children move into a new
     /// group of their own (so the moved mesh and materials can't collide with the source costume's).</summary>
-    public sealed record Split(int Group, string GroupName, string NewName, List<int> Moved, int Kept);
+    public sealed record Split(int Group, string GroupName, string NewName, List<int> Moved, int Kept)
+    {
+        /// <summary>A subgroup's split (index into the same list; -1 = a top-level group): its new group goes inside that
+        /// split's new group, under the subgroup's own name (2026-10-17: Emma Frost's material_pass held 4 streamed
+        /// textures; moved whole, they had a path the .tfc manifest doesn't know and Diamond Form hung the game).</summary>
+        public int Parent { get; init; } = -1;
+    }
     public sealed record PackagePlan(string SourceFile, string SourcePath, string TargetFile, string SourceClass, string TargetClass, List<Rename> Renames, List<string> Notes)
     {
         public List<Split> Splits { get; init; } = [];
@@ -212,6 +218,21 @@ static class CostumeMove
             if (pkg.ClassOf(pkg.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase))
                 try { if (TextureInfo.Read(pkg, pkg.Exports[i]).Mips.Any(m => m.InSeparateFile)) { int t = Top(i); streams[t] = streams.GetValueOrDefault(t) + 1; streamed.Add(i); } }
                 catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or ArgumentOutOfRangeException) { }
+        // a group holding a streamed texture at any depth keeps its path
+        var holds = new HashSet<int>();
+        foreach (int t in streamed) for (int o = pkg.Exports[t].OuterIndex, g = 0; o > 0 && g < 64; o = pkg.Exports[o - 1].OuterIndex, g++) holds.Add(o - 1);
+        // Splits group g: its children that are or hold streamed textures stay; the rest move into a new group (newName, inside
+        // the parent split's new group). Returns how many objects move (in this group and its subgroups).
+        int SplitGroup(int g, string newName, int parent)
+        {
+            var kids = Enumerable.Range(0, pkg.Exports.Length).Where(j => pkg.Exports[j].OuterIndex == g + 1).ToList();
+            var moved = kids.Where(j => !streamed.Contains(j) && !holds.Contains(j)).ToList();
+            int me = splits.Count;
+            splits.Add(new Split(g, pkg.Exports[g].ObjectName, newName, moved, kids.Count(streamed.Contains)) { Parent = parent });
+            int count = moved.Count;
+            foreach (int sub in kids.Where(holds.Contains)) count += SplitGroup(sub, pkg.Exports[sub].ObjectName, me);
+            return count;
+        }
         bool hasClass = false;
         for (int i = 0; i < pkg.Exports.Length; i++)
         {
@@ -228,9 +249,12 @@ static class CostumeMove
                 {
                     // Split (in game 2026-09-29: with the whole group kept, Age of Ultron showed the moved Unworthy Thor mesh
                     // after Thor Classic had loaded it: same path). Streamed textures are stock, so sharing their path is harmless.
-                    var moved = Enumerable.Range(0, pkg.Exports.Length).Where(j => pkg.Exports[j].OuterIndex == i + 1 && !streamed.Contains(j)).ToList();
-                    if (moved.Count > 0) splits.Add(new Split(i, n, n + "_on_" + tgtTok, moved, k));
-                    notes.Add($"group {n}: its {k} streamed texture(s) keep their path (a .tfc finds them by it); the other {moved.Count} object(s) in it move to {n}_on_{tgtTok}");
+                    // A subgroup holding streamed textures (material_pass) is split the same way, inside the new group.
+                    int before = splits.Count;
+                    int movedCount = SplitGroup(i, n + "_on_" + tgtTok, -1);
+                    if (movedCount == 0) splits.RemoveRange(before, splits.Count - before);
+                    notes.Add($"group {n}: its {k} streamed texture(s) keep their path (a .tfc finds them by it); the other {movedCount} object(s) in it move to {n}_on_{tgtTok}"
+                        + (splits.Count - before > 1 ? $" (subgroups split too: {string.Join(", ", splits.Skip(before + 1).Select(x => x.GroupName))})" : ""));
                 }
                 else { to = n + "_on_" + tgtTok; why = "content group (own path)"; }
             }
@@ -291,13 +315,18 @@ static class CostumeMove
         // Each split adds a group object: a copy of the original group's entry (same class, flags) under the new name.
         var add = new List<NewExport>();
         var outers = new Dictionary<int, int>();
+        var newRefs = new List<int>();
+        var newPaths = new List<string>();
         foreach (var spl in splits)
         {
             byte[] entry = pkg.Body.AsSpan(pkg.ExportEntryStart[spl.Group], pkg.ExportEntryEnd[spl.Group] - pkg.ExportEntryStart[spl.Group]).ToArray();
             System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), NameIdx(spl.NewName));
             System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 0);
+            if (spl.Parent >= 0) System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(8), newRefs[spl.Parent]);   // a subgroup: inside its parent's new group
             byte[] groupData = pkg.ReadExportBytes(pkg.Exports[spl.Group]);
             int newRef = pkg.Exports.Length + add.Count + 1;
+            newRefs.Add(newRef);
+            newPaths.Add(spl.Parent >= 0 ? newPaths[spl.Parent] + "." + spl.NewName : spl.NewName);
             add.Add(new NewExport(spl.Group, 0, _ => groupData) { Entry = entry });
             foreach (int j in spl.Moved) outers[j] = newRef;
         }
@@ -308,9 +337,18 @@ static class CostumeMove
         if (guid != null && !output.AsSpan(back.GenerationsAt - 16, 16).SequenceEqual(guid)) problems.Add("the GUID isn't the target's");
         foreach (var (i, n) in renames)
             if (!back.Exports[i].ObjectName.Equals(n, StringComparison.OrdinalIgnoreCase)) problems.Add($"export {i + 1} is '{back.Exports[i].ObjectName}', expected '{n}'");
-        foreach (var spl in splits)
-            foreach (int j in spl.Moved)
-                if (!back.PathOf(back.Exports[j]).StartsWith(spl.NewName + ".", StringComparison.OrdinalIgnoreCase)) problems.Add($"export {j + 1} isn't under {spl.NewName}");
+        for (int s = 0; s < splits.Count; s++)
+            foreach (int j in splits[s].Moved)
+                if (!back.PathOf(back.Exports[j]).StartsWith(newPaths[s] + ".", StringComparison.OrdinalIgnoreCase)) problems.Add($"export {j + 1} isn't under {newPaths[s]}");
+        // every streamed texture keeps its path (the .tfc manifest finds it by that)
+        for (int i = 0; i < pkg.Exports.Length; i++)
+            if (pkg.ClassOf(pkg.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase))
+                try
+                {
+                    if (TextureInfo.Read(pkg, pkg.Exports[i]).Mips.Any(m => m.InSeparateFile) && !back.PathOf(back.Exports[i]).Equals(pkg.PathOf(pkg.Exports[i]), StringComparison.OrdinalIgnoreCase))
+                        problems.Add($"streamed texture {pkg.PathOf(pkg.Exports[i])} would be at {back.PathOf(back.Exports[i])} (the .tfc couldn't find it)");
+                }
+                catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or ArgumentOutOfRangeException) { }
         return output;
     }
 

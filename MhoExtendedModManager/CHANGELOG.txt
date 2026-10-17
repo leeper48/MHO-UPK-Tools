@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.292
+- Move to Another Costume: a costume whose streamed textures sit in a subgroup (Emma Frost New Tian's material_pass) moved them to a new path the game's texture cache doesn't know, and the game hung, then crashed, when it needed them (Diamond Form on Old Man Logan, a user's report). Subgroups are now split like their group: streamed textures keep their path, everything else moves. Move the original again to fix a copy made before.
+- CRASH RISK now also flags a moved costume with that problem (streamed textures under a moved group's path), and says to move the original again.
+- Moving a mod again onto a slot where its copy exists asks: Rebuild It (the copy is remade in place, keeping its place, on/off, tags, note and power colors), Show It or Cancel.
+- What's New notice for this release (0.37.291 wasn't released: voice effects, team-up voices, the Cable / Symbiote voice fix, steeper dark glows, and this fix).
+
 0.37.291
 - What's New notice for this release (voice effects, team-up voices, steeper dark glows). Voice tab: No Effects comes first in the Effects row and the row wraps on a narrow window (it ran past the edge). Manual: the Voice walkthrough's screenshot shows the Effects row.
 

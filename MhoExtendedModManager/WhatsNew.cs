@@ -36,15 +36,17 @@ static class WhatsNew
 
     public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
-    /// <summary>0.37.291 (Kurt, 2026-10-17): voice effects, team-up voices.</summary>
+    /// <summary>0.37.292 (Kurt, 2026-10-17): voice effects, team-up voices, moved costumes that hung the game.</summary>
     static Notice VoiceEffects() => new(
-        "0.37.291-voice-effects", "0.37.291",
+        "0.37.292-voice-effects", "0.37.292",
         "[!]Voice effects: Editor → Audio → Voice has an Effects row under Voice Shift: Reverb, Echo, Distortion, Lo-Fi, Chorus and Robot, each from Off to 100 %." + nl +
         "  • They combine with each other and with the shift; ▶ plays any line with them." + nl +
         "  • Apply to This Voice (was Shift This Voice) puts them into the mod, as a sound pack MHModManager can install too." + nl +
         "  • No Effects turns them all off." + nl + nl +
         "Team-ups have the Voice tab too: List, play, turn off or shift a team-up's lines, or give it another voice. Use Another Voice has a Team-Ups submenu, so a team-up's voice can go into a costume as well." + nl + nl +
         "Fixed: Cable's and Symbiote Spider-Man's voices couldn't be copied (\"Voice Not Changed\"). All of the game's voice sets now copy." + nl + nl +
+        "[!]Fixed: A moved costume could hang the game, then crash it (Emma Frost New Tian on Old Man Logan, in Diamond Form). Some of its textures got a path the game's texture cache doesn't know. Moves now keep those paths." + nl +
+        "  • A copy moved with an older version shows a red CRASH RISK pill. Move the original again and choose Rebuild It, then Apply Changes." + nl + nl +
         "Dark powers: Soft glows now fall off steeply like beams instead of showing as large dark squares." + nl + nl +
         "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
         "w-voice");
