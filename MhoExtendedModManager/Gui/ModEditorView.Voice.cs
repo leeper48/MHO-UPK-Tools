@@ -48,7 +48,7 @@ sealed partial class ModEditorView
         // Filters (a user asked, 2026-10-16): 0-100 % each, previewed with ▶, applied with the shift
         LightSlider Fx(string label, string tip)
         {
-            var sl = new LightSlider { Label = label, Min = 0, Max = 1, Step = 0.05f, Mark = 0, Format = v => v == 0 ? "Off" : $"{v * 100:0} %", Home = () => 0, Size = new Size((int)(200 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(8 * S), 0) };
+            var sl = new LightSlider { Label = label, Min = 0, Max = 1, Step = 0.05f, Mark = 0, Format = v => v == 0 ? "Off" : $"{v * 100:0} %", Home = () => 0, Size = new Size((int)(165 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(8 * S), 0) };
             sl.Value = 0; Ui.Tip(sl, tip + " ▶ plays lines with it; Apply to This Voice puts it into the mod (double-click: off).");
             return sl;
         }
@@ -69,7 +69,8 @@ sealed partial class ModEditorView
             Preset("Female → Male", -5, -2.5f, 0, "Pitch -5, formants -2.5: a starting point for a female voice to sound male."),
             Preset("Male → Female", 5, 2.5f, 2, "Pitch +5, formants +2.5, warmth +2 dB: a starting point for a male voice to sound female."),
             Preset("Original", 0, 0, 0, "Back to the line as it is (the filters stay as they are)."), shiftNow, unshift, voiceShiftNote);
-        var fxRow = Toolbar(new Label { Text = "EFFECTS", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot, noFx);
+        var fxRow = Toolbar(new Label { Text = "EFFECTS", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, noFx, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot);
+        fxRow.WrapContents = true;   // six sliders: a second line on a narrow window
         if (draft.VoiceShifts.FirstOrDefault() is { } saved)
         {
             voicePitch.Value = saved.Pitch; voiceFormant.Value = saved.Formant; voiceWarmth.Value = saved.Warmth;

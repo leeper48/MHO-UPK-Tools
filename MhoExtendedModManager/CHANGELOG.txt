@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.37.291
+- What's New notice for this release (voice effects, team-up voices, steeper dark glows). Voice tab: No Effects comes first in the Effects row and the row wraps on a narrow window (it ran past the edge). Manual: the Voice walkthrough's screenshot shows the Effects row.
+
 0.37.290
 - Voice effects (a user asked): Audio → Voice has an EFFECTS row under Voice Shift: Reverb, Echo, Distortion, Lo-Fi, Chorus and Robot, each Off to 100 %, combined with each other and the shift. ▶ previews them; Apply to This Voice (was Shift This Voice) puts them in, as the same sound pack MHModManager can install. Reverb and echo tails let a line ring out (up to about a second). No Effects turns them all off.
 - Use Another Voice: Cable's voice (and any voice whose banter list names its own character) couldn't be copied ("verify: FAIL"); Symbiote Spider-Man's crashed (its stock banter list points at an object that isn't there; that entry is now set to none). All 131 of the game's voice sets now copy into a costume and a team-up. The "Voice Not Changed" message names the actual problem.

@@ -34,7 +34,20 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.37.291 (Kurt, 2026-10-17): voice effects, team-up voices.</summary>
+    static Notice VoiceEffects() => new(
+        "0.37.291-voice-effects", "0.37.291",
+        "[!]Voice effects: Editor → Audio → Voice has an Effects row under Voice Shift: Reverb, Echo, Distortion, Lo-Fi, Chorus and Robot, each from Off to 100 %." + nl +
+        "  • They combine with each other and with the shift; ▶ plays any line with them." + nl +
+        "  • Apply to This Voice (was Shift This Voice) puts them into the mod, as a sound pack MHModManager can install too." + nl +
+        "  • No Effects turns them all off." + nl + nl +
+        "Team-ups have the Voice tab too: List, play, turn off or shift a team-up's lines, or give it another voice. Use Another Voice has a Team-Ups submenu, so a team-up's voice can go into a costume as well." + nl + nl +
+        "Fixed: Cable's and Symbiote Spider-Man's voices couldn't be copied (\"Voice Not Changed\"). All of the game's voice sets now copy." + nl + nl +
+        "Dark powers: Soft glows now fall off steeply like beams instead of showing as large dark squares." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-voice");
 
     /// <summary>0.37.287 (Kurt, 2026-10-16): dark powers, removing several mods at once.</summary>
     static Notice DarkPowers() => new(
