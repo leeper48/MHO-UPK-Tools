@@ -661,7 +661,7 @@ static class Icons
         ["Apply to All Powers"] = ("Apply to All Powers", Box(true, all: true)), ["Game's Colors"] = ("Game's Colors", Reset),
         ["Add Selected to the Mod ↓"] = ("Add Selected to the Mod", WithPlus(List)), ["Create from 3D"] = ("Create from 3D", Cube),
         ["Remove Replacement"] = ("Remove Replacement", Trash), ["Remove Selected Rows"] = ("Remove Selected Rows", Trash), ["Remove"] = ("Remove", Trash),
-        ["Remove Shift"] = ("Remove Shift", Trash), ["Search"] = ("Search", Search), ["Shift This Voice"] = ("Shift This Voice", Wave),
+        ["Remove Shift"] = ("Remove Shift", Trash), ["Search"] = ("Search", Search), ["Apply to This Voice"] = ("Apply to This Voice", Wave), ["No Effects"] = ("No Effects", Reset),
         ["Show All"] = ("Show All", List), ["Stop"] = ("Stop", Stop), ["Turn All On"] = ("Turn All On", Box(true, all: true)),
         ["Use Another Voice ▾"] = ("Use Another Voice", WithMenu(Speaker)), ["Use the Hero's Voice"] = ("Use the Hero's Voice", Speaker),
         ["Delete Ticked"] = ("Delete Ticked", Trash), ["Open Folder"] = ("Open Folder", Folder), ["Create Mod"] = ("Create Mod", Save),

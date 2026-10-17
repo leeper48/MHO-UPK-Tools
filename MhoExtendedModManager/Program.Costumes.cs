@@ -1204,6 +1204,44 @@ static partial class Program
                 Console.WriteLine($"{(uok == utotal ? "ok  " : "FAIL")} {uok} of {utotal} events play");
                 return ulines.Count > 0 && uok == utotal ? 0 : 1;
             }
+            case "--voice-fx":
+            {
+                // Test: a voice line (.wav) through each filter (VoiceEffects) at 50 % and 100 %, then all of them on top of a
+                // shift; prints length and peak, writes <out dir>\<filter>_<amount>.wav to listen to.
+                if (rest.Count < 3) { Console.WriteLine("--voice-fx <in.wav> <out dir>"); return 1; }
+                byte[] fin = File.ReadAllBytes(rest[1]);
+                Directory.CreateDirectory(rest[2]);
+                static (double Sec, double Peak) Stats(byte[] w)
+                {
+                    int rate = BitConverter.ToInt32(w, 24), ch = BitConverter.ToInt16(w, 22);
+                    int at = 12; while (at + 8 <= w.Length && System.Text.Encoding.ASCII.GetString(w, at, 4) != "data") at += 8 + BitConverter.ToInt32(w, at + 4);
+                    int n = BitConverter.ToInt32(w, at + 4) / 2, peak = 0;
+                    for (int i = 0; i < n; i++) peak = Math.Max(peak, Math.Abs((int)BitConverter.ToInt16(w, at + 8 + i * 2)));
+                    return (n / (double)ch / rate, peak / 32768.0);
+                }
+                var (s0, p0) = Stats(fin);
+                Console.WriteLine($"original     {s0:0.00} s  peak {p0:0.000}");
+                bool fok = true;
+                var cases = new List<(string Name, VoiceShiftEntry E)>();
+                foreach (float a in new[] { 0.5f, 1f })
+                {
+                    cases.Add(($"reverb_{a * 100:0}", new() { Reverb = a })); cases.Add(($"echo_{a * 100:0}", new() { Echo = a }));
+                    cases.Add(($"distortion_{a * 100:0}", new() { Distortion = a })); cases.Add(($"lofi_{a * 100:0}", new() { LoFi = a }));
+                    cases.Add(($"chorus_{a * 100:0}", new() { Chorus = a })); cases.Add(($"robot_{a * 100:0}", new() { Robot = a }));
+                }
+                cases.Add(("all_shifted", new() { Pitch = 4, Formant = 2, Warmth = 2, Reverb = 0.4f, Echo = 0.3f, Distortion = 0.3f, LoFi = 0.3f, Chorus = 0.3f, Robot = 0.3f }));
+                foreach (var (name, e) in cases)
+                {
+                    var fsw = System.Diagnostics.Stopwatch.StartNew();
+                    byte[] o = VoiceShift.Process(fin, e);
+                    var (s, p) = Stats(o);
+                    bool ok = s >= s0 - 0.05 && s <= s0 + 3.1 && p > 0.01 && p <= 0.99;
+                    fok &= ok;
+                    File.WriteAllBytes(Path.Combine(rest[2], name + ".wav"), o);
+                    Console.WriteLine($"{(ok ? "ok  " : "FAIL")} {name,-16} {s:0.00} s  peak {p:0.000}  {fsw.ElapsedMilliseconds} ms");
+                }
+                return fok ? 0 : 1;
+            }
             case "--wem-to-ogg":
             {
                 // Test: Wwise Vorbis → Ogg (WwiseVorbis, the ww2ogg port); compare with ww2ogg.exe's output.

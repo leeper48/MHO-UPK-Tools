@@ -492,6 +492,8 @@ sealed partial class MainForm
             m = lib!.Find(saved ?? modName)!;
             var vs = m.Manifest.VoiceShifts ?? [];
             Check(vs.Count > 0 && vs.All(v => Math.Abs(v.Pitch - pitch) < 0.01f), $"manifest VoiceShifts ({vs.Count})");
+            if (Environment.GetEnvironmentVariable("MHO_TEST_VOICEFX") is { Length: > 0 } fx)
+                Check(vs.All(VoiceEffects.Any), $"manifest effects ({fx}): " + string.Join("; ", vs.Select(v => $"reverb {v.Reverb} echo {v.Echo} distortion {v.Distortion} lofi {v.LoFi} chorus {v.Chorus} robot {v.Robot}")));
             foreach (var v in vs)
             {
                 string pack = VoiceShiftBuild.PackName(v.Package);

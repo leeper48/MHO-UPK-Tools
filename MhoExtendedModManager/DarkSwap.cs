@@ -265,9 +265,18 @@ static class DarkSwap
             // measured under 5x alpha: tex_energy_a_low 85 % of the width, tex_grad_jet_clamped 74 %; now 35 % and 42 %)
             if (top > 1e-4f) for (int y = 0; y < h; y++) rows[y] = MathF.Pow(rows[y] / top, 4);
         }
+        // a soft glow (Kurt, 2026-10-16: the blooms came out as big dark squares): a sprite whose boosted shape covers most of
+        // its square (tex_glow_soft: 81 % of it at least half dark under the 5x particle alpha; tendrils, flares, explosion
+        // sheets 17-31 %) gets the beams' falloff: normalized, the 4th power, not boosted (tex_glow_soft: 16 %)
+        float spriteTop = 0; int soft = 0;
+        if (rows == null)
+        {
+            for (int i = 0; i < w * h; i++) { float r = Raw(i); spriteTop = Math.Max(spriteTop, r); if (r * boost * Math.Max(1f, opacity) >= 0.5f) soft++; }
+        }
+        bool glow = rows == null && spriteTop > 1e-4f && soft > w * h / 2;
         for (int i = 0; i < w * h; i++)
         {
-            float v = rows != null ? rows[i / w] : Raw(i) * boost;
+            float v = rows != null ? rows[i / w] : glow ? MathF.Pow(Raw(i) / spriteTop, 4) : Raw(i) * boost;
             shape[i] = (byte)Math.Clamp((int)(v * 255 + 0.5f), 0, 255);
         }
         return shape;

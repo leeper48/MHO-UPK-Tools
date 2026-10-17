@@ -100,7 +100,8 @@ static class VoiceSet
             var e = pkg.Exports[i];
             if (e.SerialSize > 64 && pkg.ClassOf(e).Equals("MarvelEntityCompSounds", StringComparison.OrdinalIgnoreCase)
                 && pkg.PathOf(e) is var path
-                && (path.StartsWith("marvelgamecontent.default__marvelplayer_", StringComparison.OrdinalIgnoreCase) || path.StartsWith("marvelgamecontent.default__marvelplayeraudio_", StringComparison.OrdinalIgnoreCase))
+                && (path.StartsWith("marvelgamecontent.default__marvelplayer_", StringComparison.OrdinalIgnoreCase) || path.StartsWith("marvelgamecontent.default__marvelplayeraudio_", StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith("marvelgamecontent.default__marvelteamup_", StringComparison.OrdinalIgnoreCase))   // (team-ups: the same component, Kurt 2026-10-16)
                 && e.ObjectName.Equals("soundscomponent", StringComparison.OrdinalIgnoreCase)) return i;
         }
         return -1;
@@ -196,7 +197,11 @@ static class VoiceSet
     }
 
     /// <summary>A stock voice set to copy into a costume: the hero's own (base package) or a voice package's (Lady Deadpool …).</summary>
-    public sealed record Source(string Title, string Hero, string File, bool Alternate);
+    public sealed record Source(string Title, string Hero, string File, bool Alternate)
+    {
+        /// <summary>A team-up's voice (UC__MarvelTeamUp_&lt;Name&gt;_SF: Angel, Jessica Jones …; a user asked, 2026-10-16).</summary>
+        public bool TeamUp { get; init; }
+    }
 
     static (string Cooked, List<Source> List)? sources;
     static readonly object sourcesGate = new();
@@ -231,6 +236,18 @@ static class VoiceSet
                     bool own = voice.Equals("Default", StringComparison.OrdinalIgnoreCase);
                     list.Add(new Source(HeroName(hero) + " · " + (own ? "Default" : VoiceName(voice)), hero, f, !own));
                 }
+            }
+            // Team-ups: the same voice set in their class default (Angel: 52 lines: activation, attack, boast, banter with
+            // the heroes they team up with …)
+            var teamRx = new Regex(@"^UC__MarvelTeamUp_([A-Za-z0-9]+)_SF\.upk$", RegexOptions.IgnoreCase);
+            foreach (string f in Directory.EnumerateFiles(cooked, "UC__MarvelTeamUp_*_SF.upk"))
+            {
+                string name = Path.GetFileName(f);
+                var mt = teamRx.Match(name);
+                if (!mt.Success || name.Contains("bak", StringComparison.OrdinalIgnoreCase) || name.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                try { if (Find(Package.Open(f)) < 0 || !Read(name, f, []).Any(l => l.Sound)) continue; }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { continue; }
+                list.Add(new Source(HeroName(mt.Groups[1].Value) + " (Team-Up)", mt.Groups[1].Value, f, false) { TeamUp = true });
             }
             // A voice package named Default is the hero's own voice when the base package has none (Spider-Man, Deadpool,
             // Thor …); only when both exist does it need telling apart.
@@ -287,6 +304,13 @@ static class VoiceSet
         return (file, Regex.Replace(name, "(?<=[a-z])(?=[A-Z])", " "), voice);
     }
 
+    /// <summary>A team-up package's name ("UC__MarvelTeamUp_Angel_SF.upk" → Angel), or null.</summary>
+    public static string? TeamUpOf(string packageFile)
+    {
+        var m = Regex.Match(packageFile, @"^UC__MarvelTeamUp_([A-Za-z0-9]+)_", RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
     /// <summary>The hero a costume package is for ("UC__MarvelPlayer_Storm_Modern_SF.upk" → Storm), or null.</summary>
     public static string? HeroOf(string packageFile)
     {
@@ -297,8 +321,9 @@ static class VoiceSet
     /// <summary>A costume package's class-default soundscomponent (empty or not), or -1.</summary>
     public static int Slot(Package pkg) => Array.FindIndex(pkg.Exports, e => e.ObjectName.Equals("soundscomponent", StringComparison.OrdinalIgnoreCase)
         && pkg.ClassOf(e).Equals("MarvelEntityCompSounds", StringComparison.OrdinalIgnoreCase)
-        && pkg.PathOf(e).StartsWith("marvelgamecontent.default__marvelplayer_", StringComparison.OrdinalIgnoreCase)
-        && !pkg.PathOf(e).StartsWith("marvelgamecontent.default__marvelplayeraudio_", StringComparison.OrdinalIgnoreCase));
+        && (pkg.PathOf(e).StartsWith("marvelgamecontent.default__marvelplayer_", StringComparison.OrdinalIgnoreCase)
+            && !pkg.PathOf(e).StartsWith("marvelgamecontent.default__marvelplayeraudio_", StringComparison.OrdinalIgnoreCase)
+            || pkg.PathOf(e).StartsWith("marvelgamecontent.default__marvelteamup_", StringComparison.OrdinalIgnoreCase)));   // (a team-up's too)
 
     /// <summary>
     /// Copies a voice set (source package's soundscomponent <paramref name="vc"/>, with its sound events and banks) into
@@ -312,6 +337,7 @@ static class VoiceSet
         string compPath = vp.PathOf(vp.Exports[vc]);
         string defName = compPath[..compPath.LastIndexOf('.')];
         var vreplace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [defName] = targetDefault };
+        var vcut = new List<string>();   // list entries pointing outside the source's tables (Symbiote Spider-Man's bantertargets[0] = 122)
         byte[] vd = vp.ReadExportBytes(vp.Exports[vc]).ToArray();
         if (TagWalker.Walk(vp, vd, 16) is { } vtags)
             foreach (var t in vtags.Where(t => t.Name is var n && (n.Equals("AudioEmotes", StringComparison.OrdinalIgnoreCase) || n.Equals("BanterTargets", StringComparison.OrdinalIgnoreCase))))
@@ -321,19 +347,25 @@ static class VoiceSet
                 for (int k = 0; k < n; k++)
                 {
                     int r = BinaryPrimitives.ReadInt32LittleEndian(vd.AsSpan(t.ValueAt + 4 + 4 * k));
+                    if (r > vp.Exports.Length || -r > vp.Imports.Length) { vcut.Add($"{t.Name}[{k}]".ToLowerInvariant()); log.Add($"voice: {t.Name}[{k}] pointed at no object ({r}); set to none"); continue; }
                     if (r > 0 && r <= vp.Exports.Length && !vp.ClassOf(vp.Exports[r - 1]).Equals("AkEvent", StringComparison.OrdinalIgnoreCase))
-                    { vreplace[vp.PathOf(vp.Exports[r - 1])] = "none"; log.Add($"voice: {t.Name}[{k}] pointed at {vp.PathOf(vp.Exports[r - 1])}; set to none"); }
+                    {
+                        // the voice's own character (Cable's bantertargets name his default object) becomes the target's,
+                        // like the component itself (setting it to none cut the copy's outer, and verify failed)
+                        if (vp.PathOf(vp.Exports[r - 1]).Equals(defName, StringComparison.OrdinalIgnoreCase)) { log.Add($"voice: {t.Name}[{k}] pointed at its own character; now {targetDefault}"); continue; }
+                        vreplace[vp.PathOf(vp.Exports[r - 1])] = "none"; log.Add($"voice: {t.Name}[{k}] pointed at {vp.PathOf(vp.Exports[r - 1])}; set to none");
+                    }
                 }
             }
         // The copy is a spare export beside the costume's own soundscomponent (its data then goes into that one), under a
         // name the package doesn't have yet (a costume can be given a voice more than once).
         string spare = "soundscomponent_voice";
         for (int k = 2; pkg.Exports.Any(e => pkg.PathOf(e).Equals(targetDefault + "." + spare, StringComparison.OrdinalIgnoreCase)); k++) spare = "soundscomponent_voice" + k;
-        var vcopy = CrossMove.Quiet(() => ExportCopy.Copy(vp, vc, pkg, [], spare, vreplace), out string vsaid);
+        var vcopy = CrossMove.Quiet(() => ExportCopy.Copy(vp, vc, pkg, vcut, spare, vreplace), out string vsaid);
         if (vcopy == null)
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_DEBUG") == "1") log.Add(vsaid);
-            log.Add("voice not copied: " + string.Join(" ", vsaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("already")).Select(l => l.Trim())));
+            log.Add("voice not copied: " + string.Join(" ", vsaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("already") || l.TrimStart().StartsWith("- ")).Select(l => l.Trim()).Take(8)));
             return null;
         }
         var outPkg = Package.FromBytes(vcopy.Output);

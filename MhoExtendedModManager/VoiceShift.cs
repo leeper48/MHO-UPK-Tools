@@ -29,6 +29,15 @@ static class VoiceShift
         return Write(outCh, rate);
     }
 
+    /// <summary>The line through Voice Shift and then the filters (VoiceEffects): the whole voice change, for Save and the ▶ preview.</summary>
+    public static byte[] Process(byte[] wav, VoiceShiftEntry e)
+    {
+        byte[] shifted = Shift(wav, e.Pitch, e.Formant, Mode.Natural, e.Warmth);
+        if (!VoiceEffects.Any(e)) return shifted;
+        var (chans, rate) = Read(shifted);
+        return Write([.. chans.Select(c => VoiceEffects.Apply(c, rate, e))], rate);
+    }
+
     /// <summary>
     /// A 16-bit PCM WAV as a Wwise PCM .wem, laid out as the game's own (SFX_IronMan_INT has one): RIFF/WAVE, a 24-byte fmt
     /// (WAVE_FORMAT_EXTENSIBLE 0xFFFE, cbSize 6, then 0 valid bits and Wwise's channel config: channel count | type 1 &lt;&lt; 8 |

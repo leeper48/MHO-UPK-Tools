@@ -12,6 +12,24 @@ sealed class VoiceShiftEntry
     public float Pitch { get; set; }
     public float Formant { get; set; }
     public float Warmth { get; set; }
+    // Voice filters (a user asked, 2026-10-16; VoiceEffects): 0 = off to 1. Written only when set, so a manifest without
+    // them is the same as before.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Reverb { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Echo { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Distortion { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float LoFi { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Chorus { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Robot { get; set; }
+
+    /// <summary>Anything to do: a shift or a filter.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool Any => Pitch != 0 || Formant != 0 || Warmth != 0 || VoiceEffects.Any(this);
 }
 
 /// <summary>
@@ -93,7 +111,7 @@ static class VoiceShiftBuild
             // Voice only (Kurt, 2026-10-02): a voice set can also name sound effects (Sentry's has a dodge whoosh in
             // dodgepassivesfx); only lines in voice banks (…vo, …vo_…, …voice…: speech and vocal efforts) are shifted.
             if (!IsVoiceBank(bank)) { log.Add($"{leaf}: left as it is (a sound effect, in {bank})"); continue; }
-            byte[] shifted = VoiceShift.Shift(VoiceAudio.ToWav(wem), s.Pitch, s.Formant, VoiceShift.Mode.Natural, s.Warmth);
+            byte[] shifted = VoiceShift.Process(VoiceAudio.ToWav(wem), s);
             byte[] outWem = WwiseVorbisWrite.ToWem(VorbisEncode.Encode(shifted, 0.4f), WavPcm.Read(shifted).Channels[0].Length);
             if (!pkg.Exports.Any(e => e.ObjectName.Equals(nleaf, StringComparison.OrdinalIgnoreCase)))
             {

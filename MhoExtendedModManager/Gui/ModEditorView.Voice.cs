@@ -45,24 +45,43 @@ sealed partial class ModEditorView
         voiceFormant = new LightSlider { Label = "Formant", Min = -6, Max = 6, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 st" : $"{v:+0.#;-0.#} st", Home = () => 0, Size = new Size((int)(230 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
         voiceWarmth = new LightSlider { Label = "Warmth", Min = -6, Max = 6, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 dB" : $"{v:+0.#;-0.#} dB", Home = () => 0, Size = new Size((int)(230 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
         voicePitch.Value = 0; voiceFormant.Value = 0; voiceWarmth.Value = 0;
+        // Filters (a user asked, 2026-10-16): 0-100 % each, previewed with ▶, applied with the shift
+        LightSlider Fx(string label, string tip)
+        {
+            var sl = new LightSlider { Label = label, Min = 0, Max = 1, Step = 0.05f, Mark = 0, Format = v => v == 0 ? "Off" : $"{v * 100:0} %", Home = () => 0, Size = new Size((int)(200 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(8 * S), 0) };
+            sl.Value = 0; Ui.Tip(sl, tip + " ▶ plays lines with it; Apply to This Voice puts it into the mod (double-click: off).");
+            return sl;
+        }
+        voiceReverb = Fx("Reverb", "A room around the voice: small at low settings, a hall at 100 %.");
+        voiceEcho = Fx("Echo", "Repeats every quarter second, fading out (more repeats and louder as it goes up).");
+        voiceDistortion = Fx("Distortion", "Drives the voice into soft clipping: gritty to heavily distorted.");
+        voiceLoFi = Fx("Lo-Fi", "Radio or old-speaker sound: a narrow band, fewer bits and a lower sample rate as it goes up.");
+        voiceChorus = Fx("Chorus", "Two slightly delayed, wavering copies of the voice: doubled, otherworldly.");
+        voiceRobot = Fx("Robot", "Ring modulation: a metallic, robotic voice.");
         Ui.Tip(voiceWarmth, "More (or less) of the low end, the voice's body. A raised voice can sound thin; a little warmth helps.");   // (a LightSlider starts at 1: it was made for the light level)
-        Ui.Tip(voicePitch, "How many semitones higher or lower the voice is (double-click: back to 0). ▶ plays lines with these settings; Shift This Voice puts them into the mod.");
+        Ui.Tip(voicePitch, "How many semitones higher or lower the voice is (double-click: back to 0). ▶ plays lines with these settings; Apply to This Voice puts them into the mod.");
         Ui.Tip(voiceFormant, "Moves the voice's formants (the size of the throat you hear) by semitones, apart from the pitch. Lower sounds bigger, higher smaller.");
         Button Preset(string text, float pitch, float formant, float warmth, string tip) => Ui.FlatButton(text, () => { voicePitch.Value = pitch; voiceFormant.Value = formant; voiceWarmth.Value = warmth; }, tip);
-        var shiftNow = Ui.AccentButton("Shift This Voice", ShiftVoice, "Shift every line of the costume's voice with these settings (about 30 seconds). Lines that are off stay off; sound effects in the voice set aren't changed. Save puts it into the mod: a sound pack MHModManager can install too.");
-        var unshift = Ui.FlatButton("Remove Shift", RemoveShift, "Put the costume's original voice lines back (Save to keep it).");
+        var shiftNow = Ui.AccentButton("Apply to This Voice", ShiftVoice, "Shift and filter every line of the voice with these settings (about 30 seconds). Lines that are off stay off; sound effects in the voice set aren't changed. Save puts it into the mod: a sound pack MHModManager can install too.");
+        var unshift = Ui.FlatButton("Remove Shift", RemoveShift, "Put the voice's original lines back, without the shift and filters (Save to keep it).");
+        var noFx = Ui.FlatButton("No Effects", () => { foreach (var sl in new[] { voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot }) sl!.Value = 0; }, "Every filter off (the shift stays).");
         var shiftRow = Toolbar(new Label { Text = "VOICE SHIFT", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, voicePitch, voiceFormant, voiceWarmth,
             Preset("Female → Male", -5, -2.5f, 0, "Pitch -5, formants -2.5: a starting point for a female voice to sound male."),
             Preset("Male → Female", 5, 2.5f, 2, "Pitch +5, formants +2.5, warmth +2 dB: a starting point for a male voice to sound female."),
-            Preset("Original", 0, 0, 0, "Back to the line as it is."), shiftNow, unshift, voiceShiftNote);
-        if (draft.VoiceShifts.FirstOrDefault() is { } saved) { voicePitch.Value = saved.Pitch; voiceFormant.Value = saved.Formant; voiceWarmth.Value = saved.Warmth; }
+            Preset("Original", 0, 0, 0, "Back to the line as it is (the filters stay as they are)."), shiftNow, unshift, voiceShiftNote);
+        var fxRow = Toolbar(new Label { Text = "EFFECTS", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot, noFx);
+        if (draft.VoiceShifts.FirstOrDefault() is { } saved)
+        {
+            voicePitch.Value = saved.Pitch; voiceFormant.Value = saved.Formant; voiceWarmth.Value = saved.Warmth;
+            voiceReverb.Value = saved.Reverb; voiceEcho.Value = saved.Echo; voiceDistortion.Value = saved.Distortion; voiceLoFi.Value = saved.LoFi; voiceChorus.Value = saved.Chorus; voiceRobot.Value = saved.Robot;
+        }
         ShowShiftNote();
         var bars = new Panel { Dock = DockStyle.Top, AutoSize = true };
         var mainRow = Toolbar(find, voiceFind, allOn, stop, another, voiceCount, voiceStatus);
         voiceHintButton = Ui.AccentButton("Use the Hero's Voice", UseHeroVoice, "Add the hero's default costume package to the mod (the game's copy) and put the voice the game plays for it into that package, so its lines can be played, turned off and shifted.");
         voiceHintRow = Toolbar(voiceHint, voiceHintButton);
         voiceHintRow.Visible = false;
-        bars.Controls.Add(voiceHintRow); bars.Controls.Add(shiftRow); bars.Controls.Add(mainRow);   // (docked top: the last added is on top)
+        bars.Controls.Add(voiceHintRow); bars.Controls.Add(fxRow); bars.Controls.Add(shiftRow); bars.Controls.Add(mainRow);   // (docked top: the last added is on top)
         return Page(voice, bars,
             "The costume's voice set: what the hero says in each situation. Click ▶ to hear a line. Untick a line to turn it off (for example a donor voice naming its own team); it's saved into the mod's package, and can be turned on again. A stock costume has no voice set of its own (it uses its hero's): Use Another Voice puts its hero's voice in, or another costume's or hero's.");
     }
@@ -71,15 +90,17 @@ sealed partial class ModEditorView
     readonly Dictionary<string, string> voiceBefore = new(StringComparer.OrdinalIgnoreCase);
     string? voiceWork;
 
-    /// <summary>The draft's costume packages (UC__MarvelPlayer_&lt;Hero&gt;_&lt;Costume&gt;_SF): the ones a voice can be put into.</summary>
+    /// <summary>The draft's costume packages (UC__MarvelPlayer_&lt;Hero&gt;_&lt;Costume&gt;_SF) and team-up packages
+    /// (UC__MarvelTeamUp_&lt;Name&gt;_SF, a user asked 2026-10-16): the ones a voice can be put into.</summary>
     List<(string File, string Source)> CostumePackages() =>
-        [.. draft.Packages.Where(p => File.Exists(p.Source) && Regex.IsMatch(p.File, @"^UC__MarvelPlayer_[A-Za-z0-9]+_[A-Za-z0-9_]+_SF\.upk$", RegexOptions.IgnoreCase))];
+        [.. draft.Packages.Where(p => File.Exists(p.Source) && (Regex.IsMatch(p.File, @"^UC__MarvelPlayer_[A-Za-z0-9]+_[A-Za-z0-9_]+_SF\.upk$", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(p.File, @"^UC__MarvelTeamUp_[A-Za-z0-9_]+_SF\.upk$", RegexOptions.IgnoreCase)))];
 
     /// <summary>The voice menu: per costume package, its hero's voices first, then every other hero's (submenus by hero).</summary>
     async void VoiceMenu(Control button)
     {
         var targets = CostumePackages();
-        if (targets.Count == 0) { Dialog.Show(this, "A voice goes into a costume package (UC__MarvelPlayer_<Hero>_<Costume>_SF.upk). Add one on the Packages tab first.", "No Costume Package", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (targets.Count == 0) { Dialog.Show(this, "A voice goes into a costume or team-up package (UC__MarvelPlayer_<Hero>_<Costume>_SF.upk, UC__MarvelTeamUp_<Name>_SF.upk). Add one on the Packages tab first.", "No Costume or Team-Up Package", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         if (game == null) { Dialog.Show(this, "Set the game folder first (Settings → Change Game Folder): The voices come from the game's files.", "No Game Folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         voiceStatus.ForeColor = Ui.Subtle; voiceStatus.Text = "Loading the game's voices…";
         List<VoiceSet.Source> all;
@@ -93,13 +114,14 @@ sealed partial class ModEditorView
         {
             ToolStripItemCollection items = menu.Items;
             if (targets.Count > 1) { var sub = new ToolStripMenuItem(file); menu.Items.Add(sub); items = sub.DropDownItems; }
-            string hero = (VoiceSet.HeroOf(file) ?? "").ToLowerInvariant();
-            bool Mine(VoiceSet.Source v) => hero.Length > 0 && (v.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase) || v.Hero.StartsWith(hero, StringComparison.OrdinalIgnoreCase) || hero.StartsWith(v.Hero.ToLowerInvariant()));
+            string hero = (VoiceSet.HeroOf(file) ?? VoiceSet.TeamUpOf(file) ?? "").ToLowerInvariant();
+            bool teamUp = VoiceSet.TeamUpOf(file) != null;
+            bool Mine(VoiceSet.Source v) => hero.Length > 0 && v.TeamUp == teamUp && (v.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase) || v.Hero.StartsWith(hero, StringComparison.OrdinalIgnoreCase) || hero.StartsWith(v.Hero.ToLowerInvariant()));
             var own = all.Where(Mine).ToList();
             foreach (var v in own) items.Add(VoiceItem(file, v));
             if (own.Count > 0) items.Add(new ToolStripSeparator());
             var others = new ToolStripMenuItem("Other Heroes");
-            foreach (var g in all.Where(v => !Mine(v)).GroupBy(v => v.Title.Split(" · ")[0]))
+            foreach (var g in all.Where(v => !Mine(v) && !v.TeamUp).GroupBy(v => v.Title.Split(" · ")[0]))
             {
                 if (g.Count() == 1) { others.DropDownItems.Add(VoiceItem(file, g.First())); continue; }
                 var h = new ToolStripMenuItem(g.Key);
@@ -107,6 +129,10 @@ sealed partial class ModEditorView
                 others.DropDownItems.Add(h);
             }
             items.Add(others);
+            // team-ups' voices (Angel, Jessica Jones …): for a hero's costume or another team-up
+            var teams = new ToolStripMenuItem("Team-Ups");
+            foreach (var v in all.Where(v => v.TeamUp && !Mine(v))) teams.DropDownItems.Add(VoiceItem(file, v));
+            if (teams.DropDownItems.Count > 0) items.Add(teams);
             if (voiceBefore.ContainsKey(file))
             {
                 items.Add(new ToolStripSeparator());
@@ -161,7 +187,7 @@ sealed partial class ModEditorView
     int voicePlayId;
 
     /// <summary>Plays a line (VoiceAudio: the mod's sound pack, else the game's sound files), found and decoded in the background.</summary>
-    LightSlider? voicePitch, voiceFormant, voiceWarmth;
+    LightSlider? voicePitch, voiceFormant, voiceWarmth, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot;
     readonly Label voiceHint = new() { AutoSize = true, ForeColor = Ui.OverrideAmber, Padding = new Padding(0, 8, 8, 0) };
     Button? voiceHintButton;
     FlowLayoutPanel? voiceHintRow;
@@ -212,15 +238,25 @@ sealed partial class ModEditorView
     readonly Label voiceShiftNote = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(10, 8, 0, 0) };
     bool shifting;
 
-    VoiceShiftEntry Sliders => new() { Pitch = voicePitch?.Value ?? 0, Formant = voiceFormant?.Value ?? 0, Warmth = voiceWarmth?.Value ?? 0 };
-    static bool Same(VoiceShiftEntry a, VoiceShiftEntry b) => Math.Abs(a.Pitch - b.Pitch) < 0.01f && Math.Abs(a.Formant - b.Formant) < 0.01f && Math.Abs(a.Warmth - b.Warmth) < 0.01f;
+    VoiceShiftEntry Sliders => new()
+    {
+        Pitch = voicePitch?.Value ?? 0, Formant = voiceFormant?.Value ?? 0, Warmth = voiceWarmth?.Value ?? 0,
+        Reverb = voiceReverb?.Value ?? 0, Echo = voiceEcho?.Value ?? 0, Distortion = voiceDistortion?.Value ?? 0, LoFi = voiceLoFi?.Value ?? 0, Chorus = voiceChorus?.Value ?? 0, Robot = voiceRobot?.Value ?? 0,
+    };
+    static bool Same(VoiceShiftEntry a, VoiceShiftEntry b) => Math.Abs(a.Pitch - b.Pitch) < 0.01f && Math.Abs(a.Formant - b.Formant) < 0.01f && Math.Abs(a.Warmth - b.Warmth) < 0.01f
+        && Math.Abs(a.Reverb - b.Reverb) < 0.01f && Math.Abs(a.Echo - b.Echo) < 0.01f && Math.Abs(a.Distortion - b.Distortion) < 0.01f
+        && Math.Abs(a.LoFi - b.LoFi) < 0.01f && Math.Abs(a.Chorus - b.Chorus) < 0.01f && Math.Abs(a.Robot - b.Robot) < 0.01f;
 
     void ShowShiftNote()
     {
         var v = draft.VoiceShifts.FirstOrDefault();
         voiceShiftNote.ForeColor = v == null ? Ui.Subtle : Ui.Enabled;
-        voiceShiftNote.Text = v == null ? "Not Shifted" : $"Shifted: Pitch {v.Pitch:+0.#;-0.#;0}, Formant {v.Formant:+0.#;-0.#;0}, Warmth {v.Warmth:+0.#;-0.#;0} dB";
+        voiceShiftNote.Text = v == null ? "Not Shifted" : $"Shifted: Pitch {v.Pitch:+0.#;-0.#;0}, Formant {v.Formant:+0.#;-0.#;0}, Warmth {v.Warmth:+0.#;-0.#;0} dB" + EffectsText(v);
     }
+
+    /// <summary>", Reverb 40 %, Echo 20 %" for the filters that are on.</summary>
+    static string EffectsText(VoiceShiftEntry v) => string.Concat(new (string Name, float A)[] { ("Reverb", v.Reverb), ("Echo", v.Echo), ("Distortion", v.Distortion), ("Lo-Fi", v.LoFi), ("Chorus", v.Chorus), ("Robot", v.Robot) }
+        .Where(f => f.A > 0.001f).Select(f => $", {f.Name} {f.A * 100:0} %"));
 
     /// <summary>Shift This Voice: every costume package's voice rendered (VoiceShiftBuild) into the work folder; Save writes it.</summary>
     void ShiftVoice() => _ = ShiftVoiceAsync();
@@ -229,6 +265,14 @@ sealed partial class ModEditorView
     internal Task ShiftForTest(float pitch, float formant, float warmth)
     {
         voicePitch!.Value = pitch; voiceFormant!.Value = formant; voiceWarmth!.Value = warmth;
+        // MHO_TEST_VOICEFX=reverb=0.4,echo=0.3 …: the filters too
+        foreach (string kv in (Environment.GetEnvironmentVariable("MHO_TEST_VOICEFX") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var p = kv.Split('=');
+            float v = float.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture);
+            var sl = p[0].ToLowerInvariant() switch { "reverb" => voiceReverb, "echo" => voiceEcho, "distortion" => voiceDistortion, "lofi" => voiceLoFi, "chorus" => voiceChorus, "robot" => voiceRobot, _ => null };
+            if (sl != null) sl.Value = v;
+        }
         return ShiftVoiceAsync();
     }
     internal void RemoveShiftForTest() => RemoveShift();
@@ -251,7 +295,7 @@ sealed partial class ModEditorView
         var targets = draft.Packages.Where(p => File.Exists(p.Source) && VoiceSet.Read(p.File, p.Source, draft.VoiceOff).Any(l => l.Sound)).ToList();
         if (targets.Count == 0) { Dialog.Show(this, "No package of this mod has a voice set. Use Another Voice gives a costume one first.", "No Voice to Shift", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         var set = Sliders;
-        if (set.Pitch == 0 && set.Formant == 0 && set.Warmth == 0) { RemoveShift(); return; }
+        if (!set.Any) { RemoveShift(); return; }
         shifting = true;
         string cooked = game.Cooked;
         voiceWork ??= Path.Combine(lib.DataFolder, "voice-work-" + Guid.NewGuid().ToString("N")[..8]);
@@ -261,7 +305,8 @@ sealed partial class ModEditorView
         {
             foreach (var (file, source) in targets)
             {
-                var entry = new VoiceShiftEntry { Package = file, Pitch = set.Pitch, Formant = set.Formant, Warmth = set.Warmth };
+                var entry = new VoiceShiftEntry { Package = file, Pitch = set.Pitch, Formant = set.Formant, Warmth = set.Warmth,
+                    Reverb = set.Reverb, Echo = set.Echo, Distortion = set.Distortion, LoFi = set.LoFi, Chorus = set.Chorus, Robot = set.Robot };
                 var packs = draft.SoundPacks.Where(x => !Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase)).ToList();
                 var off = draft.VoiceOff.ToList();
                 string work = Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6]);
@@ -341,15 +386,15 @@ sealed partial class ModEditorView
                 voiceWavs[ev] = wav;
             }
             if (id != voicePlayId || IsDisposed) return;
-            bool shiftNow = !asIs && (set.Pitch != 0 || set.Formant != 0 || set.Warmth != 0);
+            bool shiftNow = !asIs && set.Any;
             if (shiftNow)
             {
                 byte[] src = wav;
-                wav = await Task.Run(() => VoiceShift.Shift(src, set.Pitch, set.Formant, VoiceShift.Mode.Natural, set.Warmth));
+                wav = await Task.Run(() => VoiceShift.Process(src, set));
                 if (id != voicePlayId || IsDisposed) return;
             }
             VoiceAudio.Play(wav);
-            voiceStatus.Text = "Playing " + leaf + (asIs ? " (Shifted, as Saved)" : shiftNow ? $" (Preview: Pitch {set.Pitch:+0.#;-0.#;0}, Formant {set.Formant:+0.#;-0.#;0}, Warmth {set.Warmth:+0.#;-0.#;0} dB)" : "");
+            voiceStatus.Text = "Playing " + leaf + (asIs ? " (As Saved)" : shiftNow ? $" (Preview: Pitch {set.Pitch:+0.#;-0.#;0}, Formant {set.Formant:+0.#;-0.#;0}, Warmth {set.Warmth:+0.#;-0.#;0} dB" + (VoiceEffects.Any(set) ? ", with Effects)" : ")") : "");
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException or UnauthorizedAccessException or ArgumentException or IndexOutOfRangeException)
         {
