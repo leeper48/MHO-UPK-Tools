@@ -393,6 +393,140 @@ sealed partial class MainForm
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_editor_test.txt"), (saved ?? "not saved") + Environment.NewLine + check);
     }
 
+    /// <summary>--keep-editing-test (scratch libraries only): Save and Keep Editing from Overview → Packages; the editor must
+    /// be open again on the saved mod, at that tab.</summary>
+    public async Task KeepEditingTest(string outFile, string modName)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            await Task.Delay(1500);
+            editor!.ShowTab((0, 1));
+            var before = editor;
+            var at = editor.TabPosition;
+            editor.SaveStayForTest();
+            await Task.Delay(1500);
+            lines.Add($"{(editor != null && editor != before ? "PASS" : "FAIL")} the editor opened again");
+            lines.Add($"{(editor?.Editing?.Name == modName ? "PASS" : "FAIL")} on the saved mod ({editor?.Editing?.Name})");
+            lines.Add($"{(editor?.TabPosition == at && at == (0, 1) ? "PASS" : "FAIL")} at the same tab ({editor?.TabPosition})");
+            lines.Add($"{(pages.SelectedIndex == 1 ? "PASS" : "FAIL")} the Editor page shows");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
+    /// <summary>--target-props-test (scratch libraries only): the Model tab's target props: <paramref name="prop"/> left off,
+    /// saved, the package read back (its mesh none), then kept again, saved, the mesh back.</summary>
+    public async Task TargetPropsTest(string outFile, string modName, string prop)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            int tab = Enumerable.Range(0, editor!.TabCount).First(i => editor.TabTitle(i) == "Model");
+            editor.SelectTab(tab);
+            Model.Gui.ModelPage? mp = null;
+            for (int i = 0; i < 300 && ((mp = editor.ModelPageForTest) == null || mp.TargetPropLabels.Count == 0); i++) await Task.Delay(100);
+            lines.Add($"{(mp != null && mp.TargetPropLabels.Count > 0 ? "PASS" : "FAIL")} props listed: {string.Join(", ", mp?.TargetPropLabels ?? [])}");
+            if (mp == null) throw new InvalidOperationException("no Model tab");
+            async Task<string?> SavedMesh()
+            {
+                var mod = lib?.Find(modName);
+                string? file = mod?.Manifest.UpkReplacements.FirstOrDefault(f => f.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase));
+                await Task.Yield();
+                return file == null ? null : PowerParts.CostumeProps(file, Path.Combine(mod!.Folder, file)).FirstOrDefault(s => s.Label.Equals(prop, StringComparison.OrdinalIgnoreCase))?.Original;
+            }
+            string? before = await SavedMesh();
+            lines.Add($"{(mp.TestSetProp(prop, false) ? "PASS" : "FAIL")} {prop} unticked");
+            editor.SaveStayForTest();
+            for (int i = 0; i < 300 && (editor == null || editor.ModelPageForTest == mp); i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            string? off = await SavedMesh();
+            lines.Add($"{(off == "" ? "PASS" : "FAIL")} saved: {prop}'s mesh none (was {before}, now {off ?? "?"})");
+            lines.Add($"{(lib?.Find(modName)?.Manifest.PartsOff?.Count > 0 ? "PASS" : "FAIL")} the manifest keeps it");
+            // back on
+            editor!.SelectTab(Enumerable.Range(0, editor.TabCount).First(i => editor.TabTitle(i) == "Model"));
+            Model.Gui.ModelPage? mp2 = null;
+            for (int i = 0; i < 300 && ((mp2 = editor.ModelPageForTest) == null || mp2.TargetPropLabels.Count == 0); i++) await Task.Delay(100);
+            lines.Add($"{(mp2 != null && mp2.TestSetProp(prop, true) ? "PASS" : "FAIL")} {prop} ticked again");
+            var ed2 = editor;
+            editor.SaveStayForTest();
+            for (int i = 0; i < 300 && editor == ed2; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            string? on = await SavedMesh();
+            lines.Add($"{(on == before ? "PASS" : "FAIL")} saved again: {prop}'s mesh back ({on})");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
+    /// <summary>--name-check-test: a new mod with no name, Save from the Audio tab: back on Overview → Details, cursor in Name.</summary>
+    public async Task NameCheckTest(string outFile)
+    {
+        var lines = new List<string>();
+        try
+        {
+            OpenEditor(null); pages.Select(1);
+            await Task.Delay(1000);
+            editor!.ShowTab((3, 0));
+            var ed = editor;
+            ed.SaveAskedForTest();
+            await Task.Delay(500);
+            lines.Add($"{(ed.TabPosition == (0, 0) ? "PASS" : "FAIL")} on Overview → Details ({ed.TabPosition})");
+            lines.Add($"{(ed.NameFocusedForTest ? "PASS" : "FAIL")} the cursor in Name");
+            lines.Add($"{(editor == ed ? "PASS" : "FAIL")} still editing (nothing saved)");
+            CloseEditor();
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
+    /// <summary>--ghosts-test (scratch libraries only): Powers tab → Character → Dodge Ghosts made from the mod's model, one
+    /// ghost's pose picked, saved, the package read back; then the game's ghosts, saved, the package as it was.</summary>
+    public async Task GhostsTest(string outFile, string modName, string anim, double fraction)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            string? baseFile = m.Manifest.UpkReplacements.FirstOrDefault(f => System.Text.RegularExpressions.Regex.IsMatch(f, "^UC__MarvelPlayer_[A-Za-z0-9]+_SF[.]upk$", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+            byte[]? original = baseFile != null ? File.ReadAllBytes(Path.Combine(m.Folder, baseFile)) : null;
+            OpenEditor(m); pages.Select(1);
+            lines.AddRange(await editor!.GhostsTestAsync(anim, fraction));
+            string file = editor.GhostsFileForTest ?? "";
+            var ed = editor;
+            editor.SaveStayForTest();
+            for (int i = 0; i < 600 && editor == ed; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            var m2 = lib?.Find(modName)!;
+            lines.Add($"{(m2.Manifest.DodgeGhosts?.Count > 0 ? "PASS" : "FAIL")} saved: the manifest keeps {m2.Manifest.DodgeGhosts?.Count ?? 0} ghost(s), ghost 1 {m2.Manifest.DodgeGhosts?.FirstOrDefault()?.Anim}");
+            var p = MhoPackageModifier.Package.Open(Path.Combine(m2.Folder, file));
+            var gx = DodgeGhosts.GhostExports(p, file, Path.Combine(m2.Folder, file));
+            lines.Add($"{(gx.Count > 0 && gx.All(i => p.Exports[i].ObjectName.EndsWith("_mod")) ? "PASS" : "FAIL")} the package's ghosts: {string.Join(", ", gx.Select(i => p.Exports[i].ObjectName))}");
+            // back to the game's
+            lines.Add($"{(await editor!.SelectCharacterForTest() ? "PASS" : "FAIL")} the reopened editor shows the ghosts");
+            editor.GameGhostsForTest();
+            var ed2 = editor;
+            editor.SaveStayForTest();
+            for (int i = 0; i < 600 && editor == ed2; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            var m3 = lib?.Find(modName)!;
+            lines.Add($"{(m3.Manifest.DodgeGhosts == null ? "PASS" : "FAIL")} the game's ghosts: none in the manifest");
+            if (original != null && baseFile != null)
+            {
+                var p3 = MhoPackageModifier.Package.Open(Path.Combine(m3.Folder, baseFile));
+                var p0 = MhoPackageModifier.Package.FromBytes(original);
+                int diff = Enumerable.Range(0, p0.Exports.Length).Count(i => i >= p3.Exports.Length || p0.Exports[i].ObjectName != p3.Exports[i].ObjectName || !p0.ReadExportBytes(p0.Exports[i]).AsSpan().SequenceEqual(p3.ReadExportBytes(p3.Exports[i])));
+                lines.Add($"{(diff == 0 ? "PASS" : "FAIL")} the package as it was before: {diff} export(s) differ");
+            }
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
     /// <summary>--powers-shot (scratch libraries only): the Powers tab's preview on a power at a frame, as a PNG.</summary>
     public async Task PowersShot(string png, string modName, string power, double fraction)
     {
@@ -400,8 +534,11 @@ sealed partial class MainForm
         {
             var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
             OpenEditor(m); pages.Select(1);
-            if (await editor!.PowersShot(power, fraction) is { } c)
+            if (await editor!.PowersShot(power, fraction) is Control shot)
+            {
+                Control c = Environment.GetEnvironmentVariable("MHO_SHOT_WINDOW") == "1" ? this : shot;   // (the whole window: layout checks)
                 using (var b = new Bitmap(c.Width, c.Height)) { c.DrawToBitmap(b, new Rectangle(0, 0, c.Width, c.Height)); b.Save(png); }
+            }
         }
         catch (Exception ex) { File.WriteAllText(png + ".txt", ex.ToString()); }
     }

@@ -439,6 +439,7 @@ sealed class PowerEffects
                 AddLooks(fx, tex, look, g, data);
             }
         }
+        RetryLooks(fx, tex, look, g);
         fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
         return fx;
     }
@@ -522,6 +523,24 @@ sealed class PowerEffects
     /// <summary>An effect's looks: its mesh emitters' meshes and materials, and every emitter's material (ForClass, Own).</summary>
     static void AddLooks(PowerEffects fx, FxTextures tex, List<FxPkg> look, FxGame g, ParticleData data)
     {
+        int missingBefore = tex.MissingSeen;
+        try { AddLooksNow(fx, tex, look, g, data); }
+        finally { if (tex.MissingSeen > missingBefore && !fx.retryLooks.Contains(data)) fx.retryLooks.Add(data); }
+    }
+
+    /// <summary>Effects whose materials had a texture in a package not loaded yet when they were read (Iceman's Frozen Orb:
+    /// the soft glow masking mat_cloudy_glow_dir's clouds was in a package read later, and 20 stacked sprites drew a dark
+    /// disc): read again at the end, with every package in.</summary>
+    readonly List<ParticleData> retryLooks = [];
+    static void RetryLooks(PowerEffects fx, FxTextures tex, List<FxPkg> look, FxGame g)
+    {
+        var again = fx.retryLooks.ToList();
+        fx.retryLooks.Clear();
+        foreach (var d in again) AddLooksNow(fx, tex, look, g, d);
+    }
+
+    static void AddLooksNow(PowerEffects fx, FxTextures tex, List<FxPkg> look, FxGame g, ParticleData data)
+    {
         foreach (var em in data.Emitters.Where(x => x.Kind == "mesh"))
         {
             int emr = em.Required.Ref("Material");
@@ -541,8 +560,72 @@ sealed class PowerEffects
             }).ToArray());
         }
         foreach (var em in data.Emitters)
-            try { fx.Looks[em] = Look(tex, em.Required.P, em.Required.Ref("Material"), em.Required.Int("SubImages_Horizontal", 1) * em.Required.Int("SubImages_Vertical", 1) > 1, g.Cooked); }
+            try
+            {
+                int sx = em.Required.Int("SubImages_Horizontal", 1), sy = em.Required.Int("SubImages_Vertical", 1);
+                var lk = Look(tex, em.Required.P, em.Required.Ref("Material"), sx * sy > 1, g.Cooked);
+                bool masked = tex.LastMasked;
+                // a sprite whose texture doesn't fade at its border (a flipbook: its frames' borders), or whose material fades it
+                // with a mask the preview doesn't draw: rounded off as the game's material does (Map.SoftEdged)
+                // (not a sprite stretched along its velocity: a streak's texture runs along it, rounding would shorten it)
+                if (em.Kind == "sprite" && !em.Required.Enum("ScreenAlignment", "psa_square").Contains("velocity", StringComparison.OrdinalIgnoreCase)
+                    && lk.Tex is { Glow: null } m && m.SoftEdged(lk.Additive, masked, sx, sy) is { } soft) lk = (soft, lk.Additive);
+                fx.Looks[em] = lk;
+            }
             catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { fx.Looks[em] = (null, true); fx.Notes.Add($"{em.Name}: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// --soft-census: every plain sprite emitter of the packages' particle systems, by material: whether its texture fades at
+    /// its border (Map.SoftEdged null) or gets the preview's soft edge (2026-10-17, square sprites). Read only.
+    /// </summary>
+    public static (int Sprites, int Softened, Dictionary<string, (int Emitters, bool Additive, string Texture)> Materials) SoftCensus(FxGame g, IEnumerable<string> packageFiles, Action<string>? progress = null)
+    {
+        int sprites = 0, softened = 0;
+        var mats = new Dictionary<string, (int, bool, string)>(StringComparer.OrdinalIgnoreCase);
+        var verdict = new Dictionary<string, (bool Soft, bool Add, string Tex)>(StringComparer.OrdinalIgnoreCase);
+        int n = 0;
+        foreach (string f in packageFiles)
+        {
+            if (++n % 250 == 0) progress?.Invoke($"{n} packages, {sprites} sprites, {softened} softened");
+            FxPkg? p;
+            try { p = g.Open(Path.GetFileNameWithoutExtension(f)); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+            if (p == null) continue;
+            var look = new List<FxPkg> { p };
+            var tex = new FxTextures([.. look, .. g.AlwaysLoaded()], g.Cooked);
+            for (int i = 0; i < p.T.Exports.Count; i++)
+            {
+                if (!p.T.ClassOf(p.T.Exports[i]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
+                ParticleData? data;
+                try { data = ParticleData.Read(p, i); } catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException) { continue; }
+                if (data == null) continue;
+                foreach (var em in data.Emitters)
+                {
+                    if (em.Kind != "sprite" || em.Required.Enum("ScreenAlignment", "psa_square").Contains("velocity", StringComparison.OrdinalIgnoreCase)) continue;
+                    int csx = em.Required.Int("SubImages_Horizontal", 1), csy = em.Required.Int("SubImages_Vertical", 1);
+                    int mr = em.Required.Ref("Material");
+                    if (mr == 0) continue;
+                    string key = em.Required.P.T.PathOf(mr) + (csx * csy > 1 ? $" ({csx}×{csy})" : "");
+                    sprites++;
+                    if (!verdict.TryGetValue(key, out var v))
+                    {
+                        try
+                        {
+                            var lk = Look(tex, em.Required.P, mr, csx * csy > 1, g.Cooked);
+                            bool soft = lk.Tex is { Glow: null } m && m.SoftEdged(lk.Additive, tex.LastMasked, csx, csy) != null;
+                            string tn = tex.ParticleTexture(em.Required.P, mr, false, out _) is { } pt ? pt.P.T.Exports[pt.Export].ObjectName : "-";
+                            v = (soft, lk.Additive, tn);
+                        }
+                        catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { v = (false, true, "?"); }
+                        verdict[key] = v;
+                    }
+                    if (!v.Soft) continue;
+                    softened++;
+                    mats[key] = mats.TryGetValue(key, out var c) ? (c.Item1 + 1, v.Add, v.Tex) : (1, v.Add, v.Tex);
+                }
+            }
+        }
+        return (sprites, softened, mats);
     }
 
     /// <summary>
@@ -552,7 +635,9 @@ sealed class PowerEffects
     /// components that start with it (no ActivationPoint, not on an animated actor). They play from the start and keep
     /// going; read from <paramref name="packageFile"/> (the mod's copy) and what it imports from loaded packages.
     /// </summary>
-    public static PowerEffects Own(FxGame g, string packageFile)
+    /// <param name="onlyPart">One particle part of the class default only (the Powers tab's Parts ▶, 2026-10-17: the dodge
+    /// ghosts), whatever starts it (a dodge, a hover, a power's start): an EntityFxParticle or a power's PowerFxParticle.</param>
+    public static PowerEffects Own(FxGame g, string packageFile, string? onlyPart = null)
     {
         var fx = new PowerEffects();
         string stem = Path.GetFileNameWithoutExtension(packageFile);
@@ -588,7 +673,7 @@ sealed class PowerEffects
         if (def < 0) { fx.Notes.Add($"{stem}: no class default {cls}"); return fx; }
         var dp = Props(def);
         // 1. the attachments' effect templates, at their sockets
-        if (dp.FirstOrDefault(x => x.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is { } ac)
+        if (onlyPart == null && dp.FirstOrDefault(x => x.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is { } ac)
             foreach (int r in Refs(ac))
             {
                 if (r == 0) continue;
@@ -621,10 +706,13 @@ sealed class PowerEffects
         string prefix = "marvelgamecontent.default__" + cls + ".";
         for (int i = 0; i < p.T.Exports.Count; i++)
         {
-            if (!p.T.ClassOf(p.T.Exports[i]).Equals("EntityFxParticle", StringComparison.OrdinalIgnoreCase) || !p.T.PathOf(i + 1).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            string pc = p.T.ClassOf(p.T.Exports[i]);
+            if (!(pc.Equals("EntityFxParticle", StringComparison.OrdinalIgnoreCase) || onlyPart != null && pc.Equals("PowerFxParticle", StringComparison.OrdinalIgnoreCase))
+                || !p.T.PathOf(i + 1).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (onlyPart != null && !p.T.Exports[i].ObjectName.Equals(onlyPart, StringComparison.OrdinalIgnoreCase)) continue;
             var ep = Props(i);
             FxProps.Prop? P(string n) => ep.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
-            if (P("ActivationPoint") != null || (P("SpawnOnAnimatedActor") is { } sa && p.Bytes[sa.ValueAt] != 0)) continue;
+            if (onlyPart == null && (P("ActivationPoint") != null || (P("SpawnOnAnimatedActor") is { } sa && p.Bytes[sa.ValueAt] != 0))) continue;
             int sysRef = P("ParticleSystemTemplate") is { Size: 4 } sp ? BitConverter.ToInt32(p.Bytes, sp.ValueAt) : 0;
             if (sysRef == 0) continue;
             var sockets = P("SpawnSockets") is { } ss2 ? FxGame.StructArray(p.Bytes, p.T, ss2.ValueAt, ss2.Size)
@@ -634,7 +722,7 @@ sealed class PowerEffects
         // 3. the condition classes the package defines (2026-10-07: Jean Grey's audio package holds her Dark Phoenix form,
         // marvelconditioneffect_jeangrey_darkphoenixmaelstrom: its flames and aura are ConditionFxParticles of that class)
         string? hero = stem.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase) ? stem.Split('_', StringSplitOptions.RemoveEmptyEntries)[2] : null;
-        for (int i = 0; i < p.T.Exports.Count; i++)
+        for (int i = 0; i < p.T.Exports.Count && onlyPart == null; i++)
         {
             if (!p.T.ClassOf(p.T.Exports[i]).Equals("Class", StringComparison.OrdinalIgnoreCase)) continue;
             string cc = p.T.Exports[i].ObjectName;
@@ -646,6 +734,7 @@ sealed class PowerEffects
             fx.Decals.AddRange(more.Decals);
             fx.Notes.AddRange(more.Notes.Take(4));
         }
+        RetryLooks(fx, tex, look, g);
         fx.Notes.AddRange(tex.Notes.Distinct().Take(4));
         return fx;
     }
@@ -667,9 +756,19 @@ sealed class PowerEffects
 
         /// <summary>An effect's place at its socket: facing the hero's way (Facing), except a mesh laid over what holds the socket
         /// (a local-space mesh emitter: the Odinforce lightning layer, the hammer's own shape), which takes the socket's turn too.</summary>
-        static Matrix4x4 Place(Effect e, Matrix4x4 m)
+        static Matrix4x4 Place(Effect e, Matrix4x4 m, string? socketName = null)
         {
-            var at = e.System.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false)) ? m : Facing(m);
+            // (a ground or root socket: its place only. The dodge ghosts, local-space meshes at socket_ground on the root
+            // bone, stood on their heads with the root's turn; in game they stand upright, 2026-10-17.)
+            bool ground = socketName != null && (socketName.Contains("ground", StringComparison.OrdinalIgnoreCase) || socketName.Equals("root", StringComparison.OrdinalIgnoreCase));
+            if (ground && Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
+                Console.WriteLine($"    socket {socketName}: X axis ({m.M11:0.00},{m.M12:0.00},{m.M13:0.00}) Y axis ({m.M21:0.00},{m.M22:0.00},{m.M23:0.00}) Z axis ({m.M31:0.00},{m.M32:0.00},{m.M33:0.00}) at ({m.M41:0.0},{m.M42:0.0},{m.M43:0.0})");
+            // (but a ground socket turned only around the vertical keeps its turn: Taskmaster's socket_ground is turned -90°,
+            // and with its ghost emitters' own -90° and 180° the ghosts stand as the character does, facing its way; without
+            // it they were a quarter turn off. Kurt, 2026-10-18)
+            bool upright = MathF.Abs(m.M33) > 0.95f;
+            bool local = e.System.Emitters.Any(x => x.Kind == "mesh" && x.Required.Bool("bUseLocalSpace", false));
+            var at = local && (!ground || upright) ? m : Facing(m);
             if (e.Turn == (0, 0, 0) && e.Shift == Vector3.Zero || !e.Attached) return at;
             // The component's offset and turn, in the frame it's placed in, for an effect that stays on its subject. (A
             // hypothesis from Iron Man's Unibeam: its unattached laser has offset 0,0,73 and its system starts 73 up already;
@@ -849,13 +948,13 @@ sealed class PowerEffects
                 // on the one hit: the target point, raised to the height its socket has on the caster above its feet (else 60)
                 var places = e.OnHit ? [(Matrix4x4.CreateTranslation(target + new Vector3(0, 0, (e.Sockets.Count > 0 ? socket(e.Sockets[0]) : null) is { } hs ? Math.Max(0, hs.Translation.Z - target.Z) : 60)), (string?)null)]
                     : e.AtTarget ? [(Matrix4x4.CreateTranslation(target), (string?)null)]
-                    : e.Sockets.Count == 0 ? [(Matrix4x4.Identity, null)] : e.Sockets.Select(n => BoneOrigin(e, n) is string bn ? (Place(e, socket(bn) ?? Matrix4x4.Identity), (string?)bn) : (Place(e, socket(n) ?? Matrix4x4.Identity), (string?)n)).ToList();
+                    : e.Sockets.Count == 0 ? [(Matrix4x4.Identity, null)] : e.Sockets.Select(n => BoneOrigin(e, n) is string bn ? (Place(e, socket(bn) ?? Matrix4x4.Identity, bn), (string?)bn) : (Place(e, socket(n) ?? Matrix4x4.Identity, n), (string?)n)).ToList();
                 foreach (var (pl, sock) in places) running.Add((e, new ParticleSim(e.System) { Origin = pl }, sock));
             }
             for (int k = 0; k < running.Count; k++)
             {
                 var (e, sim, sock) = running[k];
-                if (e.Attached && sock != null && socket(sock) is { } m) sim.Origin = Place(e, m);
+                if (e.Attached && sock != null && socket(sock) is { } m) sim.Origin = Place(e, m, sock);
                 if (flights.TryGetValue(sim, out var fl))
                 {
                     if (Flight(fl.From, time - fl.T0) is { } pos) sim.Origin = Matrix4x4.CreateTranslation(pos);
@@ -940,7 +1039,10 @@ sealed class PowerEffects
                     var col = Col(sp.Color);
                     var draw = Tex(tex);
                     if (Dark && add) { draw = DarkTex(tex, false); add = false; }
-                    list.Add(new Gui.ModelView.FxQuad(sp.Position, sp.Size, sp.Rotation, col, draw,
+                    // PSA_Square: the engine sizes the sprite by Size.X alone (Iceman's ice-block smoke grows 33× in Y over its life and
+                    // only 3× in X: drawn by Y it was a disc filling the view; Kurt, 2026-10-17)
+                    var size = align is "psa_square" or "psa_square_rotation" ? new Vector2(sp.Size.X, sp.Size.X) : sp.Size;
+                    list.Add(new Gui.ModelView.FxQuad(sp.Position, size, sp.Rotation, col, draw,
                         em.Required.Int("SubImages_Horizontal", 1), em.Required.Int("SubImages_Vertical", 1), sp.Image,
                         align == "psa_velocity" ? 2 : align == "psa_rectangle" ? 1 : 0, lk.Contains("rotate_z"), add, sp.Velocity) { PlaneRight = pr, PlaneUp = pu });
                 }
@@ -952,6 +1054,27 @@ sealed class PowerEffects
         }
 
         /// <summary>Mesh particles (shockwave rings, debris) and summoned entities' models as triangles.</summary>
+        /// <summary>Debug (the Powers tab's test hook): each running effect's emitters with what draws them, and their live
+        /// sprites (count, largest size).</summary>
+        public string Describe()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var (e, sim, sock) in running)
+            {
+                sb.AppendLine($"{e.Name} · {sim.Data.Name} at {sock ?? "-"}");
+                var live = sim.Sprites().GroupBy(x => x.Emitter).ToDictionary(g => g.Key, g => (N: g.Count(), Max: g.Max(x => g.Key.Required.Enum("ScreenAlignment", "psa_square").Equals("psa_square", StringComparison.OrdinalIgnoreCase) ? x.Sprite.Size.X : Math.Max(x.Sprite.Size.X, x.Sprite.Size.Y))));
+                foreach (var em in sim.Data.Emitters)
+                {
+                    int mr = em.Required.Ref("Material");
+                    string mat = mr == 0 ? "-" : em.Required.P.T.PathOf(mr);
+                    string look = fx.Looks.TryGetValue(em, out var lk) ? lk.Tex == null ? "no texture" : $"{lk.Tex.W}×{lk.Tex.H}{(lk.Tex.Softened ? " softened" : "")}{(lk.Tex.Glow != null ? " glow" : "")} {(lk.Additive ? "additive" : "blended")}" : "no look";
+                    string l = live.TryGetValue(em, out var lv) ? $"{lv.N} live, largest {lv.Max:0}" : "none live";
+                    sb.AppendLine($"  {em.Name} [{em.Kind}] {em.Required.Enum("ScreenAlignment", "psa_square")} sub {em.Required.Int("SubImages_Horizontal", 1)}×{em.Required.Int("SubImages_Vertical", 1)} · {mat} · {look} · {l}");
+                }
+            }
+            return sb.ToString();
+        }
+
         public List<Gui.ModelView.FxTri> Tris()
         {
             var tris = new List<Gui.ModelView.FxTri>();
@@ -973,7 +1096,12 @@ sealed class PowerEffects
                     // Y-up (its yaw turns around Y): Iron Man's Microlaser Sweep ring, a flat disc spun around Z (rotation rate
                     // 0, 0, -10), tumbled on its edge and showed as two tall bars (Kurt, 2026-10-02).
                     var pre = td == null ? Matrix4x4.Identity : UeRotation(td.Float("Pitch", 0) * MathF.PI / 180, td.Float("Yaw", 0) * MathF.PI / 180, td.Float("Roll", 0) * MathF.PI / 180);
-                    var m = pre * Matrix4x4.CreateScale(sp.Size3) * UeRotation(rot.Y, rot.Z, rot.X) * Matrix4x4.CreateTranslation(sp.Position);
+                    // a local-space emitter's meshes also take its place's turn (its position does already, in the sim): the dodge
+                    // ghosts' socket_ground is turned -90°, which only moved them before, so they stood a quarter turn off the
+                    // character (Kurt, 2026-10-18)
+                    var turn = Matrix4x4.Identity;
+                    if (em.Required.Bool("bUseLocalSpace", false)) { turn = sim.Origin; turn.M41 = 0; turn.M42 = 0; turn.M43 = 0; }
+                    var m = pre * Matrix4x4.CreateScale(sp.Size3) * UeRotation(rot.Y, rot.Z, rot.X) * turn * Matrix4x4.CreateTranslation(sp.Position);
                     var col = Col(sp.Color);
                     var mesh = mm.Mesh;
                     if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")

@@ -23,6 +23,10 @@ sealed partial class PreviewPanel : UserControl
     // The 3D preview itself (shared with the Mods tab's preview: Preview3D); this panel adds the Model tab's own: Compare,
     // Single Animation ▾ (edits), the bones overlay, the weight paint and the prepared models (PreviewPanel.Model.cs).
     readonly Preview3D p3;
+    /// <summary>The target's props left out by attachment class (the Parts tab's target props), until Save writes them.</summary>
+    public Func<string, bool>? HiddenProps { get => p3.HiddenProps; set => p3.HiddenProps = value; }
+    /// <summary>Shows the props again after HiddenProps' answers changed.</summary>
+    public void RefreshProps() => p3.RebuildRig();
     readonly Button compare, edits;
     ModelView view => p3.View;
     MeshAnimator? animator => p3.Animator;

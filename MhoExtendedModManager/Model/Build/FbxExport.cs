@@ -225,8 +225,8 @@ static class FbxExport
     static void CopyColour(string colour, string? alpha, string outPng)
     {
         if (alpha == null) { File.Copy(colour, outPng, true); return; }
-        using var c = new Bitmap(colour);
-        using var a = new Bitmap(alpha);
+        using var c = ImagePixels.Open(colour);
+        using var a = ImagePixels.Open(alpha);
         using var o = new Bitmap(c.Width, c.Height, PixelFormat.Format32bppArgb);
         for (int y = 0; y < c.Height; y++)
             for (int x = 0; x < c.Width; x++)
@@ -235,7 +235,7 @@ static class FbxExport
                 var ap = a.GetPixel(x * a.Width / c.Width, y * a.Height / c.Height);
                 o.SetPixel(x, y, Color.FromArgb((ap.R + ap.G + ap.B) / 3, px.R, px.G, px.B));
             }
-        o.Save(outPng, ImageFormat.Png);
+        ImagePixels.SavePng(o, outPng);
     }
 
     public static string SafeName(string s) => string.Concat(s.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) || ch == ' ' ? '_' : ch));

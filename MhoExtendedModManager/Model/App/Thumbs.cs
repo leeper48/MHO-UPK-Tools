@@ -77,7 +77,7 @@ static class Thumbs
             float w = src.Width * k, h = src.Height * k;
             g.DrawImage(src, (128 - w) / 2, (128 - h) / 2, w, h);
         }
-        thumb.Save(png, ImageFormat.Png);
+        ImagePixels.SavePng(thumb, png);
         return true;
     }
 
@@ -205,7 +205,7 @@ static class Thumbs
         using (var g = Graphics.FromImage(crop))
         {
             g.DrawImage(sheet, new Rectangle(0, 0, 128, 128), new Rectangle(16, 22, 128, 128), GraphicsUnit.Pixel);
-            crop.Save(png, ImageFormat.Png);
+            ImagePixels.SavePng(crop, png);
         }
         File.Delete(tmp);
         return true;
@@ -240,7 +240,7 @@ static class Thumbs
         var bgra = TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _);
         if (bgra == null) return false;
         using var bmp = TextureDecode.ToBitmap(bgra, mip.Width, mip.Height);
-        bmp.Save(png, ImageFormat.Png);
+        ImagePixels.SavePng(bmp, png);
         return true;
     }
 

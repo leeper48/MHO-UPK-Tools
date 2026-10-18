@@ -15,6 +15,8 @@ sealed partial class ModEditorView : UserControl
 {
     /// <summary>Saved (the mod's folder name) or cancelled: the main window goes back to the mod list.</summary>
     public event Action<string>? Saved;
+    /// <summary>The last save was Save and Keep Editing (Kurt, 2026-10-17): the editor opens again on the saved mod, at the same tab.</summary>
+    public bool KeepEditing { get; private set; }
     public event Action? Cancelled;
     public string Title { get; }
     public Mod? Editing => editing;
@@ -97,53 +99,23 @@ sealed partial class ModEditorView : UserControl
         packages = Ui.Grid(S, false, ("Package", 0), ("Size", 90), ("From", 520));
         sounds = Ui.Grid(S, false, ("Sound Pack", 0), ("Events", 80), ("Sound Files It Patches", 360), ("From", 360));
 
-        // ---- Info bar: name, author, version
-        var info = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 7, Padding = new Padding(12, 10, 12, 10) };
-        info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); info.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); info.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
-        info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); info.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20));
-        info.Controls.Add(Caption("Name"), 0, 0); info.Controls.Add(nameBox, 1, 0);
-        info.Controls.Add(Caption("Author"), 2, 0); info.Controls.Add(authorBox, 3, 0);
-        info.Controls.Add(Caption("Version"), 4, 0); info.Controls.Add(versionBox, 5, 0);
-        info.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        // fold Tags and Note away (Kurt, 2026-10-06: on a small screen they took a third of the Model tab's room); kept
-        var foldInfo = Ui.FlatButton("▴", () => { }, tip: "Hide or show the Tags and Note rows (more room for the tabs below). Remembered.");
-        foldInfo.Margin = new Padding(8, 0, 0, 0);
-        info.Controls.Add(foldInfo, 6, 0);
-        void ShowInfo()
-        {
-            bool folded = MhoExtendedModManager.Model.Settings.Current.Folded.Contains("editorinfo");
-            foreach (Control c in info.Controls) if (info.GetRow(c) > 0) c.Visible = !folded;
-            foldInfo.Text = folded ? "▾" : "▴";
-        }
-        foldInfo.Click += (_, _) =>
-        {
-            var f = MhoExtendedModManager.Model.Settings.Current.Folded;
-            if (!f.Remove("editorinfo")) f.Add("editorinfo");
-            MhoExtendedModManager.Model.Settings.Current.Save();
-            ShowInfo();
-        };
-        HandleCreated += (_, _) => ShowInfo();
+        // ---- Name, author, version, tags and note: in Overview → Details (Kurt, 2026-10-17: above the tabs they took a fifth
+        // of the screen on every tab)
         nameBox.Text = draft.Name; authorBox.Text = draft.Author; versionBox.Text = draft.Version;
         if (editing == null) authorBox.PlaceholderText = "Your name (Settings → Your Author Name fills it in)";
         Ui.Tip(authorBox, "Who made the mod. New mods start with the name in Settings → Your Author Name.");
-        info.Controls.Add(Caption("Tags"), 0, 1); info.Controls.Add(tagsBox, 1, 1); info.SetColumnSpan(tagsBox, 5);
-        info.Controls.Add(autoLabel, 1, 2); info.SetColumnSpan(autoLabel, 5);
-        info.Controls.Add(Caption("Note"), 0, 3); info.Controls.Add(notesBox, 1, 3); info.SetColumnSpan(notesBox, 5);
-        notesBox.Dock = DockStyle.None; notesBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;   // Fill would shrink it to one line in the auto-sized row
-        notesBox.Height = (int)(58 * S);
         tagsBox.Text = string.Join(", ", draft.Tags);
         notesBox.Text = draft.Notes.Replace("\r\n", "\n").Replace("\n", "\r\n");
         tagsBox.AutoCompleteMode = AutoCompleteMode.Append; tagsBox.AutoCompleteSource = AutoCompleteSource.CustomSource;
         tagsBox.AutoCompleteCustomSource.AddRange(lib.AllTags().ToArray());
         autoLabel.Text = editing != null && editing.AutoTags.Count > 0
-            ? "Separate tags with commas; they go with the mod. Added automatically from the content: " + string.Join(", ", editing.AutoTags)
-            : "Separate tags with commas; they go with the mod. Characters, teams, costume, powers … are added automatically from the content.";
+            ? "Added automatically from the content: " + string.Join(", ", editing.AutoTags)
+            : "Characters, teams, costume, powers … are added automatically from the content.";
 
         // Grouped (Kurt, 2026-10-02: a UI pass): Overview (description, packages), Icons (the icon packages nested),
         // Strings, Audio (voice first, then sound packs; Kurt 2026-10-02), then Powers and Animations on their own.
         texturePages = Enumerable.Range(0, 4).Select(k => new TexturePage(this, k)).ToArray();
-        AddGroup("Overview", ("Description", DescriptionPage()), ("Packages", PackagesPage()));
+        AddGroup("Overview", ("Details", DescriptionPage()), ("Packages", PackagesPage()));
         AddGroup("Icons", ("Icons", texturePages[0]), ("Store Images", texturePages[2]), ("Achievements", texturePages[1]), ("Other Packages", texturePages[3]));
         stringsPage = new StringsPage(this);
         AddGroup("Strings", ("Strings", stringsPage));
@@ -166,16 +138,19 @@ sealed partial class ModEditorView : UserControl
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
         var cancel = Ui.FlatButton("Cancel", () => Cancelled?.Invoke(), tip: "Close the editor without saving (the mod stays as it was).");
         var post = Ui.FlatButton("Create Post", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");
-        var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", SaveAsked, tip: "Save the mod to the library. Nothing in the game changes until Apply Changes.");
+        var save = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", () => { KeepEditing = false; SaveAsked(); }, tip: "Save the mod to the library and go back to the mod list. Nothing in the game changes until Apply Changes.");
+        var saveStay = Ui.FlatButton(editing == null ? "Create and Keep Editing" : "Save and Keep Editing", () => { KeepEditing = true; SaveAsked(); },
+            tip: "Save the mod to the library and stay in the Editor, on the same tab. Nothing in the game changes until Apply Changes.");
         // icons (Kurt, 2026-10-04): the names head the tooltips
         float isc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         Icons.Make(cancel, "Cancel", Icons.Cancel, isc);
         Icons.Make(post, "Create Post", Icons.Post, isc);
         Icons.Make(save, editing == null ? "Create Mod" : "Save Changes", Icons.Save, isc);
-        buttons.Controls.AddRange([post, cancel, save]);
+        Icons.Make(saveStay, editing == null ? "Create and Keep Editing" : "Save and Keep Editing", Icons.SaveStay, isc);
+        buttons.Controls.AddRange([post, cancel, saveStay, save]);
         bottom.Controls.Add(buttons, 1, 0);
-        Controls.Add(body); Controls.Add(info); Controls.Add(bottom);
-        Bars = [info, bottom];
+        Controls.Add(body); Controls.Add(bottom);
+        Bars = [bottom];
         RefreshPackages(); RefreshSounds();
     }
 
@@ -240,23 +215,37 @@ sealed partial class ModEditorView : UserControl
             if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
             Dialog.Show(this, "The borrowed power looks couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
+        try { ApplyGhosts(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+            Dialog.Show(this, "The dodge ghosts couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         try { powerWork = ApplyPowerColors(powerLog, borrowed); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
         {
             if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
             Dialog.Show(this, "The power colors couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
+        string? partsWork;
+        try { partsWork = ApplyParts(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            foreach (string? w in new[] { work, powerWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+            Dialog.Show(this, "The parts couldn't be switched off: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         string? uniqueWork;
         try { uniqueWork = MakeDraftUnique(powerLog); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException)
         {
-            foreach (string? w in new[] { work, powerWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+            foreach (string? w in new[] { work, powerWork, partsWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
             Dialog.Show(this, "The mod's models couldn't be made unique: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
         string? saved = ModWriter.Save(lib, draft, editing, out string? error);
         if (uniqueWork != null) try { Directory.Delete(uniqueWork, true); } catch (IOException) { }
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
+        if (partsWork != null) try { Directory.Delete(partsWork, true); } catch (IOException) { }
         foreach (string? bw in new[] { borrowWorkSave, saved != null ? borrowWork : null })
             if (bw != null) try { Directory.Delete(bw, true); } catch (IOException) { }
         if (saved != null) borrowWork = null;
@@ -359,28 +348,71 @@ sealed partial class ModEditorView : UserControl
         f.ShowDialog(this);
     }
 
+    /// <summary>A caption above a field: "NAME  ·  what it is" (bold, subtle).</summary>
+    Label FieldCaption(string text) => new() { Text = text, AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, (int)(10 * S), 0, (int)(3 * S)) };
+
+    /// <summary>Overview → Details: the mod's name, author, version, tags and note, its description and this version's
+    /// changes (left), and its Nexus page, pictures and Keep Shared Paths (right). The text boxes are sized to what they
+    /// usually hold (Kurt, 2026-10-17: they filled the page); they scroll beyond that.</summary>
     Control DescriptionPage()
     {
-        var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(0, 8, 0, 0) };
-        p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
-        p.RowStyles.Add(new RowStyle(SizeType.AutoSize)); p.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
-        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        p.Controls.Add(new Label { Text = "DESCRIPTION  ·  what the mod is, for its Nexus / Discord post (it travels with the mod)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 0, 0, 4) }, 0, 0);
-        p.Controls.Add(descriptionBox, 0, 1);
-        p.Controls.Add(changesCaption, 0, 2);
-        p.Controls.Add(changesBox, 0, 3);
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };   // (scrolls only when the window is too short for it)
+        var page = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1, Padding = new Padding(0, (int)(2 * S), (int)(6 * S), 0) };
+        scroll.Controls.Add(page);
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60)); page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+        page.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var p = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Margin = new Padding(0, 0, (int)(24 * S), 0) };
+        p.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var side = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Margin = new Padding(0) };
+        side.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        page.Controls.Add(p, 0, 0); page.Controls.Add(side, 1, 0);
+        void Add(TableLayoutPanel t, Control c) { t.RowStyles.Add(new RowStyle(SizeType.AutoSize)); t.Controls.Add(c, 0, t.RowCount++); }
+        TextBox Sized(TextBox b, int lines)
+        {
+            b.Dock = DockStyle.None; b.Anchor = AnchorStyles.Left | AnchorStyles.Right;   // (Fill would shrink it to one line in an auto-sized row)
+            b.Height = lines * TextRenderer.MeasureText("Ag", b.Font).Height + (int)(12 * S);
+            b.MinimumSize = new Size(0, b.Height);   // (its frame takes the minimum along: Modern.Wrap)
+            b.Margin = new Padding(0);
+            return b;
+        }
+
+        // name, author, version on one row
+        var ids = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Margin = new Padding(0) };
+        ids.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); ids.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25)); ids.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        int col = 0;
+        foreach (var (cap, box) in new[] { ("NAME", nameBox), ("AUTHOR", authorBox), ("VERSION", versionBox) })
+        {
+            var c = FieldCaption(cap); c.Margin = new Padding(0, (int)(4 * S), 0, (int)(3 * S));
+            ids.Controls.Add(c, col, 0);
+            box.Dock = DockStyle.Fill; box.Margin = new Padding(0, 0, col < 2 ? (int)(12 * S) : 0, 0);
+            ids.Controls.Add(box, col, 1);
+            col++;
+        }
+        Add(p, ids);
+        Add(p, FieldCaption("TAGS  ·  separate with commas; they go with the mod"));
+        tagsBox.Dock = DockStyle.Fill; tagsBox.Margin = new Padding(0);
+        Add(p, tagsBox);
+        autoLabel.Margin = new Padding(0, (int)(3 * S), 0, 0);
+        Add(p, autoLabel);
+        Add(p, FieldCaption("NOTE  ·  shown under the mod's picture in the mod list (it travels with the mod)"));
+        Add(p, Sized(notesBox, 2));
+        Add(p, FieldCaption("DESCRIPTION  ·  what the mod is, for its Nexus / Discord post (it travels with the mod)"));
+        Add(p, Sized(descriptionBox, 8));
+        changesCaption.Margin = new Padding(0, (int)(10 * S), 0, (int)(3 * S));
+        Add(p, changesCaption);
+        Add(p, Sized(changesBox, 5));
         var older = draft.Changelog.Where(e => !e.Version.Trim().Equals(draft.Version.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-        var nexusRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 10, 0, 0) };
-        nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        nexusRow.Controls.Add(new Label { Text = "NEXUS PAGE  ·  address or mod number (users get update notices)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0) }, 0, 0);
-        nexusRow.Controls.Add(nexusBox, 1, 0);
+        Add(p, new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, (int)(4 * S), 0, 0) });
+
+        // right: Nexus page, pictures, Keep Shared Paths
+        var nexusCap = FieldCaption("NEXUS PAGE  ·  address or mod number (users get update notices)"); nexusCap.Margin = new Padding(0, (int)(4 * S), 0, (int)(3 * S));
+        Add(side, nexusCap);
+        nexusBox.Dock = DockStyle.Fill; nexusBox.Margin = new Padding(0);
+        Add(side, nexusBox);
         nexusBox.Text = draft.NexusModId is int nid ? Nexus.SiteMods + nid : "";
-        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        p.Controls.Add(nexusRow, 0, 5);
-        var previewRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 10, 0, 0) };
-        previewRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); previewRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        previewRow.Controls.Add(new Label { Text = "PREVIEW IMAGE  ·  shown big in the manager (users can pick their own)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0) }, 0, 0);
-        previewRow.Controls.Add(previewBox, 1, 0);
+        Add(side, FieldCaption("PREVIEW IMAGE  ·  shown big in the manager (users can pick their own)"));
+        previewBox.Margin = new Padding(0);
+        Add(side, previewBox);
         Ui.Tip(previewBox, "What the manager shows big for this mod: one of its own images, the game's original, or a 3D view of one of its meshes. Automatic: the mod's first store image, else the game's store image.");
         FillPreviewChoices();
         previewBox.Opening += (_, _) => FillPreviewChoices();
@@ -390,10 +422,9 @@ sealed partial class ModEditorView : UserControl
             if (ChooseCustomPicture("Preview Picture") is string key) { draft.PreviewImage = key; FillPreviewChoices(); previewBox.SelectedIndex = previewWas = previewKeys.FindIndex(k => k.Equals(key, StringComparison.OrdinalIgnoreCase)) + 1; }
             else previewBox.SelectedIndex = previewWas;
         };
-        var cardRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 10, 0, 0) };
-        cardRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); cardRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        cardRow.Controls.Add(new Label { Text = "CARD PICTURE  ·  the mod's picture in the list (users can pick their own)", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0) }, 0, 0);
-        cardRow.Controls.Add(cardBox, 1, 0);
+        Add(side, FieldCaption("CARD PICTURE  ·  the mod's picture in the list (users can pick their own)"));
+        cardBox.Margin = new Padding(0);
+        Add(side, cardBox);
         Ui.Tip(cardBox, "Which of the mod's images its card in the mod list shows (handy when it has many), or a custom picture of your own. Automatic: its hero portrait, else costume icon, else store image.");
         FillCardChoices();
         cardBox.Opening += (_, _) => FillCardChoices();
@@ -403,14 +434,10 @@ sealed partial class ModEditorView : UserControl
             if (ChooseCustomPicture("Card Picture") is string key) FillCardChoices(key);
             else cardBox.SelectedIndex = cardWas;
         };
-        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        p.Controls.Add(cardRow, 0, 7);
-        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        p.Controls.Add(previewRow, 0, 6);
         // Keep Shared Paths (a user, 2026-10-13): some mods want the stock path shared (a modded S.H.I.E.L.D. agent package
         // also changed Nick Fury's summoned agents, whose copy is in his own package; Make Unique took that away).
-        var keepShared = new CheckBox { Text = "Keep Shared Paths  ·  don't make this mod's models unique", AutoSize = true, Checked = draft.KeepShared, Margin = new Padding(0, 12, 0, 0) };
-        var keepNote = new Label { AutoSize = true, Tag = "subtle", Margin = new Padding(20, 2, 0, 0), MaximumSize = new Size((int)(900 * S), 0) };
+        var keepShared = new CheckBox { Text = "Keep Shared Paths  ·  don't make this mod's models unique", AutoSize = true, Checked = draft.KeepShared, Margin = new Padding(0, (int)(16 * S), 0, 0) };
+        var keepNote = new Label { AutoSize = true, Tag = "subtle", Margin = new Padding((int)(20 * S), 2, 0, 0), MaximumSize = new Size((int)(600 * S), 0) };
         void KeepNote() => keepNote.Text = keepShared.Checked
             ? "On: Save leaves the mod's model, material and effect paths as the game's. Impact: Wherever another file carries the same path (a summon, a team-up, an NPC, a boss's power), the game shows whichever copy loads first, so your look can spread to those characters (useful for a summoner's copy of an agent) or the game's look can show instead of yours near other players and in hubs. The OVERLAP warning isn't shown for this mod, and it travels with the mod. A CRASH RISK warning still shows."
             : "Off (recommended): Save gives the mod's changed models, materials and effects paths of their own, so the game's copies elsewhere can't replace your look. Impact: Other characters that share those paths keep the game's look, including summons, team-ups and NPCs whose copy lives in another file (Nick Fury's summoned agents stay stock when you change the agents' own package).";
@@ -419,17 +446,17 @@ sealed partial class ModEditorView : UserControl
         Ui.Tip(keepShared, "On: Save leaves this mod's paths shared with the game's other copies (no Make Unique, no OVERLAP warning): Your look can reach other characters that share them, or the game's can show instead of yours. Off: Save makes the mod's changed models unique. See the note under it.");
         var keepBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0) };
         keepBox.Controls.Add(keepShared); keepBox.Controls.Add(keepNote);
-        p.RowCount = 9;
-        p.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        p.Controls.Add(keepBox, 0, 8);
-        p.Controls.Add(new Label { Text = older.Count > 0 ? "Earlier versions: " + string.Join(", ", older.Select(e => "v" + e.Version.TrimStart('v', 'V'))) + " (kept in the changelog)" : "Each version's changes are kept in the mod's changelog.", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 0) }, 0, 4);
+        Add(side, keepBox);
+        // the wrapped notes follow their column's width
+        side.SizeChanged += (_, _) => keepNote.MaximumSize = new Size(Math.Max(100, side.ClientSize.Width - keepNote.Margin.Horizontal - (int)(8 * S)), 0);
+        p.SizeChanged += (_, _) => autoLabel.MaximumSize = new Size(Math.Max(100, p.ClientSize.Width - (int)(8 * S)), 0);
         descriptionBox.Text = draft.Description.Replace("\r\n", "\n").Replace("\n", "\r\n");
         changesBox.Text = draft.Changes.Replace("\r\n", "\n").Replace("\n", "\r\n");
         void Caption() => changesCaption.Text = $"CHANGES IN THIS VERSION{(versionBox.Text.Trim().Length > 0 ? " (v" + versionBox.Text.Trim().TrimStart('v', 'V') + ")" : "")}  ·  what's new, shown in the post";
         Caption();
         changesCaption.Font = Ui.Bold(8.5f);
         versionBox.TextChanged += (_, _) => Caption();
-        return p;
+        return scroll;
     }
 
 }

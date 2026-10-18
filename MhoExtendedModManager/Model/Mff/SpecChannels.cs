@@ -61,7 +61,7 @@ static class SpecChannels
         var files = channels.Concat([rgb, baseRgba]).OfType<string>().ToList();
         if (files.Count == 0) throw new InvalidDataException("no image to make the spec map from");
         int w = 0, h = 0;
-        foreach (var f in files) using (var b = new Bitmap(f)) { if (b.Width * b.Height > w * h) { w = b.Width; h = b.Height; } }
+        foreach (var f in files) using (var b = ImagePixels.Open(f)) { if (b.Width * b.Height > w * h) { w = b.Width; h = b.Height; } }
         var rgbPx = rgb != null ? Load(rgb, w, h).Bgra : null;
         var basePx = baseRgba != null ? Load(baseRgba, w, h).Bgra : null;
         var outp = new byte[w * h * 4];

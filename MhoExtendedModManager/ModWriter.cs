@@ -47,6 +47,8 @@ sealed class ModDraft
     public bool KeepShared;
     public List<VoiceShiftEntry> VoiceShifts = [];
     public List<PowerColorEntry> PowerColors = [];
+    public List<PartOffEntry> PartsOff = [];
+    public List<DodgeGhostEntry> DodgeGhosts = [];
     public List<PowerBorrowEntry> PowerBorrows = [];
     public List<string> PostImages = [];
     /// <summary>The Model tab's work (bone maps, FBX edits, its choices, the package before the model): a folder copied into
@@ -107,6 +109,8 @@ sealed class ModDraft
         d.KeepShared = m.Manifest.KeepShared == true;
         d.VoiceShifts = m.Manifest.VoiceShifts?.ToList() ?? [];
         d.PowerColors = m.Manifest.PowerColors?.ToList() ?? [];
+        d.PartsOff = m.Manifest.PartsOff?.ToList() ?? [];
+        d.DodgeGhosts = m.Manifest.DodgeGhosts?.Select(g => new DodgeGhostEntry { Package = g.Package, Ghost = g.Ghost, ModelPackage = g.ModelPackage, ModelMesh = g.ModelMesh, Anim = g.Anim, Frame = g.Frame, KeepEffectSize = g.KeepEffectSize, Lean = g.Lean, LeanDegrees = g.LeanDegrees }).ToList() ?? [];
         d.PowerBorrows = m.Manifest.PowerBorrows?.ToList() ?? [];
         var log = m.Manifest.Changelog ?? [];
         d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
@@ -186,6 +190,8 @@ static class ModWriter
             manifest.KeepShared = d.KeepShared ? true : null;
             manifest.VoiceShifts = d.VoiceShifts.Count > 0 ? d.VoiceShifts : null;
             manifest.PowerColors = d.PowerColors.Count > 0 ? d.PowerColors : null;
+            manifest.PartsOff = d.PartsOff.Count > 0 ? d.PartsOff : null;
+            manifest.DodgeGhosts = d.DodgeGhosts.Count > 0 ? d.DodgeGhosts : null;
             manifest.PowerBorrows = d.PowerBorrows.Count > 0 ? d.PowerBorrows : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };

@@ -67,6 +67,9 @@ sealed class FlatTabs : UserControl
     public string TitleAt(int i) => tabs[i].Tab.Text;
     public void SetTitle(int i, string title) => tabs[i].Tab.Text = title;
     public Control PageAt(int i) => tabs[i].Page;
+    /// <summary>Shows or hides a tab's title in the strip (its page is still selected with Select; the main window's Extract,
+    /// opened by its top-bar button).</summary>
+    public void SetTabVisible(int i, bool visible) => tabs[i].Tab.Visible = visible;
     /// <summary>Tab font size (the main window's top-level tabs are larger).</summary>
     public float TabPoints { get; set; } = 9.75f;
     public event Action<int>? SelectedChanged;

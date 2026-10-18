@@ -12,10 +12,25 @@ namespace MhoExtendedModManager.Model;
 /// </summary>
 static class ImagePixels
 {
+    /// <summary>
+    /// An image file as a bitmap, read through .NET (2026-10-17, a user's build: "A generic error occurred in GDI+": GDI+
+    /// opens files itself and can't open a path past about 260 characters, and the Model tab's build folders under
+    /// Documents\My Games\… with a long package name get there; .NET's file streams can). Decoded from the bytes, pixels as
+    /// stored (the bitmap keeps the stream: dispose the bitmap only).
+    /// </summary>
+    public static Bitmap Open(string path) => new(new MemoryStream(File.ReadAllBytes(path)));
+
+    /// <summary>Saves an image as PNG through a .NET file stream (long paths work, see Open).</summary>
+    public static void SavePng(Image img, string file)
+    {
+        using var fs = new FileStream(file, FileMode.Create, FileAccess.Write);
+        img.Save(fs, ImageFormat.Png);
+    }
+
     /// <summary>The image's pixels as 32-bit ARGB (other formats converted by GDI+, nothing blended).</summary>
     public static (int W, int H, int[] Argb) ReadArgb(string path)
     {
-        using var b = new Bitmap(path);
+        using var b = Open(path);
         return (b.Width, b.Height, ReadArgb(b));
     }
 
@@ -40,7 +55,7 @@ static class ImagePixels
     /// else resized with a plain copy (bilinear, no blending with what's under it).</summary>
     public static (int W, int H, byte[] Bgra) ReadBgra(string path, int w, int h)
     {
-        using var src = new Bitmap(path);
+        using var src = Open(path);
         if (w <= 0 || (src.Width == w && src.Height == h)) return (src.Width, src.Height, ToBytes(ReadArgb(src)));
         using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(bmp))
@@ -71,9 +86,9 @@ static class ImagePixels
     }
 
     /// <summary>The pixels as a PNG.</summary>
-    public static void Save(int w, int h, byte[] bgra, string file) { using var b = ToBitmap(w, h, bgra); b.Save(file, ImageFormat.Png); }
+    public static void Save(int w, int h, byte[] bgra, string file) { using var b = ToBitmap(w, h, bgra); SavePng(b, file); }
 
-    public static void Save(int w, int h, int[] argb, string file) { using var b = ToBitmap(w, h, argb); b.Save(file, ImageFormat.Png); }
+    public static void Save(int w, int h, int[] argb, string file) { using var b = ToBitmap(w, h, argb); SavePng(b, file); }
 
     static byte[] ToBytes(int[] argb)
     {

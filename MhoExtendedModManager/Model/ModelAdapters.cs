@@ -46,6 +46,7 @@ sealed class Settings
         public bool Reflect { get; set; } = true;
         public bool Glow { get; set; } = true;
         public bool Bloom { get; set; } = true;
+        public bool Ground { get; set; } = true;
         public bool Props { get; set; } = true;
         public bool Powers { get; set; } = true;
         public bool Bones { get; set; }

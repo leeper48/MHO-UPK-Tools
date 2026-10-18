@@ -93,7 +93,7 @@ sealed partial class ModEditorView
             RefreshPackages();
             paletteCache.Clear();   // a borrowed power's colors are the borrowed look's
             powerList.Invalidate();
-            if (powerPreview != null) { powerPreview.OverrideFiles = () => borrowFiles; powerPreview.ReloadOverrides(); }
+            if (powerPreview != null) { powerPreview.OverrideFiles = PreviewOverrides; powerPreview.ReloadOverrides(); }
             if (powerList.SelectedItem is Fx.PowerList.Power s) ShowBorrow(s);
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }

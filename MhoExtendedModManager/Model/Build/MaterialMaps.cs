@@ -45,7 +45,7 @@ sealed class MaterialMaps
         Protected.CheckWrite(p);
         using var b = new Bitmap(8, 8, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(b)) g.Clear(c);
-        b.Save(p, ImageFormat.Png);
+        ImagePixels.SavePng(b, p);
         return p;
     }
 
@@ -100,11 +100,11 @@ sealed class MaterialMaps
     {
         string outPng = Path.Combine(workDir, name + ".png");
         Protected.CheckWrite(outPng);
-        using var col = new Bitmap(colour);
+        using var col = ImagePixels.Open(colour);
         int w = col.Width, h = col.Height;
         var cpx = Pixels(col);
         int[]? spx = null;
-        if (sp != null) { using var raw = new Bitmap(sp); using var spb = new Bitmap(raw, w, h); spx = Pixels(spb); }
+        if (sp != null) { using var raw = ImagePixels.Open(sp); using var spb = new Bitmap(raw, w, h); spx = Pixels(spb); }
         var o = new int[w * h];
         Parallel.For(0, h, y =>
         {
@@ -131,7 +131,7 @@ sealed class MaterialMaps
     {
         string outPng = Path.Combine(workDir, name + ".png");
         Protected.CheckWrite(outPng);
-        using var col = new Bitmap(colour);
+        using var col = ImagePixels.Open(colour);
         var cpx = Pixels(col);
         var o = new int[cpx.Length];
         int lit = 0;
@@ -150,7 +150,7 @@ sealed class MaterialMaps
     {
         string outPng = Path.Combine(workDir, name + ".png");
         Protected.CheckWrite(outPng);
-        using var src = new Bitmap(sp);
+        using var src = ImagePixels.Open(sp);
         int w = src.Width, h = src.Height;
         var px = Pixels(src);
         var o = new int[w * h];

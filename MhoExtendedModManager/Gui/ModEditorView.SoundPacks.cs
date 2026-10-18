@@ -44,6 +44,19 @@ sealed partial class ModEditorView
     readonly List<(string Title, Action Show)> pages = [];
 
     /// <summary>A top-level tab: one page, or several under sub-tabs.</summary>
+    /// <summary>Each tab group's own tabs, by its place in the top row.</summary>
+    readonly Dictionary<int, FlatTabs> innerTabs = [];
+
+    /// <summary>Which tab shows (the top row's, and inside a group its own), to open the editor again where it was.</summary>
+    public (int Top, int Inner) TabPosition => (tabs.SelectedIndex, innerTabs.TryGetValue(tabs.SelectedIndex, out var it) ? it.SelectedIndex : 0);
+
+    public void ShowTab((int Top, int Inner) at)
+    {
+        if (at.Top < 0 || at.Top >= tabs.Count) return;
+        tabs.Select(at.Top);
+        if (innerTabs.TryGetValue(at.Top, out var it) && at.Inner >= 0 && at.Inner < it.Count) it.Select(at.Inner);
+    }
+
     void AddGroup(string title, params (string Title, Control Page)[] items)
     {
         int top = tabs.Count;
@@ -54,6 +67,7 @@ sealed partial class ModEditorView
             return;
         }
         var inner = new FlatTabs { Dock = DockStyle.Fill, TabPoints = 9f };
+        innerTabs[top] = inner;
         foreach (var (t, p) in items) inner.Add(t, p);
         tabs.Add(title, inner);
         for (int k = 0; k < items.Length; k++) { int kk = k; pages.Add((items[k].Title, () => { tabs.Select(top); inner.Select(kk); })); }
@@ -112,6 +126,12 @@ sealed partial class ModEditorView
         Save();
         return SavedName;
     }
+
+    /// <summary>Test hook (--keep-editing-test): Save and Keep Editing, without the questions Save can ask.</summary>
+    internal void SaveStayForTest() { KeepEditing = true; Save(); }
+    /// <summary>Test (--name-check-test): Save Changes as clicked, and whether the cursor went to Name.</summary>
+    internal void SaveAskedForTest() => SaveAsked();
+    internal bool NameFocusedForTest => nameBox.Focused;
 
     /// <summary>Test hook: the Strings tab's state (replacement column editable, rows with a Used By text).</summary>
     public string StringsCheck() => stringsPage.Check();

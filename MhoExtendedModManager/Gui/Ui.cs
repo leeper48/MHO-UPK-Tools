@@ -692,6 +692,8 @@ static class Ui
     {
         // Filter / search boxes' clear button (×) uses the app's own dark tooltips.
         MhoPackageModifier.Gui.SearchBox.Tip = (c, t) => Tip(c, t);
+        // file and folder pickers open in Details view, with Name / Folder wide and no Tags or Rating (Kurt, 2026-10-17)
+        FileDialogView.Start();
         Application.AddMessageFilter(new DisabledTips());
         ToolStripManager.Renderer = new DarkMenuRenderer();
         Application.Idle += (_, _) => { foreach (Form f in Application.OpenForms) DarkFrame(f); };

@@ -22,6 +22,8 @@ sealed class PreviewProps
     public required Action ShowPose { get; init; }
     /// <summary>The character as drawn (the Model tab's weight paint); null: as loaded.</summary>
     public Func<ModMeshes.Loaded, ModMeshes.Loaded>? Display { get; init; }
+    /// <summary>Props left out by their attachment class (the Model tab: the target's props switched off before Save).</summary>
+    public Func<string, bool>? Hidden { get; set; }
     /// <summary>More meshes for the rig after the props (the Mods tab's power actors).</summary>
     public Action<PropRig>? AddMore { get; init; }
 
@@ -65,7 +67,7 @@ sealed class PreviewProps
         rig.Clear();
         // (a prop rigged to the character's skeleton is held at the root: its bind pose is already in place)
         rig.SetParentAnimation(Playing());
-        PowerPreview.AddProps(rig, s.Animator, baseProps, powerProps);
+        PowerPreview.AddProps(rig, s.Animator, Hidden == null ? baseProps : [.. baseProps.Where(b => !Hidden(b.W.Class))], powerProps);
         AddMore?.Invoke(rig);
         rig.SetRules(rules, contact, Seconds());
         rig.SetMotions(seqs);

@@ -58,7 +58,7 @@ sealed partial class ModelPage
         try
         {
             if (Path.GetExtension(source).Equals(".png", StringComparison.OrdinalIgnoreCase)) File.Copy(source, file, true);
-            else { using var b = new Bitmap(source); b.Save(file, System.Drawing.Imaging.ImageFormat.Png); }
+            else { using var b = ImagePixels.Open(source); ImagePixels.SavePng(b, file); }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.ExternalException)
         { Log($"Image editor: {Path.GetFileName(file)} couldn't be written ({ex.Message}); is it still open in the editor? Save or close it there first."); return; }
@@ -149,7 +149,7 @@ sealed partial class ModelPage
         {
             using (var g = Graphics.FromImage(c)) g.FillRectangle(Brushes.Magenta, 0, 0, Math.Max(4, c.Width / 8), Math.Max(4, c.Height / 8));
             string tmp = w.File + ".tmp.png";
-            c.Save(tmp, System.Drawing.Imaging.ImageFormat.Png);
+            ImagePixels.SavePng(c, tmp);
             File.Move(tmp, w.File, true);   // saved by renaming over it, as Photoshop does
         }
         for (int i = 0; i < 60 && !log.Text.Contains("from your image editor"); i++) await Task.Delay(100);
@@ -212,7 +212,7 @@ sealed partial class ModelPage
             // a color the corner doesn't have yet (an earlier run may have painted it)
             paint = c.GetPixel(0, 0).G > 128 ? Color.Magenta : Color.Cyan;
             using (var g = Graphics.FromImage(c)) using (var br = new SolidBrush(paint)) g.FillRectangle(br, 0, 0, c.Width / 4, c.Height / 4);
-            c.Save(w.File, System.Drawing.Imaging.ImageFormat.Png);
+            ImagePixels.SavePng(c, w.File);
         }
         for (int i = 0; i < 300 && !log.Text.Contains("replaced from"); i++) await Task.Delay(100);
         string? changed = map.InFile != null

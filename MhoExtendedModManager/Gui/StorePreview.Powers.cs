@@ -53,6 +53,7 @@ sealed partial class StorePreview
     public void ReloadOverrides()
     {
         if (mod is not { } m) return;
+        ownPending = ownFxPackage != null;   // (a character's own effects come back once the model and its animations are in)
         modStamp = "";
         mod = null;
         Mod = m;
@@ -63,7 +64,8 @@ sealed partial class StorePreview
 
     // --- a character's own always-on effects (the editor's Powers tab, "<Name>: Own Effects"; Kurt, 2026-10-05: see the
     // Sinister clones' red glow before the game) ------------------------------------------------------------------------------
-    string? ownFxPackage, ownProto, agentPower, agentAnim;
+    string? ownFxPackage, ownProto, agentPower, agentAnim, ownPart;
+    (string Anim, float Frame)? ownKeep;
     bool ownPending, overridesOff;
 
     /// <summary>The Powers tab: show the model's own materials where its component swaps them (a hologram at Opacity 0).</summary>
@@ -76,9 +78,11 @@ sealed partial class StorePreview
     /// <summary>Shows a character package's own effects (PowerEffects.Own) on its model, playing its idle (or first animation);
     /// <paramref name="proto"/> is the color entry ("own:&lt;file&gt;"). A package without a model of its own shows them on the
     /// model shown.</summary>
-    public void PlayOwn(string packageFile, string proto)
+    public void PlayOwn(string packageFile, string proto, string? part = null, (string Anim, float Frame)? keep = null)
     {
-        ownFxPackage = packageFile; ownProto = proto; agentPower = null; agentAnim = null;
+        bool reloading = ownPending;   // (a reload is under way: what's asked plays once the animations are in)
+        ownFxPackage = packageFile; ownProto = proto; agentPower = null; agentAnim = null; ownPart = part; ownKeep = keep;
+        if (reloading) return;
         // the character's own model (its mesh component's: the clones' packages also hold the cryopod they come out of)
         int k = meshes.FindIndex(r => r.Package.Equals(packageFile, StringComparison.OrdinalIgnoreCase));
         if (k >= 0 && Model.MhoSkeleton.ComponentMesh(meshes[k].File) is string body)
@@ -88,6 +92,8 @@ sealed partial class StorePreview
         }
         if (k >= 0 && k != meshIndex) { meshIndex = k; ownPending = true; LoadMesh(); return; }
         PlayOwnAnimation();
+        // one part (the Parts list's ▶): its effects now, even when the idle was playing already (it only loads them as it starts)
+        if (part != null) LoadOwnEffects();
     }
 
     /// <summary>An NPC's or enemy's power (Fx.AgentPowers) on its character: the first of its animations the model has,
@@ -105,6 +111,17 @@ sealed partial class StorePreview
     void PlayOwnAnimation()
     {
         var all = AllAnimations;
+        // an animation and frame to stay on, paused (the Powers tab's Dodge Ghosts: Kurt, 2026-10-17, Use This Pose went back
+        // to a playing idle)
+        if (ownKeep is { } keep && all.Any(x => x.Name.Equals(keep.Anim, StringComparison.OrdinalIgnoreCase)))
+        {
+            ownKeep = null;
+            if (PlayAnimation(keep.Anim, false) && p3 != null)
+            {
+                if (p3.Frames > 0) p3.Time = keep.Frame / p3.Frames * p3.Seconds;
+                return;
+            }
+        }
         if (agentAnim != null && all.Any(x => x.Name.Equals(agentAnim, StringComparison.OrdinalIgnoreCase)) && PlayAnimation(agentAnim, true)) return;
         if (all.Count == 0 || p3 == null) { LoadOwnEffects(); return; }
         int i = all.ToList().FindIndex(a => a.Name.Equals("idle", StringComparison.OrdinalIgnoreCase));
@@ -125,6 +142,7 @@ sealed partial class StorePreview
         var modFiles = ModPackages(mod, skip: true).Select(x => x.Path).ToList();
         string proto = ownProto ?? "";
         string? power = agentPower;
+        string? part = ownPart;
         string? ownHero = HeroOf.Package(r.Package, cooked);
         string? entity = Model.ConditionSwaps.ClassOf(r.Package);
         var playing = p3.Playing;
@@ -133,17 +151,18 @@ sealed partial class StorePreview
         // and the colour by the entry the Powers tab lists (proto)
         fx.Load(cooked, power != null, db =>
         {
-            var e = power != null && db != null ? PowerPreview.ForPower(db, power, ownHero, cooked, modFiles, entity, r.File, r.Name).Effects : Fx.PowerEffects.Own(new Fx.FxGame(cooked, modFiles), pkgFile);
+            var e = power != null && db != null ? PowerPreview.ForPower(db, power, ownHero, cooked, modFiles, entity, r.File, r.Name).Effects : Fx.PowerEffects.Own(new Fx.FxGame(cooked, modFiles), pkgFile, part);
             return new PowerPreview.Loaded(e, proto, Fx.FxSockets.Of(r.File, r.Name), phase);
         }, power != null ? SwapsFor(cooked, r) : null, "Reading Effects…",
-            l => power != null ? (l with { Power = power }).Label : l.Effects.Effects.Count == 0 ? "No Effects of Its Own" : $"Own Effects · {l.Effects.Effects.Count} Effect{(l.Effects.Effects.Count == 1 ? "" : "s")}");
+            l => power != null ? (l with { Power = power }).Label : part != null ? (l.Effects.Effects.Count == 0 ? $"{part}: Nothing to Show" : $"{part} · Looping")
+                : l.Effects.Effects.Count == 0 ? "No Effects of Its Own" : $"Own Effects · {l.Effects.Effects.Count} Effect{(l.Effects.Effects.Count == 1 ? "" : "s")}");
     }
 
     /// <summary>Shows a power of the hero (as its power button): its animations only, the first one picked; paused unless
     /// <paramref name="play"/> (Kurt: the editor's Powers list doesn't start playing; ▶ does).</summary>
     public bool PlayPower(string prototype, bool play = false)
     {
-        ownFxPackage = null; ownProto = null; agentPower = null; agentAnim = null;
+        ownFxPackage = null; ownProto = null; agentPower = null; agentAnim = null; ownPart = null;
         return p3 != null && p3.PlayPower(prototype, play);
     }
 
@@ -152,6 +171,17 @@ sealed partial class StorePreview
     /// <summary>The hero's powers with those that have effects but no animation (procs, passives): the editor's colors.</summary>
     public IReadOnlyList<Fx.PowerList.Power> AllHeroPowers => p3?.AllHeroPowers ?? [];
     public event Action? HeroPowersLoaded;
+    /// <summary>The hero's powers have been read (or there are none to read).</summary>
+    public bool HeroPowersReady => p3?.PowersLoaded ?? false;
+
+    /// <summary>The animation showing and its frame (the Powers tab's Use This Pose); null while none plays.</summary>
+    /// <summary>The animation is playing (not paused).</summary>
+    public bool IsPlaying => p3?.IsPlaying == true;
+    // (the Frame slider's place: dragged while paused it's ahead of the playback clock, which read frame 0; Kurt, 2026-10-17)
+    public (string Anim, float Frame)? CurrentPose => p3?.Playing == null || p3.Seconds <= 0 ? null : (p3.CurrentAnimation ?? "", p3.FrameSlider.Value * p3.Frames);
+
+    /// <summary>Debug (the Powers tab's test hook): the effects playing, with what draws each emitter.</summary>
+    public string EffectsDebug() => p3?.EffectsPlayer.Player?.Describe() ?? "no effects playing";
 
     /// <summary>The hero of the shown mesh's package (UC__MarvelPlayer_&lt;Hero&gt;_…), else null.</summary>
     string? HeroOfMesh() => MeshOk ? HeroOf.Package(meshes[meshIndex].Package, CookedFolder) : null;

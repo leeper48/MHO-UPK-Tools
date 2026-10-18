@@ -1,6 +1,81 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.0
+- Powers tab → Dodge Ghosts: a Lean slider (0–30°, 10 at first) sets how far the ghosts lean, all of them; kept with the mod.
+
+0.37.314
+- Powers tab → Dodge Ghosts: Make Them From This Model puts every ghost in the hero's combat idle, each leaning 10° another way (forward, back, left, right) to look like it's moving. Lean ▾ changes the selected ghost's lean (it stays with Use This Pose); Automatic is still the game's own pose.
+- 3D previews: the ground plane is on at first.
+
+0.37.313
+- 3D previews: Look ▾ → Ground, a ground plane at the feet with a grid every 50 units (remembered), to see where feet and effects meet the floor.
+- Powers tab → Dodge Ghosts: Exact Size, on the Ground (on): the game's dodge effect draws its ghosts 1.1× bigger and 5 units lower; the meshes are made to undo that, so the ghosts stand on the ground at the character's own size (off: as the effect draws them, like the game's own). Show Pose (or double-click a row) takes the preview to that ghost's animation and frame, paused.
+
+0.37.312
+- Powers tab: a hero's own effects have tiles of their own after Char (Dodge first, then level-up, death and the like when the hero has them). A click shows the character's Parts with that effect selected and playing; its Color is the character's.
+
+0.37.311
+- 3D previews: picking a power (the power buttons on the Mods and Model tabs, the Powers tab's power bar) frames the whole character, centred, as Full Body does (some powers left the camera far off).
+
+0.37.310
+- 3D preview: a local-space effect's meshes turn with the place they're attached to, not only move with it. The dodge ghosts were drawn a quarter turn off the character (their socket's -90° moved them but didn't turn them); they now face the character's way, as the game draws them. Other local-space mesh effects (a mesh laid over a weapon) now also take their socket's turn.
+
+0.37.309
+- 3D preview: effects at a ground socket keep the socket's turn when it's only a turn around the vertical. The dodge ghosts face the character's way again: Taskmaster's socket_ground is turned -90°, his ghost emitters add -90° and 180°, so the game draws the ghosts unturned; without the socket's turn they stood a quarter turn off. (The emitters also make them 1.1× and lean them back a little, as the game does.)
+
+0.37.308
+- Powers tab → Dodge Ghosts: the ghosts are the character's own size, upright and facing its way. The game keeps its ghosts in the character's own space (Taskmaster's stand 0 to about 110 units tall against his 98): a ghost is just the character in a pose where it stands, so nothing is scaled, turned or moved any more (the fitting that did made crouches and rolls bigger and turned some backwards). The automatic pose is the hero's animation frame that lies closest on the game's ghost (Taskmaster's: within 1 to 6 units), found in about a second.
+
+0.37.307
+- Powers tab → Dodge Ghosts: a pose picked by hand is centred where the automatic pose was (a throw or an interactive animation moves the body away from the root, and its ghost landed off to the side). Use This Pose takes the frame where the Frame slider is (dragged while paused, it read frame 0).
+
+0.37.306
+- Powers tab → Dodge Ghosts: Make Them From This Model placed the ghosts at about twice their size (0.37.304's faster search fitted every pose from one starting turn). The full search is back, run in parallel (Taskmaster: 27 s the first time, then remembered); results from the faster search are read again.
+
+0.37.305
+- Powers tab → Dodge Ghosts: Use This Pose (and the other ghost buttons) keep the preview on the animation and frame you picked, paused, instead of going back to a playing idle. The power bar refilling after a preview reload no longer starts the selected entry over.
+
+0.37.304
+- Powers tab → a Character entry → Parts → Dodge Ghosts: the dodge's ghosts made from the mod's model. Each is placed where the game's ghost is and at its size (found by fitting the game's own model to it; read once per hero, then remembered). Pick each ghost's pose: select it, show an animation and frame in the preview, Use This Pose (Automatic picks one). The preview shows them at once; Save writes them into the hero's package (every costume of the hero shows them); Game's Ghosts puts the game's back. Kept with the mod.
+
+0.37.303
+- Editor: saving a mod with no name yet takes you to Overview → Details with the cursor in Name (before anything is built or saved).
+
+0.37.302
+- Model tab → Parts: The Target's Props, under the source's parts: the target costume's own props (Black Cat's belt and whips), which stayed on any model built onto it. Untick one to leave it off: the preview drops it at once, and Save sets that prop's mesh to none in the costume's package only (the hero's other costumes keep theirs). Tick it again for the game's mesh. It's kept with the mod.
+
+0.37.301
+- Top bar: Extract is an icon button beside Install Mod (its tab is gone), so the Editor tab shows the open mod's full name.
+- Powers tab: the Character entry (a hero's own parts) takes a color too: the dodge's ghosts, a hover's glow and the hero's other part effects are recolored in its base package on Save (the mod's own copy of that package when it has one; Game's Colors puts it back as it was). The preview shows the color, glow materials included.
+- 3D preview: Iceman's Frozen Orb: no frost squares and no dark disc. Translucent textures whose alpha isn't their opacity (the color fades at the border, the alpha doesn't) take their opacity from the color; translucent glows whose opacity is their brightness keep their color at full strength; and a material whose texture is in a package read later (another effect of the same power) finds it.
+
+0.37.300
+- Editor: more room for every tab. Name, author, version, tags and note moved from above the tabs into Overview → Details (was Description), with the description and this version's changes sized to what they hold; the Nexus page, pictures and Keep Shared Paths sit beside them.
+- Powers tab: the hero's powers are icon tiles under the 3D preview (as on the Mods and Model tabs; hover one for its name; own effects, parts and added packages follow after a gap), so the preview is much bigger. On the right: the selected power's name and icon, then two tabs: Color (Hue, Saturation, Brightness, Opacity; Game's Colors, Dark, Apply to All Powers, Add Package and the presets on one row; its colors) and Parts.
+- 3D preview: flipbook sprites (an explosion's or a flame's frames on one sheet) are rounded off frame by frame too, as are sprites whose material fades them with a mask (Doom's Latverian Blockade).
+
+0.37.299
+- 3D preview: square effect sprites (Vision's Solar Overcharge, and many more) are rounded off as the game draws them. A sprite whose texture doesn't fade at its border (the game's material rounds it off with its own falloff) gets a soft radial falloff: additive ones fade in color, translucent ones with no alpha of their own take their opacity from the texture's brightness. Flipbooks, streaks, beams, trails and mesh effects are left as they are. Across the game's power packages, 3,973 of 43,338 such sprites (9 %) change.
+
+0.37.298
+- Powers tab → Parts: ▶ on an Effect row shows that effect in the 3D view, on the character over its idle, again with each loop: the dodge's ghosts, a hover's glow (a dodge has no animation of its own, so it couldn't be seen before). The preview draws glow materials with no texture (the dodge ghosts' inner and outer colors) and places effects at a ground or root socket upright.
+
+0.37.297
+- Editor: Save and Keep Editing (beside Save Changes; Create and Keep Editing for a new mod) saves the mod and stays in the Editor, on the same tab.
+
+0.37.296
+- Fixed: 0.37.295 didn't open (the file picker watcher started too early).
+
+0.37.295
+- Every file and folder picker opens in Details view: Name and File Location wide, Date Modified, Type and Size; no Tags or Rating columns (the package picker opened in Large Icons).
+
+0.37.294
+- Powers tab → Parts (a user asked: Invisible Woman's hover when she runs): under the preview, the selected power's or character's parts, each with an On tick: Settings (Can Transition to Hover), Attachments (Invisible Woman's disc), Effects and Sounds (▶ plays them). Untick to switch a part off; Save writes it into the game's own package (added to the mod as its copy), tick it again for the game's. A new entry per hero, "<Hero>: Character", lists the hero's own parts (hover, dodge …). Tested in game: Invisible Woman with Can Transition to Hover off keeps running, with no disc, hover effects or sound.
+
+0.37.293
+- Model tab: a build stopped with "A generic error occurred in GDI+" when its folder's path got long (a long package name, such as a Diamond Form condition package, under Documents\My Games\…; a user's report). Windows' image library can't open paths past about 260 characters; images are now read and written through .NET, which can. Builds that worked before give byte-identical packages.
+
 0.37.292
 - Move to Another Costume: a costume whose streamed textures sit in a subgroup (Emma Frost New Tian's material_pass) moved them to a new path the game's texture cache doesn't know, and the game hung, then crashed, when it needed them (Diamond Form on Old Man Logan, a user's report). Subgroups are now split like their group: streamed textures keep their path, everything else moves. Move the original again to fix a copy made before.
 - CRASH RISK now also flags a moved costume with that problem (streamed textures under a moved group's path), and says to move the original again.

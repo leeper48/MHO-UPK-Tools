@@ -23,8 +23,20 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
     public (Gui.ModelView.Map? Tex, bool Additive) ParticleMaterial(FxPkg p, int materialRef, bool subImages)
     {
         var pick = ParticleTexture(p, materialRef, subImages, out bool additive);
-        return (pick == null ? null : Texture(pick.Value.P, pick.Value.Export), additive);
+        if (pick == null && GlowColors(p, materialRef) is { } glow)
+            return (new Gui.ModelView.Map([255, 255, 255, 255], 1, 1) { Glow = glow }, additive);   // (a white texel: the glow gives the colour)
+        if (pick == null) return (null, additive);
+        return (Texture(pick.Value.P, pick.Value.Export), additive);
     }
+
+    /// <summary>The last ParticleTexture's material has a mask texture besides the one picked (border fade, circle …).</summary>
+    bool lastMasked;
+    /// <summary>The last material read has a mask texture besides the one drawn (tex_border_fade, a circle, a vignette): the
+    /// game fades the sprite with it (PowerEffects.AddLooks rounds it off instead).</summary>
+    public bool LastMasked => lastMasked;
+    /// <summary>How many materials were read with a texture whose package wasn't loaded yet (PowerEffects reads those looks
+    /// again once all of a power's packages are in).</summary>
+    public int MissingSeen { get; private set; }
 
     public (FxPkg P, int Export)? ParticleTexture(FxPkg p, int materialRef, bool subImages, out bool additiveOut)
     {
@@ -35,39 +47,65 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
         // Distortion (heat haze) and radial remaps can't be shown from a texture alone: left out.
         string ml = matName.ToLowerInvariant();
         if (ml.Contains("distort") || ml.Contains("warp") || ml.Contains("refract") || ml.Contains("radial")) return null;
-        var candidates = new List<(FxPkg P, int Export)>();
-        bool? additive = null;
-        for (int depth = 0; depth < 8 && at != null; depth++)
+        (List<(FxPkg P, int Export)> Found, bool? Additive, int Unresolved) Gather((FxPkg P, int Export)? at)
         {
-            var (q, i) = at.Value;
-            var e = q.T.Exports[i];
-            var props = FxProps.Find(q.Bytes, q.T, e)?.Props ?? [];
-            if (additive == null && props.FirstOrDefault(x => x.Name.Equals("BlendMode", StringComparison.OrdinalIgnoreCase))?.Value is { } bm)
-                additive = bm.Contains("additive", StringComparison.OrdinalIgnoreCase);
-            if (q.T.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase))
+            var candidates = new List<(FxPkg P, int Export)>();
+            bool? additive = null;
+            int unresolved = 0;
+            for (int depth = 0; depth < 8 && at != null; depth++)
             {
-                var tpv = props.FirstOrDefault(x => x.Name.Equals("TextureParameterValues", StringComparison.OrdinalIgnoreCase));
-                if (tpv != null) foreach (var (_, tr) in Parameters(q, tpv.ValueAt, tpv.Size)) if (tr != 0 && Resolve(q, tr) is { } t) candidates.Add(t);
-                var parent = props.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase));
-                at = parent == null ? null : Resolve(q, BitConverter.ToInt32(q.Bytes, parent.ValueAt));
-                continue;
-            }
-            if (props.Count > 0)
-            {
-                int from = End(props), end = e.SerialOffset + e.SerialSize;
-                for (int o = from; o + 4 <= end; o++)
+                var (q, i) = at.Value;
+                var e = q.T.Exports[i];
+                var props = FxProps.Find(q.Bytes, q.T, e)?.Props ?? [];
+                if (additive == null && props.FirstOrDefault(x => x.Name.Equals("BlendMode", StringComparison.OrdinalIgnoreCase))?.Value is { } bm)
+                    additive = bm.Contains("additive", StringComparison.OrdinalIgnoreCase);
+                if (q.T.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase))
                 {
-                    int v = BitConverter.ToInt32(q.Bytes, o);
-                    if (v == 0 || v == int.MinValue || v > q.T.Exports.Count || -v > q.T.Imports.Count) continue;
-                    string cls = v > 0 ? q.T.ClassOf(q.T.Exports[v - 1]) : q.T.Imports[-v - 1].ClassName;
-                    if (!cls.Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (Resolve(q, v) is { } t && !candidates.Contains(t)) candidates.Add(t);
-                    o += 3;
+                    var tpv = props.FirstOrDefault(x => x.Name.Equals("TextureParameterValues", StringComparison.OrdinalIgnoreCase));
+                    if (tpv != null) foreach (var (_, tr) in Parameters(q, tpv.ValueAt, tpv.Size)) if (tr != 0) { if (Resolve(q, tr) is { } t) candidates.Add(t); else unresolved++; }
+                    var parent = props.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase));
+                    at = parent == null ? null : Resolve(q, BitConverter.ToInt32(q.Bytes, parent.ValueAt));
+                    if (Environment.GetEnvironmentVariable("MHO_FXTEXDEBUG") == "1")
+                        Console.WriteLine($"      {q.Name}: {q.T.PathOf(i + 1)} → parent {(parent == null ? "none" : q.T.PathOf(BitConverter.ToInt32(q.Bytes, parent.ValueAt)))} {(at == null ? "NOT FOUND" : "in " + at.Value.P.Name)}");
+                    continue;
                 }
+                if (props.Count > 0)
+                {
+                    int from = End(props), end = e.SerialOffset + e.SerialSize;
+                    for (int o = from; o + 4 <= end; o++)
+                    {
+                        int v = BitConverter.ToInt32(q.Bytes, o);
+                        if (v == 0 || v == int.MinValue || v > q.T.Exports.Count || -v > q.T.Imports.Count) continue;
+                        string cls = v > 0 ? q.T.ClassOf(q.T.Exports[v - 1]) : q.T.Imports[-v - 1].ClassName;
+                        if (!cls.Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (Resolve(q, v) is { } t) { if (!candidates.Contains(t)) candidates.Add(t); } else unresolved++;
+                        o += 3;
+                    }
+                }
+                break;
             }
-            break;
+            return (candidates, additive, unresolved);
         }
+        var (candidates, additive, missing) = Gather(at);
+        int missingAtFirst = missing;
+        // a texture of the material imported from a package the view doesn't read (Iceman's Frozen Orb: mat_cloudy_glow_dir's
+        // soft glow, so only its tiled clouds were found and 20 stacked sprites drew a dark disc): the same material in another
+        // package that is read, when that one finds more of its textures
+        if (missing > 0)
+        {
+            string mpath = at.Value.P.T.PathOf(at.Value.Export + 1);
+            foreach (var q2 in packages)
+            {
+                int j = q2 == at.Value.P ? -1 : q2.Find(mpath);
+                if (j < 0) continue;
+                var other = Gather((q2, j));
+                if (other.Found.Count > candidates.Count) (candidates, additive, missing) = other;
+                if (missing == 0) break;
+            }
+        }
+        if (missing > 0) MissingSeen++;
         additiveOut = additive ?? true;
+        lastMasked = false;
         if (candidates.Count == 0) return null;
         static string[] Words(string n) => n.ToLowerInvariant().Split('_', '.', ' ').Where(w => w.Length > 1 && w is not ("mat" or "tex" or "mi" or "ca" or "01" or "02")).ToArray();
         var mw = Words(matName);
@@ -80,7 +118,13 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
             if (n.Contains("norm") || n.EndsWith("_n") || n.Contains("bump") || n.EndsWith("_spec") || n.Contains("_specular")) sc -= 12;
             return sc;
         }
-        return candidates.OrderByDescending(Score).First();
+        var pickT = candidates.OrderByDescending(Score).First();
+        static bool IsMask(string n) { n = n.ToLowerInvariant(); return n.Contains("border_fade") || n.Contains("borderfade") || n.Contains("circle") || n.Contains("_mask") || n.Contains("vignette") || n.Contains("radialgrad") || n.Contains("radial_grad"); }
+        lastMasked = candidates.Any(t => !t.Equals(pickT) && IsMask(t.P.T.Exports[t.Export].ObjectName)) && !IsMask(pickT.P.T.Exports[pickT.Export].ObjectName);
+        // MHO_FXTEXDEBUG=1: each material's texture candidates (score) and the pick
+        if (Environment.GetEnvironmentVariable("MHO_FXTEXDEBUG") == "1")
+            Console.WriteLine($"    material {matName} [{at.Value.P.Name}, {missing} missing] ({(additiveOut ? "additive" : "blended")}): {string.Join(", ", candidates.Select(t => $"{t.P.T.Exports[t.Export].ObjectName} {Score(t)}"))} → {pickT.P.T.Exports[pickT.Export].ObjectName}");
+        return pickT;
     }
 
     /// <summary>Where an export's native data starts: after its last property and the closing None.</summary>
@@ -91,15 +135,70 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
     }
 
     /// <summary>An import resolved to the export of that path in one of the known packages (or the same export).</summary>
+    /// <summary>Imports resolved by any reader in this session, by path (the packages stay in memory).</summary>
+    static readonly Dictionary<string, (FxPkg P, int Export)> seen = new(StringComparer.OrdinalIgnoreCase);
+
     public (FxPkg P, int Export)? Resolve(FxPkg p, int reference)
     {
         if (reference > 0) return (p, reference - 1);
         if (reference == 0) return null;
         string path = p.T.PathOf(reference);
         foreach (var q in packages)
-            if (q.Find(path) is int i && i >= 0) return (q, i);
+            if (q.Find(path) is int i && i >= 0) { lock (seen) seen[path] = (q, i); return (q, i); }
+        // found by an earlier read (another effect group's packages: Iceman's Frozen Orb summon reads mat_cloudy_glow_dir
+        // with fewer packages than the power, and lost the soft glow that masks it)
+        lock (seen) if (seen.TryGetValue(path, out var hit)) return hit;
         Notes.Add($"{path} is imported from a package the view doesn't read");
         return null;
+    }
+
+    /// <summary>A glow material's inner and outer colours (VectorParameterValues inner_color / outer_color, on the instance or
+    /// a parent: mat_throwingknife_glow_fade's family, the dodge ghosts), or null.</summary>
+    (System.Numerics.Vector3 Inner, System.Numerics.Vector3 Outer)? GlowColors(FxPkg p, int materialRef)
+    {
+        System.Numerics.Vector3? inner = null, outer = null;
+        var at = Resolve(p, materialRef);
+        for (int depth = 0; depth < 6 && at != null && (inner == null || outer == null); depth++)
+        {
+            var (q, i) = at.Value;
+            var props = FxProps.Find(q.Bytes, q.T, q.T.Exports[i])?.Props ?? [];
+            if (props.FirstOrDefault(x => x.Name.Equals("VectorParameterValues", StringComparison.OrdinalIgnoreCase)) is { } vpv)
+                foreach (var (name, v) in Vectors(q, vpv.ValueAt, vpv.Size))
+                {
+                    var c = new System.Numerics.Vector3(v.X, v.Y, v.Z) * Math.Max(1f, v.W);   // (the outer colour's alpha 3 reads as a strength)
+                    if (name.Equals("inner_color", StringComparison.OrdinalIgnoreCase)) inner ??= c;
+                    else if (name.Equals("outer_color", StringComparison.OrdinalIgnoreCase)) outer ??= c;
+                }
+            var parent = props.FirstOrDefault(x => x.Name.Equals("Parent", StringComparison.OrdinalIgnoreCase));
+            at = parent == null ? null : Resolve(q, BitConverter.ToInt32(q.Bytes, parent.ValueAt));
+        }
+        return inner is { } a && outer is { } b ? (a, b) : null;
+    }
+
+    /// <summary>VectorParameterValues: per struct its name and LinearColor (R, G, B, A).</summary>
+    static List<(string Name, System.Numerics.Vector4 V)> Vectors(FxPkg q, int at, int size)
+    {
+        var b = q.Bytes; var list = new List<(string, System.Numerics.Vector4)>();
+        int end = at + size, count = BitConverter.ToInt32(b, at), p = at + 4;
+        string N(int o) { int k = BitConverter.ToInt32(b, o); return k >= 0 && k < q.T.Names.Count ? q.T.Names[k].Text : ""; }
+        for (int k = 0; k < count && p < end; k++)
+        {
+            string param = ""; var v = System.Numerics.Vector4.Zero;
+            while (p + 8 <= end)
+            {
+                string n = N(p);
+                if (n.Equals("None", StringComparison.OrdinalIgnoreCase) || n.Length == 0) { p += 8; break; }
+                string t = N(p + 8); int s = BitConverter.ToInt32(b, p + 16); p += 24;
+                if (t.Equals("BoolProperty", StringComparison.OrdinalIgnoreCase)) { p += 1; continue; }
+                if (t.Equals("StructProperty", StringComparison.OrdinalIgnoreCase) || t.Equals("ByteProperty", StringComparison.OrdinalIgnoreCase)) p += 8;
+                if (n.Equals("ParameterName", StringComparison.OrdinalIgnoreCase) && s == 8) param = N(p);
+                if (n.Equals("ParameterValue", StringComparison.OrdinalIgnoreCase) && s == 16)
+                    v = new(BitConverter.ToSingle(b, p), BitConverter.ToSingle(b, p + 4), BitConverter.ToSingle(b, p + 8), BitConverter.ToSingle(b, p + 12));
+                p += s;
+            }
+            list.Add((param, v));
+        }
+        return list;
     }
 
     /// <summary>TextureParameterValues: count, then per struct its tagged properties up to None.</summary>
@@ -133,6 +232,21 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
         string key = p.Name + "|" + p.T.PathOf(export + 1);
         if (cache.TryGetValue(key, out var hit)) return hit;
         var d = Decoded(p, export);
+        // MHO_FXTEXDUMP=<folder>: each texture read, as a PNG (colour) and its alpha (debug)
+        if (d != null && Environment.GetEnvironmentVariable("MHO_FXTEXDUMP") is { Length: > 0 } dump)
+            try
+            {
+                Directory.CreateDirectory(dump);
+                string n = string.Concat(p.T.PathOf(export + 1).Split(Path.GetInvalidFileNameChars()));
+                using var bc = new System.Drawing.Bitmap(d.Value.W, d.Value.H); using var ba = new System.Drawing.Bitmap(d.Value.W, d.Value.H);
+                for (int y = 0; y < d.Value.H; y++) for (int x = 0; x < d.Value.W; x++)
+                {
+                    int o = (y * d.Value.W + x) * 4; var px = d.Value.Bgra;
+                    bc.SetPixel(x, y, System.Drawing.Color.FromArgb(px[o + 2], px[o + 1], px[o])); ba.SetPixel(x, y, System.Drawing.Color.FromArgb(px[o + 3], px[o + 3], px[o + 3]));
+                }
+                bc.Save(Path.Combine(dump, n + ".rgb.png")); ba.Save(Path.Combine(dump, n + ".a.png"));
+            }
+            catch (Exception ex) when (ex is IOException or ArgumentException or System.Runtime.InteropServices.ExternalException) { }
         return cache[key] = d == null ? null : new Gui.ModelView.Map(d.Value.Bgra, d.Value.W, d.Value.H);
     }
 

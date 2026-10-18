@@ -51,6 +51,7 @@ sealed partial class StorePreview
         public bool Reflect { get => PreviewViews.Reflect; set => PreviewViews.Reflect = value; }
         public bool Glow { get => PreviewViews.Glow; set => PreviewViews.Glow = value; }
         public bool Bloom { get => PreviewViews.Bloom; set => PreviewViews.Bloom = value; }
+        public bool Ground { get => PreviewViews.Ground; set => PreviewViews.Ground = value; }
         public bool Props { get => PreviewViews.Props; set => PreviewViews.Props = value; }
         public bool Powers { get => PreviewViews.Powers; set => PreviewViews.Powers = value; }
         public bool Loop { get => PreviewViews.Loop; set => PreviewViews.Loop = value; }

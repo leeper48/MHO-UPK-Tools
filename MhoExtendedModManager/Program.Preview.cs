@@ -618,6 +618,524 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--costume-props":
+            {
+                // Read only, or a test into <out folder> (Kurt, 2026-10-17: the target's props in the Model tab): a character
+                // package's props (PowerParts.CostumeProps); with an out folder, all of them off, read back, then on again,
+                // compared with the package's own exports. --costume-props <package.upk> [out folder]
+                if (rest.Count < 2) { Console.WriteLine("--costume-props <package.upk> [out folder]"); return 1; }
+                string cpf = Path.GetFileName(rest[1]);
+                var cps = PowerParts.CostumeProps(cpf, rest[1]);
+                foreach (var c in cps) Console.WriteLine($"  {c.Label}: {c.Part} · {c.Key} = {(c.Original.Length == 0 ? "(none)" : c.Original)}");
+                if (rest.Count < 3 || cps.Count == 0) return 0;
+                string cdir = Path.GetFullPath(rest[2]);
+                if (cdir.StartsWith(Path.GetFullPath(Settings.Cooked(settings.ResolvedGameRoot(data) ?? "x:\none")), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: the game folder"); return 1; }
+                Directory.CreateDirectory(cdir);
+                var entries = cps.Select(c => new PartOffEntry { Package = cpf, Part = c.Part, Switch = c.Key, Original = c.Original }).ToList();
+                var clog = new List<string>();
+                string offFile = Path.Combine(cdir, "off_" + cpf), onFile = Path.Combine(cdir, "on_" + cpf);
+                File.WriteAllBytes(offFile, PowerParts.Apply(rest[1], [.. entries.Select(e => (e, true))], clog));
+                var after = PowerParts.CostumeProps(cpf, offFile);
+                int fails = 0;
+                foreach (var c in cps) { bool ok = after.Any(a => a.Part == c.Part && a.Original.Length == 0); if (!ok) fails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {c.Label} off"); }
+                File.WriteAllBytes(onFile, PowerParts.Apply(offFile, [.. entries.Select(e => (e, false))], clog));
+                var p0 = MhoPackageModifier.Package.Open(rest[1]); var p2 = MhoPackageModifier.Package.Open(onFile);
+                int diff = Enumerable.Range(0, p0.Exports.Length).Count(i => !p0.ReadExportBytes(p0.Exports[i]).AsSpan().SequenceEqual(p2.ReadExportBytes(p2.Exports[i])));
+                Console.WriteLine($"  {(diff == 0 ? "ok  " : "FAIL")} back on: {diff} export(s) differ from the package's own");
+                if (diff > 0) fails++;
+                clog.ForEach(l => Console.WriteLine("    " + l));
+                Console.WriteLine(fails == 0 ? "PASS" : $"{fails} FAILED");
+                return fails == 0 ? 0 : 1;
+            }
+            case "--power-parts":
+            {
+                // A power package's parts (a user, 2026-10-17: Invisible Woman's long-run hover): the class default's
+                // components list (animation, effects, sounds) with each sound's events. With <out.upk> --off <regex>: a copy
+                // without the parts whose name matches (taken off the list; their data stays). Never writes the game folder.
+                if (rest.Count < 2) { Console.WriteLine("--power-parts <package.upk> [<out.upk> --off <regex>]"); return 1; }
+                var pp = MhoPackageModifier.Package.Open(rest[1]);
+                int def = -1; MhoPackageModifier.TagWalker? tags = null; byte[] dd = [];
+                for (int i = 0; i < pp.Exports.Length && def < 0; i++)
+                {
+                    if (!pp.Exports[i].ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase) || pp.Exports[i].OuterIndex == 0 && !pp.PathOf(pp.Exports[i]).StartsWith("marvelgamecontent.", StringComparison.OrdinalIgnoreCase)) continue;
+                    dd = pp.ReadExportBytes(pp.Exports[i]).ToArray();
+                    tags = MhoPackageModifier.TagWalker.Walk(pp, dd, 4);
+                    if (tags?.Any(t => t.Name.Equals("components", StringComparison.OrdinalIgnoreCase)) == true) def = i;
+                }
+                if (def < 0 || tags == null) { Console.WriteLine("no class default with a components list"); return 1; }
+                var ct = tags.First(t => t.Name.Equals("components", StringComparison.OrdinalIgnoreCase));
+                int cn = BitConverter.ToInt32(dd, ct.ValueAt);
+                var refs = Enumerable.Range(0, cn).Select(k => BitConverter.ToInt32(dd, ct.ValueAt + 4 + 4 * k)).ToList();
+                Console.WriteLine($"{pp.PathOf(pp.Exports[def])}: {cn} part(s)");
+                foreach (int r in refs)
+                {
+                    if (r <= 0 || r > pp.Exports.Length) { Console.WriteLine($"  {pp.RefName(r)}"); continue; }
+                    var pe = pp.Exports[r - 1];
+                    string extra = "";
+                    if (pp.ClassOf(pe).Equals("PowerFXSound", StringComparison.OrdinalIgnoreCase))
+                    {
+                        byte[] sd = pp.ReadExportBytes(pe).ToArray();
+                        if (MhoPackageModifier.TagWalker.Walk(pp, sd, 8) is { } st)
+                            extra = "  " + string.Join(", ", st.Where(t => t.Name.EndsWith("event", StringComparison.OrdinalIgnoreCase) && t.Size == 4)
+                                .Select(t => $"{t.Name} = {pp.RefName(BitConverter.ToInt32(sd, t.ValueAt))}"));
+                    }
+                    Console.WriteLine($"  {pe.ObjectName,-16} {pp.ClassOf(pe),-36}{extra}");
+                }
+                int offAt = rest.IndexOf("--off");
+                if (rest.Count < 3 || offAt < 0 || offAt + 1 >= rest.Count) return 0;
+                string outPath = Path.GetFullPath(rest[2]);
+                var vst = Settings.Load();
+                if (vst.ResolvedGameRoot(lib.DataFolder) is string pgr && outPath.StartsWith(Path.GetFullPath(Settings.Cooked(pgr)), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: that's the game folder"); return 1; }
+                var rx = new System.Text.RegularExpressions.Regex(rest[offAt + 1], System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var keep = refs.Where(r => r <= 0 || r > pp.Exports.Length || !rx.IsMatch(pp.Exports[r - 1].ObjectName)).ToList();
+                Console.WriteLine($"off: {string.Join(", ", refs.Except(keep).Select(r => pp.Exports[r - 1].ObjectName))}");
+                byte[] head = dd.AsSpan(0, ct.ValueAt).ToArray();
+                BitConverter.GetBytes(4 + 4 * keep.Count).CopyTo(head, ct.Start + 16);   // the array's size
+                byte[] newData = [.. head, .. BitConverter.GetBytes(keep.Count), .. keep.SelectMany(BitConverter.GetBytes), .. dd.AsSpan(ct.End)];
+                byte[] built = MhoPackageModifier.PackageRebuilder.Rebuild(pp, new Dictionary<int, Func<long, byte[]>> { [def] = _ => newData }, [], out var written);
+                var probs = MhoPackageModifier.PackageRebuilder.Verify(pp, built, [def], [], written);
+                var back = MhoPackageModifier.Package.FromBytes(built);
+                var bt = MhoPackageModifier.TagWalker.Walk(back, back.ReadExportBytes(back.Exports[def]).ToArray(), 4);
+                if (bt == null || BitConverter.ToInt32(back.ReadExportBytes(back.Exports[def]).ToArray(), bt.First(t => t.Name.Equals("components", StringComparison.OrdinalIgnoreCase)).ValueAt) != keep.Count) probs.Add("the components list doesn't read back");
+                if (probs.Count > 0) { Console.WriteLine("verify: FAIL " + string.Join("; ", probs)); return 1; }
+                Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+                File.WriteAllBytes(outPath, built);
+                Console.WriteLine($"wrote {outPath}: {keep.Count} of {cn} part(s) kept, verified");
+                return 0;
+            }
+            case "--parts-test":
+            {
+                // Self-test (scratch libraries only, MHO_EXTMM_HOME): the Parts list's Save path (PowerParts.Build + ModWriter):
+                // a new mod with Invisible Woman's Can Transition to Hover and a Levitating Disc effect off, then the setting on
+                // again (her base package leaves the mod), then the effect on and another off (its game value comes back).
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("scratch libraries only (MHO_EXTMM_HOME)"); return 2; }
+                string? tgr = settings.ResolvedGameRoot(data);
+                if (tgr == null) { Console.WriteLine("game folder not set"); return 1; }
+                var tgs = new GameState(tgr, data);
+                StockFiles.Init(tgs, settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string tck = Settings.Cooked(tgr), tb = "UC__MarvelPlayer_InvisibleWoman_SF.upk", tp = "UC__PowerFlyingMovement_InvisibleWoman_SF.upk";
+                var bsw = PowerParts.List(tb, StockFiles.For(tck, tb)); var psw = PowerParts.List(tp, StockFiles.For(tck, tp));
+                var hover = bsw.First(s => s.Key == "cantransitiontohover"); var trail = psw.First(s => s.PartName == "flytrailvfx"); var palm = psw.First(s => s.PartName == "palmglow");
+                int fails = 0;
+                void Check(bool ok, string what) { Console.WriteLine((ok ? "PASS " : "FAIL ") + what); if (!ok) fails++; }
+                PartOffEntry Off(PowerParts.Switch s) => new() { Package = s.Package, Part = s.Part, Switch = s.Key, Original = s.Original };
+                string? Val(Mod m, string f, PowerParts.Switch s) => File.Exists(Path.Combine(m.Folder, f)) ? PowerParts.List(f, Path.Combine(m.Folder, f)).FirstOrDefault(x => x.Part == s.Part && x.Key == s.Key)?.Original : null;
+                Check(hover.Original == "true" && trail.Original.Length > 0 && palm.Original.Length > 0, $"stock values read (hover {hover.Original}, trail {trail.What}, palm {palm.What})");
+                var tlog = new List<string>();
+                string tname = "Parts Test " + Guid.NewGuid().ToString("N")[..6];
+                var d1 = new ModDraft { Name = tname, Author = "Test" };
+                d1.PartsOff.Add(Off(hover)); d1.PartsOff.Add(Off(trail));
+                PowerParts.Build(d1, null, lib, tgs, tlog);
+                string? s1 = ModWriter.Save(lib, d1, null, out string? e1);
+                Check(s1 != null, "saved: " + (e1 ?? s1));
+                var m1 = ModLibrary.Load(data).Find(tname)!;
+                Check(m1.Manifest.UpkReplacements.Count == 2 && m1.Manifest.PartsOff?.Count == 2 && m1.Manifest.PartsOff.All(x => x.Added), $"both packages in the mod, 2 entries, added ({string.Join(", ", m1.Manifest.UpkReplacements)})");
+                Check(Val(m1, tb, hover) == "" && Val(m1, tp, trail) == "" && Val(m1, tp, palm) == palm.Original, "hover off, trail off, palm glow as the game's");
+                // MHO_PARTS_COMPARE=<a package>: her base package as this saves it, compared with that one (test E, confirmed in game)
+                if (Environment.GetEnvironmentVariable("MHO_PARTS_COMPARE") is { Length: > 0 } cmpFile)
+                    Check(File.ReadAllBytes(Path.Combine(m1.Folder, tb)).AsSpan().SequenceEqual(File.ReadAllBytes(cmpFile)), "her base package byte-identical to " + Path.GetFileName(Path.GetDirectoryName(cmpFile)));
+                var d2 = ModDraft.From(m1);
+                d2.PartsOff.RemoveAll(x => x.Switch == "cantransitiontohover");
+                PowerParts.Build(d2, m1, lib, tgs, tlog);
+                string? s2 = ModWriter.Save(lib, d2, m1, out string? e2);
+                var m2 = ModLibrary.Load(data).Find(tname)!;
+                Check(s2 != null && !m2.Manifest.UpkReplacements.Contains(tb, StringComparer.OrdinalIgnoreCase) && m2.Manifest.UpkReplacements.Contains(tp, StringComparer.OrdinalIgnoreCase), "setting on again: her base package left the mod, the power's stays " + (e2 ?? ""));
+                var d3 = ModDraft.From(m2);
+                d3.PartsOff.Clear(); d3.PartsOff.Add(Off(palm));
+                PowerParts.Build(d3, m2, lib, tgs, tlog);
+                string? s3 = ModWriter.Save(lib, d3, m2, out string? e3);
+                var m3 = ModLibrary.Load(data).Find(tname)!;
+                Check(s3 != null && Val(m3, tp, trail) == trail.Original && Val(m3, tp, palm) == "", $"trail back to {trail.What}, palm glow off " + (e3 ?? ""));
+                foreach (string l in tlog) Console.WriteLine("  " + l);
+                Console.WriteLine(fails == 0 ? "all passed" : $"{fails} failed");
+                return fails == 0 ? 0 : 1;
+            }
+            case "--soft-census":
+            {
+                // Read only (2026-10-17): over the game's power packages (UC__Power*: optional name filter), how many plain sprite
+                // emitters the preview rounds off (Map.SoftEdged), by material. --soft-census [package name part]
+                string? sgr = settings.ResolvedGameRoot(data);
+                if (sgr == null) { Console.WriteLine("game folder not set"); return 1; }
+                string sck = Settings.Cooked(sgr);
+                var files = Directory.EnumerateFiles(sck, "UC__Power*.upk").Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase)
+                    && (rest.Count < 2 || Path.GetFileName(f).Contains(rest[1], StringComparison.OrdinalIgnoreCase))).ToList();
+                var ssw = System.Diagnostics.Stopwatch.StartNew();
+                var (spr, soft, mats) = Fx.PowerEffects.SoftCensus(new Fx.FxGame(sck, []), files, m => { Console.WriteLine(m); Console.Out.Flush(); });
+                Console.WriteLine($"{files.Count} packages: {spr:N0} plain sprite emitters, {soft:N0} rounded off ({(spr == 0 ? 0 : 100.0 * soft / spr):0.0} %), {mats.Count} materials ({ssw.Elapsed.TotalSeconds:0} s)");
+                foreach (var (k, v) in mats.OrderByDescending(x => x.Value.Emitters).Take(40))
+                    Console.WriteLine($"  {v.Emitters,5}  {(v.Additive ? "additive" : "blended "),-9} {v.Texture,-34} {k}");
+                return 0;
+            }
+            case "--ghost-slots":
+            {
+                // Read only: a hero package's dodge ghosts, where each sits and its automatic pose (DodgeGhosts.Analyze, as the
+                // Powers tab reads them; kept in data\cache). --ghost-slots <hero package file>
+                if (rest.Count < 2) { Console.WriteLine("--ghost-slots <hero package file>"); return 1; }
+                string? ggr2 = settings.ResolvedGameRoot(data);
+                if (ggr2 == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(ggr2, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                if (rest.Contains("--bounds"))
+                {
+                    // the stock ghosts' bounds beside the model's rest pose (where the meshes are kept)
+                    string gstock = StockFiles.For(Settings.Cooked(ggr2), rest[1]);
+                    var gpk = MhoPackageModifier.Package.Open(gstock);
+                    string B(IEnumerable<Vector3> ps) { var l = ps.ToList(); var lo = l.Aggregate(Vector3.Min); var hi = l.Aggregate(Vector3.Max); return $"X {lo.X:0} … {hi.X:0}, Y {lo.Y:0} … {hi.Y:0}, Z {lo.Z:0} … {hi.Z:0}"; }
+                    var gm = DodgeGhosts.CharacterModel(rest[1], gstock)!;
+                    var gl = ModMeshes.Load(gm, null, out _, componentMaterials: false)!;
+                    Console.WriteLine($"model {gm.Name} rest pose: {B(gl.Positions)}");
+                    foreach (int gi in DodgeGhosts.GhostExports(gpk, rest[1], gstock))
+                    {
+                        var sm = MhoPackageModifier.StaticMesh.Read(gpk, gpk.Exports[gi]);
+                        Console.WriteLine($"{gpk.Exports[gi].ObjectName}: {sm.Positions.Length} vertices, {B(sm.Positions)}");
+                    }
+                    return 0;
+                }
+                var gsw = System.Diagnostics.Stopwatch.StartNew();
+                var gslots = DodgeGhosts.Analyze(rest[1], Settings.Cooked(ggr2), Console.WriteLine);
+                foreach (var g in gslots) Console.WriteLine($"  {g.Name}: {(g.Anim.Length == 0 ? "rest pose" : $"{g.Anim} frame {g.Frame:0.#}")}, scale {g.Place.Scale:0.00}, error {g.Place.ErrorShare * 100:0.0} %");
+                Console.WriteLine($"({gsw.Elapsed.TotalSeconds:0} s)");
+                return 0;
+            }
+            case "--ghost-poses":
+            {
+                // Test: DodgeGhosts.Build as the Powers tab runs it, the model the package's own, with poses by hand
+                // (ghost number=animation@frame; others automatic). --ghost-poses <package.upk> <out.upk> [1=anim@frame ...]
+                if (rest.Count < 3) { Console.WriteLine("--ghost-poses <package.upk> <out.upk> [1=anim@frame ...]"); return 1; }
+                string? pgr3 = settings.ResolvedGameRoot(data);
+                if (pgr3 == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(pgr3, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string pck = Settings.Cooked(pgr3), ppath = rest[1], pfile = Path.GetFileName(ppath), pout = Path.GetFullPath(rest[2]);
+                if (pout.StartsWith(Path.GetFullPath(pck), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: that's the game folder"); return 1; }
+                var pslots = DodgeGhosts.Analyze(pfile, pck, Console.WriteLine);
+                var ppicks = new Dictionary<string, (string, float)>(StringComparer.OrdinalIgnoreCase);
+                foreach (string a in rest.Skip(3))
+                {
+                    var mm = System.Text.RegularExpressions.Regex.Match(a, @"^(\d+)=(.+)@([\d.]+)$");
+                    if (mm.Success) ppicks[pslots[int.Parse(mm.Groups[1].Value) - 1].Name] = (mm.Groups[2].Value, float.Parse(mm.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture));
+                }
+                var pmodel = DodgeGhosts.CharacterModel(pfile, ppath)!;
+                var plog = new List<string>();
+                // (--leans: forward, back, left, right in turn)
+                var pleans = rest.Contains("--leans") ? pslots.Select((s, i) => (s.Name, DodgeGhosts.Leans[i % 4])).ToDictionary(x => x.Name, x => x.Item2, StringComparer.OrdinalIgnoreCase) : null;
+                byte[] pbytes = DodgeGhosts.Build(ppath, pfile, pmodel, [(pfile, ppath)], pck, pslots, ppicks, plog, keepEffectSize: rest.Contains("--keep-size"), leans: pleans);
+                plog.ForEach(Console.WriteLine);
+                Directory.CreateDirectory(Path.GetDirectoryName(pout)!);
+                File.WriteAllBytes(pout, pbytes);
+                Console.WriteLine("wrote " + pout);
+                return 0;
+            }
+            case "--ghost-build":
+            {
+                // Test (2026-10-17, Kurt: Captain Carter on Taskmaster): a hero package's dodge ghosts rebuilt from that package's
+                // own character model (the mod's), posed at the frame that fits each stock ghost best (animations matching
+                // <anim regex>), full body, in the character's own space. The ghost meshes get new names (…_mod: the boss's
+                // package carries the stock ones at the same paths). --ghost-build <package.upk> <out.upk> [anim regex]
+                if (rest.Count < 3) { Console.WriteLine("--ghost-build <package.upk> <out.upk> [anim regex]"); return 1; }
+                string? bgr = settings.ResolvedGameRoot(data);
+                if (bgr == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(bgr, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string bck = Settings.Cooked(bgr), bpath = rest[1], bfile = Path.GetFileName(bpath), bout = Path.GetFullPath(rest[2]);
+                if (bout.StartsWith(Path.GetFullPath(bck), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: that's the game folder"); return 1; }
+                var brx = new System.Text.RegularExpressions.Regex(rest.Count > 3 ? rest[3] : "idle|run|dodge|tumble|flip|kick|blink|dash", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var bmrs = ModMeshes.List([(bfile, bpath)]);
+                string? bbody = Model.MhoSkeleton.ComponentMesh(bpath);
+                var bmr = bmrs.FirstOrDefault(m => m.Name.Equals(bbody, StringComparison.OrdinalIgnoreCase)) ?? bmrs.FirstOrDefault();
+                if (bmr == null) { Console.WriteLine("no character model"); return 1; }
+                var bld = ModMeshes.Load(bmr, null, out string bwhy, componentMaterials: false);
+                if (bld == null) { Console.WriteLine("model not read: " + bwhy); return 1; }
+                Console.WriteLine($"model {bmr.Name}: {bld.Positions.Length:N0} vertices, {bld.Indices.Length / 3:N0} triangles");
+                if (bld.Positions.Length > 65535) { Console.WriteLine("too many vertices for a static mesh (65,535)"); return 1; }
+                var bp = MhoPackageModifier.Package.Open(bpath);
+                var bsw = PowerParts.List(bfile, bpath).FirstOrDefault(s => s.PartName.Equals("dodgevfx", StringComparison.OrdinalIgnoreCase));
+                if (bsw == null || bsw.Original.Length == 0) { Console.WriteLine("no dodge effect in this package"); return 1; }
+                var ghostIdx = new List<int>();
+                foreach (var e in bp.Exports)
+                {
+                    if (!bp.ClassOf(e).Equals("ParticleModuleTypeDataMesh", StringComparison.OrdinalIgnoreCase) || !bp.PathOf(e).StartsWith(bsw.Original + ".", StringComparison.OrdinalIgnoreCase)) continue;
+                    byte[] d = bp.ReadExportBytes(e).ToArray();
+                    if (MhoPackageModifier.TagWalker.Walk(bp, d, 4)?.FirstOrDefault(t => t.Name.Equals("mesh", StringComparison.OrdinalIgnoreCase)) is not { } mt) continue;
+                    int r = BitConverter.ToInt32(d, mt.ValueAt);
+                    if (r > 0 && !bp.PathOf(bp.Exports[r - 1]).Contains("vfx_shared", StringComparison.OrdinalIgnoreCase) && !ghostIdx.Contains(r - 1)) ghostIdx.Add(r - 1);
+                }
+                if (ghostIdx.Count == 0) { Console.WriteLine("no ghost meshes of its own"); return 1; }
+                // the poses to try
+                var banimator = new MeshAnimator(bld.Bones, bld.Positions, bld.Normals, bld.Influences);
+                var bposes = new List<(string Anim, float Frame, Vector3[] P, Vector3[] N, GhostFit.Model M)> { ("(rest pose)", 0, bld.Positions, bld.Normals, new GhostFit.Model(bld.Positions)) };
+                foreach (var a in ModAnimations.For(bmr, bld.Bones, [], bck).Where(a => brx.IsMatch(a.Name)))
+                {
+                    var ba = ModAnimations.Load(a);
+                    if (ba == null) continue;
+                    var (frames, _) = MeshAnimator.Span(ba);
+                    for (float fr = 0, st = Math.Max(1f, frames / 6f); fr <= frames; fr += st)
+                    {
+                        banimator.Pose(ba, fr);
+                        var pp = (Vector3[])banimator.Positions.Clone();
+                        bposes.Add((a.Name, fr, pp, (Vector3[])banimator.Normals.Clone(), new GhostFit.Model(pp)));
+                    }
+                }
+                Console.WriteLine($"{ghostIdx.Count} ghost(s), {bposes.Count} pose(s) to try");
+                // Where each stock ghost sits is found with the game's own model (Kurt, 2026-10-17: fitting the mod's full body
+                // onto Taskmaster's partial ghosts placed Captain Carter at twice her size): the stock model posed the same way,
+                // fitted to the stock ghost; the mod's model in that pose then goes where that fit puts it.
+                var stockPoses = new Dictionary<(string, float), GhostFit.Model>();
+                string bstock = StockFiles.For(bck, bfile);
+                if (File.Exists(bstock) && !Path.GetFullPath(bstock).Equals(Path.GetFullPath(bpath), StringComparison.OrdinalIgnoreCase))
+                {
+                    var smrs = ModMeshes.List([(bfile, bstock)]);
+                    string? sbody = Model.MhoSkeleton.ComponentMesh(bstock);
+                    var smr = smrs.FirstOrDefault(m => m.Name.Equals(sbody, StringComparison.OrdinalIgnoreCase)) ?? smrs.FirstOrDefault();
+                    var sld = smr == null ? null : ModMeshes.Load(smr, null, out _, componentMaterials: false);
+                    if (sld != null)
+                    {
+                        stockPoses[("(rest pose)", 0)] = new GhostFit.Model(sld.Positions);
+                        var sanim = new MeshAnimator(sld.Bones, sld.Positions, sld.Normals, sld.Influences);
+                        foreach (var a in ModAnimations.For(smr!, sld.Bones, [], bck).Where(a => brx.IsMatch(a.Name)))
+                        {
+                            var sa = ModAnimations.Load(a);
+                            if (sa == null) continue;
+                            var (frames, _) = MeshAnimator.Span(sa);
+                            for (float fr = 0, st = Math.Max(1f, frames / 6f); fr <= frames; fr += st)
+                            {
+                                sanim.Pose(sa, fr);
+                                stockPoses[(a.Name, fr)] = new GhostFit.Model((Vector3[])sanim.Positions.Clone());
+                            }
+                        }
+                        Console.WriteLine($"placed by the game's model {smr!.Name}: {stockPoses.Count} pose(s)");
+                    }
+                }
+                var replace = new Dictionary<int, Func<long, byte[]>>();
+                var renames = new Dictionary<int, string>();
+                var used = new HashSet<(string, float)>();
+                foreach (int gi in ghostIdx)
+                {
+                    var stock = MhoPackageModifier.StaticMesh.Read(bp, bp.Exports[gi]);
+                    // the pose that fits the stock ghost best (each pose used once), placed where the stock ghost is: its scale, turn
+                    // and offset (Kurt, 2026-10-17: placed as posed, in the character's own space, two of Taskmaster's ghosts, kept
+                    // 1.5× and turned in their meshes, floated above the head)
+                    var (pick, fit) = bposes.Where(x => !used.Contains((x.Anim, x.Frame)) && (stockPoses.Count == 0 || stockPoses.ContainsKey((x.Anim, x.Frame))))
+                        .Select(x => (x, F: GhostFit.Best(stockPoses.Count > 0 ? stockPoses[(x.Anim, x.Frame)] : x.M, stock.Positions, 8))).OrderBy(x => x.F.ErrorShare).First();
+                    used.Add((pick.Anim, pick.Frame));
+                    var placedP = pick.P.Select(v => fit.Scale * Vector3.Transform(v, fit.Turn) + fit.Offset).ToArray();
+                    var placedN = pick.N.Select(n => Vector3.Transform(n, fit.Turn)).ToArray();
+                    var built0 = MhoPackageModifier.StaticMeshBuilder.BuildGeometry(stock, placedP, placedN, bld.Indices, stock.Sections[0].MaterialRef, stock.Sections[0].MaterialName, bld.Uv);
+                    // vertex colours as the stock ghost's body has them (B, G, R, A = 0, 0, 0, 255; its cut edge fades with alpha 0)
+                    var cols = new byte[pick.P.Length * 4];
+                    for (int v = 0; v < pick.P.Length; v++) cols[v * 4 + 3] = 255;
+                    var built = stock.HasVertexColors ? new MhoPackageModifier.BuiltMesh { Positions = built0.Positions, Normals = built0.Normals, TexCoords = built0.TexCoords, TangentX = built0.TangentX, TangentZ = built0.TangentZ,
+                        Indices = built0.Indices, Adjacency = built0.Adjacency, Sections = built0.Sections, BoundsOrigin = built0.BoundsOrigin, BoundsExtent = built0.BoundsExtent, BoundsRadius = built0.BoundsRadius, ColorsBgra = cols } : built0;
+                    replace[gi] = off => MhoPackageModifier.StaticMeshBuilder.Serialize(stock, built, off, dropBodySetup: true);
+                    renames[gi] = bp.Exports[gi].ObjectName + "_mod";
+                    Console.WriteLine($"  {bp.Exports[gi].ObjectName} ({stock.Positions.Length:N0} vertices) → {renames[gi]}: {pick.Anim} frame {pick.Frame:0.#}, {pick.P.Length:N0} vertices, placed at scale {fit.Scale:0.00}, error {fit.ErrorShare * 100:0.0} %");
+                }
+                var addNames = renames.Values.Where(n => !bp.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
+                byte[] bbuilt = MhoPackageModifier.PackageRebuilder.Rebuild(bp, replace, [], out var bwritten, addNames, null, renames, null);
+                var bprobs = MhoPackageModifier.PackageRebuilder.Verify(bp, bbuilt, replace.Keys.ToList(), [], bwritten, addNames, null, renames, null);
+                var bback = MhoPackageModifier.Package.FromBytes(bbuilt);
+                foreach (int gi in ghostIdx)
+                {
+                    var rb = MhoPackageModifier.StaticMesh.Read(bback, bback.Exports[gi]);
+                    if (rb.Positions.Length != bld.Positions.Length) bprobs.Add($"{bback.Exports[gi].ObjectName} reads back with {rb.Positions.Length} vertices");
+                    if (!bback.Exports[gi].ObjectName.Equals(renames[gi], StringComparison.OrdinalIgnoreCase)) bprobs.Add($"export {gi + 1} isn't named {renames[gi]}");
+                }
+                if (bprobs.Count > 0) { Console.WriteLine("verify: FAIL " + string.Join("; ", bprobs.Take(6))); return 1; }
+                Directory.CreateDirectory(Path.GetDirectoryName(bout)!);
+                File.WriteAllBytes(bout, bbuilt);
+                Console.WriteLine($"wrote {bout} ({bbuilt.Length:N0} bytes), verified: ghosts read back with {bld.Positions.Length:N0} vertices each");
+                return 0;
+            }
+            case "--ghost-fit":
+            {
+                // Read only (2026-10-17): is each dodge ghost the hero's model posed at a frame of an animation? For every ghost
+                // mesh of the hero's dodge effect, the best frame of the animations matching <anim regex> (default: dodge-like
+                // ones) by GhostFit (scale, turn, offset). --ghost-fit <Hero> [anim regex]
+                if (rest.Count < 2) { Console.WriteLine("--ghost-fit <Hero> [anim regex]"); return 1; }
+                string? ggr = settings.ResolvedGameRoot(data);
+                if (ggr == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(ggr, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string gck = Settings.Cooked(ggr), gfile = $"UC__MarvelPlayer_{rest[1]}_SF.upk", gpath = StockFiles.For(gck, gfile);
+                var animRx = new System.Text.RegularExpressions.Regex(rest.Count > 2 ? rest[2] : "dodge|evade|roll|dash|flip|blink|teleport|counter", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var mrs = ModMeshes.List([(gfile, gpath)]);
+                string? body = Model.MhoSkeleton.ComponentMesh(gpath);
+                var mr = mrs.FirstOrDefault(m => m.Name.Equals(body, StringComparison.OrdinalIgnoreCase)) ?? mrs.FirstOrDefault();
+                if (mr == null) { Console.WriteLine("no character model"); return 1; }
+                var ld = ModMeshes.Load(mr, null, out string why, componentMaterials: false);
+                if (ld == null) { Console.WriteLine("model not read: " + why); return 1; }
+                var anims = ModAnimations.For(mr, ld.Bones, [], gck).Where(a => animRx.IsMatch(a.Name)).ToList();
+                Console.WriteLine($"{mr.Name}: {ld.Positions.Length:N0} vertices, {ld.Bones.Count} bones; {anims.Count} animation(s) match: {string.Join(", ", anims.Select(a => a.Name).Take(12))}");
+                // the ghost meshes
+                var gp = MhoPackageModifier.Package.Open(gpath);
+                var sw = PowerParts.List(gfile, gpath).FirstOrDefault(s => s.PartName.Equals("dodgevfx", StringComparison.OrdinalIgnoreCase));
+                if (sw == null || sw.Original.Length == 0) { Console.WriteLine("no dodge effect"); return 1; }
+                var ghosts = new List<(string Name, Vector3[] P)>();
+                foreach (var e in gp.Exports)
+                {
+                    if (!gp.ClassOf(e).Equals("ParticleModuleTypeDataMesh", StringComparison.OrdinalIgnoreCase) || !gp.PathOf(e).StartsWith(sw.Original + ".", StringComparison.OrdinalIgnoreCase)) continue;
+                    byte[] d = gp.ReadExportBytes(e).ToArray();
+                    if (MhoPackageModifier.TagWalker.Walk(gp, d, 4)?.FirstOrDefault(t => t.Name.Equals("mesh", StringComparison.OrdinalIgnoreCase)) is not { } mt) continue;
+                    int r = BitConverter.ToInt32(d, mt.ValueAt);
+                    if (r <= 0 || gp.PathOf(gp.Exports[r - 1]).Contains("vfx_shared", StringComparison.OrdinalIgnoreCase) || ghosts.Any(x => x.Name == gp.Exports[r - 1].ObjectName)) continue;
+                    var sm = MhoPackageModifier.StaticMesh.Read(gp, gp.Exports[r - 1]);
+                    ghosts.Add((gp.Exports[r - 1].ObjectName, sm.Positions));
+                }
+                var gsw = System.Diagnostics.Stopwatch.StartNew();
+                var animator = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences);
+                // rest pose too, for comparison
+                var poses = new List<(string Anim, float Frame, GhostFit.Model P)> { ("(rest pose)", 0, new GhostFit.Model(ld.Positions)) };
+                foreach (var a in anims)
+                {
+                    var ba = ModAnimations.Load(a);
+                    if (ba == null) continue;
+                    var (frames, _) = MeshAnimator.Span(ba);
+                    for (float fr = 0, fstep = Math.Max(1f, frames / (float.TryParse(Environment.GetEnvironmentVariable("MHO_GHOST_FRAMES"), out float gfn) ? gfn : 24f)); fr <= frames; fr += fstep)
+                    {
+                        animator.Pose(ba, fr);
+                        poses.Add((a.Name, fr, new GhostFit.Model((Vector3[])animator.Positions.Clone())));
+                    }
+                }
+                Console.WriteLine($"{ghosts.Count} ghost(s), {poses.Count} pose(s) to try");
+                foreach (var (gname, gpts) in ghosts)
+                {
+                    // the turn from the rest pose (all 24 starts), then every pose from that turn; the best three refined
+                    var restFit = GhostFit.Best(poses[0].P, gpts, 20);
+                    var results = poses.Select(p => (p.Anim, p.Frame, p.P, F: GhostFit.Best(p.P, gpts, 8, restFit.Start))).OrderBy(x => x.F.ErrorShare).ToList();
+                    var refined = results.Take(3).Select(x => (x.Anim, x.Frame, F: GhostFit.Best(x.P, gpts, 30))).OrderBy(x => x.F.ErrorShare).ToList();
+                    var top = refined[0]; var e = top.F.Turn;
+                    Console.WriteLine($"  {gname} ({gpts.Length} vertices): best {top.Anim} frame {top.Frame:0.#}: error {top.F.Error:0.00} units ({top.F.ErrorShare * 100:0.0} % of its size), scale {top.F.Scale:0.000}, turn ({e.X:0.00} {e.Y:0.00} {e.Z:0.00} {e.W:0.00}); next: {string.Join(", ", results.Where(x => x.Anim != top.Anim || x.Frame != top.Frame).Take(3).Select(x => $"{x.Anim} {x.Frame:0.#} {x.F.ErrorShare * 100:0.0} %"))}; rest pose {restFit.ErrorShare * 100:0.0} %");
+                    Console.Out.Flush();
+                    // MHO_GHOST_DUMP=<dir>: the ghost's points and the best pose's, fitted onto it (x y z per line), to look at
+                    if (Environment.GetEnvironmentVariable("MHO_GHOST_DUMP") is { Length: > 0 } dump)
+                    {
+                        Directory.CreateDirectory(dump);
+                        var bp = poses.First(x => x.Anim == top.Anim && x.Frame == top.Frame).P;
+                        var inv = System.Globalization.CultureInfo.InvariantCulture;
+                        File.WriteAllLines(Path.Combine(dump, gname + "_ghost.xyz"), gpts.Select(v => string.Format(inv, "{0} {1} {2}", v.X, v.Y, v.Z)));
+                        File.WriteAllLines(Path.Combine(dump, gname + "_model.xyz"), GhostFit.Apply(bp, top.F).Select(v => string.Format(inv, "{0} {1} {2}", v.X, v.Y, v.Z)));
+                    }
+                }
+                Console.WriteLine($"({gsw.Elapsed.TotalSeconds:0.0} s)");
+                return 0;
+            }
+            case "--dodge-census":
+            {
+                // Read only (2026-10-17, Kurt: replace the dodge ghost with the mod's model): every hero base package's
+                // dodgevfx part → its particle system → mesh emitters → the static meshes they emit (vertices, size, package).
+                string? dgr = settings.ResolvedGameRoot(data);
+                if (dgr == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(dgr, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string dck = Settings.Cooked(dgr);
+                var rx = new System.Text.RegularExpressions.Regex(@"^UC__MarvelPlayer_([A-Za-z0-9]+)_SF\.upk$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                int heroes = 0, withMesh = 0;
+                foreach (string f in Directory.EnumerateFiles(dck, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileName).Where(f => rx.IsMatch(f!)).Order()!)
+                {
+                    if (f!.Contains("Audio", StringComparison.OrdinalIgnoreCase)) continue;
+                    var sw = PowerParts.List(f, StockFiles.For(dck, f)).FirstOrDefault(s => s.PartName.Equals("dodgevfx", StringComparison.OrdinalIgnoreCase));
+                    heroes++;
+                    if (sw == null || sw.Original.Length == 0) { Console.WriteLine($"{rx.Match(f).Groups[1].Value,-18} no dodge effect of its own"); continue; }
+                    var pk = MhoPackageModifier.Package.Open(StockFiles.For(dck, f));
+                    string sys = sw.Original;
+                    // the system's mesh emitters: particlemoduletypedatamesh exports under it, their 'mesh'
+                    var meshes = new List<string>();
+                    for (int i = 0; i < pk.Exports.Length; i++)
+                    {
+                        var e = pk.Exports[i];
+                        if (!pk.ClassOf(e).Equals("ParticleModuleTypeDataMesh", StringComparison.OrdinalIgnoreCase) || !pk.PathOf(e).StartsWith(sys + ".", StringComparison.OrdinalIgnoreCase)) continue;
+                        byte[] d = pk.ReadExportBytes(e).ToArray();
+                        if (MhoPackageModifier.TagWalker.Walk(pk, d, 4) is { } w && w.FirstOrDefault(t => t.Name.Equals("mesh", StringComparison.OrdinalIgnoreCase)) is { } mt)
+                        {
+                            int r = BitConverter.ToInt32(d, mt.ValueAt);
+                            meshes.Add(r > 0 ? pk.PathOf(pk.Exports[r - 1]) + $" ({pk.Exports[r - 1].SerialSize:N0} B)" : "import " + pk.RefName(r));
+                        }
+                    }
+                    var own = meshes.Where(m => !m.StartsWith("import") && !m.Contains("vfx_shared", StringComparison.OrdinalIgnoreCase)).Distinct().ToList();
+                    if (own.Count > 0) withMesh++;
+                    Console.WriteLine($"{rx.Match(f).Groups[1].Value,-18} {sys[(sys.LastIndexOf('.') + 1)..],-40} {meshes.Count} mesh emitter(s); own meshes: {(own.Count == 0 ? "none" : string.Join(", ", own.Select(m => m[(m.LastIndexOf('.') + 1)..])))}");
+                }
+                Console.WriteLine($"{heroes} heroes, {withMesh} with a dodge ghost mesh of their own");
+                return 0;
+            }
+            case "--parts":
+            {
+                // Read only: what the Powers tab's Parts list offers for these packages (PowerParts.List).
+                foreach (string f in rest.Skip(1))
+                {
+                    var sw = PowerParts.List(Path.GetFileName(f), f);
+                    Console.WriteLine($"{Path.GetFileName(f)}: {sw.Count} switch(es)");
+                    foreach (var s in sw) Console.WriteLine($"  {s.Kind,-10} {s.Label,-28} {s.What,-48} {(s.Original.Length > 0 ? "on" : "off in the game")}  [{s.PartName}]");
+                }
+                return 0;
+            }
+            case "--power-null":
+            {
+                // Test (2026-10-17, Invisible Woman's hover): a power or condition package with parts switched off from inside.
+                // Taking parts off the class default's components list did nothing in game: the Class export's own map
+                // (component name → template) is what the game instances. Here, in every part whose name matches <part regex>,
+                // object properties matching <property regex> are set to none and array properties are emptied.
+                // --power-null <package.upk> <out.upk> <part regex> <property regex>. Never writes the game folder.
+                if (rest.Count < 5) { Console.WriteLine("--power-null <package.upk> <out.upk> <part regex> <property regex>"); return 1; }
+                var np = MhoPackageModifier.Package.Open(rest[1]);
+                string nout = Path.GetFullPath(rest[2]);
+                if (Settings.Load().ResolvedGameRoot(lib.DataFolder) is string ngr && nout.StartsWith(Path.GetFullPath(Settings.Cooked(ngr)), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: that's the game folder"); return 1; }
+                var partRx = new System.Text.RegularExpressions.Regex(rest[3], System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var propRx = new System.Text.RegularExpressions.Regex("^(" + rest[4] + ")$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var replace = new Dictionary<int, Func<long, byte[]>>();
+                for (int i = 0; i < np.Exports.Length; i++)
+                {
+                    var e = np.Exports[i];
+                    string path = np.PathOf(e);
+                    // a part: a component under a class default (marvelgamecontent.default__<class>.<part>)
+                    if (e.OuterIndex <= 0 || !np.Exports[e.OuterIndex - 1].ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase) || !partRx.IsMatch(e.ObjectName)) continue;
+                    byte[] d = np.ReadExportBytes(e).ToArray();
+                    // (components start their properties at 16 or 8; the start whose walk finds a matching property)
+                    var walk = new[] { 16, 8 }.Select(st => MhoPackageModifier.TagWalker.Walk(np, d, st)).FirstOrDefault(w => w != null && w.Any(t => propRx.IsMatch(t.Name)));
+                    if (walk == null) continue;
+                    var hits = walk.Where(t => propRx.IsMatch(t.Name)).ToList();
+                    if (hits.Count == 0) continue;
+                    var outB = new List<byte>(); int at = 0;
+                    foreach (var t in hits.OrderBy(t => t.Start))
+                    {
+                        string ty = t.Type.ToLowerInvariant();
+                        if (ty == "objectproperty" && t.Size == 4)
+                        {
+                            outB.AddRange(d.AsSpan(at, t.ValueAt - at).ToArray()); outB.AddRange(BitConverter.GetBytes(0)); at = t.ValueAt + 4;
+                            Console.WriteLine($"  {e.ObjectName}.{t.Name} = {np.RefName(BitConverter.ToInt32(d, t.ValueAt))} → none");
+                        }
+                        else if (ty == "boolproperty" && t.Size == 0 && t.Start + 24 < d.Length)
+                        {
+                            // a true/false setting: its value is the byte after the 24-byte tag (Invisible Woman's
+                            // animcomplexcomponent.cantransitiontohover: running turns into her hover)
+                            outB.AddRange(d.AsSpan(at, t.Start + 24 - at).ToArray()); outB.Add(0); at = t.Start + 25;
+                            Console.WriteLine($"  {e.ObjectName}.{t.Name} = {(d[t.Start + 24] != 0 ? "true" : "false")} → false");
+                        }
+                        else if (ty == "arrayproperty")
+                        {
+                            byte[] head = d.AsSpan(at, t.ValueAt - at).ToArray();
+                            BitConverter.GetBytes(4).CopyTo(head, t.Start + 16 - at);   // the array's size: just the count
+                            outB.AddRange(head); outB.AddRange(BitConverter.GetBytes(0)); at = t.End;
+                            Console.WriteLine($"  {e.ObjectName}.{t.Name}: {BitConverter.ToInt32(d, t.ValueAt)} entries → empty");
+                        }
+                    }
+                    outB.AddRange(d.AsSpan(at).ToArray());
+                    byte[] nd = [.. outB];
+                    replace[i] = _ => nd;
+                }
+                if (replace.Count == 0) { Console.WriteLine("nothing matched"); return 1; }
+                byte[] nbuilt = MhoPackageModifier.PackageRebuilder.Rebuild(np, replace, [], out var nwritten);
+                var nprobs = MhoPackageModifier.PackageRebuilder.Verify(np, nbuilt, replace.Keys.ToList(), [], nwritten);
+                var nback = MhoPackageModifier.Package.FromBytes(nbuilt);
+                foreach (int i in replace.Keys)
+                {
+                    byte[] bd = nback.ReadExportBytes(nback.Exports[i]).ToArray();
+                    var bw = new[] { 16, 8 }.Select(st => MhoPackageModifier.TagWalker.Walk(nback, bd, st)).FirstOrDefault(w => w != null && w.Any(t => propRx.IsMatch(t.Name)));
+                    if (bw == null) { nprobs.Add($"{nback.Exports[i].ObjectName}: properties don't read back"); continue; }
+                    foreach (var t in bw.Where(t => propRx.IsMatch(t.Name)))
+                        if (t.Type.Equals("boolproperty", StringComparison.OrdinalIgnoreCase) ? bd[t.Start + 24] != 0 : BitConverter.ToInt32(bd, t.ValueAt) != 0) nprobs.Add($"{nback.Exports[i].ObjectName}.{t.Name} isn't empty");
+                }
+                if (nprobs.Count > 0) { Console.WriteLine("verify: FAIL " + string.Join("; ", nprobs)); return 1; }
+                Directory.CreateDirectory(Path.GetDirectoryName(nout)!);
+                File.WriteAllBytes(nout, nbuilt);
+                Console.WriteLine($"wrote {nout}: {replace.Count} part(s) changed, verified");
+                return 0;
+            }
             case "--power-fx":
             {
                 // Read-only: what the 3D preview plays for a power class (its own; the MHO Hero Creator's --power-fx summary).

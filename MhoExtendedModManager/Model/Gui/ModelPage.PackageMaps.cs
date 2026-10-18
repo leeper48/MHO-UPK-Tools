@@ -95,7 +95,7 @@ sealed partial class ModelPage
         if (mip == null || TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _) is not byte[] px) { Log($"Materials: {m.Texture} can't be read ({note})."); return false; }
         Directory.CreateDirectory(Path.GetDirectoryName(png)!);
         using var bmp = TextureDecode.ToBitmap(px, mip.Width, mip.Height);
-        bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+        ImagePixels.SavePng(bmp, png);
         return true;
     }
 
@@ -119,7 +119,7 @@ sealed partial class ModelPage
         {
             // the original's size (divisible by 4 for DXT)
             int w = m.W > 0 ? m.W : 4, h = m.H > 0 ? m.H : 4;
-            using (var src = new Bitmap(image))
+            using (var src = ImagePixels.Open(image))
             using (var fit = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             {
                 using (var g = Graphics.FromImage(fit))
@@ -129,7 +129,7 @@ sealed partial class ModelPage
                     g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
                     g.DrawImage(src, 0, 0, w, h);
                 }
-                fit.Save(temp, System.Drawing.Imaging.ImageFormat.Png);
+                ImagePixels.SavePng(fit, temp);
             }
             string? want = m.Format.Contains("DXT1", StringComparison.OrdinalIgnoreCase) ? "dxt1" : m.Format.Contains("DXT5", StringComparison.OrdinalIgnoreCase) ? "dxt5" : null;
             var enc = TextureEncode.FromImage(temp, want, 85, 1f, noMips: false, refine: true);

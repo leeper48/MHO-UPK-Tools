@@ -59,6 +59,26 @@ sealed partial class ModEditorView
             }, TaskScheduler.FromCurrentSynchronizationContext());
             return;
         }
+        if (PowerColorBuild.IsCharacterParts(p.Prototype))
+        {
+            // a character's own parts: their effects in its base package (the mod's copy before an earlier recolor, else the
+            // mod's, else the game's)
+            string f = p.Prototype[PowerColorBuild.CharacterPrefix.Length..];
+            string? path = editing != null && Path.Combine(editing.Folder, ModelWork.Folder, "color_base", f) is var kb && File.Exists(kb) ? kb
+                : draft.Packages.FirstOrDefault(x => x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source
+                  ?? (StockFiles.For(game.Cooked, f) is var gf && File.Exists(gf) ? gf : null);
+            if (path == null) { paletteNote.Text = ""; return; }
+            paletteNote.Text = "Reading…";
+            var gc = game;
+            Task.Run(() => PowerRecolor.Palette([path], gc.Cooked, characterParts: true)).ContinueWith(t =>
+            {
+                if (IsDisposed || req != paletteRequest) return;
+                if (t.Status != TaskStatus.RanToCompletion) { paletteNote.Text = "Its Colors Couldn't Be Read"; return; }
+                paletteCache[p.Prototype] = t.Result;
+                ShowPalette(t.Result);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
         if (PowerColorBuild.IsOwn(p.Prototype))
         {
             // a character's own effects: the package as the mod has it (the one kept before an earlier recolor, if any)
@@ -218,14 +238,31 @@ sealed partial class ModEditorView
     internal async Task<Control?> PowersShot(string power, double fraction)
     {
         SelectTab(pages.FindIndex(x => x.Title == "Powers"));
-        for (int i = 0; i < 600 && powerList.Items.Count == 0; i++) await Task.Delay(100);
+        // (the entry named, not just any: the Character entry is in the list before the hero's powers have loaded)
+        for (int i = 0; i < 600 && !powerList.Items.Cast<Fx.PowerList.Power>().Any(x => x.Name.Equals(power, StringComparison.OrdinalIgnoreCase)); i++) await Task.Delay(100);
         int at = powerList.Items.Cast<Fx.PowerList.Power>().ToList().FindIndex(x => x.Name.Equals(power, StringComparison.OrdinalIgnoreCase));
+        if (at < 0) File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_powershot_names.txt"), string.Join(Environment.NewLine, powerList.Items.Cast<Fx.PowerList.Power>().Select(x => x.Name)));
         if (at < 0 || powerPreview == null) return null;
         powerList.SelectedIndex = at;
         for (int i = 0; i < 300 && powerPreview.FrameForTest() == null; i++) await Task.Delay(100);
+        // MHO_SHOT_PART=<part>: that part's ▶ in the Parts list (the dodge ghosts)
+        if (Environment.GetEnvironmentVariable("MHO_SHOT_PART") is { Length: > 0 } shotPart && partsGrid != null)
+        {
+            powerSideTabs?.Select(1);   // (the Parts tab, where the part's ▶ is)
+            for (int i = 0; i < 300 && partsGrid.Rows.Count == 0; i++) await Task.Delay(100);
+            await Task.Delay(5000);   // (the list fills again when the background reads are in, and selects the entry again)
+            var found = partsGrid.Rows.Cast<DataGridViewRow>().Select(r => r.Tag).OfType<PowerParts.Switch>().FirstOrDefault(s => s.PartName.Equals(shotPart, StringComparison.OrdinalIgnoreCase));
+            File.AppendAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_partshot.log"), $"{DateTime.Now:T} rows {partsGrid.Rows.Count}, part {shotPart}: {(found == null ? "not found" : $"{found.Kind} in {found.Package}")}{Environment.NewLine}");
+            // MHO_SHOT_ANIM=<animation>@<frame>: the character held in that pose while the part plays (a ghost beside its own pose)
+            (string, float)? hold = Environment.GetEnvironmentVariable("MHO_SHOT_ANIM") is { Length: > 0 } sa && sa.Split('@') is [var an, var fr]
+                ? (an, float.Parse(fr, System.Globalization.CultureInfo.InvariantCulture)) : null;
+            if (found != null) PlayPart(found, hold);
+            for (int i = 0; i < 300 && powerPreview.FrameForTest() == null; i++) await Task.Delay(100);
+        }
         await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("MHO_SHOT_WAIT"), out int sw) ? sw : 3000);   // props, rules and their animations load in the background
         powerPreview.ScrubForTest(fraction);
         await Task.Delay(1500);
+        File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_powershot_effects.txt"), powerPreview.EffectsDebug());
         return powerPreview;
     }
 

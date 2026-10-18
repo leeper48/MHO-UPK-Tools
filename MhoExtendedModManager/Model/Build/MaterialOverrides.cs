@@ -133,7 +133,7 @@ sealed class MaterialOverrides
         Protected.CheckWrite(dir);
         Directory.CreateDirectory(dir);
         string outFile = Path.Combine(dir, name + "_n.png");
-        using var src = new Bitmap(file);
+        using var src = ImagePixels.Open(file);
         using var bmp = new Bitmap(src.Width, src.Height, PixelFormat.Format32bppArgb);
         // (a plain copy: drawing blends the colors away wherever the alpha is 0; some normal maps keep height there)
         using (var g = Graphics.FromImage(bmp)) { g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy; g.DrawImage(src, 0, 0, src.Width, src.Height); }
@@ -146,7 +146,7 @@ sealed class MaterialOverrides
             System.Runtime.InteropServices.Marshal.Copy(px, 0, d.Scan0, px.Length);
             bmp.UnlockBits(d);
         }
-        bmp.Save(outFile, ImageFormat.Png);
+        ImagePixels.SavePng(bmp, outFile);
         return outFile;
     }
 }

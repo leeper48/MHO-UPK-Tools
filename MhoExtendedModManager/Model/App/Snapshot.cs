@@ -22,7 +22,7 @@ static class Snapshot
         public static Tex? Load(string? path)
         {
             if (path == null || !File.Exists(path)) return null;
-            using var bmp = new Bitmap(path);
+            using var bmp = ImagePixels.Open(path);
             var t = new Tex { W = bmp.Width, H = bmp.Height, Px = new int[bmp.Width * bmp.Height] };
             var d = bmp.LockBits(new Rectangle(0, 0, t.W, t.H), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
             Marshal.Copy(d.Scan0, t.Px, 0, t.Px.Length);
@@ -155,7 +155,7 @@ static class Snapshot
             using (var g = Graphics.FromImage(sheet)) g.DrawImage(panel, vi * W, 0);
         }
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPng))!);
-        sheet.Save(outPng, ImageFormat.Png);
+        ImagePixels.SavePng(sheet, outPng);
     }
 
     static PointF ToPointF(Vector2 v) => new(v.X, v.Y);

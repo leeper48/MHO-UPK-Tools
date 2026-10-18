@@ -14,11 +14,12 @@ static class PowerColorBuild
     {
         var before = editing?.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var beforeOwn = editing?.Manifest.PowerColors?.Where(e => IsOwn(e.Power)).SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        var beforeChar = editing?.Manifest.PowerColors?.Where(e => IsCharacterParts(e.Power)).SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
         var wanted = draft.PowerColors.Where(e => !e.Color.IsNone).ToList();
         if (wanted.Count == 0 && before.Count == 0) { draft.PowerColors.Clear(); return null; }
         string? hero = draft.Packages.Select(p => HeroOf.Package(p.File, game.Cooked)).FirstOrDefault(h => h != null);
-        if (wanted.Any(e => !IsOwn(e.Power) && !IsPackage(e.Power) && e.Owner == null) && hero == null) throw new InvalidDataException("the mod has no hero package (UC__MarvelPlayer_…) to tell whose powers these are");
-        if (wanted.Any(e => !IsOwn(e.Power) && !IsPackage(e.Power)) || before.Count > beforeOwn.Count)
+        if (wanted.Any(e => !IsOwn(e.Power) && !IsPackage(e.Power) && !IsCharacterParts(e.Power) && e.Owner == null) && hero == null) throw new InvalidDataException("the mod has no hero package (UC__MarvelPlayer_…) to tell whose powers these are");
+        if (wanted.Any(e => !IsOwn(e.Power) && !IsPackage(e.Power) && !IsCharacterParts(e.Power)) || before.Count > beforeOwn.Count + beforeChar.Count)
             powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(game.Root, "Data", "Game", "Calligraphy.sip")));
         string ModelFolder()
         {
@@ -37,6 +38,7 @@ static class PowerColorBuild
         {
             e.Packages = [];
             foreach (string f in IsOwn(e.Power) ? [e.Power[OwnPrefix.Length..]]
+                : IsCharacterParts(e.Power) ? [e.Power[CharacterPrefix.Length..]]
                 : IsPackage(e.Power) ? [e.Power[PackagePrefix.Length..]]
                 : e.Owner != null ? PowerRecolor.PackagesOfAgent(powerDb!, e.Power, ClassOf(e.Owner), game.Cooked)
                 : PowerRecolor.PackagesOf(powerDb!, e.Power, hero!, game.Cooked))
@@ -63,9 +65,13 @@ static class PowerColorBuild
                 if (k < 0) { log.Add($"{f}: not in the mod any more; its colors are dropped"); e.Packages.Remove(f); continue; }
                 source = OwnStart(draft, editing, f, k, beforeOwn.Contains(f), ModelFolder());
             }
+            // A character's parts (its base package: the dodge's ghosts, a hover's glow): the mod's own copy when it has one (kept
+            // before the recolor, as for own effects), else the game's, added to the mod
+            if (IsCharacterParts(e.Power) && k >= 0 && (beforeChar.Contains(f) ? File.Exists(Path.Combine(ModelFolder(), "color_base", f)) : true))
+                source = OwnStart(draft, editing, f, k, beforeChar.Contains(f), ModelFolder());
             if (source == null) throw new InvalidDataException($"{f}: no clean original of this power package (the game's copy is changed)");
             // (a hero's package: only its always-on effects, the rest of it is the hero; Ghost Rider's flaming skull)
-            byte[]? bytes = PowerRecolor.Build(source, e.Color, game.Cooked, l => log.Add($"{e.Name}: {l}"), onlyOwnSystems: IsOwn(e.Power) && IsHero(f));
+            byte[]? bytes = PowerRecolor.Build(source, e.Color, game.Cooked, l => log.Add($"{e.Name}: {l}"), onlyOwnSystems: IsOwn(e.Power) && IsHero(f), characterParts: IsCharacterParts(e.Power));
             if (bytes == null) { e.Packages.Remove(f); continue; }   // nothing in it to recolor: not part of the mod
             string file = Path.Combine(work, f);
             File.WriteAllBytes(file, bytes);
@@ -81,7 +87,17 @@ static class PowerColorBuild
             draft.Packages[k] = (f, start);
             log.Add($"{f}: its own effects back to the game's colors");
         }
-        draft.Packages.RemoveAll(p => before.Contains(p.File) && !beforeOwn.Contains(p.File) && !kept.Contains(p.File) && borrowed?.Contains(p.File) != true);
+        // a character's parts back to the game's colors: the mod's own copy back (kept before the recolor), else the package
+        // (the game's copy, added for the color) out of the mod
+        foreach (string f in beforeChar.Where(f => !kept.Contains(f)))
+        {
+            int k = draft.Packages.FindIndex(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase));
+            if (k < 0) continue;
+            string start = Path.Combine(ModelFolder(), "color_base", f);
+            if (File.Exists(start)) { draft.Packages[k] = (f, start); log.Add($"{f}: its parts back to the game's colors"); }
+            else { draft.Packages.RemoveAt(k); log.Add($"{f}: its parts back to the game's colors (the package is out of the mod)"); }
+        }
+        draft.Packages.RemoveAll(p => before.Contains(p.File) && !beforeOwn.Contains(p.File) && !beforeChar.Contains(p.File) && !kept.Contains(p.File) && borrowed?.Contains(p.File) != true);
         draft.PowerColors.RemoveAll(e => e.Color.IsNone);
         return work;
     }
@@ -90,6 +106,11 @@ static class PowerColorBuild
     /// the package file.</summary>
     public const string OwnPrefix = "own:";
     public static bool IsOwn(string power) => power.StartsWith(OwnPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A Powers tab entry for a hero's own parts (Kurt, 2026-10-17: the dodge, a hover): "char:" and the hero's base
+    /// package. Its color recolors the effects of those parts (PowerRecolor.PartSystems) in that package.</summary>
+    public const string CharacterPrefix = "char:";
+    public static bool IsCharacterParts(string power) => power.StartsWith(CharacterPrefix, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A Powers tab entry for a whole package added by hand (Add Package; a user, 2026-10-13: a power that falls off
     /// the hero's list): "pkg:" and the package file. Everything in it is recolored, as a power's packages are.</summary>

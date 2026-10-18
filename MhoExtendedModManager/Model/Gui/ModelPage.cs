@@ -194,7 +194,7 @@ sealed partial class ModelPage : UserControl
         InitRigs();
         smooth.Margin = new Padding(0, 6, 10, 0); rigsButton.Margin = new Padding(0, 0, 6, 0); defaultParts.Margin = new Padding(0);
         partsHead.Controls.AddRange([smooth, rigsButton, defaultParts]);
-        modelTabs.Add("Parts", Column("", partsHead, parts));
+        modelTabs.Add("Parts", PartsTab(Column("", partsHead, parts)));
         var mapButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         foreach (var b in new[] { mapBones, mapWeights, mapSmooth }) { b.Margin = new Padding(0, 0, 6, 0); mapButtons.Controls.Add(b); }
         mapReset.Margin = new Padding(0); mapButtons.Controls.Add(mapReset);
@@ -946,7 +946,7 @@ sealed partial class ModelPage : UserControl
     /// prop, the MFF part most like it is ticked alone (PropFit.BestPart); back on a body, the importer's own choice. On a new
     /// source (<paramref name="changed"/> false) only parts still as the importer ticked them are changed.
     /// </summary>
-    void PropTicks(bool changed) => propTicks = PropTicksAsync(changed, ++propTicksRun);
+    void PropTicks(bool changed) { propTicks = PropTicksAsync(changed, ++propTicksRun); FillTargetProps(); }
 
     /// <summary>The latest prop check's number: an older one still loading (the restored pick) doesn't override a newer pick.</summary>
     int propTicksRun;

@@ -299,7 +299,7 @@ static class PowerRecolor
 
     /// <summary>Builds the recolored package from a stock copy; null when it has nothing to recolor (Crack the Sky's own class:
     /// its lightning is the powers it sets off). Throws on any problem; writes nothing.</summary>
-    public static byte[]? Build(string stockFile, PowerColor color, string cooked, Action<string> log, bool onlyOwnSystems = false)
+    public static byte[]? Build(string stockFile, PowerColor color, string cooked, Action<string> log, bool onlyOwnSystems = false, bool characterParts = false)
     {
         var pkg = Package.Open(stockFile);
         string file = Path.GetFileName(stockFile);
@@ -316,11 +316,11 @@ static class PowerRecolor
         // and his bike stay. Null: the whole package (an NPC's or enemy's own effects, a power package).
         HashSet<int>? allowed = null;
         SortedSet<int>? onlySystems = null;
-        if (onlyOwnSystems)
+        if (onlyOwnSystems || characterParts)
         {
             var fxp = new FxPkg(Path.GetFileName(stockFile), pkg.Body, t);
-            onlySystems = OwnSystems(fxp, cls);
-            if (onlySystems.Count == 0) { log($"{Path.GetFileName(stockFile)}: no always-on effects of its own"); return null; }
+            onlySystems = characterParts ? PartSystems(fxp, cls) : OwnSystems(fxp, cls);
+            if (onlySystems.Count == 0) { log($"{Path.GetFileName(stockFile)}: no {(characterParts ? "effects in its parts" : "always-on effects of its own")}"); return null; }
             allowed = Within(t, pkg.Body, onlySystems, fxp);
             log($"{onlySystems.Count} always-on effect(s): {string.Join(", ", onlySystems.Select(i => t.Exports[i].ObjectName))}");
         }
@@ -454,7 +454,7 @@ static class PowerRecolor
         if (mp.Count > 0) throw new InvalidDataException($"{file}: " + string.Join("; ", mp.Take(5)));
         log($"{moved.Count} object(s) under {top} ({recolored.Count} texture(s), {materials.Count} material(s), {systems.Count} particle system(s)): no path shared with the stock effects");
         // 5. A dark color: additive effects (which a dark color makes vanish) drawn translucent instead (DarkSwap)
-        if (DarkSwap.Wanted(color) && color.Opacity >= PowerColor.Invisible && !onlyOwnSystems && DarkSwap.Apply(output, file, cooked, color.Opacity, log) is { } dark)
+        if (DarkSwap.Wanted(color) && color.Opacity >= PowerColor.Invisible && !onlyOwnSystems && !characterParts && DarkSwap.Apply(output, file, cooked, color.Opacity, log) is { } dark)
             output = dark;
 
         // Read back: every particle system still reads.
@@ -501,7 +501,7 @@ static class PowerRecolor
     /// together, else by 15 degrees of hue and three saturation steps; each group shows its weighted mean tint. Groups under
     /// 1 % are dropped; the largest first, at most <paramref name="max"/>.
     /// </summary>
-    public static List<Swatch> Palette(IEnumerable<string> files, string cooked, int max = 16, bool onlyOwnSystems = false)
+    public static List<Swatch> Palette(IEnumerable<string> files, string cooked, int max = 16, bool onlyOwnSystems = false, bool characterParts = false)
     {
         var groups = new Dictionary<int, (Vector3 Sum, float W, HashSet<string> From)>();
         void Add(Vector3 v, float w, string from)
@@ -524,12 +524,12 @@ static class PowerRecolor
             var fx = new FxPkg(Path.GetFileName(f), pkg.Body, t);
             // (a hero's own effects: only the always-on ones, as the recolor does)
             SortedSet<int>? onlySystems = null; HashSet<int>? allowed = null;
-            if (onlyOwnSystems)
+            if (onlyOwnSystems || characterParts)
             {
                 string cls = Path.GetFileNameWithoutExtension(f);
                 if (cls.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) cls = cls[4..];
                 if (cls.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) cls = cls[..^3];
-                onlySystems = OwnSystems(fx, cls.ToLowerInvariant());
+                onlySystems = characterParts ? PartSystems(fx, cls.ToLowerInvariant()) : OwnSystems(fx, cls.ToLowerInvariant());
                 allowed = Within(t, pkg.Body, onlySystems, fx);
             }
             RecolorTables(body, t, v => { Add(v, 1, "particles"); return v; }, allowed);
@@ -628,6 +628,25 @@ static class PowerRecolor
             var ep = Props(i);
             if (ep.Any(x => x.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase))) continue;
             if (ep.FirstOrDefault(x => x.Name.Equals("ParticleSystemTemplate", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } sp) Add(BitConverter.ToInt32(p.Bytes, sp.ValueAt));
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// A character package's own parts' particle systems (the Powers tab's Character entry; Kurt, 2026-10-17: the dodge's
+    /// ghosts): every part of its class default that names a ParticleSystemTemplate (the dodge, a hover's glow, its always-on
+    /// effects), and its always-on effects (OwnSystems). 0-based exports.
+    /// </summary>
+    public static SortedSet<int> PartSystems(FxPkg p, string cls)
+    {
+        var found = OwnSystems(p, cls);
+        string prefix = "marvelgamecontent.default__" + cls + ".";
+        for (int i = 0; i < p.T.Exports.Count; i++)
+        {
+            if (!p.T.PathOf(i + 1).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props.FirstOrDefault(x => x.Name.Equals("ParticleSystemTemplate", StringComparison.OrdinalIgnoreCase)) is not { Size: 4 } sp) continue;
+            int r = BitConverter.ToInt32(p.Bytes, sp.ValueAt);
+            if (r > 0 && p.T.ClassOf(p.T.Exports[r - 1]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) found.Add(r - 1);
         }
         return found;
     }

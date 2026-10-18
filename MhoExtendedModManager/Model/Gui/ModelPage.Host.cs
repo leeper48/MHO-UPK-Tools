@@ -21,6 +21,9 @@ interface IModelHost
     void AddPackage(string file, string path);
     /// <summary>A package taken out of the draft.</summary>
     void RemovePackage(string file);
+    /// <summary>The draft's parts switched off (Powers tab → Parts, and the target's props here): written into the packages on
+    /// Save (PowerParts.Build).</summary>
+    List<PartOffEntry> PartsOff { get; }
 }
 
 sealed partial class ModelPage

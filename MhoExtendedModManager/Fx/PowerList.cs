@@ -15,6 +15,8 @@ static class PowerList
     {
         /// <summary>The game data gives it a display name (else it's a fragment: a combo's part).</summary>
         public bool HasName { get; init; }
+        /// <summary>The editor's Powers tab: one of a character's own effect parts (dodgevfx …) under its Character entry.</summary>
+        public string? Part { get; init; }
     }
 
     static Dictionary<ulong, string>? english;

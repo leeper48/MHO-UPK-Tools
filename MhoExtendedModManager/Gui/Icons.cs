@@ -177,6 +177,23 @@ static class Icons
         g.FillPolygon(br, new[] { new PointF(cx, b.Y + h * 0.72f), new PointF(cx - s, b.Y + h * 0.72f - s * 1.1f), new PointF(cx + s, b.Y + h * 0.72f - s * 1.1f) });
     }
 
+    /// <summary>Extract: a picture (frame, hills, sun) with an arrow down out of its corner: the game's images and strings
+    /// saved as files.</summary>
+    public static void Extract(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float w = b.Width, h = b.Height;
+        var frame = RectangleF.FromLTRB(b.X, b.Y + h * 0.04f, b.X + w * 0.74f, b.Y + h * 0.74f);
+        g.DrawRectangle(p, frame.X, frame.Y, frame.Width, frame.Height);
+        g.DrawLines(p, new[] { new PointF(frame.X + w * 0.06f, frame.Bottom - h * 0.08f), new PointF(frame.X + w * 0.28f, frame.Y + h * 0.36f),
+            new PointF(frame.X + w * 0.44f, frame.Y + h * 0.52f), new PointF(frame.X + w * 0.56f, frame.Y + h * 0.42f), new PointF(frame.Right - w * 0.05f, frame.Bottom - h * 0.1f) });
+        float r = w * 0.08f;
+        g.FillEllipse(br, frame.Right - w * 0.22f - r, frame.Y + h * 0.16f - r, 2 * r, 2 * r);
+        float cx = b.Right - w * 0.08f;
+        g.DrawLine(p, cx, b.Y + h * 0.5f, cx, b.Bottom - h * 0.12f);
+        float s = w * 0.16f;
+        g.FillPolygon(br, new[] { new PointF(cx, b.Bottom + h * 0.04f), new PointF(cx - s, b.Bottom - h * 0.2f), new PointF(cx + s, b.Bottom - h * 0.2f) });
+    }
+
     /// <summary>Install Mod: an arrow down into a tray.</summary>
     public static void Install(Graphics g, RectangleF b, Pen p, Brush br)
     {
@@ -361,6 +378,13 @@ static class Icons
         if (arrowOut) { g.DrawLine(p, ax, b.Y + h * 0.15f, ax, b.Y + h * 0.5f); g.FillPolygon(br, new[] { new PointF(ax, b.Y - h * 0.08f), new PointF(ax - s, b.Y + s * 0.8f), new PointF(ax + s, b.Y + s * 0.8f) }); }
         if (arrowIn) { g.DrawLine(p, ax, b.Y, ax, b.Y + h * 0.42f); g.FillPolygon(br, new[] { new PointF(ax, b.Y + h * 0.75f), new PointF(ax - s, b.Y + h * 0.75f - s), new PointF(ax + s, b.Y + h * 0.75f - s) }); }
     };
+
+    /// <summary>Save with a small pencil at the lower right: save and keep editing.</summary>
+    public static void SaveStay(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        Save(g, new RectangleF(b.X - b.Width * 0.06f, b.Y - b.Height * 0.06f, b.Width * 0.8f, b.Height * 0.8f), p, br);
+        Pencil(g, new RectangleF(b.X + b.Width * 0.48f, b.Y + b.Height * 0.48f, b.Width * 0.6f, b.Height * 0.6f), p, br);
+    }
 
     /// <summary>A small + badge at the lower right (adds something).</summary>
     public static Action<Graphics, RectangleF, Pen, Brush> WithPlus(Action<Graphics, RectangleF, Pen, Brush> icon) => (g, b, p, br) =>

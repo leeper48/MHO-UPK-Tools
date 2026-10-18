@@ -562,6 +562,35 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 5 && args[0].Equals("--ghosts-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --ghosts-test <out.txt> <mod> <animation> <frame fraction> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.GhostsTest(args[1], args[2], args[3], double.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture)); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 2 && args[0].Equals("--name-check-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.NameCheckTest(args[1]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 4 && args[0].Equals("--target-props-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --target-props-test <out.txt> <mod> <prop label> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.TargetPropsTest(args[1], args[2], args[3]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 5 && args[0].Equals("--keep-frame-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
@@ -609,6 +638,15 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--keep-editing-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.KeepEditingTest(args[1], args[2]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--editor-save-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
@@ -635,6 +673,20 @@ static partial class Program
             var main = new Gui.MainForm();
             main.Shown += (_, _) => main.BeginInvoke(async () => { await main.UiSelfTest(args[1]); main.Close(); });
             Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 3 && args[0].Equals("--filedialog-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // On screen for ~2 s: an Open dialog on <folder>; FileDialogView sets Details and the columns; then they're read
+            // back into <out.txt> and the dialog closes.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            string said = "not run";
+            var probe = new System.Windows.Forms.Timer { Interval = 2500 };
+            probe.Tick += (_, _) => { probe.Stop(); said = Gui.FileDialogView.ProbeAndClose(); };
+            probe.Start();
+            using (var d = new OpenFileDialog { InitialDirectory = args[1], Filter = "Packages (*.upk)|*.upk" }) d.ShowDialog();
+            File.WriteAllText(args[2], said);
             return 0;
         }
         if (args.Length == 2 && args[0].Equals("--tooltip-audit", StringComparison.OrdinalIgnoreCase))

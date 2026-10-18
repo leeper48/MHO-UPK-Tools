@@ -9,6 +9,8 @@ interface IPreviewPrefs
     bool Reflect { get; set; }
     bool Glow { get; set; }
     bool Bloom { get; set; }
+    /// <summary>The ground plane at the feet (ModelView.ShowGround).</summary>
+    bool Ground { get; set; }
     bool Props { get; set; }
     bool Powers { get; set; }
     bool Loop { get; set; }
@@ -112,7 +114,7 @@ sealed partial class Preview3D : UserControl
         play = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses).");
         loop = Ui.FlatButton("⟳ Loop", () => { prefs.Loop = !prefs.Loop; prefs.Save(); Ui.Lit(loop!, prefs.Loop); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
         reset = Ui.FlatButton("Reset View", () => { if (ResetViewAction != null) ResetViewAction(); else view.ResetView(); }, "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
-        look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props and Power FXs on or off, and the Light, Glow and Lens sliders. Remembered.");
+        look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Ground on or off, and the Light, Glow and Lens sliders. Remembered.");
         (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);
         fullScreen = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
         powersButton = Ui.FlatButton("Power FXs", () => { prefs.Powers = !prefs.Powers; prefs.Save(); ApplyLook(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's power packages). Lit when on; remembered.");
@@ -192,7 +194,7 @@ sealed partial class Preview3D : UserControl
     /// <summary>The look switches into the view and the buttons that show them.</summary>
     void ApplyLook()
     {
-        view.ShowSpec = prefs.Spec; view.ShowReflections = prefs.Reflect; view.ShowGlow = prefs.Glow; view.ShowBloom = prefs.Bloom;
+        view.ShowSpec = prefs.Spec; view.ShowReflections = prefs.Reflect; view.ShowGlow = prefs.Glow; view.ShowBloom = prefs.Bloom; view.ShowGround = prefs.Ground;
         Ui.Lit(powersButton, prefs.Powers);
     }
 
@@ -204,7 +206,7 @@ sealed partial class Preview3D : UserControl
             var items = PreviewControls.StandardLook(
                 () => prefs.Spec, () => prefs.Spec = !prefs.Spec, () => prefs.Reflect, () => prefs.Reflect = !prefs.Reflect, () => prefs.Glow, () => prefs.Glow = !prefs.Glow,
                 () => prefs.Bloom, () => prefs.Bloom = !prefs.Bloom, () => prefs.Props, () => { prefs.Props = !prefs.Props; LoadProps(); },
-                () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); });
+                () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
             items.AddRange(ExtraLook);
             lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });
         }

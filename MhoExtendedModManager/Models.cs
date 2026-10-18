@@ -70,6 +70,12 @@ sealed class ModManifest
     public List<VoiceOffEntry>? VoiceOff { get; set; }
     /// <summary>Extension: power colours set in the editor (the packages they built are ordinary package replacements). Null when none.</summary>
     public List<PowerColorEntry>? PowerColors { get; set; }
+    /// <summary>Extension: parts of powers or characters switched off in the editor (Powers tab → Parts; the packages carry the
+    /// change), kept so they can be switched on again. Null when none.</summary>
+    public List<PartOffEntry>? PartsOff { get; set; }
+    /// <summary>Extension: dodge ghosts made from the mod's model (Powers tab → Character → Parts; the package carries the
+    /// meshes), kept so the poses can be changed or the game's ghosts put back. Null when none.</summary>
+    public List<DodgeGhostEntry>? DodgeGhosts { get; set; }
     /// <summary>Extension: power looks borrowed from other heroes' powers in the editor (the packages they built are ordinary
     /// package replacements). Null when none.</summary>
     public List<PowerBorrowEntry>? PowerBorrows { get; set; }

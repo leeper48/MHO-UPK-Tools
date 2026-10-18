@@ -11,6 +11,7 @@ namespace MhoExtendedModManager.Gui;
 /// </summary>
 sealed partial class ModEditorView : IModelHost
 {
+    List<PartOffEntry> IModelHost.PartsOff => draft.PartsOff;
     ModelPage? modelPage;
     string? modelWork;
 
@@ -74,6 +75,14 @@ sealed partial class ModEditorView : IModelHost
     async void SaveAsked()
     {
         if (askingModel) return;
+        // no name yet (Kurt, 2026-10-17): to Overview → Details, the cursor in Name, before anything is built or saved
+        if (nameBox.Text.Trim().Length == 0)
+        {
+            ShowTab((0, 0));
+            Dialog.Show(this, "Give the mod a name first: Type it in Name, then save again.", "Name the Mod", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            nameBox.Focus();
+            return;
+        }
         if (modelPage != null && ModelUnbuilt)
         {
             askingModel = true;

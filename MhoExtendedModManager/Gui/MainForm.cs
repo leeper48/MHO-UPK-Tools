@@ -66,6 +66,7 @@ sealed partial class MainForm : Form
     // Top-level tabs (Kurt: the editor and Extract as tabs, not pop-up windows).
     readonly FlatTabs pages = new() { Dock = DockStyle.Fill, TabPoints = 11f };
     readonly Panel editorHost = new() { Dock = DockStyle.Fill }, extractHost = new() { Dock = DockStyle.Fill };
+    Button? extractButton;
     readonly Control editorPlaceholder;
     ModEditorView? editor;
     ExtractView? extract;
@@ -224,7 +225,9 @@ sealed partial class MainForm : Form
         // Update alert (Kurt): shown when a newer release is known; a click offers it (the update window).
         updateAlert = Ui.FlatButton("↑ Update Available", () => CheckForUpdates(manual: true), tip: "A new version of MHO Extended Mod Manager is out. Click to see what's new and update (it restarts).");
         updateAlert.Visible = false;
-        topButtons.Controls.AddRange([newMod, install]);   // (one Extract: the tab, Kurt)
+        // Extract: an icon beside Install Mod, its page without a tab (Kurt, 2026-10-17: room for the Edit tab's full name)
+        extractButton = Ui.FlatButton("Extract", () => pages.Select(2), tip: "Save the game's original icons, store images and strings as .DDS / .PNG / .JSON files, to edit for a mod.");
+        topButtons.Controls.AddRange([newMod, install, extractButton]);
         var helpButton = Ui.FlatButton("Help", () => HelpForm.Show(this, settings), tip: "The manual: how everything works, shortcuts, troubleshooting (F1).");
         var spinner = new Spinner { Anchor = AnchorStyles.None, Margin = new Padding(0, 8, 8, 0) };   // anything running in the background (Kurt, 2026-10-06)
         rightButtons.Controls.AddRange([spinner, updateAlert, helpButton, settingsButton]);
@@ -236,6 +239,7 @@ sealed partial class MainForm : Form
         // icons (Kurt, 2026-10-04): the names head the tooltips
         Icons.Make(newMod, "New Mod", Icons.Plus, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(install, "Install Mod", Icons.Install, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        Icons.Make(extractButton, "Extract", Icons.Extract, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(helpButton, "Help", Icons.Help, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(settingsButton, "Settings", Icons.WithMenu(Icons.Gear), MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         top.Controls.Add(topButtons, 0, 0);
@@ -520,12 +524,14 @@ sealed partial class MainForm : Form
         pages.Add("Mods", modsPage);
         pages.Add("Editor", editorHost);
         pages.Add("Extract", extractHost);
+        pages.SetTabVisible(2, false);
         int lastPage = 0;
         pages.SelectedChanged += i =>
         {
             if (lastPage == 1 && i != 1) editor?.LeavingEditor();   // a Model tab change not built yet: asks (Kurt, 2026-10-06)
             lastPage = i;
             if (i == 2) EnsureExtract();
+            if (extractButton != null) Ui.Lit(extractButton, i == 2);   // (lit while its page shows)
             // The Editor tab with nothing open: open the mod highlighted in the list (Kurt). A mod already open stays as it is.
             if (i == 1 && editor == null && !readOnly && Selected is Mod m) BeginInvoke(() => { if (editor == null) EditMod(m); });
         };
@@ -1211,10 +1217,21 @@ sealed partial class MainForm : Form
         var ed = new ModEditorView(lib!, game, m);
         ed.Saved += name =>
         {
+            bool stay = ed.KeepEditing;
+            var at = ed.TabPosition;
             CloseEditor();
             filter.Text = "";
             Reload();
             SelectMod(name);
+            // Save and Keep Editing: the editor opens again on the saved mod, at the same tab (its new folder: a save swaps it in)
+            if (stay && lib?.Mods.FirstOrDefault(x => x.FolderName == name) is Mod again)
+            {
+                OpenEditor(again);
+                editor?.ShowTab(at);
+                pages.Select(1);
+                status.Text = Ui.TitleCase($"Saved \"{name}\"") + (again.Enabled ? "  ·  Apply Changes to Update the Game" : "");
+                return;
+            }
             pages.Select(0);
             status.Text = Ui.TitleCase((m == null ? $"Created \"{name}\" (top of the list, off: tick it, then Apply Changes)" : $"Saved \"{name}\"") + (m?.Enabled == true ? "  ·  Apply Changes to update the game" : ""));
         };
@@ -1223,7 +1240,7 @@ sealed partial class MainForm : Form
         editor = ed;
         editorHost.Controls.Clear();
         editorHost.Controls.Add(ed);
-        pages.SetTitle(1, ed.Title.Length > 40 ? ed.Title[..40] + "…" : ed.Title);
+        pages.SetTitle(1, ed.Title.Length > 110 ? ed.Title[..110] + "…" : ed.Title);   // (the full name: Extract's tab is a button now)
         Theme.ApplyTree(editorHost, Palette.Dark);   // not the whole form (a double-click on the list opens this): see ShowDetails
         Restyle(editorHost);
     }

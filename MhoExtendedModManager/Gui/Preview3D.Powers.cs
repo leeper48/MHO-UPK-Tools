@@ -195,6 +195,7 @@ sealed partial class Preview3D
             if (!again) { autoPlay = true; if (anims.SelectedIndex == idle + 1) LoadEffects(); else anims.SelectedIndex = idle + 1; }
             else LoadEffects();
             RefreshPowerButtons();
+            FrameShot(Framing.Shot.Full);
             return;
         }
         effectOnly = null;
@@ -215,6 +216,8 @@ sealed partial class Preview3D
             if (animList.Count > 0) { autoPlay = true; anims.SelectedIndex = PowerPreview.PreferredAnim(animList.Select(a => a.Name).ToList()) + 1; }
         }
         RefreshPowerButtons();
+        // a power picked: the whole character, centred (Kurt, 2026-10-18: some powers left the camera far off)
+        FrameShot(Framing.Shot.Full);
     }
 
     /// <summary>Clicks a power button by name (checks).</summary>
@@ -278,6 +281,9 @@ sealed partial class Preview3D
 
     /// <summary>The character with its props and the power's, as one mesh; the view and the pose kept (framed by the character alone).</summary>
     public void RebuildRig() => Props.Rebuild();
+
+    /// <summary>Props left out by attachment class (the Model tab's target props switched off); shown again at once.</summary>
+    public Func<string, bool>? HiddenProps { get => Props.Hidden; set { Props.Hidden = value; Props.Rebuild(); } }
 
     /// <summary>The props for the animation picked: the power playing it switches weapon slots, and a prop the hero doesn't
     /// have (a thrown car) comes from the power's own package.</summary>

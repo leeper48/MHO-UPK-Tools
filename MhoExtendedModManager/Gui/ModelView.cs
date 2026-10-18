@@ -35,6 +35,16 @@ sealed class ModelView : UserControl
         /// material adds its colour; such an alpha isn't what it uses.</summary>
         public bool AlphaUnused { get; }
 
+        /// <summary>
+        /// A glow material with no texture (2026-10-17: the dodge ghosts' mat_throwingknife_glow_fade and its instances, such
+        /// as mat_taskmaster_meshglow): its inner colour where the surface faces the camera, its outer colour toward the
+        /// silhouette; the particle gives only the alpha (its colour is black there). Null for every other map.
+        /// </summary>
+        public (Vector3 Inner, Vector3 Outer)? Glow { get; set; }
+
+        /// <summary>Made by SoftEdged (debug).</summary>
+        public bool Softened { get; init; }
+
         /// <summary>For additive drawing: the alpha to use (1 when the texture's alpha is constant or unused).</summary>
         public bool AdditiveIgnoresAlpha => !AlphaVaries || AlphaUnused;
 
@@ -48,6 +58,79 @@ sealed class ModelView : UserControl
             return new Map(dst, ws[0], hs[0]);
         }
 
+        /// <summary>
+        /// A sprite texture that doesn't fade at its border, as the game draws it (Kurt, 2026-10-17: square sprites, e.g. Vision's
+        /// Solar Overcharge): the material rounds such sprites off (a falloff or mask it computes), which the preview can't run.
+        /// So: a soft radial falloff (full inside 65 % of the half-width, none at the edge's middle and beyond). Additive: the
+        /// colour fades. Blended with no alpha of its own: the opacity is the texel's brightness times the falloff. Null when the
+        /// texture fades at its border already (most do). Cached.
+        /// </summary>
+        public Map? SoftEdged(bool additive, bool force = false, int cellsX = 1, int cellsY = 1)
+        {
+            // force: the material has a mask of its own (tex_border_fade, a circle …) the preview doesn't draw (Kurt, 2026-10-17:
+            // Doom's Latverian Blockade fire, tex_fire_tile01 with tex_border_fade): always rounded off.
+            // cellsX × cellsY: a flipbook sheet (an explosion's 4×4 frames): each frame rounded off within its own cell.
+            cellsX = Math.Max(1, cellsX); cellsY = Math.Max(1, cellsY);
+            var key = (additive, force, cellsX, cellsY);
+            lock (soft) if (soft.TryGetValue(key, out var hit)) return hit;
+            var src = levels[0]; int w = ws[0], h = hs[0];
+            int cw = Math.Max(1, w / cellsX), chh = Math.Max(1, h / cellsY);
+            Map? made = null;
+            // the borders (of every cell): brightest colour (additive; times alpha when that's a real mask) or most opaque texel (blended)
+            float edge = 0, edgeLum = 0;
+            void Edge(int x, int y)
+            {
+                int o = (Math.Min(h - 1, y) * w + Math.Min(w - 1, x)) * 4;
+                float lum = Math.Max(src[o], Math.Max(src[o + 1], src[o + 2])) / 255f, a = src[o + 3] / 255f;
+                edge = Math.Max(edge, additive ? lum * (AdditiveIgnoresAlpha ? 1 : a) : a);
+                edgeLum = Math.Max(edgeLum, lum);
+            }
+            for (int cy = 0; cy < cellsY; cy++)
+                for (int cx = 0; cx < cellsX; cx++)
+                {
+                    int x0 = cx * cw, y0 = cy * chh, x1 = x0 + cw - 1, y1 = y0 + chh - 1;
+                    for (int x = x0; x <= x1; x++) { Edge(x, y0); Edge(x, y1); }
+                    for (int y = y0; y <= y1; y++) { Edge(x0, y); Edge(x1, y); }
+                }
+            // additive: a border clearly lit (not a soft glow's faint 8/255); blended: no alpha of its own and an opaque border
+            // blended, with an alpha that stays up at the borders while the colour fades to black there (Iceman's Frozen Orb,
+            // tex_frost2: its alpha is noise the material uses for something else): the opacity follows the colour
+            bool colorOpacity = !additive && AlphaVaries && edge > 0.2f && edgeLum < 0.06f;
+            bool needs = force || colorOpacity || (additive ? edge > (cellsX * cellsY > 1 ? 0.03f : 0.15f) : !AlphaVaries && edge > 0.05f);   // (a flipbook's
+            // frames are drawn big and stacked: even a dim cell border adds up to a straight edge, Doom's Latverian Blockade smoke)
+            if (needs && cw > 2 && chh > 2)
+            {
+                var dst = (byte[])src.Clone();
+                System.Threading.Tasks.Parallel.For(0, h, y =>
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        float lx = (x % cw + 0.5f) / cw, ly = (y % chh + 0.5f) / chh;   // within its cell
+                        float dx = lx * 2 - 1, dy = ly * 2 - 1;
+                        float r = MathF.Sqrt(dx * dx + dy * dy);
+                        float t = Math.Clamp((1 - r) / 0.35f, 0, 1), f = t * t * (3 - 2 * t);   // smoothstep: 1 inside r 0.65, 0 at r 1
+                        if (colorOpacity && !force) f = 1;   // (the colour fades by itself)
+                        int o = (y * w + x) * 4;
+                        if (additive) { dst[o] = (byte)(src[o] * f); dst[o + 1] = (byte)(src[o + 1] * f); dst[o + 2] = (byte)(src[o + 2] * f); }
+                        else if (AlphaVaries && !colorOpacity) dst[o + 3] = (byte)(src[o + 3] * f);
+                        else
+                        {
+                            // the opacity is the texture's brightness: its colour at full strength (the brightness is in the
+                            // alpha now; kept in the colour too, stacked sprites of a soft glow drew a dark disc: Iceman's
+                            // Frozen Orb, mat_cloudy_glow_dir)
+                            int mx = Math.Max(src[o], Math.Max(src[o + 1], src[o + 2]));
+                            dst[o + 3] = (byte)(mx * f);
+                            if (mx > 0) { dst[o] = (byte)(src[o] * 255 / mx); dst[o + 1] = (byte)(src[o + 1] * 255 / mx); dst[o + 2] = (byte)(src[o + 2] * 255 / mx); }
+                        }
+                    }
+                });
+                made = new Map(dst, w, h) { Glow = Glow, Softened = true };
+            }
+            lock (soft) soft[key] = made;
+            return made;
+        }
+        readonly Dictionary<(bool, bool, int, int), Map?> soft = [];
+
         /// <summary>A copy with every pixel's colour through <paramref name="f"/> (the power customizer's preview).</summary>
         public Map Recolored(Func<Vector3, Vector3> f)
         {
@@ -59,7 +142,8 @@ sealed class ModelView : UserControl
                 dst[o + 2] = (byte)Math.Clamp((int)(c.X * 255 + 0.5f), 0, 255); dst[o + 1] = (byte)Math.Clamp((int)(c.Y * 255 + 0.5f), 0, 255);
                 dst[o] = (byte)Math.Clamp((int)(c.Z * 255 + 0.5f), 0, 255); dst[o + 3] = src[o + 3];
             });
-            return new Map(dst, ws[0], hs[0]);   // (alpha kept, so AlphaVaries reads the same)
+            // (alpha kept, so AlphaVaries reads the same; a glow material's colors recolored too: the dodge's ghosts)
+            return new Map(dst, ws[0], hs[0]) { Glow = Glow is { } g ? (f(g.Inner), f(g.Outer)) : null, Softened = Softened };
         }
 
         public Map(byte[] bgra, int w, int h)
@@ -203,6 +287,10 @@ sealed class ModelView : UserControl
     /// halo over the frame. Redraws.</summary>
     public bool ShowBloom { get => showBloom; set { if (showBloom == value) return; showBloom = value; Redraw(); } }
     bool showSpec = true, showRefl = true, showGlow = true, showBloom = true;
+    /// <summary>A ground plane at the feet (Z 0), with a grid every 50 units, fading out (Kurt, 2026-10-18: to see where the
+    /// feet are; a dodge ghost's sank below them). It hides what's below it, a little see-through.</summary>
+    public bool ShowGround { get => showGround; set { if (showGround == value) return; showGround = value; Redraw(); } }
+    bool showGround;
 
     /// <summary>One map on its own instead of the lit model (Kurt, 2026-10-04: the Model tab's Materials tab, Preview Shows): the colour
     /// map unlit, the normal map's own colours (flat blue where a section has none), the spec amount in grey, the alpha in
@@ -657,6 +745,16 @@ sealed class ModelView : UserControl
             float shade = 1;
             if (opaque && n.LengthSquared() > 1e-12f) { n = Vector3.Normalize(n); if (Vector3.Dot(n, eye - a) < 0) n = -n; shade = 0.35f + 0.65f * Math.Max(0, Vector3.Dot(n, light)); }
             var tint = t.Color; var tex = t.Texture;
+            // a glow material (the dodge ghosts): inner colour facing the camera, outer colour toward the silhouette (by the
+            // face's turn from the view), with the particle's alpha only
+            if (tex?.Glow is { } glow && n.LengthSquared() > 1e-12f)
+            {
+                var nn = Vector3.Normalize(n);
+                float facing = MathF.Abs(Vector3.Dot(nn, Vector3.Normalize(eye - (a + b + c) / 3)));
+                float edge = MathF.Pow(1 - facing, 2);
+                var g3 = Vector3.Lerp(glow.Inner, glow.Outer, edge);
+                tint = new Vector4(g3, tint.W);
+            }
             float px = Math.Max(1, Math.Max(x1 - x0, y1 - y0));
             float lod = tex == null ? 0 : Math.Max(0, MathF.Log2(Math.Max(1f, tex.W * Math.Max(Vector2.Distance(t.Ua, t.Ub), Vector2.Distance(t.Ua, t.Uc)) / px)));
             void Row(int y)
@@ -776,6 +874,7 @@ sealed class ModelView : UserControl
             }
         });
         if (showBloom && anyOver) Bloom(bg >>> 24 == 0);
+        if (showGround) DrawGround(r, u, f, eye, focal, cx, cy, near);
         // Pass 3 (power effects): opaque effect triangles, the particles, then the blended triangles, depth-tested against the model.
         if (EffectTris.Count > 0) DrawTris(true, r, u, f, eye, focal, cx, cy, near);
         if (Effects.Count > 0) DrawEffects(r, u, f, eye, focal, cx, cy, near);
@@ -790,6 +889,38 @@ sealed class ModelView : UserControl
         LastFrameMs = clock.Elapsed.TotalMilliseconds;
         if (moving && !fast)
             movingBudget = LastFrameMs > 30 ? Math.Max(60_000, movingBudget * 0.75f) : LastFrameMs < 18 ? Math.Min(MovingPixels, movingBudget * 1.15f) : movingBudget;
+    }
+
+    /// <summary>The ground plane (ShowGround), per pixel: where the ray meets Z 0 nearer than what's drawn there.</summary>
+    void DrawGround(Vector3 r, Vector3 u, Vector3 f, Vector3 eye, float focal, float cx, float cy, float near)
+    {
+        const float Cell = 50, Reach = 700;
+        Parallel.For(0, H, y =>
+        {
+            for (int x = 0; x < W; x++)
+            {
+                var dir = f + r * ((x + 0.5f - cx) / focal) - u * ((y + 0.5f - cy) / focal);   // (one unit along f per unit of t)
+                if (MathF.Abs(dir.Z) < 1e-6f) continue;
+                float t = -eye.Z / dir.Z;
+                if (t < near) continue;
+                int p = y * W + x;
+                if (depth[p] > 1f / t) continue;   // the model is nearer
+                var hit = eye + dir * t;
+                float reach = new Vector2(hit.X, hit.Y).Length();
+                if (reach > Reach) continue;
+                float fade = 1 - reach / Reach;
+                // grid lines about a pixel wide, wherever the camera is
+                float px = t / focal * 1.2f;
+                float gx = MathF.Abs(hit.X / Cell - MathF.Round(hit.X / Cell)) * Cell, gy = MathF.Abs(hit.Y / Cell - MathF.Round(hit.Y / Cell)) * Cell;
+                bool line = gx < px || gy < px;
+                float a = (line ? 0.85f : 0.7f) * MathF.Min(1, fade * 2.5f);
+                int g = line ? 120 : 58, b = line ? 132 : 64;
+                int c = color[p];
+                int cr = (c >> 16) & 255, cg = (c >> 8) & 255, cb = c & 255;
+                color[p] = unchecked((int)0xFF000000) | ((int)(cr + (g - cr) * a) << 16) | ((int)(cg + (g - cg) * a) << 8) | (int)(cb + (b - cb) * a);
+                depth[p] = 1f / t;   // (effects behind the ground are hidden too)
+            }
+        });
     }
 
     internal static float Lod(float ratio, Map m) => ratio <= 0 ? 0 : 0.5f * MathF.Log2(Math.Max(1e-8f, ratio * m.W * m.H));

@@ -96,7 +96,7 @@ static class PreviewControls
     /// <summary>The look toggles both previews have, in their order; each preview passes where it keeps them and what a
     /// change reloads (props, effects).</summary>
     public static List<LookItem> StandardLook(Func<bool> spec, Action toggleSpec, Func<bool> reflect, Action toggleReflect, Func<bool> glow, Action toggleGlow,
-        Func<bool> bloom, Action toggleBloom, Func<bool> props, Action toggleProps, Func<bool> powers, Action togglePowers) =>
+        Func<bool> bloom, Action toggleBloom, Func<bool> props, Action toggleProps, Func<bool> powers, Action togglePowers, Func<bool> ground, Action toggleGround) =>
     [
         new("Spec", "Specular highlights (shine) the materials set.", spec, toggleSpec),
         new("Reflect", "Reflections of the materials' own environment images (metal).", reflect, toggleReflect),
@@ -104,6 +104,7 @@ static class PreviewControls
         new("Bloom", "A soft halo around the brightest parts (glow, the hottest highlights), as the game draws it.", bloom, toggleBloom),
         new("Props", "The weapons and props the game attaches to the character, held on their bones; they switch with the powers.", props, toggleProps),
         new("Power FXs", "The effects of the power an animation belongs to (lightning, shockwaves, trails …), read from the game's or the mod's power packages.", powers, togglePowers),
+        new("Ground", "A ground plane at the character's feet, with a grid every 50 units: to see where feet and effects meet the floor (a little see-through; it hides what's below it).", ground, toggleGround),
     ];
 
     /// <summary>Look ▾: the toggles (the menu stays open while toggling, several at once) and the sliders.</summary>

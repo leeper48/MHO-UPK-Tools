@@ -369,8 +369,10 @@ static class CostumeMove
     {
         var from = replace ?? (sameHero ? original : null);
         d.PowerColors = from?.Manifest.PowerColors?.ToList() ?? [];
+        // parts switched off (Powers tab → Parts) follow the same rule, with their packages (the hero's own parts: the same hero)
+        d.PartsOff = from?.Manifest.PartsOff?.ToList() ?? [];
         if (from == null) return;
-        foreach (string f in d.PowerColors.SelectMany(e => e.Packages).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (string f in d.PowerColors.SelectMany(e => e.Packages).Concat(d.PartsOff.Select(e => e.Package)).Distinct(StringComparer.OrdinalIgnoreCase))
             if (!d.Packages.Any(p => p.Item1.Equals(f, StringComparison.OrdinalIgnoreCase)) && File.Exists(Path.Combine(from.Folder, f)))
                 d.Packages.Add((f, Path.Combine(from.Folder, f)));
     }

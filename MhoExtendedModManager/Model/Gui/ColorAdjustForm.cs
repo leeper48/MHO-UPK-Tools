@@ -27,7 +27,7 @@ sealed class ColorAdjustForm : Form
     {
         adj = current?.Copy() ?? new ColorAdjust();
         // a copy at most 512 pixels on its longer side: the sliders redraw it as they move
-        using (var full = new Bitmap(colorFile))
+        using (var full = ImagePixels.Open(colorFile))
         {
             float k = Math.Min(1f, 512f / Math.Max(full.Width, full.Height));
             w = Math.Max(1, (int)(full.Width * k)); h = Math.Max(1, (int)(full.Height * k));

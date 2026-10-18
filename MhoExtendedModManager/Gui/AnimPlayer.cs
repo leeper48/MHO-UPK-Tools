@@ -50,6 +50,7 @@ sealed class AnimPlayer : IDisposable
     {
         if (Anim == null || !Paused) return;
         if (!Loop() && Time >= Seconds) Time = 0;
+        if (Environment.GetEnvironmentVariable("MHO_PLAYTRACE") is { Length: > 0 } trace) File.AppendAllText(trace, $"{DateTime.Now:T}\n{Environment.StackTrace}\n\n");   // (debug: who starts playback)
         Paused = false;
         clock.Restart(); lastTick = 0;
         timer.Start();

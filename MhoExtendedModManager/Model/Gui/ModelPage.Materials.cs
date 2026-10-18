@@ -480,7 +480,7 @@ sealed partial class ModelPage
             catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Materials: {pm.Texture} couldn't be read: {ex.Message}"); return; }
             if (!made || IsDisposed) return;
             bool editPkg;
-            using (var pimg = Image.FromFile(png))
+            using (var pimg = ImagePixels.Open(png))
             using (var pv = new ImageViewerForm(pimg, $"{pm.Material} · {pm.Kind} ({pm.Texture}, {pimg.Width} × {pimg.Height})", FbxExport.SafeName(pm.Texture), editIn))
             { pv.ShowDialog(this); editPkg = pv.EditRequested; }
             try { File.Delete(png); } catch (IOException) { }
@@ -497,7 +497,7 @@ sealed partial class ModelPage
         if (IsDisposed) return;
         if (file == null) { Log($"Materials: {mat} has no {kind.ToLowerInvariant()} map ({matGrid.Rows[row].Cells["from"].Value})."); return; }
         bool editIt;
-        using (var img = Image.FromFile(file))
+        using (var img = ImagePixels.Open(file))
         using (var v = new ImageViewerForm(img, $"{mat} · {kind} Map ({img.Width} × {img.Height})", $"{FbxExport.SafeName(mat)}_{kind.ToLowerInvariant().Replace(" ", "")}", editIn))
         { v.ShowDialog(this); editIt = v.EditRequested; }
         if (editIt) EditMapExternally();
@@ -538,7 +538,7 @@ sealed partial class ModelPage
                         if (MapImage(kind, tex, mat, work) is not string f) continue;
                         string to = Path.Combine(folder, FbxExport.SafeName(mat) + suffix + ".png");
                         if (Path.GetExtension(f).Equals(".png", StringComparison.OrdinalIgnoreCase)) File.Copy(f, to, true);
-                        else { using var img = Image.FromFile(f); img.Save(to, System.Drawing.Imaging.ImageFormat.Png); }
+                        else { using var img = ImagePixels.Open(f); ImagePixels.SavePng(img, to); }
                         count++;
                         if (kind == "MHO Spec") SpecChannels.Split(to, folder, FbxExport.SafeName(mat) + suffix);   // (and as gray channels)
                     }

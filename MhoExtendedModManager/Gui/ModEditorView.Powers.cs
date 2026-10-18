@@ -11,7 +11,16 @@ namespace MhoExtendedModManager.Gui;
 sealed partial class ModEditorView
 {
     StorePreview? powerPreview;
-    readonly ListBox powerList = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, IntegralHeight = false, BorderStyle = BorderStyle.None };
+    /// <summary>The powers and other entries, as icon tiles under the 3D view (a ListBox before 0.37.300).</summary>
+    readonly PowerBar powerList = new();
+    /// <summary>The hero's powers come first in the bar; the entries after them (own effects, parts, packages) start a group.</summary>
+    int heroPowerCount;
+    /// <summary>FillPowers is selecting the entry that was selected already (PowerSelected isn't run again).</summary>
+    bool refillSame;
+    readonly Label powerTitle = new() { Text = "" };
+    /// <summary>The right column's Color and Parts tabs.</summary>
+    FlatTabs? powerSideTabs;
+    readonly Panel powerIcon = new() { BackColor = Color.Transparent };
     LightSlider? hueSlider, satSlider, brightSlider, opacitySlider;
     readonly Label powerCaption = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 4) };
     readonly Label powerShared = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 2, 0, 4), MaximumSize = new Size(560, 0) };
@@ -50,8 +59,8 @@ sealed partial class ModEditorView
 
     Control PowersPage()
     {
-        var page = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58)); page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+        var page = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(0, (int)(6 * S), 0, 0) };
+        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64)); page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36));
         if (editing == null || game == null)
         {
             var note = new Label { Text = "Save the mod once, then come back here: power colors are previewed on its saved model.", AutoSize = true, Tag = "subtle", Padding = new Padding(8) };
@@ -68,7 +77,7 @@ sealed partial class ModEditorView
             // Packages built for colors before are left out of the preview: the color shown is the one being set, on the stock files.
             var built = editing.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             powerPreview.SkipModFile = f => built.Contains(f);
-            powerPreview.OverrideFiles = () => borrowFiles;   // borrowed looks built since the last save
+            powerPreview.OverrideFiles = PreviewOverrides;   // borrowed looks and dodge ghosts built since the last save
             powerPreview.HeroPowersLoaded += FillPowers;
             // Its buttons (made when a model loads) take the app's button look; the theme pass that gives it them in the
             // main window has run already here.
@@ -77,31 +86,53 @@ sealed partial class ModEditorView
             powerPreview.Mod = editing;
             BeginInvoke(FillPowers);   // a mod without a hero package (NPCs, enemies only) lists its own effects at once
         };
-        page.Controls.Add(host, 0, 0);
+        // Layout (Kurt, 2026-10-17: a UI pass; the 3D view was much smaller here than on the other tabs): the view fills the
+        // left column with the powers as icon tiles under it (PowerBar, as the Mods and Model tabs' power buttons); the right
+        // column is the selected power: its name, its color (sliders, quick actions, presets, its colors), then its Parts.
+        var left = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0) };
+        powerList.Dock = DockStyle.Bottom;
+        powerList.Padding = new Padding(0, (int)(6 * S), 0, 0);
+        powerList.DrawTile = DrawPowerTile;
+        powerList.TipFor = o => o is Fx.PowerList.Power p ? PowerTip(p) : "";
+        powerList.StartsGroup = i => i == heroPowerCount && i > 0;
+        powerList.SelectedIndexChanged += (_, _) => { ShowPowerTitle(); if (!refillSame) PowerSelected(); };
+        left.Controls.Add(host);
+        left.Controls.Add(powerList);
+        page.Controls.Add(left, 0, 0);
 
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 9, Padding = new Padding(8, 0, 0, 0) };
-        right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        for (int k = 0; k < 7; k++) right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        right.Controls.Add(new Label { Text = "POWERS", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 4, 0, 4) }, 0, 0);
-        powerList.ItemHeight = (int)(40 * S);
-        powerList.BackColor = Ui.Card; powerList.ForeColor = Ui.Text;
-        powerList.DrawItem += DrawPowerItem;
-        powerList.SelectedIndexChanged += (_, _) => PowerSelected();
-        right.Controls.Add(powerList, 0, 1);
-        hueSlider = new LightSlider { Label = "Hue", Min = -180, Max = 180, Step = 1, Mark = 0, Format = v => $"{v:+0;-0;0}°", Home = () => 0, Dock = DockStyle.Top, Height = (int)(30 * S) };
-        satSlider = new LightSlider { Label = "Saturation", Min = 0, Max = 2, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
-        brightSlider = new LightSlider { Label = "Brightness", Min = 0, Max = 3, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
-        opacitySlider = new LightSlider { Label = "Opacity", Min = 0, Max = 10, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Dock = DockStyle.Top, Height = (int)(30 * S) };
-        var sliders = new TableLayoutPanel { ColumnCount = 1, RowCount = 5, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0), BackColor = Color.Transparent };
+        // right: the selected entry's name over two tabs, Color (sliders, presets, its colors) and Parts (its effects, sounds,
+        // props and settings to switch off), so each has the column's full height
+        var side = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding((int)(12 * S), 0, 0, 0), Margin = new Padding(0) };
+        side.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        side.RowStyles.Add(new RowStyle(SizeType.AutoSize)); side.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var colorScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        var right = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 9, Padding = new Padding(0, (int)(4 * S), (int)(8 * S), 0), Margin = new Padding(0) };
+        right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (int k = 0; k < 9; k++) right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        colorScroll.Controls.Add(right);
+        // the selected power: its icon, name and what it is
+        var title = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, (int)(4 * S)), BackColor = Color.Transparent };
+        title.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); title.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        powerIcon.Size = new Size((int)(44 * S), (int)(44 * S)); powerIcon.Margin = new Padding(0, 0, (int)(10 * S), 0);
+        powerIcon.Paint += (_, e) => { if (powerList.SelectedItem is Fx.PowerList.Power p) DrawPowerTile(e.Graphics, new Rectangle(0, 0, powerIcon.Width - 1, powerIcon.Height - 1), p, false, false); };
+        title.Controls.Add(powerIcon, 0, 0); title.SetRowSpan(powerIcon, 2);
+        powerTitle.Font = Ui.Bold(12f); powerTitle.AutoSize = true; powerTitle.Margin = new Padding(0, 0, 0, 0);
+        powerCaption.Padding = new Padding(0, 2, 0, 0);
+        title.Controls.Add(powerTitle, 1, 0); title.Controls.Add(powerCaption, 1, 1);
+        side.Controls.Add(title, 0, 0);
+        var hint = new Label { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 0, 0, (int)(6 * S)),
+            Text = "A color changes the power's own game files, so every costume of the hero shows it. Save writes them into the mod's packages." };
+        Ui.Tip(hint, "A color recolors the power's own game files (its particles, effect textures and material colors): every costume of the hero shows it, for anyone using this mod. Save writes them into the mod's packages.");
+        right.Controls.Add(hint, 0, 1);
+        hueSlider = new LightSlider { Label = "Hue", Min = -180, Max = 180, Step = 1, Mark = 0, Format = v => $"{v:+0;-0;0}°", Home = () => 0, Height = (int)(28 * S) };
+        satSlider = new LightSlider { Label = "Saturation", Min = 0, Max = 2, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Height = (int)(28 * S) };
+        brightSlider = new LightSlider { Label = "Brightness", Min = 0, Max = 3, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Height = (int)(28 * S) };
+        opacitySlider = new LightSlider { Label = "Opacity", Min = 0, Max = 10, Step = 0.01f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Height = (int)(28 * S) };
+        var sliders = new TableLayoutPanel { ColumnCount = 1, RowCount = 4, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0), BackColor = Color.Transparent };
         sliders.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         foreach (var sl in new[] { hueSlider, satSlider, brightSlider, opacitySlider }) { sl.ValueChanged += SliderChanged; sl.Dock = DockStyle.Fill; sl.Margin = new Padding(0); sliders.Controls.Add(sl); }
-        // (Kurt, 2026-10-15: a user wanted dark powers; tested in game on Nova's Magneton Pulsar, 500 % was right)
-        sliders.Controls.Add(new Label { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 2, 0, 4), MaximumSize = new Size((int)(560 * S), 0),
-            Text = "Above 100 %, Opacity makes the effects more solid. For dark powers: Dark (Saturation 0 %, Brightness 0 %, Opacity 500 %). Impact: Additive glows, beams and sparks are redrawn with a translucent game material so they darken too; mesh and distortion parts can still fade. Check it in game." });
-        right.Controls.Add(sliders, 0, 2);
-        if (WhatsNew.PowerBorrow) right.Controls.Add(BorrowSection(), 0, 3);   // tabled, preview only (WhatsNew.PowerBorrowReleased)
-        Ui.Tip(opacitySlider, "How visible the power's effects are: 100 % as the game has it, lower fades them, 0 % switches them off (nothing draws). Above 100 % they're more solid (their particles' and effect textures' alpha multiplied), for dark colors. Unlike Brightness, it fades smoke and dust too instead of leaving them as a dark cloud. Double-click: back to 100 %.");
+        right.Controls.Add(sliders, 0, 3);
+        Ui.Tip(opacitySlider, "How visible the power's effects are: 100 % as the game has it, lower fades them, 0 % switches them off (nothing draws). Above 100 % they're more solid (their particles' and effect textures' alpha multiplied), for dark colors. Unlike Brightness, it fades smoke and dust too instead of leaving them as a dark cloud. Double-click: back to 100 %.\n\nFor dark powers: Dark (Saturation 0 %, Brightness 0 %, Opacity 500 %; tested in game on Nova's Magneton Pulsar). Impact: Additive glows, beams and sparks are redrawn with a translucent game material so they darken too; mesh and distortion parts can still fade. Check it in game.");
         Ui.Tip(hueSlider, "Turns the power's colors around the color wheel (the brightness of each color is kept). Double-click: back to the game's.");
         Ui.Tip(satSlider, "How strong the power's colors are: 0 % is grey, 100 % as the game has it. Double-click: back to 100 %.");
         Ui.Tip(brightSlider, "How bright the power's colors are. Double-click: back to 100 %.");
@@ -109,44 +140,68 @@ sealed partial class ModEditorView
         var all = Ui.FlatButton("Apply to All Powers", ApplyToAll, tip: "Give every power of the hero the color on the sliders (the game's colors take them all back).");
         var dark = Ui.FlatButton("Dark", SetDark, tip: "Makes this power dark: Saturation 0 %, Brightness 0 %, Opacity 500 % (tested in game: dark, fairly solid). Impact: Translucent effects (fields, smoke) turn dark as they are; additive glows, beams and sparks are redrawn with a copy of a translucent game material on Save, so they darken too. Mesh and distortion parts can still fade, and the 3D preview doesn't show the redrawn ones. Check it in game; the sliders fine-tune it.");
         var addPkg = Ui.FlatButton("Add Package", AddPowerPackage, tip: "Adds one of the game's effect packages (UC__Power…, a projectile, a hotspot, a condition effect) to the list under its file name, for a power that isn't listed or isn't fully recolored. Impact: Everything in that package is recolored, for every hero, team-up or enemy that uses it, and the 3D preview doesn't show its color (check it in game).");
-        right.Controls.Add(Toolbar(reset, all, dark, addPkg, powerCaption), 0, 5);
-        // Five presets (as the MHO Hero Creator's): click = use on this power, right-click = store the sliders there.
-        var presets = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Padding = new Padding(0, 2, 0, 2) };
-        presets.Controls.Add(new Label { Text = "Presets", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 7, 8, 0) });
+        // quick actions and the five presets on one row (as the MHO Hero Creator's presets: click = use on this power,
+        // right-click = store the sliders there)
+        var actions = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top, Padding = new Padding(0, (int)(4 * S), 0, 0), Margin = new Padding(0), BackColor = Color.Transparent };
+        actions.Controls.AddRange([reset, dark, all, addPkg]);
+        var presetLabel = new Label { Text = "Presets", AutoSize = true, Tag = "subtle", Margin = new Padding((int)(10 * S), (int)(9 * S), (int)(6 * S), 0) };
+        Ui.Tip(presetLabel, "Five colors kept on this PC: click one to use it on this power, right-click to store the sliders there.");
+        actions.Controls.Add(presetLabel);
         for (int i = 0; i < 5; i++)
         {
             int k = i;
-            var sw = new ColorSwatch { Size = new Size((int)(30 * S), (int)(26 * S)), Margin = new Padding(0, 2, (int)(5 * S), 0), Number = k + 1 };
+            var sw = new ColorSwatch { Size = new Size((int)(28 * S), (int)(26 * S)), Margin = new Padding(0, (int)(5 * S), (int)(4 * S), 0), Number = k + 1 };
             sw.MouseUp += (_, e) => { if (e.Button == MouseButtons.Right) StorePreset(k); else if (e.Button == MouseButtons.Left) UsePreset(k); };
             presetSwatches[k] = sw;
-            presets.Controls.Add(sw);
+            actions.Controls.Add(sw);
         }
         ShowPresets();
-        right.Controls.Add(presets, 0, 6);
-        right.Controls.Add(PaletteSection(), 0, 7);
+        right.Controls.Add(actions, 0, 4);
+        right.Controls.Add(PaletteSection(), 0, 5);
+        if (WhatsNew.PowerBorrow) right.Controls.Add(BorrowSection(), 0, 6);   // tabled, preview only (WhatsNew.PowerBorrowReleased)
         addParent = Ui.FlatButton("Add It to This Mod", AddParentPackage, tip: "Adds the package this character's class extends (its model, and most of its effects such as glows and trails) to the mod, as the game's own copy, and selects its Own Effects so you can recolor them.");
         addParent.Visible = false;
         var sharedBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Top, Margin = new Padding(0), BackColor = Color.Transparent };
         sharedBox.Controls.Add(powerShared); sharedBox.Controls.Add(addParent);
-        right.Controls.Add(sharedBox, 0, 8);
-        page.Controls.Add(right, 1, 0);
+        right.Controls.Add(sharedBox, 0, 7);
+        powerSideTabs = new FlatTabs { Dock = DockStyle.Fill, TabPoints = 9f };
+        powerSideTabs.Add("Color", colorScroll);
+        powerSideTabs.Add("Parts", PartsSection());
+        side.Controls.Add(powerSideTabs, 0, 1);
+        // wrapped notes follow the column's width
+        side.SizeChanged += (_, _) =>
+        {
+            var max = new Size(Math.Max(100, side.ClientSize.Width - side.Padding.Horizontal - (int)(30 * S)), 0);
+            foreach (var l in new[] { hint, powerShared, partsNote, paletteNote }) l.MaximumSize = max;
+        };
+        page.Controls.Add(side, 1, 0);
         Disposed += (_, _) => powerPreview?.Dispose();
-        return Page(page, Toolbar(), "A color recolors the power's own game files (its particles, effect textures and material colors): every costume of the hero shows it, for anyone using this mod. Save writes them into the mod's packages.");
+        return page;
     }
 
     void FillPowers()
     {
         if (powerPreview == null) return;
         string? keep = (powerList.SelectedItem as Fx.PowerList.Power)?.Prototype;
+        string? keepPart = (powerList.SelectedItem as Fx.PowerList.Power)?.Part;
         powerList.BeginUpdate();
         powerList.Items.Clear();
         foreach (var p in powerPreview.AllHeroPowers) powerList.Items.Add(p);
+        heroPowerCount = powerList.Items.Count;
         foreach (var p in OwnEffects())
         {
             powerList.Items.Add(p);
             // then that character's own powers (read in the background, once)
             string file = p.Prototype[PowerColorBuild.OwnPrefix.Length..];
             if (agentPowers.TryGetValue(file, out var list)) foreach (var ap in list) powerList.Items.Add(ap);
+        }
+        // each hero's own parts (hover, dodge …: Invisible Woman's Can Transition to Hover; the Parts list only)
+        foreach (var c in CharacterEntries())
+        {
+            powerList.Items.Add(c);
+            // then its own effect parts as tiles of their own (Kurt, 2026-10-18: the dodge took Char → Parts → ▶): Dodge, Level
+            // Up, Death …; a click shows the Character entry's parts and plays that one
+            foreach (var pe in CharacterPartEntries(c)) powerList.Items.Add(pe);
         }
         // packages added by hand (Add Package), under their file names
         foreach (string f in draft.PowerColors.Where(e => PowerColorBuild.IsPackage(e.Power)).Select(e => e.Power[PowerColorBuild.PackagePrefix.Length..])
@@ -155,12 +210,19 @@ sealed partial class ModEditorView
         LoadAgentPowers();
         powerList.EndUpdate();
         var shown = powerList.Items.Cast<Fx.PowerList.Power>().ToList();
-        int at = keep == null ? -1 : shown.FindIndex(p => p.Prototype == keep);
+        int at = keep == null ? -1 : shown.FindIndex(p => p.Prototype == keep && p.Part == keepPart);
         // the manual's screenshots (MHO_EXTMM_SNAP_POWER: part of a power's name, e.g. "Own Effects"): that entry first
         if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_POWER") is { Length: > 0 } snapPower && shown.FindIndex(p => p.Name.Contains(snapPower, StringComparison.OrdinalIgnoreCase)) is int snapAt and >= 0)
             at = snapAt;   // (also on the second fill: the agent powers arrive later)
-        if (powerList.Items.Count > 0) powerList.SelectedIndex = Math.Max(0, at);
-        if (powerList.Items.Count == 0) powerCaption.Text = "No Powers Found for This Hero";
+        // (not before the hero's powers are in: the first entry would be a character's own effects, whose model the preview
+        // then shows, and the hero's powers never load for it)
+        bool waiting = !powerPreview.HeroPowersReady && CharacterEntries().Count > 0 && at < 0;
+        // the same entry again (the list filled again after the preview reloaded: a ghost build, the hero's powers coming in):
+        // selected without starting it over, so the animation and frame showing stay (Kurt, 2026-10-17)
+        refillSame = keep != null && at >= 0 && at < shown.Count && shown[at].Prototype == keep && shown[at].Part == keepPart;
+        try { if (powerList.Items.Count > 0 && !waiting) powerList.SelectedIndex = Math.Max(0, at); }
+        finally { refillSame = false; }
+        if (powerList.Items.Count == 0) { powerCaption.Text = "No Powers Found for This Hero"; ShowPowerTitle(); }
     }
 
     /// <summary>The mod's NPC / enemy / team-up packages' own powers, read in the background (the game data and a scan of
@@ -465,11 +527,14 @@ sealed partial class ModEditorView
     void PowerSelected()
     {
         if (powerList.SelectedItem is not Fx.PowerList.Power p || hueSlider == null || satSlider == null || brightSlider == null) return;
+        if (!IsCharacterEntry(p.Prototype)) HideGhosts();
         fillingPower = true;
         var e = EntryOf(p.Prototype);
         hueSlider.Value = e?.Hue ?? 0; satSlider.Value = e?.Saturation ?? 1; brightSlider.Value = e?.Brightness ?? 1;
         if (opacitySlider != null) opacitySlider.Value = e?.Opacity ?? 1;
         fillingPower = false;
+        // a character's own parts (the dodge, a hover): their effects take the color too (Kurt, 2026-10-17)
+        if (IsCharacterEntry(p.Prototype)) { CharacterSelected(p); return; }
         powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored")
             // (no animation of its own: The Will of Doom, procs, passives: the preview plays its effects over the idle, as the
             // Mods tab and the Model tab do; Kurt, 2026-10-12)
@@ -496,6 +561,7 @@ sealed partial class ModEditorView
             powerPreview?.PlayPower(p.Prototype);
         }
         ShowShared(p);
+        ShowParts(p);
         ShowBorrow(p);
         LoadPalette(p);
         ShowMapRows();
@@ -533,7 +599,7 @@ sealed partial class ModEditorView
             if (e == null) draft.PowerColors.Add(e = new PowerColorEntry { Power = p.Prototype, Name = p.Name, Owner = agentOwner.GetValueOrDefault(p.Prototype) });
             e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness; e.Opacity = c.Opacity;
         }
-        powerCaption.Text = EntryOf(p.Prototype) is { } now && !now.Color.IsNone ? "Recolored" : "The Game's Colors";
+        powerCaption.Text = (EntryOf(p.Prototype) is { } now && !now.Color.IsNone ? "Recolored" : "The Game's Colors") + (IsCharacterEntry(p.Prototype) ? " · This Character's Own Parts (Dodge, Hover …)" : "");
         powerList.Invalidate();
         powerPreview?.RefreshPowerColor();
         // a hologram on the character's model comes off at Opacity 0 (as Save writes it)
@@ -541,34 +607,95 @@ sealed partial class ModEditorView
         if (c == null) ShowMapRows();
     }
 
-    void DrawPowerItem(object? sender, DrawItemEventArgs e)
+    /// <summary>A power's tile in the bar (and the big one beside its name): its icon, else a short word for what it is; a dot
+    /// of its color change in the corner, a mark when it borrows another power's look.</summary>
+    void DrawPowerTile(Graphics g, Rectangle r, object item, bool sel, bool hot)
     {
-        if (e.Index < 0 || powerList.Items[e.Index] is not Fx.PowerList.Power p) return;
-        bool sel = (e.State & DrawItemState.Selected) != 0;
-        using (var b = new SolidBrush(sel ? Ui.CardHover : Ui.Card)) e.Graphics.FillRectangle(b, e.Bounds);
-        int pad = (int)(4 * S), icon = e.Bounds.Height - 2 * pad;
-        var ir = new Rectangle(e.Bounds.X + pad, e.Bounds.Y + pad, icon, icon);
-        if (p.Icon != null && game != null && Fx.PowerList.Icon(p.Icon, game.Cooked) is { } img) e.Graphics.DrawImage(img, ir);
+        if (item is not Fx.PowerList.Power p) return;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        int rad = Math.Max(2, (int)(5 * S));
+        using (var path = Rounded(r, rad))
+        {
+            using (var b = new SolidBrush(sel ? Ui.CardHover : hot ? Color.FromArgb(52, 52, 60) : Ui.Card)) g.FillPath(b, path);
+            if (p.Icon != null && game != null && Fx.PowerList.Icon(p.Icon, game.Cooked) is { } img)
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                var clip = g.Clip; g.SetClip(path);
+                g.DrawImage(img, Rectangle.Inflate(r, -(int)(2 * S), -(int)(2 * S)));
+                g.Clip = clip;
+            }
+            else
+            {
+                string word = p.Part != null ? PartWord(p.Name) : PowerColorBuild.IsOwn(p.Prototype) ? "FX" : IsCharacterEntry(p.Prototype) ? "Char" : PowerColorBuild.IsPackage(p.Prototype) ? "UPK"
+                    : string.Concat(p.Name.Split(' ', ':').Where(w => w.Length > 0 && char.IsLetter(w[0])).Take(2).Select(w => char.ToUpperInvariant(w[0])));
+                if (word.Contains('\n'))
+                {
+                    // (two lines: a part tile's first and last word)
+                    using var f = Ui.Heavy(r.Height > 40 * S ? 9.5f : 7f);
+                    using var br = new SolidBrush(Ui.Subtle);
+                    using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.None };
+                    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                    g.DrawString(word, f, br, r, sf);
+                }
+                else
+                {
+                    // (a longer word smaller, so it fits the tile: Dodge)
+                    float pt = (r.Height > 40 * S ? 11f : 8.5f) * Math.Min(1f, 4f / Math.Max(1, word.Length));
+                    using var f1 = Ui.Heavy(Math.Max(6f, pt));
+                    TextRenderer.DrawText(g, word, f1, r, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                }
+            }
+            using var pen = new Pen(sel ? Ui.Accent : hot ? Ui.Subtle : Color.FromArgb(60, 60, 68), sel ? Math.Max(2, 2 * S) : 1);
+            g.DrawPath(pen, path);
+        }
+        int d = Math.Max(6, (int)(r.Width * 0.26f));
         var entry = EntryOf(p.Prototype);
-        // A swatch of the color change (the hue turned on a neutral blue), when there is one.
         if (entry != null && !entry.Color.IsNone)
         {
             // (a power with replaced colors shows its first replacement's new color)
             using var sw = new SolidBrush(entry.Maps is { Count: > 0 } ms && ColorMap.FromHex(ms[0].To) is { } tc ? ToColor(tc) : SwatchColor(entry.Color));
-            int s = (int)(14 * S);
-            e.Graphics.FillEllipse(sw, e.Bounds.Right - s - 2 * pad, e.Bounds.Y + (e.Bounds.Height - s) / 2, s, s);
+            var dot = new Rectangle(r.Right - d - 1, r.Top + 1, d, d);
+            g.FillEllipse(sw, dot);
+            using var edge = new Pen(Color.FromArgb(20, 20, 24), 1);
+            g.DrawEllipse(edge, dot);
         }
-        var tr = Rectangle.FromLTRB(ir.Right + 2 * pad, e.Bounds.Y, e.Bounds.Right - (int)(28 * S), e.Bounds.Bottom);
-        if (BorrowOf(p.Prototype) is { } borrow)
+        if (BorrowOf(p.Prototype) != null)
         {
-            // a borrowed look: the name, and under it whose look (subtle)
-            var top = Rectangle.FromLTRB(tr.Left, tr.Top, tr.Right, tr.Top + tr.Height / 2 + (int)(2 * S));
-            var bottom = Rectangle.FromLTRB(tr.Left, top.Bottom - (int)(4 * S), tr.Right, tr.Bottom);
-            TextRenderer.DrawText(e.Graphics, p.Name, Ui.Regular(10f), top, Ui.Text, TextFormatFlags.Bottom | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            TextRenderer.DrawText(e.Graphics, "Looks like " + borrow.DonorName, Ui.Regular(8.5f), bottom, Ui.Subtle, TextFormatFlags.Top | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            return;
+            using var b = new SolidBrush(Ui.Accent);
+            g.FillPolygon(b, new Point[] { new Point(r.Left + 1, r.Bottom - d), new Point(r.Left + 1, r.Bottom - 1), new Point(r.Left + d, r.Bottom - 1) });
         }
-        TextRenderer.DrawText(e.Graphics, p.Name, Ui.Regular(10f), tr, Ui.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+
+    static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int rad)
+    {
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        int d = rad * 2;
+        path.AddArc(r.X, r.Y, d, d, 180, 90); path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    /// <summary>A tile's tooltip: the name, whose look it borrows, its color.</summary>
+    string PowerTip(Fx.PowerList.Power p)
+    {
+        var lines = new List<string> { p.Name };
+        if (BorrowOf(p.Prototype) is { } borrow) lines.Add("Looks like " + borrow.DonorName);
+        if (EntryOf(p.Prototype) is { } e && !e.Color.IsNone) lines.Add("Recolored");
+        if (PowerColorBuild.IsOwn(p.Prototype)) lines.Add("The character's own effects (glows, trails)");
+        else if (p.Part != null) lines.Add("One of the character's own effects: shows it in the 3D view (Parts), recolored with the character's Color");
+        else if (IsCharacterEntry(p.Prototype)) lines.Add("The character's own parts (dodge, hover …): switch them off on Parts, recolor their effects on Color");
+        else if (PowerColorBuild.IsPackage(p.Prototype)) lines.Add("A whole package, added with Add Package");
+        else if (p.Animations.Count == 0) lines.Add("No animation of its own: its effects play over the idle");
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>The selected entry's name and icon beside the color controls.</summary>
+    void ShowPowerTitle()
+    {
+        powerTitle.Text = powerList.SelectedItem is Fx.PowerList.Power p ? (BorrowOf(p.Prototype) is { } b ? $"{p.Name}  ·  Looks Like {b.DonorName}" : p.Name) : "";
+        powerIcon.Visible = powerList.SelectedItem != null;
+        powerIcon.Invalidate();
     }
 
     /// <summary>Before saving: the power colors into the draft's packages (PowerColorBuild.Apply). Returns the work folder.</summary>
