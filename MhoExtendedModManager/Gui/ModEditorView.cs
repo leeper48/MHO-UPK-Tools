@@ -152,6 +152,51 @@ sealed partial class ModEditorView : UserControl
         Controls.Add(body); Controls.Add(bottom);
         Bars = [bottom];
         RefreshPackages(); RefreshSounds();
+        // Unsaved changes (Kurt, 2026-10-18: a dot after the name on the Editor tab): what would be saved, looked at twice a
+        // second against what was saved (or opened); the first look waits for the pages to fill
+        dirtyTimer.Tick += (_, _) =>
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            dirtyTimer.Interval = 500;
+            string now = Fingerprint();
+            if (savedPrint == null) { savedPrint = now; return; }
+            SetDirty(now != savedPrint);
+        };
+        dirtyTimer.Start();
+        Disposed += (_, _) => dirtyTimer.Dispose();
+    }
+
+    // ---- unsaved changes
+    readonly System.Windows.Forms.Timer dirtyTimer = new() { Interval = 1500 };
+    string? savedPrint;
+    /// <summary>Something differs from the saved mod (the Editor tab shows a dot).</summary>
+    public bool IsDirty { get; private set; }
+    public event Action? DirtyChanged;
+    void SetDirty(bool on) { if (on == IsDirty) return; IsDirty = on; DirtyChanged?.Invoke(); }
+    /// <summary>Takes what the editor holds now as saved (after a save).</summary>
+    void MarkSaved() { savedPrint = IsHandleCreated ? Fingerprint() : null; SetDirty(false); }
+    internal string FingerprintForTest() => Fingerprint();
+    internal string NameForTest { get => nameBox.Text; set => nameBox.Text = value; }
+    internal string NotesForTest { get => notesBox.Text; set => notesBox.Text = value; }
+
+    static readonly System.Text.Json.JsonSerializerOptions printJson = new() { IncludeFields = true };
+    // the draft's fields the boxes hold until Save (Collect) and the ones that aren't the mod's content
+    static readonly HashSet<string> boxFields = [nameof(ModDraft.Name), nameof(ModDraft.Author), nameof(ModDraft.Version), nameof(ModDraft.Description), nameof(ModDraft.Changes),
+        nameof(ModDraft.NexusModId), nameof(ModDraft.PreviewImage), nameof(ModDraft.CardPicture), nameof(ModDraft.Tags), nameof(ModDraft.Notes), nameof(ModDraft.Strings), nameof(ModDraft.ModelFolder)];
+
+    /// <summary>What a save would write, as text (doesn't change the draft: Collect does that on Save).</summary>
+    string Fingerprint()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var box in new[] { nameBox, authorBox, versionBox, descriptionBox, changesBox, nexusBox, tagsBox, notesBox }) sb.Append(box.Text.Replace("\r\n", "\n").Trim()).Append('\u0001');
+        sb.Append(previewBox.Items.Count > 0 ? (previewBox.SelectedIndex > 0 && previewBox.SelectedIndex <= previewKeys.Count ? previewKeys[previewBox.SelectedIndex - 1] : null) : draft.PreviewImage).Append('\u0001');
+        sb.Append(cardBox.Items.Count > 0 ? (cardBox.SelectedIndex > 0 && cardBox.SelectedIndex <= cardKeys.Count ? cardKeys[cardBox.SelectedIndex - 1] : null) : draft.CardPicture).Append('\u0001');
+        foreach (var f in typeof(ModDraft).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+            if (!boxFields.Contains(f.Name)) sb.Append(f.Name).Append('=').Append(System.Text.Json.JsonSerializer.Serialize(f.GetValue(draft), printJson)).Append('\u0001');
+        stringsPage.AppendKey(sb);
+        foreach (var l in voiceLines) if (IsOn(l) == l.Off) sb.Append(l.Package).Append(l.Offset).Append(';');
+        sb.Append(ModelUnbuilt);
+        return sb.ToString();
     }
 
     // Null-safe: the tooltip audit opens an editor on an empty library (crashed 0.35.22 test run).
@@ -223,6 +268,7 @@ sealed partial class ModEditorView : UserControl
         animPreview?.Rebind(saved);
         if (animGrid != null) LoadAnimations();
         FillGhosts();
+        MarkSaved();
         Saves++;
     }
     /// <summary>How many saves this editor went on after (tests).</summary>

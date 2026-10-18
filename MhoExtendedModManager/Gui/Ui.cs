@@ -282,6 +282,14 @@ static class Ui
 
     sealed class TipPlacer : NativeWindow
     {
+        /// <summary>The control under the mouse, a disabled one included (Windows' hit test skips those).</summary>
+        static Control? Under(Point cur)
+        {
+            var c = Control.FromChildHandle(WindowFromPoint(cur));
+            while (c != null && c.GetChildAtPoint(c.PointToClient(cur), GetChildAtPointSkip.Invisible) is { } ch) c = ch;
+            return c;
+        }
+
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
         struct WINDOWPOS { public IntPtr Hwnd, After; public int X, Y, Cx, Cy; public uint Flags; }
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
@@ -298,11 +306,30 @@ static class Ui
             if ((wp.Flags & Show) == 0 && !IsWindowVisible(Handle)) return;
             GetWindowRect(Handle, out var r);
             int x = (wp.Flags & NoMove) != 0 ? r.Left : wp.X, y = (wp.Flags & NoMove) != 0 ? r.Top : wp.Y;
-            int cx = (wp.Flags & NoSize) != 0 ? r.Right - r.Left : wp.Cx;
+            int cx = (wp.Flags & NoSize) != 0 ? r.Right - r.Left : wp.Cx, cy = (wp.Flags & NoSize) != 0 ? r.Bottom - r.Top : wp.Cy;
             var cur = Cursor.Position;
-            if (cx <= 0 || (cur.X >= x - 8 && cur.X <= x + cx + 8) || Math.Abs(y - cur.Y) > 120) return;   // under the mouse, or placed elsewhere on purpose
+            if (cx <= 0) return;
             var wa = Screen.FromPoint(cur).WorkingArea;
-            wp.X = Math.Max(wa.Left, Math.Min(cur.X, wa.Right - cx));
+            bool moved = false;
+            if (!(cur.X >= x - 8 && cur.X <= x + cx + 8) && Math.Abs(y - cur.Y) <= 120)   // (not under the mouse, and not placed elsewhere on purpose)
+            {
+                x = Math.Max(wa.Left, Math.Min(cur.X, wa.Right - cx));
+                moved = true;
+            }
+            // Never over the button it is for (Kurt, 2026-10-18: at the bottom of the screen Windows pushed the tips of the
+            // editor's Save buttons up over them): above it, else below it.
+            if (cy > 0 && Under(cur) is { } c)
+            {
+                var cr = c.RectangleToScreen(c.ClientRectangle);
+                if (cr.Height <= 90 * c.DeviceDpi / 96 && new Rectangle(x, y, cx, cy).IntersectsWith(cr))
+                {
+                    int gap = 4 * c.DeviceDpi / 96, above = cr.Top - cy - gap, below = cr.Bottom + gap;
+                    if (above >= wa.Top) { y = above; moved = true; }
+                    else if (below + cy <= wa.Bottom) { y = below; moved = true; }
+                }
+            }
+            if (!moved) return;
+            wp.X = x;
             wp.Y = y;
             wp.Flags &= ~NoMove;
             System.Runtime.InteropServices.Marshal.StructureToPtr(wp, m.LParam, false);

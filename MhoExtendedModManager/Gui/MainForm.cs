@@ -1230,7 +1230,7 @@ sealed partial class MainForm : Form
                 if (lib?.Mods.FirstOrDefault(x => x.FolderName == name) is Mod kept)
                 {
                     ed.AfterSave(kept);
-                    pages.SetTitle(1, ed.Title.Length > 110 ? ed.Title[..110] + "…" : ed.Title);
+                    pages.SetTitle(1, EditorTabTitle(ed));
                     pages.Select(1);
                     status.Text = Ui.TitleCase($"Saved \"{name}\"") + (kept.Enabled ? "  ·  Apply Changes to Update the Game" : "");
                     return;
@@ -1258,10 +1258,14 @@ sealed partial class MainForm : Form
         editor = ed;
         editorHost.Controls.Clear();
         editorHost.Controls.Add(ed);
-        pages.SetTitle(1, ed.Title.Length > 110 ? ed.Title[..110] + "…" : ed.Title);   // (the full name: Extract's tab is a button now)
+        pages.SetTitle(1, EditorTabTitle(ed));   // (the full name: Extract's tab is a button now)
+        ed.DirtyChanged += () => { if (editor == ed) pages.SetTitle(1, EditorTabTitle(ed)); };
         Theme.ApplyTree(editorHost, Palette.Dark);   // not the whole form (a double-click on the list opens this): see ShowDetails
         Restyle(editorHost);
     }
+
+    /// <summary>The Editor tab's title: "Edit: name", with a dot while something isn't saved (Kurt, 2026-10-18).</summary>
+    static string EditorTabTitle(ModEditorView ed) => (ed.Title.Length > 110 ? ed.Title[..110] + "…" : ed.Title) + (ed.IsDirty ? "  •" : "");
 
     void CloseEditor()
     {

@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.6
+- Editor: a dot (•) after the mod's name on the Edit: tab while something isn't saved yet; it goes when the change is saved, or taken back.
+- Tooltips no longer cover the button they belong to: at the bottom of the screen (the Editor's Save buttons) they show above it.
+- 3D views: the ground is a grid of hexagons.
+
 0.50.5
 - Editor: Save and Keep Editing no longer closes and reopens the editor. The same editor goes on with the saved mod, so the tabs, the 3D previews (model, pose, camera) and what each tab shows stay as they were, and the save is quicker.
 

@@ -418,6 +418,59 @@ sealed partial class MainForm
         File.WriteAllLines(outFile, lines);
     }
 
+    /// <summary>--dirty-test (scratch libraries only): no dot after opening and showing every tab; a change shows it, taking
+    /// the change back clears it, Save and Keep Editing clears it.</summary>
+    public async Task DirtyTest(string outFile, string modName)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            var ed = editor!;
+            await Task.Delay(3000);
+            string Title() => pages.Count > 1 ? pages.TitleAt(1) : "";
+            lines.Add($"{(!ed.IsDirty && !Title().Contains('•') ? "PASS" : "FAIL")} clean after opening ({Title()})");
+            string first = ed.FingerprintForTest();
+            for (int t = 0; t < ed.TabCount; t++)
+                for (int i = 0; i < 4; i++)
+                {
+                    ed.ShowTab((t, i));
+                    if (ed.TabPosition != (t, i)) break;
+                    await Task.Delay(t == ed.TabCount - 1 || ed.TabTitle(t) is "Powers" or "Animations" or "Model" ? 6000 : 1200);
+                    if (ed.IsDirty)
+                    {
+                        string now = ed.FingerprintForTest();
+                        int k = 0; while (k < Math.Min(now.Length, first.Length) && now[k] == first[k]) k++;
+                        lines.Add($"FAIL dirty after showing {ed.TabTitle(t)} / {i}: at …{first.Substring(Math.Max(0, k - 80), Math.Min(160, first.Length - Math.Max(0, k - 80)))} → …{now.Substring(Math.Max(0, k - 80), Math.Min(160, now.Length - Math.Max(0, k - 80)))}");
+                        goto done;
+                    }
+                }
+            lines.Add("PASS clean after showing every tab");
+            done:
+            ed.ShowTab((0, 0));
+            string name = ed.NameForTest;
+            ed.NameForTest = name + " X";
+            await Task.Delay(1200);
+            lines.Add($"{(ed.IsDirty && Title().EndsWith("•") ? "PASS" : "FAIL")} a changed name shows the dot ({Title()})");
+            ed.NameForTest = name;
+            await Task.Delay(1200);
+            lines.Add($"{(!ed.IsDirty && !Title().Contains('•') ? "PASS" : "FAIL")} the name back: no dot ({Title()})");
+            ed.NotesForTest = ed.NotesForTest + " dirty test";
+            await Task.Delay(1200);
+            lines.Add($"{(ed.IsDirty ? "PASS" : "FAIL")} a changed note shows the dot");
+            ed.SaveStayForTest();
+            await Task.Delay(1500);
+            lines.Add($"{(editor == ed && !ed.IsDirty && !Title().Contains('•') ? "PASS" : "FAIL")} saved: no dot ({Title()})");
+            ed.NotesForTest = ed.NotesForTest.Replace(" dirty test", "");
+            ed.SaveStayForTest();
+            await Task.Delay(1500);
+            lines.Add($"{(!ed.IsDirty ? "PASS" : "FAIL")} the note back and saved: no dot");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
     /// <summary>--target-props-test (scratch libraries only): the Model tab's target props: <paramref name="prop"/> left off,
     /// saved, the package read back (its mesh none), then kept again, saved, the mesh back.</summary>
     public async Task TargetPropsTest(string outFile, string modName, string prop)

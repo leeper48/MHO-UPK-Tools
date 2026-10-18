@@ -170,6 +170,18 @@ sealed partial class ModEditorView
             Dialog.Show(this, $"Imported {n} string(s) as language '{l}'.", "Import");
         }
 
+        /// <summary>The rows as text (unsaved changes), the cell being typed in included; nothing is committed.</summary>
+        public void AppendKey(System.Text.StringBuilder sb)
+        {
+            foreach (DataGridViewRow r in grid.Rows)
+            {
+                if (r.IsNewRow) continue;
+                foreach (DataGridViewCell c in r.Cells)
+                    if (c.OwningColumn.Name is "Lang" or "File" or "ID" or ReplacementCol) sb.Append(c.IsInEditMode && grid.EditingControl != null ? grid.EditingControl.Text : c.Value?.ToString()).Append('\u0002');
+                sb.Append('\u0001');
+            }
+        }
+
         public List<StringReplacement> Collect()
         {
             grid.EndEdit();

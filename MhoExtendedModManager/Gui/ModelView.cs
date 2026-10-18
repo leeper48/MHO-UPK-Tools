@@ -894,7 +894,7 @@ sealed class ModelView : UserControl
     /// <summary>The ground plane (ShowGround), per pixel: where the ray meets Z 0 nearer than what's drawn there.</summary>
     void DrawGround(Vector3 r, Vector3 u, Vector3 f, Vector3 eye, float focal, float cx, float cy, float near)
     {
-        const float Cell = 50, Reach = 700;
+        const float Cell = 50, Reach = 700;   // (hexagons Cell across their flat sides: Kurt, 2026-10-18)
         Parallel.For(0, H, y =>
         {
             for (int x = 0; x < W; x++)
@@ -911,8 +911,7 @@ sealed class ModelView : UserControl
                 float fade = 1 - reach / Reach;
                 // grid lines about a pixel wide, wherever the camera is
                 float px = t / focal * 1.2f;
-                float gx = MathF.Abs(hit.X / Cell - MathF.Round(hit.X / Cell)) * Cell, gy = MathF.Abs(hit.Y / Cell - MathF.Round(hit.Y / Cell)) * Cell;
-                bool line = gx < px || gy < px;
+                bool line = HexEdge(hit.X, hit.Y, Cell * 0.5f) < px;
                 float a = (line ? 0.85f : 0.7f) * MathF.Min(1, fade * 2.5f);
                 int g = line ? 120 : 58, b = line ? 132 : 64;
                 int c = color[p];
@@ -921,6 +920,21 @@ sealed class ModelView : UserControl
                 depth[p] = 1f / t;   // (effects behind the ground are hidden too)
             }
         });
+    }
+
+    /// <summary>How far (x, y) is from the nearest edge of a flat-topped hexagon grid whose cells are 2 × <paramref name="apothem"/>
+    /// across their flat sides (one cell's center at the origin).</summary>
+    internal static float HexEdge(float x, float y, float apothem)
+    {
+        float size = apothem / 0.8660254f;   // center to corner
+        // axial coordinates, rounded as cube coordinates
+        float q = 2f / 3f * x / size, r = (-x / 3f + 0.57735027f * y) / size, sCube = -q - r;
+        float rq = MathF.Round(q), rr = MathF.Round(r), rs = MathF.Round(sCube);
+        float dq = MathF.Abs(rq - q), dr = MathF.Abs(rr - r), ds = MathF.Abs(rs - sCube);
+        if (dq > dr && dq > ds) rq = -rr - rs; else if (dr > ds) rr = -rq - rs;
+        float lx = x - size * 1.5f * rq, ly = y - size * 1.7320508f * (rr + rq * 0.5f);
+        float far = MathF.Max(MathF.Abs(ly), MathF.Max(MathF.Abs(0.8660254f * lx + 0.5f * ly), MathF.Abs(0.8660254f * lx - 0.5f * ly)));
+        return apothem - far;
     }
 
     internal static float Lod(float ratio, Map m) => ratio <= 0 ? 0 : 0.5f * MathF.Log2(Math.Max(1e-8f, ratio * m.W * m.H));

@@ -271,7 +271,7 @@ static partial class Program
             var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences, ld.Tangents);
             float frames = ba == null ? 0 : MeshAnimator.Span(ba).Frames;
             using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = Environment.GetEnvironmentVariable("MHO_RENDER_SIZE") is string rs && rs.Split('x') is [var rw, var rh] ? new Size(int.Parse(rw), int.Parse(rh)) : new Size(420, 560), ShowInTaskbar = false };   // MHO_RENDER_SIZE=WxH: time frames at the preview's size
-            var v = new Gui.ModelView { Dock = DockStyle.Fill, Background = Gui.Ui.Card };
+            var v = new Gui.ModelView { Dock = DockStyle.Fill, Background = Gui.Ui.Card, ShowGround = Environment.GetEnvironmentVariable("MHO_RENDER_GROUND") == "1" };   // (MHO_RENDER_GROUND=1: the ground plane)
             f.Controls.Add(v);
             var shots = new List<Bitmap>();
             f.Shown += (_, _) => f.BeginInvoke(async () =>
@@ -684,6 +684,16 @@ static partial class Program
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             var main = new Gui.MainForm();
             main.Shown += (_, _) => main.BeginInvoke(async () => { await main.KeepEditingTest(args[1], args[2]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 3 && args[0].Equals("--dirty-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --dirty-test <out.txt> <mod> (scratch libraries only): the Editor tab's unsaved-changes dot
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.DirtyTest(args[1], args[2]); main.Close(); });
             Application.Run(main);
             return 0;
         }
