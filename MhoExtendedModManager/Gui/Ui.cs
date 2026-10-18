@@ -146,7 +146,18 @@ static class Ui
     {
         LimitTipWidth(Tips);
         Tips.SetToolTip(c, Titled(title, text));
+        ForgetOnDispose(c);
         return c;
+    }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, object> tipped = new();
+    /// <summary>A control with a tip in the shared tooltip leaves it when it's disposed (the tooltip holds every control it
+    /// has a tip for: a disposed 3D preview's slider kept the whole closed editor in memory, 420 MB each time).</summary>
+    public static void ForgetOnDispose(Control c)
+    {
+        if (tipped.TryGetValue(c, out _)) return;
+        tipped.Add(c, new object());
+        c.Disposed += (_, _) => { try { Tips.SetToolTip(c, null); } catch (ObjectDisposedException) { } };
     }
 
     /// <summary>The tooltip text for a title + text (for tooltips set by hand, such as Undo's).</summary>
@@ -620,9 +631,22 @@ static class Ui
     /// <summary>The app's one tooltip (dark). Every button gets a tip where it's made (Kurt: tooltips on all buttons);
     /// --tooltip-audit lists any that don't.</summary>
     public static readonly ToolTip Tips = NewTips();
+
+    /// <summary>Takes <paramref name="root"/>'s controls out of the shared tooltip (Tips): a ToolTip holds every control it
+    /// has a tip for, so a closed editor stayed in memory, all of it (Kurt, 2026-10-18: 420 MB more per editor opened and
+    /// closed, the app slower and slower). Call before disposing a part of a window that goes away.</summary>
+    public static void ForgetTips(Control root)
+    {
+        void Walk(Control c)
+        {
+            try { if (!string.IsNullOrEmpty(Tips.GetToolTip(c))) Tips.SetToolTip(c, null); } catch (ObjectDisposedException) { }
+            foreach (Control k in c.Controls) Walk(k);
+        }
+        Walk(root);
+    }
     /// <summary>Stock images (the original icon packages) are decoded one at a time (the list's and the preview's pictures).</summary>
     public static readonly object StockLock = new();
-    public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) { LimitTipWidth(Tips); Tips.SetToolTip(c, text); } return c; }
+    public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) { LimitTipWidth(Tips); Tips.SetToolTip(c, text); ForgetOnDispose(c); } return c; }
 
     /// <summary>Buttons under a control that have no tooltip (on the shared tooltip or <paramref name="other"/>).</summary>
     public static List<string> MissingTips(Control root, params ToolTip[] other)

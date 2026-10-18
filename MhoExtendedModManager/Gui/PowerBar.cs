@@ -119,6 +119,7 @@ sealed class PowerBar : Control
         hover = k;
         Invalidate();
         Ui.Tips.SetToolTip(this, k >= 0 && TipFor != null ? TipFor(Items[k]) : "");
+        Ui.ForgetOnDispose(this);
     }
 
     protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (hover >= 0) { hover = -1; Invalidate(); } }

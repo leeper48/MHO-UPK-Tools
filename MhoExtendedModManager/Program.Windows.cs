@@ -562,6 +562,36 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--mods-cycles", StringComparison.OrdinalIgnoreCase))
+        {
+            // --mods-cycles <out.txt> <rounds> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.ModsCycles(args[1], int.Parse(args[2])); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 4 && args[0].Equals("--editor-cycles", StringComparison.OrdinalIgnoreCase))
+        {
+            // --editor-cycles <out.txt> <mod> <cycles> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.EditorCycles(args[1], args[2], int.Parse(args[3])); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 4 && args[0].Equals("--tab-timing", StringComparison.OrdinalIgnoreCase))
+        {
+            // --tab-timing <out.txt> <mod> <rounds> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.TabTiming(args[1], args[2], int.Parse(args[3])); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 5 && args[0].Equals("--ghosts-test", StringComparison.OrdinalIgnoreCase))
         {
             // --ghosts-test <out.txt> <mod> <animation> <frame fraction> (scratch libraries only)

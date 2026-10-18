@@ -527,6 +527,109 @@ sealed partial class MainForm
         File.WriteAllLines(outFile, lines);
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int GetGuiResources(IntPtr process, int flags);
+
+    /// <summary>--tab-timing (scratch libraries only): the editor on <paramref name="modName"/>, every top tab then the main
+    /// Mods / Editor tabs, <paramref name="rounds"/> times: each switch's time (select + paint), and memory, handles and GDI /
+    /// USER objects after each round, to find what grows.</summary>
+    public async Task TabTiming(string outFile, string modName, int rounds)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            await Task.Delay(2000);
+            var proc = System.Diagnostics.Process.GetCurrentProcess();
+            for (int r = 0; r < rounds; r++)
+            {
+                var parts = new List<string>();
+                for (int i = 0; i < editor!.TabCount; i++)
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    editor.SelectTab(i);
+                    Refresh();
+                    parts.Add($"{editor.TabTitle(i)} {sw.ElapsedMilliseconds}");
+                    await Task.Delay(r == 0 ? 6000 : 1500);   // (first round: what each tab loads the first time)
+                }
+                foreach (int pg in new[] { 0, 1, 0, 1 })
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    pages.Select(pg);
+                    Refresh();
+                    parts.Add($"{(pg == 0 ? "Mods" : "Editor")} {sw.ElapsedMilliseconds}");
+                    await Task.Delay(1500);
+                }
+                GC.Collect(); GC.WaitForPendingFinalizers();
+                proc.Refresh();
+                lines.Add($"round {r + 1}: " + string.Join(", ", parts) + $" | managed {GC.GetTotalMemory(false) / 1048576} MB, private {proc.PrivateMemorySize64 / 1048576} MB, handles {proc.HandleCount}, GDI {GetGuiResources(proc.Handle, 0)}, USER {GetGuiResources(proc.Handle, 1)}, threads {proc.Threads.Count}");
+                File.WriteAllLines(outFile, lines);
+            }
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
+    /// <summary>--editor-cycles (scratch libraries only): the editor opened on <paramref name="modName"/>, its Powers and Model
+    /// tabs shown, closed again, <paramref name="cycles"/> times; memory and handles after each (a leak grows them).</summary>
+    public async Task EditorCycles(string outFile, string modName, int cycles)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            var proc = System.Diagnostics.Process.GetCurrentProcess();
+            for (int c = 0; c < cycles; c++)
+            {
+                OpenEditor(m); pages.Select(1);
+                await Task.Delay(1500);
+                foreach (string t in (Environment.GetEnvironmentVariable("MHO_CYCLE_TABS") ?? "Powers,Animations,Model,Icons").Split(","))
+                {
+                    int i = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(k => editor.TabTitle(k) == t, -1);
+                    if (i >= 0) { editor.SelectTab(i); await Task.Delay(t == "Model" ? 5000 : 3500); }
+                }
+                var wEd = new WeakReference(editor);
+                var pp = editor!.PowerPreviewForTest as StorePreview;
+                var wPp = new WeakReference(pp); var wP3 = new WeakReference(pp?.P3ForTest); var wView = new WeakReference(pp?.ViewForTest);
+                pp = null;
+                CloseEditor(); pages.Select(0);
+                await Task.Delay(1500);
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                lines.Add($"  alive after close: editor {wEd.IsAlive}, power preview {wPp.IsAlive}, its 3D view {wP3.IsAlive}, renderer {wView.IsAlive}");
+                if (wEd.Target is { } closed) lines.Add("  held by: " + (RootFinder.PathTo(closed) ?? "(not found from the statics)"));
+                else if (wPp.Target is { } closedPp) lines.Add("  preview held by: " + (RootFinder.PathTo(closedPp) ?? "(not found from the statics)"));
+                proc.Refresh();
+                var weak = new WeakReference(null);
+                lines.Add($"cycle {c + 1}: managed {GC.GetTotalMemory(true) / 1048576} MB, private {proc.PrivateMemorySize64 / 1048576} MB, handles {proc.HandleCount}, GDI {GetGuiResources(proc.Handle, 0)}, USER {GetGuiResources(proc.Handle, 1)}, threads {proc.Threads.Count}");
+                File.WriteAllLines(outFile, lines);
+            }
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
+    /// <summary>--mods-cycles (scratch libraries only): every mod of the library selected on the Mods tab in turn, <paramref name="rounds"/>
+    /// times (the preview loads each); memory and handles after each round.</summary>
+    public async Task ModsCycles(string outFile, int rounds)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var proc = System.Diagnostics.Process.GetCurrentProcess();
+            for (int r = 0; r < rounds; r++)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                foreach (var m in lib!.Mods.ToList()) { SelectMod(m.FolderName); await Task.Delay(2500); }
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                proc.Refresh();
+                lines.Add($"round {r + 1}: {lib.Mods.Count} mods in {sw.Elapsed.TotalSeconds:0} s, managed {GC.GetTotalMemory(true) / 1048576} MB, private {proc.PrivateMemorySize64 / 1048576} MB, handles {proc.HandleCount}, GDI {GetGuiResources(proc.Handle, 0)}, USER {GetGuiResources(proc.Handle, 1)}");
+                File.WriteAllLines(outFile, lines);
+            }
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
     /// <summary>--powers-shot (scratch libraries only): the Powers tab's preview on a power at a frame, as a PNG.</summary>
     public async Task PowersShot(string png, string modName, string power, double fraction)
     {

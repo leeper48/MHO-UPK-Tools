@@ -166,6 +166,8 @@ sealed partial class StorePreview
     /// <summary>For --keep-frame-test: the frame slider moved to <paramref name="fraction"/> of the animation (as a drag).</summary>
     internal void ScrubForTest(double fraction) { if (p3?.Playing != null && p3.Frames > 0) p3.FrameSlider.Value = (float)(Math.Round(fraction * p3.Frames) / p3.Frames); }
 
+    internal object? P3ForTest => p3;
+    internal object? ViewForTest => p3?.View;
     internal float? ShownLight => show3D && p3 != null ? p3.View.Brightness : null;
 
     /// <summary>--preview-selftest: what the 3D view shows now (animation, time, camera), or null when it isn't showing.</summary>

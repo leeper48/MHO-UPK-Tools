@@ -560,5 +560,15 @@ sealed partial class Preview3D : UserControl
     /// <summary>The view's picture (checks).</summary>
     public Bitmap ViewShot() { var b = new Bitmap(Math.Max(1, view.Width), Math.Max(1, view.Height)); view.DrawToBitmap(b, new Rectangle(0, 0, b.Width, b.Height)); return b; }
 
-    protected override void Dispose(bool disposing) { if (disposing) { player?.Dispose(); effects?.Dispose(); full.Dispose(); lookMenu?.Dispose(); } base.Dispose(disposing); }
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            player?.Dispose(); effects?.Dispose(); full.Dispose(); lookMenu?.Dispose();
+            // the Look menu's sliders live in that menu, made only when it first opens: without it they were never disposed,
+            // and their tips kept this preview (and the editor around it) in memory
+            foreach (var sl in new Control[] { light, glowSlider, lens, effectsSlider }) if (!sl.IsDisposed) sl.Dispose();
+        }
+        base.Dispose(disposing);
+    }
 }

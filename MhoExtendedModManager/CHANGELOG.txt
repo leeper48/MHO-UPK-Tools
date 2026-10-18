@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.1
+- Faster over a long session: every editor opened and closed (each Save and Keep Editing too) stayed in memory, all of it, about 420 MB each time with the Powers and Animations tabs' 3D views, so the app got slower and slower. The shared tooltip kept the 3D previews' Look sliders, and through them the whole editor; controls now leave it when they're disposed, and those sliders are disposed with their preview. Opening and closing the editor six times now stays at about 380 MB (it went from 0.8 to 2.9 GB).
+
 0.50.0
 - Powers tab → Dodge Ghosts: a Lean slider (0–30°, 10 at first) sets how far the ghosts lean, all of them; kept with the mod.
 

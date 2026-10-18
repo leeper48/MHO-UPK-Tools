@@ -136,7 +136,8 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
 
     /// <summary>An import resolved to the export of that path in one of the known packages (or the same export).</summary>
     /// <summary>Imports resolved by any reader in this session, by path (the packages stay in memory).</summary>
-    static readonly Dictionary<string, (FxPkg P, int Export)> seen = new(StringComparer.OrdinalIgnoreCase);
+    // (weakly: the package cache lets go of packages; held strongly here, they stayed in memory for good)
+    static readonly Dictionary<string, (WeakReference<FxPkg> P, int Export)> seen = new(StringComparer.OrdinalIgnoreCase);
 
     public (FxPkg P, int Export)? Resolve(FxPkg p, int reference)
     {
@@ -144,10 +145,10 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
         if (reference == 0) return null;
         string path = p.T.PathOf(reference);
         foreach (var q in packages)
-            if (q.Find(path) is int i && i >= 0) { lock (seen) seen[path] = (q, i); return (q, i); }
+            if (q.Find(path) is int i && i >= 0) { lock (seen) seen[path] = (new WeakReference<FxPkg>(q), i); return (q, i); }
         // found by an earlier read (another effect group's packages: Iceman's Frozen Orb summon reads mat_cloudy_glow_dir
         // with fewer packages than the power, and lost the soft glow that masks it)
-        lock (seen) if (seen.TryGetValue(path, out var hit)) return hit;
+        lock (seen) if (seen.TryGetValue(path, out var hit) && hit.P.TryGetTarget(out var hp)) return (hp, hit.Export);
         Notes.Add($"{path} is imported from a package the view doesn't read");
         return null;
     }

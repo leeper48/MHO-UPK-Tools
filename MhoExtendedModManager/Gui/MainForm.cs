@@ -1248,6 +1248,7 @@ sealed partial class MainForm : Form
     void CloseEditor()
     {
         if (editor == null) return;
+        Ui.ForgetTips(editor);             // (the shared tooltip held the whole editor: a leak per editor opened)
         editor.Dispose();                  // while still in the window (see FlatTabs.Clear: tables' tooltips)
         editorHost.Controls.Clear();
         editor = null;

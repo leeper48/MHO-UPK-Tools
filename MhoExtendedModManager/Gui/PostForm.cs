@@ -149,6 +149,7 @@ sealed class PostForm : Form
                                        BackColor = f == selectedImage ? Ui.Accent : Color.FromArgb(22, 22, 24) };
             pic.Click += (_, _) => { selectedImage = f; ShowImages(); };
             Ui.Tips.SetToolTip(pic, Path.GetFileName(f) + "  ·  click to select");
+            Ui.ForgetOnDispose(pic);
             strip.Controls.Add(pic);
         }
         if (images.Count == 0) strip.Controls.Add(new Label { Text = "No images yet: Add Screenshots or Add Mod Images.", AutoSize = true, Tag = "subtle", ForeColor = Ui.Subtle, Margin = new Padding(4, 8, 0, 0) });

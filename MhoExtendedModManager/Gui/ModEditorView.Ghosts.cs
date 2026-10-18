@@ -366,6 +366,7 @@ sealed partial class ModEditorView
         return lines;
     }
     internal void GameGhostsForTest() => GameGhosts();
+    internal object? PowerPreviewForTest => powerPreview;
     internal async Task<bool> SelectCharacterForTest()
     {
         SelectTab(Enumerable.Range(0, TabCount).First(i => TabTitle(i) == "Powers"));
