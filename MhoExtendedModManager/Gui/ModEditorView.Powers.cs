@@ -108,6 +108,9 @@ sealed partial class ModEditorView
             var built = editing.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
             powerPreview.SkipModFile = f => built.Contains(f);
             powerPreview.OverrideFiles = PreviewOverrides;   // borrowed looks and dodge ghosts built since the last save
+            // effect parts switched off (Parts) aren't shown, saved or not (Kurt, 2026-10-18: a recolored power's preview reads
+            // the game's package, where they're still on)
+            powerPreview.HiddenEffect = name => draft.PartsOff.Any(x => x.Switch == "effect" && x.Part[(x.Part.LastIndexOf('.') + 1)..].Equals(name, StringComparison.OrdinalIgnoreCase));
             powerPreview.HeroPowersLoaded += FillPowers;
             // Its buttons (made when a model loads) take the app's button look; the theme pass that gives it them in the
             // main window has run already here.

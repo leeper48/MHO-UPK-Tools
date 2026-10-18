@@ -175,6 +175,13 @@ sealed partial class StorePreview
     public bool HeroPowersReady => p3?.PowersLoaded ?? false;
 
     /// <summary>The animation showing and its frame (the Powers tab's Use This Pose); null while none plays.</summary>
+    /// <summary>Effect parts left out of the preview by name (the Powers tab's Parts switched off).</summary>
+    public Func<string, bool>? HiddenEffect { get => hiddenEffect; set { hiddenEffect = value; if (p3 != null) p3.EffectsPlayer.HiddenEffect = value; } }
+    Func<string, bool>? hiddenEffect;
+
+    /// <summary>The effects again (a part switched on or off): a character's own, else the power's.</summary>
+    public void ReloadEffects() { if (ownFxPackage != null) LoadOwnEffects(); else p3?.ReloadEffects(); }
+
     /// <summary>Shows <paramref name="anim"/> at <paramref name="frame"/>, paused (Save and Keep Editing puts the pose back).</summary>
     public bool HoldPose(string anim, float frame)
     {

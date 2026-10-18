@@ -123,6 +123,7 @@ sealed partial class ModEditorView
             g.Rows[e.RowIndex].Cells["on"].Value = !off;
             g.Rows[e.RowIndex].DefaultCellStyle.ForeColor = off ? Ui.Subtle : Ui.Text;
             partsNote.Text = PartsSummary();
+            if (s.Kind == "Effect") powerPreview?.ReloadEffects();   // (shown or hidden at once)
         };
         Ui.Tip(g, "The parts of the selected power or character in the game's files. Untick a part to switch it off (Save writes it into the mod's packages; tick it again for the game's own). Effect: a particle effect (▶ shows it in the 3D view, such as the dodge's ghosts); Sound: its sound events (▶ plays it); Attachment: a prop the power shows (Invisible Woman's disc); Setting: a switch such as Can Transition to Hover.");
         partsGrid = g;

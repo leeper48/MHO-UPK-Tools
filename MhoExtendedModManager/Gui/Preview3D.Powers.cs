@@ -236,6 +236,9 @@ sealed partial class Preview3D
     /// The effects of the power the animation belongs to (Power FXs on): the hero's power packages name it (PowerIndex), the
     /// game data gives the power with what it sets off (PowerEffects.For), then they play from the animation's time.
     /// </summary>
+    /// <summary>The power's effects read and played again (parts switched on or off).</summary>
+    public void ReloadEffects() => LoadEffects();
+
     void LoadEffects()
     {
         if (CustomEffects?.Invoke() == true) return;

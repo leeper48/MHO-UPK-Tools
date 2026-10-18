@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.4
+- Powers tab → Parts: an effect switched off is left out of the 3D preview at once, saved or not. A recolored power's preview plays the game's files (to show the color being set), so Second Sun's head, body and limb glows still showed there after Save, though the saved packages had them off.
+
 0.50.3
 - Editor: Save and Keep Editing on the Powers tab keeps the selected power (or part tile), its Color / Parts tab and the pose in the preview (the animation at its frame, paused).
 

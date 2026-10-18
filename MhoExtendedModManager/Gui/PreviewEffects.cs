@@ -71,6 +71,9 @@ sealed class PreviewEffects : IDisposable
     /// <paramref name="needsDb"/> is false) and returns them with the power's name and sockets; <paramref name="swaps"/> reads
     /// the power's condition material swaps; <paramref name="label"/> overrides the caption (own effects).
     /// </summary>
+    /// <summary>Effects left out by their part's name (the editor's Powers tab: parts switched off, before and after Save).</summary>
+    public Func<string, bool>? HiddenEffect { get; set; }
+
     public void Load(string cooked, bool needsDb, Func<Fx.GameData?, PowerPreview.Loaded?> read, Func<Fx.GameData, string, ModelView.Look?[]?>? swaps,
         string reading = "Reading Powers…", Func<PowerPreview.Loaded, string>? label = null)
     {
@@ -91,7 +94,9 @@ sealed class PreviewEffects : IDisposable
             float ground = s.Mesh.Positions.Length == 0 ? 0 : s.Mesh.Positions.Min(v => v.Z);
             Target = new Vector3(250, 0, ground);
             var playing = Playing();
-            clock.Player = new Fx.PowerEffects.Player(loaded.Effects, Socket, Target, loaded.Phase) { AnimSeconds = Math.Max(0.1f, Seconds()), Color = ColorFor?.Invoke(loaded.Power) };
+            // (an effect part switched off in the editor isn't played: Powers tab → Parts)
+            var phase = HiddenEffect is { } hidden ? e => loaded.Phase(e) && !hidden(e.Name) : loaded.Phase;
+            clock.Player = new Fx.PowerEffects.Player(loaded.Effects, Socket, Target, phase) { AnimSeconds = Math.Max(0.1f, Seconds()), Color = ColorFor?.Invoke(loaded.Power) };
             rig.Recolor = clock.Player.Color is { IsNone: false } pc ? pc.Apply : null;
             Power = loaded.Power;
             s.View.EffectStrength = PreviewViews.FxPower;   // the effects' opacity / glow

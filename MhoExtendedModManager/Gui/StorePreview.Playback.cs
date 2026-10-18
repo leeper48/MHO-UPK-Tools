@@ -23,6 +23,7 @@ sealed partial class StorePreview
         p3.ColorFor = colorFor;
         p3.ForceEffects = forceEffects;
         p3.ShowPowerBlock = powerStrip;
+        p3.EffectsPlayer.HiddenEffect = hiddenEffect;
         p3.CustomEffects = () => { if (ownFxPackage == null) return false; LoadOwnEffects(); return true; };
         p3.ViewChanged += () => { if (mod != null && MeshOk && show3D) PreviewViews.Set(PreviewViews.Key(mod, meshes[meshIndex]), p3.View.ViewState); };
         p3.AnimationPicked += (name, user) =>
