@@ -866,6 +866,18 @@ static class Framing
                     default: view.Aim(new Vector3(h.X, h.Y, feet + (top - feet) * 0.5f), (top - feet) * 1.42f * lens, yaw, 0.08f); return;
                 }
         }
+        // not standing (a pet; a flying or lying pose, Kurt, 2026-10-18: Ms. Marvel's flight was framed where she would stand):
+        // the whole of the body as it is now, wherever the pose puts it
+        if (animator != null && animator.Positions.Length > 0)
+        {
+            if (!posed) animator.Pose(null, 0);
+            var lo = animator.Positions.Aggregate(Vector3.Min); var hi = animator.Positions.Aggregate(Vector3.Max);
+            float size = Math.Max(1f, Math.Max(hi.Z - lo.Z, Math.Max(hi.X - lo.X, hi.Y - lo.Y)));
+            float lens2 = view.FocalLength / ModelView.ReferenceFocalLength;
+            float near = k switch { Shot.HeadShoulders => 0.75f, Shot.Bust => 0.95f, _ => 1.42f };
+            view.Aim((lo + hi) * 0.5f, size * near * lens2, yaw, 0.08f);
+            return;
+        }
         view.ViewState = k switch
         {
             Shot.HeadShoulders => [yaw, 0.06f, 1.5f, 0f, 0f, 0.1f],   // not a standing character (a pet): the whole of it, a little closer
