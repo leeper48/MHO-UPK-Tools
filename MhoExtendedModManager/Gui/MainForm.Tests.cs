@@ -201,6 +201,9 @@ sealed partial class MainForm
         {
             editor.SelectTab(i);
             await Task.Delay(editor.TabTitle(i) is "Packages" or "Store Images" ? 6000 : editor.TabTitle(i) is "Animations" or "Powers" ? 9000 : editor.TabTitle(i) is "Model" ? 12000 : 1500);   // icon names / previews / 3D models load in the background
+            // (the Model tab's target props listed, for the manual's picture)
+            if (editor.TabTitle(i) is "Model" && editor.ModelPageForTest is { } mpage) for (int w = 0; w < 600 && mpage.TargetPropLabels.Count == 0; w++) await Task.Delay(100);
+            if (editor.TabTitle(i) is "Model") await Task.Delay(4000);
             using var b = new Bitmap(Width, Height);
             DrawToBitmap(b, new Rectangle(0, 0, Width, Height));
             b.Save(Path.Combine(dir, $"editor_{i}_{editor.TabTitle(i).Replace(' ', '_')}.png"));
@@ -561,6 +564,7 @@ sealed partial class MainForm
             var p = MhoPackageModifier.Package.Open(Path.Combine(m2.Folder, file));
             var gx = DodgeGhosts.GhostExports(p, file, Path.Combine(m2.Folder, file));
             lines.Add($"{(gx.Count > 0 && gx.All(i => p.Exports[i].ObjectName.EndsWith("_mod")) ? "PASS" : "FAIL")} the package's ghosts: {string.Join(", ", gx.Select(i => p.Exports[i].ObjectName))}");
+            if (Environment.GetEnvironmentVariable("MHO_GHOSTS_KEEP") == "1") { File.WriteAllLines(outFile, lines); return; }   // (screenshots: the ghosts stay)
             // back to the game's
             lines.Add($"{(await editor!.SelectCharacterForTest() ? "PASS" : "FAIL")} the reopened editor shows the ghosts");
             editor.GameGhostsForTest();

@@ -570,7 +570,7 @@ sealed partial class ModEditorView
         if (opacitySlider != null) opacitySlider.Value = e?.Opacity ?? 1;
         fillingPower = false;
         // a character's own parts (the dodge, a hover): their effects take the color too (Kurt, 2026-10-17)
-        if (IsCharacterEntry(p.Prototype)) { CharacterSelected(p); return; }
+        if (IsCharacterEntry(p.Prototype)) { CharacterSelected(p); powerPreview?.FrameFull(); return; }
         powerCaption.Text = (e == null ? "The Game's Colors" : "Recolored")
             // (no animation of its own: The Will of Doom, procs, passives: the preview plays its effects over the idle, as the
             // Mods tab and the Model tab do; Kurt, 2026-10-12)
@@ -601,6 +601,7 @@ sealed partial class ModEditorView
         ShowBorrow(p);
         LoadPalette(p);
         ShowMapRows();
+        powerPreview?.FrameFull();   // (the whole character, as the power buttons do)
     }
 
     /// <summary>The Dark button: the selected power dark and more solid (Saturation 0, Brightness 0, Opacity 500 %: the value

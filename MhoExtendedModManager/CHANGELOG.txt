@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.7
+- Powers tab: picking a power or a part tile in the power bar frames the whole character, as the power buttons on the Mods and Model tabs do (the Dodge tile could leave the camera on the feet). While the model loads, it frames once the animations are in.
+
 0.50.6
 - Editor: a dot (•) after the mod's name on the Edit: tab while something isn't saved yet; it goes when the change is saved, or taken back.
 - Tooltips no longer cover the button they belong to: at the bottom of the screen (the Editor's Save buttons) they show above it.

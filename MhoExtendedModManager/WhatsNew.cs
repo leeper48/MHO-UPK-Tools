@@ -34,7 +34,24 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.50.7 (Kurt, 2026-10-18): parts, dodge ghosts, the editor's new layout, the target's props, a faster editor.</summary>
+    static Notice PartsAndGhosts() => new(
+        "0.50.7-parts-ghosts", "0.50.7",
+        "[!]Powers tab → Parts: Switch off a power's or a hero's settings (Invisible Woman's hover when she runs), attachments, effects and sounds. ▶ shows an effect or plays a sound. The Char tile lists the hero's own parts, and its Color recolors them." + nl + nl +
+        "[!]Dodge ghosts from your model: The Dodge tile → Make Them From This Model." + nl +
+        "  • Your model at its own size, in the combat idle, each ghost leaning another way (the Lean slider sets how far)." + nl +
+        "  • Use This Pose takes any animation's frame; every costume of the hero shows them." + nl + nl +
+        "Model tab → Parts: The Target's Props lists the target costume's own props (Black Cat's belt). Untick one to leave it off." + nl + nl +
+        "The Editor has more room:" + nl +
+        "  • Name, author, version, tags and note are in Overview → Details." + nl +
+        "  • Powers: icon tiles under a much bigger 3D view." + nl +
+        "  • Save and Keep Editing stays where you are, with no reload; a dot after the name means unsaved changes." + nl + nl +
+        "3D views: A hexagon floor (Look ▾ → Ground). Picking a power frames the whole character." + nl + nl +
+        "Faster over a long session: Closed editors no longer stay in memory." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-parts");
 
     /// <summary>0.37.292 (Kurt, 2026-10-17): voice effects, team-up voices, moved costumes that hung the game.</summary>
     static Notice VoiceEffects() => new(

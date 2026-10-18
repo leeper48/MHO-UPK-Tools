@@ -480,6 +480,9 @@ sealed partial class Preview3D : UserControl
     }
 
     // --- framing and full screen ----------------------------------------------------------------------------------------------
+    /// <summary>The whole character, centred (a power picked elsewhere: the editor's Powers tab).</summary>
+    public void FrameFull() => FrameShot(Framing.Shot.Full);
+
     /// <summary>A framing button: aims the camera (head centred).</summary>
     void FrameShot(Framing.Shot shot)
     {

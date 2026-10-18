@@ -115,10 +115,24 @@ sealed partial class StorePreview
                 p3.SetAnimations(t.Result, name, at, false);
                 AnimationsLoaded?.Invoke();
                 OwnAfterAnimations();
+                if (frameWanted) FrameFull();
                 Invalidate();
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
     }
+
+    /// <summary>
+    /// Frames the whole character, centred (the editor's Powers tab, when a power or part is picked: Kurt, 2026-10-18, as the
+    /// power buttons do; the dodge left the camera on the feet). While a model loads, once its animations are in.
+    /// </summary>
+    public void FrameFull()
+    {
+        frameWanted = true;
+        if (p3?.Animator == null || ownPending) return;
+        frameWanted = false;
+        p3.FrameFull();
+    }
+    bool frameWanted;
 
     /// <summary>The view a mesh starts from: the one turned to on this PC, else the mod author's (manifest PreviewViews).</summary>
     float[]? StartView(MeshRef r) =>
