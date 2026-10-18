@@ -18,12 +18,12 @@ sealed partial class ModEditorView : UserControl
     /// <summary>The last save was Save and Keep Editing (Kurt, 2026-10-17): the editor opens again on the saved mod, at the same tab.</summary>
     public bool KeepEditing { get; private set; }
     public event Action? Cancelled;
-    public string Title { get; }
+    public string Title { get; private set; }
     public Mod? Editing => editing;
     readonly ModLibrary lib;
     readonly GameState? game;
     readonly StockCatalog? catalog;
-    readonly Mod? editing;
+    Mod? editing;   // (Save and Keep Editing moves it to the saved mod: AfterSave)
     readonly ModDraft draft;
     public string? SavedName { get; private set; }
 
@@ -198,6 +198,36 @@ sealed partial class ModEditorView : UserControl
         packages.ClearSelection();
         RefreshVoice();
     }
+
+    /// <summary>
+    /// Save and Keep Editing (Kurt, 2026-10-18: the editor closed and opened again on every save, slow): the same editor goes
+    /// on with the saved mod. The draft is read again from it (its files are in the mod's folder now: the work copies are gone),
+    /// and the pages that list files read them again; the 3D views keep their model, pose and camera.
+    /// </summary>
+    public void AfterSave(Mod saved)
+    {
+        var fresh = ModDraft.From(saved);
+        foreach (var f in typeof(ModDraft).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+            if (f.Name != nameof(ModDraft.ModelFolder)) f.SetValue(draft, f.GetValue(fresh));   // (the Model tab's work folder stays: it is what was saved)
+        editing = saved;
+        Title = $"Edit: {saved.Name}";
+        autoLabel.Text = saved.AutoTags.Count > 0
+            ? "Added automatically from the content: " + string.Join(", ", saved.AutoTags)
+            : "Characters, teams, costume, powers … are added automatically from the content.";
+        RefreshPackages(); RefreshSounds();
+        foreach (var t in texturePages) t.Refresh();
+        voiceWanted.Clear();
+        if (voice != null) RefreshVoice();
+        powerBuilt = saved.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+        powerPreview?.Rebind(saved);
+        animPreview?.Rebind(saved);
+        if (animGrid != null) LoadAnimations();
+        FillGhosts();
+        Saves++;
+    }
+    /// <summary>How many saves this editor went on after (tests).</summary>
+    public int Saves { get; private set; }
+    internal IEnumerable<string> DraftSourcesForTest => draft.Packages.Select(p => p.Source);
 
     // ---- Save
     void Save()

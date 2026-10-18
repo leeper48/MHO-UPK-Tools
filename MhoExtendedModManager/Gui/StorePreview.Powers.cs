@@ -50,6 +50,16 @@ sealed partial class StorePreview
     }
 
     /// <summary>The overrides changed: the model, its animations and the effects read again.</summary>
+    /// <summary>
+    /// The mod after a save in the editor (Save and Keep Editing): the same folder holds the files the view shows already
+    /// (its overrides were the unsaved builds), so the model, pose and camera stay; a renamed folder loads again.
+    /// </summary>
+    public void Rebind(Mod m)
+    {
+        if (mod == null || !mod.Folder.Equals(m.Folder, StringComparison.OrdinalIgnoreCase)) { Mod = m; return; }
+        mod = m; modStamp = FilesStamp(m);
+    }
+
     public void ReloadOverrides()
     {
         if (mod is not { } m) return;

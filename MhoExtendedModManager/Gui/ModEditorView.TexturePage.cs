@@ -289,6 +289,9 @@ sealed partial class ModEditorView
             RefreshRows();
         }
 
+        /// <summary>The rows again (after a save: the replacements are the mod's own files now).</summary>
+        public new void Refresh() => RefreshRows();
+
         void RefreshRows()
         {
             rows.Rows.Clear();

@@ -408,7 +408,8 @@ sealed partial class MainForm
             var at = editor.TabPosition;
             editor.SaveStayForTest();
             await Task.Delay(1500);
-            lines.Add($"{(editor != null && editor != before ? "PASS" : "FAIL")} the editor opened again");
+            lines.Add($"{(editor != null && editor == before && editor.Saves == 1 ? "PASS" : "FAIL")} the same editor goes on (no reload)");
+            lines.Add($"{(editor != null && editor.Editing != null && editor.DraftSourcesForTest.All(x => x.StartsWith(editor.Editing.Folder, StringComparison.OrdinalIgnoreCase)) ? "PASS" : "FAIL")} its packages are the saved mod's files");
             lines.Add($"{(editor?.Editing?.Name == modName ? "PASS" : "FAIL")} on the saved mod ({editor?.Editing?.Name})");
             lines.Add($"{(editor?.TabPosition == at && at == (0, 1) ? "PASS" : "FAIL")} at the same tab ({editor?.TabPosition})");
             lines.Add($"{(pages.SelectedIndex == 1 ? "PASS" : "FAIL")} the Editor page shows");
@@ -441,8 +442,9 @@ sealed partial class MainForm
             }
             string? before = await SavedMesh();
             lines.Add($"{(mp.TestSetProp(prop, false) ? "PASS" : "FAIL")} {prop} unticked");
+            int s1 = editor.Saves;
             editor.SaveStayForTest();
-            for (int i = 0; i < 300 && (editor == null || editor.ModelPageForTest == mp); i++) await Task.Delay(100);
+            for (int i = 0; i < 300 && (editor == null || editor.ModelPageForTest == mp && editor.Saves == s1); i++) await Task.Delay(100);
             await Task.Delay(1500);
             string? off = await SavedMesh();
             lines.Add($"{(off == "" ? "PASS" : "FAIL")} saved: {prop}'s mesh none (was {before}, now {off ?? "?"})");
@@ -452,9 +454,9 @@ sealed partial class MainForm
             Model.Gui.ModelPage? mp2 = null;
             for (int i = 0; i < 300 && ((mp2 = editor.ModelPageForTest) == null || mp2.TargetPropLabels.Count == 0); i++) await Task.Delay(100);
             lines.Add($"{(mp2 != null && mp2.TestSetProp(prop, true) ? "PASS" : "FAIL")} {prop} ticked again");
-            var ed2 = editor;
+            var ed2 = editor; int ed2Saves = ed2.Saves;
             editor.SaveStayForTest();
-            for (int i = 0; i < 300 && editor == ed2; i++) await Task.Delay(100);
+            for (int i = 0; i < 300 && editor == ed2 && ed2.Saves == ed2Saves; i++) await Task.Delay(100);
             await Task.Delay(1500);
             string? on = await SavedMesh();
             lines.Add($"{(on == before ? "PASS" : "FAIL")} saved again: {prop}'s mesh back ({on})");
@@ -497,9 +499,9 @@ sealed partial class MainForm
             OpenEditor(m); pages.Select(1);
             lines.AddRange(await editor!.GhostsTestAsync(anim, fraction));
             string file = editor.GhostsFileForTest ?? "";
-            var ed = editor;
+            var ed = editor; int edSaves = ed.Saves;
             editor.SaveStayForTest();
-            for (int i = 0; i < 600 && editor == ed; i++) await Task.Delay(100);
+            for (int i = 0; i < 600 && editor == ed && ed.Saves == edSaves; i++) await Task.Delay(100);
             await Task.Delay(1500);
             var m2 = lib?.Find(modName)!;
             lines.Add($"{(m2.Manifest.DodgeGhosts?.Count > 0 ? "PASS" : "FAIL")} saved: the manifest keeps {m2.Manifest.DodgeGhosts?.Count ?? 0} ghost(s), ghost 1 {m2.Manifest.DodgeGhosts?.FirstOrDefault()?.Anim}");
@@ -509,9 +511,9 @@ sealed partial class MainForm
             // back to the game's
             lines.Add($"{(await editor!.SelectCharacterForTest() ? "PASS" : "FAIL")} the reopened editor shows the ghosts");
             editor.GameGhostsForTest();
-            var ed2 = editor;
+            var ed2 = editor; int ed2Saves = ed2.Saves;
             editor.SaveStayForTest();
-            for (int i = 0; i < 600 && editor == ed2; i++) await Task.Delay(100);
+            for (int i = 0; i < 600 && editor == ed2 && ed2.Saves == ed2Saves; i++) await Task.Delay(100);
             await Task.Delay(1500);
             var m3 = lib?.Find(modName)!;
             lines.Add($"{(m3.Manifest.DodgeGhosts == null ? "PASS" : "FAIL")} the game's ghosts: none in the manifest");
@@ -640,9 +642,9 @@ sealed partial class MainForm
             OpenEditor(m); pages.Select(1);
             var before = await editor!.SetPowersStateForTest(3);
             lines.Add($"before: {before}");
-            var ed = editor;
+            var ed = editor; int edSaves = ed.Saves;
             editor.SaveStayForTest();
-            for (int i = 0; i < 600 && editor == ed; i++) await Task.Delay(100);
+            for (int i = 0; i < 600 && editor == ed && ed.Saves == edSaves; i++) await Task.Delay(100);
             await Task.Delay(9000);
             var after = editor?.CapturePowersState();
             lines.Add($"after: {after}");

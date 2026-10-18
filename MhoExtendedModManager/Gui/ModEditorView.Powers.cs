@@ -87,6 +87,9 @@ sealed partial class ModEditorView
         return c is TextBoxBase;
     }
 
+    /// <summary>The packages the saved mod's power colors are built into (the preview reads the game's copies of those).</summary>
+    HashSet<string> powerBuilt = [];
+
     Control PowersPage()
     {
         var page = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(0, (int)(6 * S), 0, 0) };
@@ -105,8 +108,8 @@ sealed partial class ModEditorView
             powerPreview = new StorePreview { Dock = DockStyle.Fill, CookedFolder = game.Cooked, Catalog = catalog, ForceEffects = true, PowerStrip = false, Always3D = true };
             powerPreview.ColorFor = proto => draft.PowerColors.FirstOrDefault(e => e.Power.Equals(proto, StringComparison.OrdinalIgnoreCase)) is { } e ? e.Color : null;
             // Packages built for colors before are left out of the preview: the color shown is the one being set, on the stock files.
-            var built = editing.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
-            powerPreview.SkipModFile = f => built.Contains(f);
+            powerBuilt = editing.Manifest.PowerColors?.SelectMany(e => e.Packages).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? [];
+            powerPreview.SkipModFile = f => powerBuilt.Contains(f);
             powerPreview.OverrideFiles = PreviewOverrides;   // borrowed looks and dodge ghosts built since the last save
             // effect parts switched off (Parts) aren't shown, saved or not (Kurt, 2026-10-18: a recolored power's preview reads
             // the game's package, where they're still on)

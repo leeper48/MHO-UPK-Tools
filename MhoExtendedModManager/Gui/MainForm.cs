@@ -1220,6 +1220,22 @@ sealed partial class MainForm : Form
             bool stay = ed.KeepEditing;
             var at = ed.TabPosition;
             var powersState = ed.CapturePowersState();   // (the power, its tab and pose: shown again after the save)
+            // Save and Keep Editing on a mod saved before: the same editor goes on with the saved mod (no new editor: Kurt,
+            // 2026-10-18, closing and opening it again was slow)
+            if (stay && ed.Editing != null && editor == ed)
+            {
+                filter.Text = "";
+                Reload();
+                SelectMod(name);
+                if (lib?.Mods.FirstOrDefault(x => x.FolderName == name) is Mod kept)
+                {
+                    ed.AfterSave(kept);
+                    pages.SetTitle(1, ed.Title.Length > 110 ? ed.Title[..110] + "…" : ed.Title);
+                    pages.Select(1);
+                    status.Text = Ui.TitleCase($"Saved \"{name}\"") + (kept.Enabled ? "  ·  Apply Changes to Update the Game" : "");
+                    return;
+                }
+            }
             CloseEditor();
             filter.Text = "";
             Reload();
