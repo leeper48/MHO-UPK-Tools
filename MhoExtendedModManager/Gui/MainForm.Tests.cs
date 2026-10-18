@@ -630,6 +630,31 @@ sealed partial class MainForm
         File.WriteAllLines(outFile, lines);
     }
 
+    /// <summary>--keep-state-test (scratch libraries only): a power, its Parts tab and a pose; Save and Keep Editing; the same again.</summary>
+    public async Task KeepStateTest(string outFile, string modName)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            var before = await editor!.SetPowersStateForTest(3);
+            lines.Add($"before: {before}");
+            var ed = editor;
+            editor.SaveStayForTest();
+            for (int i = 0; i < 600 && editor == ed; i++) await Task.Delay(100);
+            await Task.Delay(9000);
+            var after = editor?.CapturePowersState();
+            lines.Add($"after: {after}");
+            lines.Add($"{(after?.Proto == before?.Proto && after?.Part == before?.Part ? "PASS" : "FAIL")} the same power");
+            lines.Add($"{(after?.SideTab == before?.SideTab ? "PASS" : "FAIL")} the same Color / Parts tab");
+            lines.Add($"{(after?.Pose?.Anim == before?.Pose?.Anim && Math.Abs((after?.Pose?.Frame ?? -9) - (before?.Pose?.Frame ?? 9)) < 1.5f ? "PASS" : "FAIL")} the same pose");
+            lines.Add($"{((editor?.PowerPreviewForTest as StorePreview)?.IsPlaying == false ? "PASS" : "FAIL")} paused");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
     /// <summary>--powers-shot (scratch libraries only): the Powers tab's preview on a power at a frame, as a PNG.</summary>
     public async Task PowersShot(string png, string modName, string power, double fraction)
     {

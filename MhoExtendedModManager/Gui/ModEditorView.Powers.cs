@@ -15,6 +15,36 @@ sealed partial class ModEditorView
     readonly PowerBar powerList = new();
     /// <summary>The hero's powers come first in the bar; the entries after them (own effects, parts, packages) start a group.</summary>
     int heroPowerCount;
+    /// <summary>What the Powers tab shows (Save and Keep Editing opens the editor again on it: Kurt, 2026-10-18).</summary>
+    public sealed record PowersState(string Proto, string? Part, int SideTab, (string Anim, float Frame)? Pose);
+
+    public PowersState? CapturePowersState() => powerList.SelectedItem is Fx.PowerList.Power p
+        ? new PowersState(p.Prototype, p.Part, powerSideTabs?.SelectedIndex ?? 0, powerPreview?.CurrentPose is { Anim.Length: > 0 } pose ? pose : null) : null;
+
+    /// <summary>The entry, its Color / Parts tab and the pose again, once the tab has its powers (in the background).</summary>
+    public async void RestorePowersState(PowersState st)
+    {
+        for (int i = 0; i < 900 && !IsDisposed; i++)
+        {
+            if (powerPreview != null && powerList.Items.Cast<Fx.PowerList.Power>().Any(x => x.Prototype == st.Proto && x.Part == st.Part)
+                && (powerPreview.HeroPowersReady || CharacterEntries().Count == 0)) break;
+            await Task.Delay(100);
+        }
+        if (IsDisposed || powerPreview == null) return;
+        await Task.Delay(300);   // (the list fills once more as the hero's powers come in)
+        int at = powerList.Items.Cast<Fx.PowerList.Power>().ToList().FindIndex(x => x.Prototype == st.Proto && x.Part == st.Part);
+        if (at < 0) return;
+        restoringPose = st.Pose;
+        if (powerList.SelectedIndex != at) powerList.SelectedIndex = at;
+        powerSideTabs?.Select(st.SideTab);
+        if (st.Pose is not { } pose || st.Part != null) return;   // (a part tile plays its part on that pose: PlayPart)
+        for (int i = 0; i < 100 && !IsDisposed && !powerPreview.AllAnimations.Any(a => a.Name.Equals(pose.Anim, StringComparison.OrdinalIgnoreCase)); i++) await Task.Delay(100);
+        await Task.Delay(800);   // (the power's own pick plays first)
+        if (!IsDisposed) powerPreview.HoldPose(pose.Anim, pose.Frame);
+        restoringPose = null;
+    }
+    (string Anim, float Frame)? restoringPose;
+
     /// <summary>FillPowers is selecting the entry that was selected already (PowerSelected isn't run again).</summary>
     bool refillSame;
     readonly Label powerTitle = new() { Text = "" };

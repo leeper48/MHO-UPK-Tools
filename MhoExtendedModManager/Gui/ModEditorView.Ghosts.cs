@@ -367,6 +367,19 @@ sealed partial class ModEditorView
     }
     internal void GameGhostsForTest() => GameGhosts();
     internal object? PowerPreviewForTest => powerPreview;
+    /// <summary>Test (--keep-state-test): a hero power selected (the <paramref name="k"/>th), held at a pose, the Parts tab.</summary>
+    internal async Task<PowersState?> SetPowersStateForTest(int k)
+    {
+        SelectTab(Enumerable.Range(0, TabCount).First(i => TabTitle(i) == "Powers"));
+        for (int i = 0; i < 600 && !(powerPreview?.HeroPowersReady == true && powerList.Items.Count > k); i++) await Task.Delay(100);
+        await Task.Delay(1500);
+        powerList.SelectedIndex = k;
+        await Task.Delay(3000);
+        if (powerPreview?.AllAnimations.FirstOrDefault(a => a.Name.Contains("run", StringComparison.OrdinalIgnoreCase)) is { } a) powerPreview.HoldPose(a.Name, 9);
+        powerSideTabs?.Select(1);
+        await Task.Delay(1000);
+        return CapturePowersState();
+    }
     internal async Task<bool> SelectCharacterForTest()
     {
         SelectTab(Enumerable.Range(0, TabCount).First(i => TabTitle(i) == "Powers"));

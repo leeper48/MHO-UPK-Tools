@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.3
+- Editor: Save and Keep Editing on the Powers tab keeps the selected power (or part tile), its Color / Parts tab and the pose in the preview (the animation at its frame, paused).
+
 0.50.2
 - 3D previews: Full Body (and Head / Bust) on a pose that isn't standing (flying, lying, a pet) frames the body where the pose puts it; a flight was framed where the character would stand, an empty floor.
 

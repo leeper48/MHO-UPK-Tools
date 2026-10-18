@@ -175,6 +175,14 @@ sealed partial class StorePreview
     public bool HeroPowersReady => p3?.PowersLoaded ?? false;
 
     /// <summary>The animation showing and its frame (the Powers tab's Use This Pose); null while none plays.</summary>
+    /// <summary>Shows <paramref name="anim"/> at <paramref name="frame"/>, paused (Save and Keep Editing puts the pose back).</summary>
+    public bool HoldPose(string anim, float frame)
+    {
+        if (p3 == null || !PlayAnimation(anim, false)) return false;
+        if (p3.Frames > 0) p3.Time = frame / p3.Frames * p3.Seconds;
+        return true;
+    }
+
     /// <summary>The animation is playing (not paused).</summary>
     public bool IsPlaying => p3?.IsPlaying == true;
     // (the Frame slider's place: dragged while paused it's ahead of the playback clock, which read frame 0; Kurt, 2026-10-17)

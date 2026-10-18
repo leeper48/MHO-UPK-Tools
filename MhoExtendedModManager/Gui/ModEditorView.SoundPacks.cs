@@ -118,6 +118,8 @@ sealed partial class ModEditorView
         return file == null ? null : CostumeFilter.FromPackage(file);
     }
     public string TabTitle(int i) => i >= 0 && i < pages.Count ? pages[i].Title : "";
+    /// <summary>A top tab's title (Overview, Icons … Powers), by its place (TabPosition.Top).</summary>
+    public string TopTabTitle(int i) => i >= 0 && i < tabs.Count ? tabs.TitleAt(i) : "";
 
     /// <summary>Test hook (--editor-save-test): visits every tab so each page loads, then saves as the Save button does.</summary>
     public async Task<string?> SaveForTest()

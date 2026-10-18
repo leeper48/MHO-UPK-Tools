@@ -562,6 +562,16 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--keep-state-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --keep-state-test <out.txt> <mod> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.KeepStateTest(args[1], args[2]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 3 && args[0].Equals("--mods-cycles", StringComparison.OrdinalIgnoreCase))
         {
             // --mods-cycles <out.txt> <rounds> (scratch libraries only)

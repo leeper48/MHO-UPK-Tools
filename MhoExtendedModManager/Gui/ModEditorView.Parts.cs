@@ -215,7 +215,8 @@ sealed partial class ModEditorView
                     if (row.Tag is PowerParts.Switch ps && ps.PartName.Equals(want, StringComparison.OrdinalIgnoreCase))
                     {
                         partsGrid.ClearSelection(); row.Selected = true; partsGrid.CurrentCell = row.Cells[1];
-                        PlayPart(ps);
+                        PlayPart(ps, restoringPose);   // (Save and Keep Editing: on the pose that showed)
+                        restoringPose = null;
                         break;
                     }
             }

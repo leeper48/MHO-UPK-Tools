@@ -1219,6 +1219,7 @@ sealed partial class MainForm : Form
         {
             bool stay = ed.KeepEditing;
             var at = ed.TabPosition;
+            var powersState = ed.CapturePowersState();   // (the power, its tab and pose: shown again after the save)
             CloseEditor();
             filter.Text = "";
             Reload();
@@ -1228,6 +1229,7 @@ sealed partial class MainForm : Form
             {
                 OpenEditor(again);
                 editor?.ShowTab(at);
+                if (powersState != null && editor?.TopTabTitle(at.Top) == "Powers") editor.RestorePowersState(powersState);
                 pages.Select(1);
                 status.Text = Ui.TitleCase($"Saved \"{name}\"") + (again.Enabled ? "  ·  Apply Changes to Update the Game" : "");
                 return;
