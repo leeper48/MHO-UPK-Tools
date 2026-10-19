@@ -494,7 +494,16 @@ sealed partial class Preview3D : UserControl
         if (anim == null) animator.Pose(null, 0);
         ShowPose();
         // a transform whose props are the body (Rocket's mech suit around its pilot): the whole of it, not the pilot inside
-        if (shot == Framing.Shot.Full && untransformed != null && rig.Bounds() is { } b && animator.Positions.Length > 0)
+        // summons beside the hero (PreviewEffects.SummonSpots): the hero and the spots they stand on, about a body's height around
+        if (shot == Framing.Shot.Full && effects?.SummonCount is int sc && sc > 0 && untransformed == null && animator.Positions.Length > 0)
+        {
+            var clo = animator.Positions.Aggregate(System.Numerics.Vector3.Min); var chi = animator.Positions.Aggregate(System.Numerics.Vector3.Max);
+            var (slo, shi) = PreviewEffects.SpotsBox(sc);
+            var lo = System.Numerics.Vector3.Min(clo, new System.Numerics.Vector3(slo.X, slo.Y, clo.Z)); var hi = System.Numerics.Vector3.Max(chi, new System.Numerics.Vector3(shi.X, shi.Y, chi.Z));
+            float size = Math.Max(hi.Z - lo.Z, Math.Max(hi.X - lo.X, hi.Y - lo.Y));
+            view.Aim((lo + hi) * 0.5f, size * 1.25f * view.FocalLength / ModelView.ReferenceFocalLength, 0, 0.12f);
+        }
+        else if (shot == Framing.Shot.Full && untransformed != null && rig.Bounds() is { } b && animator.Positions.Length > 0)
         {
             var clo = animator.Positions.Aggregate(System.Numerics.Vector3.Min); var chi = animator.Positions.Aggregate(System.Numerics.Vector3.Max);
             float own = Math.Max(1f, Math.Max(chi.Z - clo.Z, Math.Max(chi.X - clo.X, chi.Y - clo.Y)));

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.12
+- 3D previews: summoned characters show (a user asked: Jean Grey's illusions). A power's summon stands beside the hero for the power's length, playing its own arrival or idle, with its own effects there: Jean Grey's Telepathic Illusion shows the illusion of the costume shown (the game's per-costume pick; in Phoenix form its Phoenix version), drawn with the illusion's own see-through material. When the mod carries the summon's model under the same path (Make Unique keeps illusions shared for that), the mod's model shows, as in game. Summons only a talent brings (the X-Men illusions) are left out: the preview has no talents. Full Body frames the summons too.
+
 0.50.11
 - 3D previews play smoother: up to about 60 frames a second instead of 21. The playback timer asked for 33 ms, which Windows rounds up to three of its 15.6 ms ticks (47 ms) unless another program asks for finer timing, so playback could feel slower at times without any change in the app. Timing (animation speed) is unchanged; heavy power effects still lower the drawing size while they play.
 - --powers-perf <out.txt> <mod> <power> <seconds> (scratch libraries): playback speed in the Powers tab; MHO_RENDERPROF=1 logs slow frames by stage.

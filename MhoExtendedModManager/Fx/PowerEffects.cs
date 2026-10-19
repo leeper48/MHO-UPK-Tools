@@ -29,6 +29,8 @@ sealed class PowerEffects
         /// <summary>The component's OffsetVector and OffsetRotation (pitch, yaw, roll in UE3 units: 65536 a turn), applied to the
         /// effect's place (Iron Man's Unibeam: its beam mesh points back along -X and the component turns it round).</summary>
         public Vector3 Shift { get; init; }
+        /// <summary>Where a summon stands (the preview's spot beside the hero): its own effects play there.</summary>
+        public Vector3 Spot { get; init; }
         public (int Pitch, int Yaw, int Roll) Turn { get; init; }
     }
 
@@ -63,6 +65,9 @@ sealed class PowerEffects
         bool AtTarget, Vector3 Shift, Vector3 Turn, float Scale, string Kind)
     {
         public string? TriggeredBy { get; init; }
+        /// <summary>A summon's mesh component's own materials (by slot; package file and export), shown instead of the
+        /// mesh's: Jean Grey's illusions are drawn with mat_jg_illusion_jean.</summary>
+        public List<(string File, int Export)?>? Materials { get; init; }
     }
     public readonly List<Actor> Actors = new();
     public readonly List<Decal> Decals = new();
@@ -216,8 +221,83 @@ sealed class PowerEffects
             fx.ThrownSlot ??= more.ThrownSlot;
             fx.Notes.AddRange(more.Notes);
         }
+        KeepCostumeSummons(db, powerPath, arts.Select(x => x.Prototype), fx);
         return fx;
     }
+
+    static readonly System.Text.RegularExpressions.Regex SummonLine = new(@"^(\s*)(EntityArt|SummonEntity) \((\w)\) = (\S+)");
+
+    /// <summary>
+    /// The summons of the costume shown, as the game picks them (Jean Grey's Telepathic Illusion: a SummonPowerOverride per
+    /// costume, EntityArt = the costume's class → its own illusion; the power's own SummonEntity otherwise): the others it
+    /// names are left out.
+    /// </summary>
+    static void KeepCostumeSummons(GameData db, string powerPath, IEnumerable<string> closure, PowerEffects fx)
+    {
+        if (!fx.Actors.Any(a => a.Kind == "summon")) return;
+        var drop = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string proto in closure.Prepend(powerPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (db.Find(proto) is not { } pe) continue;
+            List<string> lines;
+            try { lines = db.Dump(db.Prototype(pe.Id).Data, 40).ToList(); }
+            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { continue; }
+            string? art = null; int artIndent = -1;
+            var overrides = new List<(string Art, string Entity)>();
+            string? plain = null;
+            foreach (string l in lines)
+            {
+                var m = SummonLine.Match(l);
+                if (!m.Success) continue;
+                int indent = m.Groups[1].Value.Length;
+                if (m.Groups[2].Value == "EntityArt") { art = m.Groups[4].Value; artIndent = indent; }
+                else if (art != null && indent == artIndent) { overrides.Add((art, m.Groups[4].Value)); art = null; }
+                else plain ??= m.Groups[4].Value;   // (one no EntityArt goes with: the power's own, in its SummonEntityContexts)
+            }
+            if (overrides.Count == 0) continue;
+            string? mine = overrides.FirstOrDefault(o => entityNow != null && o.Art.Equals(entityNow, StringComparison.OrdinalIgnoreCase)).Entity ?? plain;
+            // (by the summon entry each came from, else by its class: an entry's class can turn into a costume's own in turn)
+            foreach (var (_, entity) in overrides.Append((Art: "", Entity: plain ?? "")))
+                if (entity.Length > 0 && !entity.Equals(mine, StringComparison.OrdinalIgnoreCase))
+                {
+                    drop.Add(Path.GetFileNameWithoutExtension(entity));
+                    if (UnrealClassOfEntity(db, entity) is string c) drop.Add(c);
+                }
+            if (mine != null) { drop.Remove(Path.GetFileNameWithoutExtension(mine)); if (UnrealClassOfEntity(db, mine) is string keep) drop.Remove(keep); }
+        }
+        if (drop.Count > 0) fx.Actors.RemoveAll(a => a.Kind == "summon" && (drop.Contains(a.Name) || a.TriggeredBy != null && drop.Contains(a.TriggeredBy)));
+        // Summons only a talent brings (Jean Grey's X-Men illusions: Telepathic Illusion uses TelepathicIllusionJeanXmenSummon
+        // only with the talent IllusionBonus, an EntityHasTalent check on the trigger's chance): left out, the preview has no talents.
+        var gated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string proto in closure.Prepend(powerPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (db.Find(proto) is not { } pe) continue;
+            List<string> lines;
+            try { lines = db.Dump(db.Prototype(pe.Id).Data, 40).ToList(); }
+            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { continue; }
+            string? used = null;
+            foreach (string l in lines)
+            {
+                var m = TriggerLine.Match(l);
+                if (m.Success) { used = m.Groups[1].Value; continue; }
+                if (used != null && l.Contains("EntityHasTalent", StringComparison.OrdinalIgnoreCase)) { gated.Add(used); used = null; }
+            }
+        }
+        if (gated.Count == 0) return;
+        var behind = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string g in gated)
+        {
+            behind.Add(Path.GetFileNameWithoutExtension(g));
+            foreach (var x in PowerClosure.Of(db, g)) behind.Add(Path.GetFileNameWithoutExtension(x.Prototype));
+        }
+        fx.Actors.RemoveAll(a => a.Kind == "summon" && a.TriggeredBy != null && behind.Contains(a.TriggeredBy));
+        fx.Effects.RemoveAll(e => e.TriggeredBy != null && behind.Contains(e.TriggeredBy));   // (and their own effects)
+    }
+
+    static readonly System.Text.RegularExpressions.Regex TriggerLine = new(@"^\s*Power \(P\) = (\S+\.prototype)");
+
+    static string? UnrealClassOfEntity(GameData db, string entity) =>
+        db.Find(entity) is { } ee && PowerList.Field(db, ee.Id, "UnrealClass", 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a) ? a.Asset.Name : null;   // (its own, else its parent's)
 
     static readonly (string Plain, string Resource)[] Twins = [("NoOF", "OF"), ("Normal", "Odinforce"), ("NoOdin", "Odin"), ("NoOdinforce", "Odinforce")];
 
@@ -385,7 +465,42 @@ sealed class PowerEffects
         if (cname.Equals("SkeletalMeshComponent", StringComparison.OrdinalIgnoreCase) && epath.EndsWith(".initialskeletalmesh", StringComparison.OrdinalIgnoreCase)
             && cls.StartsWith("Marvel", StringComparison.OrdinalIgnoreCase) && !cls.StartsWith("MarvelPlayer", StringComparison.OrdinalIgnoreCase))
         {
-            if (seen.Add(p.Name + "|" + epath)) fx.Notes.Add($"{cls}: a summoned entity's model (not shown yet)");
+            // A summoned character (Kurt, 2026-10-19: Jean Grey's illusions, Colossus' Kurt, Cyclops' Strike Team): its model
+            // beside the hero for the power's length, playing its own animation (picked when it's shown). A mod's own copy of the
+            // model under the same path is what the game shows (it's loaded with the costume first: Make Unique keeps the
+            // illusions' models shared for that), so it's used when the mod has one.
+            if (!seen.Add(p.Name + "|" + epath)) return true;
+            int meshRef = P("SkeletalMesh") is { Size: 4 } smp ? BitConverter.ToInt32(p.Bytes, smp.ValueAt) : 0;
+            if (Resolve(p, meshRef, pkgs, g) is not { } mesh || g.FileFor(mesh.P.Name) is not string meshFile) { fx.Notes.Add($"{cls}: a summoned character whose model isn't found"); return true; }
+            int meshExport = mesh.Export;
+            string meshPath = mesh.P.T.PathOf(mesh.Export + 1);
+            foreach (string mf in g.ModFiles.Where(f => Path.GetFileName(f).StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)))
+                try
+                {
+                    var mp2 = FxPkg.Open(mf);
+                    for (int k = 0; k < mp2.T.Exports.Count; k++)
+                        if (mp2.T.ClassOf(mp2.T.Exports[k]).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && mp2.T.PathOf(k + 1).Equals(meshPath, StringComparison.OrdinalIgnoreCase))
+                        { meshFile = mf; meshExport = k; break; }
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+            // its AnimSets (the last one it lists that's found: a later set wins)
+            string? setFile = null; int setExport = -1;
+            if (P("AnimSets") is { Size: >= 4 } asp)
+            {
+                int n = BitConverter.ToInt32(p.Bytes, asp.ValueAt);
+                for (int k = 0; k < n && 4 + 4 * k + 4 <= asp.Size; k++)
+                    if (Resolve(p, BitConverter.ToInt32(p.Bytes, asp.ValueAt + 4 + 4 * k), pkgs, g) is { } st && g.FileFor(st.P.Name) is string sf) { setFile = sf; setExport = st.Export; }
+            }
+            List<(string File, int Export)?>? mats = null;
+            if (P("Materials") is { Size: >= 4 } mtp)
+            {
+                int n = BitConverter.ToInt32(p.Bytes, mtp.ValueAt);
+                mats = [];
+                for (int k = 0; k < n && 4 + 4 * k + 4 <= mtp.Size; k++)
+                    mats.Add(Resolve(p, BitConverter.ToInt32(p.Bytes, mtp.ValueAt + 4 + 4 * k), pkgs, g) is { } mt && g.FileFor(mt.P.Name) is string mtf ? (mtf, mt.Export) : null);
+            }
+            fx.Actors.Add(new Actor(cls, meshFile, meshExport, setFile, setExport, null, "power_on_start", 0, null, 0, false, 0,
+                false, new Vector3(0, 140, 0), Vector3.Zero, 1, "summon") { Materials = mats });
             return true;
         }
         return false;
@@ -774,7 +889,10 @@ sealed class PowerEffects
 
         /// <summary>An effect's place at its socket: facing the hero's way (Facing), except a mesh laid over what holds the socket
         /// (a local-space mesh emitter: the Odinforce lightning layer, the hammer's own shape), which takes the socket's turn too.</summary>
-        static Matrix4x4 Place(Effect e, Matrix4x4 m, string? socketName = null)
+        static Matrix4x4 Place(Effect e, Matrix4x4 m, string? socketName = null) =>
+            e.Spot == Vector3.Zero ? PlaceAt(e, m, socketName) : PlaceAt(e, m, socketName) * Matrix4x4.CreateTranslation(e.Spot);
+
+        static Matrix4x4 PlaceAt(Effect e, Matrix4x4 m, string? socketName = null)
         {
             // (a ground or root socket: its place only. The dodge ghosts, local-space meshes at socket_ground on the root
             // bone, stood on their heads with the root's turn; in game they stand upright, 2026-10-17.)
@@ -857,6 +975,7 @@ sealed class PowerEffects
         public (float Start, float End)? ActorWindow(Actor a, float ownSeconds)
         {
             if (!Shown(a.TriggeredBy)) return null;
+            if (a.Kind == "summon") return (0, Math.Max(AnimSeconds, 0.1f));   // a summon stays the whole power
             float start = StartOf(a.Point, a.Offset, a.Kind);
             float end = a.EndPoint is { Length: > 0 } ep && !ep.Contains("end", StringComparison.OrdinalIgnoreCase) ? StartOf(ep, a.EndOffset, a.Kind)
                 : ownSeconds > 0 ? start + ownSeconds + a.DestroyDelay

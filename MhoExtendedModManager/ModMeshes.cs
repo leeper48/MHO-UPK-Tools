@@ -263,6 +263,13 @@ static class ModMeshes
     }
     static bool IsPacked(string param) => PackedWords.Count(w => param.Contains(w, StringComparison.OrdinalIgnoreCase)) >= 2;
 
+    /// <summary>How a material looks (a summon's own material: Jean Grey's illusion), by package file and export; null if unreadable.</summary>
+    internal static Gui.ModelView.Look? LookOf(string file, int export, string? cooked)
+    {
+        try { var pkg = Package.Open(file); return LookFor(pkg, export + 1, cooked, new(), [], 0); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException or IndexOutOfRangeException) { return null; }
+    }
+
     /// <summary>How a section is shaded, from its material (ModMaterials); a plain colour texture when it can't be read.</summary>
     static Gui.ModelView.Look? LookFor(Package pkg, int mat, string? cacheFolder, Dictionary<int, Gui.ModelView.Map?> cache, List<string> notes, int s)
     {

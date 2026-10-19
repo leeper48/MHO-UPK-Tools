@@ -24,7 +24,7 @@ sealed class PropRig
     /// <summary>The character and its props as last posed (Update): the box around them, or null before the first pose.</summary>
     public (Vector3 Lo, Vector3 Hi)? Bounds()
     {
-        if (pos.Length == 0 || props.Count == 0) return null;
+        if (pos.Length == 0 || props.Count + actors.Count == 0) return null;
         Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
         foreach (var p in pos) { lo = Vector3.Min(lo, p); hi = Vector3.Max(hi, p); }
         return lo.X <= hi.X ? (lo, hi) : null;
@@ -145,7 +145,7 @@ sealed class PropRig
     /// <see cref="Start"/> to <see cref="End"/> seconds into the animation and playing its own animation from its start.
     /// </summary>
     sealed class ActorItem
-    {
+    { public bool Steady;
         public ModMeshes.Loaded Mesh = null!;
         public MeshAnimator Anim = null!;
         public BoneAnimation? Seq;
@@ -158,10 +158,11 @@ sealed class PropRig
     /// sections; null: the game's colours.</summary>
     public Func<Vector3, Vector3>? Recolor { get; set; }
 
-    public void AddActor(ModMeshes.Loaded mesh, MeshAnimator anim, BoneAnimation? seq, float start, float end, Matrix4x4 place)
+    /// <param name="steady">A summon (Jean Grey's illusion): its see-through material doesn't fade out as an afterimage's does.</param>
+    public void AddActor(ModMeshes.Loaded mesh, MeshAnimator anim, BoneAnimation? seq, float start, float end, Matrix4x4 place, bool steady = false)
     {
         var (frames, seconds) = seq == null ? (0f, 0f) : MeshAnimator.Span(seq);
-        actors.Add(new ActorItem { Mesh = mesh, Anim = anim, Seq = seq, Frames = frames, Seconds = seconds, Start = start, End = end, Place = mesh.MeshTransform * place });
+        actors.Add(new ActorItem { Mesh = mesh, Anim = anim, Seq = seq, Frames = frames, Seconds = seconds, Start = start, End = end, Place = mesh.MeshTransform * place, Steady = steady });
     }
     public void Add(ModMeshes.Loaded mesh, int bone) => Add(mesh, bone, [], false, "");
     public void Add(ModMeshes.Loaded mesh, int bone, IReadOnlyList<string> slots, bool onDemand, string cls, MeshAnimator? anim = null, List<AnimRef>? anims = null, bool parentAnim = false, Matrix4x4? offset = null,
@@ -374,7 +375,7 @@ sealed class PropRig
             // Its effect-material sections (silhouettes) as glowing triangles: the view skips them as surfaces. Their opacity
             // is divided by the preview's effect strength, which the view multiplies every effect by (10 %).
             // (an HDR colour scaled into range; an afterimage fading out over its life, from 35 % opacity)
-            float life = Math.Max(0.05f, a.End - a.Start), fade = 0.35f * (1 - Math.Clamp(t / life, 0, 1) * 0.85f);
+            float life = Math.Max(0.05f, a.End - a.Start), fade = a.Steady ? 0.35f : 0.35f * (1 - Math.Clamp(t / life, 0, 1) * 0.85f);
             Vector3 tint = Vector3.Zero;
             float bright = 1;
             for (int k = 0; k + 2 < m.Indices.Length; k += 3)

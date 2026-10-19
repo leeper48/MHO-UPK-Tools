@@ -32,6 +32,9 @@ sealed class FxGame
 
     public FxPkg? Open(string packageName) => FileFor(packageName) is { } f ? FxPkg.Open(f) : null;
 
+    /// <summary>The mod's packages (paths).</summary>
+    public IEnumerable<string> ModFiles => modFiles.Values;
+
     public AssetPackageCache Apc => apc ??= File.Exists(Path.Combine(Cooked, "AssetPackageCache.bin"))
         ? AssetPackageCache.Parse(File.ReadAllBytes(Path.Combine(Cooked, "AssetPackageCache.bin"))) : new AssetPackageCache();
 

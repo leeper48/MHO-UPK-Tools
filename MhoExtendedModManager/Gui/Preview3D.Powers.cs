@@ -23,9 +23,13 @@ sealed partial class Preview3D
         NoteChanged = () => { fxLabel.Text = effects?.Note ?? ""; CaptionChanged?.Invoke(); },
         Running = () => Visible,
         CookedFor = () => ctx?.Cooked,
+        // summons arrive after the power's framing: framed again with them, once per power picked
+        SummonsShown = () => { if (frameSummons) { frameSummons = false; FrameShot(Framing.Shot.Full); } },
         ColorFor = colorFor,
     };
     Fx.PowerEffects.Player? fxPlayer => effects?.Player;
+    /// <summary>A power was just picked: its summons, when they arrive, are framed in.</summary>
+    bool frameSummons;
     int heroPowersRequest;
     List<Fx.PowerList.Power> heroPowers = [];
     string? powerFilter;
@@ -200,6 +204,7 @@ sealed partial class Preview3D
             else LoadEffects();
             RefreshPowerButtons();
             FrameShot(Framing.Shot.Full);
+            frameSummons = true;
             return;
         }
         effectOnly = null;
@@ -222,6 +227,7 @@ sealed partial class Preview3D
         RefreshPowerButtons();
         // a power picked: the whole character, centred (Kurt, 2026-10-18: some powers left the camera far off)
         FrameShot(Framing.Shot.Full);
+        frameSummons = true;
     }
 
     /// <summary>The power picked now (its button: filtering the list, or an effect-only power playing over the idle).</summary>

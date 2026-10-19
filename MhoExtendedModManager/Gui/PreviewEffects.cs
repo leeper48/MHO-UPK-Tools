@@ -93,6 +93,15 @@ sealed class PreviewEffects : IDisposable
             if (owner.IsDisposed || req != request || Shown() is not { } s || s.Animator != at.Animator) return;
             if (t.Status != TaskStatus.RanToCompletion || t.Result is not { } loaded) { SetNote(""); return; }
             sockets = loaded.Sockets;
+            // a summon's own effects (its appearing, its glow) where it stands, not on the hero
+            var spotBy = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
+            int si = 0;
+            foreach (var sa in loaded.Effects.Actors.Where(a => a.Kind == "summon")) if (sa.TriggeredBy != null) spotBy.TryAdd(sa.TriggeredBy, SummonSpots[si++ % SummonSpots.Length]);
+            var list = loaded.Effects.Effects;
+            // (an entity effect several summons share comes once, named after the first: on the first summon shown then)
+            for (int i = 0; i < list.Count && spotBy.Count > 0; i++)
+                if (list[i].Kind == "entity")   // (summoned at the target in game: here where the summon stands)
+                    list[i] = list[i] with { Spot = list[i].TriggeredBy is { } by && spotBy.TryGetValue(by, out var spot) ? spot : SummonSpots[0], AtTarget = false };
             float ground = s.Mesh.Positions.Length == 0 ? 0 : s.Mesh.Positions.Min(v => v.Z);
             Target = new Vector3(250, 0, ground);
             var playing = Playing();
@@ -145,10 +154,20 @@ sealed class PreviewEffects : IDisposable
             foreach (var s in specs)
                 try
                 {
-                    var lm = ModMeshes.Load(new MeshRef(Path.GetFileName(s.MeshFile), s.MeshFile, s.Name, s.MeshExport), cookedFolder, out _);
+                    var mref = new MeshRef(Path.GetFileName(s.MeshFile), s.MeshFile, s.Name, s.MeshExport);
+                    var lm = ModMeshes.Load(mref, cookedFolder, out _);
                     if (lm == null) continue;
+                    // a summon's mesh component's own materials in place of the mesh's (Jean Grey's illusion material)
+                    if (s.Materials is { Count: > 0 } mats)
+                    {
+                        var looks = lm.Looks.ToArray();
+                        for (int k = 0; k < looks.Length && k < mats.Count; k++)
+                            if (mats[k] is { } mt && ModMeshes.LookOf(mt.File, mt.Export, cookedFolder) is { } lk) looks[k] = lk;
+                        lm = lm with { Looks = looks };
+                    }
                     var an = new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false };
-                    var seq = s.AnimName != null && ModAnimations.Named(s.SetFile, s.SetExport, s.MeshFile, s.AnimName) is { } ar ? ModAnimations.Load(ar) : null;
+                    var seq = s.AnimName != null && ModAnimations.Named(s.SetFile, s.SetExport, s.MeshFile, s.AnimName) is { } ar ? ModAnimations.Load(ar)
+                        : s.Kind == "summon" && SummonAnimation(s, mref, lm, cookedFolder) is { } sr ? ModAnimations.Load(sr) : null;
                     list.Add((s, lm, an, seq));
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
@@ -158,7 +177,37 @@ sealed class PreviewEffects : IDisposable
             if (owner.IsDisposed || req != request || t.Status != TaskStatus.RanToCompletion || t.Result.Count == 0) return;
             actors = t.Result;
             RebuildRig();
+            if (actors.Any(a => a.Spec.Kind == "summon")) SummonsShown?.Invoke();
         }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>Where summons stand, in the hero's frame (characters face +X): beside, then behind on either side.</summary>
+    static readonly Vector3[] SummonSpots = [new(20, 150, 0), new(20, -150, 0), new(-110, 230, 0), new(-110, -230, 0), new(-200, 90, 0), new(-200, -90, 0)];
+
+    /// <summary>A summon's animation: its arrival (spawn / summon / appear …, not the leaving), else its combat idle, else its
+    /// idle, else the first it has.</summary>
+    static AnimRef? SummonAnimation(Fx.PowerEffects.Actor s, MeshRef mref, ModMeshes.Loaded lm, string? cooked)
+    {
+        var list = s.SetFile != null ? ModAnimations.FromSet(s.SetFile, s.SetExport) : [];
+        if (list.Count == 0) list = ModAnimations.For(mref, lm.Bones, [], cooked);
+        if (list.Count == 0) return null;
+        bool Leaving(string n) => n.Contains("out", StringComparison.OrdinalIgnoreCase) || n.Contains("exit", StringComparison.OrdinalIgnoreCase) || n.Contains("death", StringComparison.OrdinalIgnoreCase);
+        foreach (string want in new[] { "spawn", "summon", "appear", "intro", "enter", "idle_combat", "idle" })
+            if (list.FirstOrDefault(a => a.Name.Contains(want, StringComparison.OrdinalIgnoreCase) && !Leaving(a.Name)) is { } hit) return hit;
+        return list[0];
+    }
+
+    /// <summary>Summoned characters joined the view (the preview frames them in after a power is picked).</summary>
+    public Action? SummonsShown { get; init; }
+    /// <summary>Summoned characters are in the view now.</summary>
+    public bool HasSummons => actors.Any(a => a.Spec.Kind == "summon");
+    /// <summary>How many summoned characters show (each on its own spot).</summary>
+    public int SummonCount => actors.Count(a => a.Spec.Kind == "summon");
+    /// <summary>The box of the first <paramref name="n"/> summon spots (with room for a body around each).</summary>
+    public static (Vector3 Lo, Vector3 Hi) SpotsBox(int n)
+    {
+        var spots = SummonSpots.Take(Math.Min(n, SummonSpots.Length)).ToList();
+        return (spots.Aggregate(Vector3.Min) - new Vector3(40, 40, 0), spots.Aggregate(Vector3.Max) + new Vector3(40, 40, 0));
     }
 
     /// <summary>The game's package folder (the actors' textures).</summary>
@@ -169,13 +218,16 @@ sealed class PreviewEffects : IDisposable
     public void AddActors(PropRig r)
     {
         if (clock.Player is not { } player) return;
+        int summon = 0;
         foreach (var (s, m, an, seq) in actors)
         {
             float own = seq == null ? 0 : MeshAnimator.Span(seq).Seconds;
             if (player.ActorWindow(s, own) is not { } win) continue;
+            // summons side by side around the hero, not on one spot (Jean Grey's illusion with the X-Men's)
+            var shift = s.Kind == "summon" ? SummonSpots[summon++ % SummonSpots.Length] : s.Shift;
             var place = Matrix4x4.CreateScale(s.Scale) * Fx.PowerEffects.Player.UeRotation(s.Turn.X, s.Turn.Y, s.Turn.Z)
-                * Matrix4x4.CreateTranslation(s.Shift + (s.AtTarget ? Target : Vector3.Zero));
-            r.AddActor(m, an, seq, win.Start, win.End, place);
+                * Matrix4x4.CreateTranslation(shift + (s.AtTarget ? Target : Vector3.Zero));
+            r.AddActor(m, an, seq, win.Start, win.End, place, steady: s.Kind == "summon");
         }
     }
 

@@ -45,7 +45,7 @@ static class PowerList
 
     /// <summary>A simple field of a prototype; <paramref name="inherit"/>: else its parents' (a travel power such as
     /// WolverineRide takes its name and icon from the shared bike it's made from).</summary>
-    static (ulong Raw, bool Found) Field(GameData db, ulong id, string name, char type, bool inherit)
+    internal static (ulong Raw, bool Found) Field(GameData db, ulong id, string name, char type, bool inherit)
     {
         for (int guard = 0; guard < 8 && db.Prototypes.ContainsKey(id); guard++)
         {
