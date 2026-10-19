@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.21
+- --mesh-aliases [--all]: every character package whose class swaps models by alias, and which of them Build into Mod builds onto too (read only). Of the game's 11,844 character packages, only Ant-Man's four costumes and Howard the Duck's team-up (Iron Duck) have them.
+
 0.50.20
 - Model tab: Build into Mod also builds onto the other models the character swaps to (its MeshAliases). Ant-Man's costumes carry a second model, <costume>_small, the same skeleton at 0.4 scale, shown while he's shrunk; the build replaced only the normal one, so a user's Cassie Lang turned back into Ant-Man when shrunk. Each is fitted to its own skeleton (the small one comes out at 0.4 size).
 - --mesh-sizes <package>: every skeletal mesh in a package with its height (read only).
