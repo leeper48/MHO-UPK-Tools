@@ -55,6 +55,7 @@ static partial class Program
         ("--summon-census", "--summon-census [hero ...]", "Every hero's powers that summon a character: the summon's model, animations and own materials as the 3D preview shows them. Changes nothing."),
         ("--hero-files", "--hero-files <hero> [name part] [--unique]", "The packages a hero's powers use or summon (illusions, afterimages, summons); --unique: everything Make Unique keeps shared with the hero's model (those plus every playable hero's summons and power packages). Changes nothing."),
         ("--mesh-sizes", "--mesh-sizes <package.upk>", "Every skeletal mesh in a package with its height and head / pelvis bone heights (Ant-Man's small model beside his normal one). Changes nothing."),
+        ("--mesh-aliases", "--mesh-aliases [--all]", "Census: every hero and team-up package (--all: every character package) whose class swaps models by alias (Ant-Man's shrunk model), and which aliases Build into Mod builds onto too. Changes nothing."),
         ("--hero-forms", "--hero-forms <hero>", "A hero's forms (Jean Grey's Phoenix) and transforms (Rogue, Rocket, Loki): animation sets, transformed characters and the powers they swap. Changes nothing."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
         ("--foot-check", "--foot-check <mod> [animation name part...]", "How high a mod's mesh stands (lowest point, pelvis) at rest and over its animations: for feet below / above the ground after a move. Changes nothing."),

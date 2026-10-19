@@ -205,6 +205,31 @@ static partial class Program
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException) { Console.WriteLine("ERROR: " + ex.Message); return 1; }
             }
+            case "--mesh-aliases":
+            {
+                // Read-only census: every character package (players, team-ups; --all: every UC__ package with a character class)
+                // whose class lists MeshAliases, with each alias's mesh, and the ones Build into Mod also builds onto.
+                // --mesh-aliases [--all]
+                var ast = Settings.Load(); string? agr = ast.ResolvedGameRoot(Settings.LibraryData(ast.LibraryPath));
+                if (agr == null || !Settings.IsGameRoot(agr)) { Console.WriteLine("game folder not found"); return 1; }
+                string acook = UniqueNames.Folder(Settings.Cooked(agr));
+                var pkgs = Directory.GetFiles(acook, "UC__*_SF.upk").Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .Where(f => rest.Contains("--all") || Path.GetFileName(f).StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(f).StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase))
+                    .Order(StringComparer.OrdinalIgnoreCase).ToList();
+                int with = 0;
+                foreach (string f in pkgs)
+                {
+                    List<(string Alias, string Mesh, bool Here)> al;
+                    try { al = Model.MhoSkeleton.RawAliases(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException or IndexOutOfRangeException) { continue; }
+                    if (al.Count == 0) continue;
+                    with++;
+                    string? main = Model.MhoSkeleton.ComponentMesh(f);
+                    var builds = main == null ? [] : Model.MhoSkeleton.Aliases(f, main);
+                    Console.WriteLine($"{Path.GetFileName(f)} (model {main ?? "?"}): " + string.Join("; ", al.Select(a => $"{a.Alias} = {a.Mesh}{(a.Here ? "" : " [import]")}{(builds.Contains(a.Mesh.Split('.')[^1], StringComparer.OrdinalIgnoreCase) ? " [built too]" : "")}")));
+                }
+                Console.WriteLine($"{with} of {pkgs.Count} package(s) list mesh aliases");
+                return 0;
+            }
             case "--mesh-sizes":
             {
                 // Read-only: every skeletal mesh in a package with its measured height and its head and pelvis bone heights

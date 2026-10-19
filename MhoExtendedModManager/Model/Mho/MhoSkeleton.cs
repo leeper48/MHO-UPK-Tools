@@ -246,6 +246,34 @@ sealed class MhoSkeleton
         return found;
     }
 
+    /// <summary>The class default's MeshAliases as they are (census): alias name, mesh path, and whether the mesh is an
+    /// export of this package; empty when it has none.</summary>
+    public static List<(string Alias, string Mesh, bool Here)> RawAliases(string package)
+    {
+        var list = new List<(string, string, bool)>();
+        string stem = Path.GetFileNameWithoutExtension(package);
+        if (stem.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) stem = stem[4..];
+        if (stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) stem = stem[..^3];
+        var mp = MhoPackageModifier.Package.Open(package);
+        string defPath = $"marvelgamecontent.default__{stem.ToLowerInvariant()}";
+        int def = Array.FindIndex(mp.Exports, e => mp.PathOf(e).Equals(defPath, StringComparison.OrdinalIgnoreCase));
+        if (def < 0) return list;
+        byte[] d = mp.ReadExportBytes(mp.Exports[def]).ToArray();
+        var arr = MhoPackageModifier.TagWalker.Walk(mp, d, 4)?.FirstOrDefault(x => x.Name.Equals("MeshAliases", StringComparison.OrdinalIgnoreCase));
+        if (arr == null || arr.Size < 4) return list;
+        int n = BitConverter.ToInt32(d, arr.ValueAt), p = arr.ValueAt + 4;
+        for (int k = 0; k < n && p < arr.End; k++)
+        {
+            var el = MhoPackageModifier.TagWalker.Walk(mp, d, p);
+            if (el == null) break;
+            string alias = el.FirstOrDefault(x => x.Name.Equals("Alias", StringComparison.OrdinalIgnoreCase)) is { } at ? MhoPackageModifier.TagWalker.NameAt(mp, d, at.ValueAt) : "?";
+            int r = el.FirstOrDefault(x => x.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && x.Size == 4) is { } mt ? BitConverter.ToInt32(d, mt.ValueAt) : 0;
+            list.Add((alias, r == 0 ? "none" : r > 0 ? mp.PathOf(mp.Exports[r - 1]) : mp.Imports[-r - 1].ObjectName, r > 0));
+            p = el.NoneAt + 8;
+        }
+        return list;
+    }
+
     static readonly System.Text.RegularExpressions.Regex PropName = new(
         @"(backpack|wing|gun|rifle|pistol|launcher|shotgun|m16|m60|bike|claw|blade|sword|shield|hammer|weapon|_prop|bow$|quiver|staff|spear|axe|knife)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
