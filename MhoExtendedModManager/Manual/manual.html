@@ -249,6 +249,19 @@ function mhoNext(dir) {
 </div>
 
 <div class="walk">
+<h3 id="w-forms">See a Hero's Forms, Transforms and Summons</h3>
+<ol class="steps">
+<li>Open the hero's mod in the Editor and go to <b>Powers</b> (or select the mod on the Mods tab and use the preview's power buttons).</li>
+<li><b>A form:</b> pick the power that turns it on, or one of the form's own powers. Jean Grey's <b>Unleash the Phoenix</b> shows her Phoenix form: her flying animations, the flaming wings and the form's flames. The form's versions of her powers have buttons of their own, named after the form (<b>Pyrokinetic Barrier (Unleash the Phoenix)</b>). Another power takes the form off.</li>
+<li><b>A transform:</b> Rogue's <b>Final Form</b>, Rocket Raccoon's <b>Mechfall</b> and Loki's <b>Frost Giant</b> show the transformed character, with its own animations and props, when the power that turns it on or one of its abilities is picked (<b>Swift Claws (Final Form)</b>, <b>Frost Orb (Frost Giant)</b>).</li>
+<li><b>A summon:</b> a power that summons a character shows it beside the hero for the power's length, with its own arrival animation and effects: Jean Grey's <b>Telepathic Illusion</b> (the costume's own illusion, see-through with the game's glow), Doctor Strange's <b>Images of Ikonn</b>, Nick Fury's agents, Squirrel Girl's squirrels. When the mod carries the summon's model, the mod's model shows, as in game. <b>Full Body</b> frames the summons too.</li>
+</ol>
+<figure><img src="img/preview-form.jpg" alt="Jean Grey in her Phoenix form in the 3D preview: the flaming wings and the form's flames."><figcaption>Unleash the Phoenix: Jean Grey's Phoenix form, with its wings and flames.</figcaption></figure>
+<figure><img src="img/preview-summon.jpg" alt="Jean Grey's Telepathic Illusion in the 3D preview: the see-through illusion of her costume beside her, inside its effect."><figcaption>Telepathic Illusion: the costume's own illusion beside her, see-through with the game's glow.</figcaption></figure>
+<p>Known: Rocket's mech suit shows above its pilot in the preview. A summon stands beside the hero; in game it appears where the power is aimed. See <a href="#w-powers">Watch a Hero's Powers in the 3D Preview</a>.</p>
+</div>
+
+<div class="walk">
 <h3 id="w-icon">Make a Costume's Icons from the 3D Model</h3>
 <p>Every costume has a store image (300×420), a portrait (herohor, 180×136) and a costume icon (40×40). You can make all three from the costume's own model.</p>
 <ol class="steps">
@@ -493,6 +506,7 @@ function mhoNext(dir) {
 <li>Several parts on one texture sheet that should look different (skin and armor)? Under <b>Parts</b>, tick <b>Own Material</b> on a part: it gets a material of its own, <i>&lt;material&gt; @ &lt;part&gt;</i>.</li>
 <li>Pick a material and choose its <b>Game Material ▾</b>: Automatic, Cloth and Skin, Metal, Glow or The Costume's Own. <b>Preview Shows</b> picks which maps the preview draws.</li>
 <li>The costume's effects (a force field, a glow) keep material slots by number: use <b>Slot Up</b> / <b>Slot Down</b> so each lands on the right part (the note above the list says which).</li>
+<li>Bumps that look flat, or none at all? Right-click the material's <b>Color</b> or <b>Normal</b> row → <b>Generate Normal Map</b> and pick a strength (Soft, Medium, Strong, or Medium, Dark Is Raised). The preview shows it at once; Undo takes it back.</li>
 <li>Build into Mod, Save Changes, Apply Changes.</li>
 </ol>
 <figure><img src="img/editor-model-materials.jpg" alt="The Model tab's Materials page: Black Dwarf on Doctor Doom, with Preview Shows, Game Material and the slot note for Doom's force field."><figcaption>The Model tab's Materials page: Black Dwarf on Doctor Doom, with Preview Shows, Game Material and the slot note for Doom's force field.</figcaption></figure>

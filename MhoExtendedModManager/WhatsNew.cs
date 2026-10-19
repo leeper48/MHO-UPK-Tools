@@ -34,7 +34,22 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
+    static Notice FormsAndSummons() => new(
+        "0.50.16-forms-summons", "0.50.16",
+        "[!]3D previews show forms, transforms and summons:" + nl +
+        "  • Jean Grey's Phoenix form: her flying animations, wings and flames, and buttons for the form's own powers." + nl +
+        "  • Rogue's Final Form, Rocket's Mechfall and Loki's Frost Giant show the transformed character." + nl +
+        "  • Summoned characters stand beside the hero: Jean's illusions (see-through with the game's glow), Doctor Strange's images, Nick Fury's agents, Squirrel Girl's squirrels." + nl + nl +
+        "[!]Model tab → Materials: Right-click a Color or Normal row → Generate Normal Map (Soft, Medium, Strong)." + nl +
+        "  • Every normal map the app writes now has sRGB off, as the game's own do. That fixes seams across faces." + nl +
+        "  • A model built before this: Build into Mod again." + nl + nl +
+        "Model tab: It opens on the mod's character. While filtering the targets, heroes come first, then team-ups, then NPCs." + nl + nl +
+        "3D previews play smoother: up to about 60 frames a second." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-forms");
 
     /// <summary>0.50.7 (Kurt, 2026-10-18): parts, dodge ghosts, the editor's new layout, the target's props, a faster editor.</summary>
     static Notice PartsAndGhosts() => new(
