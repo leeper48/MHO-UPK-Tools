@@ -82,7 +82,8 @@ sealed class PreviewProps
     /// switches weapon slots, and may bring a prop the hero doesn't have (a thrown car), read in the background; with no
     /// animation, no hero or Props off, the rest pose shows what's always held.
     /// </summary>
-    public void LoadSwitches(bool on, string? cooked, string? hero, string? anim, IReadOnlyList<string> modFiles)
+    public void LoadSwitches(bool on, string? cooked, string? hero, string? anim, IReadOnlyList<string> modFiles,
+        IReadOnlyList<ModMeshes.PropRule>? formRules = null, IReadOnlyList<string>? formFiles = null)
     {
         int req = ++switchRequest;
         if (!on || cooked == null || hero == null)
@@ -96,7 +97,7 @@ sealed class PreviewProps
         var idxTask = PowerPreview.PowerIndex(hero, cooked, modFiles);
         float secs = Seconds();
         Task.WhenAll(idxTask, dbTask).ContinueWith(done => idxTask.Status != TaskStatus.RanToCompletion ? PowerPreview.Switches.None
-                : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, anim, cooked, have, motionRefs, secs))
+                : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, anim, cooked, have, motionRefs, secs, formRules, formFiles))
             .ContinueWith(t =>
             {
                 if (owner.IsDisposed || req != switchRequest || t.Status != TaskStatus.RanToCompletion) return;

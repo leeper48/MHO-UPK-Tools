@@ -73,6 +73,8 @@ sealed class PreviewEffects : IDisposable
     /// </summary>
     /// <summary>Effects left out by their part's name (the editor's Powers tab: parts switched off, before and after Save).</summary>
     public Func<string, bool>? HiddenEffect { get; set; }
+    /// <summary>Only this effect plays (the Powers tab's Parts ▶ on one of a power's effects), else all; by its part's name.</summary>
+    public string? OnlyEffect { get; set; }
 
     public void Load(string cooked, bool needsDb, Func<Fx.GameData?, PowerPreview.Loaded?> read, Func<Fx.GameData, string, ModelView.Look?[]?>? swaps,
         string reading = "Reading Powers…", Func<PowerPreview.Loaded, string>? label = null)
@@ -96,11 +98,12 @@ sealed class PreviewEffects : IDisposable
             var playing = Playing();
             // (an effect part switched off in the editor isn't played: Powers tab → Parts)
             var phase = HiddenEffect is { } hidden ? e => loaded.Phase(e) && !hidden(e.Name) : loaded.Phase;
+            if (OnlyEffect is { } only) { var before = phase; phase = e => before(e) && e.Name.Equals(only, StringComparison.OrdinalIgnoreCase); }
             clock.Player = new Fx.PowerEffects.Player(loaded.Effects, Socket, Target, phase) { AnimSeconds = Math.Max(0.1f, Seconds()), Color = ColorFor?.Invoke(loaded.Power) };
             rig.Recolor = clock.Player.Color is { IsNone: false } pc ? pc.Apply : null;
             Power = loaded.Power;
             s.View.EffectStrength = PreviewViews.FxPower;   // the effects' opacity / glow
-            SetNote(label?.Invoke(loaded) ?? loaded.Label);
+            SetNote(OnlyEffect != null ? $"{Ui.TitleCase(PowerPreview.SplitWords(Path.GetFileNameWithoutExtension(loaded.Power)))} · Only {Ui.TitleCase(OnlyEffect)}" : label?.Invoke(loaded) ?? loaded.Label);
             LoadActors(loaded.Effects, req);
             if (swaps != null && loaded.Power.Length > 0 && !loaded.Power.StartsWith("own:", StringComparison.Ordinal)) LoadSwaps(cooked, loaded.Power, swaps, req);
             if (playing != null)

@@ -23,6 +23,8 @@ sealed class MaterialInfo
     public float Scalar(string name, float fallback) => Scalars.TryGetValue(name, out float v) ? v : fallback;
     public bool Masked => Parent.Contains("masked", StringComparison.OrdinalIgnoreCase);
     public bool Translucent => Parent.Contains("translucent", StringComparison.OrdinalIgnoreCase);
+    /// <summary>The base material's first texture sample (an effect material's own texture: its Texture2D export index), or -1.</summary>
+    public int ExpressionTexture = -1;
     /// <summary>The base material's BlendMode and LightingModel when it's in the package (blend_translucent, mlm_unlit …).</summary>
     public string BlendMode = "", LightingModel = "";
     /// <summary>An effect material: unlit and see-through (translucent or additive): an animated actor's silhouette.</summary>
@@ -63,6 +65,13 @@ static class ModMaterials
                             string v = TagWalker.NameAt(pkg, md, t.ValueAt);
                             if (t.Name.Equals("BlendMode", StringComparison.OrdinalIgnoreCase)) info.BlendMode = v; else info.LightingModel = v;
                         }
+                    // its textures (a cooked material keeps no texture samples, only its resource's texture list: the first one)
+                    try
+                    {
+                        foreach (int r in ExportCopy.MaterialNativeTextures(pkg, md, cls))
+                            if (r > 0 && r <= pkg.Exports.Length && pkg.ClassOf(pkg.Exports[r - 1]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) { info.ExpressionTexture = r - 1; break; }
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
                 }
                 break;
             }

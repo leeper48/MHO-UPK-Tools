@@ -274,7 +274,8 @@ static class ModMeshes
             // An effect material: its colour parameter (a name with "color", else the first), glowing when additive.
             var col = mi.Vectors.FirstOrDefault(v => v.Key.Contains("color", StringComparison.OrdinalIgnoreCase)).Value is var cv && cv != default ? cv
                 : mi.Vectors.Values.FirstOrDefault(new System.Numerics.Vector4(0.6f, 0.75f, 1f, 1));
-            return new Gui.ModelView.Look { Ghost = true, GhostAdditive = mi.BlendMode.Contains("additive", StringComparison.OrdinalIgnoreCase), GhostColor = new System.Numerics.Vector3(col.X, col.Y, col.Z) };
+            int gtex = mi.Textures.Count > 0 ? mi.Textures.First().Value : mi.ExpressionTexture;
+            return new Gui.ModelView.Look { Ghost = true, GhostAdditive = mi.BlendMode.Contains("additive", StringComparison.OrdinalIgnoreCase), GhostColor = new System.Numerics.Vector3(col.X, col.Y, col.Z), GhostMap = Map(gtex) };
         }
         int diffuseAt = -1;
         if (mi != null)

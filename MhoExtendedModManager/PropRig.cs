@@ -320,11 +320,27 @@ sealed class PropRig
                 else mo.Anim.Pose(mo.Seq, mo.Seq != null && animSeconds > 0 ? (float)(Math.Clamp(lastSeconds / animSeconds, 0, 1) * mo.Frames) : 0);
                 sp = mo.Anim.Positions; sn = mo.Anim.Normals; st = mo.Anim.Tangents;
             }
+            int propAt = at;
             for (int v = 0; v < m.Positions.Length; v++, at++)
             {
                 pos[at] = Vector3.Transform(sp[v], mat);
                 if (v < sn.Length) nrm[at] = Vector3.Normalize(Vector3.TransformNormal(sn[v], mat));
                 if (v < st.Length) { var tv = st[v]; var tt = Vector3.TransformNormal(new Vector3(tv.X, tv.Y, tv.Z), mat); tan[at] = new Vector4(tt.LengthSquared() > 0 ? Vector3.Normalize(tt) : tt, tv.W); }
+            }
+            // Its effect-material sections (Jean Grey's Phoenix wings, unlit and see-through: the view skips them as surfaces) as
+            // effect triangles with their own texture, glowing when additive; opacity divided by the view's effect strength.
+            for (int k = 0; k + 2 < m.Indices.Length; k += 3)
+            {
+                int sec = k / 3 < m.TriangleSection.Length ? m.TriangleSection[k / 3] : 0;
+                if (sec >= m.Looks.Length || m.Looks[sec] is not { Ghost: true } gl) continue;
+                var orig = gl.GhostMap != null ? Vector3.One : gl.GhostColor;
+                var col = Recolor?.Invoke(orig) ?? orig;
+                float mx = MathF.Max(col.X, MathF.Max(col.Y, col.Z));
+                var tint = mx > 1 ? col / mx : col;
+                int a0 = m.Indices[k], a1 = m.Indices[k + 1], a2 = m.Indices[k + 2];
+                Vector2 U(int i) => i < m.Uv.Length ? m.Uv[i] : default;
+                ghost.Add(new Gui.ModelView.FxTri(pos[propAt + a0], pos[propAt + a1], pos[propAt + a2], U(a0), U(a1), U(a2),
+                    new Vector4(tint, 0.9f / Math.Max(0.01f, PreviewViews.FxPower)), gl.GhostMap, gl.GhostAdditive, false));
             }
         }
         foreach (var a in actors)

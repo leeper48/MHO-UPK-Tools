@@ -234,6 +234,14 @@ sealed partial class ModEditorView
         if (game == null) return;
         if (s.Kind == "Effect")
         {
+            // a power's own effect (in its own package or a condition's it applies): the power with only that effect; a
+            // character's own parts (the Char and Dodge tiles) play over its idle as before
+            if (powerList.SelectedItem is Fx.PowerList.Power pp && !IsCharacterEntry(pp.Prototype) && !PowerColorBuild.IsOwn(pp.Prototype) && !PowerColorBuild.IsPackage(pp.Prototype))
+            {
+                powerPreview?.PlayPowerPart(pp.Prototype, s.PartName);
+                partsNote.Text = $"Showing {s.Label} in the 3D view, alone (the power's other effects come back when the power is picked again).";
+                return;
+            }
             powerPreview?.PlayOwn(s.Package, (powerList.SelectedItem as Fx.PowerList.Power)?.Prototype ?? "", s.PartName, keep);
             partsNote.Text = $"Showing {s.Label} in the 3D view (it plays again with each loop of the idle).";
             return;

@@ -67,6 +67,9 @@ sealed class PowerEffects
     public readonly List<Actor> Actors = new();
     public readonly List<Decal> Decals = new();
     public readonly List<SlotChange> Slots = new();
+    /// <summary>Animation-set aliases a condition adds while it's on (ConditionFxAnimation AnimSetAliasToAdd: Jean Grey's
+    /// Phoenix form adds "phoenixas", which her class's AnimationSetAliases names as her flying set). A form's animations.</summary>
+    public readonly List<(string Alias, string? By)> AnimAliases = new();
     /// <summary>The weapon slot a missile carries away (the projectile class's OwnerWeaponSlotToDetach), or null.</summary>
     public string? ThrownSlot;
     /// <summary>Mesh emitters' meshes, with each section's texture and blending.</summary>
@@ -203,6 +206,7 @@ sealed class PowerEffects
             foreach (var dc in more.Decals) fx.Decals.Add(dc with { TriggeredBy = by });
             foreach (var sc in more.Slots) fx.Slots.Add(sc with { TriggeredBy = by });
             foreach (var sc in more.Scales) fx.Scales.Add(sc with { TriggeredBy = by });
+            foreach (var al in more.AnimAliases) if (!fx.AnimAliases.Any(x => x.Alias.Equals(al.Alias, StringComparison.OrdinalIgnoreCase))) fx.AnimAliases.Add((al.Alias, al.By ?? by));
             // Actors of a later moment the power sets off (Call Beast's CallBeastDismount: Beast leaving; AngelDFAEnd,
             // LockheedChargeEnd) would play on top of the arrival: left out (a guess from the name, as the phases are).
             bool later = System.Text.RegularExpressions.Regex.IsMatch(by, "(End|Dismount|Exit|Cancel)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -345,6 +349,20 @@ sealed class PowerEffects
                 P("DeactivatesOnEnd") is not { } de2 || p.Bytes[de2.ValueAt] != 0, Fl("DestroyOnAnimEndDelaySeconds", 0),
                 Pt("SpawnOn", "").Contains("target", StringComparison.OrdinalIgnoreCase), V("SpawnOffsetVector"), R("SpawnOffsetRotation"), Fl("Scale", 1),
                 cname.StartsWith("Entity", StringComparison.OrdinalIgnoreCase) ? "entity" : "power"));
+            return true;
+        }
+        if (cname.StartsWith("ConditionFxAnimation", StringComparison.OrdinalIgnoreCase) || cname.StartsWith("PowerFxAnimationSet", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!seen.Add(p.Name + "|" + epath)) return true;
+            if (P("AnimSetAliasToAdd") is { Size: >= 4 } al)
+            {
+                int n = BitConverter.ToInt32(p.Bytes, al.ValueAt);
+                for (int k = 0; k < n && 4 + 8 * k + 8 <= al.Size; k++)
+                {
+                    int ni = BitConverter.ToInt32(p.Bytes, al.ValueAt + 4 + 8 * k);
+                    if (ni >= 0 && ni < p.T.Names.Count && !fx.AnimAliases.Any(x => x.Alias.Equals(p.T.Names[ni].Text, StringComparison.OrdinalIgnoreCase))) fx.AnimAliases.Add((p.T.Names[ni].Text, null));
+                }
+            }
             return true;
         }
         if (cname.StartsWith("ConditionFxMeshScale", StringComparison.OrdinalIgnoreCase) || cname.StartsWith("PowerFxMeshScale", StringComparison.OrdinalIgnoreCase))

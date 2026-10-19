@@ -243,7 +243,8 @@ sealed partial class Preview3D : UserControl
         ctx = context;
         this.animator = animator;
         animator.Pose(null, 0);   // posed at once: a new animator's bones are all zero until its first pose (MEMM 0.37.37)
-        allAnims = animations;
+        if (!samePowers) { form = null; formAnims = []; formRules = []; formFiles = []; formCache.Clear(); formRequest++; }   // (another character: its own forms)
+        allAnims = WithForm(animations);
         if (!samePowers) ClearPowers();
         animList = powerFilter != null && heroPowers.FirstOrDefault(x => x.Prototype == powerFilter) is { } pw
             ? [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))] : allAnims;
@@ -277,7 +278,7 @@ sealed partial class Preview3D : UserControl
     /// </summary>
     public void SetAnimations(List<AnimRef> animations, string? select, double? atSeconds, bool play)
     {
-        allAnims = animList = animations;
+        allAnims = animList = WithForm(animations);
         powerFilter = null; effectOnly = null;
         FillAnims();
         LoadHeroPowers();

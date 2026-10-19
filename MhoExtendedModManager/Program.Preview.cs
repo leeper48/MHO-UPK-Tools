@@ -1173,6 +1173,31 @@ static partial class Program
                 Console.WriteLine($"wrote {nout}: {replace.Count} part(s) changed, verified");
                 return 0;
             }
+            case "--hero-forms":
+            {
+                // Read-only: a hero's forms (a talent whose condition adds an animation alias: Jean Grey's Unleash the Phoenix),
+                // the animation set each alias names, the powers each swaps, and mapped powers no talent uses. --hero-forms <hero>
+                if (rest.Count < 2) { Console.WriteLine("--hero-forms <hero, e.g. JeanGrey>"); return 1; }
+                string? hgr = settings.ResolvedGameRoot(data);
+                if (hgr == null || !Settings.IsGameRoot(hgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string hcook = Settings.Cooked(hgr), hero = rest[1];
+                var hdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(hgr, "Data", "Game", "Calligraphy.sip")));
+                foreach (var m in Fx.HeroForms.Mappings(hdb, hero))
+                    Console.WriteLine($"talent {m.Spec}: {m.Mapped.Count} swap(s): {string.Join(", ", m.Mapped.Select(kv => Path.GetFileNameWithoutExtension(kv.Key) + " → " + Path.GetFileNameWithoutExtension(kv.Value)))}");
+                var forms = Fx.HeroForms.For(hdb, hero, hcook, [], new Dictionary<string, string>());
+                string basePkg = StockFiles.For(hcook, $"UC__MarvelPlayer_{hero}_SF.upk");
+                foreach (var f in forms)
+                {
+                    var set = Fx.HeroForms.AnimSetFor(f.Alias, [basePkg]);
+                    string setName = set is { } st ? MhoPackageModifier.Package.Open(st.Path) is var sp ? sp.PathOf(sp.Exports[st.Export]) : "?" : "not found";
+                    Console.WriteLine($"form {f.Spec} ({f.Name}): alias {f.Alias} → {setName}; condition packages {string.Join(", ", f.ConditionFiles.Select(Path.GetFileName))}");
+                    if (set is { } fs) Console.WriteLine($"    its animations: {string.Join(", ", ModAnimations.FromSet(fs.Path, fs.Export).Select(x => x.Name))}");
+                }
+                var used = Fx.HeroForms.Mappings(hdb, hero).SelectMany(m => m.Mapped.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var unused = Fx.HeroForms.AllMappedTargets(hdb, hero).Where(t => !used.Contains(t)).ToList();
+                Console.WriteLine($"mapped powers no talent uses: {(unused.Count == 0 ? "none" : string.Join(", ", unused.Select(Path.GetFileNameWithoutExtension)))}");
+                return 0;
+            }
             case "--power-fx":
             {
                 // Read-only: what the 3D preview plays for a power class (its own; the MHO Hero Creator's --power-fx summary).
@@ -1193,7 +1218,7 @@ static partial class Program
                     fx = Fx.PowerEffects.For(game, db, rest[1], rest.Count > 2 ? rest[2] : null);
                 }
                 else fx = Fx.PowerEffects.ForClass(game, rest[1], rest.Count > 2 ? rest[2] : null);
-                Console.WriteLine($"{rest[1]}: particles {string.Join(", ", fx.Effects.Where(e => e.BeamTarget == null).GroupBy(e => e.Kind).Select(g => $"{g.Key} {g.Count()}"))}; beams {fx.Effects.Count(e => e.BeamTarget != null)}; decals {fx.Decals.Count} ({fx.Decals.Count(d => d.Tex != null)} with a texture); weapon slots {string.Join(" ", fx.Slots.Select(x => (x.Show != null ? "+" + x.Show : "") + (x.Hide != null ? " -" + x.Hide : "")))}; thrown {fx.ThrownSlot ?? "-"}; mesh emitters {fx.Meshes.Count}; contact {fx.ContactPercent:0.##}{(fx.Returning ? ", returning" : "")}  ({sw.ElapsedMilliseconds} ms)");
+                Console.WriteLine($"{rest[1]}: particles {string.Join(", ", fx.Effects.Where(e => e.BeamTarget == null).GroupBy(e => e.Kind).Select(g => $"{g.Key} {g.Count()}"))}; beams {fx.Effects.Count(e => e.BeamTarget != null)}; decals {fx.Decals.Count} ({fx.Decals.Count(d => d.Tex != null)} with a texture); weapon slots {string.Join(" ", fx.Slots.Select(x => (x.Show != null ? "+" + x.Show : "") + (x.Hide != null ? " -" + x.Hide : "")))}; thrown {fx.ThrownSlot ?? "-"}; animation aliases {(fx.AnimAliases.Count > 0 ? string.Join(" ", fx.AnimAliases.Select(x => x.Alias + (x.By != null ? "(" + x.By + ")" : ""))) : "-")}; mesh emitters {fx.Meshes.Count}; contact {fx.ContactPercent:0.##}{(fx.Returning ? ", returning" : "")}  ({sw.ElapsedMilliseconds} ms)");
                 foreach (var e in fx.Effects)
                     Console.WriteLine($"  {e.Kind,-10}{(e.OnHit ? " [on the one hit]" : "")} {e.Name}: {e.System.Name} ({e.System.Emitters.Count} emitters, {e.System.Emitters.Count(em => fx.Looks.TryGetValue(em, out var lk) && lk.Tex != null)} textured) at {(e.AtTarget ? "the target" : string.Join("/", e.Sockets.DefaultIfEmpty("root")))}, {e.Point}+{e.Offset:0.##}{(e.BeamTarget != null ? " beam to " + e.BeamTarget : "")}{(e.TriggeredBy != null ? " · by " + e.TriggeredBy : "")} · in {(e.System.Emitters.Count > 0 ? e.System.Emitters[0].Required.P.Name : "?")}");
                 foreach (var n in fx.Notes.Distinct().Take(6)) Console.WriteLine("    note: " + n);

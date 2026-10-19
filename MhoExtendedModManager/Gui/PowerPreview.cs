@@ -62,6 +62,44 @@ static class PowerPreview
         return new(fx, hit.Proto, Fx.FxSockets.Of(meshFile, meshName), phase);
     }
 
+    /// <summary>
+    /// A form's own effects (Jean Grey's Phoenix flames and wing trails): the effects of the form's power that its own
+    /// conditions show, not those of what it sets off later (Unleash the Phoenix can turn into Dark Phoenix: those stay out).
+    /// They play the whole time the form shows.
+    /// </summary>
+    public static Loaded ForForm(Fx.GameData db, string form, string? hero, string cooked, IReadOnlyList<string> modFiles, string? entity, string meshFile, string meshName)
+    {
+        var all = Fx.PowerEffects.For(new Fx.FxGame(cooked, modFiles), db, form, hero, entity: entity);
+        string own = Path.GetFileNameWithoutExtension(form);
+        var fx = new Fx.PowerEffects();
+        foreach (var e in all.Effects.Where(e => (e.TriggeredBy == null || e.TriggeredBy.Equals(own, StringComparison.OrdinalIgnoreCase)) && !e.Point.Contains("end", StringComparison.OrdinalIgnoreCase)))
+            fx.Effects.Add(e);
+        foreach (var kv in all.Looks) fx.Looks[kv.Key] = kv.Value;
+        foreach (var kv in all.Meshes) fx.Meshes[kv.Key] = kv.Value;
+        return new(fx, form, Fx.FxSockets.Of(meshFile, meshName), _ => true);
+    }
+
+    /// <summary>A power's effects with its form's under them (the form's play the whole time).</summary>
+    public static Loaded? WithForm(Loaded? power, Loaded form)
+    {
+        if (power == null) return form;
+        var fx = power.Effects;
+        var mine = new HashSet<Fx.PowerEffects.Effect>(form.Effects.Effects);
+        foreach (var e in form.Effects.Effects) fx.Effects.Add(e);
+        foreach (var kv in form.Effects.Looks) fx.Looks.TryAdd(kv.Key, kv.Value);
+        foreach (var kv in form.Effects.Meshes) fx.Meshes.TryAdd(kv.Key, kv.Value);
+        var phase = power.Phase;
+        var sockets = new Dictionary<string, (string Bone, Matrix4x4 Local)>(power.Sockets);
+        foreach (var kv in form.Sockets) sockets.TryAdd(kv.Key, kv.Value);
+        return power with { Sockets = sockets, Phase = e => mine.Contains(e) || phase(e) };
+    }
+
+    /// <summary>A power by its prototype playing one of its animations (a form's version of a power): its effects in that
+    /// animation's phase (start / loop / end of <paramref name="powerAnims"/>).</summary>
+    public static Loaded ForPowerAnimation(Fx.GameData db, string power, string anim, IEnumerable<string> powerAnims, string? hero, string cooked, IReadOnlyList<string> modFiles, string? entity, string meshFile, string meshName) =>
+        new(Fx.PowerEffects.For(new Fx.FxGame(cooked, modFiles), db, power, hero, entity: entity), power, Fx.FxSockets.Of(meshFile, meshName),
+            Fx.PowerEffects.Player.PhaseFor(anim, powerAnims));
+
     /// <summary>A power by its prototype (an effect-only power, an NPC's power): all its effects play.</summary>
     public static Loaded ForPower(Fx.GameData db, string power, string? hero, string cooked, IReadOnlyList<string> modFiles, string? entity, string meshFile, string meshName) =>
         new(Fx.PowerEffects.For(new Fx.FxGame(cooked, modFiles), db, power, hero, entity: entity), power, Fx.FxSockets.Of(meshFile, meshName), _ => true);
@@ -192,11 +230,20 @@ static class PowerPreview
     }
 
     /// <summary>The prop switches for <paramref name="anim"/> (call off the UI thread).</summary>
-    public static Switches SwitchesFor(Fx.GameData? db, Dictionary<string, List<Fx.PowerIndex.PowerRef>> index, string? anim, string cooked, IReadOnlyList<PropRig.Prop> have, IEnumerable<(string Class, AnimRef Ref)> motionRefs, float seconds)
+    /// <param name="formRules">A form's own prop rules (its condition: Jean Grey's Phoenix wings on, cape off), always on.</param>
+    /// <param name="formFiles">Where the form's props are looked for when the character doesn't have them.</param>
+    public static Switches SwitchesFor(Fx.GameData? db, Dictionary<string, List<Fx.PowerIndex.PowerRef>> index, string? anim, string cooked, IReadOnlyList<PropRig.Prop> have, IEnumerable<(string Class, AnimRef Ref)> motionRefs, float seconds,
+        IReadOnlyList<ModMeshes.PropRule>? formRules = null, IReadOnlyList<string>? formFiles = null)
     {
-        if (anim == null || !index.TryGetValue(anim, out var refs)) return Switches.None;
+        List<Fx.PowerIndex.PowerRef>? refs = null;
+        if (anim != null) index.TryGetValue(anim, out refs);
+        if (refs == null && (formRules == null || formRules.Count == 0)) return Switches.None;
+        refs ??= [];
         var files = refs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var rules = files.SelectMany(ModMeshes.PropRules).Distinct().ToList();
+        // (a form's rules hold the whole animation, whatever it is: its wings stay on)
+        if (formRules != null) rules.AddRange(formRules.Select(r => r with { StartPoint = "power_on_start", StartOffset = 0, EndPoint = null, EndOffset = 0 }));
+        if (formFiles != null) files.AddRange(formFiles.Where(f => !files.Contains(f, StringComparer.OrdinalIgnoreCase)));
         var extra = new List<(PropRig.Prop, ModMeshes.Loaded)>();
         foreach (var r in rules.Where(r => r.Show && !have.Any(h => PropRig.Fills(h, r.Target))))
             foreach (string f in files)

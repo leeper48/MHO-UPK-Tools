@@ -17,6 +17,10 @@ static class PowerList
         public bool HasName { get; init; }
         /// <summary>The editor's Powers tab: one of a character's own effect parts (dodgevfx …) under its Character entry.</summary>
         public string? Part { get; init; }
+        /// <summary>The form this power plays in (the power that applies it: Jean Grey's Unleash the Phoenix), or null.</summary>
+        public string? Form { get; init; }
+        /// <summary>This power applies a form (Unleash the Phoenix): picked, the preview shows the character in it.</summary>
+        public bool IsForm { get; init; }
     }
 
     static Dictionary<ulong, string>? english;
@@ -81,6 +85,45 @@ static class PowerList
             name = System.Text.RegularExpressions.Regex.Replace(name, "#/?powerkeyword#", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
             string? icon = Field(db, proto, "IconPath", 'A') is { Found: true } ip && db.Assets.TryGetValue(ip.Raw, out var a) ? a.Asset.Name : null;
             result.Add(new Power(proto, name, icon, [.. anims.Order(StringComparer.OrdinalIgnoreCase)]) { HasName = hasName });
+        }
+        // Forms (Kurt, 2026-10-19: Jean Grey's Phoenix form): a talent whose condition adds an animation alias swaps powers for
+        // the form's versions (MapPower). Those versions are buttons of their own, named after the form ("Psychokinetic Barrier
+        // (Unleash the Phoenix)"), so they aren't merged into the plain power of the same name; picked, they play in the form.
+        var forms = new List<HeroForms.Form>();
+        try { forms = HeroForms.For(db, hero, cooked, modFiles, new Dictionary<string, string>()); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or KeyNotFoundException) { }
+        // one form per alias: the talent the hero shows by name (Unleash the Phoenix) before its twins (PhoenixFormFromHybridSpec)
+        // (a form version can take its name from its plain power, its parent: PsychicHammerPhoenix)
+        string? Display(string proto) => db.Find(proto) is { } fe && Field(db, fe.Id, "DisplayName", 'S', true) is { Found: true } fd && strings.TryGetValue(fd.Raw, out var ft) && ft.Length > 0
+            ? System.Text.RegularExpressions.Regex.Replace(ft, "#/?powerkeyword#", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim() : null;
+        forms = forms.GroupBy(f => f.Alias, StringComparer.OrdinalIgnoreCase).Select(g => g.OrderBy(f => Display(f.Spec) == null ? 1 : 0).First()).ToList();
+        var formOf = new Dictionary<string, HeroForms.Form>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in forms) foreach (var target in f.Mapped.Values) formOf.TryAdd(target, f);
+        // A power and its form version play the same animation names (the form's set has its own versions of them), and the
+        // index gives a shared power class's animations to one prototype only: each of the pair gets them, and a form version
+        // the index missed (Psychokinetic Barrier's) gets a button with its plain twin's animations.
+        Power? Listed(string proto) => result.FirstOrDefault(x => x.Prototype.Replace('/', '\\').Equals(proto, StringComparison.OrdinalIgnoreCase));
+        foreach (var f in forms)
+            foreach (var (orig, mappedPath) in f.Mapped)
+            {
+                var o = Listed(orig); var m = Listed(mappedPath);
+                if (m == null && o is { Animations.Count: > 0 } && db.Find(mappedPath) != null)
+                {
+                    bool named = Display(mappedPath) != null;
+                    string? micon = db.Find(mappedPath) is { } me && Field(db, me.Id, "IconPath", 'A', true) is { Found: true } mip && db.Assets.TryGetValue(mip.Raw, out var ma) ? ma.Asset.Name : o.Icon;
+                    if (named) result.Add(new Power(mappedPath, Display(mappedPath)!, micon, [.. o.Animations]) { HasName = true });
+                }
+                else if (m != null && o != null)
+                {
+                    if (o.Animations.Count == 0) o.Animations.AddRange(m.Animations);
+                    else if (m.Animations.Count == 0) m.Animations.AddRange(o.Animations);
+                }
+            }
+        for (int i = 0; i < result.Count; i++)
+        {
+            string key = result[i].Prototype.Replace('/', '\\');
+            if (formOf.TryGetValue(key, out var f) && result[i].HasName)
+                result[i] = result[i] with { Name = $"{result[i].Name} ({Display(f.Spec) ?? f.Name})", Form = f.Spec };
         }
         // Fragments (a combo playing a power's "…_end": BigDFACombo, HammerDashCombo …) have no display name of their own:
         // their animations go to the named power that sets them off (PowerClosure), else they stay as they are.
@@ -150,10 +193,22 @@ static class PowerList
                 try { files = PowerRecolor.PackagesOf(db, e.Path, hero, cooked); }
                 catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { continue; }
                 if (files.Count == 0) continue;
-                result.Add(new Power(e.Path, name, ia.Asset.Name, []) { HasName = true });
+                string key = e.Path.Replace('/', '\\');
+                result.Add(new Power(e.Path, formOf.TryGetValue(key, out var ff) ? $"{name} ({Display(ff.Spec) ?? ff.Name})" : name, ia.Asset.Name, []) { HasName = true, Form = ff?.Spec });
                 names.Add(name);
             }
         }
+        // (again for powers added since: a plain power listed for its effects takes its form version's animations)
+        foreach (var f in forms)
+            foreach (var (orig, mappedPath) in f.Mapped)
+                if (Listed(orig) is { } o2 && Listed(mappedPath) is { } m2)
+                {
+                    if (o2.Animations.Count == 0) o2.Animations.AddRange(m2.Animations);
+                    else if (m2.Animations.Count == 0) m2.Animations.AddRange(o2.Animations);
+                }
+        // the talents that apply a form
+        for (int i = 0; i < result.Count; i++)
+            if (forms.Any(f => f.Spec.Equals(result[i].Prototype.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase))) result[i] = result[i] with { IsForm = true };
         // The travel power is always the first button (Kurt, 2026-10-02: the same place for every hero), then by name.
         string? travelPath = TravelPowerOf(db, hero)?.Replace('/', '\\');
         return [.. result.OrderBy(p => travelPath != null && p.Prototype.Replace('/', '\\').Equals(travelPath, StringComparison.OrdinalIgnoreCase) ? 0 : 1)

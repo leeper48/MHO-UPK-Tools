@@ -173,7 +173,22 @@ sealed partial class StorePreview
     public bool PlayPower(string prototype, bool play = false)
     {
         ownFxPackage = null; ownProto = null; agentPower = null; agentAnim = null; ownPart = null;
+        if (p3 != null) p3.EffectsPlayer.OnlyEffect = null;
         return p3 != null && p3.PlayPower(prototype, play);
+    }
+
+    /// <summary>
+    /// One effect of a power, alone (the Powers tab's Parts ▶ on a power's effect: Jean Grey's Phoenix flames, a condition's
+    /// effect the power applies; Kurt, 2026-10-19: they said "Nothing to Show"): the power plays (in its form, if it has one)
+    /// with only that effect.
+    /// </summary>
+    public void PlayPowerPart(string prototype, string part)
+    {
+        ownFxPackage = null; ownProto = null; agentPower = null; agentAnim = null; ownPart = null;
+        if (p3 == null) return;
+        p3.EffectsPlayer.OnlyEffect = part;
+        if (p3.ShowsPower(prototype)) p3.ReloadEffects();
+        else p3.PlayPower(prototype, true);
     }
 
     /// <summary>The hero's powers as the power buttons show them (empty until loaded).</summary>

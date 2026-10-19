@@ -184,6 +184,9 @@ sealed partial class Preview3D
     {
         if (k < 0 || k >= heroPowers.Count) return;
         var pw = heroPowers[k];
+        // its form first (Jean Grey's Phoenix: her flying animations, wings and flames), read once; then the click goes on
+        if (SetForm(FormOf(pw), () => PowerClicked(k))) return;
+        bool reload = formChanged; formChanged = false;
         if (pw.Animations.Count == 0)
         {
             // effects only: the idle plays with them (again: back to all)
@@ -192,7 +195,8 @@ sealed partial class Preview3D
             powerFilter = again ? null : pw.Prototype;
             animList = allAnims; FillAnims();
             int idle = PowerPreview.IdleIndex(allAnims.Select(a => a.Name).ToList());
-            if (!again) { autoPlay = true; if (anims.SelectedIndex == idle + 1) LoadEffects(); else anims.SelectedIndex = idle + 1; }
+            if (!again) { autoPlay = true; if (anims.SelectedIndex == idle + 1 && !reload) LoadEffects(); else Pick(idle + 1, reload); }
+            else if (reload) Pick(anims.SelectedIndex, true);
             else LoadEffects();
             RefreshPowerButtons();
             FrameShot(Framing.Shot.Full);
@@ -206,19 +210,22 @@ sealed partial class Preview3D
             animList = allAnims;
             FillAnims();
             int at = current == null ? -1 : animList.FindIndex(a => a.Name.Equals(current, StringComparison.OrdinalIgnoreCase));
-            anims.SelectedIndex = at + 1;   // the playing one stays (no change: nothing reloads)
+            Pick(at + 1, reload);   // the playing one stays (no change: nothing reloads, unless the form changed)
         }
         else
         {
             powerFilter = pw.Prototype;
             animList = [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))];
             FillAnims();
-            if (animList.Count > 0) { autoPlay = true; anims.SelectedIndex = PowerPreview.PreferredAnim(animList.Select(a => a.Name).ToList()) + 1; }
+            if (animList.Count > 0) { autoPlay = true; Pick(PowerPreview.PreferredAnim(animList.Select(a => a.Name).ToList()) + 1, reload); }
         }
         RefreshPowerButtons();
         // a power picked: the whole character, centred (Kurt, 2026-10-18: some powers left the camera far off)
         FrameShot(Framing.Shot.Full);
     }
+
+    /// <summary>The power picked now (its button: filtering the list, or an effect-only power playing over the idle).</summary>
+    public bool ShowsPower(string prototype) => string.Equals(powerFilter, prototype, StringComparison.OrdinalIgnoreCase) || string.Equals(effectOnly, prototype, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Clicks a power button by name (checks).</summary>
     public bool ClickPower(string name)
@@ -251,9 +258,15 @@ sealed partial class Preview3D
         string? only = effectOnly;
         string? entity = c.Entity();
         var modFiles = c.ModPackages.Select(x => x.Path).ToList();
+        string? formNow = form;
+        // a form's version of a power picked (Pyrokinetic Barrier (Unleash the Phoenix)): its own effects, not those of the plain
+        // power its animation's name also belongs to
+        var formPower = form != null && powerFilter != null ? heroPowers.FirstOrDefault(p => p.Prototype == powerFilter && p.Form != null) : null;
         Effects.Load(cooked, true, db => db == null ? null
-            : only != null ? PowerPreview.ForPower(db, only, hero, cooked, modFiles, entity, main.File, main.Name)
-            : PowerPreview.ForAnimation(db, hero, cooked, modFiles, name, entity, main.File, main.Name), c.SwapsFor?.Invoke(cooked));
+            : FormEffects(db, only != null ? PowerPreview.ForPower(db, only, hero, cooked, modFiles, entity, main.File, main.Name)
+                : formPower != null ? PowerPreview.ForPowerAnimation(db, formPower.Prototype, name, formPower.Animations, hero, cooked, modFiles, entity, main.File, main.Name)
+                : PowerPreview.ForAnimation(db, hero, cooked, modFiles, name, entity, main.File, main.Name), hero, cooked, modFiles, entity, main, formNow),
+            c.SwapsFor?.Invoke(cooked));
     }
 
     /// <summary>The effects moved on to <paramref name="t"/> (started over when time went back: a loop).</summary>
@@ -294,6 +307,6 @@ sealed partial class Preview3D
     {
         int ai = anims.SelectedIndex - 1;
         string? name = anim != null && ai >= 0 && ai < animList.Count ? animList[ai].Name : null;
-        Props.LoadSwitches(prefs.Props, ctx?.Cooked, ctx?.Hero, name, ctx?.ModPackages.Select(x => x.Path).ToList() ?? []);
+        Props.LoadSwitches(prefs.Props, ctx?.Cooked, ctx?.Hero, name, ctx?.ModPackages.Select(x => x.Path).ToList() ?? [], form != null ? formRules : null, form != null ? formFiles : null);
     }
 }

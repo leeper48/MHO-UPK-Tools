@@ -110,6 +110,28 @@ static class ModAnimations
         return result.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>Every animation of one AnimSet (a form's set: Jean Grey's jeangrey_phoenixform_as), by name; empty if unreadable.</summary>
+    public static List<AnimRef> FromSet(string file, int setExport)
+    {
+        var result = new List<AnimRef>();
+        if (!File.Exists(file)) return result;
+        AnimPackage pkg;
+        try { pkg = Open(file); } catch (Exception ex) when (ex is IOException or InvalidDataException or AnimExportCli.Packages.InvalidPackageException) { return result; }
+        foreach (var set in AnimObjectReader.FindAnimSets(pkg))
+        {
+            if (set.ExportIndex != setExport) continue;
+            foreach (var seq in set.Sequences.Where(s => s.IsExport))
+            {
+                string n;
+                try { n = AnimObjectReader.GetSequenceDisplayName(pkg, seq.ExportIndex); } catch { continue; }
+                if (!result.Any(r => r.Name.Equals(n, StringComparison.OrdinalIgnoreCase)))
+                    result.Add(new AnimRef(Path.GetFileName(file), file, n, seq.ExportIndex, set.TrackBoneNames)
+                        { TranslationBones = set.RotationOnly ? new HashSet<string>(set.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null });
+            }
+        }
+        return result;
+    }
+
     /// <summary>
     /// An animation by name in an AnimSet (an animated actor's Animations, by package file and export), else in any AnimSet
     /// of that package, else of <paramref name="fallbackFile"/> (the actor mesh's package); null when none has it.

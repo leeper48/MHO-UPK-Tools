@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.9
+- 3D previews: Jean Grey's Phoenix form (a user's report). Picking Unleash the Phoenix, or one of its Phoenix powers, shows her as the game does in that form: her Phoenix animation set in place of the standing versions (the attacks fly), her flaming wings (and no cape), and the form's flames on her head, legs and wing trails under whatever plays. Another power takes the form off.
+- Power buttons: a form's own version of a power has a button of its own, named after the form (Pyrokinetic Barrier (Unleash the Phoenix), Phoenix Charge, Flaming Debris …), playing its own effects; before, they were merged into the plain power or played its effects. Read from the game data: a talent whose condition adds an animation set, and the powers it swaps.
+- Powers tab → Parts: ▶ on an effect of a power (a condition's it applies too: the Phoenix flames) shows that effect alone on the character; they said Nothing to Show.
+- 3D previews: props drawn with an effect material (unlit and see-through: the Phoenix wings) show, with their own texture; they were left out.
+- --hero-forms <hero>: a hero's forms, their animation sets and the powers they swap (read only).
+
 0.50.8
 - Model tab: normal maps are written as the game's are (sRGB off, UnpackMin -1, normal-map compression). Built ones were read as color images, which lit them wrong and showed seams across faces (a user's report; the old material editor's fix was the same setting). Build into Mod again to fix a model built before; color and spec maps come out as before.
 - --normal-check <mod | package | folder | all>: every normal-map slot in a mod's packages, with its texture's sRGB and compression (read only).
