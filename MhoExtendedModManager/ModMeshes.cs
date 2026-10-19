@@ -282,7 +282,9 @@ static class ModMeshes
             var col = mi.Vectors.FirstOrDefault(v => v.Key.Contains("color", StringComparison.OrdinalIgnoreCase)).Value is var cv && cv != default ? cv
                 : mi.Vectors.Values.FirstOrDefault(new System.Numerics.Vector4(0.6f, 0.75f, 1f, 1));
             int gtex = mi.Textures.Count > 0 ? mi.Textures.First().Value : mi.ExpressionTexture;
-            return new Gui.ModelView.Look { Ghost = true, GhostAdditive = mi.BlendMode.Contains("additive", StringComparison.OrdinalIgnoreCase), GhostColor = new System.Numerics.Vector3(col.X, col.Y, col.Z), GhostMap = Map(gtex) };
+            System.Numerics.Vector4? inner = mi.Vectors.TryGetValue("inner_color", out var iv) ? iv : null, outer = mi.Vectors.TryGetValue("outer_color", out var ov) ? ov : null;
+            return new Gui.ModelView.Look { Ghost = true, GhostAdditive = mi.BlendMode.Contains("additive", StringComparison.OrdinalIgnoreCase), GhostColor = new System.Numerics.Vector3(col.X, col.Y, col.Z), GhostMap = Map(gtex),
+                GhostInner = inner != null && outer != null ? inner : null, GhostOuter = inner != null && outer != null ? outer : null, GhostEdge = Math.Max(0.5f, mi.Scalar("fresnel_edge_control", 1)) };
         }
         int diffuseAt = -1;
         if (mi != null)

@@ -1208,6 +1208,47 @@ static partial class Program
                 Console.WriteLine($"mapped powers no talent uses: {(unused.Count == 0 ? "none" : string.Join(", ", unused.Select(Path.GetFileNameWithoutExtension)))}");
                 return 0;
             }
+            case "--summon-census":
+            {
+                // Read-only: every hero's powers that summon a character, with what the 3D preview shows for them (the summon's
+                // class, model, animation and own materials; the costume variant picked for the hero's default costume).
+                // --summon-census [hero ...]
+                string? cgr = settings.ResolvedGameRoot(data);
+                if (cgr == null || !Settings.IsGameRoot(cgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string ccook = Settings.Cooked(cgr);
+                var cdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(cgr, "Data", "Game", "Calligraphy.sip")));
+                var heroes = rest.Count > 1 ? rest.Skip(1).ToList()
+                    : Directory.GetFiles(ccook, "UC__MarvelPlayer_*_SF.upk").Select(f => Path.GetFileNameWithoutExtension(f)["UC__MarvelPlayer_".Length..^3])
+                        .Where(h => !h.Contains('_') && !h.Contains("Mech", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
+                int found = 0;
+                foreach (string hero in heroes)
+                {
+                    List<Fx.PowerList.Power> powers;
+                    try { powers = Fx.PowerList.For(cdb, hero, ccook, [], effectOnly: true); } catch (Exception ex) { Console.WriteLine($"{hero}: {ex.Message}"); continue; }
+                    foreach (var pw in powers)
+                    {
+                        Fx.PowerEffects fx;
+                        try { fx = Fx.PowerEffects.For(new Fx.FxGame(ccook, []), cdb, pw.Prototype, hero); } catch (Exception ex) { Console.WriteLine($"{hero} · {pw.Name}: {ex.Message}"); continue; }
+                        var sums = fx.Actors.Where(x => x.Kind == "summon").ToList();
+                        var missing = fx.Notes.Where(n => n.Contains("summoned character")).ToList();
+                        if (sums.Count == 0 && missing.Count == 0) continue;
+                        found++;
+                        Console.WriteLine($"{hero} · {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}):");
+                        foreach (var sm in sums)
+                        {
+                            var mref = new MeshRef(Path.GetFileName(sm.MeshFile), sm.MeshFile, sm.Name, sm.MeshExport);
+                            var lm = ModMeshes.Load(mref, ccook, out _);
+                            static bool Real(AnimRef a) => !a.Name.StartsWith("temp", StringComparison.OrdinalIgnoreCase) && !a.Name.Contains("placeholder", StringComparison.OrdinalIgnoreCase);
+                            var anims = sm.SetFile != null ? ModAnimations.FromSet(sm.SetFile, sm.SetExport).Where(Real).ToList() : [];
+                            if (anims.Count == 0 && lm != null) anims = ModAnimations.For(mref, lm.Bones, [], ccook).Where(Real).ToList();
+                            Console.WriteLine($"    {sm.Name}: model {(lm != null ? $"{lm.Positions.Length} vertices" : "NOT LOADED")}, {anims.Count} animations{(anims.Count > 0 ? " (" + string.Join(" ", anims.Take(4).Select(x => x.Name)) + ")" : "")}{(sm.Materials is { Count: > 0 } m ? $", {m.Count} own material(s)" : "")}{(sm.TriggeredBy != null ? " · by " + sm.TriggeredBy : "")}");
+                        }
+                        foreach (var n in missing) Console.WriteLine("    " + n);
+                    }
+                }
+                Console.WriteLine($"{found} power(s) with summons");
+                return 0;
+            }
             case "--power-fx":
             {
                 // Read-only: what the 3D preview plays for a power class (its own; the MHO Hero Creator's --power-fx summary).

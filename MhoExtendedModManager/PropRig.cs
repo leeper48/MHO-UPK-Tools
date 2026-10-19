@@ -301,6 +301,7 @@ sealed class PropRig
     /// <summary>Shows the pose the animator was last posed in: the character skinned, each prop moved by its bone.</summary>
     public void Update(Gui.ModelView view, MeshAnimator animator)
     {
+        var forward = view.ViewForward;
         if (props.Count == 0 && actors.Count == 0) { view.UpdateGeometry(animator); return; }
         int count = animator.Positions.Length;
         if (pos.Length < count + props.Sum(x => x.Mesh.Positions.Length) + actors.Sum(a => a.Mesh.Positions.Length)) { view.UpdateGeometry(animator); return; }   // Combine not called yet
@@ -390,6 +391,21 @@ sealed class PropRig
                 bright = mo > 1e-6f ? Math.Clamp(mx / mo, 0, 1) : 1;
                 tint = mx > 1 ? col / mx : col;
                 int i0 = baseAt + m.Indices[k], i1 = baseAt + m.Indices[k + 1], i2 = baseAt + m.Indices[k + 2];
+                if (gl.GhostInner is { } inner && gl.GhostOuter is { } outer)
+                {
+                    // a fresnel glow (Jean Grey's illusions): the material's inner colour where the surface faces the camera,
+                    // its outer colour at the edges, as the game's mat_jg_illusion_jean draws them
+                    var n = Vector3.Cross(pos[i1] - pos[i0], pos[i2] - pos[i0]);
+                    float facing = n.LengthSquared() > 1e-12f ? MathF.Abs(Vector3.Dot(Vector3.Normalize(n), forward)) : 1;
+                    float edge = MathF.Pow(1 - facing, 2f / gl.GhostEdge);
+                    var c = Vector3.Lerp(new Vector3(inner.X, inner.Y, inner.Z), new Vector3(outer.X, outer.Y, outer.Z), edge);
+                    c = Recolor?.Invoke(c) ?? c;
+                    float cm = MathF.Max(c.X, MathF.Max(c.Y, c.Z));
+                    float alpha = Math.Clamp(inner.W + (Math.Min(1f, outer.W * 0.45f) - inner.W) * edge, 0, 1) * (a.Steady ? 1 : fade / 0.35f);
+                    ghost.Add(new Gui.ModelView.FxTri(pos[i0], pos[i1], pos[i2], default, default, default,
+                        new Vector4(cm > 1 ? c / cm : c, alpha / Math.Max(0.01f, PreviewViews.FxPower)), null, gl.GhostAdditive, false));
+                    continue;
+                }
                 ghost.Add(new Gui.ModelView.FxTri(pos[i0], pos[i1], pos[i2], default, default, default,
                     new Vector4(tint, fade * bright / Math.Max(0.01f, PreviewViews.FxPower)), null, gl.GhostAdditive, false));
             }

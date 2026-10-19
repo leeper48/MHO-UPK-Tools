@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.13
+- 3D previews: summons look as in game. Jean Grey's illusions are drawn with the game's illusion glow (white and see-through facing you, pink at the edges: the material's inner and outer colours) instead of a flat blue.
+- Summons for every hero (checked with --summon-census across the game's heroes: 103 powers with summons): a costume's version of a summon takes the model and animations of the summon it's made from (Squirrel Girl's squirrels, Ultron's drones); the costume pick also works where a talent sets the summon off (Nick Fury's Fireteam shows S.H.I.E.L.D. agents, not the drones of his Ultron costumes); placeholder animation sets are skipped; a summon with no animation of its own copies the hero's (Doctor Strange's images); walls, decoys and markers with no model are left out; the same summon reached twice shows once.
+- --summon-census [hero …]: every hero's powers that summon a character, with the model and animations the preview uses (read only).
+
 0.50.12
 - 3D previews: summoned characters show (a user asked: Jean Grey's illusions). A power's summon stands beside the hero for the power's length, playing its own arrival or idle, with its own effects there: Jean Grey's Telepathic Illusion shows the illusion of the costume shown (the game's per-costume pick; in Phoenix form its Phoenix version), drawn with the illusion's own see-through material. When the mod carries the summon's model under the same path (Make Unique keeps illusions shared for that), the mod's model shows, as in game. Summons only a talent brings (the X-Men illusions) are left out: the preview has no talents. Full Body frames the summons too.
 

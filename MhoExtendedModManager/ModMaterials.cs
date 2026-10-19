@@ -65,6 +65,23 @@ static class ModMaterials
                             string v = TagWalker.NameAt(pkg, md, t.ValueAt);
                             if (t.Name.Equals("BlendMode", StringComparison.OrdinalIgnoreCase)) info.BlendMode = v; else info.LightingModel = v;
                         }
+                    // its parameters' defaults (a material instance's own values, read first, win): Jean Grey's illusion
+                    // material has inner_color, outer_color and fresnel_edge_control only as expressions
+                    for (int x = 0; x < pkg.Exports.Length; x++)
+                    {
+                        if (pkg.Exports[x].OuterIndex != reference) continue;
+                        string xc = pkg.ClassOf(pkg.Exports[x]);
+                        bool vec = xc.Equals("MaterialExpressionVectorParameter", StringComparison.OrdinalIgnoreCase), sca = xc.Equals("MaterialExpressionScalarParameter", StringComparison.OrdinalIgnoreCase);
+                        if (!vec && !sca) continue;
+                        byte[] xd = pkg.ReadExportBytes(pkg.Exports[x]);
+                        if (TagWalker.Walk(pkg, xd, 4) is not { } xt) continue;
+                        string? pn = xt.FirstOrDefault(t => t.Name.Equals("ParameterName", StringComparison.OrdinalIgnoreCase)) is { } pt ? TagWalker.NameAt(pkg, xd, pt.ValueAt) : null;
+                        var dv = xt.FirstOrDefault(t => t.Name.Equals("DefaultValue", StringComparison.OrdinalIgnoreCase));
+                        if (pn == null) continue;
+                        if (vec && dv is { Size: 16 }) info.Vectors.TryAdd(pn, new Vector4(BitConverter.ToSingle(xd, dv.ValueAt), BitConverter.ToSingle(xd, dv.ValueAt + 4), BitConverter.ToSingle(xd, dv.ValueAt + 8), BitConverter.ToSingle(xd, dv.ValueAt + 12)));
+                        else if (vec) info.Vectors.TryAdd(pn, Vector4.Zero);
+                        if (sca) info.Scalars.TryAdd(pn, dv is { Size: 4 } ? BitConverter.ToSingle(xd, dv.ValueAt) : 0);
+                    }
                     // its textures (a cooked material keeps no texture samples, only its resource's texture list: the first one)
                     try
                     {

@@ -221,7 +221,7 @@ sealed class PowerEffects
             fx.ThrownSlot ??= more.ThrownSlot;
             fx.Notes.AddRange(more.Notes);
         }
-        KeepCostumeSummons(db, powerPath, arts.Select(x => x.Prototype), fx);
+        KeepCostumeSummons(db, powerPath, arts.Select(x => x.Prototype), hero, fx);
         return fx;
     }
 
@@ -232,28 +232,40 @@ sealed class PowerEffects
     /// costume, EntityArt = the costume's class → its own illusion; the power's own SummonEntity otherwise): the others it
     /// names are left out.
     /// </summary>
-    static void KeepCostumeSummons(GameData db, string powerPath, IEnumerable<string> closure, PowerEffects fx)
+    static void KeepCostumeSummons(GameData db, string powerPath, IEnumerable<string> closure, string? hero, PowerEffects fx)
     {
         if (!fx.Actors.Any(a => a.Kind == "summon")) return;
+        // (the same summon reached by several ways once: Nick Fury's Fireteam agent came three times)
+        var once = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        fx.Actors.RemoveAll(a => a.Kind == "summon" && !once.Add($"{a.Name}|{a.MeshFile}|{a.MeshExport}"));
         var drop = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string proto in closure.Prepend(powerPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        var kept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // (the hero's summon powers with costume overrides too: a talent's closure reaches the summoned entities, not always the
+        // power naming them: Nick Fury's Fireteam talents → SummonShotgun, whose Ultron costumes summon drones instead)
+        foreach (string proto in closure.Prepend(powerPath).Concat(SummonOverridePowers(db, hero)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (db.Find(proto) is not { } pe) continue;
             List<string> lines;
             try { lines = db.Dump(db.Prototype(pe.Id).Data, 40).ToList(); }
             catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { continue; }
-            string? art = null; int artIndent = -1;
+            // Each override is a struct (<parent …SummonPowerOverride…>, its fields indented under it, in any order: Nick Fury's
+            // list SummonEntity before EntityArt); a SummonEntity outside one is the power's own (in its SummonEntityContexts).
             var overrides = new List<(string Art, string Entity)>();
             string? plain = null;
+            int blockIndent = -1; string? bArt = null, bEntity = null;
+            void Close() { if (bArt != null && bEntity != null) overrides.Add((bArt, bEntity)); else if (bEntity != null) plain ??= bEntity; blockIndent = -1; bArt = bEntity = null; }
             foreach (string l in lines)
             {
+                int indent = l.Length - l.TrimStart().Length;
+                // (its group headers, [..], sit at its own depth: still inside it)
+                if (blockIndent >= 0 && (indent < blockIndent || indent == blockIndent && !l.TrimStart().StartsWith('['))) Close();
+                if (l.TrimStart().StartsWith("<parent", StringComparison.Ordinal) && l.Contains("Override", StringComparison.OrdinalIgnoreCase)) { Close(); blockIndent = indent; continue; }
                 var m = SummonLine.Match(l);
                 if (!m.Success) continue;
-                int indent = m.Groups[1].Value.Length;
-                if (m.Groups[2].Value == "EntityArt") { art = m.Groups[4].Value; artIndent = indent; }
-                else if (art != null && indent == artIndent) { overrides.Add((art, m.Groups[4].Value)); art = null; }
-                else plain ??= m.Groups[4].Value;   // (one no EntityArt goes with: the power's own, in its SummonEntityContexts)
+                if (blockIndent >= 0) { if (m.Groups[2].Value == "EntityArt") bArt ??= m.Groups[4].Value; else bEntity ??= m.Groups[4].Value; }
+                else if (m.Groups[2].Value == "SummonEntity") plain ??= m.Groups[4].Value;
             }
+            Close();
             if (overrides.Count == 0) continue;
             string? mine = overrides.FirstOrDefault(o => entityNow != null && o.Art.Equals(entityNow, StringComparison.OrdinalIgnoreCase)).Entity ?? plain;
             // (by the summon entry each came from, else by its class: an entry's class can turn into a costume's own in turn)
@@ -263,8 +275,9 @@ sealed class PowerEffects
                     drop.Add(Path.GetFileNameWithoutExtension(entity));
                     if (UnrealClassOfEntity(db, entity) is string c) drop.Add(c);
                 }
-            if (mine != null) { drop.Remove(Path.GetFileNameWithoutExtension(mine)); if (UnrealClassOfEntity(db, mine) is string keep) drop.Remove(keep); }
+            if (mine != null) { kept.Add(Path.GetFileNameWithoutExtension(mine)); if (UnrealClassOfEntity(db, mine) is string keep) kept.Add(keep); }
         }
+        drop.ExceptWith(kept);   // (one power's pick for this costume isn't dropped by another's list)
         if (drop.Count > 0) fx.Actors.RemoveAll(a => a.Kind == "summon" && (drop.Contains(a.Name) || a.TriggeredBy != null && drop.Contains(a.TriggeredBy)));
         // Summons only a talent brings (Jean Grey's X-Men illusions: Telepathic Illusion uses TelepathicIllusionJeanXmenSummon
         // only with the talent IllusionBonus, an EntityHasTalent check on the trigger's chance): left out, the preview has no talents.
@@ -295,6 +308,26 @@ sealed class PowerEffects
     }
 
     static readonly System.Text.RegularExpressions.Regex TriggerLine = new(@"^\s*Power \(P\) = (\S+\.prototype)");
+
+    static readonly Dictionary<string, List<string>> overridePowers = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The prototypes under Powers\Player\&lt;hero&gt;\ with summon overrides per costume (read once per hero).</summary>
+    static List<string> SummonOverridePowers(GameData db, string? hero)
+    {
+        if (hero == null) return [];
+        lock (overridePowers) if (overridePowers.TryGetValue(hero, out var hit)) return hit;
+        string folder = $"Powers\\Player\\{hero}\\";
+        var list = new List<string>();
+        foreach (var (id, e) in db.Prototypes)
+        {
+            string path = e.Path.Replace('/', '\\');
+            if (!path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)) continue;
+            try { if (db.Dump(db.Prototype(id).Data, 40).Any(l => l.Contains("SummonPowerOverride", StringComparison.OrdinalIgnoreCase))) list.Add(path); }
+            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { }
+        }
+        lock (overridePowers) overridePowers[hero] = list;
+        return list;
+    }
 
     static string? UnrealClassOfEntity(GameData db, string entity) =>
         db.Find(entity) is { } ee && PowerList.Field(db, ee.Id, "UnrealClass", 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a) ? a.Asset.Name : null;   // (its own, else its parent's)
@@ -470,8 +503,36 @@ sealed class PowerEffects
             // model under the same path is what the game shows (it's loaded with the costume first: Make Unique keeps the
             // illusions' models shared for that), so it's used when the mod has one.
             if (!seen.Add(p.Name + "|" + epath)) return true;
-            int meshRef = P("SkeletalMesh") is { Size: 4 } smp ? BitConverter.ToInt32(p.Bytes, smp.ValueAt) : 0;
-            if (Resolve(p, meshRef, pkgs, g) is not { } mesh || g.FileFor(mesh.P.Name) is not string meshFile) { fx.Notes.Add($"{cls}: a summoned character whose model isn't found"); return true; }
+            // its model, AnimSets and own materials: its own component's, else (a costume's version of a summon: Squirrel Girl's
+            // Modern squirrel, Ultron's Comic drones) those of the classes it extends (their default components)
+            (FxPkg P, int Ref)? meshAt = null, setsAt = null, matsAt = null;
+            (FxPkg P, FxProps.Prop Prop)? setsProp = null, matsProp = null;
+            foreach (string c in g.ClassChain(cls))
+            {
+                (FxPkg Q, List<FxProps.Prop> Props)? comp = null;
+                if (c.Equals(cls, StringComparison.OrdinalIgnoreCase)) comp = (p, props);
+                else
+                    foreach (var pkgName in g.PackagesOf(c).Append("uc__" + c + "_sf"))
+                    {
+                        FxPkg? q;
+                        try { q = g.Open(pkgName); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+                        if (q == null) continue;
+                        int ci = q.Find("marvelgamecontent.default__" + c + ".initialskeletalmesh");
+                        if (ci < 0) continue;
+                        comp = (q, FxProps.Find(q.Bytes, q.T, q.T.Exports[ci])?.Props ?? []);
+                        break;
+                    }
+                if (comp is not { } cp) continue;
+                FxProps.Prop? Q(string n) => cp.Props.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (meshAt == null && Q("SkeletalMesh") is { Size: 4 } smp && BitConverter.ToInt32(cp.Q.Bytes, smp.ValueAt) is int mr && mr != 0) meshAt = (cp.Q, mr);
+                if (setsProp == null && Q("AnimSets") is { Size: >= 8 } asp) setsProp = (cp.Q, asp);
+                if (matsProp == null && Q("Materials") is { Size: >= 8 } mtp) matsProp = (cp.Q, mtp);
+                if (meshAt != null && setsProp != null && matsProp != null) break;
+            }
+            var look2 = pkgs.ToList();
+            if (meshAt is not { } ma || Resolve(ma.P, ma.Ref, look2, g) is not { } mesh || g.FileFor(mesh.P.Name) is not string meshFile) { fx.Notes.Add($"{cls}: a summoned character whose model isn't found"); return true; }
+            // (a placeholder of a few vertices: a wall, a decoy, a trap or a marker the game draws with effects alone)
+            if (mesh.P.T.Exports[mesh.Export].SerialSize < 2000) { fx.Notes.Add($"{cls}: a summoned marker with no model to show"); return true; }
             int meshExport = mesh.Export;
             string meshPath = mesh.P.T.PathOf(mesh.Export + 1);
             foreach (string mf in g.ModFiles.Where(f => Path.GetFileName(f).StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)))
@@ -485,19 +546,20 @@ sealed class PowerEffects
                 catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
             // its AnimSets (the last one it lists that's found: a later set wins)
             string? setFile = null; int setExport = -1;
-            if (P("AnimSets") is { Size: >= 4 } asp)
+            if (setsProp is { } sp2)
             {
-                int n = BitConverter.ToInt32(p.Bytes, asp.ValueAt);
-                for (int k = 0; k < n && 4 + 4 * k + 4 <= asp.Size; k++)
-                    if (Resolve(p, BitConverter.ToInt32(p.Bytes, asp.ValueAt + 4 + 4 * k), pkgs, g) is { } st && g.FileFor(st.P.Name) is string sf) { setFile = sf; setExport = st.Export; }
+                int n = BitConverter.ToInt32(sp2.P.Bytes, sp2.Prop.ValueAt);
+                for (int k = 0; k < n && 4 + 4 * k + 4 <= sp2.Prop.Size; k++)
+                    if (Resolve(sp2.P, BitConverter.ToInt32(sp2.P.Bytes, sp2.Prop.ValueAt + 4 + 4 * k), look2, g) is { } st && g.FileFor(st.P.Name) is string sf
+                        && !st.P.T.PathOf(st.Export + 1).Contains("placeholder", StringComparison.OrdinalIgnoreCase)) { setFile = sf; setExport = st.Export; }   // (not a placeholder set)
             }
             List<(string File, int Export)?>? mats = null;
-            if (P("Materials") is { Size: >= 4 } mtp)
+            if (matsProp is { } mp3)
             {
-                int n = BitConverter.ToInt32(p.Bytes, mtp.ValueAt);
+                int n = BitConverter.ToInt32(mp3.P.Bytes, mp3.Prop.ValueAt);
                 mats = [];
-                for (int k = 0; k < n && 4 + 4 * k + 4 <= mtp.Size; k++)
-                    mats.Add(Resolve(p, BitConverter.ToInt32(p.Bytes, mtp.ValueAt + 4 + 4 * k), pkgs, g) is { } mt && g.FileFor(mt.P.Name) is string mtf ? (mtf, mt.Export) : null);
+                for (int k = 0; k < n && 4 + 4 * k + 4 <= mp3.Prop.Size; k++)
+                    mats.Add(Resolve(mp3.P, BitConverter.ToInt32(mp3.P.Bytes, mp3.Prop.ValueAt + 4 + 4 * k), look2, g) is { } mt && g.FileFor(mt.P.Name) is string mtf ? (mtf, mt.Export) : null);
             }
             fx.Actors.Add(new Actor(cls, meshFile, meshExport, setFile, setExport, null, "power_on_start", 0, null, 0, false, 0,
                 false, new Vector3(0, 140, 0), Vector3.Zero, 1, "summon") { Materials = mats });

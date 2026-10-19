@@ -147,6 +147,7 @@ sealed class PreviewEffects : IDisposable
         if (fx.Actors.Count == 0) return;
         var specs = fx.Actors.ToList();
         string? cookedFolder = specs.Count > 0 ? CookedFor?.Invoke() : null;
+        var heroAnim = Playing();   // (a summon with no animation of its own copies the hero's: Doctor Strange's images)
         Task.Run(() =>
         {
             using var busy = Busy.Begin("3D view: loading the power's characters");
@@ -157,6 +158,7 @@ sealed class PreviewEffects : IDisposable
                     var mref = new MeshRef(Path.GetFileName(s.MeshFile), s.MeshFile, s.Name, s.MeshExport);
                     var lm = ModMeshes.Load(mref, cookedFolder, out _);
                     if (lm == null) continue;
+                    if (s.Kind == "summon" && lm.Positions.Length < 32) continue;   // (a placeholder: an ant ally, a decoy marker)
                     // a summon's mesh component's own materials in place of the mesh's (Jean Grey's illusion material)
                     if (s.Materials is { Count: > 0 } mats)
                     {
@@ -167,7 +169,8 @@ sealed class PreviewEffects : IDisposable
                     }
                     var an = new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false };
                     var seq = s.AnimName != null && ModAnimations.Named(s.SetFile, s.SetExport, s.MeshFile, s.AnimName) is { } ar ? ModAnimations.Load(ar)
-                        : s.Kind == "summon" && SummonAnimation(s, mref, lm, cookedFolder) is { } sr ? ModAnimations.Load(sr) : null;
+                        : s.Kind == "summon" && SummonAnimation(s, mref, lm, cookedFolder) is { } sr ? ModAnimations.Load(sr)
+                        : s.Kind == "summon" ? heroAnim : null;
                     list.Add((s, lm, an, seq));
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
@@ -188,8 +191,10 @@ sealed class PreviewEffects : IDisposable
     /// idle, else the first it has.</summary>
     static AnimRef? SummonAnimation(Fx.PowerEffects.Actor s, MeshRef mref, ModMeshes.Loaded lm, string? cooked)
     {
-        var list = s.SetFile != null ? ModAnimations.FromSet(s.SetFile, s.SetExport) : [];
-        if (list.Count == 0) list = ModAnimations.For(mref, lm.Bones, [], cooked);
+        // (not the placeholders some sets carry: temp, placeholderanim_01 …)
+        static bool Real(AnimRef a) => !a.Name.StartsWith("temp", StringComparison.OrdinalIgnoreCase) && !a.Name.Contains("placeholder", StringComparison.OrdinalIgnoreCase);
+        var list = s.SetFile != null ? ModAnimations.FromSet(s.SetFile, s.SetExport).Where(Real).ToList() : [];
+        if (list.Count == 0) list = ModAnimations.For(mref, lm.Bones, [], cooked).Where(Real).ToList();
         if (list.Count == 0) return null;
         bool Leaving(string n) => n.Contains("out", StringComparison.OrdinalIgnoreCase) || n.Contains("exit", StringComparison.OrdinalIgnoreCase) || n.Contains("death", StringComparison.OrdinalIgnoreCase);
         foreach (string want in new[] { "spawn", "summon", "appear", "intro", "enter", "idle_combat", "idle" })

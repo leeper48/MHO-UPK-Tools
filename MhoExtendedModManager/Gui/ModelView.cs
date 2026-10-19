@@ -244,6 +244,10 @@ sealed class ModelView : UserControl
         public Vector3 GhostColor = Vector3.One;
         /// <summary>The effect material's own texture (Jean Grey's Phoenix wings: phoenix_wing_03), or null.</summary>
         public Map? GhostMap;
+        /// <summary>A fresnel glow (inner_color facing the viewer, outer_color at the edges; alpha = opacity / strength) and its
+        /// edge power: Jean Grey's illusions (white, 20 % in the middle; pink-magenta at the edges). Null: GhostColor flat.</summary>
+        public Vector4? GhostInner, GhostOuter;
+        public float GhostEdge = 1;
         /// <summary>A plain look: just a colour texture (a material that couldn't be read), cut out at alpha 64 as before.</summary>
         public static Look Plain(Map? diffuse) => new() { Diffuse = diffuse, Cutout = true, UseRim = true, Rim = new(0.35f, 0.38f, 0.45f) };
     }
@@ -807,6 +811,9 @@ sealed class ModelView : UserControl
     // The playing budget adapts (dynamic resolution): heavy power effects are fill-bound (Ground Smash's 46–89 sprites
     // took 44–107 ms at 360k pixels), so it shrinks while frames take over 30 ms and grows back while they're quick.
     float movingBudget = MovingPixels;
+
+    /// <summary>The way the camera looks (engine space).</summary>
+    public Vector3 ViewForward => Basis().Forward;
 
     /// <summary>For tests: how long the last frame took to draw (ms).</summary>
     public double LastFrameMs { get; private set; }
