@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.14
+- 3D previews: Jean Grey's illusion is a ghost all over. The game's illusion names one material for the whole model; the preview put it on the first part only, so a costume's suit or hair stayed solid.
+
 0.50.13
 - 3D previews: summons look as in game. Jean Grey's illusions are drawn with the game's illusion glow (white and see-through facing you, pink at the edges: the material's inner and outer colours) instead of a flat blue.
 - Summons for every hero (checked with --summon-census across the game's heroes: 103 powers with summons): a costume's version of a summon takes the model and animations of the summon it's made from (Squirrel Girl's squirrels, Ultron's drones); the costume pick also works where a talent sets the summon off (Nick Fury's Fireteam shows S.H.I.E.L.D. agents, not the drones of his Ultron costumes); placeholder animation sets are skipped; a summon with no animation of its own copies the hero's (Doctor Strange's images); walls, decoys and markers with no model are left out; the same summon reached twice shows once.

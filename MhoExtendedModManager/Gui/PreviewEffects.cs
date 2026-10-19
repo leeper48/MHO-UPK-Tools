@@ -159,12 +159,19 @@ sealed class PreviewEffects : IDisposable
                     var lm = ModMeshes.Load(mref, cookedFolder, out _);
                     if (lm == null) continue;
                     if (s.Kind == "summon" && lm.Positions.Length < 32) continue;   // (a placeholder: an ant ally, a decoy marker)
-                    // a summon's mesh component's own materials in place of the mesh's (Jean Grey's illusion material)
+                    // a summon's mesh component's own materials in place of the mesh's (Jean Grey's illusion material). Jean's
+                    // illusion lists one material for a 4-material mesh and the game draws all of it as the illusion: sections past
+                    // the list take the list's last material.
                     if (s.Materials is { Count: > 0 } mats)
                     {
                         var looks = lm.Looks.ToArray();
-                        for (int k = 0; k < looks.Length && k < mats.Count; k++)
-                            if (mats[k] is { } mt && ModMeshes.LookOf(mt.File, mt.Export, cookedFolder) is { } lk) looks[k] = lk;
+                        var lookAt = new Dictionary<int, ModelView.Look?>();
+                        for (int k = 0; k < looks.Length; k++)
+                        {
+                            int at = Math.Min(k, mats.Count - 1);
+                            if (!lookAt.TryGetValue(at, out var lk)) lookAt[at] = lk = mats[at] is { } mt ? ModMeshes.LookOf(mt.File, mt.Export, cookedFolder) : null;
+                            if (lk != null) looks[k] = lk;
+                        }
                         lm = lm with { Looks = looks };
                     }
                     var an = new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false };

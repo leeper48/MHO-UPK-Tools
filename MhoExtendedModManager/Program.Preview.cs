@@ -1242,6 +1242,11 @@ static partial class Program
                             var anims = sm.SetFile != null ? ModAnimations.FromSet(sm.SetFile, sm.SetExport).Where(Real).ToList() : [];
                             if (anims.Count == 0 && lm != null) anims = ModAnimations.For(mref, lm.Bones, [], ccook).Where(Real).ToList();
                             Console.WriteLine($"    {sm.Name}: model {(lm != null ? $"{lm.Positions.Length} vertices" : "NOT LOADED")}, {anims.Count} animations{(anims.Count > 0 ? " (" + string.Join(" ", anims.Take(4).Select(x => x.Name)) + ")" : "")}{(sm.Materials is { Count: > 0 } m ? $", {m.Count} own material(s)" : "")}{(sm.TriggeredBy != null ? " · by " + sm.TriggeredBy : "")}");
+                            if (Environment.GetEnvironmentVariable("MHO_CENSUS_DETAIL") == "1")
+                            {
+                                Console.WriteLine($"      mesh {Path.GetFileName(sm.MeshFile)}#{sm.MeshExport}, {lm?.Looks.Length ?? 0} section look(s)");
+                                foreach (var mt in sm.Materials ?? []) Console.WriteLine($"      material {(mt is { } x ? Path.GetFileName(x.File) + "#" + x.Export + " " + MhoPackageModifier.Package.Open(x.File) switch { var pk => new Fx.FxTables(pk).PathOf(x.Export + 1) } : "none")}");
+                            }
                         }
                         foreach (var n in missing) Console.WriteLine("    " + n);
                     }
