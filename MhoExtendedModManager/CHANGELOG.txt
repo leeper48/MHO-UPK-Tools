@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.16
+- Model tab: opening it on a mod shows the mod's character right away (with several, the first by name; the mod's packages are listed by name).
+- Model tab → target list: while filtering, heroes come first, then team-ups, then NPCs and the rest.
+
 0.50.15
 - Model tab → Materials: Generate Normal Map in a Color or Normal row's right-click menu (Soft, Medium, Strong, or Medium with dark parts raised): the material's normal map made from its color map, in place of the one it has. With no source picked, it replaces the normal-map texture in the mod's package.
 - Every normal map the app writes (Build, Replace File, Edit in Image Editor, Generate Normal Map) is set up as the game's own are, sRGB off and normal-map compression, whatever the texture it's made from said. A normal map read as a color image shades wrong and shows seams across faces. Models built before 0.50.8 have such normal maps: build them again.

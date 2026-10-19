@@ -625,7 +625,10 @@ sealed partial class ModelPage : UserControl
         int top = packages.TopIndex;
         packages.BeginUpdate(); packages.Items.Clear();
         var shown = allPackages.Where(p => f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase));
-        foreach (var g in shown.GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase))
+        // while filtering (Kurt, 2026-10-19): heroes first, then team-ups, then NPCs and the rest; each kind in its own order
+        var groups = shown.GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase);
+        if (f.Length > 0) groups = groups.OrderBy(g => g.Min(p => TargetKind(p.File)));
+        foreach (var g in groups)
         {
             var list = g.ToList();
             if (list.Count == 1) { var p = list[0]; packages.Items.Add(new CharacterList.Item(p.File, p.Title, p.Detail)); continue; }
@@ -644,6 +647,10 @@ sealed partial class ModelPage : UserControl
         if (top < packages.Items.Count && f.Length == 0) packages.TopIndex = top;
         UpdateStatus();
     }
+
+    /// <summary>0 a hero's package, 1 a team-up's, 2 anything else (NPCs, pets …).</summary>
+    static int TargetKind(string file) =>
+        file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) ? 0 : file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
 
     /// <summary>A click on a hero header folds its packages open or shut.</summary>
     void ToggleHero(CharacterList.Item header)

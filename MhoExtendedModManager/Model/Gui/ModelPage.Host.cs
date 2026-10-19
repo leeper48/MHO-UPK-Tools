@@ -72,7 +72,7 @@ sealed partial class ModelPage
         string? keep = ChosenPackage?.Key;
         packages.BeginUpdate(); packages.Items.Clear();
         foreach (var (file, _) in host.Packages.Where(p => CharacterPackage(p.File) || added.Contains(p.File) || built.ContainsKey(p.File) || HasCharacter(p.File, p.Path))
-                     .OrderBy(p => p.File, StringComparer.OrdinalIgnoreCase))
+                     .OrderBy(p => DescribePackage(p.File).Title, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.File, StringComparer.OrdinalIgnoreCase))
         {
             var (title, detail) = DescribePackage(file);
             packages.Items.Add(new CharacterList.Item(file, title, detail + (built.ContainsKey(file) ? " · built by the Model tab" : "")));
@@ -81,7 +81,7 @@ sealed partial class ModelPage
         packages.Items.Add(new CharacterList.Item("browse:", "Browse for a Package", "any .upk with a character in it (a pet, a vehicle, a prop …)"));
         packages.EndUpdate();
         if (keep != null) Reselect(packages, keep);
-        else if (packages.Items.Count == 3) packages.SelectedIndex = 0;   // one package: it's the one
+        else if (packages.Items.Count >= 3) packages.SelectedIndex = 0;   // the mod's character (Kurt, 2026-10-19: several = the first by name)
         UpdateStatus();
     }
 
