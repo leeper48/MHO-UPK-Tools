@@ -246,6 +246,69 @@ static class PowerRecolor
         }
     }
 
+    static HashSet<string>? playerFiles;
+    static string? playerFilesStamp;
+
+    /// <summary>
+    /// The package files every playable hero's power buttons use or bring in (their classes and what they set off, summons
+    /// included: Cyclops' Call Jean and its All-New Jean agent), from the powers' own closures only (no folder scan: a boss's
+    /// powers live in Powers\EnemyPowers\Boss\Taskmaster\, Taskmaster's boss agent isn't in here). Make Unique keeps a hero's
+    /// model shared with these (UniqueNames.PlanFor). Slow the first time (every hero's powers); kept in data\player_files.json.
+    /// </summary>
+    public static HashSet<string> PlayerFiles(GameData db, string cooked, string sip)
+    {
+        var fi = new FileInfo(sip);
+        string stamp = $"{fi.Length}:{fi.LastWriteTimeUtc.Ticks}:v3";
+        lock (heroFiles) if (playerFiles != null && playerFilesStamp == stamp) return playerFiles;
+        string cache = Path.Combine(Settings.Home, "player_files.json");
+        try
+        {
+            if (File.Exists(cache) && System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, List<string>>>(File.ReadAllText(cache)) is { } c
+                && c.TryGetValue("stamp", out var st) && st.FirstOrDefault() == stamp && c.TryGetValue("files", out var fl))
+            {
+                var hs = new HashSet<string>(fl, StringComparer.OrdinalIgnoreCase);
+                lock (heroFiles) { playerFiles = hs; playerFilesStamp = stamp; }
+                return hs;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { }
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var heroes = Directory.GetFiles(cooked, "UC__MarvelPlayer_*_SF.upk").Select(f => Path.GetFileNameWithoutExtension(f)["UC__MarvelPlayer_".Length..^3])
+            .Where(h => !h.Contains('_')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (string hero in heroes)
+        {
+            List<PowerList.Power> powers;
+            try { powers = PowerList.For(db, hero, cooked, []); }
+            catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException or IOException) { continue; }
+            foreach (var p in powers)
+                try
+                {
+                    if (PowerEffects.UnrealClassOf(db, p.Prototype) is string cl) set.Add($"UC__{cl}_SF.upk");
+                    foreach (var a in PowerClosure.Of(db, p.Prototype))
+                        if (!string.IsNullOrEmpty(a.Class) && !a.Prototype.Replace('/', '\\').StartsWith(@"Powers\EnemyPowers\", StringComparison.OrdinalIgnoreCase)) set.Add($"UC__{a.Class}_SF.upk");
+                }
+                catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { }
+        }
+        // and every summon a player power names (SummonEntity, EntityArt: the per-costume picks of SummonPowerOverride blocks,
+        // which the closure doesn't follow: Cyclops' Call Jean → MarvelAgent_CyclopsUltimateJeanAllNew)
+        foreach (var e in db.Prototypes.Values)
+        {
+            string path = e.Path.Replace('/', '\\');
+            if (!path.StartsWith(@"Powers\Player\", StringComparison.OrdinalIgnoreCase)) continue;   // (heroes' own: items and missions summon bosses)
+            try
+            {
+                foreach (string l in db.Dump(db.Prototype(e.Id).Data, 40))
+                    if (PowerEffects.SummonLine.Match(l) is { Success: true } m && m.Groups[2].Value == "SummonEntity" && PowerEffects.UnrealClassOfEntity(db, m.Groups[4].Value) is string sc)
+                        set.Add($"UC__{sc}_SF.upk");
+            }
+            catch (Exception ex) when (ex is InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { }
+        }
+        try { File.WriteAllText(cache, System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, List<string>> { ["stamp"] = [stamp], ["files"] = set.Order().ToList() })); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        lock (heroFiles) { playerFiles = set; playerFilesStamp = stamp; }
+        return set;
+    }
+
     static readonly Dictionary<string, HashSet<string>> heroProtos = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, HashSet<string>> heroFiles = new(StringComparer.OrdinalIgnoreCase);
 

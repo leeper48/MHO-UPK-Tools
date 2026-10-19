@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.18
+- Make Unique keeps a hero's model shared with other heroes' summons of the same character, too (read from the game data: every model a hero's power summons). Cyclops' Call Jean carries All-New X-Men Jean's model, so Make Unique renamed it, and Jean's own illusions, which share that name, showed the game's model in game (and in the preview). Now the illusions and Cyclops' summoned Jean show the mod's model. Bosses and enemies are still renamed away (Taskmaster's boss keeps his own shield). A mod saved before: Build into Mod again (Model tab) or install it again, then Save.
+- --hero-files <hero> [name part] [--unique]: the packages a hero's powers use or summon; --unique: everything Make Unique keeps shared with the hero's model (read only).
+
 0.50.17
 - 3D previews: Power FXs off turns off every power's effects, also those of a power with no animation of its own (Emma Frost's Diamond Form, Diamond Heart, Psychic Domination …), which played anyway. Its caption says the effects are off. The editor's Powers tab still shows them (they're what's being recolored).
 

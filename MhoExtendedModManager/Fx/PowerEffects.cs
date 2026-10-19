@@ -225,7 +225,7 @@ sealed class PowerEffects
         return fx;
     }
 
-    static readonly System.Text.RegularExpressions.Regex SummonLine = new(@"^(\s*)(EntityArt|SummonEntity) \((\w)\) = (\S+)");
+    internal static readonly System.Text.RegularExpressions.Regex SummonLine = new(@"^(\s*)(EntityArt|SummonEntity) \((\w)\) = (\S+)");
 
     /// <summary>
     /// The summons of the costume shown, as the game picks them (Jean Grey's Telepathic Illusion: a SummonPowerOverride per
@@ -329,7 +329,7 @@ sealed class PowerEffects
         return list;
     }
 
-    static string? UnrealClassOfEntity(GameData db, string entity) =>
+    internal static string? UnrealClassOfEntity(GameData db, string entity) =>
         db.Find(entity) is { } ee && PowerList.Field(db, ee.Id, "UnrealClass", 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a) ? a.Asset.Name : null;   // (its own, else its parent's)
 
     static readonly (string Plain, string Resource)[] Twins = [("NoOF", "OF"), ("Normal", "Odinforce"), ("NoOdin", "Odin"), ("NoOdinforce", "Odinforce")];

@@ -125,10 +125,21 @@ static class UniqueNames
         try
         {
             if (HeroOf.Package(file, cooked) is not string hero || Gui.PowerPreview.GameDb(cooked).Result is not { } db) return new HashSet<string>();
-            return PowerRecolor.HeroFiles(db, hero, cooked);
+            // and every playable hero's summons and power packages (Kurt, 2026-10-19): a copy of this hero's model there is the
+            // same character summoned (Cyclops' Call Jean carries All-New Jean's model; renamed for it, Jean's own illusions,
+            // which share that path, lost the mod's model)
+            var set = new HashSet<string>(PowerRecolor.HeroFiles(db, hero, cooked), StringComparer.OrdinalIgnoreCase);
+            string sip = Path.GetFullPath(Path.Combine(cooked, "..", "..", "..", "Data", "Game", "Calligraphy.sip"));
+            if (File.Exists(sip)) set.UnionWith(PowerRecolor.PlayerFiles(db, cooked, sip).Where(SummonPackage));
+            return set;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or AggregateException) { return new HashSet<string>(); }
     }
+
+    /// <summary>A summoned character's or a power's package (UC__MarvelAgent_…, UC__Power…): a copy of a hero's model there is
+    /// that character summoned, kept shared with the mod's model like the hero's own copies.</summary>
+    static bool SummonPackage(string file) =>
+        file.StartsWith("UC__MarvelAgent_", StringComparison.OrdinalIgnoreCase) || file.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A mod's tag for its renamed groups: letters and digits of its name, lower case, at most 14, then 6 hex digits
     /// of a hash of the whole name ("jessicajonescl3fa9c2"). Two mods whose names start alike (Juggernaut Classic Costume
@@ -175,7 +186,7 @@ static class UniqueNames
             if (!changed) continue;
             // the hero's own copies (illusions, afterimages, summons) stay shared, unless the mod's mesh has more bones than
             // the game's (then a copy with fewer bones loaded beside it is a crash risk: CrashCheck)
-            var mineToo = own == null ? [] : others.Where(own.Contains).ToList();
+            var mineToo = own == null || own.Count == 0 ? [] : others.Where(own.Contains).ToList();
             if (mineToo.Count > 0)
             {
                 bool grew = false;
@@ -231,7 +242,7 @@ static class UniqueNames
             found.Add((pkg.PathOf(pkg.Exports[c]), "Class", others));
         }
         foreach (var (kp, ko) in kept.DistinctBy(k => k.Item1, StringComparer.OrdinalIgnoreCase))
-            notes.Add($"{kp}: kept shared with the hero's own {string.Join(", ", ko.Select(o => o[4..^7]))} (they show the mod's look)");
+            notes.Add($"{kp}: kept shared with the hero's own copies and summons: {string.Join(", ", ko.Select(o => o[4..^7]))} (they show the mod's look)");
         if (groups.Count == 0) { if (classRenames.Count == 0) notes.Add("nothing changed that another package also carries"); return new(file, renames, splits, notes) { Shared = found, Kept = kept }; }
         // streamed textures (big mips in a .tfc, found by path) keep the stock path: their group is split
         var streamed = new HashSet<int>();

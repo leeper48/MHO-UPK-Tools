@@ -1208,6 +1208,19 @@ static partial class Program
                 Console.WriteLine($"mapped powers no talent uses: {(unused.Count == 0 ? "none" : string.Join(", ", unused.Select(Path.GetFileNameWithoutExtension)))}");
                 return 0;
             }
+            case "--hero-files":
+            {
+                // Read-only: the packages Make Unique counts as a hero's own copies (PowerRecolor.HeroFiles: what its powers use or
+                // summon), optionally only those whose name contains a part. --hero-files <hero> [name part]
+                if (rest.Count < 2) { Console.WriteLine("--hero-files <hero> [name part]"); return 1; }
+                string? hgr = settings.ResolvedGameRoot(data);
+                if (hgr == null || !Settings.IsGameRoot(hgr)) { Console.WriteLine("game folder not found"); return 1; }
+                var hdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(hgr, "Data", "Game", "Calligraphy.sip")));
+                var files = (rest.Contains("--unique") ? UniqueNames.OwnFiles($"UC__MarvelPlayer_{rest[1]}_SF.upk", Settings.Cooked(hgr)) : PowerRecolor.HeroFiles(hdb, rest[1], Settings.Cooked(hgr))).Order(StringComparer.OrdinalIgnoreCase).ToList();
+                foreach (string f in files.Where(f => rest.Count < 3 || rest[2] == "--unique" || f.Contains(rest[2], StringComparison.OrdinalIgnoreCase))) Console.WriteLine(f);
+                Console.WriteLine($"{files.Count} package(s)");
+                return 0;
+            }
             case "--summon-census":
             {
                 // Read-only: every hero's powers that summon a character, with what the 3D preview shows for them (the summon's
