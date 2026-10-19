@@ -348,9 +348,24 @@ sealed partial class ModEditorView : UserControl
         var shipped = draft.Packages.Select(p => p.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
         string tag = UniqueNames.Tag(draft.Name), work = Path.Combine(lib.DataFolder, "make-unique-" + Guid.NewGuid().ToString("N")[..8]);
         bool any = false;
-        foreach (var (file, src) in files)
+        foreach (var (file, source) in files)
         {
-            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag, UniqueNames.OwnFiles(file, game.Cooked), game.Cooked);
+            string src = source;
+            var own = UniqueNames.OwnFiles(file, game.Cooked);
+            // groups an earlier Make Unique renamed that today's rules keep shared go back first (0.50.19)
+            var backNotes = new List<string>();
+            if (UniqueNames.Reshare(src, StockFiles.For(game.Cooked, file), file, shared, shipped, own, draft.Name, backNotes) is byte[] reshared)
+            {
+                Directory.CreateDirectory(work);
+                string back = Path.Combine(work, "reshared_" + file);
+                File.WriteAllBytes(back, reshared);
+                log.AddRange(backNotes.Select(n => $"unique: {file}: {n}"));
+                int kb = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+                draft.Packages[kb] = (file, back);
+                src = back;
+                any = true;
+            }
+            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag, own, game.Cooked);
             if (!plan.Changes) continue;
             Directory.CreateDirectory(work);
             string dst = Path.Combine(work, file);

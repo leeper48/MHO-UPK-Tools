@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.19
+- Saving a mod in the editor puts back what an earlier Make Unique renamed but today's rules keep shared, before Make Unique runs: a model shared only with the hero's own copies and summons gets its game name back (a renamed group is named back; a split one has its objects moved back beside its streamed textures). So a mod made unique before 0.50.18 (Ultimate Jean Grey: her illusions showed the game's model) is fixed by opening it in the editor and saving. Groups other characters also carry, and attachment classes, stay renamed.
+- --make-unique does the same first (written to its output folder only).
+
 0.50.18
 - Make Unique keeps a hero's model shared with other heroes' summons of the same character, too (read from the game data: every model a hero's power summons). Cyclops' Call Jean carries All-New X-Men Jean's model, so Make Unique renamed it, and Jean's own illusions, which share that name, showed the game's model in game (and in the preview). Now the illusions and Cyclops' summoned Jean show the mod's model. Bosses and enemies are still renamed away (Taskmaster's boss keeps his own shield). A mod saved before: Build into Mod again (Model tab) or install it again, then Save.
 - --hero-files <hero> [name part] [--unique]: the packages a hero's powers use or summon; --unique: everything Make Unique keeps shared with the hero's model (read only).

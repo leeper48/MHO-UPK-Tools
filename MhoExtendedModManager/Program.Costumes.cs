@@ -290,11 +290,26 @@ static partial class Program
                     if (!UniqueNames.Covers(f)) continue;
                     string mf = Path.Combine(um.Folder, f);
                     if (!File.Exists(mf)) { Console.WriteLine($"{f}: not in the mod"); continue; }
-                    var plan = UniqueNames.PlanFor(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, tag, rest.Contains("--no-own") ? null : UniqueNames.OwnFiles(f, ucook), ucook);
+                    var uown = rest.Contains("--no-own") ? null : UniqueNames.OwnFiles(f, ucook);
                     Console.WriteLine($"{f}:");
+                    bool reshared = false;
+                    if (uown != null)
+                    {
+                        // groups an earlier Make Unique renamed that today's rules keep shared: back first (written to <out>)
+                        var back = new List<string>();
+                        if (UniqueNames.Reshare(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, uown, um.Name, back) is byte[] rb)
+                        {
+                            back.ForEach(n => Console.WriteLine("  " + n));
+                            mf = Path.Combine(rest[2], "reshared_" + f);
+                            File.WriteAllBytes(mf, rb);
+                            reshared = true;
+                        }
+                    }
+                    var plan = UniqueNames.PlanFor(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, tag, uown, ucook);
                     plan.Notes.ForEach(n => Console.WriteLine("  " + n));
-                    if (!plan.Changes) continue;
+                    if (!plan.Changes) { if (reshared) { File.Move(mf, Path.Combine(rest[2], f), true); built++; Console.WriteLine($"  wrote {Path.Combine(rest[2], f)} (shared again, verified, GUID kept)"); } continue; }
                     byte[] bytes = UniqueNames.Build(mf, plan);
+                    if (reshared) File.Delete(mf);
                     File.WriteAllBytes(Path.Combine(rest[2], f), bytes);
                     built++;
                     Console.WriteLine($"  wrote {Path.Combine(rest[2], f)} ({bytes.Length:N0} bytes, verified, GUID kept)");

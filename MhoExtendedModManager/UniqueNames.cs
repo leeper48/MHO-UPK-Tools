@@ -468,6 +468,70 @@ static class UniqueNames
     }
 
     /// <summary>The package with the plan applied, verified; throws with the problems.</summary>
+    /// <summary>
+    /// Groups an earlier Make Unique renamed that today's rules keep shared, put back under their game names (Kurt,
+    /// 2026-10-19: Ultimate Jean Grey was made unique before 0.50.18, when Cyclops' Call Jean still counted against sharing;
+    /// her illusions kept the stock model, and the mod had no copy from before to go back to). A renamed group is a top-level
+    /// group "&lt;game group&gt;_&lt;tag&gt;" (the stock package has the game group, not this name). It goes back when every object in
+    /// it that other game files carry is carried only by the hero's own copies and summons (<paramref name="own"/>) or the
+    /// mod's own packages, and no skeletal mesh in it has more bones than the game's. Renamed: named back; split (its streamed
+    /// textures stayed in the game group): its objects move back into that group, the emptied group stays. Attachment
+    /// classes stay as they are. Returns the package bytes (verified) and what went back, or null when nothing does.
+    /// </summary>
+    public static byte[]? Reshare(string modPackage, string? stockPackage, string file, Dictionary<string, List<string>> shared, IReadOnlySet<string> shipped,
+        IReadOnlySet<string> own, string modName, List<string> notes)
+    {
+        // only this mod's own Make Unique tags (today's, and the 20-letter one before 0.37.273): a group like storm_astonishing
+        // is a real game group, not a rename
+        string letters = new string(modName.Where(char.IsAsciiLetterOrDigit).ToArray()).ToLowerInvariant();
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Tag(modName), letters.Length == 0 ? "mod" : letters[..Math.Min(20, letters.Length)] };
+        if (stockPackage == null || !File.Exists(stockPackage) || own.Count == 0) return null;
+        var pkg = Package.Open(modPackage);
+        var stock = Package.Open(stockPackage);
+        var stockGroups = stock.Exports.Where(e => e.OuterIndex == 0 && stock.ClassOf(e).Equals("Package", StringComparison.OrdinalIgnoreCase))
+            .Select(e => e.ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int Top(int i) { for (int g = 0; g < 64 && pkg.Exports[i].OuterIndex > 0; g++) i = pkg.Exports[i].OuterIndex - 1; return i; }
+        var renames = new Dictionary<int, string>();
+        var outers = new Dictionary<int, int>();
+        for (int g = 0; g < pkg.Exports.Length; g++)
+        {
+            var ge = pkg.Exports[g];
+            if (ge.OuterIndex != 0 || !pkg.ClassOf(ge).Equals("Package", StringComparison.OrdinalIgnoreCase) || stockGroups.Contains(ge.ObjectName)) continue;
+            int cut = ge.ObjectName.LastIndexOf('_');
+            if (cut <= 0) continue;
+            string game = ge.ObjectName[..cut], suffix = ge.ObjectName[(cut + 1)..];
+            if (!stockGroups.Contains(game) || !tags.Contains(suffix)) continue;
+            // every object under it, at its game path: shared only with the hero's own copies and summons?
+            bool back = true; int objects = 0;
+            for (int i = 0; i < pkg.Exports.Length && back; i++)
+            {
+                if (i == g || Top(i) != g) continue;
+                objects++;
+                string path = game + pkg.PathOf(pkg.Exports[i])[ge.ObjectName.Length..], cls = pkg.ClassOf(pkg.Exports[i]);
+                if (!shared.TryGetValue($"{path}|{cls.ToLowerInvariant()}", out var carriers)) continue;
+                if (carriers.Any(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(c) && !own.Contains(c))) back = false;
+                else if (cls.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)
+                    && (CrashCheck.Bones(modPackage, pkg.PathOf(pkg.Exports[i])) is not int n || CrashCheck.Bones(stockPackage, path) is not int o || n > o)) back = false;
+            }
+            if (!back || objects == 0) continue;
+            int gameGroup = Array.FindIndex(pkg.Exports, e => e.OuterIndex == 0 && e.ObjectName.Equals(game, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(e).Equals("Package", StringComparison.OrdinalIgnoreCase));
+            if (gameGroup < 0) { renames[g] = game; notes.Add($"group {ge.ObjectName} → {game} again: today's rules keep it shared (the hero's own copies and summons)"); }
+            else
+            {
+                for (int i = 0; i < pkg.Exports.Length; i++) if (pkg.Exports[i].OuterIndex == g + 1) outers[i] = gameGroup + 1;
+                notes.Add($"group {ge.ObjectName}: its objects go back into {game}: today's rules keep it shared (the hero's own copies and summons)");
+            }
+        }
+        if (renames.Count == 0 && outers.Count == 0) return null;
+        var addNames = renames.Values.Where(n => !pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), [], out var data, addNames, null, renames, outers);
+        var problems = PackageRebuilder.Verify(pkg, output, [], [], data, addNames, null, renames, outers);
+        var check = Package.FromBytes(output);
+        if (!output.AsSpan(check.GenerationsAt - 16, 16).SequenceEqual(pkg.RawFile.AsSpan(pkg.GenerationsAt - 16, 16))) problems.Add("the package's GUID changed");
+        if (problems.Count > 0) throw new InvalidDataException($"{file}: " + string.Join("; ", problems.Take(5)));
+        return output;
+    }
+
     public static byte[] Build(string modPackage, Plan plan)
     {
         var pkg = Package.Open(modPackage);
