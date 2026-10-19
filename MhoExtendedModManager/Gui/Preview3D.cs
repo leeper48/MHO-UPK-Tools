@@ -243,7 +243,7 @@ sealed partial class Preview3D : UserControl
         ctx = context;
         this.animator = animator;
         animator.Pose(null, 0);   // posed at once: a new animator's bones are all zero until its first pose (MEMM 0.37.37)
-        if (!samePowers) { form = null; formAnims = []; formRules = []; formFiles = []; formCache.Clear(); formRequest++; }   // (another character: its own forms)
+        if (!samePowers) { form = null; formAnims = []; formRules = []; formFiles = []; formCache.Clear(); formRequest++; untransformed = null; formIsModel = false; }   // (another character: its own forms)
         allAnims = WithForm(animations);
         if (!samePowers) ClearPowers();
         animList = powerFilter != null && heroPowers.FirstOrDefault(x => x.Prototype == powerFilter) is { } pw
@@ -491,6 +491,14 @@ sealed partial class Preview3D : UserControl
         Framing.Apply(view, animator, anim != null, shot, centerHead: true);
         if (anim == null) animator.Pose(null, 0);
         ShowPose();
+        // a transform whose props are the body (Rocket's mech suit around its pilot): the whole of it, not the pilot inside
+        if (shot == Framing.Shot.Full && untransformed != null && rig.Bounds() is { } b && animator.Positions.Length > 0)
+        {
+            var clo = animator.Positions.Aggregate(System.Numerics.Vector3.Min); var chi = animator.Positions.Aggregate(System.Numerics.Vector3.Max);
+            float own = Math.Max(1f, Math.Max(chi.Z - clo.Z, Math.Max(chi.X - clo.X, chi.Y - clo.Y)));
+            float size = Math.Max(b.Hi.Z - b.Lo.Z, Math.Max(b.Hi.X - b.Lo.X, b.Hi.Y - b.Lo.Y));
+            if (size > own * 1.25f) view.Aim((b.Lo + b.Hi) * 0.5f, size * 1.42f * view.FocalLength / ModelView.ReferenceFocalLength, 0, 0.08f);
+        }
         ViewChanged?.Invoke();   // (kept as a drag's view is)
     }
 

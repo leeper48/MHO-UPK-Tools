@@ -125,6 +125,76 @@ static class PowerList
             if (formOf.TryGetValue(key, out var f) && result[i].HasName)
                 result[i] = result[i] with { Name = $"{result[i].Name} ({Display(f.Spec) ?? f.Name})", Form = f.Spec };
         }
+        // Transform modes (Kurt, 2026-10-19: Rogue's Final Form, Rocket's mech, Loki's Frost Giant): the hero becomes another
+        // character with abilities of its own. Each ability is a button named after the transform, its animations read from
+        // its own class's packages (Loki's Frost Giant powers live with the Frost Giant, not in his power packages); the power
+        // that turns it on is a button too. Picked, they show the transformed character.
+        var transforms = new List<HeroForms.Transform>();
+        try { transforms = HeroForms.Transforms(db, hero); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or KeyNotFoundException) { }
+        foreach (var tf in transforms)
+        {
+            // named after the power that turns it on, unless another power has that name (Loki's Ultimate inherits "Norn
+            // Stones"): then after the transformed class (MarvelPlayer_FrostGiant_Loki → Frost Giant)
+            string label = Display(tf.Spec) ?? Path.GetFileNameWithoutExtension(tf.Spec);
+            if (result.Any(x => x.Name.Equals(label, StringComparison.OrdinalIgnoreCase) && !x.Prototype.Replace('/', '\\').Equals(tf.Spec, StringComparison.OrdinalIgnoreCase)))
+                label = string.Join(" ", Gui.PowerPreview.SplitWords(tf.Model.Replace("MarvelPlayer_", "", StringComparison.OrdinalIgnoreCase)).Split('_', ' ')
+                    .Where(w => w.Length > 0 && !w.Equals(hero, StringComparison.OrdinalIgnoreCase)));
+            var fg = new FxGame(cooked, modFiles);
+            // the transformed character's own animation names (for abilities whose classes no package has: Loki's Frost Giant)
+            List<string>? modelAnims = null;
+            List<string> ModelAnims()
+            {
+                if (modelAnims != null) return modelAnims;
+                modelAnims = [];
+                try
+                {
+                    string tf2 = $"UC__{tf.Model}_SF.upk", tp = StockFiles.For(cooked, tf2);
+                    var refs = File.Exists(tp) ? ModMeshes.List([(tf2, tp)]) : [];
+                    var mr = refs.FirstOrDefault(r => Model.MhoSkeleton.ComponentMesh(r.File) is string cm && r.Name.Equals(cm, StringComparison.OrdinalIgnoreCase)) ?? refs.FirstOrDefault();
+                    if (mr != null && ModMeshes.Load(mr, cooked, out _) is { } ml) modelAnims = ModAnimations.For(mr, ml.Bones, [], cooked).Select(x => x.Name).ToList();
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException) { }
+                return modelAnims;
+            }
+            foreach (string ability in tf.Abilities)
+            {
+                string key = ability.Replace('/', '\\');
+                int at = result.FindIndex(x => x.Prototype.Replace('/', '\\').Equals(key, StringComparison.OrdinalIgnoreCase));
+                if (at >= 0) { if (result[at].Form == null) result[at] = result[at] with { Name = $"{result[at].Name} ({label})", Form = tf.Spec }; continue; }
+                if (Display(ability) is not string an || db.Find(ability) is not { } ae) continue;
+                List<string> anims = [];
+                try
+                {
+                    if (PowerEffects.UnrealClassOf(db, ability) is string acls)
+                        anims = fg.PackagesOf(acls).Select(n => fg.FileFor(n)).OfType<string>().SelectMany(f => PowerIndex.AnimationsIn(f, fg.ClassChain(acls))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                // no class of its own in the game files: the transformed character's animations named like it (UltimateIceOrb →
+                // absattack_iceorb, UltimateCharge → absattack_shieldcharge_…, UltimateMeleeAttack → defaultattack_meleepunch_…),
+                // by its most telling word
+                if (anims.Count == 0)
+                {
+                    var parts = System.Text.RegularExpressions.Regex.Split(Path.GetFileNameWithoutExtension(ability), "(?<=[a-z])(?=[A-Z])")
+                        .Select(w => w.ToLowerInvariant()).Where(w => w is not ("ultimate" or "attack" or "power")).ToList();
+                    // (two words together too: IceOrb → iceorb, its words alone being too short to tell)
+                    var words = parts.Where(w => w.Length >= 4).Concat(parts.Zip(parts.Skip(1), (x, y) => x + y)).ToList();
+                    var all = ModelAnims();
+                    foreach (string w in words.OrderByDescending(w => w.Length))
+                    {
+                        var hit = all.Where(n => n.Contains(w, StringComparison.OrdinalIgnoreCase) && !n.StartsWith("emote", StringComparison.OrdinalIgnoreCase)).ToList();
+                        if (hit.Count > 0) { anims = hit; break; }
+                    }
+                }
+                string? aicon =Field(db, ae.Id, "IconPath", 'A', true) is { Found: true } aip && db.Assets.TryGetValue(aip.Raw, out var aa) ? aa.Asset.Name : null;
+                result.Add(new Power(ability, $"{an} ({label})", aicon, anims) { HasName = true, Form = tf.Spec });
+            }
+            if (!result.Any(x => x.Prototype.Replace('/', '\\').Equals(tf.Spec, StringComparison.OrdinalIgnoreCase)) && db.Find(tf.Spec) is { } se)
+            {
+                string? sicon = Field(db, se.Id, "IconPath", 'A', true) is { Found: true } sip && db.Assets.TryGetValue(sip.Raw, out var sa) ? sa.Asset.Name : null;
+                result.Add(new Power(tf.Spec, label, sicon, []) { HasName = true });
+            }
+        }
         // Fragments (a combo playing a power's "…_end": BigDFACombo, HammerDashCombo …) have no display name of their own:
         // their animations go to the named power that sets them off (PowerClosure), else they stay as they are.
         // A power with a name and an icon is a button; one without either is a part (a combo's step, a demon form's
@@ -208,7 +278,8 @@ static class PowerList
                 }
         // the talents that apply a form
         for (int i = 0; i < result.Count; i++)
-            if (forms.Any(f => f.Spec.Equals(result[i].Prototype.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase))) result[i] = result[i] with { IsForm = true };
+            if (forms.Any(f => f.Spec.Equals(result[i].Prototype.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase))
+                || transforms.Any(t => t.Spec.Equals(result[i].Prototype.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase))) result[i] = result[i] with { IsForm = true };
         // The travel power is always the first button (Kurt, 2026-10-02: the same place for every hero), then by name.
         string? travelPath = TravelPowerOf(db, hero)?.Replace('/', '\\');
         return [.. result.OrderBy(p => travelPath != null && p.Prototype.Replace('/', '\\').Equals(travelPath, StringComparison.OrdinalIgnoreCase) ? 0 : 1)

@@ -21,6 +21,15 @@ sealed class PropRig
 
     public int Count => props.Count;
 
+    /// <summary>The character and its props as last posed (Update): the box around them, or null before the first pose.</summary>
+    public (Vector3 Lo, Vector3 Hi)? Bounds()
+    {
+        if (pos.Length == 0 || props.Count == 0) return null;
+        Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
+        foreach (var p in pos) { lo = Vector3.Min(lo, p); hi = Vector3.Max(hi, p); }
+        return lo.X <= hi.X ? (lo, hi) : null;
+    }
+
     /// <summary>A prop the character can hold: its mesh, the bone it's held on, the weapon slots it fills and whether it
     /// only shows while a power shows it.</summary>
     public sealed record Prop(MeshRef Ref, string? Bone)

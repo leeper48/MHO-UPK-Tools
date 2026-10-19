@@ -20,6 +20,67 @@ static class HeroForms
     /// (file names) and the powers it swaps.</summary>
     public sealed record Form(string Spec, string Name, string Alias, List<string> ConditionFiles, Dictionary<string, string> Mapped);
 
+    /// <summary>
+    /// A transform mode (Kurt, 2026-10-19: Rogue's Final Form, Rocket's mech, Loki's Frost Giant): the hero becomes another
+    /// character class for a while, with abilities of its own. <paramref name="Spec"/> is the power that turns it on (the
+    /// mode's UseRankOfPower, else its EnterTransformModePower); <paramref name="Model"/> the transformed class
+    /// (MarvelPlayer_Rogue_UltimateForm), <paramref name="ModelFor"/> a costume's own (incoming class → transformed, lower case).
+    /// </summary>
+    public sealed record Transform(string Mode, string Spec, string? Enter, string Model, Dictionary<string, string> ModelFor, List<string> Abilities)
+    {
+        /// <summary>The transformed class for a costume class (marvelplayer_rogue_classic90s → MarvelPlayer_Rogue_UltimateForm_Classic90s).</summary>
+        public string ModelOf(string? costumeClass) => costumeClass != null && ModelFor.TryGetValue(costumeClass, out var m) ? m : Model;
+    }
+
+    static readonly System.Text.RegularExpressions.Regex FieldLine = new(@"^\s*(\w+) \((\w)\) = (\S+)");
+
+    /// <summary>The hero's transform modes (those its avatar names: Entity\Characters\Avatars\TransformModes\…).</summary>
+    public static List<Transform> Transforms(GameData db, string hero)
+    {
+        var result = new List<Transform>();
+        // the modes the avatar names, and those the hero's powers enter (Loki's avatar doesn't name his: his Ultimate's combo does)
+        var ids = PowerList.AvatarPowers(db, hero);
+        string folder = $"Powers\\Player\\{hero}\\";
+        foreach (var (pid, pe) in db.Prototypes)
+        {
+            if (!pe.Path.Replace('/', '\\').StartsWith(folder, StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                foreach (string l in db.Dump(db.Prototype(pid).Data, 8))
+                    if (FieldLine.Match(l) is { Success: true } fm && fm.Groups[1].Value == "TransformMode" && db.Find(fm.Groups[3].Value) is { } te) ids.Add(te.Id);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { }
+        }
+        foreach (ulong id in ids)
+        {
+            if (!db.Prototypes.TryGetValue(id, out var e) || !e.Path.Replace('/', '\\').Contains("\\TransformModes\\", StringComparison.OrdinalIgnoreCase)) continue;
+            List<string> lines;
+            try { lines = db.Dump(db.Prototype(id).Data, 60).ToList(); }
+            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { continue; }
+            string? model = null, rank = null, enter = null, transformed = null;
+            var modelFor = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var abilities = new List<string>();
+            foreach (string l in lines)
+            {
+                var m = FieldLine.Match(l);
+                if (!m.Success) continue;
+                string f = m.Groups[1].Value, v = m.Groups[3].Value;
+                switch (f)
+                {
+                    case "UnrealClass": model ??= v; break;
+                    case "UseRankOfPower": rank ??= v; break;
+                    case "EnterTransformModePower": enter ??= v; break;
+                    case "TransformedUnrealClass": transformed = v; break;
+                    case "IncomingUnrealClass": if (transformed != null) { modelFor.TryAdd(v, transformed); transformed = null; } break;
+                    case "Ability": if (v.EndsWith(".prototype", StringComparison.OrdinalIgnoreCase) && !abilities.Contains(v, StringComparer.OrdinalIgnoreCase)) abilities.Add(v); break;
+                }
+            }
+            if (model == null || (rank ?? enter) is not string spec) continue;
+            result.Add(new Transform(e.Path.Replace('/', '\\'), spec, enter, model, modelFor, abilities));
+        }
+        return result;
+    }
+
     static readonly System.Text.RegularExpressions.Regex ParentLine = new(@"<parent (\S+\.prototype)>");
 
     /// <summary>Every prototype under Powers\Player\&lt;hero&gt;\ with MapPower entries (a talent's power swaps).</summary>

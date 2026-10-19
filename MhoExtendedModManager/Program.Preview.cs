@@ -1193,6 +1193,16 @@ static partial class Program
                     Console.WriteLine($"form {f.Spec} ({f.Name}): alias {f.Alias} → {setName}; condition packages {string.Join(", ", f.ConditionFiles.Select(Path.GetFileName))}");
                     if (set is { } fs) Console.WriteLine($"    its animations: {string.Join(", ", ModAnimations.FromSet(fs.Path, fs.Export).Select(x => x.Name))}");
                 }
+                foreach (var t in Fx.HeroForms.Transforms(hdb, hero))
+                {
+                    Console.WriteLine($"transform {t.Mode}: on with {t.Spec}; model {t.Model} ({t.ModelFor.Count} costume version(s)); abilities {string.Join(", ", t.Abilities.Select(Path.GetFileNameWithoutExtension))}");
+                    string tf = $"UC__{t.Model}_SF.upk", tp = StockFiles.For(hcook, tf);
+                    var refs = File.Exists(tp) ? ModMeshes.List([(tf, tp)]) : [];
+                    var mr = refs.FirstOrDefault(r => Model.MhoSkeleton.ComponentMesh(r.File) is string cm && r.Name.Equals(cm, StringComparison.OrdinalIgnoreCase)) ?? refs.FirstOrDefault();
+                    if (mr != null && ModMeshes.Load(mr, hcook, out _) is { } ml)
+                        Console.WriteLine($"    {mr.Name}: animations {string.Join(", ", ModAnimations.For(mr, ml.Bones, [], hcook).Select(x => x.Name))}");
+                    else Console.WriteLine($"    {tf}: no model found");
+                }
                 var used = Fx.HeroForms.Mappings(hdb, hero).SelectMany(m => m.Mapped.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var unused = Fx.HeroForms.AllMappedTargets(hdb, hero).Where(t => !used.Contains(t)).ToList();
                 Console.WriteLine($"mapped powers no talent uses: {(unused.Count == 0 ? "none" : string.Join(", ", unused.Select(Path.GetFileNameWithoutExtension)))}");

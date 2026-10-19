@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.10
+- 3D previews: transforms. Rogue's Final Form, Rocket Raccoon's Mechfall and Loki's Frost Giant show the transformed character (the costume's own version: Rogue Classic 90s, Rocket Modern …) with its own animations and props when the power that turns it on, or one of its abilities, is picked. Another power brings the hero back.
+- Power buttons: a transform's abilities have buttons named after it (Swift Claws (Final Form), Missile Arm (Mechfall), Frost Orb (Frost Giant) …). Loki's Frost Giant abilities have no power class in the game files; they play the Frost Giant's animations of the same name (Frost Orb → absattack_iceorb).
+- 3D previews: animated props play their own animation even when no power is found for the one playing (Rocket's mech suit). Full Body frames a transform with its props.
+- Known: Rocket's mech suit shows above its pilot in the preview (about 170 units too high); its cause isn't found yet.
+
 0.50.9
 - 3D previews: Jean Grey's Phoenix form (a user's report). Picking Unleash the Phoenix, or one of its Phoenix powers, shows her as the game does in that form: her Phoenix animation set in place of the standing versions (the attacks fly), her flaming wings (and no cape), and the form's flames on her head, legs and wing trails under whatever plays. Another power takes the form off.
 - Power buttons: a form's own version of a power has a button of its own, named after the form (Pyrokinetic Barrier (Unleash the Phoenix), Phoenix Charge, Flaming Debris …), playing its own effects; before, they were merged into the plain power or played its effects. Read from the game data: a talent whose condition adds an animation set, and the powers it swaps.

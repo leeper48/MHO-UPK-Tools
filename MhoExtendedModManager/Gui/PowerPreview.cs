@@ -33,7 +33,8 @@ static class PowerPreview
     {
         var all = Fx.PowerList.For(db, hero, cooked, modFiles, effectOnly: true);
         foreach (var p in all) if (p.Icon != null) Fx.PowerList.Icon(p.Icon, cooked);
-        var shown = all.Where(p => p.Animations.Count == 0 || p.Animations.Any(animNames.Contains)).ToList();
+        // (a form's powers play on the form's own animations or model, which the character's list doesn't have yet)
+        var shown = all.Where(p => p.Animations.Count == 0 || p.Form != null || p.Animations.Any(animNames.Contains)).ToList();
         return (shown, shown);
     }
 
@@ -237,7 +238,13 @@ static class PowerPreview
     {
         List<Fx.PowerIndex.PowerRef>? refs = null;
         if (anim != null) index.TryGetValue(anim, out refs);
-        if (refs == null && (formRules == null || formRules.Count == 0)) return Switches.None;
+        if (refs == null && (formRules == null || formRules.Count == 0))
+        {
+            // no power plays it: no rules, but the animated props still play theirs (Rocket's mech suit, a transform's ability)
+            var own = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (cls, ar) in motionRefs) if (!own.ContainsKey(cls) && ModAnimations.Load(ar) is { } ba) own[cls] = ba;
+            return own.Count == 0 ? Switches.None : new([], 0, [], own);
+        }
         refs ??= [];
         var files = refs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var rules = files.SelectMany(ModMeshes.PropRules).Distinct().ToList();

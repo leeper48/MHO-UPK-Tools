@@ -767,8 +767,24 @@ static class ModMeshes
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
         }
+        // (a transform's character: its materials can come from the hero's own costume, Rocket's pilot in his mech)
+        foreach (string path in MoreMaterialPackages ?? [])
+        {
+            if (!File.Exists(path)) continue;
+            try
+            {
+                var bp = Package.Open(path);
+                for (int i = 0; i < bp.Exports.Length; i++)
+                    if (bp.Exports[i].ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase) && bp.ClassOf(bp.Exports[i]).Contains("Material", StringComparison.OrdinalIgnoreCase))
+                        return (bp, i, Path.GetFileName(path), path);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+        }
         return null;
     }
+
+    /// <summary>More packages to look for imported materials in, while a transform's character loads (this thread only).</summary>
+    [ThreadStatic] internal static List<string>? MoreMaterialPackages;
 
     /// <summary>A section's colour texture (as MPM's Meshes tab chooses it).</summary>
     static int SectionTexture(Package pkg, int mat, List<string> notes, int s)
