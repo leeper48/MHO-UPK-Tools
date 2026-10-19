@@ -201,6 +201,51 @@ sealed class MhoSkeleton
         catch (Exception ex) when (ex is IOException or InvalidDataException or IndexOutOfRangeException or ArgumentException) { return null; }
     }
 
+    /// <summary>
+    /// The other skeletal meshes the package's character class swaps in (its default's MeshAliases: Ant-Man's "smallmesh" =
+    /// antman_civilwarmovie_small, the normal model at 0.4 scale, shown while he's shrunk; "fullsizemesh" = the normal one),
+    /// that are exports here, aren't <paramref name="mesh"/>, and have its bones (same names, same order). A user's Cassie
+    /// Lang over Civil War Ant-Man (2026-10-19): the build replaced only the normal model, so the shrunk one stayed his.
+    /// </summary>
+    public static List<string> Aliases(string package, string mesh)
+    {
+        var found = new List<string>();
+        try
+        {
+            string stem = Path.GetFileNameWithoutExtension(package);
+            if (stem.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) stem = stem[4..];
+            if (stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) stem = stem[..^3];
+            var mp = MhoPackageModifier.Package.Open(package);
+            string defPath = $"marvelgamecontent.default__{stem.ToLowerInvariant()}";
+            int def = Array.FindIndex(mp.Exports, e => mp.PathOf(e).Equals(defPath, StringComparison.OrdinalIgnoreCase));
+            if (def < 0) return found;
+            byte[] d = mp.ReadExportBytes(mp.Exports[def]).ToArray();
+            var arr = MhoPackageModifier.TagWalker.Walk(mp, d, 4)?.FirstOrDefault(x => x.Name.Equals("MeshAliases", StringComparison.OrdinalIgnoreCase));
+            if (arr == null || arr.Size < 4) return found;
+            int n = BitConverter.ToInt32(d, arr.ValueAt), p = arr.ValueAt + 4;
+            var names = new List<string>();
+            for (int k = 0; k < n && p < arr.End; k++)
+            {
+                var el = MhoPackageModifier.TagWalker.Walk(mp, d, p);
+                if (el == null) break;
+                if (el.FirstOrDefault(x => x.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && x.Size == 4) is { } mt
+                    && BitConverter.ToInt32(d, mt.ValueAt) is int r && r > 0 && mp.ClassOf(mp.Exports[r - 1]).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase))
+                    names.Add(mp.Exports[r - 1].ObjectName);
+                p = el.NoneAt + 8;
+            }
+            var main = Load(package, mesh);
+            foreach (string name in names.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (name.Equals(mesh, StringComparison.OrdinalIgnoreCase)) continue;
+                var other = Load(package, name);
+                if (other.Bones.Count == main.Bones.Count && other.Bones.Select(b => b.Name).SequenceEqual(main.Bones.Select(b => b.Name), StringComparer.OrdinalIgnoreCase))
+                    found.Add(name);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or IndexOutOfRangeException or ArgumentException or MhoPackageModifier.PackageFormatException) { }
+        return found;
+    }
+
     static readonly System.Text.RegularExpressions.Regex PropName = new(
         @"(backpack|wing|gun|rifle|pistol|launcher|shotgun|m16|m60|bike|claw|blade|sword|shield|hammer|weapon|_prop|bow$|quiver|staff|spear|axe|knife)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase);

@@ -205,6 +205,21 @@ static partial class Program
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException) { Console.WriteLine("ERROR: " + ex.Message); return 1; }
             }
+            case "--mesh-sizes":
+            {
+                // Read-only: every skeletal mesh in a package with its measured height and its head and pelvis bone heights
+                // (Ant-Man's _small model beside the normal one). --mesh-sizes <package.upk>
+                if (rest.Count < 2) { Console.WriteLine("--mesh-sizes <package.upk>"); return 1; }
+                foreach (var (name, _) in Model.MhoSkeleton.List(rest[1]))
+                    try
+                    {
+                        var sk = Model.MhoSkeleton.Load(rest[1], name);
+                        int h = sk.Find("g_head"), pv = sk.Find("g_pelvis");
+                        Console.WriteLine($"{name}: height {sk.Height:0.##}, up {sk.Up}, head {(h >= 0 ? sk.Pos(h).ToString() : "-")}, pelvis {(pv >= 0 ? sk.Pos(pv).ToString() : "-")}, {sk.Bones.Count} bones");
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { Console.WriteLine($"{name}: {ex.Message}"); }
+                return 0;
+            }
             case "--model-tab-test":
             {
                 // --model-tab-test <mod> <mff model> <package file> (scratch MHO_EXTMM_HOME only: it saves the mod): the editor's

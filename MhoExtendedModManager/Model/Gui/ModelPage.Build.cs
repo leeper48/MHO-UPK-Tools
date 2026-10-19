@@ -47,8 +47,32 @@ sealed partial class ModelPage
         string? uf = unrigged;
         try
         {
-            var result = await Task.Run(() => ImportBuild.Run(mffSource, start, outDir,
-                uf != null ? options with { SourceFbx = RigFor(uf, pkg.Key), Parts = "all" } : options, line => BeginInvoke(() => Log(line))));
+            var runOptions = uf != null ? options with { SourceFbx = RigFor(uf, pkg.Key), Parts = "all" } : options;
+            var result = await Task.Run(() => ImportBuild.Run(mffSource, start, outDir, runOptions, line => BeginInvoke(() => Log(line))));
+            // the other models the character swaps to (Ant-Man shrunk: his "smallmesh" alias, the same skeleton at 0.4 scale):
+            // the same model is built onto each, fitted to its own skeleton (a user's Cassie Lang stayed Ant-Man when shrunk)
+            if (result != null)
+            {
+                string? target = null;
+                try { target = await Task.Run(() => MhoSkeleton.Load(start, null).Name); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException) { }
+                var aliases = target == null ? [] : await Task.Run(() => MhoSkeleton.Aliases(baseStart, target));
+                string? pickWas = MhoSkeleton.ChosenFor(pkg.Key);
+                foreach (string alias in aliases)
+                {
+                    Log($"{target} has another model the game swaps to, {alias}: building onto it too");
+                    string aliasOut = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{mff} on {Path.GetFileNameWithoutExtension(pkg.Key)} ({alias})"));
+                    string from = result!.Package;
+                    MhoSkeleton.Choose(pkg.Key, alias);
+                    try
+                    {
+                        var more = await Task.Run(() => ImportBuild.Run(mffSource, from, aliasOut, runOptions with { SizeFrom = baseStart }, line => BeginInvoke(() => Log(line))));
+                        if (more != null) result = more;
+                        else Log($"{alias}: the build stopped (see above); the model's normal size is built, its {alias} isn't.");
+                    }
+                    finally { MhoSkeleton.Choose(pkg.Key, pickWas); }
+                }
+            }
             if (result != null)
             {
                 // added bones (a cape, dress, wings): the mirror table gets an entry for each (else mirroring an animation
