@@ -55,6 +55,8 @@ sealed class PreviewEffects : IDisposable
     public Vector3 Target { get; private set; }
 
     void SetNote(string n) { Note = n; NoteChanged?.Invoke(); }
+    /// <summary>A caption with no effects playing (Power FXs off on an effect-only power).</summary>
+    public void Say(string n) => SetNote(n);
 
     /// <summary>No effects (nothing loading either); the actors leave the rig.</summary>
     public void Clear()

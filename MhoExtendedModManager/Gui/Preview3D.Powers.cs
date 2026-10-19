@@ -256,8 +256,10 @@ sealed partial class Preview3D
     {
         if (CustomEffects?.Invoke() == true) return;
         ClearEffects();
-        // an effect-only power clicked plays its effects whatever Power FXs says (they're all it shows)
-        if (!(prefs.Powers || ForceEffects) && effectOnly == null || anim == null || animator == null || ctx is not { Cooked: string cooked, Hero: string hero, MainRef: MeshRef main } c) { ShowPose(); return; }
+        // Power FXs off: no effects, an effect-only power's too (Kurt, 2026-10-19: Emma's Diamond Form kept playing); its
+        // caption says why the idle plays alone
+        if (!(prefs.Powers || ForceEffects)) { if (effectOnly != null) Effects.Say("Power FXs Off: Turn Them On to See This Power's Effects"); ShowPose(); return; }
+        if (anim == null || animator == null || ctx is not { Cooked: string cooked, Hero: string hero, MainRef: MeshRef main } c) { ShowPose(); return; }
         int ai = anims.SelectedIndex - 1;
         if (ai < 0 || ai >= animList.Count) return;
         string name = animList[ai].Name;

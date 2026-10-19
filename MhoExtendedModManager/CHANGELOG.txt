@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.17
+- 3D previews: Power FXs off turns off every power's effects, also those of a power with no animation of its own (Emma Frost's Diamond Form, Diamond Heart, Psychic Domination …), which played anyway. Its caption says the effects are off. The editor's Powers tab still shows them (they're what's being recolored).
+
 0.50.16
 - Model tab: opening it on a mod shows the mod's character right away (with several, the first by name; the mod's packages are listed by name).
 - Model tab → target list: while filtering, heroes come first, then team-ups, then NPCs and the rest.
