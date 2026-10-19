@@ -134,7 +134,7 @@ sealed partial class ModelPage
             string? want = m.Format.Contains("DXT1", StringComparison.OrdinalIgnoreCase) ? "dxt1" : m.Format.Contains("DXT5", StringComparison.OrdinalIgnoreCase) ? "dxt5" : null;
             var enc = TextureEncode.FromImage(temp, want, 85, 1f, noMips: false, refine: true);
             var pkg = Package.Open(sourcePath);
-            byte[]? output = TextureImport.ReplaceMany(pkg, [new TextureImport.Replacement(pkg.PathOf(pkg.Exports[m.Export]), TextureImport.WriteDds(enc), Path.GetFileName(image))], out var problems, out var verify);
+            byte[]? output = TextureImport.ReplaceMany(pkg, [new TextureImport.Replacement(pkg.PathOf(pkg.Exports[m.Export]), TextureImport.WriteDds(enc), Path.GetFileName(image), NormalMap: m.Kind == "Normal")], out var problems, out var verify);
             if (output == null) { foreach (var p in problems) Log("Materials: " + p); return false; }
             var check = verify(output);
             if (check.Count > 0) { foreach (var p in check.Take(3)) Log("Materials: PACKAGE PROBLEM: " + p); return false; }

@@ -255,6 +255,66 @@ sealed partial class MainForm
         say("built into the draft: " + (builtFile != null));
         if (builtFile == null) { CloseEditor(); return 1; }
         if (page.TestHasRig && !await page.TestRigWatch(say)) { CloseEditor(); return 1; }
+        if (mff != "-" && Environment.GetEnvironmentVariable("MHO_TEST_NO_NORMALGEN") != "1")
+        {
+            // every normal map the build wrote is read as the game's own are: sRGB off, TC_NormalMap (MPM 2.53.26)
+            var bp = MhoPackageModifier.Package.Open(builtFile);
+            int norms = 0, good = 0;
+            foreach (var ex in bp.Exports)
+            {
+                if (!bp.ClassOf(ex).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) || !ex.ObjectName.EndsWith("_norm", StringComparison.OrdinalIgnoreCase)) continue;
+                norms++;
+                byte[] d = bp.ReadExportBytes(ex);
+                var tags = MhoPackageModifier.TagWalker.Walk(bp, d, 4);
+                bool srgbOff = tags?.FirstOrDefault(t => t.Name.Equals("SRGB", StringComparison.OrdinalIgnoreCase)) is { } s && d[s.ValueAt - 1] == 0;
+                bool tc = tags?.FirstOrDefault(t => t.Name.Equals("CompressionSettings", StringComparison.OrdinalIgnoreCase)) is { } c
+                    && MhoPackageModifier.TagWalker.NameAt(bp, d, c.ValueAt).Equals("TC_NormalMap", StringComparison.OrdinalIgnoreCase);
+                if (srgbOff && tc) good++;
+            }
+            say($"{(norms > 0 && good == norms ? "PASS" : "FAIL")} the build's normal maps have sRGB off and TC_NormalMap ({good} of {norms})");
+            if (norms == 0 || good != norms) { CloseEditor(); return 1; }
+            // Generate Normal Map (Strong) from the right-click menu: the Normal row then names the generated file
+            for (int i = 0, last = -1; i < 100 && page.PreviewForTest.ShowCount != last; i++) { last = page.PreviewForTest.ShowCount; await Task.Delay(1500); }   // (settled: the history starts with the built state)
+            int shows = page.PreviewForTest.ShowCount, steps = page.TestUndoSteps;
+            page.TestGenerateNormal("Normal", 2);
+            for (int i = 0; i < 300 && page.PreviewForTest.ShowCount == shows; i++) await Task.Delay(100);
+            string? row = page.TestMaterialRows().FirstOrDefault(r => r.Contains(" | Normal | "));
+            bool gen = row?.Contains("_normal_generated_strong.png") == true;
+            say($"{(gen ? "PASS" : "FAIL")} Generate Normal Map (Strong) puts a generated normal map in ({row})");
+            if (!gen) { CloseEditor(); return 1; }
+            for (int i = 0; i < 300 && page.TestUndoSteps == steps; i++) await Task.Delay(100);
+            int su = page.PreviewForTest.ShowCount;
+            page.TestUndo();
+            for (int i = 0; i < 300 && page.PreviewForTest.ShowCount == su; i++) await Task.Delay(100);
+            string? back = null;
+            for (int i = 0; i < 300; i++) { back = page.TestMaterialRows().FirstOrDefault(r => r.Contains(" | Normal | ")); if (back?.Contains("generated_strong") == false) break; await Task.Delay(100); }
+            say($"  undo steps {steps} → {page.TestUndoSteps}");
+            say($"{(back?.Contains("generated_strong") == false ? "PASS" : "FAIL")} Undo takes the generated normal map back ({back})");
+            await Task.Delay(1500);
+        }
+        if (mff == "-" && Environment.GetEnvironmentVariable("MHO_TEST_NO_NORMALGEN") != "1")
+        {
+            // Generate Normal Map on the package's own normal texture: replaced in the mod's copy, read as a normal map
+            await Task.Delay(1500);
+            page.TestGenerateNormal("Normal", 1);
+            bool ok = false; string what = "nothing written";
+            if (page.TestGeneratedPackage is { File: string gf, Texture: string gt })
+            {
+                var bp = MhoPackageModifier.Package.Open(gf);
+                var ex = bp.Exports.FirstOrDefault(x => x.ObjectName.Equals(gt, StringComparison.OrdinalIgnoreCase) || bp.PathOf(x).Equals(gt, StringComparison.OrdinalIgnoreCase));
+                if (ex != null)
+                {
+                    byte[] d = bp.ReadExportBytes(ex);
+                    var tags = MhoPackageModifier.TagWalker.Walk(bp, d, 4);
+                    bool srgbOff = tags?.FirstOrDefault(t => t.Name.Equals("SRGB", StringComparison.OrdinalIgnoreCase)) is { } s && d[s.ValueAt - 1] == 0;
+                    bool tc = tags?.FirstOrDefault(t => t.Name.Equals("CompressionSettings", StringComparison.OrdinalIgnoreCase)) is { } c
+                        && MhoPackageModifier.TagWalker.NameAt(bp, d, c.ValueAt).Equals("TC_NormalMap", StringComparison.OrdinalIgnoreCase);
+                    ok = srgbOff && tc; what = $"{gt}: sRGB off {srgbOff}, TC_NormalMap {tc}";
+                }
+            }
+            say($"{(ok ? "PASS" : "FAIL")} Generate Normal Map on a package texture replaces it as a normal map ({what})");
+            if (!ok) { CloseEditor(); return 1; }
+        }
         string? liveRig = page.TestLiveRig;
         bool imageEdit = mff == "-" || Environment.GetEnvironmentVariable("MHO_TEST_EDITOR") != "1" || await page.TestImageEdit(say);   // (no source: the package-texture test ran instead)
         byte[] builtBytes = File.ReadAllBytes(builtFile);   // the work folder goes with the editor

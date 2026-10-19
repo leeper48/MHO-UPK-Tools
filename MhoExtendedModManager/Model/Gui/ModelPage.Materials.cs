@@ -58,6 +58,7 @@ sealed partial class ModelPage
             m.Items.Add(new ToolStripMenuItem("View Large", null, (_, _) => _ = ViewMap(row)) { ToolTipText = "The map large, with zoom and Export as PNG (also: double-click the row)." });
             m.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditMapExternally()) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in your image editor; each save there comes back here." });
             m.Items.Add(new ToolStripMenuItem("Replace File", null, (_, _) => UseMapFile()) { Enabled = matUse.Enabled, ToolTipText = "Puts in an image of yours for this map." });
+            if (GenerateNormalItem() is { } gen) m.Items.Add(gen);
             if (SelectedMap() is { Kind: "Color" } || SelectedPackageMap() is { Kind: "Color" })
                 m.Items.Add(new ToolStripMenuItem("Adjust Colors", null, (_, _) => AdjustColors()) { Enabled = matAdjust.Enabled, ToolTipText = "Hue, saturation, brightness and levels for this color map." });
             m.Items.Add(new ToolStripMenuItem("Back to Automatic", null, (_, _) => MapBackToAutomatic()) { Enabled = matAuto.Enabled, ToolTipText = "Forgets your file for this map." });

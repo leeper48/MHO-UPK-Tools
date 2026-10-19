@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.15
+- Model tab → Materials: Generate Normal Map in a Color or Normal row's right-click menu (Soft, Medium, Strong, or Medium with dark parts raised): the material's normal map made from its color map, in place of the one it has. With no source picked, it replaces the normal-map texture in the mod's package.
+- Every normal map the app writes (Build, Replace File, Edit in Image Editor, Generate Normal Map) is set up as the game's own are, sRGB off and normal-map compression, whatever the texture it's made from said. A normal map read as a color image shades wrong and shows seams across faces. Models built before 0.50.8 have such normal maps: build them again.
+
 0.50.14
 - 3D previews: Jean Grey's illusion is a ghost all over. The game's illusion names one material for the whole model; the preview put it on the first part only, so a costume's suit or hair stayed solid.
 

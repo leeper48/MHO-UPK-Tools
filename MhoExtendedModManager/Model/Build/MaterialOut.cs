@@ -259,12 +259,15 @@ static class MaterialOut
             images.Add(img);
             Need(p.NewName);
             foreach (var n in new[] { "NeverStream", "BoolProperty", "IntProperty", "ByteProperty", "EPixelFormat", img.Format }) Need(n);
+            if (Is(p.Slot, "normaltex")) foreach (var n in TextureImport.NormalMapNames) Need(n);
         }
         var tw = new TagWriter(pkg, addNames);
         var add = new List<NewExport>();
         for (int i = 0; i < plan.Count; i++)
         {
-            object?[] args = [pkg, plan[i].Template, images[i], tw, false, null];
+            // a normal map is always read as the game's own are (sRGB off, TC_NormalMap), whatever its template texture says:
+            // one read as sRGB lights wrong and shows seams across faces (a user's report)
+            object?[] args = [pkg, plan[i].Template, images[i], tw, false, null, Is(plan[i].Slot, "normaltex")];
             var build = (Func<long, byte[]>?)BuilderMethod.Invoke(null, args) ?? throw new InvalidDataException($"texture {plan[i].NewName}: {args[5]}");
             int t = plan[i].Template;
             byte[] entry = pkg.Body.AsSpan(pkg.ExportEntryStart[t], pkg.ExportEntryEnd[t] - pkg.ExportEntryStart[t]).ToArray();
