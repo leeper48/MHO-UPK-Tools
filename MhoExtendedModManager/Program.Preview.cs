@@ -331,6 +331,43 @@ static partial class Program
                 Console.WriteLine($"{diffs} export(s) differ of {n}.");
                 return 0;
             }
+            case "--normal-check":
+            {
+                // Read-only: every normal-map slot (a texture parameter named *normal*) of the materials in a mod's packages (or a
+                // .upk / folder), with its texture's sRGB, compression and unpack settings. The game's own normal maps have sRGB
+                // off, UnpackMin -1 and TC_NormalMap; one read as sRGB shades wrong and shows seams. --normal-check <mod | path | all>
+                if (rest.Count < 2) { Console.WriteLine("--normal-check <mod | package.upk | folder | all>"); return 1; }
+                var files = new List<string>();
+                if (rest[1].Equals("all", StringComparison.OrdinalIgnoreCase)) foreach (var mm in lib.Mods) files.AddRange(Directory.GetFiles(mm.Folder, "*.upk"));
+                else if (lib.Find(rest[1]) is { } fm) files.AddRange(Directory.GetFiles(fm.Folder, "*.upk"));
+                else if (Directory.Exists(rest[1])) files.AddRange(Directory.GetFiles(rest[1], "*.upk"));
+                else if (File.Exists(rest[1])) files.Add(rest[1]);
+                else { Console.WriteLine("no such mod or file: " + rest[1]); return 1; }
+                int good = 0, bad = 0;
+                foreach (string f in files.Where(x => !Path.GetFileName(x).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(x).Contains("copy", StringComparison.OrdinalIgnoreCase)))
+                {
+                    MhoPackageModifier.Package pkg;
+                    try { pkg = MhoPackageModifier.Package.Open(f); } catch (Exception ex) { Console.WriteLine($"{f}: {ex.Message}"); continue; }
+                    var seen = new HashSet<int>();
+                    for (int i = 0; i < pkg.Exports.Length; i++)
+                    {
+                        if (!pkg.ClassOf(pkg.Exports[i]).Equals("MaterialInstanceConstant", StringComparison.OrdinalIgnoreCase)) continue;
+                        List<MhoPackageModifier.MaterialTexture> texs;
+                        try { texs = MhoPackageModifier.TextureExport.MaterialTextures(pkg, i + 1, []); } catch (Exception) { continue; }
+                        foreach (var t in texs.Where(t => t.Parameter.Contains("normal", StringComparison.OrdinalIgnoreCase) && seen.Add(t.ExportIndex)))
+                        {
+                            var props = MhoPackageModifier.PropertyEdit.ReadProperties(pkg, t.ExportIndex) ?? [];
+                            string Val(string n) => props.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase))?.Value ?? "(default)";
+                            string srgb = props.FirstOrDefault(x => x.Name.Equals("srgb", StringComparison.OrdinalIgnoreCase)) is { } sp ? sp.Value : "(default: true)";
+                            bool ok = srgb.Contains("false", StringComparison.OrdinalIgnoreCase);
+                            if (ok) good++; else bad++;
+                            Console.WriteLine($"{(ok ? "ok " : "BAD")}  {Path.GetFileName(f)}  {pkg.Exports[i].ObjectName}.{t.Parameter} -> {pkg.PathOf(pkg.Exports[t.ExportIndex])}: srgb {srgb}, compression {Val("compressionsettings")}, unpackmin {Val("unpackmin")}, lodgroup {Val("lodgroup")}");
+                        }
+                    }
+                }
+                Console.WriteLine($"{good} normal map(s) with sRGB off, {bad} read as sRGB");
+                return 0;
+            }
             case "--proto-search":
             {
                 // Read-only: every prototype (whose path contains [path part]) with a field line containing <text>, e.g. which

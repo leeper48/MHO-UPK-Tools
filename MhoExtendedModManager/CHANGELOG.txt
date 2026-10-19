@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.8
+- Model tab: normal maps are written as the game's are (sRGB off, UnpackMin -1, normal-map compression). Built ones were read as color images, which lit them wrong and showed seams across faces (a user's report; the old material editor's fix was the same setting). Build into Mod again to fix a model built before; color and spec maps come out as before.
+- --normal-check <mod | package | folder | all>: every normal-map slot in a mod's packages, with its texture's sRGB and compression (read only).
+
 0.50.7
 - Powers tab: picking a power or a part tile in the power bar frames the whole character, as the power buttons on the Mods and Model tabs do (the Dodge tile could leave the camera on the feet). While the model loads, it frames once the animations are in.
 
