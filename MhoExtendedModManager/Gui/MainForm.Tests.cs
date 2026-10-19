@@ -714,6 +714,39 @@ sealed partial class MainForm
         File.WriteAllLines(outFile, lines);
     }
 
+    /// <summary>--powers-perf (scratch libraries only): the Powers tab's preview playing <paramref name="power"/> for some
+    /// seconds: frames drawn per second, their draw time and size, and the whole window's time per frame.</summary>
+    public async Task PowersPerf(string outFile, string modName, string power, int seconds)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            if (await editor!.PowersShot(power, 0) is not StorePreview sp || sp.ViewForTest is not ModelView v) throw new InvalidOperationException("no preview");
+            // (the preview places its 3D view while it paints, which a window off every screen never does: once here)
+            using (var bmp = new Bitmap(Math.Max(1, sp.Width), Math.Max(1, sp.Height))) sp.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+            sp.PlayForTest();
+            await Task.Delay(2000);
+            int f0 = v.FramesDrawn; double d0 = v.DrawMsTotal; var clock = System.Diagnostics.Stopwatch.StartNew();
+            var samples = new List<(double Ms, int W, int Frame)>();
+            int lastF = -1;
+            while (clock.Elapsed.TotalSeconds < seconds)
+            {
+                await Task.Delay(5);
+                if (v.FramesDrawn != lastF) { lastF = v.FramesDrawn; samples.Add((v.LastFrameMs, v.LastSize.W, lastF)); }
+            }
+            var ms = samples.Select(x => x.Ms).Order().ToList();
+            if (ms.Count > 0) lines.Add($"draw ms: min {ms[0]:0} median {ms[ms.Count / 2]:0} p90 {ms[ms.Count * 9 / 10]:0} max {ms[^1]:0}; widths {string.Join(",", samples.Select(x => x.W).Distinct().Take(12))}");
+            double el = clock.Elapsed.TotalSeconds; int frames = v.FramesDrawn - f0; double draw = v.DrawMsTotal - d0;
+            lines.Add($"window {Width}x{Height}, preview {sp.Width}x{sp.Height} visible {sp.Visible}, view {v.Width}x{v.Height}, parent chain {string.Join(" < ", Chain(v))}");
+            static IEnumerable<string> Chain(Control c) { for (var x = c; x != null; x = x.Parent) yield return $"{x.GetType().Name}:{x.Width}x{x.Height}"; }
+            lines.Add($"{power}: {frames / el:0.0} frames/s, draw {(frames > 0 ? draw / frames : 0):0.0} ms a frame, size {v.LastSize.W}x{v.LastSize.H} of {v.Width}x{v.Height}, playing {sp.IsPlaying}");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex.Message); }
+        File.AppendAllLines(outFile, lines);
+    }
+
     /// <summary>--powers-shot (scratch libraries only): the Powers tab's preview on a power at a frame, as a PNG.</summary>
     public async Task PowersShot(string png, string modName, string power, double fraction)
     {

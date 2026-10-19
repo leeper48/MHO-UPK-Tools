@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.11
+- 3D previews play smoother: up to about 60 frames a second instead of 21. The playback timer asked for 33 ms, which Windows rounds up to three of its 15.6 ms ticks (47 ms) unless another program asks for finer timing, so playback could feel slower at times without any change in the app. Timing (animation speed) is unchanged; heavy power effects still lower the drawing size while they play.
+- --powers-perf <out.txt> <mod> <power> <seconds> (scratch libraries): playback speed in the Powers tab; MHO_RENDERPROF=1 logs slow frames by stage.
+
 0.50.10
 - 3D previews: transforms. Rogue's Final Form, Rocket Raccoon's Mechfall and Loki's Frost Giant show the transformed character (the costume's own version: Rogue Classic 90s, Rocket Modern …) with its own animations and props when the power that turns it on, or one of its abilities, is picked. Another power brings the hero back.
 - Power buttons: a transform's abilities have buttons named after it (Swift Claws (Final Form), Missile Arm (Mechfall), Frost Orb (Frost Giant) …). Loki's Frost Giant abilities have no power class in the game files; they play the Frost Giant's animations of the same name (Frost Orb → absattack_iceorb).

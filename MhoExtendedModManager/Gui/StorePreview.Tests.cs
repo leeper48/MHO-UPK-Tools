@@ -168,6 +168,8 @@ sealed partial class StorePreview
 
     internal object? P3ForTest => p3;
     internal object? ViewForTest => p3?.View;
+    /// <summary>For --powers-perf: playing (if paused).</summary>
+    internal void PlayForTest() { if (p3 != null && !p3.IsPlaying) p3.TogglePlayForTest(); }
     internal float? ShownLight => show3D && p3 != null ? p3.View.Brightness : null;
 
     /// <summary>--preview-selftest: what the 3D view shows now (animation, time, camera), or null when it isn't showing.</summary>

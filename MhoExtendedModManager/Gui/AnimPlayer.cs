@@ -5,12 +5,15 @@ namespace MhoExtendedModManager.Gui;
 /// <summary>
 /// A 3D preview's playback, one way for the Mods tab's preview (StorePreview) and the Model tab's (PreviewPanel): the
 /// animation and its length, where it is, paused or playing, looping or stopping on its last frame, and the timer that
-/// moves it (33 ms). The preview draws each moment (<see cref="Moved"/>) and shows the state on its buttons
+/// moves it (15 ms). The preview draws each moment (<see cref="Moved"/>) and shows the state on its buttons
 /// (<see cref="StateChanged"/>). An animation always loads paused. Phase 3 of the preview merge, step 3.
 /// </summary>
 sealed class AnimPlayer : IDisposable
 {
-    readonly System.Windows.Forms.Timer timer = new() { Interval = 33 };
+    // 15 ms (Kurt, 2026-10-19: playback felt slow): Windows' timers tick every 15.6 ms unless a program asks for finer
+    // ones, so 33 ms waited 3 ticks (46.9 ms: 21 frames a second, measured by --powers-perf, whatever the frame cost); one
+    // tick gives up to 64. Time follows the clock either way; heavy frames shrink the drawing (ModelView.Moving).
+    readonly System.Windows.Forms.Timer timer = new() { Interval = 15 };
     readonly System.Diagnostics.Stopwatch clock = new();
     double lastTick;
 

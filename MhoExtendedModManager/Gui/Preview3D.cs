@@ -446,6 +446,8 @@ sealed partial class Preview3D : UserControl
         return true;
     }
 
+    internal void TogglePlayForTest() => TogglePlay();
+
     /// <summary>Esc: pauses a playing animation; false when nothing was playing.</summary>
     public bool PausePlayback()
     {

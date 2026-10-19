@@ -51,6 +51,8 @@ static partial class Program
         ("--mirror-fix", "--mirror-fix <package.upk> <out.upk>", "A package's skeletal meshes with their mirror tables one entry per bone, written to <out.upk> (never into the game folder)."),
         ("--own-homes", "--own-homes", "For every hero and costume package of the game, where its always-on effects are (itself, its hero's package, or none): what the Powers tab's Own Effects entries offer. Changes nothing."),
         ("--crash-check", "--crash-check <mod | all | package.upk ...>", "Crash checks on mods' character models (what the CRASH RISK pill shows): added bones, other copies of a model with fewer bones, mirror tables, sockets. Changes nothing."),
+        ("--powers-perf", "--powers-perf <out.txt> <mod> <power name> <seconds>", "Scratch libraries only: the editor's Powers tab plays a power; frames drawn per second, draw time and size (MHO_RENDERPROF=1 logs slow frames by stage)."),
+        ("--hero-forms", "--hero-forms <hero>", "A hero's forms (Jean Grey's Phoenix) and transforms (Rogue, Rocket, Loki): animation sets, transformed characters and the powers they swap. Changes nothing."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
         ("--foot-check", "--foot-check <mod> [animation name part...]", "How high a mod's mesh stands (lowest point, pelvis) at rest and over its animations: for feet below / above the ground after a move. Changes nothing."),
         ("--mod-props", "--mod-props <mod>", "For each of a mod's meshes, the props (weapons) the 3D preview shows with it and the bones they're held on. Changes nothing."),

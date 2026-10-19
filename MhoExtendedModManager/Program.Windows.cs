@@ -552,6 +552,16 @@ static partial class Program
             Console.WriteLine($"eyedropper read under the mouse: {(Gui.Eyedropper.UnderCursor() is { } u ? $"#{u.R:X2}{u.G:X2}{u.B:X2} at {Cursor.Position}" : "nothing")}");
             return 0;
         }
+        if (args.Length == 5 && args[0].Equals("--powers-perf", StringComparison.OrdinalIgnoreCase))
+        {
+            // --powers-perf <out.txt> <mod> <power name> <seconds> (scratch libraries only): playback speed in the Powers tab
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.PowersPerf(args[1], args[2], args[3], int.Parse(args[4])); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 5 && args[0].Equals("--powers-shot", StringComparison.OrdinalIgnoreCase))
         {
             // --powers-shot <out.png> <mod> <power name> <frame fraction 0-1> (scratch libraries only)

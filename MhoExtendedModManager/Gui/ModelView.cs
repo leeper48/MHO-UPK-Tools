@@ -265,6 +265,7 @@ sealed class ModelView : UserControl
     Vector3 target;
     Point? dragFrom; MouseButtons dragButton;
     bool fast;
+    static readonly bool profile = Environment.GetEnvironmentVariable("MHO_RENDERPROF") == "1";
 
     readonly Panel canvas = new DoubleBufferedPanel { Dock = DockStyle.Fill };
     Bitmap? frame;
@@ -809,6 +810,10 @@ sealed class ModelView : UserControl
 
     /// <summary>For tests: how long the last frame took to draw (ms).</summary>
     public double LastFrameMs { get; private set; }
+    /// <summary>For tests (--powers-perf): frames drawn on screen, their total draw time and the last one's size.</summary>
+    public int FramesDrawn { get; private set; }
+    public double DrawMsTotal { get; private set; }
+    public (int W, int H) LastSize => (W, H);
 
     void Render() => Render(0, 0);
 
@@ -863,6 +868,7 @@ sealed class ModelView : UserControl
             Raster(t, a, b, c, front, look);
         }
 
+        double tP1 = clock.Elapsed.TotalMilliseconds;
         // Pass 2: shade the visible pixels.
         var key = Vector3.Normalize(-f * 0.55f + u * 0.8f - r * 0.35f);
         var fill = Vector3.Normalize(-f * 0.35f - u * 0.15f + r * 0.9f);
@@ -875,12 +881,17 @@ sealed class ModelView : UserControl
                 color[p] = Shade(g & 0x3FFFFFFF, (g & 0x40000000) != 0, gB0[p], gB1[p], eye, key, fill, p);
             }
         });
+        double tP2 = clock.Elapsed.TotalMilliseconds;
         if (showBloom && anyOver) Bloom(bg >>> 24 == 0);
+        double tBl = clock.Elapsed.TotalMilliseconds;
         if (showGround) DrawGround(r, u, f, eye, focal, cx, cy, near);
+        double tGr = clock.Elapsed.TotalMilliseconds;
         // Pass 3 (power effects): opaque effect triangles, the particles, then the blended triangles, depth-tested against the model.
         if (EffectTris.Count > 0) DrawTris(true, r, u, f, eye, focal, cx, cy, near);
         if (Effects.Count > 0) DrawEffects(r, u, f, eye, focal, cx, cy, near);
         if (EffectTris.Count > 0) DrawTris(false, r, u, f, eye, focal, cx, cy, near);
+        double tFx = clock.Elapsed.TotalMilliseconds;
+        if (profile && tFx > 50) File.AppendAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_render.log"), $"{W}x{H}: pass1 {tP1:0} shade {tP2 - tP1:0} bloom {tBl - tP2:0} ground {tGr - tBl:0} effects {tFx - tGr:0} ({Effects.Count} sprites, {EffectTris.Count} tris){Environment.NewLine}");
         if (beamDebug && beamStats[0] + beamStats[1] >= 0 && Effects.Any(e => e.SwapUV)) Console.WriteLine("      drawn: " + BeamStats() + $", {Effects.Count(e => e.SwapUV)} beam pieces");
 
         if (snap) return;
@@ -889,6 +900,7 @@ sealed class ModelView : UserControl
         for (int y = 0; y < H; y++) Marshal.Copy(color, y * W, bd.Scan0 + y * bd.Stride, W);
         frame.UnlockBits(bd);
         LastFrameMs = clock.Elapsed.TotalMilliseconds;
+        FramesDrawn++; DrawMsTotal += LastFrameMs;
         if (moving && !fast)
             movingBudget = LastFrameMs > 30 ? Math.Max(60_000, movingBudget * 0.75f) : LastFrameMs < 18 ? Math.Min(MovingPixels, movingBudget * 1.15f) : movingBudget;
     }
