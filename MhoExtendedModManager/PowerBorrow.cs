@@ -508,7 +508,10 @@ static class PowerBorrow
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
-            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
+            // TEST (MHO_BORROW_VEHICLE_SCALE=1): a spawned vehicle sized by the two heroes' heights (Kurt, 2026-10-20: Cyclops'
+            // bike looked small under Thor)
+            float vscale = Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE") == "1" && HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
+            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), vscale);
             if (crossHero && pr.Role == "power" && cooked != null) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -880,7 +883,7 @@ static class PowerBorrow
     /// runs (WhileActivatedAttachmentClass). The component is a copy of a stock one (Ant-Man's ant_outro, the same form) with
     /// its class pointed at the copy.
     /// </summary>
-    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null)
+    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null, float scale = 1)
     {
         var dst = Package.FromBytes(package);
         string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
@@ -898,6 +901,7 @@ static class PowerBorrow
             dst = Package.FromBytes(cc.Output);
             int classRef = cc.RootRef;
             if (targetBones is { Count: > 0 }) dst = RootMissingBones(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, targetBones, log);
+            if (Math.Abs(scale - 1) > 0.02f) dst = ScaleAttachment(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, scale, log);
             var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
             string name = $"borrowed_{slot}_spawn{(k++ == 0 ? "" : k.ToString())}";
             var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
@@ -1240,6 +1244,78 @@ static class PowerBorrow
         return dst.RawFile;
     }
 
+    /// <summary>A hero's own model in its base package: the skeletal mesh named after the hero (UC__MarvelPlayer_Cyclops_SF →
+    /// cyclops…), else the one with the most vertices. (By vertices alone Cyclops' package gave Angel, his summon.)</summary>
+    static AnimExportCli.Meshes.SkeletalMesh? MainMesh(string heroPackage)
+    {
+        var ap = AnimExportCli.Packages.Package.Open(heroPackage);
+        string hero = Path.GetFileNameWithoutExtension(heroPackage).Split('_', StringSplitOptions.RemoveEmptyEntries) is [_, _, var h, ..] ? h : "";
+        var meshes = new List<AnimExportCli.Meshes.SkeletalMesh>();
+        foreach (int i in ap.FindExportsOfClass("skeletalmesh"))
+            if (AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i) is { } m) meshes.Add(m);
+        int Verts(AnimExportCli.Meshes.SkeletalMesh m) => m.HighestDetail?.Positions.Count ?? 0;
+        return meshes.Where(m => hero.Length > 0 && m.Name.StartsWith(hero, StringComparison.OrdinalIgnoreCase)).OrderByDescending(Verts).FirstOrDefault()
+            ?? meshes.OrderByDescending(Verts).FirstOrDefault();
+    }
+
+    /// <summary>A hero's main model's height (its base package's skeletal mesh with the most vertices: top minus bottom of
+    /// its highest-detail vertices), else null.</summary>
+    static float? HeroHeight(string heroPackage)
+    {
+        try
+        {
+            var pos = MainMesh(heroPackage)?.HighestDetail?.Positions;
+            return pos is { Count: > 0 } ? pos.Max(v => v.Z) - pos.Min(v => v.Z) : null;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException) { return null; }
+    }
+
+    /// <summary>
+    /// TEST: a spawned attachment drawn <paramref name="scale"/> times its size: its class default's DrawScale (Actor's,
+    /// default 1), set or added before its None. A hypothesis until seen in game.
+    /// </summary>
+    static Package ScaleAttachment(Package dst, string classDefault, float scale, List<string> log)
+    {
+        int d = Find(dst, classDefault);
+        if (d < 0) return dst;
+        // the attachment is an actor (it lists components): its DrawScale sizes all of them, also a mesh component it only
+        // inherits from its parent class (Cyclops' bike has none of its own)
+        int comp = d;
+        byte[] cd = dst.ReadExportBytes(dst.Exports[comp]).ToArray();
+        var ct = TagWalker.Walk(dst, cd, 4);
+        if (ct == null) { log.Add($"  {dst.Exports[comp].ObjectName}: its properties don't read: not scaled"); return dst; }
+        const string ScaleName = "DrawScale";
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return dst.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        byte[] ncd;
+        if (ct.FirstOrDefault(t => t.Name.Equals(ScaleName, StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } st)
+        {
+            ncd = cd.ToArray();
+            BinaryPrimitives.WriteSingleLittleEndian(ncd.AsSpan(st.ValueAt), BinaryPrimitives.ReadSingleLittleEndian(cd.AsSpan(st.ValueAt)) * scale);
+        }
+        else
+        {
+            var tag = new byte[28];
+            BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx(ScaleName));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("FloatProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);
+            BinaryPrimitives.WriteSingleLittleEndian(tag.AsSpan(24), scale);
+            ncd = [.. cd.AsSpan(0, ct.NoneAt), .. tag, .. cd.AsSpan(ct.NoneAt)];
+        }
+        var rep = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => ncd };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the vehicle's scale: " + string.Join("; ", problems.Take(3)));
+        log.Add($"  {dst.Exports[d].ObjectName}: drawn x{scale:0.00} (this hero's height over the other's)");
+        return Package.FromBytes(output);
+    }
+
     /// <summary>The bones of a hero's main model (HeroSkeleton), else null.</summary>
     static HashSet<string>? HeroBones(string heroPackage) => HeroSkeleton(heroPackage)?.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -1248,11 +1324,7 @@ static class PowerBorrow
     {
         try
         {
-            var ap = AnimExportCli.Packages.Package.Open(heroPackage);
-            AnimExportCli.Meshes.SkeletalMesh? best = null;
-            foreach (int i in ap.FindExportsOfClass("skeletalmesh"))
-                if (AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i) is { } m && (best == null || (m.HighestDetail?.Positions.Count ?? 0) > (best.HighestDetail?.Positions.Count ?? 0))) best = m;
-            return best?.Bones;
+            return MainMesh(heroPackage)?.Bones;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException) { return null; }
     }
