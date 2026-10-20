@@ -900,6 +900,25 @@ static class PowerBorrow
             var ct = TagWalker.Walk(dst, cd, 16)?.FirstOrDefault(t => t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase))
                      ?? throw new InvalidDataException("the spawn component has no WhileActivatedAttachmentClass");
             BinaryPrimitives.WriteInt32LittleEndian(cd.AsSpan(ct.ValueAt), classRef);
+            // its timing: the donor component that showed this slot (now hiding it here) (Kurt, 2026-10-20: Spider-Man's
+            // webbing on Thor showed at the start and was gone: its showlefttendrils runs from the loop's start to its end)
+            string timing = "";
+            foreach (int r in Components(dst, td, out _, out _))
+            {
+                if (r <= 0 || r - 1 == comp || !dst.ClassOf(dst.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
+                byte[] od = dst.ReadExportBytes(dst.Exports[r - 1]).ToArray();
+                var ot = TagWalker.Walk(dst, od, 16);
+                if (ot?.FirstOrDefault(t => t.Name.Equals("WhileActivatedHideWeaponSlot", StringComparison.OrdinalIgnoreCase)) is not { } hs
+                    || !TagWalker.NameAt(dst, od, hs.ValueAt).Equals(slot, StringComparison.OrdinalIgnoreCase)) continue;
+                var keep = ot.Where(t => t.Name is var n && (n.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase) || n.Equals("DeactivationPoint", StringComparison.OrdinalIgnoreCase)
+                    || n.Equals("ActivationOffset", StringComparison.OrdinalIgnoreCase) || n.Equals("DeactivationOffset", StringComparison.OrdinalIgnoreCase))).ToList();
+                if (keep.Count == 0) break;
+                var ctags = TagWalker.Walk(dst, cd, 16)!;
+                byte[] add = [.. keep.SelectMany(t => od[t.Start..t.End])];
+                cd = [.. cd.AsSpan(0, ctags.NoneAt), .. add, .. cd.AsSpan(ctags.NoneAt)];
+                timing = $", timed like {dst.Exports[r - 1].ObjectName} ({string.Join(", ", keep.Select(t => t.Name.ToLowerInvariant()))})";
+                break;
+            }
             var list = Components(dst, td, out var tag, out byte[] dd);
             list.Add(comp + 1);
             var value = new byte[4 + 4 * list.Count];
@@ -912,7 +931,7 @@ static class PowerBorrow
             var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
             if (problems.Count > 0) throw new InvalidDataException("the spawned attachment: " + string.Join("; ", problems.Take(3)));
             dst = Package.FromBytes(output);
-            log.Add($"  {name}: spawns {dst.PathOf(dst.Exports[classRef - 1])} while the power runs (the donor's {slot})");
+            log.Add($"  {name}: spawns {dst.PathOf(dst.Exports[classRef - 1])} while the power runs (the donor's {slot}){timing}");
         }
         return dst.RawFile;
     }
