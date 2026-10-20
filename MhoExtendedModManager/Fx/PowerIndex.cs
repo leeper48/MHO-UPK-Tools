@@ -39,10 +39,14 @@ static class PowerIndex
         {
             FxPkg p;
             try { p = FxPkg.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+            // (only what the power's default lists: a borrowed look leaves the power's old animation in the package, unused;
+            // Angela's Heavenly Charge ← Blade's Stake kept its lunge listed first, so the power button played it: 0.60.5)
+            var unlisted = PowerEffects.Unlisted(p);
             for (int i = 0; i < p.T.Exports.Count; i++)
             {
                 if (!p.T.ClassOf(p.T.Exports[i]).StartsWith("PowerFxAnimation", StringComparison.OrdinalIgnoreCase)) continue;
                 string path = p.T.PathOf(i + 1);   // marvelgamecontent.default__powerthor_x.animfoo
+                if (unlisted.Contains(path)) continue;
                 int d = path.IndexOf(".default__", StringComparison.OrdinalIgnoreCase);
                 if (d < 0) continue;
                 string rest = path[(d + ".default__".Length)..];

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.5
+- Borrowed Look (preview feature, hidden): a borrowed power's button in the 3D preview plays the borrowed animation (Angela's Heavenly Charge borrowing Blade's Stake Through the Heart played her own lunge). The power's old components stay in its package, unused, and the preview no longer counts them.
+
 0.60.4
 - Borrowed Look (preview feature, hidden): the other power's hit and crit effects come along too. Their classes carry compiled script (powerfxhit's oninit, which offsets the hit effect), now copied with every reference inside the code remapped (MHO Package Modifier 2.53.30: a reader for the game's compiled script, checked on all 2,265 functions in the game's power packages; struct types too). On the census's 1,190 pairs, clean builds rose from 341 to 428.
 

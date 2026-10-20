@@ -654,7 +654,7 @@ sealed class PowerEffects
     /// the donor's; the target's own stay in the package, unused). The game plays what the default's Components list names, so
     /// those are left out here too. Only defaults that have a list are checked.
     /// </summary>
-    static HashSet<string> Unlisted(FxPkg p)
+    internal static HashSet<string> Unlisted(FxPkg p)
     {
         var listed = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < p.T.Exports.Count; i++)
