@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.11
+- Borrowed Look (preview feature, hidden): Hawkeye's Sky-Cycle can be borrowed. Its time-varying material (MaterialInstanceTimeVarying) now copies (MHO Package Modifier 2.53.31: the same native data as a constant material instance).
+
 0.60.10
 - 3D preview: while a high-flying power plays (Spider-Man's Web-Swinging, Thor's flight), the ground grid sits 140 below the hero, where the game puts the ground (it lifts high flyers by that much).
 - Borrowed Look (preview feature, hidden): borrowing a ground power onto a flying one warns that the game still moves the hero as a flyer, so on ramps and slopes the borrowed ride dips into the ground until it reaches the top.
