@@ -113,8 +113,8 @@ static class PowerBorrow
             int existing = Find(dst, dst.PathOf(dst.Exports[td]) + "." + name);
             if (existing >= 0) { refs.Add(existing + 1); log.Add($"  {e.ObjectName} ({cls}): already in from an earlier borrow"); continue; }
             var copy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out string said);
-            if (copy == null && said.Contains("the target has no copy of it"))
-            { log.Add($"  {e.ObjectName} ({cls}): left out (its class is the donor package's own, and this package has none)"); continue; }
+            if (copy == null && (said.Contains("the target has no copy of it") || said.Contains("(compiled code) isn't copied yet")))
+            { log.Add($"  {e.ObjectName} ({cls}): left out (its class is the donor package's own, with compiled code, and this package has none)"); continue; }
             copy = copy
                 ?? throw new InvalidDataException($"{e.ObjectName} ({cls}) couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not supported")).Select(l => l.Trim())));
             dst = Package.FromBytes(copy.Output);
@@ -357,6 +357,7 @@ static class PowerBorrow
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null)
     {
+        MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var targetAnims = new List<string>(); var donorAnims = new List<string>();
         foreach (var pr in pairs)

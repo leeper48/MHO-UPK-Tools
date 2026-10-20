@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.2
+- Borrowed Look (preview feature, hidden): a borrowed power brings the other power's own script classes along (projectiles such as Punisher's stun grenade, attachments such as Black Panther's daggers), with their defaults, components and models (MHO Package Modifier 2.53.29: compiled script classes copy, read as the game's own client reads them; classes with compiled code, such as the hit effects, are still left out). On the census's 1,190 pairs, failed borrows dropped from 171 to 90.
+
 0.60.1
 - Borrowed Look (preview feature, hidden): the borrow window offers Keep This Power's Timing only when it changes something (it redraws beams with beams, or adds start effects to a power with none), says what it changes, and suggests the whole power otherwise. It warns when enemies use the power's look too (Captain America's Boomerang Throw: the Civil War Captain America boss). Copied effects get names of their own at Save (Make Unique), so a color on a borrowed power can't reach the other hero.
 - --borrow-check <target power> <donor power>: what the borrow window says for a pair (read only).
