@@ -507,6 +507,7 @@ sealed class PowerEffects
             // Modern squirrel, Ultron's Comic drones) those of the classes it extends (their default components)
             (FxPkg P, int Ref)? meshAt = null, setsAt = null, matsAt = null;
             (FxPkg P, FxProps.Prop Prop)? setsProp = null, matsProp = null;
+            float? summonScale = null;
             foreach (string c in g.ClassChain(cls))
             {
                 (FxPkg Q, List<FxProps.Prop> Props)? comp = null;
@@ -527,13 +528,15 @@ sealed class PowerEffects
                 if (meshAt == null && Q("SkeletalMesh") is { Size: 4 } smp && BitConverter.ToInt32(cp.Q.Bytes, smp.ValueAt) is int mr && mr != 0) meshAt = (cp.Q, mr);
                 if (setsProp == null && Q("AnimSets") is { Size: >= 8 } asp) setsProp = (cp.Q, asp);
                 if (matsProp == null && Q("Materials") is { Size: >= 8 } mtp) matsProp = (cp.Q, mtp);
-                if (meshAt != null && setsProp != null && matsProp != null) break;
+                if (summonScale == null && Q("Scale") is { Size: 4 } scp) summonScale = BitConverter.ToSingle(cp.Q.Bytes, scp.ValueAt);   // (Jean's illusion: 1.072)
+                if (meshAt != null && setsProp != null && matsProp != null && summonScale != null) break;
             }
             var look2 = pkgs.ToList();
             if (meshAt is not { } ma || Resolve(ma.P, ma.Ref, look2, g) is not { } mesh || g.FileFor(mesh.P.Name) is not string meshFile) { fx.Notes.Add($"{cls}: a summoned character whose model isn't found"); return true; }
             // (a placeholder of a few vertices: a wall, a decoy, a trap or a marker the game draws with effects alone)
             if (mesh.P.T.Exports[mesh.Export].SerialSize < 2000) { fx.Notes.Add($"{cls}: a summoned marker with no model to show"); return true; }
             int meshExport = mesh.Export;
+            float heroScale = 1;
             string meshPath = mesh.P.T.PathOf(mesh.Export + 1);
             foreach (string mf in g.ModFiles.Where(f => Path.GetFileName(f).StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)))
                 try
@@ -541,7 +544,16 @@ sealed class PowerEffects
                     var mp2 = FxPkg.Open(mf);
                     for (int k = 0; k < mp2.T.Exports.Count; k++)
                         if (mp2.T.ClassOf(mp2.T.Exports[k]).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && mp2.T.PathOf(k + 1).Equals(meshPath, StringComparison.OrdinalIgnoreCase))
-                        { meshFile = mf; meshExport = k; break; }
+                        {
+                            meshFile = mf; meshExport = k;
+                            // the character's own scale (a mod's 0.95): the preview draws the character at 1, so the summon is
+                            // drawn at its scale over the character's, as big beside it as in game
+                            string stem = Path.GetFileNameWithoutExtension(mf)[4..^3].ToLowerInvariant();
+                            int hc = mp2.Find("marvelgamecontent.default__" + stem + ".initialskeletalmesh");
+                            if (hc >= 0 && FxProps.Find(mp2.Bytes, mp2.T, mp2.T.Exports[hc])?.Props.FirstOrDefault(x => x.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && x.Size == 4) is { } hs)
+                                heroScale = BitConverter.ToSingle(mp2.Bytes, hs.ValueAt);
+                            break;
+                        }
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
             // its AnimSets (the last one it lists that's found: a later set wins)
@@ -562,7 +574,7 @@ sealed class PowerEffects
                     mats.Add(Resolve(mp3.P, BitConverter.ToInt32(mp3.P.Bytes, mp3.Prop.ValueAt + 4 + 4 * k), look2, g) is { } mt && g.FileFor(mt.P.Name) is string mtf ? (mtf, mt.Export) : null);
             }
             fx.Actors.Add(new Actor(cls, meshFile, meshExport, setFile, setExport, null, "power_on_start", 0, null, 0, false, 0,
-                false, new Vector3(0, 140, 0), Vector3.Zero, 1, "summon") { Materials = mats });
+                false, new Vector3(0, 140, 0), Vector3.Zero, (summonScale ?? 1) / Math.Max(0.01f, heroScale), "summon") { Materials = mats });
             return true;
         }
         return false;

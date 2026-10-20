@@ -161,16 +161,18 @@ sealed class PreviewEffects : IDisposable
                     var lm = ModMeshes.Load(mref, cookedFolder, out _);
                     if (lm == null) continue;
                     if (s.Kind == "summon" && lm.Positions.Length < 32) continue;   // (a placeholder: an ant ally, a decoy marker)
-                    // a summon's mesh component's own materials in place of the mesh's (Jean Grey's illusion material). Jean's
-                    // illusion lists one material for a 4-material mesh and the game draws all of it as the illusion: sections past
-                    // the list take the list's last material.
+                    // a summon's mesh component's own materials in place of the mesh's (Jean Grey's illusion material), by
+                    // material slot as the game does (0.50.22, seen in game: a mod's model whose parts use slots 3 and 2 stayed
+                    // solid under the illusion's one slot-0 material; Save now gives the illusion that material on every slot)
                     if (s.Materials is { Count: > 0 } mats)
                     {
                         var looks = lm.Looks.ToArray();
+                        var slots = ModMeshes.SectionSlots(mref);
                         var lookAt = new Dictionary<int, ModelView.Look?>();
                         for (int k = 0; k < looks.Length; k++)
                         {
-                            int at = Math.Min(k, mats.Count - 1);
+                            int at = k < slots.Count ? slots[k] : k;
+                            if (at < 0 || at >= mats.Count) continue;
                             if (!lookAt.TryGetValue(at, out var lk)) lookAt[at] = lk = mats[at] is { } mt ? ModMeshes.LookOf(mt.File, mt.Export, cookedFolder) : null;
                             if (lk != null) looks[k] = lk;
                         }

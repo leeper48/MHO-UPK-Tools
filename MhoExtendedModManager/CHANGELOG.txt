@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.22
+- Summons that show the mod's model (Jean Grey's illusions, Cyclops' summoned Jean) get its look right in game. Seen in game on Ultimate Jean Grey: the illusion was solid, and too big.
+  • The illusion's see-through material covers material slots by number, and the game's illusion sets only slot 0 (the game's All-New X-Men model has one slot). The mod's model has 4 and uses slots 3 and 2, so none of it was see-through. Save now gives the summon its material on every slot of the mod's model.
+  • The summon's size is set for the game's character: the mod's character scale (0.95) left the illusion at the game's 1.072, 13 % bigger than her instead of 7 %. The summon's scale now changes by the same factor.
+  • These go into the summons' own game packages (existing files, names and GUIDs kept), added to the mod by Save: open the mod in the editor and Save, then Apply Changes.
+- 3D previews: a summon's materials apply by material slot, as in game (0.50.14 put the last one on every part), and a summon is drawn at its own scale over the character's.
+
 0.50.21
 - --mesh-aliases [--all]: every character package whose class swaps models by alias, and which of them Build into Mod builds onto too (read only). Of the game's 11,844 character packages, only Ant-Man's four costumes and Howard the Duck's team-up (Iron Duck) have them.
 

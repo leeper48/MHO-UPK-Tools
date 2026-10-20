@@ -716,6 +716,13 @@ static class ModMeshes
     }
 
     /// <summary>For --material-probe: each section of a mesh (highest detail) with its material reference.</summary>
+    /// <summary>Each section's material slot (highest detail), in section order; empty when the mesh doesn't read.</summary>
+    public static List<int> SectionSlots(MeshRef r)
+    {
+        var pkg = AnimPackage.Open(r.File);
+        return SkeletalMeshReader.TryRead(pkg, r.Export, _ => { })?.HighestDetail is { } lod ? [.. lod.Sections.Select(s => s.MaterialIndex)] : [];
+    }
+
     public static List<(int Section, int Material)> SectionMaterials(MeshRef r)
     {
         var pkg = AnimPackage.Open(r.File);

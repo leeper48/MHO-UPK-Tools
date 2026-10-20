@@ -2352,6 +2352,11 @@ static partial class Program
                 var mmr = ModMeshes.List([(Path.GetFileName(rest[1]), rest[1])], anyPackage: true).FirstOrDefault(r => r.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
                 if (mmr == null) { Console.WriteLine("no such mesh"); return 1; }
                 var mp = MhoPackageModifier.Package.Open(rest[1]);
+                {
+                    var apk = AnimExportCli.Packages.Package.Open(mmr.File);
+                    if (AnimExportCli.Meshes.SkeletalMeshReader.TryRead(apk, mmr.Export, _ => { })?.HighestDetail is { } slod)
+                        Console.WriteLine($"{ModMeshes.MaterialRefs(apk, mmr.Export).Count} material slot(s); sections use slots {string.Join(", ", slod.Sections.Select(s => s.MaterialIndex))}");
+                }
                 foreach (var (sec, mat) in ModMeshes.SectionMaterials(mmr))
                 {
                     if (mat == 0) { Console.WriteLine($"section {sec}: none"); continue; }

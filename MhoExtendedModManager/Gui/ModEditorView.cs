@@ -366,16 +366,35 @@ sealed partial class ModEditorView : UserControl
                 any = true;
             }
             var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag, own, game.Cooked);
-            if (!plan.Changes) continue;
-            Directory.CreateDirectory(work);
-            string dst = Path.Combine(work, file);
-            byte[] built = UniqueNames.Build(src, plan);
-            File.WriteAllBytes(dst, built);
-            draft.BeforeUnique[file] = (src, UniqueNames.Sha(built));   // (Make Unique's undo copy: the package before this rename)
-            int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
-            draft.Packages[k] = (file, dst);
-            log.AddRange(plan.Notes.Select(n => $"unique: {file}: {n}"));
-            any = true;
+            string final = src;
+            if (plan.Changes)
+            {
+                Directory.CreateDirectory(work);
+                string dst = Path.Combine(work, file);
+                byte[] built = UniqueNames.Build(src, plan);
+                File.WriteAllBytes(dst, built);
+                draft.BeforeUnique[file] = (src, UniqueNames.Sha(built));   // (Make Unique's undo copy: the package before this rename)
+                int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+                draft.Packages[k] = (file, dst);
+                log.AddRange(plan.Notes.Select(n => $"unique: {file}: {n}"));
+                final = dst;
+                any = true;
+            }
+            // the summons kept showing the mod's model (Jean's illusions): their materials and scale fitted to it (0.50.22)
+            if (plan.Kept.Count == 0 || !file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) continue;
+            var fixNotes = new List<string>();
+            var fixes = SummonLooks.Fix(file, final, StockFiles.For(game.Cooked, file), plan.Kept, game.Cooked,
+                f => draft.Packages.FirstOrDefault(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source, draft.Packages.Select(p => p.Source), fixNotes);
+            log.AddRange(fixNotes.Select(n => $"summons: {n}"));
+            foreach (var (sumFile, bytes) in fixes)
+            {
+                Directory.CreateDirectory(work);
+                string dst = Path.Combine(work, sumFile);
+                File.WriteAllBytes(dst, bytes);
+                int k = draft.Packages.FindIndex(p => p.File.Equals(sumFile, StringComparison.OrdinalIgnoreCase));
+                if (k >= 0) draft.Packages[k] = (sumFile, dst); else draft.Packages.Add((sumFile, dst));
+                any = true;
+            }
         }
         return any ? work : null;
     }
