@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.9
+- Borrowed Look (preview feature, hidden): a ground power's animations borrowed onto a high-flying one (Cyclops' ride on Spider-Man's Web-Swinging) are lowered by the height the game lifts high flyers (140), so the bike meets the ground instead of floating.
+
 0.60.8
 - 3D preview: a vehicle a power brings along (a borrowed ride's bike) plays its own animation, so it sits under its rider. It used to show in its rest pose, ahead of and below the rider.
 

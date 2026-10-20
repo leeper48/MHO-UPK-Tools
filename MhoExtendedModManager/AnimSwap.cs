@@ -33,8 +33,9 @@ static class AnimSwap
 {
     /// <summary>One swap: the costume's animation <paramref name="Slot"/> becomes the donor package's sequence
     /// <paramref name="DonorSequence"/> (an export of <paramref name="DonorSet"/>); <paramref name="Rate"/> &gt; 0 sets the copy's
-    /// own play rate (a borrowed power's animation fitted to the length of the one it replaces), else Build's rateScale.</summary>
-    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0);
+    /// own play rate (a borrowed power's animation fitted to the length of the one it replaces), else Build's rateScale;
+    /// <paramref name="Lift"/> moves the whole animation up (down when negative) by its root bone.</summary>
+    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0);
 
     /// <summary>
     /// An in-game test for the hero's alternate sets (2026-10-04, a user: Jean Grey's Phoenix animations; CostumeAnims.Aliases):
@@ -443,9 +444,17 @@ static class AnimSwap
         }
         foreach (var (set, seqs) in newSets)
         {
+            byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
+            bool lifted = false;
             foreach (var (seq, slot) in seqs)
             {
                 byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
+                float lift = swaps.FirstOrDefault(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase))?.Lift ?? 0;
+                if (lift != 0)
+                {
+                    if (LiftRoot(pkg, sd, d, lift, out string why)) lifted = true;
+                    else log.Add($"  {slot}: not moved {lift:0} ({why})");
+                }
                 var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && x.Size == 8)
                         ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
                 BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), NameIdx(slot));
@@ -455,7 +464,7 @@ static class AnimSwap
                 byte[] dd = d;
                 replace[seq - 1] = _ => dd;
             }
-            byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
+            if (lifted) { sd = WithTranslationBone(pkg, sd, "root", NameIdx); log.Add($"  the set takes the root bone's position (moved {swaps.Max(x => Math.Abs(x.Lift)):0})"); }
             var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))
                      ?? throw new InvalidDataException($"the copied set #{set} has no Sequences list");
             var list = new byte[4 + 4 * seqs.Count];
@@ -501,6 +510,74 @@ static class AnimSwap
         if (problems.Count > 0) throw new InvalidDataException("the edited package didn't verify: " + string.Join("; ", problems.Take(3)));
         log.Add($"{swaps.Count} animation(s) swapped; {newSets.Count} set(s) added to the costume's list");
         return output;
+    }
+
+    /// <summary>
+    /// Moves a copied sequence (<paramref name="d"/>, edited in place) by <paramref name="lift"/> on Z through its root track's
+    /// translation keys: only for plain float keys (TranslationCompressionFormat ACF_None, not per-track), which is how the
+    /// game's riding animations store them (Cyclops' movement_ridebike_*: root one key at 0). The set must then list root
+    /// among its UseTranslationBoneNames (WithTranslationBone), or the game keeps the root at its rest position.
+    /// </summary>
+    static bool LiftRoot(Package pkg, byte[] set, byte[] d, float lift, out string why)
+    {
+        why = "";
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        if (tb == null) { why = "the set has no bone list"; return false; }
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt)), root = -1;
+        for (int k = 0; k < nb && root < 0; k++)
+            if (pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * k))].Equals("root", StringComparison.OrdinalIgnoreCase)) root = k;
+        if (root < 0) { why = "no root track"; return false; }
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tags == null) { why = "the animation's properties don't read"; return false; }
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string tf = Enum("TranslationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (tf.Length > 0 && !tf.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) { why = "positions stored as " + tf; return false; }
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return false; }
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        if (ot == null) { why = "no track offsets"; return false; }
+        int no = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt));
+        if (no != 4 * nb) { why = $"{no} track offsets for {nb} bones"; return false; }
+        int at = ot.ValueAt + 4 + 16 * root;
+        int tOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at)), tKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
+        if (tOff < 0 || tKeys < 1) { why = "the root has no position keys"; return false; }
+        // native data: the raw tracks (skipped), then the compressed stream (count + bytes)
+        int p = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        if (raw < 0 || raw > 100000) { why = "the raw tracks don't read"; return false; }
+        for (int k = 0; k < raw; k++)
+        {
+            p += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+            p += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+        }
+        int len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        if (len < 0 || p + len > d.Length || tOff + 12 * tKeys > len) { why = "the key data doesn't read"; return false; }
+        for (int k = 0; k < tKeys; k++)
+        {
+            int z = p + tOff + 12 * k + 8;
+            BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(z), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(z)) + lift);
+        }
+        return true;
+    }
+
+    /// <summary>A set's data with <paramref name="bone"/> in its UseTranslationBoneNames (added when missing; the list must exist:
+    /// without one every bone takes its animated position already).</summary>
+    static byte[] WithTranslationBone(Package pkg, byte[] set, string bone, Func<string, int> nameIdx)
+    {
+        var t = TagWalker.Walk(pkg, set, 4)?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
+        if (t == null) return set;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(t.ValueAt));
+        for (int k = 0; k < n; k++)
+        {
+            int ni = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(t.ValueAt + 4 + 8 * k));
+            if (ni < pkg.Names.Length && pkg.Names[ni].Equals(bone, StringComparison.OrdinalIgnoreCase)) return set;
+        }
+        var add = new byte[8];
+        BinaryPrimitives.WriteInt32LittleEndian(add, nameIdx(bone));
+        byte[] o = [.. set.AsSpan(0, t.End), .. add, .. set.AsSpan(t.End)];
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(t.ValueAt), n + 1);
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(t.Start + 16), t.Size + 8);
+        return o;
     }
 
     /// <summary>

@@ -60,7 +60,17 @@ static class PowerBorrow
             string donorHero = StockFiles.For(game.Cooked, $"UC__MarvelPlayer_{dh}_SF.upk");
             // what the donor shows through its conditions (a ride's vehicle), spawned by the borrowed power instead
             var spawn = e.KeepTiming ? [] : ConditionAttachments(db, fx, e.Donor, donorHero, log);
-            var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn);
+            // a ground power's animations on a high-flying one: the game lifts the hero (Globals' HighFlyingHeight) and the
+            // ground animations sit at the floor, so they are lowered by that much (Spider-Man riding Cyclops' bike floated
+            // in Web-Swinging; Kurt, 2026-10-20)
+            float lift = 0;
+            if (!e.KeepTiming && Field(db, e.Power, "HighFlying", 'B') is 1 && Field(db, e.Donor, "HighFlying", 'B') is not 1
+                && Field(db, "Globals/Globals.defaults", "HighFlyingHeight", 'D') is double hf && hf > 0)
+            {
+                lift = -(float)hf;
+                log.Add($"anims: lowered {hf:0} (the target flies high, the donor's animations are on the ground)");
+            }
+            var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift);
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -421,6 +431,25 @@ static class PowerBorrow
         return found;
     }
 
+    /// <summary>A prototype's field (its own, else its parents'): a bool as 0 / 1, a float as a double, an int as a long;
+    /// null when no prototype on the way sets it.</summary>
+    public static object? Field(Fx.GameData db, string path, string field, char type)
+    {
+        if (db.Find(path.Replace('/', '\\')) is not { } pe) return null;
+        ulong id = pe.Id;
+        for (int guard = 0; guard < 32 && id != 0; guard++)
+        {
+            var d = db.Prototype(id).Data;
+            foreach (var gr in d.Groups)
+                foreach (var f in gr.Simple)
+                    if (f.Type == type && db.FieldName(gr.Blueprint, f.Id) == field)
+                        return type switch { 'B' => (object)(f.Value.Raw != 0 ? 1 : 0), 'D' => BitConverter.Int64BitsToDouble((long)f.Value.Raw), _ => (long)f.Value.Raw };
+            if (!d.HasParent) break;
+            id = d.Parent;
+        }
+        return null;
+    }
+
     /// <summary>A sequence's length in seconds in a hero package's animation sets (the character's: the set with the most bones
     /// holding that name, not a vehicle's), else 0.</summary>
     public static float Length(string heroPackage, string anim)
@@ -444,7 +473,7 @@ static class PowerBorrow
     /// Returns the changed packages by file name.
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
-        IReadOnlyList<(string File, int Export, string Slot)>? spawn = null)
+        IReadOnlyList<(string File, int Export, string Slot)>? spawn = null, float lift = 0)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -487,7 +516,7 @@ static class PowerBorrow
             float donorLen = Length(donorHeroPackage, an);
             float rate = fit && targetLen > 0.01f && donorLen > 0.01f ? donorLen / targetLen : 1;
             log.Add($"anims: {an} {donorLen:0.##} s{(Math.Abs(rate - 1) > 0.01f ? $", played ×{rate:0.##} to last {targetLen:0.##} s like the target's {string.Join(" / ", targetAnims)}" : "")}");
-            swaps.Add(found with { Rate = rate });
+            swaps.Add(found with { Rate = rate, Lift = lift });
         }
         if (swaps.Count > 0)
         {
