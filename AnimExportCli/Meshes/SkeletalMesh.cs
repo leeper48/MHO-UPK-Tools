@@ -115,6 +115,22 @@ public static class SkeletalMeshReader
     private const int MaxLods = 16;
     private const int MaxSections = 1024;
 
+    /// <summary>Where a mesh keeps a position (byte offset in its export data): Kind "vec" = 3 floats at At (bounds origin,
+    /// mesh Origin, a bone's rest position, a packed vertex buffer's origin / extension), "radius" = 1 float, "verts" =
+    /// Count float positions, Stride bytes apart, from At.</summary>
+    public readonly record struct PositionSpot(string Kind, int At, int Count = 1, int Stride = 0);
+
+    [ThreadStatic] static List<PositionSpot>? spots;
+
+    /// <summary>Every place a mesh keeps a position (for scaling it uniformly), read the same way TryRead reads it; null
+    /// when it doesn't read.</summary>
+    public static List<PositionSpot>? PositionSpots(Package package, int exportIndex)
+    {
+        spots = [];
+        try { return TryRead(package, exportIndex) != null ? spots : null; }
+        finally { spots = null; }
+    }
+
     public static SkeletalMesh? TryRead(Package package, int exportIndex, Action<string>? onFailure = null)
     {
         if (!string.Equals(package.GetExportClassName(exportIndex), ClassName, StringComparison.OrdinalIgnoreCase))
@@ -143,10 +159,14 @@ public static class SkeletalMeshReader
         ReadOnlySpan<byte> data = package.GetExportData(exportIndex);
         var cursor = new PackageCursor(data, properties.PayloadOffset);
 
+        spots?.Add(new("vec", cursor.Position));
+        spots?.Add(new("vec", cursor.Position + 12));   // the extent
+        spots?.Add(new("radius", cursor.Position + 24));
         cursor.Skip(MeshBounds.ByteSize);
 
         SkipObjectArray(ref cursor); // materials — this tool doesn't need them
 
+        spots?.Add(new("vec", cursor.Position));
         var origin = new System.Numerics.Vector3(cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
         var rotOrigin = (cursor.ReadInt32("rot origin pitch"), cursor.ReadInt32("rot origin yaw"), cursor.ReadInt32("rot origin roll"));
 
@@ -191,6 +211,7 @@ public static class SkeletalMeshReader
 
             var orientation = new Quaternion(
                 cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
+            spots?.Add(new("vec", cursor.Position));
             var position = new Vector3(cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
 
             cursor.Skip(4); // child count — not needed; parent links are enough to rebuild the hierarchy
@@ -307,6 +328,7 @@ public static class SkeletalMeshReader
         bool fullPrecisionUvs = cursor.ReadUInt32() != 0;
         cursor.Skip(4); // packed-position flag — the element size below decides the layout, not this flag
 
+        int extensionAt = cursor.Position;
         var extension = new Vector3(cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
         var origin = new Vector3(cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
 
@@ -337,6 +359,9 @@ public static class SkeletalMeshReader
 
         int vertexStart = cursor.Position;
         int uvOffset = layout.PositionOffset + positionBytes;
+        // packed positions are stored against the buffer's origin and extension: scaling those scales them
+        if (packedPosition) { spots?.Add(new("vec", extensionAt)); spots?.Add(new("vec", extensionAt + 12)); }
+        else spots?.Add(new("verts", vertexStart + layout.PositionOffset, count, elementSize));
 
         for (int i = 0; i < count; i++)
         {

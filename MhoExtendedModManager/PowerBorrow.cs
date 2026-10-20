@@ -1280,8 +1280,9 @@ static class PowerBorrow
     {
         int d = Find(dst, classDefault);
         if (d < 0) return dst;
-        // its own mesh component, scaled (DrawScale on the attachment didn't reach Cyclops' bike in game, x2 unchanged:
-        // Kurt 2026-10-20); one that only inherits its parent's gets one of its own first (OwnMeshComponent)
+        // the model itself, scaled (ScaledModel); a scale on the attachment or its component isn't read by the game
+        if (ScaledModel(dst, classDefault, scale, log) is { } scaled) return scaled;
+        // (older tries, kept for the record: its own mesh component, scaled)
         byte[] b0 = dst.ReadExportBytes(dst.Exports[d]).ToArray();
         var mt = TagWalker.Walk(dst, b0, 4)?.FirstOrDefault(t => t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
         int mr = mt == null ? 0 : BinaryPrimitives.ReadInt32LittleEndian(b0.AsSpan(mt.ValueAt));
@@ -1328,6 +1329,55 @@ static class PowerBorrow
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
         if (problems.Count > 0) throw new InvalidDataException("the vehicle's scale: " + string.Join("; ", problems.Take(3)));
         log.Add($"  {dst.Exports[d].ObjectName}: drawn x{scale:0.00} (this hero's height over the other's)");
+        return Package.FromBytes(output);
+    }
+
+    /// <summary>
+    /// TEST: the attachment drawn <paramref name="scale"/> times its size by its model itself: its ModelMesh copied under a
+    /// name of its own (Cyclops' bike model is Wolverine's wolverine_bike: the stock path must stay as it is) with every
+    /// position scaled (bounds, mesh origin, bones' rest positions, vertices or a packed buffer's origin / extension), and
+    /// ModelMesh pointed at the copy. The game builds the attachment's component from ModelMesh in native code
+    /// (AMarvelAttachment_Models::CreateAttachments) and reads no scale from the attachment (Kurt, 2026-10-20: DrawScale and
+    /// an own component's Scale both left the bike as it was).
+    /// </summary>
+    static Package? ScaledModel(Package dst, string classDefault, float scale, List<string> log)
+    {
+        int d = Find(dst, classDefault);
+        if (d < 0) return null;
+        byte[] db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var mt = TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase));
+        if (mt == null || BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt)) < 1) { log.Add("  the attachment names no model: not scaled"); return null; }
+        int mesh = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt + 4));
+        if (mesh <= 0) { log.Add("  the attachment's model isn't in this package: not scaled"); return null; }
+        string newName = $"{dst.Exports[mesh - 1].ObjectName}_x{(int)MathF.Round(scale * 100)}";
+        var cc = CrossMove.Quiet(() => ExportCopy.Copy(dst, mesh - 1, dst, [], newName), out string said);
+        if (cc == null) { log.Add("  the model couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim()))); return null; }
+        dst = Package.FromBytes(cc.Output);
+        int copy = cc.RootRef - 1;
+        // the copy's positions, scaled
+        var ap = AnimExportCli.Packages.Package.Read(dst.RawFile);
+        var where = AnimExportCli.Meshes.SkeletalMeshReader.PositionSpots(ap, copy);
+        if (where == null) { log.Add("  the model's copy doesn't read: not scaled"); return null; }
+        byte[] md = dst.ReadExportBytes(dst.Exports[copy]).ToArray();
+        void Mul(int at) => BinaryPrimitives.WriteSingleLittleEndian(md.AsSpan(at), BinaryPrimitives.ReadSingleLittleEndian(md.AsSpan(at)) * scale);
+        int verts = 0;
+        foreach (var w in where)
+            switch (w.Kind)
+            {
+                case "vec": Mul(w.At); Mul(w.At + 4); Mul(w.At + 8); break;
+                case "radius": Mul(w.At); break;
+                case "verts": for (int k = 0; k < w.Count; k++) { int at = w.At + k * w.Stride; Mul(at); Mul(at + 4); Mul(at + 8); } verts += w.Count; break;
+            }
+        // the attachment's ModelMesh: the copy
+        d = Find(dst, classDefault);
+        db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        mt = TagWalker.Walk(dst, db, 4)!.First(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase));
+        BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(mt.ValueAt + 4), copy + 1);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [copy] = _ => md, [d] = _ => db };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) { log.Add("  the scaled model: " + string.Join("; ", problems.Take(3))); return null; }
+        log.Add($"  {dst.Exports[d].ObjectName}: its model copied as {newName}, drawn x{scale:0.00} ({where.Count(w => w.Kind == "vec")} points and {verts} vertices scaled)");
         return Package.FromBytes(output);
     }
 
