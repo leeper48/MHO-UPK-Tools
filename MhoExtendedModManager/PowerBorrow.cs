@@ -379,6 +379,15 @@ static class PowerBorrow
         if (Has(byClass)) return byClass;
         string? byFolder = HeroOf(power);
         if (Has(byFolder)) return byFolder;
+        // travel powers sit in Powers\Player\TravelPower\ (0.60.7: Spider-Man's Web-Swinging found no hero): the class's first
+        // part (powerspiderman_webswingingmvmt) or the prototype's name (SpidermanFlight, CyclopsRide) names the hero
+        string? byClassHead = powerClass?.Split('_')[0] is { Length: > 5 } ch && ch.StartsWith("power", StringComparison.OrdinalIgnoreCase) ? ch[5..] : null;
+        if (Has(byClassHead)) return byClassHead;
+        string file = Path.GetFileNameWithoutExtension(power);
+        string? byName = Directory.EnumerateFiles(cooked, "UC__MarvelPlayer_*_SF.upk").Select(f => Path.GetFileNameWithoutExtension(f).Split('_'))
+            .Where(p => p.Length == 5).Select(p => p[3]).Where(h => file.StartsWith(h, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(h => h.Length).FirstOrDefault();
+        if (Has(byName)) return byName;
         if (anims.Count == 0) return null;
         string key = string.Join("|", anims.OrderBy(a => a, StringComparer.OrdinalIgnoreCase));
         lock (heroByAnims) if (heroByAnims.TryGetValue(key, out var hit)) return hit;
