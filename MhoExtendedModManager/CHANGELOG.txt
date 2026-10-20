@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.15
+- Borrowed Look (preview feature, hidden): a spawned vehicle or weapon whose attachment names a bone the hero doesn't have is held at the hero's origin instead. Hawkeye's Sky-Cycle names g_mountattach, which Thor's model lacks, and didn't show at all.
+
 0.60.14
 - 3D preview: a prop whose attachment names a bone the character doesn't have sits at the character's origin, where its own animation places it, instead of in the right hand. Hawkeye's Sky-Cycle names g_mountattach, which no player model has: it sat on the rider's shoulder.
 

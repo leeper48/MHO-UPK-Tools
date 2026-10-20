@@ -507,7 +507,7 @@ static class PowerBorrow
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
-            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log);
+            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
@@ -872,7 +872,7 @@ static class PowerBorrow
     /// runs (WhileActivatedAttachmentClass). The component is a copy of a stock one (Ant-Man's ant_outro, the same form) with
     /// its class pointed at the copy.
     /// </summary>
-    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot)> classes, string cooked, List<string> log)
+    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null)
     {
         var dst = Package.FromBytes(package);
         string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
@@ -889,6 +889,7 @@ static class PowerBorrow
                 ?? throw new InvalidDataException($"{hp.Exports[export].ObjectName} couldn't be copied: " + string.Join(" ", csaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
             dst = Package.FromBytes(cc.Output);
             int classRef = cc.RootRef;
+            if (targetBones is { Count: > 0 }) dst = RootMissingBones(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, targetBones, log);
             var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
             string name = $"borrowed_{slot}_spawn{(k++ == 0 ? "" : k.ToString())}";
             var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
@@ -934,6 +935,56 @@ static class PowerBorrow
             log.Add($"  {name}: spawns {dst.PathOf(dst.Exports[classRef - 1])} while the power runs (the donor's {slot}){timing}");
         }
         return dst.RawFile;
+    }
+
+    /// <summary>The bones of a hero's main model (its base package's skeletal mesh with the most vertices), else null.</summary>
+    static HashSet<string>? HeroBones(string heroPackage)
+    {
+        try
+        {
+            var ap = AnimExportCli.Packages.Package.Open(heroPackage);
+            AnimExportCli.Meshes.SkeletalMesh? best = null;
+            foreach (int i in ap.FindExportsOfClass("skeletalmesh"))
+                if (AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i) is { } m && (best == null || (m.HighestDetail?.Positions.Count ?? 0) > (best.HighestDetail?.Positions.Count ?? 0))) best = m;
+            return best?.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException) { return null; }
+    }
+
+    /// <summary>
+    /// A spawned attachment's class default with every AttachmentBones entry the target's skeleton lacks set to root (the
+    /// character's origin; a ride's own animation lifts it into place). Hawkeye's Sky-Cycle names g_mountattach, which no
+    /// Thor model has: spawned there it didn't show at all (Kurt, 2026-10-20). (Hawkeye's own model lacks it too; his
+    /// Sky-Cycle is one of his character's attachments, which the game evidently places another way.)
+    /// </summary>
+    static Package RootMissingBones(Package dst, string classDefault, IReadOnlySet<string> bones, List<string> log)
+    {
+        int d = Find(dst, classDefault);
+        if (d < 0) return dst;
+        byte[] b = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var t = TagWalker.Walk(dst, b, 4)?.FirstOrDefault(x => x.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase));
+        if (t == null) return dst;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt));
+        var addNames = new List<string>();
+        int root = Array.FindIndex(dst.Names, x => x.Equals("root", StringComparison.OrdinalIgnoreCase));
+        if (root < 0) { addNames.Add("root"); root = dst.Names.Length; }
+        var moved = new List<string>();
+        for (int k = 0; k < n; k++)
+        {
+            int at = t.ValueAt + 4 + 8 * k;
+            string bone = TagWalker.NameAt(dst, b, at);
+            if (bone.Equals("none", StringComparison.OrdinalIgnoreCase) || bones.Contains(bone)) continue;
+            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(at), root);
+            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(at + 4), 0);
+            moved.Add(bone);
+        }
+        if (moved.Count == 0) return dst;
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => b };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the spawned attachment's bone: " + string.Join("; ", problems.Take(3)));
+        log.Add($"  {dst.Exports[d].ObjectName}: held at root (this hero has no {string.Join(", ", moved)})");
+        return Package.FromBytes(output);
     }
 
     /// <summary>An export's archetype when it's a component template in another class's default (an import
