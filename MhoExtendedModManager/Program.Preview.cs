@@ -2344,6 +2344,27 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--script-refs":
+            {
+                // Read-only: what a compiled script function refers to (objects and names, in code order).
+                // --script-refs <package.upk> <function path>
+                if (rest.Count < 3) { Console.WriteLine("--script-refs <package.upk> <function path>"); return 1; }
+                var sp = MhoPackageModifier.Package.Open(rest[1]);
+                int fi = Array.FindIndex(sp.Exports, e => sp.PathOf(e).Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (fi < 0) { Console.WriteLine("no " + rest[2]); return 1; }
+                byte[] fd = sp.ReadExportBytes(sp.Exports[fi]).ToArray();
+                MhoPackageModifier.ScriptCode.UseNoneName(Array.FindIndex(sp.Names, n => n.Equals("None", StringComparison.OrdinalIgnoreCase)));
+                var refs = MhoPackageModifier.ScriptCode.Function(fd, out string? ferr);
+                if (refs == null) { Console.WriteLine("doesn't read: " + ferr); return 1; }
+                var all = refs.Objects.Select(o => (o, true)).Concat(refs.Names.Select(n => (n, false))).OrderBy(x => x.Item1);
+                foreach (var (at, obj) in all)
+                {
+                    int v = BitConverter.ToInt32(fd, at);
+                    string what = obj ? (v == 0 ? "null" : v > 0 ? sp.PathOf(sp.Exports[v - 1]) : sp.RefName(v)) : (v >= 0 && v < sp.Names.Length ? "'" + sp.Names[v] + "'" : "?");
+                    Console.WriteLine($"  {at,6}: {what}");
+                }
+                return 0;
+            }
             case "--mesh-bones":
             {
                 // Read-only: every skeletal mesh in the given packages with its bone names (skeleton comparisons).
