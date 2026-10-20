@@ -381,9 +381,12 @@ sealed partial class ModEditorView : UserControl
                 any = true;
             }
             // the summons kept showing the mod's model (Jean's illusions): their materials and scale fitted to it (0.50.22)
-            if (plan.Kept.Count == 0 || !file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) continue;
+            // (every model of it the hero's own summons share, the ones the mod ships already too: Make Unique leaves those out)
+            var kept = SummonLooks.SharedWith(final, file, shared, own);
+            if (kept.Count == 0) continue;
             var fixNotes = new List<string>();
-            var fixes = SummonLooks.Fix(file, final, StockFiles.For(game.Cooked, file), plan.Kept, game.Cooked,
+            var fixes = SummonLooks.Fix(file, final, StockFiles.For(game.Cooked, file), kept, game.Cooked,
                 f => draft.Packages.FirstOrDefault(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source, draft.Packages.Select(p => p.Source), fixNotes);
             log.AddRange(fixNotes.Select(n => $"summons: {n}"));
             foreach (var (sumFile, bytes) in fixes)

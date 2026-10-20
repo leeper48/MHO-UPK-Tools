@@ -1,10 +1,14 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.50.23
+- Summons keep the game's size unless the mod really changes the character's: a character's scale is read as the game does, its own else inherited from the class it extends. Jean Grey's costumes set none and inherit her base class's 0.95; a costume mod that sets 0.95 changes nothing, but 0.50.22 read the game's costume as 1 and shrank her illusions. (In the game, Jean's own illusions are 1.072, Cable's illusion size, so they're 13 % bigger than her; that stays.)
+- Save also corrects summon packages the mod already ships (the ones 0.50.22 saved), and the 3D preview reads the character's scale the same way.
+
 0.50.22
 - Summons that show the mod's model (Jean Grey's illusions, Cyclops' summoned Jean) get its look right in game. Seen in game on Ultimate Jean Grey: the illusion was solid, and too big.
   • The illusion's see-through material covers material slots by number, and the game's illusion sets only slot 0 (the game's All-New X-Men model has one slot). The mod's model has 4 and uses slots 3 and 2, so none of it was see-through. Save now gives the summon its material on every slot of the mod's model.
-  • The summon's size is set for the game's character: the mod's character scale (0.95) left the illusion at the game's 1.072, 13 % bigger than her instead of 7 %. The summon's scale now changes by the same factor.
+  • The summon's size follows a real change of the character's size (corrected in 0.50.23).
   • These go into the summons' own game packages (existing files, names and GUIDs kept), added to the mod by Save: open the mod in the editor and Save, then Apply Changes.
 - 3D previews: a summon's materials apply by material slot, as in game (0.50.14 put the last one on every part), and a summon is drawn at its own scale over the character's.
 

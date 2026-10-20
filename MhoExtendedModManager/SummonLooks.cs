@@ -86,16 +86,28 @@ static class SummonLooks
         return new(mats, scale ?? 1, ownM, ownS);
     }
 
-    /// <summary>A character package's own component Scale (1 when it sets none).</summary>
-    static float ScaleOf(string file)
+    /// <summary>A character's scale as the game sees it (Jean Grey's costumes set none and inherit her base class's 0.95): the
+    /// component's own, else the first class up its chain whose component sets one; 1 when none does. <paramref name="ownFile"/>
+    /// is read for the class itself (the mod's copy), <paramref name="g"/>'s packages for the classes it extends.</summary>
+    public static float ScaleOf(Fx.FxGame g, string cls, string? ownFile = null)
     {
-        try
+        var chain = g.ClassChain(cls);
+        for (int i = 0; i < chain.Count; i++)
         {
-            var p = Package.Open(file);
-            if (Component(p, Stem(file), out _) is { } c && c.Tags.FirstOrDefault(t => t.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } st)
-                return BitConverter.ToSingle(c.Data, st.ValueAt);
+            string c = chain[i];
+            var files = i == 0 && ownFile != null ? [ownFile] : g.PackagesOf(c).Append("uc__" + c + "_sf").Select(n => g.FileFor(n)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (string f in files)
+            {
+                try
+                {
+                    var p = Package.Open(f);
+                    if (Component(p, c, out _) is not { } comp) continue;
+                    if (comp.Tags.FirstOrDefault(t => t.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } st) return BitConverter.ToSingle(comp.Data, st.ValueAt);
+                    break;   // (this class's component, no scale of its own: up the chain)
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+            }
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
         return 1;
     }
 
@@ -105,6 +117,23 @@ static class SummonLooks
         var p = Package.Open(file);
         int i = Array.FindIndex(p.Exports, e => p.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase) && p.ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
         return i < 0 ? 0 : ModMeshes.MaterialRefs(AnimExportCli.Packages.Package.Open(file), i).Count;
+    }
+
+    /// <summary>The skeletal meshes of the package that the hero's own copies and summons (<paramref name="own"/>) carry
+    /// under the same path, with those packages (from the stock index, so packages the mod ships count too).</summary>
+    public static List<(string Path, List<string> Own)> SharedWith(string package, string file, Dictionary<string, List<string>> shared, IReadOnlySet<string> own)
+    {
+        var list = new List<(string, List<string>)>();
+        var p = Package.Open(package);
+        foreach (var e in p.Exports)
+        {
+            if (!p.ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) continue;
+            string path = p.PathOf(e);
+            if (!shared.TryGetValue($"{path}|skeletalmesh", out var carriers)) continue;
+            var mine = carriers.Where(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && own.Contains(c)).ToList();
+            if (mine.Count > 0) list.Add((path, mine));
+        }
+        return list;
     }
 
     /// <summary>
@@ -119,7 +148,10 @@ static class SummonLooks
         var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         if (stockPath == null || !File.Exists(stockPath)) return result;
         var g = new Fx.FxGame(cooked, []);   // (the game's classes and settings: what the values are worked out from)
-        float ratio = ScaleOf(modPath) / Math.Max(1e-4f, ScaleOf(stockPath));
+        // the character's size change: as the mod has it (its packages: a changed base class counts) over the game's, both
+        // inherited (a costume that sets the 0.95 it inherits anyway changes nothing)
+        var gMod = new Fx.FxGame(cooked, modFiles.Where(f => !Path.GetFileName(f).Equals(file, StringComparison.OrdinalIgnoreCase)));
+        float ratio = ScaleOf(gMod, Stem(file), modPath) / Math.Max(1e-4f, ScaleOf(g, Stem(file)));
         foreach (var (meshPath, own) in kept)
         {
             int slots;
@@ -141,17 +173,20 @@ static class SummonLooks
                         && RefPath(p, BinaryPrimitives.ReadInt32LittleEndian(comp.Data.AsSpan(smt.ValueAt))) is string shown && !shown.Equals(meshPath, StringComparison.OrdinalIgnoreCase)) continue;
                     var set = Read(g, cls);
                     bool fillMats = set.Materials is { Count: > 0 } m && m.Count < slots && m.Any(x => x != null);
-                    bool rescale = Math.Abs(ratio - 1) > 1e-4;
+                    float scale = set.Scale * ratio;
+                    // the scale as it should be, written whenever it isn't (a copy saved by 0.50.22 holds a wrong one: that
+                    // version read an inherited scale as none)
+                    float? have = comp.Tags.FirstOrDefault(t => t.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } hs ? BitConverter.ToSingle(comp.Data, hs.ValueAt) : null;
+                    bool rescale = Math.Abs(ratio - 1) > 1e-4 ? have == null || Math.Abs(have.Value - scale) > 1e-4 : have != null && Math.Abs(have.Value - scale) > 1e-4;
                     if (!fillMats && !rescale) continue;
                     var mats = set.Materials ?? [];
                     string? last = mats.LastOrDefault(x => x != null);
                     var want = fillMats ? Enumerable.Range(0, slots).Select(k => k < mats.Count && mats[k] != null ? mats[k] : last).ToList() : null;
-                    float scale = set.Scale * ratio;
                     byte[] bytes = Edit(p, ci, comp.Data, comp.Tags, want, rescale ? scale : null);
                     result[sumFile] = bytes;
                     notes.Add($"{sumFile}: shows the mod's {meshPath.Split('.')[^1]}" +
                         (fillMats ? $"; its material ({last?.Split('|')[0].Split('.')[^1]}) on all {slots} of the model's slots (it covered {mats.Count})" : "") +
-                        (rescale ? $"; scale {set.Scale:0.###} → {scale:0.###} (the character's {ratio:0.###}×)" : ""));
+                        (rescale ? (Math.Abs(ratio - 1) > 1e-4 ? $"; scale {set.Scale:0.###} → {scale:0.###} (the character's {ratio:0.###}×)" : $"; scale back to the game's {scale:0.###}") : ""));
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException) { notes.Add($"{sumFile}: left as it is ({ex.Message})"); }
             }
