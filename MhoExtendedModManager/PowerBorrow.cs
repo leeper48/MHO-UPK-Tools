@@ -229,6 +229,68 @@ static class PowerBorrow
         return (false, "the two powers are built alike, so the whole power: its animation, effects and projectile look.");
     }
 
+    /// <summary>
+    /// What Keep This Power's Timing would change, in words, or null when nothing (the census: it changed nothing in 990 of
+    /// the pairs, Kurt 2026-10-11): it only redraws the target's beams with the donor's beam systems (both need beams), and adds
+    /// the donor's particles that start with the power when the target has no particle effects of its own (SwapLooks).
+    /// </summary>
+    public static string? KeepTimingTakes(Fx.GameData db, Fx.FxGame game, string targetPower, string donorPower)
+    {
+        List<Pair> plan;
+        try { plan = Plan(db, game, targetPower, donorPower, []); }
+        catch (InvalidDataException) { return null; }
+        var power = plan.FirstOrDefault(x => x.Role == "power");
+        if (power == null) return null;
+        (int Beams, int Particles, int StartParticles) Count(string file, string cls)
+        {
+            var pk = Package.Open(file);
+            int d = Find(pk, $"marvelgamecontent.default__{cls}".ToLowerInvariant());
+            if (d < 0) return (0, 0, 0);
+            int beams = 0, parts = 0, start = 0;
+            foreach (int r in Components(pk, d, out _, out _))
+            {
+                if (r <= 0) continue;
+                string c = pk.ClassOf(pk.Exports[r - 1]);
+                if (c.StartsWith("PowerFxBeam", StringComparison.OrdinalIgnoreCase)) beams++;
+                else if (c.Equals("PowerFxParticle", StringComparison.OrdinalIgnoreCase))
+                {
+                    parts++;
+                    byte[] b = pk.ReadExportBytes(pk.Exports[r - 1]).ToArray();
+                    string? at = TagWalker.Walk(pk, b, 16)?.FirstOrDefault(x => x.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase)) is { } t ? TagWalker.NameAt(pk, b, t.ValueAt) : null;
+                    if (at == null || at.Equals("power_on_start", StringComparison.OrdinalIgnoreCase) || at.Contains("contact", StringComparison.OrdinalIgnoreCase)) start++;
+                }
+            }
+            return (beams, parts, start);
+        }
+        try
+        {
+            var t = Count(power.TargetFile, power.TargetClass);
+            var d = Count(power.DonorFile, power.DonorClass);
+            var what = new List<string>();
+            if (t.Beams > 0 && d.Beams > 0) what.Add($"its {t.Beams} beam(s) draw the other power's");
+            if (t.Particles == 0 && d.StartParticles > 0) what.Add($"the other power's {d.StartParticles} effect(s) at the start are added");
+            return what.Count == 0 ? null : string.Join("; ", what);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
+    }
+
+    /// <summary>
+    /// Enemy powers that use one of the target power's classes (PowerUsage: every power prototype's Unreal classes): a borrow
+    /// changes that class's package, so those enemies get the borrowed look too (Kurt, 2026-10-11: the Taskmaster boss threw
+    /// Captain Carter's shield). Their prototype names (Powers\EnemyPowers\…), at most <paramref name="max"/>.
+    /// </summary>
+    public static List<string> EnemyUsers(Fx.GameData db, Fx.FxGame game, string gameRoot, string targetPower, string donorPower, int max = 4)
+    {
+        List<Pair> plan;
+        try { plan = Plan(db, game, targetPower, donorPower, []); }
+        catch (InvalidDataException) { return []; }
+        var map = PowerUsage.Index(gameRoot);
+        return plan.Select(p => p.TargetClass.ToLowerInvariant()).Distinct()
+            .SelectMany(c => map.TryGetValue(c, out var users) ? users : [])
+            .Where(u => u.StartsWith(@"Powers\EnemyPowers\", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(max).ToList();
+    }
+
     /// <summary>A hero's name from a power prototype's path (Powers\Player\&lt;Hero&gt;\…), else null.</summary>
     public static string? HeroOf(string power)
     {

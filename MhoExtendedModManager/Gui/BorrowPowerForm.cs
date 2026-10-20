@@ -13,7 +13,8 @@ sealed class BorrowPowerForm : Form
     readonly RadioButton whole = new() { Text = "Whole Power: Its Animation, Effects and Projectile", AutoSize = true, Checked = true };
     readonly RadioButton look = new() { Text = "Keep This Power's Timing: Only What Its Effects Draw", AutoSize = true };
     readonly CheckBox fit = new() { Text = "Fit the Animation to This Power's Timing", AutoSize = true, Checked = true };
-    readonly Label suggestion = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 8) };
+    readonly Label suggestion = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 8), MaximumSize = new Size(560, 0) };
+    readonly Label enemyNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Fx.GameData db;
     readonly string cooked, target;
     int request;
@@ -45,7 +46,7 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
-        modes.Controls.AddRange([whole, fit, look, suggestion]);
+        modes.Controls.AddRange([whole, fit, look, suggestion, enemyNote]);
         fit.Margin = new Padding(22, 0, 0, 6);
         t.Controls.Add(modes, 0, 4); t.SetColumnSpan(modes, 2);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(0, 10, 0, 0) };
@@ -88,7 +89,7 @@ sealed class BorrowPowerForm : Form
         };
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
-        Ui.FitToScreen(this, 640, 400);
+        Ui.FitToScreen(this, 640, 560);
     }
 
     string? wantPower;
@@ -118,12 +119,29 @@ sealed class BorrowPowerForm : Form
         int req = ++request;
         suggestion.Text = "Comparing the two powers…";
         string c = cooked;
-        Task.Run(() => PowerBorrow.Suggest(db, new Fx.FxGame(c, []), target, p.Prototype)).ContinueWith(t =>
+        string root = Path.GetFullPath(Path.Combine(c, "..", "..", ".."));
+        Task.Run(() =>
+        {
+            var g = new Fx.FxGame(c, []);
+            var (keep, why) = PowerBorrow.Suggest(db, g, target, p.Prototype);
+            return (keep, why, PowerBorrow.KeepTimingTakes(db, g, target, p.Prototype), PowerBorrow.EnemyUsers(db, g, root, target, p.Prototype));
+        }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || t.Status != TaskStatus.RanToCompletion) return;
-            var (keep, why) = t.Result;
+            var (keep, why, takes, enemies) = t.Result;
+            // Keep This Power's Timing only when it changes something (it redraws beams with beams, or adds start effects to a
+            // power with none): otherwise it would borrow nothing
+            look.Enabled = takes != null;
+            Ui.Tip(look, takes != null
+                ? $"This power keeps its own animation, timing and sounds; only what its effects draw changes: {takes}."
+                : "Not for these two powers: this one has no beams the other's can redraw, and has effects of its own (the other's start effects are only added to a power with none). Keeping this power's timing would change nothing.");
+            if (keep && takes == null) { keep = false; why = "the whole power (keeping this power's timing would change nothing for these two)."; }
             whole.Checked = !keep; look.Checked = keep;
-            suggestion.Text = "Suggested: " + why;
+            suggestion.Text = "Suggested: " + why + (takes != null && keep ? $" It changes: {takes}." : "");
+            // the target power's class is an enemy's too: they'd get the borrowed look
+            enemyNote.Visible = enemies.Count > 0;
+            enemyNote.Text = enemies.Count == 0 ? "" : "Enemies use this power's look too: " + string.Join(", ", enemies.Select(e => Path.GetFileNameWithoutExtension(e))) +
+                ". Borrowing changes how they look as well (the game shares the power's package with them).";
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 

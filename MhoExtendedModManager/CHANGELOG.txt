@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.1
+- Borrowed Look (preview feature, hidden): the borrow window offers Keep This Power's Timing only when it changes something (it redraws beams with beams, or adds start effects to a power with none), says what it changes, and suggests the whole power otherwise. It warns when enemies use the power's look too (Captain America's Boomerang Throw: the Civil War Captain America boss). Copied effects get names of their own at Save (Make Unique), so a color on a borrowed power can't reach the other hero.
+- --borrow-check <target power> <donor power>: what the borrow window says for a pair (read only).
+
 0.60.0
 - Borrowed Look work resumed (still a preview feature, hidden): power components that list animation names, animation set aliases, costume classes, conditions or bones by name, and projectile / attachment classes or animation sets by reference, now copy (MHO Package Modifier 2.53.27). On the census's 1,190 hero-power pairs, borrows that fail dropped from 636 to 171.
 

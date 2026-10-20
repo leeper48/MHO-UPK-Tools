@@ -565,6 +565,22 @@ static partial class Program
                 Console.WriteLine($"Built: {ok}   Built with notes: {nt}   Failed: {fl}   ({sw.Elapsed.TotalMinutes:0.0} min) → {rest[1]}");
                 return 0;
             }
+            case "--borrow-check":
+            {
+                // Read-only: what the borrow window says for a pair: its suggestion, what Keep This Power's Timing would change,
+                // and enemy powers sharing the target's classes. --borrow-check <target power prototype> <donor power prototype>
+                if (rest.Count < 3) { Console.WriteLine("--borrow-check <target power> <donor power>"); return 1; }
+                string? kgr = settings.ResolvedGameRoot(data);
+                if (kgr == null || !Settings.IsGameRoot(kgr)) { Console.WriteLine("game folder not found"); return 1; }
+                var kdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(kgr, "Data", "Game", "Calligraphy.sip")));
+                var kg = new Fx.FxGame(Settings.Cooked(kgr), []);
+                var (keep, why) = PowerBorrow.Suggest(kdb, kg, rest[1], rest[2]);
+                Console.WriteLine($"suggested: {(keep ? "keep this power's timing" : "whole power")}: {why}");
+                Console.WriteLine($"keep timing changes: {PowerBorrow.KeepTimingTakes(kdb, kg, rest[1], rest[2]) ?? "nothing"}");
+                var en = PowerBorrow.EnemyUsers(kdb, kg, kgr, rest[1], rest[2], 20);
+                Console.WriteLine($"enemy powers sharing the target's classes: {(en.Count == 0 ? "none" : string.Join(", ", en))}");
+                return 0;
+            }
             case "--power-borrow":
             {
                 // --power-borrow <out dir> <target pkg>|<target default>=<donor pkg>|<donor default> ... [--anims <hero pkg> <hero class> <donor hero pkg>]
