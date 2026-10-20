@@ -565,6 +565,59 @@ static partial class Program
                 Console.WriteLine($"Built: {ok}   Built with notes: {nt}   Failed: {fl}   ({sw.Elapsed.TotalMinutes:0.0} min) → {rest[1]}");
                 return 0;
             }
+            case "--class-survey":
+            {
+                // Read-only: every compiled script class (Class export) in the stock packages matching a pattern, parsed with MPM's
+                // ClassData: how many read to their end, and how many carry bytecode, children (properties / functions), a
+                // function map or interfaces (what copying a class must handle). --class-survey [file pattern, default UC__Power*_SF.upk]
+                string? sgr = settings.ResolvedGameRoot(data);
+                if (sgr == null || !Settings.IsGameRoot(sgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string folder = UniqueNames.Folder(Settings.Cooked(sgr));
+                string pattern = rest.Count > 1 ? rest[1] : "UC__Power*_SF.upk";
+                var files = Directory.GetFiles(folder, pattern).Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase)).ToList();
+                int classes = 0, ok = 0, script = 0, children = 0, funcs = 0, ifaces = 0;
+                var fails = new Dictionary<string, int>(); var scriptEx = new List<string>(); var childEx = new List<string>();
+                var bag = new System.Collections.Concurrent.ConcurrentBag<(string Name, MhoPackageModifier.ClassData? C, string? Err)>();
+                var funcBag = new System.Collections.Concurrent.ConcurrentBag<(string Name, int Size)>();
+                Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) }, f =>
+                {
+                    try
+                    {
+                        var pk = MhoPackageModifier.Package.Open(f);
+                        foreach (var e in pk.Exports)
+                        {
+                            if (!pk.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase)) continue;
+                            var c = MhoPackageModifier.ClassData.Parse(pk.ReadExportBytes(e).ToArray(), out string? err);
+                            bag.Add((Path.GetFileName(f) + " " + e.ObjectName, c, err));
+                            if (c is { Children: not 0 })
+                            {
+                                // its functions: name, size and a hash of the bytes (do copies in other packages match?)
+                                string cp = pk.PathOf(e) + ".";
+                                var fn = pk.Exports.Where(x => pk.ClassOf(x).Equals("Function", StringComparison.OrdinalIgnoreCase) && pk.PathOf(x).StartsWith(cp, StringComparison.OrdinalIgnoreCase)).ToList();
+                                foreach (var fx in fn) funcBag.Add((e.ObjectName + "." + fx.ObjectName, fx.SerialSize));
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                });
+                foreach (var (name, c, err) in bag)
+                {
+                    classes++;
+                    if (c == null) { string k = (err ?? "?").Split(" (at")[0]; fails[k] = fails.GetValueOrDefault(k) + 1; if (fails[k] <= 2) Console.WriteLine("  fail: " + name + ": " + err); continue; }
+                    ok++;
+                    if (c.ScriptStorage > 0) { script++; if (scriptEx.Count < 5) scriptEx.Add($"{name} ({c.ScriptStorage} bytes)"); }
+                    if (c.Children != 0) { children++; if (childEx.Count < 5) childEx.Add(name); }
+                    if (c.Functions > 0) funcs++;
+                    if (c.Interfaces > 0) ifaces++;
+                }
+                Console.WriteLine($"{files.Count} packages, {classes} classes: {ok} read to their end; bytecode {script}, children {children}, functions {funcs}, interfaces {ifaces}");
+                foreach (var (k, n) in fails.OrderByDescending(x => x.Value)) Console.WriteLine($"  {n} × {k}");
+                Console.WriteLine("  with bytecode: " + string.Join("; ", scriptEx));
+                Console.WriteLine("  with children: " + string.Join("; ", childEx));
+                foreach (var g in funcBag.GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()))
+                    Console.WriteLine($"  function {g.Key}: in {g.Count()} packages, sizes {string.Join("/", g.Select(x => x.Size).Distinct())}");
+                return 0;
+            }
             case "--borrow-check":
             {
                 // Read-only: what the borrow window says for a pair: its suggestion, what Keep This Power's Timing would change,
