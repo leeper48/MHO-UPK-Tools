@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.17
+- Borrowed Look (preview feature, hidden): a power borrowed from another hero hides this hero's held weapons while it runs; the other hero's animation isn't made to hold them (Thor's hammer stuck out of his chest in Kitty Pryde's Air Walking).
+
 0.60.16
 - Borrowed Look (preview feature, hidden): another hero's animations are fitted to the target's skeleton. Where a bone rests turned differently on the two (Thor's right toe is turned 180 degrees from Hawkeye's), its keys are turned to match, so the motion stays the same; Hawkeye's Sky-Cycle ride folded Thor's right toes.
 

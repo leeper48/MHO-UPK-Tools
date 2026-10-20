@@ -508,6 +508,7 @@ static class PowerBorrow
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
+            if (crossHero && pr.Role == "power" && cooked != null) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
@@ -935,6 +936,96 @@ static class PowerBorrow
             if (problems.Count > 0) throw new InvalidDataException("the spawned attachment: " + string.Join("; ", problems.Take(3)));
             dst = Package.FromBytes(output);
             log.Add($"  {name}: spawns {dst.PathOf(dst.Exports[classRef - 1])} while the power runs (the donor's {slot}){timing}");
+        }
+        return dst.RawFile;
+    }
+
+    /// <summary>The weapon slots a hero always holds something in (attachments not shown on demand: Thor's hammer in
+    /// righthand), from its base package.</summary>
+    static HashSet<string> HeldSlots(string heroPackage)
+    {
+        var slots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var a in ModMeshes.Attachments(heroPackage).Where(a => !a.OnDemand))
+                foreach (string s in a.Slots.Count > 0 ? a.Slots : a.Slot is { } one ? [one] : [])
+                    if (!s.Equals("none", StringComparison.OrdinalIgnoreCase)) slots.Add(s);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+        return slots;
+    }
+
+    /// <summary>
+    /// Another hero's animation isn't made to hold this hero's weapons: Thor's hammer stuck out of his chest in Kitty Pryde's
+    /// Air Walking (Kurt, 2026-10-20: held properly or hidden). Each weapon slot this hero always holds something in is hidden (even
+    /// where the donor holds something too: its weapon is held its own way; Kitty's katana pose put the hammer in his chest) while the power runs (a component of its own: a copy of Ant-Man's ant_outro, the spawn
+    /// components' form, with WhileActivatedHideWeaponSlot instead of a class). Slots the borrowed parts hide already are left.
+    /// </summary>
+    public static byte[] HideHeldWeapons(byte[] package, string targetDefault, string targetHeroPackage, string donorHeroPackage, string cooked, List<string> log)
+    {
+        var slots = HeldSlots(targetHeroPackage);
+        if (slots.Count == 0) return package;
+        var dst = Package.FromBytes(package);
+        int td0 = Find(dst, targetDefault);
+        if (td0 < 0) return package;
+        // already hidden by the borrowed parts
+        foreach (int r in Components(dst, td0, out _, out _))
+        {
+            if (r <= 0) continue;
+            byte[] od = dst.ReadExportBytes(dst.Exports[r - 1]).ToArray();
+            if (TagWalker.Walk(dst, od, 16)?.FirstOrDefault(t => t.Name.Equals("WhileActivatedHideWeaponSlot", StringComparison.OrdinalIgnoreCase)) is { } hs)
+                slots.Remove(TagWalker.NameAt(dst, od, hs.ValueAt));
+        }
+        if (slots.Count == 0) return package;
+        string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
+        const string tplDefault = "marvelgamecontent.default__powerantman_avatarswapin", tplComp = tplDefault + ".ant_outro";
+        if (!File.Exists(tplFile)) { log.Add("  the hide component's template package isn't found: this hero's weapons stay shown"); return package; }
+        var tp = Package.Open(tplFile);
+        int ti = Find(tp, tplComp);
+        if (ti < 0) { log.Add("  the hide component's template isn't found: this hero's weapons stay shown"); return package; }
+        foreach (string slot in slots.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
+        {
+            var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
+            string name = $"borrowed_hide_{slot}";
+            var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
+                ?? throw new InvalidDataException("the hide component couldn't be copied: " + string.Join(" ", ssaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
+            dst = Package.FromBytes(sc.Output);
+            int comp = sc.RootRef - 1, td = Find(dst, targetDefault);
+            byte[] cd = dst.ReadExportBytes(dst.Exports[comp]).ToArray();
+            var ctags = TagWalker.Walk(dst, cd, 16) ?? throw new InvalidDataException("the hide component doesn't read");
+            // drop the (cut, so empty) class tag; add the hidden slot
+            var addNames = new List<string>();
+            int NameIdx(string n)
+            {
+                int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) return i;
+                if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+                return dst.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            }
+            var body = new MemoryStream();
+            body.Write(cd, 0, 16);
+            foreach (var t in ctags.Where(t => !t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase))) body.Write(cd, t.Start, t.End - t.Start);
+            var tag = new byte[32];
+            BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx("WhileActivatedHideWeaponSlot"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("NameProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 8);
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(24), NameIdx(slot));
+            body.Write(tag);
+            body.Write(cd, ctags.NoneAt, cd.Length - ctags.NoneAt);
+            byte[] ncd = body.ToArray();
+            var list = Components(dst, td, out var ltag, out byte[] dd);
+            list.Add(comp + 1);
+            var value = new byte[4 + 4 * list.Count];
+            BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
+            for (int j = 0; j < list.Count; j++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * j), list[j]);
+            byte[] nd = [.. dd.AsSpan(0, ltag.ValueAt), .. value, .. dd.AsSpan(ltag.ValueAt + ltag.Size)];
+            BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(ltag.Start + 16), value.Length);
+            var rep = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => ncd, [td] = _ => nd };
+            byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+            var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+            if (problems.Count > 0) throw new InvalidDataException("the hidden weapon slot: " + string.Join("; ", problems.Take(3)));
+            dst = Package.FromBytes(output);
+            log.Add($"  {name}: hides this hero's {slot} weapons while the power runs (the other hero's animation doesn't hold them)");
         }
         return dst.RawFile;
     }
