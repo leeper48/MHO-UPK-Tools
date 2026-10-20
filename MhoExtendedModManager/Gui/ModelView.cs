@@ -298,6 +298,10 @@ sealed class ModelView : UserControl
     /// feet are; a dodge ghost's sank below them). It hides what's below it, a little see-through.</summary>
     public bool ShowGround { get => showGround; set { if (showGround == value) return; showGround = value; Redraw(); } }
     bool showGround;
+    /// <summary>The ground plane's height (0 = at the feet): below them while a high-flying power plays, which the game lifts
+    /// off the ground (Globals' HighFlyingHeight, 140; Kurt, 2026-10-20).</summary>
+    public float GroundZ { get => groundZ; set { if (groundZ == value) return; groundZ = value; Redraw(); } }
+    float groundZ;
 
     /// <summary>One map on its own instead of the lit model (Kurt, 2026-10-04: the Model tab's Materials tab, Preview Shows): the colour
     /// map unlit, the normal map's own colours (flat blue where a section has none), the spec amount in grey, the alpha in
@@ -922,7 +926,7 @@ sealed class ModelView : UserControl
             {
                 var dir = f + r * ((x + 0.5f - cx) / focal) - u * ((y + 0.5f - cy) / focal);   // (one unit along f per unit of t)
                 if (MathF.Abs(dir.Z) < 1e-6f) continue;
-                float t = -eye.Z / dir.Z;
+                float t = (groundZ - eye.Z) / dir.Z;
                 if (t < near) continue;
                 int p = y * W + x;
                 if (depth[p] > 1f / t) continue;   // the model is nearer

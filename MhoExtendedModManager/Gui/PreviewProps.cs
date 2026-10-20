@@ -88,6 +88,7 @@ sealed class PreviewProps
         int req = ++switchRequest;
         if (!on || cooked == null || hero == null)
         {
+            if (Shown() is { } sh0) sh0.View.GroundZ = 0;
             if (rules.Count > 0 || powerProps.Count > 0) { rules = []; bool had = powerProps.Count > 0; powerProps = []; if (had) Rebuild(); else { rig.SetRules(rules, 0, 0); ShowPose(); } }
             return;
         }
@@ -102,6 +103,7 @@ sealed class PreviewProps
             {
                 if (owner.IsDisposed || req != switchRequest || t.Status != TaskStatus.RanToCompletion) return;
                 (rules, contact) = (t.Result.Rules, t.Result.Contact);
+                if (Shown() is { } sh) sh.View.GroundZ = -t.Result.Lift;
                 seqs = t.Result.Seqs;
                 bool rebuild = powerProps.Count > 0 || t.Result.Extra.Count > 0;
                 powerProps = t.Result.Extra;

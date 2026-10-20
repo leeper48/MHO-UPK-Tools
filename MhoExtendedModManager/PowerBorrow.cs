@@ -230,7 +230,7 @@ static class PowerBorrow
     /// <summary>How a power is built, for matching a borrow (Kurt, 2026-10-19: Black Panther's Triple Throw on Captain America's
     /// Shield Strike showed the daggers in hand, but nothing flew: the server spawns projectiles from the power's own data, so a
     /// melee power never throws the donor's).</summary>
-    public sealed record PowerKind(bool Projectile, bool Beam, bool Channeled)
+    public sealed record PowerKind(bool Projectile, bool Beam, bool Channeled, bool HighFlying = false)
     {
         /// <summary>A short label: "Fires Projectiles", "Beam", "Channeled", or "Melee / Area".</summary>
         public string Label => Projectile ? "Fires Projectiles" : Beam ? "Beam" : Channeled ? "Channeled" : "Melee / Area";
@@ -267,7 +267,7 @@ static class PowerBorrow
                         loop |= c.Equals("PowerFxAnimationLooping", StringComparison.OrdinalIgnoreCase);
                     }
                 }
-                kind = new PowerKind(proj, beam, loop);
+                kind = new PowerKind(proj, beam, loop, Field(db, power, "HighFlying", 'B') is 1);
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or KeyNotFoundException or ArgumentException) { }
@@ -278,8 +278,12 @@ static class PowerBorrow
     /// <summary>What the player will see when the two powers are built differently, in words, or null when they match.</summary>
     public static string? Mismatch(PowerKind? target, PowerKind? donor, string targetName, string donorName)
     {
-        if (target == null || donor == null || target.Matches(donor)) return null;
+        if (target == null || donor == null) return null;
         var lines = new List<string>();
+        // (Kurt, 2026-10-20: Cyclops' bike on Spider-Man's Web-Swinging sat right on flat ground, sank into ramps)
+        if (target.HighFlying && !donor.HighFlying)
+            lines.Add($"{targetName} flies and {donorName} is on the ground: its animations are lowered to the ground, but the game still moves the hero as a flyer, so on ramps and slopes it dips into the ground until it reaches the top.");
+        if (target.Matches(donor)) return lines.Count == 0 ? null : string.Join(" ", lines);
         if (donor.Projectile && !target.Projectile)
             lines.Add($"{donorName} fires projectiles and {targetName} doesn't: you'll see its animation and what it holds, but nothing flies. The server decides what a power does, so the damage and range stay {targetName}'s.");
         if (target.Projectile && !donor.Projectile)

@@ -226,6 +226,8 @@ static class PowerPreview
     /// from the power's own package), and the animated props' own animations of this name.</summary>
     public sealed record Switches(List<ModMeshes.PropRule> Rules, float Contact, List<BaseProp> Extra, Dictionary<string, AnimExportCli.Animation.BoneAnimation> Seqs)
     {
+        /// <summary>How high the game lifts the hero while this plays (a high-flying travel power: Globals' HighFlyingHeight), else 0.</summary>
+        public float Lift { get; init; }
         public static Switches None => new([], 0, [], new(StringComparer.OrdinalIgnoreCase));
     }
 
@@ -278,16 +280,18 @@ static class PowerPreview
                 break;
             }
         // the contact time: the power's AnimationContactTimePercent (else 0.4) of the animation
-        float pct = 0.4f;
+        float pct = 0.4f, lift = 0;
         if (db != null)
         {
             var byClass = Fx.PowerIndex.PrototypesByClass(db);
-            if (refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).FirstOrDefault() is string proto) pct = Fx.PowerEffects.ContactPercentOf(db, proto);
+            var protos = refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).ToList();
+            if (protos.FirstOrDefault() is string proto) pct = Fx.PowerEffects.ContactPercentOf(db, proto);
+            if (protos.Any(p => PowerBorrow.Field(db, p, "HighFlying", 'B') is 1) && PowerBorrow.Field(db, "Globals/Globals.defaults", "HighFlyingHeight", 'D') is double hf) lift = (float)hf;
         }
         var seqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
         foreach (var (cls, ar) in motionRefs) if (!seqs.ContainsKey(cls) && ModAnimations.Load(ar) is { } ba) seqs[cls] = ba;
         foreach (var (cls, ba) in extraSeqs) seqs.TryAdd(cls, ba);
-        return new(rules, pct * seconds, extra, seqs);
+        return new(rules, pct * seconds, extra, seqs) { Lift = lift };
     }
 
     /// <summary>Plays a power's effects in time: moved on as the animation plays (started over when time goes back: a loop),

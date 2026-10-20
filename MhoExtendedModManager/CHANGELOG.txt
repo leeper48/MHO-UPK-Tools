@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.10
+- 3D preview: while a high-flying power plays (Spider-Man's Web-Swinging, Thor's flight), the ground grid sits 140 below the hero, where the game puts the ground (it lifts high flyers by that much).
+- Borrowed Look (preview feature, hidden): borrowing a ground power onto a flying one warns that the game still moves the hero as a flyer, so on ramps and slopes the borrowed ride dips into the ground until it reaches the top.
+
 0.60.9
 - Borrowed Look (preview feature, hidden): a ground power's animations borrowed onto a high-flying one (Cyclops' ride on Spider-Man's Web-Swinging) are lowered by the height the game lifts high flyers (140), so the bike meets the ground instead of floating.
 

@@ -117,7 +117,7 @@ static partial class Program
             Gui.Dialog.Snapshot(args[1]);
             return 0;
         }
-        if ((args.Length == 2 || args.Length == 5) && args[0].Equals("--borrow-snapshot", StringComparison.OrdinalIgnoreCase))
+        if ((args.Length == 2 || args.Length == 5 || args.Length == 6) && args[0].Equals("--borrow-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: the Powers tab's Borrow a Power's Look window (Iceman's Chillblain, Human Torch picked), to a PNG.
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
@@ -127,9 +127,9 @@ static partial class Program
             string? root = st.ResolvedGameRoot(Settings.LibraryData(st.LibraryPath));
             if (root == null) { Console.WriteLine("game folder not found"); return 1; }
             var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(root, "Data", "Game", "Calligraphy.sip")));
-            // (or: --borrow-snapshot <png> <target power> <target name> <donor power>)
-            using var f = args.Length == 5
-                ? new Gui.BorrowPowerForm(db, Settings.Cooked(root), args[2], args[3], new PowerBorrowEntry { Donor = args[4] })
+            // (or: --borrow-snapshot <png> <target power> <target name> <donor power> [donor hero])
+            using var f = args.Length >= 5
+                ? new Gui.BorrowPowerForm(db, Settings.Cooked(root), args[2], args[3], new PowerBorrowEntry { Donor = args[4], DonorHero = args.Length > 5 ? args[5] : null })
                 : new Gui.BorrowPowerForm(db, Settings.Cooked(root), @"Powers\Player\Iceman\BasicBeam.prototype", "Chillblain",
                 new PowerBorrowEntry { Donor = @"Powers\Player\HumanTorch\ChanneledEnergyBeam.prototype", KeepTiming = true })
             { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
