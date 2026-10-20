@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.6
+- Borrowed Look (preview feature, hidden): a power borrowed from another hero shows that hero's weapons. Black Widow's Snap Shot borrowing Black Panther's Triple Throw showed her own batons: the borrowed parts switched on attachments she doesn't have and showed her own hand weapons. Now each of the other hero's weapons is spawned for the power's length (as the game spawns Ant-Man's flying ants), and the hand slot it used is hidden instead of shown.
+
 0.60.5
 - Borrowed Look (preview feature, hidden): a borrowed power's button in the 3D preview plays the borrowed animation (Angela's Heavenly Charge borrowing Blade's Stake Through the Heart played her own lunge). The power's old components stay in its package, unused, and the preview no longer counts them.
 

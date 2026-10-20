@@ -424,6 +424,8 @@ static class PowerBorrow
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var targetAnims = new List<string>(); var donorAnims = new List<string>();
+        // another hero's attachments are spawned, not switched on (SpawnBorrowedAttachments)
+        bool crossHero = !Path.GetFileNameWithoutExtension(donorHeroPackage).Equals($"UC__{targetHeroClass}_SF", StringComparison.OrdinalIgnoreCase);
         foreach (var pr in pairs)
         {
             string tf = Path.GetFileName(pr.TargetFile);
@@ -433,6 +435,7 @@ static class PowerBorrow
             if (keepTiming && pr.Role == "power") { done[tf] = SwapLooks(cur, td, pr.DonorFile, dd, log); continue; }
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd)); }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log);
+            if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
@@ -616,6 +619,109 @@ static class PowerBorrow
     static int Find(Package p, string path) => Array.FindIndex(p.Exports, e => p.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>A class default's Components list (object refs), its tag and the export's bytes.</summary>
+    /// <summary>
+    /// A borrow from another hero (Kurt, 2026-10-19: Black Widow's Snap Shot borrowing Black Panther's Triple Throw showed her
+    /// batons, not the daggers): a borrowed attachment component that switches on attachments by class
+    /// (AttachmentsToShowOnActivate) only switches on ones the character already has, and one that shows a weapon slot
+    /// (WeaponSlotToShowOnActivate "bothhands") shows the target's own weapons in that slot. Each such component becomes one
+    /// component per attachment class with WhileActivatedAttachmentClass (the game spawns that class for the power's length,
+    /// as Ant-Man's flying-ant outro does), and the slot it showed is hidden instead (WhileActivatedHideWeaponSlot, as
+    /// Angela's bladed bow hides her sword), so the target's own weapons don't show. Components that only show a slot are
+    /// turned into hiding it (the donor's weapon isn't the target's to show).
+    /// </summary>
+    public static byte[] SpawnBorrowedAttachments(byte[] package, string targetDefault, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        int td = Find(p, targetDefault);
+        if (td < 0) return package;
+        var comps = Components(p, td, out _, out _);
+        var replace = new Dictionary<int, Func<long, byte[]>>();
+        var add = new List<NewExport>();
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return p.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        byte[] Tag(string name, string type, byte[] value)
+        {
+            var t = new byte[24 + value.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(t, NameIdx(name));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(8), NameIdx(type));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(16), value.Length);
+            value.CopyTo(t, 24);
+            return t;
+        }
+        byte[] NameValue(string n) { var v = new byte[8]; BinaryPrimitives.WriteInt32LittleEndian(v, NameIdx(n)); return v; }
+        var newList = new List<int>(comps);
+        foreach (int r in comps)
+        {
+            if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
+            var e = p.Exports[r - 1];
+            byte[] d = p.ReadExportBytes(e).ToArray();
+            var tags = TagWalker.Walk(p, d, 16);
+            if (tags == null) continue;
+            var show = tags.FirstOrDefault(t => t.Name.Equals("AttachmentsToShowOnActivate", StringComparison.OrdinalIgnoreCase));
+            var slot = tags.FirstOrDefault(t => t.Name.Equals("WeaponSlotToShowOnActivate", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("WhileActivatedShowWeaponSlot", StringComparison.OrdinalIgnoreCase));
+            if (show == null && slot == null) continue;
+            var classes = new List<int>();
+            if (show != null)
+            {
+                int n = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(show.ValueAt));
+                for (int k = 0; k < n; k++) { int c = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(show.ValueAt + 4 + 4 * k)); if (c != 0) classes.Add(c); }
+            }
+            string? slotName = slot != null ? TagWalker.NameAt(p, d, slot.ValueAt) : null;
+            // the component's other properties (timing, conditions) stay; the show / hide lists and slots go
+            string[] drop = ["AttachmentsToShowOnActivate", "AttachmentsToHideOnActivate", "WeaponSlotToShowOnActivate", "WhileActivatedShowWeaponSlot", "WhileActivatedAttachmentClass", "WhileActivatedHideWeaponSlot"];
+            byte[] head = d[..16];
+            var keep = new MemoryStream();
+            foreach (var t in tags) if (!drop.Any(x => t.Name.Equals(x, StringComparison.OrdinalIgnoreCase))) keep.Write(d, t.Start, t.End - t.Start);
+            byte[] kept = keep.ToArray(), tail = d[(tags.NoneAt + 8)..];
+            byte[] Build(int cls, bool hide)
+            {
+                var m = new MemoryStream();
+                m.Write(head); m.Write(kept);
+                if (cls != 0) { var v = new byte[4]; BinaryPrimitives.WriteInt32LittleEndian(v, cls); m.Write(Tag("WhileActivatedAttachmentClass", "ObjectProperty", v)); }
+                if (hide && slotName != null && !slotName.Equals("None", StringComparison.OrdinalIgnoreCase)) m.Write(Tag("WhileActivatedHideWeaponSlot", "NameProperty", NameValue(slotName)));
+                m.Write(NameValue("None")); m.Write(tail);
+                return m.ToArray();
+            }
+            // the first class (or none: only the slot hidden) in this component, the others in copies of it
+            byte[] first = Build(classes.Count > 0 ? classes[0] : 0, true);
+            replace[r - 1] = _ => first;
+            for (int k = 1; k < classes.Count; k++)
+            {
+                byte[] entry = p.Body.AsSpan(p.ExportEntryStart[r - 1], p.ExportEntryEnd[r - 1] - p.ExportEntryStart[r - 1]).ToArray();
+                BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(12), NameIdx($"{e.ObjectName}_{k + 1}"));
+                BinaryPrimitives.WriteInt32LittleEndian(entry.AsSpan(16), 0);
+                byte[] more = Build(classes[k], false);
+                add.Add(new NewExport(r - 1, 0, _ => more) { Entry = entry });
+                newList.Add(p.Exports.Length + add.Count);
+            }
+            log.Add($"  {e.ObjectName}: spawns {(classes.Count == 0 ? "nothing" : string.Join(", ", classes.Select(c => p.PathOf(p.Exports[c - 1]).Split('.')[^1])))} while the power runs{(slotName != null ? $", hides this hero's {slotName} weapons" : "")} (another hero's attachments)");
+        }
+        if (replace.Count == 0) return package;
+        foreach (string n in new[] { "WhileActivatedAttachmentClass", "ObjectProperty", "WhileActivatedHideWeaponSlot", "NameProperty", "None" }) NameIdx(n);
+        if (newList.Count != comps.Count)
+        {
+            Components(p, td, out var tag, out byte[] dd);
+            var value = new byte[4 + 4 * newList.Count];
+            BinaryPrimitives.WriteInt32LittleEndian(value, newList.Count);
+            for (int k = 0; k < newList.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * k), newList[k]);
+            byte[] nd = [.. dd.AsSpan(0, tag.ValueAt), .. value, .. dd.AsSpan(tag.ValueAt + tag.Size)];
+            BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
+            replace[td] = _ => nd;
+        }
+        byte[] output = PackageRebuilder.Rebuild(p, replace, add, out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, replace.Keys.ToList(), add, written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the borrowed attachments: " + string.Join("; ", problems.Take(3)));
+        var back = Package.FromBytes(output);
+        if (!Components(back, Find(back, targetDefault), out _, out _).SequenceEqual(newList)) throw new InvalidDataException("the borrowed attachments: the component list didn't read back");
+        return output;
+    }
+
     static List<int> Components(Package p, int export, out TagWalker.Tag tag, out byte[] data)
     {
         data = p.ReadExportBytes(p.Exports[export]).ToArray();
