@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.12
+- Borrowed Look (preview feature, hidden): a looping animation (a travel power's start, loop and end) keeps its own speed instead of being fitted to the target's length. Spider-Man's swing on Thor's flight flipped 4.6 times too fast.
+- Borrowed Look: weapons the other hero's power switches on by weapon slot (Spider-Man's webbing in Web-Swinging) are spawned for the power's length on a hero who doesn't have them (MHO Package Modifier 2.53.32: a mesh component's animation sets copy).
+
 0.60.11
 - Borrowed Look (preview feature, hidden): Hawkeye's Sky-Cycle can be borrowed. Its time-varying material (MaterialInstanceTimeVarying) now copies (MHO Package Modifier 2.53.31: the same native data as a constant material instance).
 

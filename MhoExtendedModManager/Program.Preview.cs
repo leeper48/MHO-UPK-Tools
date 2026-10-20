@@ -684,7 +684,8 @@ static partial class Program
                         string dh = PowerBorrow.HeroPackage(bcook, null, dp, ppw?.DonorClass, ppw == null ? [] : PowerBorrow.AnimNames(ppw.DonorFile, $"marvelgamecontent.default__{ppw.DonorClass}".ToLowerInvariant()))
                             ?? throw new InvalidDataException("the donor power's hero package wasn't found");
                         plog.Add($"hero packages: UC__MarvelPlayer_{th}_SF ← UC__MarvelPlayer_{dh}_SF");
-                        var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook);
+                        var pspawn = rest.Contains("--keep-timing") ? [] : PowerBorrow.ConditionAttachments(pdb2, pgame, dp, Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog);
+                        var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook, spawn: pspawn);
                         plog.ForEach(Console.WriteLine);
                         foreach (var (f, bytes) in built)
                         {

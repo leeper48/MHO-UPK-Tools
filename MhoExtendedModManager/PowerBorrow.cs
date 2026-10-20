@@ -435,6 +435,18 @@ static class PowerBorrow
         return found;
     }
 
+    /// <summary>Whether a power's default lists a looping animation component (PowerFxAnimationLooping).</summary>
+    static bool Loops(string file, string defaultPath)
+    {
+        try
+        {
+            var pk = Package.Open(file);
+            int d = Find(pk, defaultPath);
+            return d >= 0 && Components(pk, d, out _, out _).Any(r => r > 0 && pk.ClassOf(pk.Exports[r - 1]).Equals("PowerFxAnimationLooping", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return false; }
+    }
+
     /// <summary>A prototype's field (its own, else its parents'): a bool as 0 / 1, a float as a double, an int as a long;
     /// null when no prototype on the way sets it.</summary>
     public static object? Field(Fx.GameData db, string path, string field, char type)
@@ -482,6 +494,7 @@ static class PowerBorrow
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var targetAnims = new List<string>(); var donorAnims = new List<string>();
+        bool donorLoops = false;
         // another hero's attachments are spawned, not switched on (SpawnBorrowedAttachments)
         bool crossHero = !Path.GetFileNameWithoutExtension(donorHeroPackage).Equals($"UC__{targetHeroClass}_SF", StringComparison.OrdinalIgnoreCase);
         foreach (var pr in pairs)
@@ -491,7 +504,7 @@ static class PowerBorrow
             string td = $"marvelgamecontent.default__{pr.TargetClass}".ToLowerInvariant(), dd = $"marvelgamecontent.default__{pr.DonorClass}".ToLowerInvariant();
             log.Add($"{pr.Role}: {pr.TargetClass} ({tf}) ← {pr.DonorClass} ({Path.GetFileName(pr.DonorFile)})");
             if (keepTiming && pr.Role == "power") { done[tf] = SwapLooks(cur, td, pr.DonorFile, dd, log); continue; }
-            if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); }
+            if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log);
@@ -499,6 +512,9 @@ static class PowerBorrow
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
         if (donorAnims.Count == 0) { log.Add("anims: the donor power plays no animation of its own"); return done; }
+        // a looping animation (a travel power's start / loop / end) plays as long as the power runs: fitted to the target's
+        // length, Spider-Man's 6 s swing loop on Thor's flight played ×4.6 (Kurt, 2026-10-20: flips way too fast)
+        if (fit && donorLoops) { fit = false; log.Add("anims: the donor's animation loops, so it keeps its own speed"); }
         // the target's own power animation: the length the borrowed ones are fitted to (its longest, when it has several)
         float targetLen = targetAnims.Select(a => Length(targetHeroPackage, a)).DefaultIfEmpty(0).Max();
         var ap = AnimExportCli.Packages.Package.Open(donorHeroPackage);
@@ -792,11 +808,14 @@ static class PowerBorrow
     /// Cyclops' ride sets off MarvelConditionEffect_CyclopsRideBike, whose motorcycle_attach (by its template, the shared
     /// ride condition's) shows weapon slot "bike", where Cyclops keeps marvelattachmentanimated_cyclopsbike. Returns the
     /// donor hero's attachment classes in the slots the donor's conditions show: (hero package, class export).
+    /// The power's own components count too (Kurt, 2026-10-20: Spider-Man's Web-Swinging on Thor showed no webbing: its
+    /// showlefttendrils / showrighttendrils switch on weapon slots weblefthand / webrighthand, where Spider-Man keeps his
+    /// webbing_lt / webbing_rt, which Thor doesn't have).
     /// </summary>
     public static List<(string File, int Export, string Slot)> ConditionAttachments(Fx.GameData db, Fx.FxGame game, string donorPower, string donorHeroPackage, List<string> log)
     {
         var slots = new List<string>();
-        foreach (var a in Fx.PowerClosure.Of(db, donorPower).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)))
+        foreach (var a in Fx.PowerClosure.Of(db, donorPower).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase) || a.IsPower && a.Depth == 0))
         {
             string? file = game.PackagesOf(a.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), $"marvelgamecontent.default__{a.Class}".ToLowerInvariant()) >= 0);
             if (file == null) continue;
@@ -806,7 +825,7 @@ static class PowerBorrow
             catch (InvalidDataException) { continue; }
             foreach (int r in comps)
             {
-                if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
+                if (r <= 0 || !(p.ClassOf(p.Exports[r - 1]).Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase) || p.ClassOf(p.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase))) continue;
                 string? slot = ShownSlot(p, r - 1);
                 if (slot == null && Template(p, r - 1) is string tpl && TemplatePackage(game.Cooked, tpl) is string tf)
                 {
@@ -836,7 +855,7 @@ static class PowerBorrow
                 if (slots.Contains(s, StringComparer.OrdinalIgnoreCase)) { found.Add((donorHeroPackage, i, s)); break; }
             }
         }
-        foreach (var (_, i, s) in found) log.Add($"  the donor's condition shows weapon slot {s}: {hp.Exports[i].ObjectName} (spawned while the power runs)");
+        foreach (var (_, i, s) in found) log.Add($"  the donor shows weapon slot {s}: {hp.Exports[i].ObjectName} (spawned while the power runs)");
         return found;
     }
 
