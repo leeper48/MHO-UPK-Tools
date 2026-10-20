@@ -52,6 +52,11 @@ static class PowerIndex
                 string rest = path[(d + ".default__".Length)..];
                 string cls = rest.Split('.')[0];
                 var props = FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props ?? [];
+                // no animations of its own: its template's, when the template is in this package (a borrowed ride's anim, whose
+                // template powershared_ridebike.anim the borrow copied in: 0.60.7)
+                if (!props.Any(x => x.Name.Equals("AnimName", StringComparison.OrdinalIgnoreCase) || x.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase))
+                    && BitConverter.ToInt32(p.Bytes, p.T.Exports[i].EntryStart + 20) is int arch && arch > 0 && arch <= p.T.Exports.Count)
+                    props = FxProps.Find(p.Bytes, p.T, p.T.Exports[arch - 1])?.Props ?? props;
                 var names = props.Where(x => x.Name.Equals("AnimName", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("NameProperty", StringComparison.OrdinalIgnoreCase)).Select(x => x.Value).ToList();
                 // The looping kind lists its animations (PowerAnims: an array of names; a channelled beam's start, loop, end).
                 foreach (var arr in props.Where(x => x.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)))

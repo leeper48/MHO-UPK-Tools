@@ -58,7 +58,9 @@ static class PowerBorrow
             e.Hero = th; e.DonorHero = dh;
             string heroFile = $"UC__MarvelPlayer_{th}_SF.upk";
             string donorHero = StockFiles.For(game.Cooked, $"UC__MarvelPlayer_{dh}_SF.upk");
-            var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked);
+            // what the donor shows through its conditions (a ride's vehicle), spawned by the borrowed power instead
+            var spawn = e.KeepTiming ? [] : ConditionAttachments(db, fx, e.Donor, donorHero, log);
+            var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn);
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -90,7 +92,7 @@ static class PowerBorrow
     /// <paramref name="donorDefault"/>'s from <paramref name="donorPackage"/>; voice lines are left out (another hero's voice).
     /// Verified; throws InvalidDataException with the reason.
     /// </summary>
-    public static byte[] Graft(byte[] targetPackage, string targetDefault, string donorPackage, string donorDefault, List<string> log, bool voice = false)
+    public static byte[] Graft(byte[] targetPackage, string targetDefault, string donorPackage, string donorDefault, List<string> log, bool voice = false, string? cooked = null)
     {
         var dst = Package.FromBytes(targetPackage);
         var src = Package.Open(donorPackage);
@@ -112,6 +114,18 @@ static class PowerBorrow
             string name = "borrowed_" + e.ObjectName;
             int existing = Find(dst, dst.PathOf(dst.Exports[td]) + "." + name);
             if (existing >= 0) { refs.Add(existing + 1); log.Add($"  {e.ObjectName} ({cls}): already in from an earlier borrow"); continue; }
+            // (a, 0.60.7) a component whose settings come from a template in another class's package (Cyclops' ride: its anim
+            // inherits the ride animations from powershared_ridebike's): that package isn't loaded for the target, so the
+            // template is copied in under its own path and the copy points at it
+            if (cooked != null && Template(src, r - 1) is string tpl && Find(dst, tpl) < 0 && TemplatePackage(cooked, tpl) is string tf)
+            {
+                var tp = Package.Open(tf);
+                int ti = Find(tp, tpl);
+                var tc = ti < 0 ? null : CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, []), out string tsaid);
+                if (tc != null) { dst = Package.FromBytes(tc.Output); td = Find(dst, targetDefault); log.Add($"  {e.ObjectName}: its template {tpl} copied in (from {Path.GetFileName(tf)})"); }
+                else log.Add($"  {e.ObjectName}: its template {tpl} couldn't be copied: its inherited settings won't show");
+            }
+            if (Template(src, r - 1) is string tpl2 && Find(dst, tpl2) >= 0) replace[tpl2] = tpl2;
             var copy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out string said);
             if (copy == null && (said.Contains("the target has no copy of it") || said.Contains("(compiled code) isn't copied yet")))
             { log.Add($"  {e.ObjectName} ({cls}): left out (its class is the donor package's own and couldn't be copied)"); continue; }
@@ -407,11 +421,12 @@ static class PowerBorrow
         return found;
     }
 
-    /// <summary>A sequence's length in seconds in a hero package's animation sets (its first by that name), else 0.</summary>
+    /// <summary>A sequence's length in seconds in a hero package's animation sets (the character's: the set with the most bones
+    /// holding that name, not a vehicle's), else 0.</summary>
     public static float Length(string heroPackage, string anim)
     {
         var ap = AnimExportCli.Packages.Package.Open(heroPackage);
-        foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap))
+        foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).OrderByDescending(x => x.TrackBoneNames.Count))
             foreach (var seq in set.Sequences.Where(q => q.IsExport))
                 if (AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex).Equals(anim, StringComparison.OrdinalIgnoreCase))
                 {
@@ -428,7 +443,8 @@ static class PowerBorrow
     /// 2026-10-10: Torch's 0.6 s fireball on Iceman's 0.4 s Rapid Fire looked extremely rapid; fit = false keeps the donor's).
     /// Returns the changed packages by file name.
     /// </summary>
-    public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null)
+    public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
+        IReadOnlyList<(string File, int Export, string Slot)>? spawn = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -442,9 +458,10 @@ static class PowerBorrow
             string td = $"marvelgamecontent.default__{pr.TargetClass}".ToLowerInvariant(), dd = $"marvelgamecontent.default__{pr.DonorClass}".ToLowerInvariant();
             log.Add($"{pr.Role}: {pr.TargetClass} ({tf}) ← {pr.DonorClass} ({Path.GetFileName(pr.DonorFile)})");
             if (keepTiming && pr.Role == "power") { done[tf] = SwapLooks(cur, td, pr.DonorFile, dd, log); continue; }
-            if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd)); }
-            done[tf] = Graft(cur, td, pr.DonorFile, dd, log);
+            if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); }
+            done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
+            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log);
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
@@ -455,11 +472,17 @@ static class PowerBorrow
         var swaps = new List<AnimSwap.Swap>();
         foreach (string an in donorAnims)
         {
+            // the character's set, not a vehicle's: Cyclops' bike has a set of its own (cyclops_bike_as, 22 chopper bones) with the
+            // same sequence names as his riding ones in cyclops_as (89 bones): the set with the most bones is the rider's
             AnimSwap.Swap? found = null;
+            int foundBones = -1;
             foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap))
                 foreach (var seq in set.Sequences.Where(q => q.IsExport))
-                    if (found == null && AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex).Equals(an, StringComparison.OrdinalIgnoreCase))
+                    if (set.TrackBoneNames.Count > foundBones && AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex).Equals(an, StringComparison.OrdinalIgnoreCase))
+                    {
                         found = new AnimSwap.Swap(an, donorHeroPackage, set.ExportIndex, seq.ExportIndex);
+                        foundBones = set.TrackBoneNames.Count;
+                    }
             if (found == null) { log.Add($"anims: {an} not found in {Path.GetFileName(donorHeroPackage)}"); continue; }
             float donorLen = Length(donorHeroPackage, an);
             float rate = fit && targetLen > 0.01f && donorLen > 0.01f ? donorLen / targetLen : 1;
@@ -731,6 +754,145 @@ static class PowerBorrow
         return output;
     }
 
+    /// <summary>
+    /// (b, 0.60.7) What a power shows through its conditions (the server applies them, so a borrow can't): a ride's vehicle.
+    /// Cyclops' ride sets off MarvelConditionEffect_CyclopsRideBike, whose motorcycle_attach (by its template, the shared
+    /// ride condition's) shows weapon slot "bike", where Cyclops keeps marvelattachmentanimated_cyclopsbike. Returns the
+    /// donor hero's attachment classes in the slots the donor's conditions show: (hero package, class export).
+    /// </summary>
+    public static List<(string File, int Export, string Slot)> ConditionAttachments(Fx.GameData db, Fx.FxGame game, string donorPower, string donorHeroPackage, List<string> log)
+    {
+        var slots = new List<string>();
+        foreach (var a in Fx.PowerClosure.Of(db, donorPower).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)))
+        {
+            string? file = game.PackagesOf(a.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), $"marvelgamecontent.default__{a.Class}".ToLowerInvariant()) >= 0);
+            if (file == null) continue;
+            var p = Package.Open(file);
+            List<int> comps;
+            try { comps = Components(p, Find(p, $"marvelgamecontent.default__{a.Class}".ToLowerInvariant()), out _, out _); }
+            catch (InvalidDataException) { continue; }
+            foreach (int r in comps)
+            {
+                if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
+                string? slot = ShownSlot(p, r - 1);
+                if (slot == null && Template(p, r - 1) is string tpl && TemplatePackage(game.Cooked, tpl) is string tf)
+                {
+                    var tp = Package.Open(tf);
+                    int ti = Find(tp, tpl);
+                    if (ti >= 0) slot = ShownSlot(tp, ti);
+                }
+                if (slot != null && !slots.Contains(slot, StringComparer.OrdinalIgnoreCase)) slots.Add(slot);
+            }
+        }
+        var found = new List<(string, int, string)>();
+        if (slots.Count == 0) return found;
+        var hp = Package.Open(donorHeroPackage);
+        for (int i = 0; i < hp.Exports.Length; i++)
+        {
+            var e = hp.Exports[i];
+            if (!hp.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase)) continue;
+            int d = Find(hp, "marvelgamecontent.default__" + e.ObjectName);
+            if (d < 0) continue;
+            byte[] b = hp.ReadExportBytes(hp.Exports[d]).ToArray();
+            var ws = TagWalker.Walk(hp, b, 4)?.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase));
+            if (ws == null) continue;
+            int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ws.ValueAt));
+            for (int k = 0; k < n; k++)
+            {
+                string s = TagWalker.NameAt(hp, b, ws.ValueAt + 4 + 8 * k);
+                if (slots.Contains(s, StringComparer.OrdinalIgnoreCase)) { found.Add((donorHeroPackage, i, s)); break; }
+            }
+        }
+        foreach (var (_, i, s) in found) log.Add($"  the donor's condition shows weapon slot {s}: {hp.Exports[i].ObjectName} (spawned while the power runs)");
+        return found;
+    }
+
+    /// <summary>The weapon slot a mesh attachment component shows (WhileActivatedShowWeaponSlot / WeaponSlotToShowOnActivate), its own; else null.</summary>
+    static string? ShownSlot(Package p, int export)
+    {
+        byte[] b = p.ReadExportBytes(p.Exports[export]).ToArray();
+        var t = TagWalker.Walk(p, b, 16)?.FirstOrDefault(x => x.Name.Equals("WhileActivatedShowWeaponSlot", StringComparison.OrdinalIgnoreCase) || x.Name.Equals("WeaponSlotToShowOnActivate", StringComparison.OrdinalIgnoreCase));
+        return t == null ? null : TagWalker.NameAt(p, b, t.ValueAt);
+    }
+
+    /// <summary>
+    /// The attachment classes copied into the target power's package, each spawned by a component of its own while the power
+    /// runs (WhileActivatedAttachmentClass). The component is a copy of a stock one (Ant-Man's ant_outro, the same form) with
+    /// its class pointed at the copy.
+    /// </summary>
+    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot)> classes, string cooked, List<string> log)
+    {
+        var dst = Package.FromBytes(package);
+        string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
+        const string tplDefault = "marvelgamecontent.default__powerantman_avatarswapin", tplComp = tplDefault + ".ant_outro";
+        if (!File.Exists(tplFile)) { log.Add("  the spawn component's template package isn't found: vehicles left out"); return package; }
+        var tp = Package.Open(tplFile);
+        int ti = Find(tp, tplComp);
+        if (ti < 0) { log.Add("  the spawn component's template isn't found: vehicles left out"); return package; }
+        int k = 0;
+        foreach (var (file, export, slot) in classes)
+        {
+            var hp = Package.Open(file);
+            var cc = CrossMove.Quiet(() => ExportCopy.Copy(hp, export, dst, []), out string csaid)
+                ?? throw new InvalidDataException($"{hp.Exports[export].ObjectName} couldn't be copied: " + string.Join(" ", csaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
+            dst = Package.FromBytes(cc.Output);
+            int classRef = cc.RootRef;
+            var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
+            string name = $"borrowed_{slot}_spawn{(k++ == 0 ? "" : k.ToString())}";
+            var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
+                ?? throw new InvalidDataException($"the spawn component couldn't be copied: " + string.Join(" ", ssaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
+            dst = Package.FromBytes(sc.Output);
+            // its class: the copied attachment; the default lists it
+            int comp = sc.RootRef - 1, td = Find(dst, targetDefault);
+            byte[] cd = dst.ReadExportBytes(dst.Exports[comp]).ToArray();
+            var ct = TagWalker.Walk(dst, cd, 16)?.FirstOrDefault(t => t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase))
+                     ?? throw new InvalidDataException("the spawn component has no WhileActivatedAttachmentClass");
+            BinaryPrimitives.WriteInt32LittleEndian(cd.AsSpan(ct.ValueAt), classRef);
+            var list = Components(dst, td, out var tag, out byte[] dd);
+            list.Add(comp + 1);
+            var value = new byte[4 + 4 * list.Count];
+            BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
+            for (int j = 0; j < list.Count; j++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * j), list[j]);
+            byte[] nd = [.. dd.AsSpan(0, tag.ValueAt), .. value, .. dd.AsSpan(tag.ValueAt + tag.Size)];
+            BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
+            var rep = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => cd, [td] = _ => nd };
+            byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+            var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+            if (problems.Count > 0) throw new InvalidDataException("the spawned attachment: " + string.Join("; ", problems.Take(3)));
+            dst = Package.FromBytes(output);
+            log.Add($"  {name}: spawns {dst.PathOf(dst.Exports[classRef - 1])} while the power runs (the donor's {slot})");
+        }
+        return dst.RawFile;
+    }
+
+    /// <summary>An export's archetype when it's a component template in another class's default (an import
+    /// marvelgamecontent.default__&lt;class&gt;.&lt;component&gt;), as a path; else null.</summary>
+    static string? Template(Package p, int export)
+    {
+        int arch = BinaryPrimitives.ReadInt32LittleEndian(p.Body.AsSpan(p.ExportEntryStart[export] + 20));
+        if (arch >= 0) return null;
+        var parts = new List<string>();
+        for (int r = arch, guard = 0; r != 0 && guard < 16; guard++)
+        {
+            if (r > 0) { parts.Insert(0, p.PathOf(p.Exports[r - 1])); break; }
+            var im = p.Imports[-r - 1]; parts.Insert(0, im.ObjectName); r = im.OuterIndex;
+        }
+        string path = string.Join(".", parts);
+        return path.StartsWith("marvelgamecontent.default__", StringComparison.OrdinalIgnoreCase) && path.Count(c => c == '.') == 2 ? path : null;
+    }
+
+    /// <summary>The stock package defining a template's class (marvelgamecontent.default__powershared_ridebike.anim →
+    /// UC__PowerShared_RideBike_SF.upk), when it has that export; else null.</summary>
+    static string? TemplatePackage(string cooked, string templatePath)
+    {
+        string cls = templatePath.Split('.')[1]["default__".Length..];
+        string? file = Directory.EnumerateFiles(cooked, $"UC__{cls}_SF.upk").FirstOrDefault();
+        if (file == null) return null;
+        string stock = StockFiles.For(cooked, Path.GetFileName(file));
+        try { return File.Exists(stock) && Find(Package.Open(stock), templatePath) >= 0 ? stock : null; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
+    }
+
     static List<int> Components(Package p, int export, out TagWalker.Tag tag, out byte[] data)
     {
         data = p.ReadExportBytes(p.Exports[export]).ToArray();
@@ -744,18 +906,38 @@ static class PowerBorrow
     }
 
     /// <summary>The animation names a class default's PowerFxAnimation components play (their AnimName).</summary>
-    public static List<string> AnimNames(string package, string defaultPath)
+    public static List<string> AnimNames(string package, string defaultPath, string? cooked = null)
     {
         var p = Package.Open(package);
         int d = Find(p, defaultPath);
         if (d < 0) return [];
         var names = new List<string>();
+        // AnimName, and a looping one's PowerAnims list (a ride's start, loop, end: 0.60.7)
+        bool Read(Package q, int export)
+        {
+            byte[] b = q.ReadExportBytes(q.Exports[export]).ToArray();
+            bool any = false;
+            foreach (var t in TagWalker.Walk(q, b, 16) ?? [])
+            {
+                if (t.Name.Equals("AnimName", StringComparison.OrdinalIgnoreCase)) { Add(TagWalker.NameAt(q, b, t.ValueAt)); any = true; }
+                else if (t.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase))
+                {
+                    int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt));
+                    for (int k = 0; k < n; k++) Add(TagWalker.NameAt(q, b, t.ValueAt + 4 + 8 * k));
+                    any = true;
+                }
+            }
+            return any;
+        }
+        void Add(string n) { if (!n.Equals("None", StringComparison.OrdinalIgnoreCase) && !names.Contains(n, StringComparer.OrdinalIgnoreCase)) names.Add(n); }
         foreach (int r in Components(p, d, out _, out _))
         {
-            if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).Equals("PowerFxAnimation", StringComparison.OrdinalIgnoreCase)) continue;
-            byte[] b = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
-            foreach (var t in TagWalker.Walk(p, b, 16) ?? [])
-                if (t.Name.Equals("AnimName", StringComparison.OrdinalIgnoreCase) && TagWalker.NameAt(p, b, t.ValueAt) is string n && !names.Contains(n, StringComparer.OrdinalIgnoreCase)) names.Add(n);
+            if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).StartsWith("PowerFxAnimation", StringComparison.OrdinalIgnoreCase)) continue;
+            // its own, else its template's (Cyclops' ride anim inherits powershared_ridebike's)
+            if (Read(p, r - 1) || cooked == null || Template(p, r - 1) is not string tpl || TemplatePackage(cooked, tpl) is not string tf) continue;
+            var tp = Package.Open(tf);
+            int ti = Find(tp, tpl);
+            if (ti >= 0) Read(tp, ti);
         }
         return names;
     }

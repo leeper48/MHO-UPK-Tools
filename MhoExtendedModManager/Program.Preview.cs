@@ -182,7 +182,11 @@ static partial class Program
                 string? pgr = settings.ResolvedGameRoot(data);
                 string? pcook = pgr != null && Settings.IsGameRoot(pgr) ? Settings.Cooked(pgr) : null;
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                var idx = Fx.PowerIndex.For(rest[1], pcook, []);
+                // --mod <name>: the mod's packages first (a borrowed power's animations)
+                int pmAt = rest.IndexOf("--mod");
+                var pmod = pmAt >= 0 && pmAt + 1 < rest.Count ? lib.Find(rest[pmAt + 1]) : null;
+                if (pmAt >= 0) rest.RemoveRange(pmAt, Math.Min(2, rest.Count - pmAt));
+                var idx = Fx.PowerIndex.For(rest[1], pcook, pmod == null ? [] : pmod.Manifest.UpkReplacements.Select(f => Path.Combine(pmod.Folder, f)));
                 Console.WriteLine($"{idx.Count} animation(s) in {rest[1]}'s power packages ({sw.ElapsedMilliseconds} ms)");
                 foreach (var (anim, list) in idx.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
                     if (rest.Count < 3 || anim.Contains(rest[2], StringComparison.OrdinalIgnoreCase))
@@ -2708,6 +2712,23 @@ static partial class Program
                         }
                     if (pelvis >= 0 && ba.Tracks.TryGetValue("g_pelvis", out var pt) && pt.PositionKeys.Count > 0)
                         Console.WriteLine($"      g_pelvis track position {pt.PositionKeys[0].Position}  (mesh rest {fl.Bones[pelvis].Position}); positions applied: {(tb == null ? "all" : tb.Contains("g_pelvis") ? "yes" : "no")}");
+                }
+                return 0;
+            }
+            case "--anim-find":
+            {
+                // Read-only: the AnimSets in packages (paths) that hold a sequence of that name, with their bones.
+                if (rest.Count < 3) { Console.WriteLine("--anim-find <sequence> <package.upk>..."); return 1; }
+                foreach (string path in rest.Skip(2))
+                {
+                    try
+                    {
+                        var ap = AnimExportCli.Packages.Package.Open(path);
+                        foreach (var s in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap))
+                            if (s.Sequences.Where(q => q.IsExport).Any(q => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, q.ExportIndex).Equals(rest[1], StringComparison.OrdinalIgnoreCase)))
+                                Console.WriteLine($"{Path.GetFileName(path)} {ap.GetExportName(s.ExportIndex)}: {s.Sequences.Count} sequences, {s.TrackBoneNames.Count} bones: {string.Join(" ", s.TrackBoneNames.Take(6))}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(path)}: {ex.GetType().Name}: {ex.Message}"); }
                 }
                 return 0;
             }

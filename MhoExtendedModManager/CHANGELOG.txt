@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.7
+- Borrowed Look (preview feature, hidden): rides borrow onto travel powers. A ride's parts live in a shared package the target hero doesn't load (Cyclops' Ride inherits them from the game's shared bike ride), so they are now copied along; the vehicle, which the game shows through a condition on the rider, is spawned for the power's length; and the rider's animations are taken from the hero's own set, not the vehicle's (Cyclops' bike has a set of its own with the same animation names). The borrowed travel power's button plays the borrowed animations in the 3D preview.
+
 0.60.6
 - Borrowed Look (preview feature, hidden): a power borrowed from another hero shows that hero's weapons. Black Widow's Snap Shot borrowing Black Panther's Triple Throw showed her own batons: the borrowed parts switched on attachments she doesn't have and showed her own hand weapons. Now each of the other hero's weapons is spawned for the power's length (as the game spawns Ant-Man's flying ants), and the hand slot it used is hidden instead of shown.
 
