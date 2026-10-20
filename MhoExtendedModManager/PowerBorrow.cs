@@ -203,6 +203,70 @@ static class PowerBorrow
         return pairs;
     }
 
+    /// <summary>How a power is built, for matching a borrow (Kurt, 2026-10-19: Black Panther's Triple Throw on Captain America's
+    /// Shield Strike showed the daggers in hand, but nothing flew: the server spawns projectiles from the power's own data, so a
+    /// melee power never throws the donor's).</summary>
+    public sealed record PowerKind(bool Projectile, bool Beam, bool Channeled)
+    {
+        /// <summary>A short label: "Fires Projectiles", "Beam", "Channeled", or "Melee / Area".</summary>
+        public string Label => Projectile ? "Fires Projectiles" : Beam ? "Beam" : Channeled ? "Channeled" : "Melee / Area";
+        public bool Matches(PowerKind o) => Projectile == o.Projectile && Beam == o.Beam;
+    }
+
+    static readonly Dictionary<string, PowerKind?> kinds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A power's kind, or null when its class or package isn't found (cached per power).</summary>
+    public static PowerKind? KindOf(Fx.GameData db, Fx.FxGame game, string power)
+    {
+        lock (kinds) if (kinds.TryGetValue(power, out var hit)) return hit;
+        PowerKind? kind = null;
+        try
+        {
+            var arts = Fx.PowerClosure.Of(db, power);
+            var pw = arts.FirstOrDefault(x => x.IsPower && x.Depth == 0);
+            if (pw != null)
+            {
+                bool proj = arts.Any(a => a.Class.StartsWith("MarvelProjectile", StringComparison.OrdinalIgnoreCase));
+                string? file = game.PackagesOf(pw.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), $"marvelgamecontent.default__{pw.Class}".ToLowerInvariant()) >= 0);
+                bool beam = false, loop = false;
+                if (file != null)
+                {
+                    var pk = Package.Open(file);
+                    // (a projectile class the power's own package holds counts too: Iceman's Rapid Fire)
+                    proj |= pk.Exports.Any(e => pk.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) && e.ObjectName.StartsWith("marvelprojectile", StringComparison.OrdinalIgnoreCase));
+                    int d = Find(pk, $"marvelgamecontent.default__{pw.Class}".ToLowerInvariant());
+                    if (d >= 0) foreach (int r in Components(pk, d, out _, out _))
+                    {
+                        if (r <= 0) continue;
+                        string c = pk.ClassOf(pk.Exports[r - 1]);
+                        beam |= c.StartsWith("PowerFxBeam", StringComparison.OrdinalIgnoreCase);
+                        loop |= c.Equals("PowerFxAnimationLooping", StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+                kind = new PowerKind(proj, beam, loop);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or KeyNotFoundException or ArgumentException) { }
+        lock (kinds) kinds[power] = kind;
+        return kind;
+    }
+
+    /// <summary>What the player will see when the two powers are built differently, in words, or null when they match.</summary>
+    public static string? Mismatch(PowerKind? target, PowerKind? donor, string targetName, string donorName)
+    {
+        if (target == null || donor == null || target.Matches(donor)) return null;
+        var lines = new List<string>();
+        if (donor.Projectile && !target.Projectile)
+            lines.Add($"{donorName} fires projectiles and {targetName} doesn't: you'll see its animation and what it holds, but nothing flies. The server decides what a power does, so the damage and range stay {targetName}'s.");
+        if (target.Projectile && !donor.Projectile)
+            lines.Add($"{targetName} fires projectiles and {donorName} doesn't: {targetName}'s projectiles keep their own look.");
+        if (donor.Beam && !target.Beam)
+            lines.Add($"{donorName} is a beam and {targetName} isn't: its beam has nothing to draw along, so it won't show.");
+        if (target.Beam && !donor.Beam)
+            lines.Add($"{targetName} is a beam and {donorName} isn't: the beam keeps its own look.");
+        return lines.Count == 0 ? null : string.Join(" ", lines);
+    }
+
     /// <summary>
     /// The mode to suggest for borrowing <paramref name="donorPower"/>'s look onto <paramref name="targetPower"/>, and why: the
     /// whole power when they're built alike; the target's timing with the donor's look when the donor is channeled and the

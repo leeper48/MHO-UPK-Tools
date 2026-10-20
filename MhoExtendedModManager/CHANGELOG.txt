@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.3
+- Borrowed Look (preview feature, hidden): the power list shows powers built like this one first (thrown from thrown, beam from beam, melee from melee), the others dimmed with what they are; picking one built differently gives an amber warning of what won't show. Black Panther's Triple Throw on Captain America's Shield Strike showed the daggers in hand, but nothing flew: the server decides what a power does, so a melee power never fires the other's projectiles.
+
 0.60.2
 - Borrowed Look (preview feature, hidden): a borrowed power brings the other power's own script classes along (projectiles such as Punisher's stun grenade, attachments such as Black Panther's daggers), with their defaults, components and models (MHO Package Modifier 2.53.29: compiled script classes copy, read as the game's own client reads them; classes with compiled code, such as the hit effects, are still left out). On the census's 1,190 pairs, failed borrows dropped from 171 to 90.
 

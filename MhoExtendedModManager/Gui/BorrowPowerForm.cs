@@ -9,11 +9,15 @@ namespace MhoExtendedModManager.Gui;
 /// </summary>
 sealed class BorrowPowerForm : Form
 {
-    readonly DropDown heroBox = new() { Width = 320 }, powerBox = new() { Width = 320 };
+    readonly DropDown heroBox = new() { Width = 460 }, powerBox = new() { Width = 460 };
     readonly RadioButton whole = new() { Text = "Whole Power: Its Animation, Effects and Projectile", AutoSize = true, Checked = true };
     readonly RadioButton look = new() { Text = "Keep This Power's Timing: Only What Its Effects Draw", AutoSize = true };
     readonly CheckBox fit = new() { Text = "Fit the Animation to This Power's Timing", AutoSize = true, Checked = true };
     readonly Label suggestion = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 8), MaximumSize = new Size(560, 0) };
+    readonly Label mismatchNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
+    readonly Dictionary<string, PowerBorrow.PowerKind?> kindOf = new(StringComparer.OrdinalIgnoreCase);
+    PowerBorrow.PowerKind? targetKind;
+    readonly string targetName;
     readonly Label enemyNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Fx.GameData db;
     readonly string cooked, target;
@@ -24,7 +28,7 @@ sealed class BorrowPowerForm : Form
 
     public BorrowPowerForm(Fx.GameData db, string cooked, string targetPower, string targetName, PowerBorrowEntry? current)
     {
-        this.db = db; this.cooked = cooked; target = targetPower;
+        this.db = db; this.cooked = cooked; target = targetPower; this.targetName = targetName;
         Text = "Borrow a Power's Look";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this);
@@ -46,7 +50,7 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
-        modes.Controls.AddRange([whole, fit, look, suggestion, enemyNote]);
+        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote]);
         fit.Margin = new Padding(22, 0, 0, 6);
         t.Controls.Add(modes, 0, 4); t.SetColumnSpan(modes, 2);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(0, 10, 0, 0) };
@@ -58,7 +62,7 @@ sealed class BorrowPowerForm : Form
         Controls.Add(t);
 
         Ui.Tip(heroBox, "The hero whose power look to borrow.");
-        Ui.Tip(powerBox, "The power whose look this power takes. Only powers with an animation of their own are listed.");
+        Ui.Tip(powerBox, "The power whose look this power takes. Only powers with an animation of their own are listed; powers built like this one (thrown, beam, or melee and area) come first, the others are dimmed with what they are.");
         Ui.Tip(whole, "The other power's animation, its effects and sounds, and its projectile's look (when both powers fire one). For powers built alike: a projectile from a projectile, a beam from a beam.");
         Ui.Tip(fit, "Plays the borrowed animation faster or slower so it lasts as long as this power's own (the game repeats the power at its own pace; an animation longer than that is cut off).");
         Ui.Tip(look, "This power keeps its own animation, timing and sounds; its beams and effects draw the other power's instead (and the other power's hand effects are added when this one has none). For powers built differently: a channeled beam's look on a quick beam.");
@@ -71,7 +75,9 @@ sealed class BorrowPowerForm : Form
         heroBox.Format = o => AutoTags.DisplayName((string)o) ?? (string)o;
         heroBox.Items.AddRange(heroes);
         heroBox.SelectedIndexChanged += (_, _) => LoadPowers();
-        powerBox.Format = o => o is Fx.PowerList.Power p ? p.Name : o.ToString() ?? "";
+        // powers built like this one first (a thrown power from a thrown one, a beam from a beam); the others dimmed, with their kind
+        powerBox.Format = o => o is Fx.PowerList.Power p ? p.Name + (Different(p) is { } k ? "  ·  " + k.Label : "") : o.ToString() ?? "";
+        powerBox.ItemColor = i => i >= 0 && i < powerBox.Items.Count && powerBox.Items[i] is Fx.PowerList.Power p && Different(p) != null ? Ui.Subtle : null;
         powerBox.SelectedIndexChanged += (_, _) => Suggest();
         string? startHero = current != null ? current.DonorHero ?? PowerBorrow.HeroOf(current.Donor) : null;
         if (current != null) { whole.Checked = !current.KeepTiming; look.Checked = current.KeepTiming; fit.Checked = current.Fit; }
@@ -94,20 +100,36 @@ sealed class BorrowPowerForm : Form
 
     string? wantPower;
 
+    /// <summary>The power's kind when it differs from this power's (null when it matches or isn't known).</summary>
+    PowerBorrow.PowerKind? Different(Fx.PowerList.Power p) =>
+        targetKind != null && kindOf.GetValueOrDefault(p.Prototype) is { } k && !k.Matches(targetKind) ? k : null;
+
     void LoadPowers()
     {
         if (heroBox.SelectedItem is not string hero) return;
         int req = ++request;
         powerBox.Items.Clear();
         suggestion.Text = "Reading the powers…";
-        Task.Run(() => Fx.PowerList.For(db, hero, cooked, []).Where(p => p.Animations.Count > 0).ToList()).ContinueWith(t =>
+        string c0 = cooked, tgt = target;
+        Task.Run(() =>
+        {
+            var g = new Fx.FxGame(c0, []);
+            var tk = PowerBorrow.KindOf(db, g, tgt);
+            var list = Fx.PowerList.For(db, hero, c0, []).Where(p => p.Animations.Count > 0).ToList();
+            var ks = list.ToDictionary(p => p.Prototype, p => PowerBorrow.KindOf(db, g, p.Prototype), StringComparer.OrdinalIgnoreCase);
+            // matching first, each part in the list's own order
+            var sorted = list.OrderBy(p => tk != null && ks[p.Prototype] is { } k && !k.Matches(tk) ? 1 : 0).ToList();
+            return (tk, ks, sorted);
+        }).ContinueWith(t =>
         {
             if (IsDisposed || req != request) return;
             if (t.Status != TaskStatus.RanToCompletion) { suggestion.Text = "This hero's powers couldn't be read."; return; }
-            powerBox.Items.AddRange(t.Result);
-            int at = wantPower == null ? -1 : t.Result.FindIndex(p => p.Prototype.Equals(wantPower, StringComparison.OrdinalIgnoreCase));
+            targetKind = t.Result.tk;
+            foreach (var (k, v) in t.Result.ks) kindOf[k] = v;
+            powerBox.Items.AddRange(t.Result.sorted);
+            int at = wantPower == null ? -1 : t.Result.sorted.FindIndex(p => p.Prototype.Equals(wantPower, StringComparison.OrdinalIgnoreCase));
             wantPower = null;
-            if (t.Result.Count > 0) powerBox.SelectedIndex = Math.Max(0, at);
+            if (t.Result.sorted.Count > 0) powerBox.SelectedIndex = Math.Max(0, at);
             else suggestion.Text = "This hero has no powers with an animation.";
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
@@ -139,6 +161,11 @@ sealed class BorrowPowerForm : Form
             whole.Checked = !keep; look.Checked = keep;
             suggestion.Text = "Suggested: " + why + (takes != null && keep ? $" It changes: {takes}." : "");
             // the target power's class is an enemy's too: they'd get the borrowed look
+            // built differently: what will (not) show
+            string? mm = PowerBorrow.Mismatch(targetKind, kindOf.GetValueOrDefault(p.Prototype), targetName, p.Name);
+            mismatchNote.Visible = mm != null;
+            mismatchNote.ForeColor = enemyNote.ForeColor = Color.FromArgb(240, 185, 70);   // (the theme recolors labels: set again here)
+            mismatchNote.Text = mm ?? "";
             enemyNote.Visible = enemies.Count > 0;
             enemyNote.Text = enemies.Count == 0 ? "" : "Enemies use this power's look too: " + string.Join(", ", enemies.Select(e => Path.GetFileNameWithoutExtension(e))) +
                 ". Borrowing changes how they look as well (the game shares the power's package with them).";

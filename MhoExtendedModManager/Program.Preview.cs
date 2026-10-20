@@ -632,6 +632,9 @@ static partial class Program
                 Console.WriteLine($"keep timing changes: {PowerBorrow.KeepTimingTakes(kdb, kg, rest[1], rest[2]) ?? "nothing"}");
                 var en = PowerBorrow.EnemyUsers(kdb, kg, kgr, rest[1], rest[2], 20);
                 Console.WriteLine($"enemy powers sharing the target's classes: {(en.Count == 0 ? "none" : string.Join(", ", en))}");
+                var tk = PowerBorrow.KindOf(kdb, kg, rest[1]); var dk = PowerBorrow.KindOf(kdb, kg, rest[2]);
+                Console.WriteLine($"kinds: target {tk?.Label ?? "?"}, donor {dk?.Label ?? "?"}");
+                Console.WriteLine($"warning: {PowerBorrow.Mismatch(tk, dk, Path.GetFileNameWithoutExtension(rest[1]), Path.GetFileNameWithoutExtension(rest[2])) ?? "none (built alike)"}");
                 return 0;
             }
             case "--power-borrow":
