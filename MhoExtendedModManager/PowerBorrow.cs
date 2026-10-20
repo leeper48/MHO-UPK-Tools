@@ -903,7 +903,7 @@ static class PowerBorrow
             dst = Package.FromBytes(cc.Output);
             int classRef = cc.RootRef;
             if (targetBones is { Count: > 0 }) dst = RootMissingBones(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, targetBones, log);
-            if (Math.Abs(scale - 1) > 0.02f) dst = ScaleAttachment(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, scale, log);
+            if (Math.Abs(scale - 1) > 0.02f) dst = ScaleAttachment(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, scale, cooked, log);
             var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
             string name = $"borrowed_{slot}_spawn{(k++ == 0 ? "" : k.ToString())}";
             var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
@@ -1276,17 +1276,30 @@ static class PowerBorrow
     /// TEST: a spawned attachment drawn <paramref name="scale"/> times its size: its class default's DrawScale (Actor's,
     /// default 1), set or added before its None. A hypothesis until seen in game.
     /// </summary>
-    static Package ScaleAttachment(Package dst, string classDefault, float scale, List<string> log)
+    static Package ScaleAttachment(Package dst, string classDefault, float scale, string cooked, List<string> log)
     {
         int d = Find(dst, classDefault);
         if (d < 0) return dst;
-        // the attachment is an actor (it lists components): its DrawScale sizes all of them, also a mesh component it only
-        // inherits from its parent class (Cyclops' bike has none of its own)
-        int comp = d;
+        // its own mesh component, scaled (DrawScale on the attachment didn't reach Cyclops' bike in game, x2 unchanged:
+        // Kurt 2026-10-20); one that only inherits its parent's gets one of its own first (OwnMeshComponent)
+        byte[] b0 = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var mt = TagWalker.Walk(dst, b0, 4)?.FirstOrDefault(t => t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
+        int mr = mt == null ? 0 : BinaryPrimitives.ReadInt32LittleEndian(b0.AsSpan(mt.ValueAt));
+        if (mr <= 0)
+        {
+            if (OwnMeshComponent(dst, classDefault, cooked, log) is not { } withOwn) return dst;
+            dst = withOwn;
+            d = Find(dst, classDefault);
+            b0 = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+            mt = TagWalker.Walk(dst, b0, 4)?.FirstOrDefault(t => t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
+            mr = mt == null ? 0 : BinaryPrimitives.ReadInt32LittleEndian(b0.AsSpan(mt.ValueAt));
+            if (mr <= 0) return dst;
+        }
+        int comp = mr - 1;
         byte[] cd = dst.ReadExportBytes(dst.Exports[comp]).ToArray();
-        var ct = TagWalker.Walk(dst, cd, 4);
+        var ct = TagWalker.Walk(dst, cd, 16);
         if (ct == null) { log.Add($"  {dst.Exports[comp].ObjectName}: its properties don't read: not scaled"); return dst; }
-        const string ScaleName = "DrawScale";
+        const string ScaleName = "Scale";
         var addNames = new List<string>();
         int NameIdx(string n)
         {
@@ -1315,6 +1328,68 @@ static class PowerBorrow
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
         if (problems.Count > 0) throw new InvalidDataException("the vehicle's scale: " + string.Join("; ", problems.Take(3)));
         log.Add($"  {dst.Exports[d].ObjectName}: drawn x{scale:0.00} (this hero's height over the other's)");
+        return Package.FromBytes(output);
+    }
+
+    /// <summary>
+    /// TEST: gives an animated attachment's class default a mesh component of its own, for one that only inherits its
+    /// parent class's (Cyclops' bike: ModelMesh and AnimationSet, no Mesh): a copy of Green Goblin's glider's
+    /// (default__marvelattachmentanimated_greengoblinglider.initialskeletalmesh: SkeletalMesh, AnimTreeTemplate
+    /// attachment_at, AnimSets) under this default, with its SkeletalMesh and AnimSets pointed at this attachment's own
+    /// ModelMesh / AnimationSet; the default then names it (Mesh) and lists it (Components), as the glider's does.
+    /// </summary>
+    static Package? OwnMeshComponent(Package dst, string classDefault, string cooked, List<string> log)
+    {
+        string srcFile = StockFiles.For(cooked, "UC__MarvelPlayer_GreenGoblin_SF.upk");
+        const string srcDefault = "marvelgamecontent.default__marvelattachmentanimated_greengoblinglider", srcComp = srcDefault + ".initialskeletalmesh";
+        if (!File.Exists(srcFile)) { log.Add("  the mesh component's template package isn't found: not scaled"); return null; }
+        var sp = Package.Open(srcFile);
+        int si = Find(sp, srcComp);
+        if (si < 0) { log.Add("  the mesh component's template isn't found: not scaled"); return null; }
+        int d = Find(dst, classDefault);
+        byte[] db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var dtags = TagWalker.Walk(dst, db, 4);
+        int FirstRef(string name) => dtags?.FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } t && BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(t.ValueAt)) > 0 ? BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(t.ValueAt + 4)) : 0;
+        int mesh = FirstRef("ModelMesh"), set = FirstRef("AnimationSet");
+        if (mesh == 0) { log.Add("  the attachment names no model: not scaled"); return null; }
+        var cc = CrossMove.Quiet(() => ExportCopy.Copy(sp, si, dst, [], null, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [srcDefault] = classDefault }), out string said);
+        if (cc == null) { log.Add("  the mesh component couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim()))); return null; }
+        dst = Package.FromBytes(cc.Output);
+        int comp = cc.RootRef - 1;
+        d = Find(dst, classDefault);
+        byte[] cd = dst.ReadExportBytes(dst.Exports[comp]).ToArray();
+        var ct = TagWalker.Walk(dst, cd, 16);
+        if (ct == null) return null;
+        if (ct.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } smt) BinaryPrimitives.WriteInt32LittleEndian(cd.AsSpan(smt.ValueAt), mesh);
+        if (set != 0 && ct.FirstOrDefault(t => t.Name.Equals("AnimSets", StringComparison.OrdinalIgnoreCase)) is { } ast && BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(ast.ValueAt)) >= 1) BinaryPrimitives.WriteInt32LittleEndian(cd.AsSpan(ast.ValueAt + 4), set);
+        // the default: Mesh and Components naming it
+        db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        dtags = TagWalker.Walk(dst, db, 4)!;
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return dst.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        byte[] Tag(string name, string type, byte[] value)
+        {
+            var t = new byte[24 + value.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(t, NameIdx(name));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(8), NameIdx(type));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(16), value.Length);
+            value.CopyTo(t, 24);
+            return t;
+        }
+        byte[] one = BitConverter.GetBytes(comp + 1);
+        byte[] list = [.. BitConverter.GetBytes(1), .. one];
+        byte[] nd = [.. db.AsSpan(0, dtags.NoneAt), .. Tag("Mesh", "ObjectProperty", one), .. Tag("Components", "ArrayProperty", list), .. db.AsSpan(dtags.NoneAt)];
+        var rep = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => cd, [d] = _ => nd };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add("  the mesh component: " + string.Join("; ", problems.Take(3))); return null; }
+        log.Add($"  {dst.Exports[d].ObjectName}: a mesh component of its own (the glider's form) for its model");
         return Package.FromBytes(output);
     }
 
