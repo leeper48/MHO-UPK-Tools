@@ -579,13 +579,24 @@ static partial class Program
                 var fails = new Dictionary<string, int>(); var scriptEx = new List<string>(); var childEx = new List<string>();
                 var bag = new System.Collections.Concurrent.ConcurrentBag<(string Name, MhoPackageModifier.ClassData? C, string? Err)>();
                 var funcBag = new System.Collections.Concurrent.ConcurrentBag<(string Name, int Size)>();
+                var fieldBag = new System.Collections.Concurrent.ConcurrentBag<(string Class, string Name, string? Err, int Tokens)>();
                 Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) }, f =>
                 {
                     try
                     {
                         var pk = MhoPackageModifier.Package.Open(f);
+                        MhoPackageModifier.ScriptCode.UseNoneName(Array.FindIndex(pk.Names, n => n.Equals("None", StringComparison.OrdinalIgnoreCase)));
                         foreach (var e in pk.Exports)
                         {
+                            // a script class's fields: functions (with their code) and properties
+                            string fc = pk.ClassOf(e);
+                            if (fc.Equals("Function", StringComparison.OrdinalIgnoreCase) || fc.EndsWith("Property", StringComparison.OrdinalIgnoreCase))
+                            {
+                                byte[] fd = pk.ReadExportBytes(e).ToArray();
+                                string? ferr;
+                                var fr = fc.Equals("Function", StringComparison.OrdinalIgnoreCase) ? MhoPackageModifier.ScriptCode.Function(fd, out ferr) : MhoPackageModifier.ScriptCode.Property(fd, fc, out ferr);
+                                fieldBag.Add((fc, Path.GetFileName(f) + " " + pk.PathOf(e), fr == null ? ferr : null, fr?.Tokens ?? 0));
+                            }
                             if (!pk.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase)) continue;
                             var c = MhoPackageModifier.ClassData.Parse(pk.ReadExportBytes(e).ToArray(), out string? err);
                             bag.Add((Path.GetFileName(f) + " " + e.ObjectName, c, err));
@@ -614,6 +625,10 @@ static partial class Program
                 foreach (var (k, n) in fails.OrderByDescending(x => x.Value)) Console.WriteLine($"  {n} × {k}");
                 Console.WriteLine("  with bytecode: " + string.Join("; ", scriptEx));
                 Console.WriteLine("  with children: " + string.Join("; ", childEx));
+                foreach (var g in fieldBag.GroupBy(x => x.Class, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()))
+                    Console.WriteLine($"  {g.Key}: {g.Count()}, {g.Count(x => x.Err == null)} read to their end{(g.Key.Equals("Function", StringComparison.OrdinalIgnoreCase) ? $" ({g.Sum(x => x.Tokens)} code tokens)" : "")}");
+                foreach (var g in fieldBag.Where(x => x.Err != null).GroupBy(x => x.Err!.Split(" (at")[0]).OrderByDescending(g => g.Count()).Take(8))
+                    Console.WriteLine($"    {g.Count()} × {g.Key}: e.g. {g.First().Name}: {g.First().Err}");
                 foreach (var g in funcBag.GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()))
                     Console.WriteLine($"  function {g.Key}: in {g.Count()} packages, sizes {string.Join("/", g.Select(x => x.Size).Distinct())}");
                 return 0;
