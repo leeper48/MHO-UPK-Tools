@@ -511,6 +511,8 @@ static class PowerBorrow
             // TEST (MHO_BORROW_VEHICLE_SCALE=1): a spawned vehicle sized by the two heroes' heights (Kurt, 2026-10-20: Cyclops'
             // bike looked small under Thor)
             float vscale = Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE") == "1" && HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
+            // (MHO_BORROW_VEHICLE_SCALE_FORCE=<n>: that scale instead, to see whether it reaches the vehicle at all)
+            if (float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE_FORCE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vforce) && vforce > 0) vscale = vforce;
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), vscale);
             if (crossHero && pr.Role == "power" && cooked != null) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
         }
