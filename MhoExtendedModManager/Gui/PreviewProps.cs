@@ -28,7 +28,7 @@ sealed class PreviewProps
     public Action<PropRig>? AddMore { get; init; }
 
     List<PowerPreview.BaseProp> baseProps = [];
-    List<(PropRig.Prop W, ModMeshes.Loaded M)> powerProps = [];
+    List<PowerPreview.BaseProp> powerProps = [];
     Dictionary<string, BoneAnimation> seqs = new(StringComparer.OrdinalIgnoreCase);
     List<ModMeshes.PropRule> rules = [];
     float contact;

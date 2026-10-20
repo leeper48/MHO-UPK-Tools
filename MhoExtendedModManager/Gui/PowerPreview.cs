@@ -203,10 +203,9 @@ static class PowerPreview
 
     /// <summary>The character with its props and the power's props in the rig, each held with its attachment's offset
     /// rotation (Ghost Rider's bike: yaw 90°).</summary>
-    public static void AddProps(PropRig rig, MeshAnimator animator, IEnumerable<BaseProp> baseProps, IEnumerable<(PropRig.Prop W, ModMeshes.Loaded M)> powerProps)
+    public static void AddProps(PropRig rig, MeshAnimator animator, IEnumerable<BaseProp> baseProps, IEnumerable<BaseProp> powerProps)
     {
-        foreach (var p in baseProps) rig.Add(p.Mesh, p.W.UseParentAnim ? -1 : PropRig.BoneFor(animator, p.W.Bone), p.W.Slots, p.W.OnDemand, p.W.Class, p.Anim, p.Refs, p.W.UseParentAnim, p.W.Offset, p.Sockets);
-        foreach (var (w, m) in powerProps) rig.Add(m, PropRig.BoneFor(animator, w.Bone), w.Slots, w.OnDemand, w.Class, offset: w.Offset, propSockets: PropRig.SocketsOf(w.Ref));
+        foreach (var p in baseProps.Concat(powerProps)) rig.Add(p.Mesh, p.W.UseParentAnim ? -1 : PropRig.BoneFor(animator, p.W.Bone), p.W.Slots, p.W.OnDemand, p.W.Class, p.Anim, p.Refs, p.W.UseParentAnim, p.W.Offset, p.Sockets);
     }
 
     static readonly Dictionary<string, Task<Dictionary<string, List<Fx.PowerIndex.PowerRef>>>> indexes = new(StringComparer.OrdinalIgnoreCase);
@@ -225,7 +224,7 @@ static class PowerPreview
     /// <summary>What a power does to the props while its animation plays: the rules (show / hide weapon slots, from its power
     /// packages' PowerFxMeshAttachment), when (its contact time), props it shows that the character doesn't have (a thrown car,
     /// from the power's own package), and the animated props' own animations of this name.</summary>
-    public sealed record Switches(List<ModMeshes.PropRule> Rules, float Contact, List<(PropRig.Prop W, ModMeshes.Loaded M)> Extra, Dictionary<string, AnimExportCli.Animation.BoneAnimation> Seqs)
+    public sealed record Switches(List<ModMeshes.PropRule> Rules, float Contact, List<BaseProp> Extra, Dictionary<string, AnimExportCli.Animation.BoneAnimation> Seqs)
     {
         public static Switches None => new([], 0, [], new(StringComparer.OrdinalIgnoreCase));
     }
@@ -251,7 +250,8 @@ static class PowerPreview
         // (a form's rules hold the whole animation, whatever it is: its wings stay on)
         if (formRules != null) rules.AddRange(formRules.Select(r => r with { StartPoint = "power_on_start", StartOffset = 0, EndPoint = null, EndOffset = 0 }));
         if (formFiles != null) files.AddRange(formFiles.Where(f => !files.Contains(f, StringComparer.OrdinalIgnoreCase)));
-        var extra = new List<(PropRig.Prop, ModMeshes.Loaded)>();
+        var extra = new List<BaseProp>();
+        var extraSeqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in rules.Where(r => r.Show && !have.Any(h => PropRig.Fills(h, r.Target))))
             foreach (string f in files)
             {
@@ -259,8 +259,21 @@ static class PowerPreview
                 if (found.Count == 0) continue;
                 var inPkg = ModMeshes.List([(Path.GetFileName(f), f)], anyPackage: true);
                 foreach (var x in found)
-                    if (!extra.Any(e => e.Item1.Class.Equals(x.Class, StringComparison.OrdinalIgnoreCase)) && inPkg.FirstOrDefault(m => m.Name.Equals(x.Mesh, StringComparison.OrdinalIgnoreCase)) is { } mr)
-                        try { if (ModMeshes.Load(mr, cooked, out _) is { } lm) extra.Add((new PropRig.Prop(mr, x.Bone) { Slots = x.Slots, OnDemand = true, Class = x.Class, Offset = ModMeshes.Rotator(x.OffsetRotation.Pitch, x.OffsetRotation.Yaw, x.OffsetRotation.Roll) }, lm)); }
+                    if (!extra.Any(e => e.W.Class.Equals(x.Class, StringComparison.OrdinalIgnoreCase)) && inPkg.FirstOrDefault(m => m.Name.Equals(x.Mesh, StringComparison.OrdinalIgnoreCase)) is { } mr)
+                        try
+                        {
+                            if (ModMeshes.Load(mr, cooked, out _) is not { } lm) continue;
+                            var w = new PropRig.Prop(mr, x.Bone) { Slots = x.Slots, OnDemand = true, Class = x.Class, Offset = ModMeshes.Rotator(x.OffsetRotation.Pitch, x.OffsetRotation.Yaw, x.OffsetRotation.Roll) };
+                            // an animated one (a borrowed ride's vehicle) plays its own animation of this name, from the power's
+                            // package: posed in its rest pose the bike sat ahead of and below its rider (Kurt, 2026-10-20)
+                            if (x.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var prefs = ModAnimations.For(mr, lm.Bones, [(Path.GetFileName(f), f)], cooked, minBones: 1);
+                                extra.Add(new(w, lm, new MeshAnimator(lm.Bones, lm.Positions, lm.Normals, lm.Influences, lm.Tangents) { InPlace = false }, prefs) { Sockets = PropRig.SocketsOf(mr) });
+                                if (anim != null && prefs.FirstOrDefault(a => a.Name.Equals(anim, StringComparison.OrdinalIgnoreCase)) is { } pr && ModAnimations.Load(pr) is { } pba) extraSeqs[x.Class] = pba;
+                            }
+                            else extra.Add(new(w, lm, null, null) { Sockets = PropRig.SocketsOf(mr) });
+                        }
                         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
                 break;
             }
@@ -273,6 +286,7 @@ static class PowerPreview
         }
         var seqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
         foreach (var (cls, ar) in motionRefs) if (!seqs.ContainsKey(cls) && ModAnimations.Load(ar) is { } ba) seqs[cls] = ba;
+        foreach (var (cls, ba) in extraSeqs) seqs.TryAdd(cls, ba);
         return new(rules, pct * seconds, extra, seqs);
     }
 

@@ -2686,7 +2686,7 @@ static partial class Program
                 var fl = ModMeshes.Load(fr, fc, out string fwhy);
                 if (fl == null) { Console.WriteLine("mesh: " + fwhy); return 1; }
                 var fa = new MeshAnimator(fl.Bones, fl.Positions, fl.Normals, fl.Influences);
-                int pelvis = fa.BoneIndex("g_pelvis"), froot = 0;
+                int pelvis = fa.BoneIndex(Environment.GetEnvironmentVariable("MHO_FOOT_BONE") is { Length: > 0 } fbn ? fbn : "g_pelvis"), froot = 0;
                 void Show(string what)
                 {
                     float lo = fa.Positions.Min(p => p.Z), hi = fa.Positions.Max(p => p.Z);
