@@ -60,6 +60,7 @@ static class PowerBorrow
             string donorHero = StockFiles.For(game.Cooked, $"UC__MarvelPlayer_{dh}_SF.upk");
             // what the donor shows through its conditions (a ride's vehicle), spawned by the borrowed power instead
             var spawn = e.KeepTiming ? [] : ConditionAttachments(db, fx, e.Donor, donorHero, log);
+            if (!e.KeepTiming && Environment.GetEnvironmentVariable("MHO_BORROW_MOUNT") == "1") spawn.AddRange(MountAttachments(donorHero, log));   // TEST
             // a ground power's animations on a high-flying one: the game lifts the hero (Globals' HighFlyingHeight) and the
             // ground animations sit at the floor, so they are lowered by that much (Spider-Man riding Cyclops' bike floated
             // in Web-Swinging; Kurt, 2026-10-20)
@@ -1113,6 +1114,40 @@ static class PowerBorrow
                 return System.Numerics.Quaternion.Normalize(System.Numerics.Quaternion.Slerp(q0, q1, a));
             }
         return System.Numerics.Quaternion.Normalize(keys[^1].Rotation);
+    }
+
+    /// <summary>
+    /// TEST (not released; MHO_BORROW_MOUNT=1): the donor hero's always-held attachments on its mount bone (g_mountattach):
+    /// what it always rides. Green Goblin's glider is one of his character's attachments (slot glider), shown all the time,
+    /// so neither his flight power nor its condition shows it and a borrow found nothing to spawn (Kurt, 2026-10-20: Thor
+    /// with Goblin's Glide, no glider).
+    /// </summary>
+    public static List<(string File, int Export, string Slot)> MountAttachments(string donorHeroPackage, List<string> log)
+    {
+        var found = new List<(string, int, string)>();
+        var hp = Package.Open(donorHeroPackage);
+        for (int i = 0; i < hp.Exports.Length; i++)
+        {
+            var e = hp.Exports[i];
+            if (!hp.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase)) continue;
+            int d = Find(hp, "marvelgamecontent.default__" + e.ObjectName);
+            if (d < 0) continue;
+            byte[] b = hp.ReadExportBytes(hp.Exports[d]).ToArray();
+            var tags = TagWalker.Walk(hp, b, 4);
+            if (tags == null) continue;
+            if (tags.FirstOrDefault(t => t.Name.Equals("VisibilityPoint", StringComparison.OrdinalIgnoreCase)) is { } vp && TagWalker.NameAt(hp, b, vp.ValueAt).Contains("on_demand", StringComparison.OrdinalIgnoreCase)) continue;
+            var bones = tags.FirstOrDefault(t => t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase));
+            var ws = tags.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase));
+            if (bones == null) continue;
+            bool mount = false;
+            int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(bones.ValueAt));
+            for (int k = 0; k < n; k++) mount |= TagWalker.NameAt(hp, b, bones.ValueAt + 4 + 8 * k).Equals("g_mountattach", StringComparison.OrdinalIgnoreCase);
+            if (!mount) continue;
+            string slot = ws != null && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ws.ValueAt)) > 0 ? TagWalker.NameAt(hp, b, ws.ValueAt + 4) : e.ObjectName;
+            found.Add((donorHeroPackage, i, slot));
+            log.Add($"  the donor always rides {e.ObjectName} (slot {slot}, on g_mountattach): spawned while the power runs");
+        }
+        return found;
     }
 
     /// <summary>The weapon slots a hero always holds something in (attachments not shown on demand: Thor's hammer in
