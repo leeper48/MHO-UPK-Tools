@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.14
+- 3D preview: a prop whose attachment names a bone the character doesn't have sits at the character's origin, where its own animation places it, instead of in the right hand. Hawkeye's Sky-Cycle names g_mountattach, which no player model has: it sat on the rider's shoulder.
+
 0.60.13
 - Borrowed Look (preview feature, hidden): a spawned weapon keeps the timing of the part that showed it. Spider-Man's webbing on Thor appeared at the start and was gone; it now lasts from the swing loop's start to its end, as on Spider-Man.
 

@@ -96,6 +96,10 @@ sealed class PropRig
     public static int BoneFor(MeshAnimator animator, string? bone)
     {
         int b = bone != null ? animator.BoneIndex(bone) : -1;
+        // a bone the attachment names that the skeleton doesn't have: the character's origin, where a ride's own animation
+        // places it (Hawkeye's Sky-Cycle names g_mountattach, which no player mesh has, his own included; on the right
+        // hand it sat on Thor's shoulder, Kurt 2026-10-20)
+        if (b < 0 && !string.IsNullOrEmpty(bone) && !bone.Equals("none", StringComparison.OrdinalIgnoreCase)) return 0;
         if (b < 0) foreach (string guess in new[] { "g_r_palm", "g_r_hand", "g_r_wrist", "r_hand", "righthand" }) if ((b = animator.BoneIndex(guess)) >= 0) break;
         return Math.Max(0, b);
     }
