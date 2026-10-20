@@ -550,6 +550,10 @@ static class PowerBorrow
             // another hero's skeleton: bones that rest turned differently get their keys turned to fit (Thor's right toes)
             var turns = crossHero && HeroSkeleton(donorHeroPackage) is { } dsk && HeroSkeleton(targetHeroPackage) is { } tsk ? AnimSwap.RestTurns(dsk, tsk) : null;
             done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns);
+            // TEST (Kurt, 2026-10-20, one mod only until agreed): the target's own animated bones the donor's animations
+            // don't move (Thor's cape in Kitty's Air Walking) get the target's own power animation's keys, looped
+            if (crossHero && Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1")
+                done[hf] = AddOwnTracks(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), targetHeroPackage, targetAnims, log);
             log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {hf} ({targetHeroClass})");
             // costumes with an animation list of their own don't play the hero's: the borrowed sets are imported into theirs
             if (cooked != null)
@@ -938,6 +942,175 @@ static class PowerBorrow
             log.Add($"  {name}: spawns {dst.PathOf(dst.Exports[classRef - 1])} while the power runs (the donor's {slot}){timing}");
         }
         return dst.RawFile;
+    }
+
+    /// <summary>
+    /// TEST (not released; MHO_BORROW_OWN_TRACKS=1): adds to each borrowed animation (the sets named *<paramref name="setSuffix"/>)
+    /// tracks for the bones the target hero's own power animation moves (more than one rotation key) and the borrowed set
+    /// has no track for: Thor's cape (g_cape1, g_l/r_cape1-3: his flight keys them every frame) in Kitty Pryde's Air
+    /// Walking, which has none, so the cape hung still. Rotation keys: the target's own animation (its longest of
+    /// <paramref name="targetAnims"/>) sampled at every frame of the borrowed one, looped; position: one key, the bone's
+    /// rest. Written as the borrowed sequence stores its tracks (Float96NoW rotation, plain float positions; frame
+    /// numbers after the keys for VariableKeyLerp, each part aligned to 4). Other formats: left as they were.
+    /// </summary>
+    static byte[] AddOwnTracks(byte[] package, string setSuffix, string targetHeroPackage, IReadOnlyList<string> targetAnims, List<string> log)
+    {
+        // the target's own animation and skeleton
+        var ap = AnimExportCli.Packages.Package.Open(targetHeroPackage);
+        AnimExportCli.Animation.BoneAnimation? own = null; int ownFrames = 0; float ownLen = 0; string ownName = "";
+        foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).OrderByDescending(x => x.TrackBoneNames.Count))
+            foreach (var seq in set.Sequences.Where(q => q.IsExport))
+            {
+                string n = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex);
+                if (!targetAnims.Contains(n, StringComparer.OrdinalIgnoreCase)) continue;
+                var pr = ap.TryReadProperties(seq.ExportIndex);
+                float len = pr?.GetFloat("SequenceLength") ?? 0;
+                if (len <= ownLen || AnimExportCli.Animation.AnimObjectReader.TryRead(ap, seq.ExportIndex, set.TrackBoneNames) is not { } ba) continue;
+                (own, ownFrames, ownLen, ownName) = (ba, pr!.GetInt("NumFrames"), len, n);
+            }
+        var skeleton = HeroSkeleton(targetHeroPackage);
+        if (own == null || skeleton == null || ownFrames < 2) { log.Add("own tracks: the target's own animation wasn't read"); return package; }
+        var rest = skeleton.GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var p = Package.FromBytes(package);
+        var replace = new Dictionary<int, Func<long, byte[]>>();
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return p.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        for (int si = 0; si < p.Exports.Length; si++)
+        {
+            var se = p.Exports[si];
+            if (!p.ClassOf(se).Equals("AnimSet", StringComparison.OrdinalIgnoreCase) || !se.ObjectName.EndsWith(setSuffix, StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] sd = p.ReadExportBytes(se).ToArray();
+            var stags = TagWalker.Walk(p, sd, 4);
+            var tb = stags?.FirstOrDefault(t => t.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+            var sq = stags?.FirstOrDefault(t => t.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase));
+            if (tb == null || sq == null) continue;
+            int nb = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(tb.ValueAt));
+            var have = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int k = 0; k < nb; k++) have.Add(TagWalker.NameAt(p, sd, tb.ValueAt + 4 + 8 * k));
+            var bones = own.Tracks.Where(t => t.Value.RotationKeys.Count > 1 && !have.Contains(t.Key) && rest.ContainsKey(t.Key)).Select(t => t.Key).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+            if (bones.Count == 0) continue;
+            // each sequence of the set: the new tracks appended
+            int ns = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(sq.ValueAt));
+            bool all = true;
+            for (int k = 0; k < ns; k++)
+            {
+                int r = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(sq.ValueAt + 4 + 4 * k));
+                if (r <= 0) continue;
+                byte[] d = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
+                if (WithOwnTracks(p, d, nb, bones, own, ownFrames, ownLen, rest, out string why) is { } nd) replace[r - 1] = _ => nd;
+                else { all = false; log.Add($"own tracks: {p.Exports[r - 1].ObjectName}: {why}"); }
+            }
+            if (!all) { replace.Clear(); log.Add("own tracks: left out (a sequence of the set couldn't take them)"); return package; }
+            // the set: the new bones at the end of its track list (its tracks are by index)
+            var add = new byte[8 * bones.Count];
+            for (int k = 0; k < bones.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(add.AsSpan(8 * k), NameIdx(bones[k]));
+            byte[] nsd = [.. sd.AsSpan(0, tb.End), .. add, .. sd.AsSpan(tb.End)];
+            BinaryPrimitives.WriteInt32LittleEndian(nsd.AsSpan(tb.ValueAt), nb + bones.Count);
+            BinaryPrimitives.WriteInt32LittleEndian(nsd.AsSpan(tb.Start + 16), tb.Size + add.Length);
+            replace[si] = _ => nsd;
+            log.Add($"own tracks: {se.ObjectName} gets {string.Join(", ", bones)} from the target's {ownName} ({ownLen:0.##} s, looped)");
+        }
+        if (replace.Count == 0) return package;
+        byte[] output = PackageRebuilder.Rebuild(p, replace, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, replace.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("own tracks: " + string.Join("; ", problems.Take(3)));
+        return output;
+    }
+
+    /// <summary>A sequence's data with tracks appended for <paramref name="bones"/> (AddOwnTracks), else null with the reason.</summary>
+    static byte[]? WithOwnTracks(Package p, byte[] d, int trackCount, List<string> bones, AnimExportCli.Animation.BoneAnimation own, int ownFrames, float ownLen,
+        Dictionary<string, AnimExportCli.Meshes.MeshBone> rest, out string why)
+    {
+        why = "";
+        var tags = TagWalker.Walk(p, d, 4);
+        if (tags == null) { why = "its properties don't read"; return null; }
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? p.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string tf = Enum("TranslationCompressionFormat"), rf = Enum("RotationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (tf.Length > 0 && !tf.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) { why = "positions stored as " + tf; return null; }
+        if (rf.Length > 0 && !rf.Equals("acf_float96now", StringComparison.OrdinalIgnoreCase)) { why = "rotations stored as " + rf; return null; }
+        bool variable = kf.Equals("akf_variablekeylerp", StringComparison.OrdinalIgnoreCase);
+        if (!variable && kf.Length > 0 && !kf.Equals("akf_constantkeylerp", StringComparison.OrdinalIgnoreCase)) { why = "keys stored as " + kf; return null; }
+        var nf = tags.FirstOrDefault(x => x.Name.Equals("NumFrames", StringComparison.OrdinalIgnoreCase));
+        var sl = tags.FirstOrDefault(x => x.Name.Equals("SequenceLength", StringComparison.OrdinalIgnoreCase));
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        if (nf == null || sl == null || ot == null) { why = "no frame count, length or track offsets"; return null; }
+        int frames = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(nf.ValueAt));
+        float seconds = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(sl.ValueAt));
+        if (BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * trackCount) { why = "the track offsets don't match the bones"; return null; }
+        // the compressed stream: after the raw tracks
+        int q = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)); q += 4;
+        for (int k = 0; k < raw; k++)
+        {
+            q += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+            q += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+        }
+        int countAt = q, len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)), streamAt = q + 4;
+        // the new tracks' bytes and their offsets
+        var data = new MemoryStream();
+        data.Write(d, streamAt, len);
+        void Pad() { while (data.Length % 4 != 0) data.WriteByte(0); }
+        Pad();
+        var offsets = new List<int>();
+        int keys = Math.Max(2, frames);
+        foreach (string bone in bones)
+        {
+            var b = rest[bone];
+            int tOff = (int)data.Length;
+            data.Write(BitConverter.GetBytes(b.Position.X)); data.Write(BitConverter.GetBytes(b.Position.Y)); data.Write(BitConverter.GetBytes(b.Position.Z));
+            int rOff = (int)data.Length;
+            var tr = own.Tracks[bone].RotationKeys;
+            for (int i = 0; i < keys; i++)
+            {
+                float t = seconds * i / Math.Max(1, keys - 1);
+                float f = (t % ownLen) / ownLen * (ownFrames - 1);   // the target's frame, looped
+                var rq = SampleRotation(tr, f);
+                if (rq.W < 0) rq = -rq;
+                data.Write(BitConverter.GetBytes(-rq.X)); data.Write(BitConverter.GetBytes(-rq.Y)); data.Write(BitConverter.GetBytes(-rq.Z));   // stored: the conjugate
+            }
+            if (variable)
+            {
+                Pad();
+                for (int i = 0; i < keys; i++)
+                {
+                    int fr = (int)MathF.Round((float)i * (frames - 1) / Math.Max(1, keys - 1));
+                    if (frames > 0xFF) data.Write(BitConverter.GetBytes((ushort)fr)); else data.WriteByte((byte)fr);
+                }
+                Pad();
+            }
+            offsets.AddRange([tOff, 1, rOff, keys]);
+        }
+        byte[] stream = data.ToArray();
+        var arr = new byte[4 * offsets.Count];
+        for (int k = 0; k < offsets.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(arr.AsSpan(4 * k), offsets[k]);
+        int arrEnd = ot.ValueAt + ot.Size;
+        byte[] o = [.. d.AsSpan(0, arrEnd), .. arr, .. d.AsSpan(arrEnd, countAt - arrEnd), .. BitConverter.GetBytes(stream.Length), .. stream, .. d.AsSpan(streamAt + len)];
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(ot.ValueAt), 4 * (trackCount + bones.Count));
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(ot.Start + 16), ot.Size + arr.Length);
+        return o;
+    }
+
+    /// <summary>A rotation track at a frame (keys by frame number), spherically blended between its two keys.</summary>
+    static System.Numerics.Quaternion SampleRotation(IReadOnlyList<AnimExportCli.Animation.BoneRotationKey> keys, float frame)
+    {
+        if (frame <= keys[0].TimeFrame) return System.Numerics.Quaternion.Normalize(keys[0].Rotation);
+        for (int i = 1; i < keys.Count; i++)
+            if (frame <= keys[i].TimeFrame)
+            {
+                float span = keys[i].TimeFrame - keys[i - 1].TimeFrame;
+                float a = span > 0 ? (frame - keys[i - 1].TimeFrame) / span : 0;
+                var q0 = keys[i - 1].Rotation; var q1 = keys[i].Rotation;
+                if (System.Numerics.Quaternion.Dot(q0, q1) < 0) q1 = -q1;
+                return System.Numerics.Quaternion.Normalize(System.Numerics.Quaternion.Slerp(q0, q1, a));
+            }
+        return System.Numerics.Quaternion.Normalize(keys[^1].Rotation);
     }
 
     /// <summary>The weapon slots a hero always holds something in (attachments not shown on demand: Thor's hammer in
