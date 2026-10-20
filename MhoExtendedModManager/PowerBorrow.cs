@@ -546,7 +546,9 @@ static class PowerBorrow
             try
             {
             if (done.TryGetValue(hf, out var hb)) temps.Add(heroPath = WriteTemp(hf, hb));
-            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log);
+            // another hero's skeleton: bones that rest turned differently get their keys turned to fit (Thor's right toes)
+            var turns = crossHero && HeroSkeleton(donorHeroPackage) is { } dsk && HeroSkeleton(targetHeroPackage) is { } tsk ? AnimSwap.RestTurns(dsk, tsk) : null;
+            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns);
             log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {hf} ({targetHeroClass})");
             // costumes with an animation list of their own don't play the hero's: the borrowed sets are imported into theirs
             if (cooked != null)
@@ -937,8 +939,11 @@ static class PowerBorrow
         return dst.RawFile;
     }
 
-    /// <summary>The bones of a hero's main model (its base package's skeletal mesh with the most vertices), else null.</summary>
-    static HashSet<string>? HeroBones(string heroPackage)
+    /// <summary>The bones of a hero's main model (HeroSkeleton), else null.</summary>
+    static HashSet<string>? HeroBones(string heroPackage) => HeroSkeleton(heroPackage)?.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A hero's main model's skeleton (its base package's skeletal mesh with the most vertices), else null.</summary>
+    static IReadOnlyList<AnimExportCli.Meshes.MeshBone>? HeroSkeleton(string heroPackage)
     {
         try
         {
@@ -946,7 +951,7 @@ static class PowerBorrow
             AnimExportCli.Meshes.SkeletalMesh? best = null;
             foreach (int i in ap.FindExportsOfClass("skeletalmesh"))
                 if (AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i) is { } m && (best == null || (m.HighestDetail?.Positions.Count ?? 0) > (best.HighestDetail?.Positions.Count ?? 0))) best = m;
-            return best?.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return best?.Bones;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException) { return null; }
     }

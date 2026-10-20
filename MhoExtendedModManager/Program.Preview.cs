@@ -2326,6 +2326,24 @@ static partial class Program
                 Console.WriteLine(probs.Count == 0 ? $"PASS: {rest[2]} copied and read back identical (bones, geometry, material paths)" : "FAIL: " + string.Join("; ", probs));
                 return probs.Count == 0 ? 0 : 1;
             }
+            case "--bone-rest":
+            {
+                // Read-only: each skeletal mesh in a package with the rest pose (local rotation, position) of bones whose
+                // name contains one of the given parts. --bone-rest <package.upk> <name part>...
+                if (rest.Count < 3) { Console.WriteLine("--bone-rest <package.upk> <name part>..."); return 1; }
+                foreach (var mr in ModMeshes.List([(Path.GetFileName(rest[1]), rest[1])]))
+                {
+                    var ld = ModMeshes.Load(mr, null, out _);
+                    if (ld == null) continue;
+                    Console.WriteLine($"{mr.Name}: {ld.Bones.Count} bones");
+                    foreach (var b in ld.Bones.Where(b => rest.Skip(2).Any(w => b.Name.Contains(w, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        var q = b.Orientation;
+                        Console.WriteLine($"  {b.Name,-20} parent {(b.ParentIndex >= 0 && b.ParentIndex < ld.Bones.Count ? ld.Bones[b.ParentIndex].Name : "-"),-16} rot ({q.X:0.000}, {q.Y:0.000}, {q.Z:0.000}, {q.W:0.000})  pos ({b.Position.X:0.0}, {b.Position.Y:0.0}, {b.Position.Z:0.0})");
+                    }
+                }
+                return 0;
+            }
             case "--mesh-bones":
             {
                 // Read-only: every skeletal mesh in the given packages with its bone names (skeleton comparisons).
@@ -2692,6 +2710,15 @@ static partial class Program
                 {
                     float lo = fa.Positions.Min(p => p.Z), hi = fa.Positions.Max(p => p.Z);
                     Console.WriteLine($"  {what,-34} lowest {lo,8:0.0}  top {hi,7:0.0}  pelvis z {(pelvis >= 0 ? fa.BonePosition(pelvis).Z : float.NaN),7:0.0}  root z {fa.BonePosition(froot).Z,6:0.0}");
+                    // MHO_FOOT_DIR=1: each toe bone's three local axes in world space (left mirrored: the two should match)
+                    if (Environment.GetEnvironmentVariable("MHO_FOOT_DIR") == "1")
+                        foreach (string tb in new[] { "g_r_ball", "g_l_ball" })
+                            if (fa.BoneIndex(tb) is int ti && ti >= 0)
+                            {
+                                var bm = fa.BoneMatrix(ti); float my = tb.StartsWith("g_l") ? -1 : 1;
+                                string Ax(Vector3 v) { var w = Vector3.TransformNormal(v, bm); return $"({w.X,5:0.00},{w.Y * my,5:0.00},{w.Z,5:0.00})"; }
+                                Console.WriteLine($"      {tb}: x {Ax(Vector3.UnitX)}  y {Ax(Vector3.UnitY)}  z {Ax(Vector3.UnitZ)}");
+                            }
                 }
                 Console.WriteLine($"{fr.Name} in {fr.Package}: {fl.Bones.Count} bones, root {fl.Bones[0].Name}");
                 fa.Pose(null, 0); Show("rest pose");

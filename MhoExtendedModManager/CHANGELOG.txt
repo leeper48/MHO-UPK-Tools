@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.16
+- Borrowed Look (preview feature, hidden): another hero's animations are fitted to the target's skeleton. Where a bone rests turned differently on the two (Thor's right toe is turned 180 degrees from Hawkeye's), its keys are turned to match, so the motion stays the same; Hawkeye's Sky-Cycle ride folded Thor's right toes.
+
 0.60.15
 - Borrowed Look (preview feature, hidden): a spawned vehicle or weapon whose attachment names a bone the hero doesn't have is held at the hero's origin instead. Hawkeye's Sky-Cycle names g_mountattach, which Thor's model lacks, and didn't show at all.
 

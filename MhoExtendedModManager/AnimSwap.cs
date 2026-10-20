@@ -364,7 +364,10 @@ static class AnimSwap
     /// as paths ("biped_lib.blink_as", "ironman_anim.ironman_as" …, CostumeAnims.Sets in order), imported into the package as
     /// the start of its own list, as stock costumes with their own sets do (Storm Astonishing).</param>
     /// <param name="rateScale">The copies' play rate (Model tab's Size in Game: StepRate); 1 leaves it as the donor's.</param>
-    public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1)
+    /// <param name="retarget">Per bone: the turn that takes the donor skeleton's rest rotation to the target's
+    /// (RestTurns), for bones whose rest differs; their rotation keys in the copies are turned by it.</param>
+    public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1,
+        IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null)
     {
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
@@ -454,6 +457,12 @@ static class AnimSwap
                 {
                     if (LiftRoot(pkg, sd, d, lift, out string why)) lifted = true;
                     else log.Add($"  {slot}: not moved {lift:0} ({why})");
+                }
+                if (retarget is { Count: > 0 })
+                {
+                    var turned = Retarget(pkg, sd, d, retarget, out string rwhy);
+                    if (turned.Count > 0) log.Add($"  {slot}: turned to this skeleton's rest: {string.Join(", ", turned)}");
+                    if (rwhy.Length > 0) log.Add($"  {slot}: not turned: {rwhy}");
                 }
                 var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && x.Size == 8)
                         ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
@@ -558,6 +567,93 @@ static class AnimSwap
             BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(z), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(z)) + lift);
         }
         return true;
+    }
+
+    /// <summary>
+    /// The turns that take one skeleton's rest rotations to another's, for bones both have whose rest rotations differ by
+    /// more than 45 degrees (Kurt, 2026-10-20: Hawkeye's Sky-Cycle ride on Thor folded his right toes: Thor's g_r_ball rests
+    /// turned 180 degrees about its own axis from Hawkeye's; the left one matches). Animations store rotations only, so a
+    /// key meant for the donor's rest lands wrong on the target's: key x (donor rest^-1 x target rest) keeps the motion and
+    /// starts from the target's rest.
+    /// </summary>
+    public static Dictionary<string, System.Numerics.Quaternion> RestTurns(IReadOnlyList<AnimExportCli.Meshes.MeshBone> donor, IReadOnlyList<AnimExportCli.Meshes.MeshBone> target)
+    {
+        var turns = new Dictionary<string, System.Numerics.Quaternion>(StringComparer.OrdinalIgnoreCase);
+        var t = target.GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Orientation, StringComparer.OrdinalIgnoreCase);
+        foreach (var b in donor)
+        {
+            if (!t.TryGetValue(b.Name, out var rt)) continue;
+            var rd = System.Numerics.Quaternion.Normalize(b.Orientation);
+            rt = System.Numerics.Quaternion.Normalize(rt);
+            float dot = MathF.Abs(System.Numerics.Quaternion.Dot(rd, rt));
+            if (dot > MathF.Cos(MathF.PI / 8)) continue;   // within 45 degrees
+            turns[b.Name] = System.Numerics.Quaternion.Normalize(Mul(System.Numerics.Quaternion.Conjugate(rd), rt));
+        }
+        return turns;
+    }
+
+    /// <summary>The Hamilton product a x b.</summary>
+    static System.Numerics.Quaternion Mul(System.Numerics.Quaternion a, System.Numerics.Quaternion b) => new(
+        a.W * b.X + a.X * b.W + a.Y * b.Z - a.Z * b.Y,
+        a.W * b.Y - a.X * b.Z + a.Y * b.W + a.Z * b.X,
+        a.W * b.Z + a.X * b.Y - a.Y * b.X + a.Z * b.W,
+        a.W * b.W - a.X * b.X - a.Y * b.Y - a.Z * b.Z);
+
+    /// <summary>
+    /// Turns a copied sequence's rotation keys (<paramref name="d"/>, edited in place) for the bones in <paramref name="turns"/>:
+    /// key x turn. Only keys stored as three floats (Float96NoW, which every single-key track is; the engine stores the
+    /// conjugate, W derived and positive). Returns the bones turned; <paramref name="why"/> names those left as they were.
+    /// </summary>
+    static List<string> Retarget(Package pkg, byte[] set, byte[] d, IReadOnlyDictionary<string, System.Numerics.Quaternion> turns, out string why)
+    {
+        why = "";
+        var done = new List<string>();
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tb == null || tags == null) { why = "the animation doesn't read"; return done; }
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string rf = Enum("RotationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return done; }
+        bool float96 = rf.Length == 0 || rf.Equals("acf_float96now", StringComparison.OrdinalIgnoreCase);
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt));
+        if (ot == null || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * nb) { why = "the track offsets don't match the bones"; return done; }
+        int p = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        if (raw < 0 || raw > 100000) { why = "the raw tracks don't read"; return done; }
+        for (int k = 0; k < raw; k++)
+        {
+            p += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+            p += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+        }
+        int len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        var skipped = new List<string>();
+        for (int i = 0; i < nb; i++)
+        {
+            string bone = pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * i))];
+            if (!turns.TryGetValue(bone, out var turn)) continue;
+            int at = ot.ValueAt + 4 + 16 * i;
+            int rOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 8)), rKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 12));
+            if (rOff < 0 || rKeys < 1) continue;
+            if (rKeys > 1 && !float96) { skipped.Add($"{bone} ({rf})"); continue; }
+            if (rOff + 12 * rKeys > len) { skipped.Add($"{bone} (past the data)"); continue; }
+            for (int k = 0; k < rKeys; k++)
+            {
+                int q = p + rOff + 12 * k;
+                float x = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q)), y = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q + 4)), z = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q + 8));
+                float ls = x * x + y * y + z * z;
+                var key = new System.Numerics.Quaternion(-x, -y, -z, ls < 1 ? MathF.Sqrt(1 - ls) : 0);   // stored: the conjugate
+                var nq = System.Numerics.Quaternion.Normalize(Mul(key, turn));
+                if (nq.W < 0) nq = -nq;
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q), -nq.X);
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 4), -nq.Y);
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 8), -nq.Z);
+            }
+            done.Add(bone);
+        }
+        if (skipped.Count > 0) why = string.Join(", ", skipped);
+        return done;
     }
 
     /// <summary>A set's data with <paramref name="bone"/> in its UseTranslationBoneNames (added when missing; the list must exist:
