@@ -962,7 +962,9 @@ static class PowerBorrow
             foreach (var seq in set.Sequences.Where(q => q.IsExport))
             {
                 string n = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex);
-                if (!targetAnims.Contains(n, StringComparer.OrdinalIgnoreCase)) continue;
+                // (MHO_BORROW_OWN_ANIM: the target's animation to take them from, else its own power's longest; Kurt 2026-10-20:
+                // the flight loop's cape drifted left, its body banks; the run is closer to Kitty's air walk)
+                if (!(Environment.GetEnvironmentVariable("MHO_BORROW_OWN_ANIM") is { Length: > 0 } pick ? n.Equals(pick, StringComparison.OrdinalIgnoreCase) : targetAnims.Contains(n, StringComparer.OrdinalIgnoreCase))) continue;
                 var pr = ap.TryReadProperties(seq.ExportIndex);
                 float len = pr?.GetFloat("SequenceLength") ?? 0;
                 if (len <= ownLen || AnimExportCli.Animation.AnimObjectReader.TryRead(ap, seq.ExportIndex, set.TrackBoneNames) is not { } ba) continue;

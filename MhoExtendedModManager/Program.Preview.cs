@@ -2732,6 +2732,13 @@ static partial class Program
                     var (fN, _) = MeshAnimator.Span(ba); float minLo = float.MaxValue, maxLo = float.MinValue;
                     for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); float lo = fa.Positions.Min(p => p.Z); minLo = Math.Min(minLo, lo); maxLo = Math.Max(maxLo, lo); }
                     Console.WriteLine($"      over the animation the lowest point runs {minLo:0.0} .. {maxLo:0.0}");
+                    // MHO_FOOT_LAT=<bone>: that bone's average sideways place (Y) over the animation, against the pelvis (a cape's drift)
+                    if (Environment.GetEnvironmentVariable("MHO_FOOT_LAT") is { Length: > 0 } lb && fa.BoneIndex(lb) is int li && li >= 0 && pelvis >= 0)
+                    {
+                        float sum = 0; int cnt = 0;
+                        for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); sum += fa.BonePosition(li).Y - fa.BonePosition(pelvis).Y; cnt++; }
+                        Console.WriteLine($"      {lb}: sideways {sum / Math.Max(1, cnt):0.0} from the pelvis on average");
+                    }
                     if (pelvis >= 0 && Environment.GetEnvironmentVariable("MHO_FOOT_CHAIN") == "1")
                         for (int c = pelvis, guard = 0; c >= 0 && guard++ < 64; c = c == 0 ? -1 : fl.Bones[c].ParentIndex)
                         {
