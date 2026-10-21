@@ -38,6 +38,9 @@ sealed class PowerBorrowEntry
     public float RiderUp { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public float RiderLean { get; set; }
+    /// <summary>Set by the last build (not saved): the vehicle's automatic size when this borrow brings a vehicle, else null.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float? VehicleAuto { get; set; }
 }
 
 sealed class PowerColorEntry

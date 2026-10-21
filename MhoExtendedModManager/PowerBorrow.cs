@@ -72,6 +72,9 @@ static class PowerBorrow
                 log.Add($"anims: lowered {hf:0} (the target flies high, the donor's animations are on the ground)");
             }
             var rider = new AnimSwap.RiderFit(e.RiderForward, e.RiderUp, e.RiderLean);
+            // (for the Powers tab's Vehicle Fit: shown once a vehicle comes with the borrow)
+            bool crossHeroNow = !th.Equals(dh, StringComparison.OrdinalIgnoreCase);
+            e.VehicleAuto = crossHeroNow && spawn.Any(x => x.Vehicle) && HeroHeight(StockFiles.For(game.Cooked, heroFile)) is float hh && HeroHeight(donorHero) is float dhh && dhh > 1 ? hh / dhh : null;
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
                 e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null);
             foreach (var (f, bytes) in built)
