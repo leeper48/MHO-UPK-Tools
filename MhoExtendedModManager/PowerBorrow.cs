@@ -60,7 +60,10 @@ static class PowerBorrow
             string donorHero = StockFiles.For(game.Cooked, $"UC__MarvelPlayer_{dh}_SF.upk");
             // what the donor shows through its conditions (a ride's vehicle), spawned by the borrowed power instead
             var spawn = e.KeepTiming ? [] : ConditionAttachments(db, fx, e.Donor, donorHero, log);
-            if (!e.KeepTiming && Environment.GetEnvironmentVariable("MHO_BORROW_MOUNT") == "1") spawn.AddRange(MountAttachments(donorHero, log));   // TEST
+            // a travel power (Kurt, 2026-10-21: what Thor's six travel tests settled goes to every travel borrow): the other
+            // hero's always-ridden mount (Green Goblin's glider) comes along, and the hero's own cape moves (AddOwnTracks)
+            bool travel = e.Power.Contains(@"\TravelPower\", StringComparison.OrdinalIgnoreCase);
+            if (!e.KeepTiming && travel) spawn.AddRange(MountAttachments(donorHero, log));
             // a ground power's animations on a high-flying one: the game lifts the hero (Globals' HighFlyingHeight) and the
             // ground animations sit at the floor, so they are lowered by that much (Spider-Man riding Cyclops' bike floated
             // in Web-Swinging; Kurt, 2026-10-20)
@@ -76,7 +79,7 @@ static class PowerBorrow
             bool crossHeroNow = !th.Equals(dh, StringComparison.OrdinalIgnoreCase);
             e.VehicleAuto = crossHeroNow && spawn.Any(x => x.Vehicle) && HeroHeight(StockFiles.For(game.Cooked, heroFile)) is float hh && HeroHeight(donorHero) is float dhh && dhh > 1 ? hh / dhh : null;
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
-                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null);
+                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel);
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -495,7 +498,7 @@ static class PowerBorrow
     /// Returns the changed packages by file name.
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
-        IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null)
+        IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -561,9 +564,9 @@ static class PowerBorrow
             // another hero's skeleton: bones that rest turned differently get their keys turned to fit (Thor's right toes)
             var turns = crossHero && HeroSkeleton(donorHeroPackage) is { } dsk && HeroSkeleton(targetHeroPackage) is { } tsk ? AnimSwap.RestTurns(dsk, tsk) : null;
             done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider);
-            // TEST (Kurt, 2026-10-20, one mod only until agreed): the target's own animated bones the donor's animations
-            // don't move (Thor's cape in Kitty's Air Walking) get the target's own power animation's keys, looped
-            if (crossHero && Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1")
+            // the target's own animated bones the donor's animations don't move (Thor's cape in Kitty's Air Walking) get the
+            // target's own run's keys, looped (travel borrows; tested on Thor's six, Kurt 2026-10-20 / 21)
+            if (crossHero && (ownTracks || Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1"))
                 done[hf] = AddOwnTracks(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), targetHeroPackage, targetAnims, log);
             log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {hf} ({targetHeroClass})");
             // costumes with an animation list of their own don't play the hero's: the borrowed sets are imported into theirs
@@ -960,7 +963,7 @@ static class PowerBorrow
     }
 
     /// <summary>
-    /// TEST (not released; MHO_BORROW_OWN_TRACKS=1): adds to each borrowed animation (the sets named *<paramref name="setSuffix"/>)
+    /// For a travel borrow (and MHO_BORROW_OWN_TRACKS=1 for any): adds to each borrowed animation (the sets named *<paramref name="setSuffix"/>)
     /// tracks for the bones the target hero's own power animation moves (more than one rotation key) and the borrowed set
     /// has no track for: Thor's cape (g_cape1, g_l/r_cape1-3: his flight keys them every frame) in Kitty Pryde's Air
     /// Walking, which has none, so the cape hung still. Rotation keys: the target's own animation (its longest of
@@ -972,18 +975,21 @@ static class PowerBorrow
     {
         // the target's own animation and skeleton
         var ap = AnimExportCli.Packages.Package.Open(targetHeroPackage);
-        AnimExportCli.Animation.BoneAnimation? own = null; int ownFrames = 0; float ownLen = 0; string ownName = "";
+        AnimExportCli.Animation.BoneAnimation? own = null; int ownFrames = 0; float ownLen = 0; string ownName = ""; bool havePick = false;
         foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).OrderByDescending(x => x.TrackBoneNames.Count))
             foreach (var seq in set.Sequences.Where(q => q.IsExport))
             {
                 string n = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex);
-                // (MHO_BORROW_OWN_ANIM: the target's animation to take them from, else its own power's longest; Kurt 2026-10-20:
-                // the flight loop's cape drifted left, its body banks; the run is closer to Kitty's air walk)
-                if (!(Environment.GetEnvironmentVariable("MHO_BORROW_OWN_ANIM") is { Length: > 0 } pick ? n.Equals(pick, StringComparison.OrdinalIgnoreCase) : targetAnims.Contains(n, StringComparer.OrdinalIgnoreCase))) continue;
+                // the target's run (MHO_BORROW_OWN_ANIM: another), else its own power's longest (Kurt 2026-10-20: the flight
+                // loop's cape drifted left, its body banks; the run's kept the cape centered on all six Thor travel tests)
+                string pick = Environment.GetEnvironmentVariable("MHO_BORROW_OWN_ANIM") is { Length: > 0 } env ? env : "movement_run";
+                bool isPick = n.Equals(pick, StringComparison.OrdinalIgnoreCase);
+                if (!isPick && (havePick || !targetAnims.Contains(n, StringComparer.OrdinalIgnoreCase))) continue;
                 var pr = ap.TryReadProperties(seq.ExportIndex);
                 float len = pr?.GetFloat("SequenceLength") ?? 0;
-                if (len <= ownLen || AnimExportCli.Animation.AnimObjectReader.TryRead(ap, seq.ExportIndex, set.TrackBoneNames) is not { } ba) continue;
+                if (!isPick && len <= ownLen || AnimExportCli.Animation.AnimObjectReader.TryRead(ap, seq.ExportIndex, set.TrackBoneNames) is not { } ba) continue;
                 (own, ownFrames, ownLen, ownName) = (ba, pr!.GetInt("NumFrames"), len, n);
+                havePick |= isPick;
             }
         var skeleton = HeroSkeleton(targetHeroPackage);
         if (own == null || skeleton == null || ownFrames < 2) { log.Add("own tracks: the target's own animation wasn't read"); return package; }
@@ -1131,7 +1137,7 @@ static class PowerBorrow
     }
 
     /// <summary>
-    /// TEST (not released; MHO_BORROW_MOUNT=1): the donor hero's always-held attachments on its mount bone (g_mountattach):
+    /// For a travel borrow: the donor hero's always-held attachments on its mount bone (g_mountattach):
     /// what it always rides. Green Goblin's glider is one of his character's attachments (slot glider), shown all the time,
     /// so neither his flight power nor its condition shows it and a borrow found nothing to spawn (Kurt, 2026-10-20: Thor
     /// with Goblin's Glide, no glider).

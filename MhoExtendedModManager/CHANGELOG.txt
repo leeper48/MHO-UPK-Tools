@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.20
+- Borrowed Look (preview feature, hidden), travel powers: the other hero's always-ridden mount comes along (Green Goblin's glider), and bones the borrowed animations don't move but the hero's own run does (Thor's cape) move as in that run. Settled on Thor's six travel tests.
+
 0.60.19
 - Borrowed Look (preview feature, hidden): Vehicle Fit moved to the Powers tab, under Borrowed Look: it shows once the borrowed power brings a vehicle, and each change rebuilds the borrow so the 3D preview shows it.
 
