@@ -37,6 +37,13 @@ static class AnimSwap
     /// <paramref name="Lift"/> moves the whole animation up (down when negative) by its root bone.</summary>
     public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0);
 
+    /// <summary>Vehicle Fit: the rider (the body from g_spine01 down) moved forward / up (game units) and leaned forward
+    /// (degrees) on a borrowed ride's vehicle, which stays where its own animation puts it.</summary>
+    public sealed record RiderFit(float Forward, float Up, float LeanDegrees)
+    {
+        public bool IsNone => Math.Abs(Forward) < 0.01f && Math.Abs(Up) < 0.01f && Math.Abs(LeanDegrees) < 0.01f;
+    }
+
     /// <summary>
     /// An in-game test for the hero's alternate sets (2026-10-04, a user: Jean Grey's Phoenix animations; CostumeAnims.Aliases):
     /// powers and forms switch to such a set by its alias. An animation's tracks follow its own set's bone order, so a donor's
@@ -367,7 +374,7 @@ static class AnimSwap
     /// <param name="retarget">Per bone: the turn that takes the donor skeleton's rest rotation to the target's
     /// (RestTurns), for bones whose rest differs; their rotation keys in the copies are turned by it.</param>
     public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1,
-        IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null)
+        IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null)
     {
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
@@ -448,7 +455,7 @@ static class AnimSwap
         foreach (var (set, seqs) in newSets)
         {
             byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
-            bool lifted = false;
+            bool lifted = false, riderMoved = false;
             foreach (var (seq, slot) in seqs)
             {
                 byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
@@ -457,6 +464,11 @@ static class AnimSwap
                 {
                     if (LiftRoot(pkg, sd, d, lift, out string why)) lifted = true;
                     else log.Add($"  {slot}: not moved {lift:0} ({why})");
+                }
+                if (rider is { IsNone: false })
+                {
+                    if (FitRider(pkg, sd, d, rider, out string fwhy)) riderMoved = true;
+                    else log.Add($"  {slot}: the rider isn't moved ({fwhy})");
                 }
                 if (retarget is { Count: > 0 })
                 {
@@ -473,6 +485,7 @@ static class AnimSwap
                 byte[] dd = d;
                 replace[seq - 1] = _ => dd;
             }
+            if (riderMoved) { sd = WithTranslationBone(pkg, sd, RiderBone, NameIdx); log.Add($"  the rider moved {rider!.Forward:0.#} forward, {rider.Up:0.#} up, leaned {rider.LeanDegrees:0.#} degrees"); }
             if (lifted) { sd = WithTranslationBone(pkg, sd, "root", NameIdx); log.Add($"  the set takes the root bone's position (moved {swaps.Max(x => Math.Abs(x.Lift)):0})"); }
             var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))
                      ?? throw new InvalidDataException($"the copied set #{set} has no Sequences list");
@@ -591,6 +604,80 @@ static class AnimSwap
         }
         return turns;
     }
+
+    /// <summary>The bone the rider's whole body hangs from (pelvis, legs, spine): every player skeleton has it under
+    /// g_spine01_offset, in the root's frame (checked on Thor, Spider-Man, Cyclops, Captain America: local Z up, Y front /
+    /// back, X sideways). A ride's vehicle hangs from root-level bones (g_throwable_attach, root), so it stays.</summary>
+    const string RiderBone = "g_spine01";
+
+    /// <summary>
+    /// Vehicle Fit on one copied sequence (<paramref name="d"/>, edited in place): the rider bone's position keys moved
+    /// (forward along its frame's Y, up along Z) and its rotation keys turned about its frame's X (lean). Plain float keys
+    /// only (ACF_None positions, Float96NoW rotations; not per-track).
+    /// </summary>
+    static bool FitRider(Package pkg, byte[] set, byte[] d, RiderFit fit, out string why)
+    {
+        why = "";
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tb == null || tags == null) { why = "the animation doesn't read"; return false; }
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt)), bone = -1;
+        for (int k = 0; k < nb && bone < 0; k++)
+            if (pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * k))].Equals(RiderBone, StringComparison.OrdinalIgnoreCase)) bone = k;
+        if (bone < 0) { why = $"no {RiderBone} track"; return false; }
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string tf = Enum("TranslationCompressionFormat"), rf = Enum("RotationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return false; }
+        if (tf.Length > 0 && !tf.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) { why = "positions stored as " + tf; return false; }
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        if (ot == null || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * nb) { why = "the track offsets don't match the bones"; return false; }
+        int at = ot.ValueAt + 4 + 16 * bone;
+        int tOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at)), tKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
+        int rOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 8)), rKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 12));
+        if (tOff < 0 || tKeys < 1) { why = $"{RiderBone} has no position keys"; return false; }
+        bool float96 = rf.Length == 0 || rf.Equals("acf_float96now", StringComparison.OrdinalIgnoreCase);
+        if (Math.Abs(fit.LeanDegrees) > 0.01f && rKeys > 1 && !float96) { why = "rotations stored as " + rf; return false; }
+        int p = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        if (raw < 0 || raw > 100000) { why = "the raw tracks don't read"; return false; }
+        for (int k = 0; k < raw; k++)
+        {
+            p += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+            p += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+        }
+        int len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        if (tOff + 12 * tKeys > len || (rKeys > 0 && rOff + 12 * rKeys > len)) { why = "the key data doesn't read"; return false; }
+        for (int k = 0; k < tKeys; k++)
+        {
+            int y = p + tOff + 12 * k + 4, z = y + 4;
+            BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(y), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(y)) + fit.Forward * ForwardSign);
+            BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(z), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(z)) + fit.Up);
+        }
+        if (Math.Abs(fit.LeanDegrees) > 0.01f && rKeys > 0)
+        {
+            float half = fit.LeanDegrees * LeanSign * MathF.PI / 360f;
+            var turn = new System.Numerics.Quaternion(MathF.Sin(half), 0, 0, MathF.Cos(half));   // about the frame's X
+            for (int k = 0; k < rKeys; k++)
+            {
+                int q = p + rOff + 12 * k;
+                float x = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q)), y = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q + 4)), z = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q + 8));
+                float ls = x * x + y * y + z * z;
+                var key = new System.Numerics.Quaternion(-x, -y, -z, ls < 1 ? MathF.Sqrt(1 - ls) : 0);   // stored: the conjugate
+                var nq = System.Numerics.Quaternion.Normalize(Mul(turn, key));
+                if (nq.W < 0) nq = -nq;
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q), -nq.X);
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 4), -nq.Y);
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 8), -nq.Z);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Which way +Y and +X turns of the rider bone's frame go in the model (measured 2026-10-21 on Spider-Man with Cyclops' ride: +Y moved the pelvis forward, a +X turn leaned the head back, so lean is negated; forward
+    /// = toward the model's +X, where characters face; lean forward = head toward +X).</summary>
+    internal static float ForwardSign = float.TryParse(Environment.GetEnvironmentVariable("MHO_RIDER_FWD_SIGN"), out float fs) ? fs : 1;
+    internal static float LeanSign = float.TryParse(Environment.GetEnvironmentVariable("MHO_RIDER_LEAN_SIGN"), out float ls0) ? ls0 : -1;
 
     /// <summary>The Hamilton product a x b.</summary>
     static System.Numerics.Quaternion Mul(System.Numerics.Quaternion a, System.Numerics.Quaternion b) => new(

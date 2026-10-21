@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.18
+- Borrowed Look (preview feature, hidden): Vehicle Fit. A power that brings another hero's vehicle (Cyclops' bike, Hawkeye's Sky-Cycle) gets sliders in the Borrow window: the vehicle's size, and the rider moved forward / back and up / down and leaned forward / back on it. The vehicle is sized for the hero automatically (this hero's height over the other hero's): a scaled copy of its model, since the game reads no size from the attachment.
+- Borrowed Look: another hero's animations are fitted to the hero's own model, not the largest one in its package (Cyclops' package gave Angel, his summon).
+
 0.60.17
 - Borrowed Look (preview feature, hidden): a power borrowed from another hero hides this hero's held weapons while it runs; the other hero's animation isn't made to hold them (Thor's hammer stuck out of his chest in Kitty Pryde's Air Walking).
 

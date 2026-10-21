@@ -27,6 +27,17 @@ sealed class PowerBorrowEntry
     public string? DonorHero { get; set; }
     /// <summary>The packages it built (power, projectile, the hero's base package for its animations).</summary>
     public List<string> Packages { get; set; } = [];
+    /// <summary>Vehicle Fit (a borrowed ride's vehicle, Kurt 2026-10-21): the vehicle's size (1 = as made; null: the two
+    /// heroes' heights decide), and the rider moved forward (+) / back and up (+) / down in game units and leaned forward (+)
+    /// / back in degrees.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public float? VehicleScale { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float RiderForward { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float RiderUp { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float RiderLean { get; set; }
 }
 
 sealed class PowerColorEntry

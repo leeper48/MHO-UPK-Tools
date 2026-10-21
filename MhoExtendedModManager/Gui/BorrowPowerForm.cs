@@ -22,6 +22,16 @@ sealed class BorrowPowerForm : Form
     readonly Fx.GameData db;
     readonly string cooked, target;
     int request;
+    // Vehicle Fit (Kurt, 2026-10-21): a borrowed ride's vehicle sized, the rider moved and leaned on it; shown only for a
+    // power that brings a vehicle
+    readonly FlowLayoutPanel vehicleFit = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Visible = false, Margin = new Padding(0, 6, 0, 0) };
+    readonly LightSlider vSize = new() { Label = "Size", Min = 0.5f, Max = 2f, Step = 0.01f, Format = v => $"{v * 100:0} %" };
+    readonly LightSlider vForward = new() { Label = "Forward / Back", Min = -40, Max = 40, Step = 1, Mark = 0, Home = () => 0, Format = v => $"{v:+0;-0;0}" };
+    readonly LightSlider vUp = new() { Label = "Up / Down", Min = -40, Max = 40, Step = 1, Mark = 0, Home = () => 0, Format = v => $"{v:+0;-0;0}" };
+    readonly LightSlider vLean = new() { Label = "Lean", Min = -30, Max = 30, Step = 1, Mark = 0, Home = () => 0, Format = v => $"{v:+0;-0;0}°" };
+    readonly Label vehicleHead = new() { Text = "VEHICLE FIT", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 2) };
+    float autoSize = 1;
+    bool sizeSet;
 
     /// <summary>The chosen donor power (prototype, display name), the mode and the fit.</summary>
     public PowerBorrowEntry? Result { get; private set; }
@@ -50,7 +60,16 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
-        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote]);
+        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, vehicleFit]);
+        foreach (var sl in new[] { vSize, vForward, vUp, vLean }) { sl.Width = 460; sl.Height = 30; sl.Margin = new Padding(0, 2, 0, 0); }
+        vehicleFit.Controls.AddRange([vehicleHead, vSize, vForward, vUp, vLean]);
+        vSize.Home = () => autoSize;
+        vSize.ValueChanged += () => sizeSet = Math.Abs(vSize.Value - autoSize) > 0.005f;
+        Ui.Tip(vSize, "The vehicle's size. It starts sized for this hero (this hero's height over the other hero's); move it to make the vehicle bigger or smaller. Double-click: back to that size.");
+        Ui.Tip(vForward, "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.");
+        Ui.Tip(vUp, "Moves the rider up (+) or down (−) on the vehicle, in game units (a seat is about 30 up). Double-click: back to 0.");
+        Ui.Tip(vLean, "Leans the rider forward (+) or back (−), in degrees, from the hips up and down together. Double-click: back to 0.");
+        Ui.Tip(vehicleHead, "This power brings the other hero's vehicle. Fit it to this hero; the 3D preview shows the result after Save.");
         fit.Margin = new Padding(22, 0, 0, 6);
         t.Controls.Add(modes, 0, 4); t.SetColumnSpan(modes, 2);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(0, 10, 0, 0) };
@@ -80,7 +99,9 @@ sealed class BorrowPowerForm : Form
         powerBox.ItemColor = i => i >= 0 && i < powerBox.Items.Count && powerBox.Items[i] is Fx.PowerList.Power p && Different(p) != null ? Ui.Subtle : null;
         powerBox.SelectedIndexChanged += (_, _) => Suggest();
         string? startHero = current != null ? current.DonorHero ?? PowerBorrow.HeroOf(current.Donor) : null;
-        if (current != null) { whole.Checked = !current.KeepTiming; look.Checked = current.KeepTiming; fit.Checked = current.Fit; }
+        if (current != null) { whole.Checked = !current.KeepTiming; look.Checked = current.KeepTiming; fit.Checked = current.Fit; vForward.Value = current.RiderForward; vUp.Value = current.RiderUp; vLean.Value = current.RiderLean; }
+        savedSize = current?.VehicleScale;
+        targetHero = current?.Hero;
         Shown += (_, _) =>
         {
             int at = startHero == null ? -1 : heroes.FindIndex(h => h.Equals(startHero, StringComparison.OrdinalIgnoreCase));
@@ -95,10 +116,11 @@ sealed class BorrowPowerForm : Form
         };
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
-        Ui.FitToScreen(this, 640, 560);
+        Ui.FitToScreen(this, 640, 720);
     }
 
-    string? wantPower;
+    string? wantPower, targetHero;
+    float? savedSize;
 
     /// <summary>The power's kind when it differs from this power's (null when it matches or isn't known).</summary>
     PowerBorrow.PowerKind? Different(Fx.PowerList.Power p) =>
@@ -142,15 +164,28 @@ sealed class BorrowPowerForm : Form
         suggestion.Text = "Comparing the two powers…";
         string c = cooked;
         string root = Path.GetFullPath(Path.Combine(c, "..", "..", ".."));
+        string? donorHeroNow = heroBox.SelectedItem as string;
         Task.Run(() =>
         {
             var g = new Fx.FxGame(c, []);
             var (keep, why) = PowerBorrow.Suggest(db, g, target, p.Prototype);
-            return (keep, why, PowerBorrow.KeepTimingTakes(db, g, target, p.Prototype), PowerBorrow.EnemyUsers(db, g, root, target, p.Prototype));
+            float? vehicle = null;
+            try { vehicle = donorHeroNow is string dh ? PowerBorrow.VehicleAutoScale(db, g, target, p.Prototype, dh, targetHero) : null; }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+            return (keep, why, PowerBorrow.KeepTimingTakes(db, g, target, p.Prototype), PowerBorrow.EnemyUsers(db, g, root, target, p.Prototype), vehicle);
         }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || t.Status != TaskStatus.RanToCompletion) return;
-            var (keep, why, takes, enemies) = t.Result;
+            var (keep, why, takes, enemies, vehicle) = t.Result;
+            // a power that brings a vehicle: its fit
+            vehicleFit.Visible = vehicle != null;
+            if (vehicle is float auto)
+            {
+                autoSize = auto;
+                vSize.Mark = auto;
+                vSize.Value = savedSize is float ss && ss > 0 ? ss : auto;
+                sizeSet = savedSize != null;
+            }
             // Keep This Power's Timing only when it changes something (it redraws beams with beams, or adds start effects to a
             // power with none): otherwise it would borrow nothing
             look.Enabled = takes != null;
@@ -180,6 +215,11 @@ sealed class BorrowPowerForm : Form
             Donor = p.Prototype, DonorName = $"{AutoTags.DisplayName(hero) ?? hero}: {p.Name}",
             KeepTiming = look.Checked, Fit = fit.Checked, DonorHero = hero,
         };
+        if (vehicleFit.Visible)
+        {
+            Result.VehicleScale = sizeSet ? MathF.Round(vSize.Value, 2) : null;
+            Result.RiderForward = vForward.Value; Result.RiderUp = vUp.Value; Result.RiderLean = vLean.Value;
+        }
         DialogResult = DialogResult.OK;
     }
 }

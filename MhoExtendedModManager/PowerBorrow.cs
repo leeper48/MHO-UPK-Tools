@@ -71,7 +71,9 @@ static class PowerBorrow
                 lift = -(float)hf;
                 log.Add($"anims: lowered {hf:0} (the target flies high, the donor's animations are on the ground)");
             }
-            var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift);
+            var rider = new AnimSwap.RiderFit(e.RiderForward, e.RiderUp, e.RiderLean);
+            var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
+                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null);
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -490,7 +492,7 @@ static class PowerBorrow
     /// Returns the changed packages by file name.
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
-        IReadOnlyList<(string File, int Export, string Slot)>? spawn = null, float lift = 0)
+        IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -508,9 +510,9 @@ static class PowerBorrow
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
-            // TEST (MHO_BORROW_VEHICLE_SCALE=1): a spawned vehicle sized by the two heroes' heights (Kurt, 2026-10-20: Cyclops'
-            // bike looked small under Thor)
-            float vscale = Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE") == "1" && HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
+            // a spawned vehicle sized for this hero: the Vehicle Fit's size, else the two heroes' heights (Kurt, 2026-10-20:
+            // Cyclops' bike looked small under Thor; x1.14 by the heights looked right in game)
+            float vscale = vehicleScale is float vs && vs > 0 ? vs : HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
             // (MHO_BORROW_VEHICLE_SCALE_FORCE=<n>: that scale instead, to see whether it reaches the vehicle at all)
             if (float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE_FORCE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vforce) && vforce > 0) vscale = vforce;
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), vscale);
@@ -555,7 +557,7 @@ static class PowerBorrow
             if (done.TryGetValue(hf, out var hb)) temps.Add(heroPath = WriteTemp(hf, hb));
             // another hero's skeleton: bones that rest turned differently get their keys turned to fit (Thor's right toes)
             var turns = crossHero && HeroSkeleton(donorHeroPackage) is { } dsk && HeroSkeleton(targetHeroPackage) is { } tsk ? AnimSwap.RestTurns(dsk, tsk) : null;
-            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns);
+            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider);
             // TEST (Kurt, 2026-10-20, one mod only until agreed): the target's own animated bones the donor's animations
             // don't move (Thor's cape in Kitty's Air Walking) get the target's own power animation's keys, looped
             if (crossHero && Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1")
@@ -825,9 +827,11 @@ static class PowerBorrow
     /// showlefttendrils / showrighttendrils switch on weapon slots weblefthand / webrighthand, where Spider-Man keeps his
     /// webbing_lt / webbing_rt, which Thor doesn't have).
     /// </summary>
-    public static List<(string File, int Export, string Slot)> ConditionAttachments(Fx.GameData db, Fx.FxGame game, string donorPower, string donorHeroPackage, List<string> log)
+    public static List<(string File, int Export, string Slot, bool Vehicle)> ConditionAttachments(Fx.GameData db, Fx.FxGame game, string donorPower, string donorHeroPackage, List<string> log)
     {
         var slots = new List<string>();
+        // a slot a condition shows is a vehicle (a ride's bike, the Sky-Cycle); one the power itself shows is a weapon (webbing)
+        var vehicles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in Fx.PowerClosure.Of(db, donorPower).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase) || a.IsPower && a.Depth == 0))
         {
             string? file = game.PackagesOf(a.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), $"marvelgamecontent.default__{a.Class}".ToLowerInvariant()) >= 0);
@@ -847,9 +851,10 @@ static class PowerBorrow
                     if (ti >= 0) slot = ShownSlot(tp, ti);
                 }
                 if (slot != null && !slots.Contains(slot, StringComparer.OrdinalIgnoreCase)) slots.Add(slot);
+                if (slot != null && a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)) vehicles.Add(slot);
             }
         }
-        var found = new List<(string, int, string)>();
+        var found = new List<(string, int, string, bool)>();
         if (slots.Count == 0) return found;
         var hp = Package.Open(donorHeroPackage);
         for (int i = 0; i < hp.Exports.Length; i++)
@@ -865,10 +870,10 @@ static class PowerBorrow
             for (int k = 0; k < n; k++)
             {
                 string s = TagWalker.NameAt(hp, b, ws.ValueAt + 4 + 8 * k);
-                if (slots.Contains(s, StringComparer.OrdinalIgnoreCase)) { found.Add((donorHeroPackage, i, s)); break; }
+                if (slots.Contains(s, StringComparer.OrdinalIgnoreCase)) { found.Add((donorHeroPackage, i, s, vehicles.Contains(s))); break; }
             }
         }
-        foreach (var (_, i, s) in found) log.Add($"  the donor shows weapon slot {s}: {hp.Exports[i].ObjectName} (spawned while the power runs)");
+        foreach (var (_, i, s, v) in found) log.Add($"  the donor shows {(v ? "vehicle" : "weapon")} slot {s}: {hp.Exports[i].ObjectName} (spawned while the power runs)");
         return found;
     }
 
@@ -885,7 +890,7 @@ static class PowerBorrow
     /// runs (WhileActivatedAttachmentClass). The component is a copy of a stock one (Ant-Man's ant_outro, the same form) with
     /// its class pointed at the copy.
     /// </summary>
-    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null, float scale = 1)
+    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null, float scale = 1)
     {
         var dst = Package.FromBytes(package);
         string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
@@ -895,7 +900,7 @@ static class PowerBorrow
         int ti = Find(tp, tplComp);
         if (ti < 0) { log.Add("  the spawn component's template isn't found: vehicles left out"); return package; }
         int k = 0;
-        foreach (var (file, export, slot) in classes)
+        foreach (var (file, export, slot, vehicle) in classes)
         {
             var hp = Package.Open(file);
             var cc = CrossMove.Quiet(() => ExportCopy.Copy(hp, export, dst, []), out string csaid)
@@ -903,7 +908,7 @@ static class PowerBorrow
             dst = Package.FromBytes(cc.Output);
             int classRef = cc.RootRef;
             if (targetBones is { Count: > 0 }) dst = RootMissingBones(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, targetBones, log);
-            if (Math.Abs(scale - 1) > 0.02f) dst = ScaleAttachment(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, scale, cooked, log);
+            if (vehicle && Math.Abs(scale - 1) > 0.02f) dst = ScaleAttachment(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, scale, cooked, log);
             var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
             string name = $"borrowed_{slot}_spawn{(k++ == 0 ? "" : k.ToString())}";
             var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
@@ -1128,9 +1133,9 @@ static class PowerBorrow
     /// so neither his flight power nor its condition shows it and a borrow found nothing to spawn (Kurt, 2026-10-20: Thor
     /// with Goblin's Glide, no glider).
     /// </summary>
-    public static List<(string File, int Export, string Slot)> MountAttachments(string donorHeroPackage, List<string> log)
+    public static List<(string File, int Export, string Slot, bool Vehicle)> MountAttachments(string donorHeroPackage, List<string> log)
     {
-        var found = new List<(string, int, string)>();
+        var found = new List<(string, int, string, bool)>();
         var hp = Package.Open(donorHeroPackage);
         for (int i = 0; i < hp.Exports.Length; i++)
         {
@@ -1150,7 +1155,7 @@ static class PowerBorrow
             for (int k = 0; k < n; k++) mount |= TagWalker.NameAt(hp, b, bones.ValueAt + 4 + 8 * k).Equals("g_mountattach", StringComparison.OrdinalIgnoreCase);
             if (!mount) continue;
             string slot = ws != null && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ws.ValueAt)) > 0 ? TagWalker.NameAt(hp, b, ws.ValueAt + 4) : e.ObjectName;
-            found.Add((donorHeroPackage, i, slot));
+            found.Add((donorHeroPackage, i, slot, true));
             log.Add($"  the donor always rides {e.ObjectName} (slot {slot}, on g_mountattach): spawned while the power runs");
         }
         return found;
@@ -1260,9 +1265,26 @@ static class PowerBorrow
             ?? meshes.OrderByDescending(Verts).FirstOrDefault();
     }
 
+    /// <summary>
+    /// For the Borrowed Look window's Vehicle Fit: whether borrowing <paramref name="donorPower"/> (of hero
+    /// <paramref name="donorHero"/>) onto <paramref name="targetPower"/> brings a vehicle (a condition shows it: a ride), and
+    /// the vehicle's automatic size (the target hero's height over the donor hero's), or null when it brings none.
+    /// </summary>
+    public static float? VehicleAutoScale(Fx.GameData db, Fx.FxGame game, string targetPower, string donorPower, string donorHero, string? targetHero)
+    {
+        string cooked = game.Cooked;
+        string donorPackage = StockFiles.For(cooked, $"UC__MarvelPlayer_{donorHero}_SF.upk");
+        if (!File.Exists(donorPackage)) return null;
+        var quiet = new List<string>();
+        if (!ConditionAttachments(db, game, donorPower, donorPackage, quiet).Any(x => x.Vehicle)) return null;
+        string? th = HeroPackage(cooked, targetHero, targetPower, null, []);
+        if (th == null || th.Equals(donorHero, StringComparison.OrdinalIgnoreCase)) return null;   // (a vehicle is only spawned on another hero)
+        return HeroHeight(StockFiles.For(cooked, $"UC__MarvelPlayer_{th}_SF.upk")) is float a && HeroHeight(donorPackage) is float b && b > 1 ? a / b : 1;
+    }
+
     /// <summary>A hero's main model's height (its base package's skeletal mesh with the most vertices: top minus bottom of
     /// its highest-detail vertices), else null.</summary>
-    static float? HeroHeight(string heroPackage)
+    internal static float? HeroHeight(string heroPackage)
     {
         try
         {

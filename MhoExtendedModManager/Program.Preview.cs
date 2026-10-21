@@ -685,7 +685,13 @@ static partial class Program
                             ?? throw new InvalidDataException("the donor power's hero package wasn't found");
                         plog.Add($"hero packages: UC__MarvelPlayer_{th}_SF ← UC__MarvelPlayer_{dh}_SF");
                         var pspawn = rest.Contains("--keep-timing") ? [] : PowerBorrow.ConditionAttachments(pdb2, pgame, dp, Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog);
-                        var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook, spawn: pspawn);
+                        // --rider <forward>,<up>,<lean degrees> (Vehicle Fit), --vehicle-scale <n>
+                        int ri = rest.IndexOf("--rider"), vi = rest.IndexOf("--vehicle-scale");
+                        var rf = ri >= 0 && ri + 1 < rest.Count ? rest[ri + 1].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray() : null;
+                        var prider = rf is { Length: 3 } ? new AnimSwap.RiderFit(rf[0], rf[1], rf[2]) : null;
+                        float? pvs = vi >= 0 && vi + 1 < rest.Count ? float.Parse(rest[vi + 1], System.Globalization.CultureInfo.InvariantCulture) : null;
+                        var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook, spawn: pspawn,
+                            vehicleScale: pvs, rider: prider is { IsNone: false } && pspawn.Any(x => x.Vehicle) ? prider : null);
                         plog.ForEach(Console.WriteLine);
                         foreach (var (f, bytes) in built)
                         {
@@ -2753,6 +2759,14 @@ static partial class Program
                     var (fN, _) = MeshAnimator.Span(ba); float minLo = float.MaxValue, maxLo = float.MinValue;
                     for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); float lo = fa.Positions.Min(p => p.Z); minLo = Math.Min(minLo, lo); maxLo = Math.Max(maxLo, lo); }
                     Console.WriteLine($"      over the animation the lowest point runs {minLo:0.0} .. {maxLo:0.0}");
+                    // MHO_FOOT_POS=<bone>: that bone's average place (X front, Y side, Z up) over the animation, against the root
+                    if (Environment.GetEnvironmentVariable("MHO_FOOT_POS") is { Length: > 0 } pb2 && fa.BoneIndex(pb2) is int pi2 && pi2 >= 0)
+                    {
+                        Vector3 sum2 = default; int cnt2 = 0;
+                        for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); sum2 += fa.BonePosition(pi2) - fa.BonePosition(froot); cnt2++; }
+                        var av = sum2 / Math.Max(1, cnt2);
+                        Console.WriteLine($"      {pb2}: average place {av.X:0.0} front, {av.Y:0.0} side, {av.Z:0.0} up");
+                    }
                     // MHO_FOOT_LAT=<bone>: that bone's average sideways place (Y) over the animation, against the pelvis (a cape's drift)
                     if (Environment.GetEnvironmentVariable("MHO_FOOT_LAT") is { Length: > 0 } lb && fa.BoneIndex(lb) is int li && li >= 0 && pelvis >= 0)
                     {
