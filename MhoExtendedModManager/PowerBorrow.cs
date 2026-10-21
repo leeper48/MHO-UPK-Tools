@@ -78,8 +78,10 @@ static class PowerBorrow
             // (for the Powers tab's Vehicle Fit: shown once a vehicle comes with the borrow)
             bool crossHeroNow = !th.Equals(dh, StringComparison.OrdinalIgnoreCase);
             e.VehicleAuto = crossHeroNow && spawn.Any(x => x.Vehicle) && HeroHeight(StockFiles.For(game.Cooked, heroFile)) is float hh && HeroHeight(donorHero) is float dhh && dhh > 1 ? hh / dhh : null;
+            var spawned = new List<SpawnedProp>();
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
-                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel);
+                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned);
+            e.Spawned = spawned;
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -89,7 +91,10 @@ static class PowerBorrow
             }
             log.Add($"{e.Name} ← {e.DonorName}: {string.Join(", ", e.Packages)}");
         }
-        // the draft's packages: the built ones in; ones built before and not now back to the mod's own copy, or out
+        // the draft's packages: the built ones in; ones built before and not now back to the mod's own copy, or out (one
+        // build at a time: the Powers tab's background build and Save's could both add the same package)
+        lock (draft.Packages)
+        {
         foreach (var (f, path) in current)
         {
             int k = draft.Packages.FindIndex(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase));
@@ -102,6 +107,7 @@ static class PowerBorrow
             string kept = Path.Combine(baseDir, f);
             if (File.Exists(kept)) { draft.Packages[k] = (f, kept); log.Add($"{f}: back to the mod's own copy"); }
             else { draft.Packages.RemoveAt(k); log.Add($"{f}: out of the mod (no borrow needs it now)"); }
+        }
         }
         return current;
     }
@@ -498,7 +504,8 @@ static class PowerBorrow
     /// Returns the changed packages by file name.
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
-        IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false)
+        IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
+        IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -521,8 +528,14 @@ static class PowerBorrow
             float vscale = vehicleScale is float vs && vs > 0 ? vs : HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
             // (MHO_BORROW_VEHICLE_SCALE_FORCE=<n>: that scale instead, to see whether it reaches the vehicle at all)
             if (float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE_FORCE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vforce) && vforce > 0) vscale = vforce;
-            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), vscale);
+            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
             if (crossHero && pr.Role == "power" && cooked != null) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
+            // every prop the power now brings (a spawned vehicle or weapon, the donor's own shown ones): its fit
+            if (crossHero && pr.Role == "power")
+            {
+                var vehicleClasses = (spawn ?? []).Where(x => x.Vehicle).Select(x => Package.Open(x.File).Exports[x.Export].ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                done[tf] = FitProps(done[tf], td, vehicleClasses, vscale, props, log, spawnedOut);
+            }
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
@@ -1291,6 +1304,43 @@ static class PowerBorrow
         return HeroHeight(StockFiles.For(cooked, $"UC__MarvelPlayer_{th}_SF.upk")) is float a && HeroHeight(donorPackage) is float b && b > 1 ? a / b : 1;
     }
 
+    /// <summary>A prop a borrow brings: its attachment class, whether it's a vehicle (ridden) and its automatic size.</summary>
+    public sealed record SpawnedProp(string Class, bool Vehicle, float Auto);
+
+    /// <summary>
+    /// Prop Fit (Kurt, 2026-10-21: glider, Thor's hammer, Cap's shield: size, place, turn): every attachment class the
+    /// target power's parts spawn (WhileActivatedAttachmentClass), drawn at its fit (FitModel): a vehicle sized for the hero
+    /// by default (<paramref name="vehicleAuto"/>), anything else as made; listed in <paramref name="spawnedOut"/>.
+    /// </summary>
+    static byte[] FitProps(byte[] package, string targetDefault, IReadOnlySet<string> vehicleClasses, float vehicleAuto, IReadOnlyList<PropFit>? fits, List<string> log, List<SpawnedProp>? spawnedOut)
+    {
+        var dst = Package.FromBytes(package);
+        int td = Find(dst, targetDefault);
+        if (td < 0) return package;
+        var classes = new List<string>();
+        foreach (int r in Components(dst, td, out _, out _))
+        {
+            if (r <= 0) continue;
+            byte[] cd = dst.ReadExportBytes(dst.Exports[r - 1]).ToArray();
+            if (TagWalker.Walk(dst, cd, 16)?.FirstOrDefault(t => t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is not { } ct) continue;
+            int cls = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(ct.ValueAt));
+            if (cls > 0 && !classes.Contains(dst.Exports[cls - 1].ObjectName, StringComparer.OrdinalIgnoreCase)) classes.Add(dst.Exports[cls - 1].ObjectName);
+        }
+        foreach (string cls in classes)
+        {
+            bool vehicle = vehicleClasses.Contains(cls);
+            float auto = vehicle ? vehicleAuto : 1;
+            spawnedOut?.Add(new SpawnedProp(cls, vehicle, auto));
+            var fit = fits?.FirstOrDefault(f => f.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
+            float scale = fit?.Scale is float fs && fs > 0 ? fs : auto;
+            var move = fit == null ? default : new System.Numerics.Vector3(fit.X, fit.Y, fit.Z);
+            var turn = fit == null ? default : new System.Numerics.Vector3(fit.TurnX, fit.TurnY, fit.TurnZ);
+            if (Math.Abs(scale - 1) < 0.005f && move == default && turn == default) continue;
+            if (FitModel(dst, "marvelgamecontent.default__" + cls, scale, move, turn, log) is { } fitted) dst = fitted;
+        }
+        return dst.RawFile;
+    }
+
     /// <summary>A hero's main model's height (its base package's skeletal mesh with the most vertices: top minus bottom of
     /// its highest-detail vertices), else null.</summary>
     internal static float? HeroHeight(string heroPackage)
@@ -1371,16 +1421,35 @@ static class PowerBorrow
     /// (AMarvelAttachment_Models::CreateAttachments) and reads no scale from the attachment (Kurt, 2026-10-20: DrawScale and
     /// an own component's Scale both left the bike as it was).
     /// </summary>
-    static Package? ScaledModel(Package dst, string classDefault, float scale, List<string> log)
+    static Package? ScaledModel(Package dst, string classDefault, float scale, List<string> log) => FitModel(dst, classDefault, scale, default, default, log);
+
+    /// <summary>
+    /// A prop drawn <paramref name="scale"/> times its size, moved by <paramref name="move"/> and turned by
+    /// <paramref name="turn"/> (degrees about X, Y, Z) by its model itself: a copy of its ModelMesh (a name of its own) with
+    /// every position scaled and its Origin / RotOrigin set (the engine draws a skeletal mesh turned by RotOrigin, then moved
+    /// by Origin: Blade's motorcycle's yaw 90), and the attachment's ModelMesh pointed at the copy.
+    /// </summary>
+    static Package? FitModel(Package dst, string classDefault, float scale, System.Numerics.Vector3 move, System.Numerics.Vector3 turn, List<string> log)
     {
         int d = Find(dst, classDefault);
         if (d < 0) return null;
         byte[] db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
         var mt = TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase));
-        if (mt == null || BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt)) < 1) { log.Add("  the attachment names no model: not scaled"); return null; }
-        int mesh = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt + 4));
+        // the model: ModelMesh's first (Cyclops' bike), else the SkeletalMesh of the attachment's own mesh component (Green
+        // Goblin's glider names its model there)
+        int holder = d, at = -1;
+        if (mt != null && BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt)) >= 1) at = mt.ValueAt + 4;
+        else if (TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } mc
+                 && BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mc.ValueAt)) is int comp && comp > 0)
+        {
+            byte[] cb = dst.ReadExportBytes(dst.Exports[comp - 1]).ToArray();
+            if (TagWalker.Walk(dst, cb, 16)?.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } sm) { holder = comp - 1; at = sm.ValueAt; db = cb; }
+        }
+        if (at < 0) { log.Add("  the attachment names no model: not scaled"); return null; }
+        int mesh = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(at));
         if (mesh <= 0) { log.Add("  the attachment's model isn't in this package: not scaled"); return null; }
-        string newName = $"{dst.Exports[mesh - 1].ObjectName}_x{(int)MathF.Round(scale * 100)}";
+        bool moved = move != default || turn != default;
+        string newName = $"{dst.Exports[mesh - 1].ObjectName}_x{(int)MathF.Round(scale * 100)}" + (moved ? $"_fit{(uint)HashCode.Combine(move, turn) % 100000}" : "");
         var cc = CrossMove.Quiet(() => ExportCopy.Copy(dst, mesh - 1, dst, [], newName), out string said);
         if (cc == null) { log.Add("  the model couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim()))); return null; }
         dst = Package.FromBytes(cc.Output);
@@ -1391,24 +1460,34 @@ static class PowerBorrow
         if (where == null) { log.Add("  the model's copy doesn't read: not scaled"); return null; }
         byte[] md = dst.ReadExportBytes(dst.Exports[copy]).ToArray();
         void Mul(int at) => BinaryPrimitives.WriteSingleLittleEndian(md.AsSpan(at), BinaryPrimitives.ReadSingleLittleEndian(md.AsSpan(at)) * scale);
+        static int Units(float deg) => (int)MathF.Round(deg / 360f * 65536f);
         int verts = 0;
         foreach (var w in where)
             switch (w.Kind)
             {
                 case "vec": Mul(w.At); Mul(w.At + 4); Mul(w.At + 8); break;
                 case "radius": Mul(w.At); break;
-                case "verts": for (int k = 0; k < w.Count; k++) { int at = w.At + k * w.Stride; Mul(at); Mul(at + 4); Mul(at + 8); } verts += w.Count; break;
+                case "verts": for (int k = 0; k < w.Count; k++) { int va = w.At + k * w.Stride; Mul(va); Mul(va + 4); Mul(va + 8); } verts += w.Count; break;
+                case "origin":
+                    Mul(w.At); Mul(w.At + 4); Mul(w.At + 8);
+                    for (int c = 0; c < 3; c++) BinaryPrimitives.WriteSingleLittleEndian(md.AsSpan(w.At + 4 * c), BinaryPrimitives.ReadSingleLittleEndian(md.AsSpan(w.At + 4 * c)) + (c == 0 ? move.X : c == 1 ? move.Y : move.Z));
+                    break;
+                case "rotorigin":
+                    // (pitch about Y, yaw about Z, roll about X; 65536 a turn)
+                    BinaryPrimitives.WriteInt32LittleEndian(md.AsSpan(w.At), BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(w.At)) + Units(turn.Y));
+                    BinaryPrimitives.WriteInt32LittleEndian(md.AsSpan(w.At + 4), BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(w.At + 4)) + Units(turn.Z));
+                    BinaryPrimitives.WriteInt32LittleEndian(md.AsSpan(w.At + 8), BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(w.At + 8)) + Units(turn.X));
+                    break;
             }
-        // the attachment's ModelMesh: the copy
-        d = Find(dst, classDefault);
-        db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
-        mt = TagWalker.Walk(dst, db, 4)!.First(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase));
-        BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(mt.ValueAt + 4), copy + 1);
-        var rep = new Dictionary<int, Func<long, byte[]>> { [copy] = _ => md, [d] = _ => db };
+        // the attachment's model (ModelMesh's first, or its mesh component's SkeletalMesh): the copy (the copy went to the
+        // end, so the holder's index is unchanged)
+        db = dst.ReadExportBytes(dst.Exports[holder]).ToArray();
+        BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(at), copy + 1);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [copy] = _ => md, [holder] = _ => db };
         byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
         if (problems.Count > 0) { log.Add("  the scaled model: " + string.Join("; ", problems.Take(3))); return null; }
-        log.Add($"  {dst.Exports[d].ObjectName}: its model copied as {newName}, drawn x{scale:0.00} ({where.Count(w => w.Kind == "vec")} points and {verts} vertices scaled)");
+        log.Add($"  {dst.Exports[d].ObjectName}: its model copied as {newName}, drawn x{scale:0.00}{(moved ? $", moved {move.X:0.#} / {move.Y:0.#} / {move.Z:0.#}, turned {turn.X:0.#} / {turn.Y:0.#} / {turn.Z:0.#} degrees" : "")} ({where.Count(w => w.Kind == "vec")} points and {verts} vertices scaled)");
         return Package.FromBytes(output);
     }
 

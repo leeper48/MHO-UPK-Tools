@@ -14,12 +14,15 @@ sealed partial class ModEditorView
     Dictionary<string, string> borrowFiles = new(StringComparer.OrdinalIgnoreCase);
     string? borrowWork;
     bool borrowBuilding;
-    // Vehicle Fit (Kurt, 2026-10-21: adjusted after the vehicle is in, here, not in the Borrow window): the borrowed ride's
-    // vehicle size, the rider moved and leaned; each change rebuilds the borrow and the preview shows it
-    readonly FlowLayoutPanel vehicleFit = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Visible = false, Margin = new Padding(0, 4, 0, 0) };
-    LightSlider? vSize, vForward, vUp, vLean;
+    // Prop Fit and Rider Fit (Kurt, 2026-10-21: adjusted after the borrow is in, here, not in the Borrow window): each prop
+    // the borrowed power brings (a vehicle, a mount, a weapon) sized, moved and turned; on a vehicle the rider moved and
+    // leaned. Each change rebuilds the borrow and the preview shows it.
+    readonly FlowLayoutPanel propFit = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Visible = false, Margin = new Padding(0, 4, 0, 0) };
+    readonly FlowLayoutPanel riderFit = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Visible = false, Margin = new Padding(0, 4, 0, 0) };
+    readonly DropDown propPick = new() { Width = 320 };
+    LightSlider? pSize, pX, pY, pZ, pTX, pTY, pTZ, vForward, vUp, vLean;
     bool vShowing;
-    readonly HashSet<string> vehicleChecked = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> fitBuilt = new(StringComparer.OrdinalIgnoreCase);
 
     Control BorrowSection()
     {
@@ -29,60 +32,109 @@ sealed partial class ModEditorView
         borrowRemove = Ui.FlatButton("Game's Look", RemoveBorrow, tip: "Take this power back to its own look (the borrowed one comes out of the mod at Save).");
         box.Controls.Add(Toolbar(borrowButton, borrowRemove));
         box.Controls.Add(borrowCaption);
-        LightSlider Slider(string label, float min, float max, float step, Func<float, string> format, string tip)
+        LightSlider Slider(string label, float min, float max, float step, Func<float, string> format, string tip, Action changed)
         {
             var sl = new LightSlider { Label = label, Min = min, Max = max, Step = step, Mark = 0, Home = () => 0, Format = format, Width = (int)(320 * S), Height = (int)(30 * S), Margin = new Padding(0, 2, 0, 0) };
             Ui.Tip(sl, tip);
-            sl.Committed += VehicleFitChanged;
+            sl.Committed += changed;
             return sl;
         }
-        vSize = Slider("Size", 0.5f, 2f, 0.01f, v => $"{v * 100:0} %", "The vehicle's size. It starts sized for this hero (this hero's height over the other hero's); move it to make the vehicle bigger or smaller. Double-click: back to that size. The preview shows it once the borrow is rebuilt.");
-        vForward = Slider("Forward / Back", -40, 40, 1, v => $"{v:+0;-0;0}", "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.");
-        vUp = Slider("Up / Down", -40, 40, 1, v => $"{v:+0;-0;0}", "Moves the rider up (+) or down (−) on the vehicle, in game units. Double-click: back to 0.");
-        vLean = Slider("Lean", -30, 30, 1, v => $"{v:+0;-0;0}°", "Leans the rider forward (+) or back (−), in degrees. Double-click: back to 0.");
-        var head = new Label { Text = "VEHICLE FIT", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 2) };
-        Ui.Tip(head, "This borrowed power brings the other hero's vehicle: fit it to this hero. Each change rebuilds the borrow, then the 3D preview shows it; Save Changes puts it into the mod.");
-        vehicleFit.Controls.AddRange([head, vSize, vForward, vUp, vLean]);
-        box.Controls.Add(vehicleFit);
+        string Units(float v) => $"{v:+0;-0;0}";
+        string Deg(float v) => $"{v:+0;-0;0}°";
+        pSize = Slider("Size", 0.25f, 3f, 0.01f, v => $"{v * 100:0} %", "The prop's size. A vehicle starts sized for this hero (this hero's height over the other hero's), anything else as it was made. Double-click: back to that size.", PropFitChanged);
+        pX = Slider("Move X", -60, 60, 1, Units, "Moves the prop along its own X axis, in game units. Double-click: back to 0.", PropFitChanged);
+        pY = Slider("Move Y", -60, 60, 1, Units, "Moves the prop along its own Y axis, in game units. Double-click: back to 0.", PropFitChanged);
+        pZ = Slider("Move Z", -60, 60, 1, Units, "Moves the prop along its own Z axis, in game units. Double-click: back to 0.", PropFitChanged);
+        pTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll), in degrees. Double-click: back to 0.", PropFitChanged);
+        pTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch), in degrees. Double-click: back to 0.", PropFitChanged);
+        pTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw), in degrees. Double-click: back to 0.", PropFitChanged);
+        var propHead = new Label { Text = "PROP FIT", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 2) };
+        Ui.Tip(propHead, "The props this borrowed power brings (the other hero's vehicle, mount or weapons): pick one, then size, move and turn it. Each change rebuilds the borrow, then the 3D preview shows it; Save Changes puts it into the mod.");
+        propPick.Width = (int)(420 * S);
+        propPick.Format = o => o is PowerBorrow.SpawnedProp sp ? PropName(sp) : o.ToString() ?? "";
+        propPick.SelectedIndexChanged += (_, _) => { if (!vShowing && powerList.SelectedItem is Fx.PowerList.Power p0) ShowFits(BorrowOf(p0.Prototype)); };
+        Ui.Tip(propPick, "The prop to fit.");
+        propFit.Controls.AddRange([propHead, propPick, pSize, pX, pY, pZ, pTX, pTY, pTZ]);
+        vForward = Slider("Forward / Back", -40, 40, 1, Units, "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.", RiderFitChanged);
+        vUp = Slider("Up / Down", -40, 40, 1, Units, "Moves the rider up (+) or down (−) on the vehicle, in game units. Double-click: back to 0.", RiderFitChanged);
+        vLean = Slider("Lean", -30, 30, 1, Deg, "Leans the rider forward (+) or back (−), in degrees. Double-click: back to 0.", RiderFitChanged);
+        var riderHead = new Label { Text = "RIDER FIT", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 2) };
+        Ui.Tip(riderHead, "This borrowed power brings a vehicle or mount: move and lean this hero on it.");
+        riderFit.Controls.AddRange([riderHead, vForward, vUp, vLean]);
+        box.Controls.Add(propFit);
+        box.Controls.Add(riderFit);
         return box;
     }
 
-    /// <summary>The selected borrow's Vehicle Fit into its sliders (shown when its last build brought a vehicle).</summary>
-    void ShowVehicleFit(PowerBorrowEntry? e)
+    /// <summary>A prop's name for the picker: marvelattachmentanimated_cyclopsbike → Cyclopsbike (Vehicle).</summary>
+    static string PropName(PowerBorrow.SpawnedProp sp)
     {
-        // a borrow not built in this session yet: whether it brings a vehicle, worked out in the background
-        if (e != null && e.VehicleAuto == null && game is { } g0 && !vehicleChecked.Contains(e.Power + "|" + e.Donor))
-        {
-            vehicleChecked.Add(e.Power + "|" + e.Donor);
-            var entry = e;
-            Task.Run(() =>
-            {
-                powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g0.Root, "Data", "Game", "Calligraphy.sip")));
-                return entry.DonorHero is string dh ? PowerBorrow.VehicleAutoScale(powerDb, new Fx.FxGame(g0.Cooked, []), entry.Power, entry.Donor, dh, entry.Hero) : null;
-            }).ContinueWith(t =>
-            {
-                if (IsDisposed || t.Status != TaskStatus.RanToCompletion || t.Result == null) return;
-                entry.VehicleAuto ??= t.Result;
-                if (powerList.SelectedItem is Fx.PowerList.Power s1 && s1.Prototype.Equals(entry.Power, StringComparison.OrdinalIgnoreCase)) ShowBorrow(s1);
-            }, TaskScheduler.FromCurrentSynchronizationContext());
-        }
-        bool show = e?.VehicleAuto is float && !borrowBuilding;
-        vehicleFit.Visible = e?.VehicleAuto is float;
-        foreach (var sl in new[] { vSize, vForward, vUp, vLean }) if (sl != null) sl.Enabled = show;
-        if (e?.VehicleAuto is not float auto || vSize == null || vForward == null || vUp == null || vLean == null) return;
-        vShowing = true;
-        vSize.Home = () => auto; vSize.Mark = auto;
-        vSize.Value = e.VehicleScale is float vs && vs > 0 ? vs : auto;
-        vForward.Value = e.RiderForward; vUp.Value = e.RiderUp; vLean.Value = e.RiderLean;
-        vShowing = false;
+        string n = sp.Class;
+        foreach (string pre in new[] { "marvelattachmentanimated_", "marvelattachment_" })
+            if (n.StartsWith(pre, StringComparison.OrdinalIgnoreCase)) { n = n[pre.Length..]; break; }
+        n = n.Replace('_', ' ');
+        return (n.Length > 0 ? char.ToUpperInvariant(n[0]) + n[1..] : n) + (sp.Vehicle ? " (Vehicle)" : "");
     }
 
-    /// <summary>A Vehicle Fit slider let go: the selected borrow takes the values and is built again.</summary>
-    void VehicleFitChanged()
+    /// <summary>The selected borrow's props and rider into the fit sliders (shown once a build says what it brings; a borrow
+    /// not built in this session is built once, so the props are known).</summary>
+    void ShowFits(PowerBorrowEntry? e)
     {
-        if (vShowing || borrowBuilding || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { VehicleAuto: float auto } e
-            || vSize == null || vForward == null || vUp == null || vLean == null) return;
-        e.VehicleScale = Math.Abs(vSize.Value - auto) > 0.005f ? MathF.Round(vSize.Value, 2) : null;
+        if (e != null && e.Spawned == null && !borrowBuilding && fitBuilt.Add(e.Power + "|" + e.Donor)) { RebuildBorrows(); return; }
+        var props = e?.Spawned ?? [];
+        propFit.Visible = props.Count > 0;
+        riderFit.Visible = props.Any(x => x.Vehicle);
+        bool on = !borrowBuilding;
+        foreach (var sl in new[] { pSize, pX, pY, pZ, pTX, pTY, pTZ, vForward, vUp, vLean }) if (sl != null) sl.Enabled = on;
+        propPick.Enabled = on;
+        if (e == null || pSize == null || pX == null || pY == null || pZ == null || pTX == null || pTY == null || pTZ == null || vForward == null || vUp == null || vLean == null) return;
+        vShowing = true;
+        try
+        {
+            if (props.Count > 0)
+            {
+                string? was = (propPick.SelectedItem as PowerBorrow.SpawnedProp)?.Class;
+                if (propPick.Items.Count != props.Count || !props.Select(x => x.Class).SequenceEqual(propPick.Items.Cast<PowerBorrow.SpawnedProp>().Select(x => x.Class)))
+                {
+                    propPick.Items.Clear();
+                    propPick.Items.AddRange(props.Cast<object>().ToArray());
+                }
+                int at = was == null ? 0 : Math.Max(0, props.FindIndex(x => x.Class.Equals(was, StringComparison.OrdinalIgnoreCase)));
+                if (propPick.SelectedIndex != at) propPick.SelectedIndex = at;
+                var sp = props[at];
+                var fit = e.Props?.FirstOrDefault(f => f.Class.Equals(sp.Class, StringComparison.OrdinalIgnoreCase));
+                float auto = sp.Vehicle && e.VehicleScale is float vs && vs > 0 ? vs : sp.Auto;
+                pSize.Home = () => sp.Auto; pSize.Mark = sp.Auto;
+                pSize.Value = fit?.Scale is float fs && fs > 0 ? fs : auto;
+                pX.Value = fit?.X ?? 0; pY.Value = fit?.Y ?? 0; pZ.Value = fit?.Z ?? 0;
+                pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? 0;
+            }
+            vForward.Value = e.RiderForward; vUp.Value = e.RiderUp; vLean.Value = e.RiderLean;
+        }
+        finally { vShowing = false; }
+    }
+
+    /// <summary>A Prop Fit slider let go: the selected prop's fit into the borrow, which is built again.</summary>
+    void PropFitChanged()
+    {
+        if (vShowing || borrowBuilding || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e || propPick.SelectedItem is not PowerBorrow.SpawnedProp sp
+            || pSize == null || pX == null || pY == null || pZ == null || pTX == null || pTY == null || pTZ == null) return;
+        e.Props ??= [];
+        var fit = e.Props.FirstOrDefault(f => f.Class.Equals(sp.Class, StringComparison.OrdinalIgnoreCase));
+        if (fit == null) e.Props.Add(fit = new PropFit { Class = sp.Class });
+        fit.Scale = Math.Abs(pSize.Value - sp.Auto) > 0.005f ? MathF.Round(pSize.Value, 2) : null;
+        if (sp.Vehicle) e.VehicleScale = null;   // (the older Vehicle Fit size: the prop's own now)
+        fit.X = pX.Value; fit.Y = pY.Value; fit.Z = pZ.Value;
+        fit.TurnX = pTX.Value; fit.TurnY = pTY.Value; fit.TurnZ = pTZ.Value;
+        e.Props.RemoveAll(f => f.IsIdentity);
+        if (e.Props.Count == 0) e.Props = null;
+        RebuildBorrows();
+    }
+
+    /// <summary>A Rider Fit slider let go: the rider's fit into the borrow, which is built again.</summary>
+    void RiderFitChanged()
+    {
+        if (vShowing || borrowBuilding || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e || vForward == null || vUp == null || vLean == null) return;
         e.RiderForward = vForward.Value; e.RiderUp = vUp.Value; e.RiderLean = vLean.Value;
         RebuildBorrows();
     }
@@ -96,7 +148,7 @@ sealed partial class ModEditorView
         var e = BorrowOf(p.Prototype);
         if (borrowButton != null) borrowButton.Enabled = can && !borrowBuilding;
         if (borrowRemove != null) borrowRemove.Enabled = e != null && !borrowBuilding;
-        ShowVehicleFit(e);
+        ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
             : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")})"
             : can ? "Its own look" : "Only a hero's powers with an animation can borrow a look";

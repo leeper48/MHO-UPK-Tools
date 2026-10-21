@@ -41,6 +41,35 @@ sealed class PowerBorrowEntry
     /// <summary>Set by the last build (not saved): the vehicle's automatic size when this borrow brings a vehicle, else null.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public float? VehicleAuto { get; set; }
+    /// <summary>Prop Fit (Kurt, 2026-10-21): each brought prop's (vehicle, mount or weapon) size, move and turn, by its class.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<PropFit>? Props { get; set; }
+    /// <summary>Set by the last build (not saved): the props this borrow brings (class, vehicle, automatic size); null: not built.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<PowerBorrow.SpawnedProp>? Spawned { get; set; }
+}
+
+/// <summary>A brought prop's fit: its size (null: automatic: a vehicle sized for the hero, else as made), moved along its
+/// model's X / Y / Z (game units) and turned about them (degrees).</summary>
+sealed class PropFit
+{
+    public string Class { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public float? Scale { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float X { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Y { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Z { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float TurnX { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float TurnY { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float TurnZ { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsIdentity => Scale == null && X == 0 && Y == 0 && Z == 0 && TurnX == 0 && TurnY == 0 && TurnZ == 0;
 }
 
 sealed class PowerColorEntry

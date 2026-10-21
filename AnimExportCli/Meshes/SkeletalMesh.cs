@@ -116,8 +116,9 @@ public static class SkeletalMeshReader
     private const int MaxSections = 1024;
 
     /// <summary>Where a mesh keeps a position (byte offset in its export data): Kind "vec" = 3 floats at At (bounds origin,
-    /// mesh Origin, a bone's rest position, a packed vertex buffer's origin / extension), "radius" = 1 float, "verts" =
-    /// Count float positions, Stride bytes apart, from At.</summary>
+    /// a bone's rest position, a packed vertex buffer's origin / extension), "origin" = the mesh's Origin (3 floats),
+    /// "rotorigin" = its RotOrigin (3 ints: pitch, yaw, roll), "radius" = 1 float, "verts" = Count float positions, Stride
+    /// bytes apart, from At.</summary>
     public readonly record struct PositionSpot(string Kind, int At, int Count = 1, int Stride = 0);
 
     [ThreadStatic] static List<PositionSpot>? spots;
@@ -166,7 +167,8 @@ public static class SkeletalMeshReader
 
         SkipObjectArray(ref cursor); // materials — this tool doesn't need them
 
-        spots?.Add(new("vec", cursor.Position));
+        spots?.Add(new("origin", cursor.Position));
+        spots?.Add(new("rotorigin", cursor.Position + 12));
         var origin = new System.Numerics.Vector3(cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
         var rotOrigin = (cursor.ReadInt32("rot origin pitch"), cursor.ReadInt32("rot origin yaw"), cursor.ReadInt32("rot origin roll"));
 
