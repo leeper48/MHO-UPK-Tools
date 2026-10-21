@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.22
+- Borrowed Look (preview feature, hidden): a power borrowed from another hero brings that hero's always-held weapons while it runs (Thor's hammer in his flight), fittable in Prop Fit; this hero's own held weapons are hidden then. MHO Package Modifier 2.53.33: an attachment's physics asset and floppy bones, and a model's cloth bones and buffers, copy.
+
 0.60.21
 - Borrowed Look (preview feature, hidden): Prop Fit. Every prop a borrowed power brings (a vehicle, a mount such as Green Goblin's glider, or a weapon) can be sized, moved along X / Y / Z and turned about X / Y / Z in the Powers tab; the rider's place on a vehicle (forward / back, up / down, lean) is Rider Fit. They're a copy of the prop's model with its size, origin and rotation set, the way the engine draws a model.
 - The Powers tab builds a borrow when its power is first shown, so its props are known; a Save at the same time no longer adds packages twice.

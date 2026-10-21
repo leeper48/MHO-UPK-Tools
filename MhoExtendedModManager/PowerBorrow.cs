@@ -64,6 +64,10 @@ static class PowerBorrow
             // hero's always-ridden mount (Green Goblin's glider) comes along, and the hero's own cape moves (AddOwnTracks)
             bool travel = e.Power.Contains(@"\TravelPower\", StringComparison.OrdinalIgnoreCase);
             if (!e.KeepTiming && travel) spawn.AddRange(MountAttachments(donorHero, log));
+            // the other hero's always-held weapons (Thor's hammer in his flight): its animations hold them (Kurt, 2026-10-21)
+            if (!e.KeepTiming && !th.Equals(dh, StringComparison.OrdinalIgnoreCase))
+                foreach (var w in HeldAttachments(donorHero, log))
+                    if (!spawn.Any(x => x.File.Equals(w.File, StringComparison.OrdinalIgnoreCase) && x.Export == w.Export)) spawn.Add(w);
             // a ground power's animations on a high-flying one: the game lifts the hero (Globals' HighFlyingHeight) and the
             // ground animations sit at the floor, so they are lowered by that much (Spider-Man riding Cyclops' bike floated
             // in Web-Swinging; Kurt, 2026-10-20)
@@ -1179,6 +1183,40 @@ static class PowerBorrow
             string slot = ws != null && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ws.ValueAt)) > 0 ? TagWalker.NameAt(hp, b, ws.ValueAt + 4) : e.ObjectName;
             found.Add((donorHeroPackage, i, slot, true));
             log.Add($"  the donor always rides {e.ObjectName} (slot {slot}, on g_mountattach): spawned while the power runs");
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// The donor hero's always-held weapons (its default's attachment classes that aren't shown on demand nor ridden: Thor's
+    /// hammer): a borrowed animation of that hero is made holding them, so they're spawned while the power runs (this hero's
+    /// own held weapons are hidden then: HideHeldWeapons).
+    /// </summary>
+    public static List<(string File, int Export, string Slot, bool Vehicle)> HeldAttachments(string donorHeroPackage, List<string> log)
+    {
+        var found = new List<(string, int, string, bool)>();
+        var listed = ModMeshes.AttachmentClasses(donorHeroPackage)?.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (listed == null || listed.Count == 0) return found;
+        var hp = Package.Open(donorHeroPackage);
+        for (int i = 0; i < hp.Exports.Length; i++)
+        {
+            var e = hp.Exports[i];
+            if (!hp.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) || !listed.Contains(e.ObjectName)) continue;
+            int d = Find(hp, "marvelgamecontent.default__" + e.ObjectName);
+            if (d < 0) continue;
+            byte[] b = hp.ReadExportBytes(hp.Exports[d]).ToArray();
+            var tags = TagWalker.Walk(hp, b, 4);
+            if (tags == null) continue;
+            if (tags.FirstOrDefault(t => t.Name.Equals("VisibilityPoint", StringComparison.OrdinalIgnoreCase)) is { } vp && TagWalker.NameAt(hp, b, vp.ValueAt).Contains("on_demand", StringComparison.OrdinalIgnoreCase)) continue;
+            var bones = tags.FirstOrDefault(t => t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase));
+            bool mount = false;
+            if (bones != null)
+                for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(bones.ValueAt)); k < n; k++) mount |= TagWalker.NameAt(hp, b, bones.ValueAt + 4 + 8 * k).Equals("g_mountattach", StringComparison.OrdinalIgnoreCase);
+            if (mount) continue;
+            var ws = tags.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase));
+            string slot = ws != null && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ws.ValueAt)) > 0 ? TagWalker.NameAt(hp, b, ws.ValueAt + 4) : e.ObjectName;
+            found.Add((donorHeroPackage, i, slot, false));
+            log.Add($"  the donor always holds {e.ObjectName} (slot {slot}): spawned while the power runs");
         }
         return found;
     }
