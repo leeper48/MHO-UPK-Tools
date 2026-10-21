@@ -934,8 +934,10 @@ static class PowerBorrow
             if (vehicle && Math.Abs(scale - 1) > 0.02f) dst = ScaleAttachment(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, scale, cooked, log);
             var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
             string name = $"borrowed_{slot}_spawn{(k++ == 0 ? "" : k.ToString())}";
+            // (a name a part from an earlier build already has: the next free one)
+            for (int n2 = 2; Find(dst, targetDefault + "." + name) >= 0; n2++) name = $"borrowed_{slot}_spawn_{n2}";
             var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
-                ?? throw new InvalidDataException($"the spawn component couldn't be copied: " + string.Join(" ", ssaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
+                ?? throw new InvalidDataException($"the spawn component couldn't be copied: " + (ssaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim()).ToList() is { Count: > 0 } why ? string.Join(" ", why) : string.Join(" ", ssaid.Split(Environment.NewLine).Select(l => l.Trim()).Where(l => l.Length > 0).TakeLast(3))));
             dst = Package.FromBytes(sc.Output);
             // its class: the copied attachment; the default lists it
             int comp = sc.RootRef - 1, td = Find(dst, targetDefault);
@@ -1268,6 +1270,7 @@ static class PowerBorrow
         {
             var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
             string name = $"borrowed_hide_{slot}";
+            for (int n2 = 2; Find(dst, targetDefault + "." + name) >= 0; n2++) name = $"borrowed_hide_{slot}_{n2}";
             var sc = CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, ["whileactivatedattachmentclass"], name, replace), out string ssaid)
                 ?? throw new InvalidDataException("the hide component couldn't be copied: " + string.Join(" ", ssaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
             dst = Package.FromBytes(sc.Output);
@@ -1521,11 +1524,17 @@ static class PowerBorrow
         // end, so the holder's index is unchanged)
         db = dst.ReadExportBytes(dst.Exports[holder]).ToArray();
         BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(at), copy + 1);
+        // moved or turned: no physics asset (Kurt, 2026-10-21: Thor's hammer on Spider-Man took its size in game but not
+        // its place; its physics asset's bodies set its bones, which ignore the model's Origin / RotOrigin: hypothesis)
+        bool noPhysics = false;
+        if (moved && holder == d && TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("ModelPhysicsAsset", StringComparison.OrdinalIgnoreCase)) is { } pa)
+            for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(pa.ValueAt)); k < n; k++)
+                if (BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(pa.ValueAt + 4 + 4 * k)) != 0) { BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(pa.ValueAt + 4 + 4 * k), 0); noPhysics = true; }
         var rep = new Dictionary<int, Func<long, byte[]>> { [copy] = _ => md, [holder] = _ => db };
         byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
         if (problems.Count > 0) { log.Add("  the scaled model: " + string.Join("; ", problems.Take(3))); return null; }
-        log.Add($"  {dst.Exports[d].ObjectName}: its model copied as {newName}, drawn x{scale:0.00}{(moved ? $", moved {move.X:0.#} / {move.Y:0.#} / {move.Z:0.#}, turned {turn.X:0.#} / {turn.Y:0.#} / {turn.Z:0.#} degrees" : "")} ({where.Count(w => w.Kind == "vec")} points and {verts} vertices scaled)");
+        log.Add($"  {dst.Exports[d].ObjectName}: its model copied as {newName}, drawn x{scale:0.00}{(moved ? $", moved {move.X:0.#} / {move.Y:0.#} / {move.Z:0.#}, turned {turn.X:0.#} / {turn.Y:0.#} / {turn.Z:0.#} degrees" : "")}{(noPhysics ? ", without its physics asset" : "")} ({where.Count(w => w.Kind == "vec")} points and {verts} vertices scaled)");
         return Package.FromBytes(output);
     }
 

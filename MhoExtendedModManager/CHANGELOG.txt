@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.23
+- Borrowed Look (preview feature, hidden): a prop moved or turned in Prop Fit drops its physics asset (Thor's hammer on Spider-Man took its size in game but not its place: its physics bodies placed it). Saving a borrow again no longer fails when its spawned parts are already in the package.
+
 0.60.22
 - Borrowed Look (preview feature, hidden): a power borrowed from another hero brings that hero's always-held weapons while it runs (Thor's hammer in his flight), fittable in Prop Fit; this hero's own held weapons are hidden then. MHO Package Modifier 2.53.33: an attachment's physics asset and floppy bones, and a model's cloth bones and buffers, copy.
 
