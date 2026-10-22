@@ -374,8 +374,9 @@ static class AnimSwap
     /// <param name="retarget">Per bone: the turn that takes the donor skeleton's rest rotation to the target's
     /// (RestTurns), for bones whose rest differs; their rotation keys in the copies are turned by it.</param>
     public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1,
-        IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null)
+        IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton = null)
     {
+        var body = BodyRoots(skeleton);
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
         // A slot swapped before: out of its swapped-in set first, so the new one is the only copy.
@@ -456,6 +457,7 @@ static class AnimSwap
         {
             byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
             bool lifted = false, riderMoved = false;
+            var bodyMoved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (seq, slot) in seqs)
             {
                 byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
@@ -466,7 +468,8 @@ static class AnimSwap
                     // ramped in (a start: 0 to lift) or out (an end: lift to 0) over the animation
                     // (on the body's bone, not the root: a root that moves over time is root motion, and the game moved the whole
                     // hero down into the floor: Spider-Man blinked out; Kurt 2026-10-22)
-                    if (RampRoot(pkg, sd, d, sw.Ramp > 0 ? 0 : lift, sw.Ramp > 0 ? lift : 0, out string rwhy0, RiderBone) is { } rd) { d = rd; riderMoved = true; log.Add($"  {slot}: lowered {(sw.Ramp > 0 ? "0 to " + lift.ToString("0") : lift.ToString("0") + " to 0")} over the animation"); }
+                    float from = sw.Ramp > 0 ? 0 : lift, to = sw.Ramp > 0 ? lift : 0;
+                    if (MoveBody(pkg, sd, d, body, (f, n) => new System.Numerics.Vector3(0, 0, from + (to - from) * f / Math.Max(1, n - 1)), bodyMoved, out string rwhy0) is { } rd) { d = rd; log.Add($"  {slot}: lowered {(sw.Ramp > 0 ? "0 to " + lift.ToString("0") : lift.ToString("0") + " to 0")} over the animation"); }
                     else log.Add($"  {slot}: not moved {lift:0} ({rwhy0})");
                 }
                 else if (lift != 0)
@@ -476,8 +479,15 @@ static class AnimSwap
                 }
                 if (rider is { IsNone: false })
                 {
-                    if (FitRider(pkg, sd, d, rider, out string fwhy)) riderMoved = true;
-                    else log.Add($"  {slot}: the rider isn't moved ({fwhy})");
+                    // forward / up: the whole body (its bones under the root: hips, spine, IK targets); lean: the upper body
+                    if ((Math.Abs(rider.Forward) > 0.01f || Math.Abs(rider.Up) > 0.01f) && body.Count > 0)
+                    {
+                        var shift = new System.Numerics.Vector3(0, rider.Forward * ForwardSign, rider.Up);
+                        if (MoveBody(pkg, sd, d, body, (_, _) => shift, bodyMoved, out string bwhy) is { } bd) d = bd;
+                        else log.Add($"  {slot}: the rider isn't moved ({bwhy})");
+                    }
+                    if (FitRider(pkg, sd, d, rider with { Forward = body.Count > 0 ? 0 : rider.Forward, Up = body.Count > 0 ? 0 : rider.Up }, out string fwhy)) riderMoved = true;
+                    else log.Add($"  {slot}: the rider isn't leaned ({fwhy})");
                 }
                 if (retarget is { Count: > 0 })
                 {
@@ -494,6 +504,7 @@ static class AnimSwap
                 byte[] dd = d;
                 replace[seq - 1] = _ => dd;
             }
+            foreach (string bm in bodyMoved) sd = WithTranslationBone(pkg, sd, bm, NameIdx);
             if (riderMoved) { sd = WithTranslationBone(pkg, sd, RiderBone, NameIdx); if (rider is { IsNone: false }) log.Add($"  the rider moved {rider.Forward:0.#} forward, {rider.Up:0.#} up, leaned {rider.LeanDegrees:0.#} degrees"); }
             if (lifted) { sd = WithTranslationBone(pkg, sd, "root", NameIdx); log.Add($"  the set takes the root bone's position (moved {swaps.Max(x => Math.Abs(x.Lift)):0})"); }
             var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))
@@ -612,6 +623,128 @@ static class AnimSwap
             turns[b.Name] = System.Numerics.Quaternion.Normalize(Mul(System.Numerics.Quaternion.Conjugate(rd), rt));
         }
         return turns;
+    }
+
+    /// <summary>
+    /// The bones the body hangs from: every bone directly under the root but the attach points vehicles and props hang from
+    /// (g_throwable_attach..., g_mountattach...). The legs aren't under g_spine01: the hips (g_l/r_hip_offset) and the leg IK
+    /// targets sit under the root too (Kurt, 2026-10-22: the lowered start dropped the upper body, the legs stretched 10 feet
+    /// up to the lifted root).
+    /// </summary>
+    static List<(string Name, System.Numerics.Vector3 RestPos)> BodyRoots(IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton)
+    {
+        var list = new List<(string, System.Numerics.Vector3)>();
+        if (skeleton is not { Count: > 1 }) return list;
+        for (int i = 1; i < skeleton.Count; i++)
+        {
+            var b = skeleton[i];
+            if (b.ParentIndex != 0) continue;
+            string n = b.Name.ToLowerInvariant();
+            if (n.Contains("throwable") || n.Contains("mount") || n.Contains("weapon") || n.Contains("attach") || n.Contains("prop")) continue;
+            list.Add((b.Name, b.Position));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// The body's bones (<paramref name="body"/>) moved in a copied sequence by <paramref name="delta"/>(frame, frames) in the
+    /// root's frame (Y forward, Z up). A bone the set takes positions for keeps its keys plus the move; one it doesn't (its
+    /// keys aren't used) starts from the target's rest place. A track with one key and a move that changes over time gets two
+    /// keys (first and last frame), appended. Plain float positions only. The moved bones go into
+    /// <paramref name="moved"/> (they must take positions: WithTranslationBone). Returns the new data, or null with the reason.
+    /// </summary>
+    static byte[]? MoveBody(Package pkg, byte[] set, byte[] d, List<(string Name, System.Numerics.Vector3 RestPos)> body, Func<float, int, System.Numerics.Vector3> delta, HashSet<string> moved, out string why)
+    {
+        why = "";
+        if (body.Count == 0) { why = "the hero's skeleton isn't known"; return null; }
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        var ut = stags?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tb == null || tags == null) { why = "the animation doesn't read"; return null; }
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt));
+        var trackOf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int k = 0; k < nb; k++) trackOf.TryAdd(pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * k))], k);
+        var usesPos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (ut != null)
+            for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(ut.ValueAt)); k < n; k++) usesPos.Add(pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(ut.ValueAt + 4 + 8 * k))]);
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string tf = Enum("TranslationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (tf.Length > 0 && !tf.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) { why = "positions stored as " + tf; return null; }
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return null; }
+        bool variable = kf.Equals("akf_variablekeylerp", StringComparison.OrdinalIgnoreCase);
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        var nf = tags.FirstOrDefault(x => x.Name.Equals("NumFrames", StringComparison.OrdinalIgnoreCase));
+        if (ot == null || nf == null || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * nb) { why = "the track offsets don't match the bones"; return null; }
+        int frames = Math.Max(1, BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(nf.ValueAt)));
+        int q = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)); q += 4;
+        for (int k = 0; k < raw; k++)
+        {
+            q += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+            q += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+        }
+        int countAt = q, len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)), streamAt = q + 4;
+        var stream = new MemoryStream();
+        stream.Write(d, streamAt, len);
+        byte[] s0 = stream.ToArray();
+        var data = new MemoryStream(); data.Write(s0);
+        void Pad() { while (data.Length % 4 != 0) data.WriteByte(0); }
+        bool changes = delta(0, frames) != delta(frames - 1, frames);
+        var newOffsets = new Dictionary<int, (int Off, int Keys)>();
+        foreach (var (name, rest) in body)
+        {
+            if (!trackOf.TryGetValue(name, out int track)) continue;
+            int at = ot.ValueAt + 4 + 16 * track;
+            int tOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at)), tKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
+            bool own = usesPos.Contains(name) && tOff >= 0 && tKeys >= 1 && tOff + 12 * tKeys <= len;
+            System.Numerics.Vector3 Key(int k) => own
+                ? new System.Numerics.Vector3(BitConverter.ToSingle(s0, tOff + 12 * k), BitConverter.ToSingle(s0, tOff + 12 * k + 4), BitConverter.ToSingle(s0, tOff + 12 * k + 8))
+                : rest;
+            if (own && (tKeys >= 2 || !changes))
+            {
+                // in place: each key moved by the move at its frame
+                int timesAt = variable ? (tOff + 12 * tKeys + 3) & ~3 : 0;
+                for (int k = 0; k < tKeys; k++)
+                {
+                    float fr = tKeys < 2 ? 0 : !variable ? (float)k * (frames - 1) / (tKeys - 1) : frames > 0xFF ? BitConverter.ToUInt16(s0, timesAt + 2 * k) : s0[timesAt + k];
+                    var v = Key(k) + delta(fr, frames);
+                    byte[] raw3 = [.. BitConverter.GetBytes(v.X), .. BitConverter.GetBytes(v.Y), .. BitConverter.GetBytes(v.Z)];
+                    data.Position = tOff + 12 * k; data.Write(raw3); data.Position = data.Length;
+                }
+            }
+            else
+            {
+                // new keys at the end: one (a steady move) or first and last frame (a move over time)
+                Pad();
+                int off = (int)data.Length, keys = changes ? 2 : 1;
+                var b0 = Key(0);
+                for (int k = 0; k < keys; k++)
+                {
+                    var v = b0 + delta(k == 0 ? 0 : frames - 1, frames);
+                    data.Write(BitConverter.GetBytes(v.X)); data.Write(BitConverter.GetBytes(v.Y)); data.Write(BitConverter.GetBytes(v.Z));
+                }
+                if (keys == 2 && variable)
+                {
+                    Pad();
+                    if (frames > 0xFF) { data.Write(BitConverter.GetBytes((ushort)0)); data.Write(BitConverter.GetBytes((ushort)(frames - 1))); }
+                    else { data.WriteByte(0); data.WriteByte((byte)(frames - 1)); }
+                    Pad();
+                }
+                newOffsets[track] = (off, keys);
+            }
+            moved.Add(name);
+        }
+        Pad();
+        byte[] ns = data.ToArray();
+        byte[] o = [.. d.AsSpan(0, countAt), .. BitConverter.GetBytes(ns.Length), .. ns, .. d.AsSpan(streamAt + len)];
+        foreach (var (track, (off, keys)) in newOffsets)
+        {
+            int at = ot.ValueAt + 4 + 16 * track;
+            BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(at), off);
+            BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(at + 4), keys);
+        }
+        return o;
     }
 
     /// <summary>The bone the rider's whole body hangs from (pelvis, legs, spine): every player skeleton has it under

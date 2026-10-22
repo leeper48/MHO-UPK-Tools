@@ -584,7 +584,7 @@ static class PowerBorrow
             if (done.TryGetValue(hf, out var hb)) temps.Add(heroPath = WriteTemp(hf, hb));
             // another hero's skeleton: bones that rest turned differently get their keys turned to fit (Thor's right toes)
             var turns = crossHero && HeroSkeleton(donorHeroPackage) is { } dsk && HeroSkeleton(targetHeroPackage) is { } tsk ? AnimSwap.RestTurns(dsk, tsk) : null;
-            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider);
+            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider, skeleton: HeroSkeleton(targetHeroPackage));
             // the target's own animated bones the donor's animations don't move (Thor's cape in Kitty's Air Walking) get the
             // target's own run's keys, looped (travel borrows; tested on Thor's six, Kurt 2026-10-20 / 21)
             if (crossHero && (ownTracks || Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1"))

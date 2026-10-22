@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.28
+- Borrowed Look (preview feature, hidden): the gradual lowering and Rider Fit's Forward / Back and Up / Down move the whole body: every bone directly under the root (hips, spine, the leg and arm IK targets), not just the spine; the legs hang from the root, not the spine, and stretched 10 feet up. Vehicles' and props' attach points stay.
+
 0.60.27
 - Borrowed Look (preview feature, hidden): the gradual lowering over a borrowed start moves the body, not the root: a root moving over time is taken as root motion, and Spider-Man vanished into the floor.
 
