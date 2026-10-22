@@ -215,7 +215,9 @@ static class ModMeshes
             mesh.Bones, lod.Influences)
         {
             MeshTransform = mesh.RotOrigin == (0, 0, 0) && mesh.Origin == Vector3.Zero ? System.Numerics.Matrix4x4.Identity
-                : Rotator(mesh.RotOrigin.Pitch, mesh.RotOrigin.Yaw, mesh.RotOrigin.Roll) * System.Numerics.Matrix4x4.CreateTranslation(mesh.Origin),
+                : System.Numerics.Matrix4x4.CreateTranslation(mesh.Origin) * Rotator(mesh.RotOrigin.Pitch, mesh.RotOrigin.Yaw, mesh.RotOrigin.Roll),
+            // (moved by Origin, then turned by RotOrigin: Kurt, 2026-10-22, a Prop Fit Move Y of -10 on Green Goblin's glider
+            // (RotOrigin yaw 90) slid it along the view's forward in the preview, sideways under Spider-Man in the game)
         };
     }
 

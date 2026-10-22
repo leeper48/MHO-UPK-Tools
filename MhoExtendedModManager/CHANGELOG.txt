@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.49
+- 3D preview: a model's built-in offset is applied before its built-in turn, as the game does (a Prop Fit move on Green Goblin's glider showed forward in the preview but went sideways in the game).
+
 0.60.48
 - Manual (Borrowed Look, hidden): a borrowed ride doesn't tilt with slopes as it does for its own hero.
 
