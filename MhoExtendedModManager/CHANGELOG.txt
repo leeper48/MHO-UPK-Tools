@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.46
+- Borrowed Look (preview feature, hidden): a borrowed bike stays on the ground with its rider through the start and stop on a high-flying power (it rode up with the game's lift).
+
 0.60.45
 - Borrowed Look (preview feature, hidden): the borrowed start on a high-flying power begins 10 units higher than 0.60.44 (its end unchanged).
 

@@ -681,18 +681,18 @@ static class AnimSwap
         int len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)), streamAt = q + 4;
         bool conj = Environment.GetEnvironmentVariable("MHO_BODYRAMP_CONJ") != "0";
         if (Environment.GetEnvironmentVariable("MHO_BODYRAMP_OFF") == "1") { why = "off (test)"; return done; }
-        for (int i = 1; i < skeleton.Count; i++)
+        // (track, position keys) of a bone that has a position key per frame, else null
+        (int Off, int Keys)? Keyed(string name)
         {
-            var b = skeleton[i];
-            if (b.ParentIndex <= 0 || b.ParentIndex >= skeleton.Count || skeleton[b.ParentIndex].ParentIndex != 0) continue;   // a child of a bone under the root
-            string pn = skeleton[b.ParentIndex].Name.ToLowerInvariant();
-            if (pn.Contains("throwable") || pn.Contains("mount") || pn.Contains("weapon") || pn.Contains("attach") || pn.Contains("prop")) continue;
-            if (!usesPos.Contains(b.Name) || !trackOf.TryGetValue(b.Name, out int track)) continue;
+            if (!usesPos.Contains(name) || !trackOf.TryGetValue(name, out int track)) return null;
             int at = ot.ValueAt + 4 + 16 * track;
             int tOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at)), tKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
-            if (tOff < 0 || tKeys < 2 || tOff + 12 * tKeys > len) continue;
+            return tOff < 0 || tKeys < 2 || tOff + 12 * tKeys > len ? null : (tOff, tKeys);
+        }
+        void Ease(int bone, int tOff, int tKeys)
+        {
             // the root's up in the parent's frame
-            var pq = System.Numerics.Quaternion.Normalize(skeleton[b.ParentIndex].Orientation);
+            var pq = System.Numerics.Quaternion.Normalize(skeleton[skeleton[bone].ParentIndex].Orientation);
             var up = System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, conj ? System.Numerics.Quaternion.Conjugate(pq) : pq);
             int timesAt = variable ? streamAt + ((tOff + 12 * tKeys + 3) & ~3) : 0;
             for (int k = 0; k < tKeys; k++)
@@ -703,7 +703,17 @@ static class AnimSwap
                 for (int c = 0; c < 3; c++)
                     BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(ka + 4 * c), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(ka + 4 * c)) + (c == 0 ? move.X : c == 1 ? move.Y : move.Z));
             }
-            done.Add(b.Name);
+            done.Add(skeleton[bone].Name);
+        }
+        // Each bone under the root, attach points too: itself when it has a key per frame (Cyclops' g_throwable_attach_offset
+        // rolls his bike in; skipped, a borrowed bike rose about 8 ft with the game's lift while the body was eased down:
+        // Kurt, 2026-10-22, Spider-Man with Cyclops' ride), else its keyed children (the body's offsets have one key each)
+        for (int i = 1; i < skeleton.Count; i++)
+        {
+            if (skeleton[i].ParentIndex != 0) continue;
+            if (Keyed(skeleton[i].Name) is { } own) { Ease(i, own.Off, own.Keys); continue; }
+            for (int c = 1; c < skeleton.Count; c++)
+                if (skeleton[c].ParentIndex == i && Keyed(skeleton[c].Name) is { } k) Ease(c, k.Off, k.Keys);
         }
         if (done.Count == 0) why = "no keyed bones under the root's children";
         return done;
