@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.36
+- Borrowed Look (preview feature, hidden): the borrowed start on a high-flying power sits a foot higher at both ends (a foot under the ground at each end before).
+
 0.60.35
 - Borrowed Look (preview feature, hidden): a ground travel power's start on a high-flying one follows the game's lift without breaking: the root stays steady (where the start begins at the ground) and the body is eased down the rest of the way through the bones that already have a key per frame (hips, spine, IK targets), changed in place. Adding or moving keys twisted or hid the hero.
 
