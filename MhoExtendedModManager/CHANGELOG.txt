@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.50
+- Borrowed Look (preview feature, hidden): a travel borrow takes the hero's own ride off (Hawkeye's Sky-Cycle showed under the borrowed look and stayed after the power ended), and reaches costumes in packages of their own name (Kate Bishop).
+- Test command --hold-turn.
+
 0.60.49
 - 3D preview: a model's built-in offset is applied before its built-in turn, as the game does (a Prop Fit move on Green Goblin's glider showed forward in the preview but went sideways in the game).
 

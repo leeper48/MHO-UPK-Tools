@@ -2350,6 +2350,18 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--hold-turn":
+            {
+                // Read-only: the turn that keeps a held prop facing as in the donor's hand (PowerBorrow.HoldTurn).
+                // --hold-turn <donor hero package> <target hero package> <bone>
+                if (rest.Count < 4) { Console.WriteLine("--hold-turn <donor hero package> <target hero package> <bone>"); return 1; }
+                if (PowerBorrow.HoldTurn(rest[1], rest[2], rest[3]) is not { } ht) { Console.WriteLine("a skeleton lacks the bone"); return 1; }
+                var hq = System.Numerics.Quaternion.CreateFromRotationMatrix(ht);
+                float ang = 2 * MathF.Acos(Math.Clamp(hq.W, -1, 1)) * 180 / MathF.PI, sn = MathF.Sqrt(Math.Max(1e-9f, 1 - hq.W * hq.W));
+                Console.WriteLine($"turn {ang:0.0} degrees about ({hq.X / sn:0.00}, {hq.Y / sn:0.00}, {hq.Z / sn:0.00})");
+                Console.WriteLine($"rows: ({ht.M11:0.00} {ht.M12:0.00} {ht.M13:0.00}) ({ht.M21:0.00} {ht.M22:0.00} {ht.M23:0.00}) ({ht.M31:0.00} {ht.M32:0.00} {ht.M33:0.00})");
+                return 0;
+            }
             case "--set-anim-tree":
             {
                 // Test (writes the given file, never the game folder): a character component's AnimTreeTemplate set to a shared

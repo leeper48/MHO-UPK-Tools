@@ -86,6 +86,11 @@ static class PowerBorrow
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
                 e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned);
             e.Spawned = spawned;
+            // the hero's own ride (Hawkeye's Sky-Cycle): shown by the travel power's condition and hidden again by the power's
+            // own components, which the borrow replaces, so it stayed under him after the power ended (Kurt, 2026-10-22):
+            // the condition's vehicle attachments go
+            if (!e.KeepTiming && travel)
+                foreach (var (f, bytes) in DropConditionVehicles(db, fx, e.Power, Start, log)) built[f] = bytes;
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -609,7 +614,9 @@ static class PowerBorrow
                     .Select(hp.PathOf).ToList();
                 string hero = targetHeroClass["MarvelPlayer_".Length..];
                 foreach (string cf in Directory.EnumerateFiles(cooked, $"UC__MarvelPlayer_{hero}_*_SF.upk").Select(Path.GetFileName).OfType<string>()
-                    .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase)))
+                    .Concat(OtherCostumePackages(cooked, hero))
+                    .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     string start = done.TryGetValue(cf, out var cb) ? WriteTemp(cf, cb) : startFrom?.Invoke(cf) ?? StockFiles.For(cooked, cf);
                     if (done.ContainsKey(cf)) temps.Add(start);
@@ -864,6 +871,81 @@ static class PowerBorrow
     /// showlefttendrils / showrighttendrils switch on weapon slots weblefthand / webrighthand, where Spider-Man keeps his
     /// webbing_lt / webbing_rt, which Thor doesn't have).
     /// </summary>
+    static List<Costume>? costumes;
+    static readonly object costumesLock = new();
+
+    /// <summary>
+    /// The hero's costume packages not named after the hero (Hawkeye's Kate Bishop: UC__MarvelPlayer_KateBishop_SF; she kept
+    /// Hawkeye's own Sky-Cycle animations, Kurt 2026-10-22), from the game data's costumes for the same avatar.
+    /// </summary>
+    static IEnumerable<string> OtherCostumePackages(string cooked, string hero)
+    {
+        List<Costume>? all;
+        lock (costumesLock) all = costumes ??= Costume.All(Path.GetFullPath(Path.Combine(cooked, "..", "..", "..")));
+        if (all == null) return [];
+        var avatars = all.Where(c => c.Hero != null && (c.Class.Equals("MarvelPlayer_" + hero, StringComparison.OrdinalIgnoreCase) || c.Class.StartsWith($"MarvelPlayer_{hero}_", StringComparison.OrdinalIgnoreCase)))
+            .Select(c => c.Hero!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return all.Where(c => c.Hero != null && avatars.Contains(c.Hero) && c.Class.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase)
+                              && !c.Class.Equals("MarvelPlayer_" + hero, StringComparison.OrdinalIgnoreCase) && !c.Class.StartsWith($"MarvelPlayer_{hero}_", StringComparison.OrdinalIgnoreCase))
+            .Select(c => c.Package).Where(f => File.Exists(StockFiles.For(cooked, f))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// The conditions <paramref name="power"/> sets off, each without its mesh attachments that show a weapon slot (a ride's
+    /// vehicle: Hawkeye's skycycleattach shows his "skycycle"); only packages that had one. The condition's other parts
+    /// (its animation names, effects) stay.
+    /// </summary>
+    static Dictionary<string, byte[]> DropConditionVehicles(Fx.GameData db, Fx.FxGame game, string power, Func<string, string?> start, List<string> log)
+    {
+        var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in Fx.PowerClosure.Of(db, power).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)))
+        {
+            string def = $"marvelgamecontent.default__{a.Class}".ToLowerInvariant();
+            string? stock = game.PackagesOf(a.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), def) >= 0);
+            if (stock == null) continue;
+            // (the game's own spelling: the package index gives names in lower case)
+            string name = Directory.EnumerateFiles(Path.GetDirectoryName(stock)!, Path.GetFileName(stock)).Select(Path.GetFileName).OfType<string>().FirstOrDefault() ?? Path.GetFileName(stock);
+            if (done.ContainsKey(name)) continue;
+            var p = Package.Open(start(name) ?? stock);
+            int d = Find(p, def);
+            if (d < 0) continue;
+            List<int> comps;
+            TagWalker.Tag tag; byte[] data;
+            try { comps = Components(p, d, out tag, out data); }
+            catch (InvalidDataException) { continue; }
+            var gone = new List<string>();
+            var keep = new List<int>();
+            foreach (int r in comps)
+            {
+                string? slot = null;
+                if (r > 0 && p.ClassOf(p.Exports[r - 1]).Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase))
+                {
+                    slot = ShownSlot(p, r - 1);
+                    if (slot == null && Template(p, r - 1) is string tpl && TemplatePackage(game.Cooked, tpl) is string tf)
+                    {
+                        var tp = Package.Open(tf);
+                        int ti = Find(tp, tpl);
+                        if (ti >= 0) slot = ShownSlot(tp, ti);
+                    }
+                }
+                if (slot != null) gone.Add($"{p.Exports[r - 1].ObjectName} ({slot})"); else keep.Add(r);
+            }
+            if (gone.Count == 0) continue;
+            var list = new byte[4 + 4 * keep.Count];
+            BinaryPrimitives.WriteInt32LittleEndian(list, keep.Count);
+            for (int k = 0; k < keep.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(list.AsSpan(4 + 4 * k), keep[k]);
+            byte[] nd = [.. data.AsSpan(0, tag.ValueAt), .. list, .. data.AsSpan(tag.End)];
+            BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), list.Length);   // the tag's size
+            var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => nd };
+            byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written);
+            var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written);
+            if (problems.Count > 0) { log.Add($"  {a.Class}: its vehicle couldn't be taken off ({string.Join("; ", problems.Take(2))})"); continue; }
+            done[name] = output;
+            log.Add($"  {a.Class}: this hero's own ride no longer shows ({string.Join(", ", gone)})");
+        }
+        return done;
+    }
+
     public static List<(string File, int Export, string Slot, bool Vehicle)> ConditionAttachments(Fx.GameData db, Fx.FxGame game, string donorPower, string donorHeroPackage, List<string> log)
     {
         var slots = new List<string>();
@@ -1337,6 +1419,33 @@ static class PowerBorrow
 
     /// <summary>A hero's own model in its base package: the skeletal mesh named after the hero (UC__MarvelPlayer_Cyclops_SF →
     /// cyclops…), else the one with the most vertices. (By vertices alone Cyclops' package gave Angel, his summon.)</summary>
+    /// <summary>
+    /// The turn (in the prop's mesh space, row vectors: v * turn, then the bone) that keeps a prop held on
+    /// <paramref name="bone"/> facing as it does in the donor's hand: the bone's rest orientation in the donor's model space
+    /// times the inverse of the target's. Null when either skeleton lacks the bone.
+    /// </summary>
+    public static System.Numerics.Matrix4x4? HoldTurn(string donorHeroPackage, string targetHeroPackage, string bone)
+    {
+        System.Numerics.Matrix4x4? Rest(string pkg)
+        {
+            var bones = MainMesh(pkg)?.Bones;
+            if (bones == null) return null;
+            int i = bones.ToList().FindIndex(b => b.Name.Equals(bone, StringComparison.OrdinalIgnoreCase));
+            if (i < 0) return null;
+            var m = System.Numerics.Matrix4x4.Identity;
+            for (int k = i; k >= 0; k = k == 0 ? -1 : bones[k].ParentIndex)
+            {
+                var q = System.Numerics.Quaternion.Normalize(bones[k].Orientation);
+                m *= System.Numerics.Matrix4x4.CreateFromQuaternion(k == 0 ? q : q);
+                if (k == 0) break;
+            }
+            return m;
+        }
+        if (Rest(donorHeroPackage) is not { } d || Rest(targetHeroPackage) is not { } t) return null;
+        System.Numerics.Matrix4x4.Invert(t, out var ti);
+        return d * ti;
+    }
+
     static AnimExportCli.Meshes.SkeletalMesh? MainMesh(string heroPackage)
     {
         var ap = AnimExportCli.Packages.Package.Open(heroPackage);
