@@ -2766,6 +2766,9 @@ static partial class Program
                         for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); sum2 += fa.BonePosition(pi2) - fa.BonePosition(froot); cnt2++; }
                         var av = sum2 / Math.Max(1, cnt2);
                         Console.WriteLine($"      {pb2}: average place {av.X:0.0} front, {av.Y:0.0} side, {av.Z:0.0} up");
+                        fa.Pose(ba, 0); var p0 = fa.BonePosition(pi2) - fa.BonePosition(froot); var r0 = fa.BonePosition(froot);
+                        fa.Pose(ba, fN); var p1 = fa.BonePosition(pi2) - fa.BonePosition(froot); var r1 = fa.BonePosition(froot);
+                        Console.WriteLine($"      {pb2}: first frame {p0.X:0.0} / {p0.Y:0.0} / {p0.Z + r0.Z:0.0} up, last frame {p1.X:0.0} / {p1.Y:0.0} / {p1.Z + r1.Z:0.0} up (with the root)");
                     }
                     // MHO_FOOT_LAT=<bone>: that bone's average sideways place (Y) over the animation, against the pelvis (a cape's drift)
                     if (Environment.GetEnvironmentVariable("MHO_FOOT_LAT") is { Length: > 0 } lb && fa.BoneIndex(lb) is int li && li >= 0 && pelvis >= 0)

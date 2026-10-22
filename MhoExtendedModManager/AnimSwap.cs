@@ -35,7 +35,7 @@ static class AnimSwap
     /// <paramref name="DonorSequence"/> (an export of <paramref name="DonorSet"/>); <paramref name="Rate"/> &gt; 0 sets the copy's
     /// own play rate (a borrowed power's animation fitted to the length of the one it replaces), else Build's rateScale;
     /// <paramref name="Lift"/> moves the whole animation up (down when negative) by its root bone.</summary>
-    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0);
+    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0, float RampBy = 0);
 
     /// <summary>Vehicle Fit: the rider (the body from g_spine01 down) moved forward / up (game units) and leaned forward
     /// (degrees) on a borrowed ride's vehicle, which stays where its own animation puts it.</summary>
@@ -463,7 +463,18 @@ static class AnimSwap
                 byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
                 var sw = swaps.FirstOrDefault(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase));
                 float lift = sw?.Lift ?? 0;
-                if (lift != 0 && sw!.Ramp != 0)
+                if (lift != 0 && sw!.Ramp != 0 && sw.RampBy != 0)
+                {
+                    // the root steady (Lift), the body's keyed bones under it eased by RampBy over the animation, in place
+                    // (0 to RampBy over a start, back over an end): only keys the animation has are changed (Kurt,
+                    // 2026-10-22: every ramp that added or moved keys twisted or vanished the hero; steady values didn't)
+                    if (LiftRoot(pkg, sd, d, lift, out string lwhy)) lifted = true;
+                    else log.Add($"  {slot}: not moved {lift:0} ({lwhy})");
+                    float by = sw.RampBy; int dir = sw.Ramp;
+                    var eased = RampBodyInPlace(pkg, sd, d, skeleton, (f, n) => { float t = f / Math.Max(1, n - 1); return by * (dir > 0 ? t : 1 - t); }, out string ewhy);
+                    log.Add(eased.Count > 0 ? $"  {slot}: root {lift:0}, the body eased {by:0} more ({string.Join(", ", eased)})" : $"  {slot}: the body isn't eased ({ewhy})");
+                }
+                else if (lift != 0 && sw!.Ramp != 0)
                 {
                     // ramped in (a start: 0 to lift) or out (an end: lift to 0) over the animation
                     // (on the body's bone, not the root: a root that moves over time is root motion, and the game moved the whole
@@ -627,6 +638,75 @@ static class AnimSwap
             turns[b.Name] = System.Numerics.Quaternion.Normalize(Mul(System.Numerics.Quaternion.Conjugate(rd), rt));
         }
         return turns;
+    }
+
+    /// <summary>
+    /// The body lowered by <paramref name="dz"/>(frame, frames) (game units, the root's up) through the bones that carry it
+    /// and already have a key per frame: the children of the bones directly under the root (g_spine01, g_l/r_hip, the leg
+    /// IK targets, g_armikbase), their position keys edited in place (none added or moved: that broke in game). Each one's
+    /// parent is turned (the hips' about 180 degrees), so the root's up is taken into that parent's frame first. Returns the
+    /// bones eased; <paramref name="why"/> when none.
+    /// </summary>
+    static List<string> RampBodyInPlace(Package pkg, byte[] set, byte[] d, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton, Func<float, int, float> dz, out string why)
+    {
+        why = "";
+        var done = new List<string>();
+        if (skeleton is not { Count: > 1 }) { why = "the hero's skeleton isn't known"; return done; }
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        var ut = stags?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tb == null || ut == null || tags == null) { why = "the animation doesn't read"; return done; }
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt));
+        var trackOf = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int k = 0; k < nb; k++) trackOf.TryAdd(pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * k))], k);
+        var usesPos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(ut.ValueAt)); k < n; k++) usesPos.Add(pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(ut.ValueAt + 4 + 8 * k))]);
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string tf = Enum("TranslationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (tf.Length > 0 && !tf.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) { why = "positions stored as " + tf; return done; }
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return done; }
+        bool variable = kf.Equals("akf_variablekeylerp", StringComparison.OrdinalIgnoreCase);
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        var nf = tags.FirstOrDefault(x => x.Name.Equals("NumFrames", StringComparison.OrdinalIgnoreCase));
+        if (ot == null || nf == null || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * nb) { why = "the track offsets don't match the bones"; return done; }
+        int frames = Math.Max(1, BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(nf.ValueAt)));
+        int q = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)); q += 4;
+        for (int k = 0; k < raw; k++)
+        {
+            q += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+            q += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+        }
+        int len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)), streamAt = q + 4;
+        bool conj = Environment.GetEnvironmentVariable("MHO_BODYRAMP_CONJ") != "0";
+        if (Environment.GetEnvironmentVariable("MHO_BODYRAMP_OFF") == "1") { why = "off (test)"; return done; }
+        for (int i = 1; i < skeleton.Count; i++)
+        {
+            var b = skeleton[i];
+            if (b.ParentIndex <= 0 || b.ParentIndex >= skeleton.Count || skeleton[b.ParentIndex].ParentIndex != 0) continue;   // a child of a bone under the root
+            string pn = skeleton[b.ParentIndex].Name.ToLowerInvariant();
+            if (pn.Contains("throwable") || pn.Contains("mount") || pn.Contains("weapon") || pn.Contains("attach") || pn.Contains("prop")) continue;
+            if (!usesPos.Contains(b.Name) || !trackOf.TryGetValue(b.Name, out int track)) continue;
+            int at = ot.ValueAt + 4 + 16 * track;
+            int tOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at)), tKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
+            if (tOff < 0 || tKeys < 2 || tOff + 12 * tKeys > len) continue;
+            // the root's up in the parent's frame
+            var pq = System.Numerics.Quaternion.Normalize(skeleton[b.ParentIndex].Orientation);
+            var up = System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, conj ? System.Numerics.Quaternion.Conjugate(pq) : pq);
+            int timesAt = variable ? streamAt + ((tOff + 12 * tKeys + 3) & ~3) : 0;
+            for (int k = 0; k < tKeys; k++)
+            {
+                float fr = !variable ? (float)k * (frames - 1) / (tKeys - 1) : frames > 0xFF ? BinaryPrimitives.ReadUInt16LittleEndian(d.AsSpan(timesAt + 2 * k)) : d[timesAt + k];
+                var move = up * dz(fr, frames);
+                int ka = streamAt + tOff + 12 * k;
+                for (int c = 0; c < 3; c++)
+                    BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(ka + 4 * c), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(ka + 4 * c)) + (c == 0 ? move.X : c == 1 ? move.Y : move.Z));
+            }
+            done.Add(b.Name);
+        }
+        if (done.Count == 0) why = "no keyed bones under the root's children";
+        return done;
     }
 
     /// <summary>
