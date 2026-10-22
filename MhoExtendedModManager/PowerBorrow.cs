@@ -571,8 +571,11 @@ static class PowerBorrow
             // the high-flying lift comes on while the start plays (Kurt, 2026-10-22: Spider-Man with Cap's run sank below the
             // ground during the shield-to-back start, then popped up): only the loop is lowered
             // (Kurt, 2026-10-22: not lowered, he floated through the start instead: the lift ramps in, so the lowering does)
-            int ramp = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : an.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
-            swaps.Add(found with { Rate = rate, Lift = lift, Ramp = ramp });
+            // ... a ramp (keys added to the body's bones) made him vanish, then stretch like a somersault (Kurt, 2026-10-22):
+            // the start and end are lowered half way, steadily, on the root like the loop (lowered fully he sank, not at
+            // all he floated: the lift is part way in while they play)
+            bool startOrEnd = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || an.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
+            swaps.Add(found with { Rate = rate, Lift = startOrEnd ? lift / 2 : lift });
         }
         if (swaps.Count > 0)
         {

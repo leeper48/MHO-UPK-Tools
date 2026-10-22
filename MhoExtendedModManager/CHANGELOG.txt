@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.31
+- Borrowed Look (preview feature, hidden): a ground travel power's start and end on a high-flying one are lowered half way, steadily, on the root (like the loop, fully); the gradual lowering on the body's bones made Spider-Man vanish, then stretch.
+
 0.60.30
 - Borrowed Look (preview feature, hidden): when the borrow rewrites a bone's position keys at the end of an animation's key data, the bone's rotation keys are copied right after them, keeping the engine's order (position, then rotation); with them left before, Spider-Man vanished during Captain America's run start.
 
