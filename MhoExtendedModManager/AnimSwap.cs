@@ -35,7 +35,7 @@ static class AnimSwap
     /// <paramref name="DonorSequence"/> (an export of <paramref name="DonorSet"/>); <paramref name="Rate"/> &gt; 0 sets the copy's
     /// own play rate (a borrowed power's animation fitted to the length of the one it replaces), else Build's rateScale;
     /// <paramref name="Lift"/> moves the whole animation up (down when negative) by its root bone.</summary>
-    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0);
+    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0);
 
     /// <summary>Vehicle Fit: the rider (the body from g_spine01 down) moved forward / up (game units) and leaned forward
     /// (degrees) on a borrowed ride's vehicle, which stays where its own animation puts it.</summary>
@@ -459,8 +459,15 @@ static class AnimSwap
             foreach (var (seq, slot) in seqs)
             {
                 byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
-                float lift = swaps.FirstOrDefault(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase))?.Lift ?? 0;
-                if (lift != 0)
+                var sw = swaps.FirstOrDefault(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase));
+                float lift = sw?.Lift ?? 0;
+                if (lift != 0 && sw!.Ramp != 0)
+                {
+                    // ramped in (a start: 0 to lift) or out (an end: lift to 0) over the animation
+                    if (RampRoot(pkg, sd, d, sw.Ramp > 0 ? 0 : lift, sw.Ramp > 0 ? lift : 0, out string rwhy0) is { } rd) { d = rd; lifted = true; log.Add($"  {slot}: lowered {(sw.Ramp > 0 ? "0 to " + lift.ToString("0") : lift.ToString("0") + " to 0")} over the animation"); }
+                    else log.Add($"  {slot}: not moved {lift:0} ({rwhy0})");
+                }
+                else if (lift != 0)
                 {
                     if (LiftRoot(pkg, sd, d, lift, out string why)) lifted = true;
                     else log.Add($"  {slot}: not moved {lift:0} ({why})");
@@ -741,6 +748,74 @@ static class AnimSwap
         }
         if (skipped.Count > 0) why = string.Join(", ", skipped);
         return done;
+    }
+
+    /// <summary>
+    /// A copied sequence's root moved on Z from <paramref name="from"/> at its first frame to <paramref name="to"/> at its
+    /// last (two position keys in place of its one, appended to the key data; plain float positions only). Kurt
+    /// (2026-10-22): the high-flying lift comes on while a borrowed ground start plays; lowered all the way, Spider-Man sank
+    /// during Captain America's start, not lowered he floated.
+    /// </summary>
+    static byte[]? RampRoot(Package pkg, byte[] set, byte[] d, float from, float to, out string why)
+    {
+        why = "";
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tb == null || tags == null) { why = "the animation doesn't read"; return null; }
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt)), root = -1;
+        for (int k = 0; k < nb && root < 0; k++)
+            if (pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * k))].Equals("root", StringComparison.OrdinalIgnoreCase)) root = k;
+        if (root < 0) { why = "no root track"; return null; }
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string tf = Enum("TranslationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (tf.Length > 0 && !tf.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) { why = "positions stored as " + tf; return null; }
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return null; }
+        bool variable = kf.Equals("akf_variablekeylerp", StringComparison.OrdinalIgnoreCase);
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        var nf = tags.FirstOrDefault(x => x.Name.Equals("NumFrames", StringComparison.OrdinalIgnoreCase));
+        if (ot == null || nf == null || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * nb) { why = "the track offsets don't match the bones"; return null; }
+        int frames = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(nf.ValueAt));
+        int at = ot.ValueAt + 4 + 16 * root;
+        int tOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at)), tKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
+        int q = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)); q += 4;
+        for (int k = 0; k < raw; k++)
+        {
+            q += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+            q += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q));
+        }
+        int countAt = q, len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)), streamAt = q + 4;
+        if (frames < 2) { why = "one frame"; return null; }
+        // the root's place as stored (its first key), else zero
+        float x0 = 0, y0 = 0, z0 = 0;
+        if (tOff >= 0 && tKeys >= 1 && tOff + 12 <= len)
+        {
+            x0 = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(streamAt + tOff));
+            y0 = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(streamAt + tOff + 4));
+            z0 = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(streamAt + tOff + 8));
+        }
+        var data = new MemoryStream();
+        data.Write(d, streamAt, len);
+        void Pad() { while (data.Length % 4 != 0) data.WriteByte(0); }
+        Pad();
+        int newOff = (int)data.Length;
+        foreach (float z in new[] { z0 + from, z0 + to })
+        {
+            data.Write(BitConverter.GetBytes(x0)); data.Write(BitConverter.GetBytes(y0)); data.Write(BitConverter.GetBytes(z));
+        }
+        if (variable)
+        {
+            Pad();
+            if (frames > 0xFF) { data.Write(BitConverter.GetBytes((ushort)0)); data.Write(BitConverter.GetBytes((ushort)(frames - 1))); }
+            else { data.WriteByte(0); data.WriteByte((byte)(frames - 1)); }
+            Pad();
+        }
+        byte[] stream = data.ToArray();
+        byte[] o = [.. d.AsSpan(0, countAt), .. BitConverter.GetBytes(stream.Length), .. stream, .. d.AsSpan(streamAt + len)];
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(at), newOff);
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(at + 4), 2);
+        return o;
     }
 
     /// <summary>A set's data with <paramref name="bone"/> in its UseTranslationBoneNames (added when missing; the list must exist:

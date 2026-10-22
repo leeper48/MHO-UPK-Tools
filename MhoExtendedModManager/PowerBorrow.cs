@@ -66,7 +66,7 @@ static class PowerBorrow
             if (!e.KeepTiming && travel) spawn.AddRange(MountAttachments(donorHero, log));
             // the other hero's always-held weapons (Thor's hammer in his flight): its animations hold them (Kurt, 2026-10-21)
             if (!e.KeepTiming && !th.Equals(dh, StringComparison.OrdinalIgnoreCase))
-                foreach (var w in HeldAttachments(donorHero, log))
+                foreach (var w in HeldAttachments(donorHero, log, HeroBones(StockFiles.For(game.Cooked, heroFile))))
                     if (!spawn.Any(x => x.File.Equals(w.File, StringComparison.OrdinalIgnoreCase) && x.Export == w.Export)) spawn.Add(w);
             // a ground power's animations on a high-flying one: the game lifts the hero (Globals' HighFlyingHeight) and the
             // ground animations sit at the floor, so they are lowered by that much (Spider-Man riding Cyclops' bike floated
@@ -570,8 +570,9 @@ static class PowerBorrow
             log.Add($"anims: {an} {donorLen:0.##} s{(Math.Abs(rate - 1) > 0.01f ? $", played ×{rate:0.##} to last {targetLen:0.##} s like the target's {string.Join(" / ", targetAnims)}" : "")}");
             // the high-flying lift comes on while the start plays (Kurt, 2026-10-22: Spider-Man with Cap's run sank below the
             // ground during the shield-to-back start, then popped up): only the loop is lowered
-            bool startOrEnd = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || an.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
-            swaps.Add(found with { Rate = rate, Lift = startOrEnd ? 0 : lift });
+            // (Kurt, 2026-10-22: not lowered, he floated through the start instead: the lift ramps in, so the lowering does)
+            int ramp = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : an.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
+            swaps.Add(found with { Rate = rate, Lift = lift, Ramp = ramp });
         }
         if (swaps.Count > 0)
         {
@@ -1197,7 +1198,9 @@ static class PowerBorrow
     /// hammer): a borrowed animation of that hero is made holding them, so they're spawned while the power runs (this hero's
     /// own held weapons are hidden then: HideHeldWeapons).
     /// </summary>
-    public static List<(string File, int Export, string Slot, bool Vehicle)> HeldAttachments(string donorHeroPackage, List<string> log)
+    /// <param name="targetBones">The target's skeleton: a weapon on a bone it lacks isn't brought (Captain America's shield
+    /// hangs from his own g_shield, which his run moves to his back: on Spider-Man it showed at his feet; Kurt 2026-10-22).</param>
+    public static List<(string File, int Export, string Slot, bool Vehicle)> HeldAttachments(string donorHeroPackage, List<string> log, IReadOnlySet<string>? targetBones = null)
     {
         var found = new List<(string, int, string, bool)>();
         var listed = ModMeshes.AttachmentClasses(donorHeroPackage)?.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1218,6 +1221,11 @@ static class PowerBorrow
             if (bones != null)
                 for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(bones.ValueAt)); k < n; k++) mount |= TagWalker.NameAt(hp, b, bones.ValueAt + 4 + 8 * k).Equals("g_mountattach", StringComparison.OrdinalIgnoreCase);
             if (mount) continue;
+            string? missing = null;
+            if (bones != null && targetBones is { Count: > 0 })
+                for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(bones.ValueAt)); k < n && missing == null; k++)
+                    if (TagWalker.NameAt(hp, b, bones.ValueAt + 4 + 8 * k) is var bn && !bn.Equals("none", StringComparison.OrdinalIgnoreCase) && !targetBones.Contains(bn)) missing = bn;
+            if (missing != null) { log.Add($"  the donor always holds {e.ObjectName}, on {missing}: this hero has no such bone, so it isn't brought"); continue; }
             var ws = tags.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase));
             string slot = ws != null && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ws.ValueAt)) > 0 ? TagWalker.NameAt(hp, b, ws.ValueAt + 4) : e.ObjectName;
             found.Add((donorHeroPackage, i, slot, false));

@@ -42,9 +42,9 @@ sealed partial class ModEditorView
         string Units(float v) => $"{v:+0;-0;0}";
         string Deg(float v) => $"{v:+0;-0;0}°";
         pSize = Slider("Size", 0.25f, 3f, 0.01f, v => $"{v * 100:0} %", "The prop's size. A vehicle starts sized for this hero (this hero's height over the other hero's), anything else as it was made. Double-click: back to that size.", PropFitChanged);
-        pX = Slider("Move X", -60, 60, 1, Units, "Moves the prop along its own X axis, in game units. Double-click: back to 0.", PropFitChanged);
-        pY = Slider("Move Y", -60, 60, 1, Units, "Moves the prop along its own Y axis, in game units. Double-click: back to 0.", PropFitChanged);
-        pZ = Slider("Move Z", -60, 60, 1, Units, "Moves the prop along its own Z axis, in game units. Double-click: back to 0.", PropFitChanged);
+        pX = Slider("Move X", -120, 120, 1, Units, "Moves the prop along its own X axis, in game units. Double-click: back to 0.", PropFitChanged);
+        pY = Slider("Move Y", -120, 120, 1, Units, "Moves the prop along its own Y axis, in game units. Double-click: back to 0.", PropFitChanged);
+        pZ = Slider("Move Z", -120, 120, 1, Units, "Moves the prop along its own Z axis, in game units. Double-click: back to 0.", PropFitChanged);
         pTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll), in degrees. Double-click: back to 0.", PropFitChanged);
         pTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch), in degrees. Double-click: back to 0.", PropFitChanged);
         pTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw), in degrees. Double-click: back to 0.", PropFitChanged);
@@ -55,8 +55,8 @@ sealed partial class ModEditorView
         propPick.SelectedIndexChanged += (_, _) => { if (!vShowing && powerList.SelectedItem is Fx.PowerList.Power p0) ShowFits(BorrowOf(p0.Prototype)); };
         Ui.Tip(propPick, "The prop to fit.");
         propFit.Controls.AddRange([propHead, propPick, pSize, pX, pY, pZ, pTX, pTY, pTZ]);
-        vForward = Slider("Forward / Back", -40, 40, 1, Units, "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.", RiderFitChanged);
-        vUp = Slider("Up / Down", -40, 40, 1, Units, "Moves the rider up (+) or down (−) on the vehicle, in game units. Double-click: back to 0.", RiderFitChanged);
+        vForward = Slider("Forward / Back", -80, 80, 1, Units, "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.", RiderFitChanged);
+        vUp = Slider("Up / Down", -80, 80, 1, Units, "Moves the rider up (+) or down (−) on the vehicle, in game units. Double-click: back to 0.", RiderFitChanged);
         vLean = Slider("Lean", -30, 30, 1, Deg, "Leans the rider forward (+) or back (−), in degrees. Double-click: back to 0.", RiderFitChanged);
         var riderHead = new Label { Text = "RIDER FIT", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 2) };
         Ui.Tip(riderHead, "This borrowed power brings a vehicle or mount: move and lean this hero on it.");

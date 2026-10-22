@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.26
+- Borrowed Look (preview feature, hidden): a ground travel power on a high-flying one is lowered gradually over its start (and raised over its end), as the game's lift comes on: Spider-Man with Captain America's run neither sinks nor floats while the shield goes on the back.
+- A held weapon hanging from a bone this hero doesn't have isn't brought (Captain America's shield hangs from his own shield bone: on Spider-Man it lay at his feet).
+- Prop Fit's Move sliders reach twice as far (120 each way), Rider Fit's Forward / Back and Up / Down too (80).
+
 0.60.25
 - Borrowed Look (preview feature, hidden): a ground travel power borrowed onto a high-flying one is lowered only in its loop; its start and end stay at the ground, where the hero still is while the game's lift comes on (Spider-Man sank below the ground during Captain America's shield-to-back start).
 
