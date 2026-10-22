@@ -579,7 +579,7 @@ static class PowerBorrow
             // ... the root ramp somersaulted and vanished too (Kurt, 2026-10-22): back to a steady lowering on the root; half the
             // lift was 3 ft too low at first and 3 ft too high mid-way: Kurt's test, half the lift raised 3 ft (about 47)
             bool startOrEnd = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || an.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
-            float startLift = lift < 0 ? Math.Min(0, lift / 2 + 47) : lift / 2;
+            float startLift = lift < 0 ? Math.Min(0, lift / 2 + 47 - 94) : lift / 2;   // (test 2: 6 ft lower than test 1, which rose 6 ft by the start's end)
             swaps.Add(found with { Rate = rate, Lift = startOrEnd ? startLift : lift });
         }
         if (swaps.Count > 0)
