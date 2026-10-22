@@ -1661,7 +1661,14 @@ static class PowerBorrow
     }
 
     /// <summary>A prop a borrow brings: its attachment class, whether it's a vehicle (ridden) and its automatic size.</summary>
-    public sealed record SpawnedProp(string Class, bool Vehicle, float Auto);
+    public sealed record SpawnedProp(string Class, bool Vehicle, float Auto, float TurnZAuto = 0);
+
+    /// <summary>
+    /// A prop's starting turn about its Z axis (degrees) on another hero, before any Prop Fit: Thor's hammer faces backward
+    /// in another hero's hand (Kurt fitted it by hand: -161 on Spider-Man, -180 on Hawkeye; both right in game, 2026-10-22),
+    /// though the palm bones rest alike: about -170 by default.
+    /// </summary>
+    static float DefaultTurnZ(string cls) => cls.StartsWith("marvelattachment_thorhammer", StringComparison.OrdinalIgnoreCase) ? -170 : 0;
 
     /// <summary>
     /// Prop Fit (Kurt, 2026-10-21: glider, Thor's hammer, Cap's shield: size, place, turn): every attachment class the
@@ -1686,11 +1693,12 @@ static class PowerBorrow
         {
             bool vehicle = vehicleClasses.Contains(cls);
             float auto = vehicle ? vehicleAuto : 1;
-            spawnedOut?.Add(new SpawnedProp(cls, vehicle, auto));
+            float turnAuto = DefaultTurnZ(cls);
+            spawnedOut?.Add(new SpawnedProp(cls, vehicle, auto, turnAuto));
             var fit = fits?.FirstOrDefault(f => f.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
             float scale = fit?.Scale is float fs && fs > 0 ? fs : auto;
             var move = fit == null ? default : new System.Numerics.Vector3(fit.X, fit.Y, fit.Z);
-            var turn = fit == null ? default : new System.Numerics.Vector3(fit.TurnX, fit.TurnY, fit.TurnZ);
+            var turn = fit == null ? new System.Numerics.Vector3(0, 0, turnAuto) : new System.Numerics.Vector3(fit.TurnX, fit.TurnY, fit.TurnZ);
             if (Math.Abs(scale - 1) < 0.005f && move == default && turn == default) continue;
             if (FitModel(dst, "marvelgamecontent.default__" + cls, scale, move, turn, log) is { } fitted) dst = fitted;
         }

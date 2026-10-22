@@ -47,7 +47,7 @@ sealed partial class ModEditorView
         pZ = Slider("Move Z", -120, 120, 1, Units, "Moves the prop along its own Z axis, in game units. Double-click: back to 0.", PropFitChanged);
         pTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll), in degrees. Double-click: back to 0.", PropFitChanged);
         pTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch), in degrees. Double-click: back to 0.", PropFitChanged);
-        pTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw), in degrees. Double-click: back to 0.", PropFitChanged);
+        pTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw), in degrees. Some props start turned for another hero's hand (Thor's hammer). Double-click: back to that start.", PropFitChanged);
         var propHead = new Label { Text = "PROP FIT", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 2) };
         Ui.Tip(propHead, "The props this borrowed power brings (the other hero's vehicle, mount or weapons): pick one, then size, move and turn it. Each change rebuilds the borrow, then the 3D preview shows it; Save Changes puts it into the mod.");
         propPick.Width = (int)(420 * S);
@@ -107,7 +107,8 @@ sealed partial class ModEditorView
                 pSize.Home = () => sp.Auto; pSize.Mark = sp.Auto;
                 pSize.Value = fit?.Scale is float fs && fs > 0 ? fs : auto;
                 pX.Value = fit?.X ?? 0; pY.Value = fit?.Y ?? 0; pZ.Value = fit?.Z ?? 0;
-                pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? 0;
+                pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? sp.TurnZAuto;
+                pTZ.Home = () => sp.TurnZAuto; pTZ.Mark = sp.TurnZAuto;
             }
             vForward.Value = e.RiderForward; vUp.Value = e.RiderUp; vLean.Value = e.RiderLean;
         }

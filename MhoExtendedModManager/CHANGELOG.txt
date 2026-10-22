@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.55
+- Borrowed Look (preview feature, hidden): Thor's hammer in another hero's hand starts turned to face the right way (Turn Z -170, from the fits that looked right on Spider-Man and Hawkeye); Prop Fit's Turn Z starts there.
+
 0.60.54
 - 3D preview: a power's animation meant only for some characters isn't picked (Hawkeye's preview played his Sky-Cycle ride kept for Kate Bishop).
 
