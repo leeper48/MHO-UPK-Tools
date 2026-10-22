@@ -691,7 +691,8 @@ static class AnimSwap
         var data = new MemoryStream(); data.Write(s0);
         void Pad() { while (data.Length % 4 != 0) data.WriteByte(0); }
         bool changes = delta(0, frames) != delta(frames - 1, frames);
-        var newOffsets = new Dictionary<int, (int Off, int Keys)>();
+        var newOffsets = new Dictionary<int, (int Off, int Keys, int ROff)>();
+        string rf = Enum("RotationCompressionFormat");
         foreach (var (name, rest) in body)
         {
             if (!trackOf.TryGetValue(name, out int track)) continue;
@@ -735,18 +736,43 @@ static class AnimSwap
                     }
                     Pad();
                 }
-                newOffsets[track] = (off, keys);
+                // its rotation keys copied right after (UE3's cooked layout: a track's position data, then its rotation data;
+                // with the rotation left before the moved positions the hero vanished in game: hypothesis, Kurt 2026-10-22)
+                int rOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 8)), rKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 12));
+                int newR = rOff;
+                if (rOff >= 0 && rKeys >= 1)
+                {
+                    int keyBytes = rKeys == 1 ? 12 : rf.Length == 0 || rf.Equals("acf_float96now", StringComparison.OrdinalIgnoreCase) ? 12 * rKeys
+                        : rf.Equals("acf_fixed48now", StringComparison.OrdinalIgnoreCase) ? 6 * rKeys
+                        : rf.Equals("acf_intervalfixed32now", StringComparison.OrdinalIgnoreCase) ? 24 + 4 * rKeys
+                        : rf.Equals("acf_fixed32now", StringComparison.OrdinalIgnoreCase) ? 4 * rKeys : -1;
+                    if (keyBytes > 0 && rOff + keyBytes <= len)
+                    {
+                        Pad();
+                        newR = (int)data.Length;
+                        data.Write(s0, rOff, keyBytes);
+                        if (rKeys > 1 && variable)
+                        {
+                            int tAt = (rOff + keyBytes + 3) & ~3, tLen = rKeys * (frames > 0xFF ? 2 : 1);
+                            Pad();
+                            if (tAt + tLen <= len) data.Write(s0, tAt, tLen);
+                            Pad();
+                        }
+                    }
+                }
+                newOffsets[track] = (off, keys, newR);
             }
             moved.Add(name);
         }
         Pad();
         byte[] ns = data.ToArray();
         byte[] o = [.. d.AsSpan(0, countAt), .. BitConverter.GetBytes(ns.Length), .. ns, .. d.AsSpan(streamAt + len)];
-        foreach (var (track, (off, keys)) in newOffsets)
+        foreach (var (track, (off, keys, rOff)) in newOffsets)
         {
             int at = ot.ValueAt + 4 + 16 * track;
             BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(at), off);
             BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(at + 4), keys);
+            BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(at + 8), rOff);
         }
         return o;
     }

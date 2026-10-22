@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.30
+- Borrowed Look (preview feature, hidden): when the borrow rewrites a bone's position keys at the end of an animation's key data, the bone's rotation keys are copied right after them, keeping the engine's order (position, then rotation); with them left before, Spider-Man vanished during Captain America's run start.
+
 0.60.29
 - Borrowed Look (preview feature, hidden): position keys the borrow adds for a move over time get one key per frame (the form of the added cape tracks); two keys at the first and last frame made Spider-Man vanish.
 
