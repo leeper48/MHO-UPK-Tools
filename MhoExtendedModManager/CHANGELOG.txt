@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.25
+- Borrowed Look (preview feature, hidden): a ground travel power borrowed onto a high-flying one is lowered only in its loop; its start and end stay at the ground, where the hero still is while the game's lift comes on (Spider-Man sank below the ground during Captain America's shield-to-back start).
+
 0.60.24
 - Borrowed Look (preview feature, hidden): Prop Fit's move and turn are built into a plain prop's model itself (Thor's hammer on Spider-Man took its size in game but not its place: the game ignores a held prop's model origin). Vehicles and mounts keep the model origin, which they follow. The 0.60.23 change (no physics asset on a moved prop) is undone: it wasn't the cause.
 

@@ -568,7 +568,10 @@ static class PowerBorrow
             float donorLen = Length(donorHeroPackage, an);
             float rate = fit && targetLen > 0.01f && donorLen > 0.01f ? donorLen / targetLen : 1;
             log.Add($"anims: {an} {donorLen:0.##} s{(Math.Abs(rate - 1) > 0.01f ? $", played ×{rate:0.##} to last {targetLen:0.##} s like the target's {string.Join(" / ", targetAnims)}" : "")}");
-            swaps.Add(found with { Rate = rate, Lift = lift });
+            // the high-flying lift comes on while the start plays (Kurt, 2026-10-22: Spider-Man with Cap's run sank below the
+            // ground during the shield-to-back start, then popped up): only the loop is lowered
+            bool startOrEnd = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || an.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
+            swaps.Add(found with { Rate = rate, Lift = startOrEnd ? 0 : lift });
         }
         if (swaps.Count > 0)
         {
