@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.44
+- Borrowed Look (preview feature, hidden): the borrowed start on a high-flying power ends a foot lower than 0.60.43 (its beginning unchanged).
+
 0.60.43
 - Borrowed Look (preview feature, hidden): the borrowed start on a high-flying power ends 5 units lower than 0.60.42 (its beginning unchanged).
 
