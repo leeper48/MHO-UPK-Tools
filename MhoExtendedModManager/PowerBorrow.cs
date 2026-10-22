@@ -614,7 +614,6 @@ static class PowerBorrow
                     .Select(hp.PathOf).ToList();
                 string hero = targetHeroClass["MarvelPlayer_".Length..];
                 foreach (string cf in Directory.EnumerateFiles(cooked, $"UC__MarvelPlayer_{hero}_*_SF.upk").Select(Path.GetFileName).OfType<string>()
-                    .Concat(OtherCostumePackages(cooked, hero))
                     .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
                     .Distinct(StringComparer.OrdinalIgnoreCase))
                 {
@@ -622,6 +621,23 @@ static class PowerBorrow
                     if (done.ContainsKey(cf)) temps.Add(start);
                     if (!File.Exists(start)) continue;
                     if (AnimSwap.AddImportedSets(start, cf[4..^7], sets, log) is { } costume) done[cf] = costume;
+                }
+                // a costume whose class isn't the hero's (Kate Bishop extends MarvelPlayer): the hero's package isn't loaded
+                // with it, so an import from there finds nothing (she kept her own Sky-Cycle pose, Kurt 2026-10-22): the
+                // borrowed animations are copied into its own package
+                foreach (var (cf, ccls) in OtherCostumePackages(cooked, hero))
+                {
+                    string start = done.TryGetValue(cf, out var cb) ? WriteTemp(cf, cb) : startFrom?.Invoke(cf) ?? StockFiles.For(cooked, cf);
+                    if (done.ContainsKey(cf)) temps.Add(start);
+                    if (!File.Exists(start)) continue;
+                    try
+                    {
+                        var csk = HeroSkeleton(start);
+                        var cturns = crossHero && HeroSkeleton(donorHeroPackage) is { } dsk2 && csk != null ? AnimSwap.RestTurns(dsk2, csk) : null;
+                        done[cf] = AnimSwap.Build(start, ccls, swaps, log, retarget: cturns, rider: rider, skeleton: csk);
+                        log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} copied into {cf} ({ccls}: not the hero's class)");
+                    }
+                    catch (InvalidDataException ex) { log.Add($"  {cf}: the borrowed animations couldn't be copied in ({ex.Message})"); }
                 }
             }
             }
@@ -878,7 +894,7 @@ static class PowerBorrow
     /// The hero's costume packages not named after the hero (Hawkeye's Kate Bishop: UC__MarvelPlayer_KateBishop_SF; she kept
     /// Hawkeye's own Sky-Cycle animations, Kurt 2026-10-22), from the game data's costumes for the same avatar.
     /// </summary>
-    static IEnumerable<string> OtherCostumePackages(string cooked, string hero)
+    static IEnumerable<(string File, string Class)> OtherCostumePackages(string cooked, string hero)
     {
         List<Costume>? all;
         lock (costumesLock) all = costumes ??= Costume.All(Path.GetFullPath(Path.Combine(cooked, "..", "..", "..")));
@@ -887,7 +903,8 @@ static class PowerBorrow
             .Select(c => c.Hero!).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return all.Where(c => c.Hero != null && avatars.Contains(c.Hero) && c.Class.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase)
                               && !c.Class.Equals("MarvelPlayer_" + hero, StringComparison.OrdinalIgnoreCase) && !c.Class.StartsWith($"MarvelPlayer_{hero}_", StringComparison.OrdinalIgnoreCase))
-            .Select(c => c.Package).Where(f => File.Exists(StockFiles.For(cooked, f))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            .Where(c => File.Exists(StockFiles.For(cooked, c.Package))).GroupBy(c => c.Package, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (g.Key, g.First().Class)).ToList();
     }
 
     /// <summary>

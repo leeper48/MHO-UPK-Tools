@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.51
+- Borrowed Look (preview feature, hidden): a costume whose class isn't its hero's (Kate Bishop) gets the borrowed animations copied into its own package (an import from the hero's package found nothing: that package isn't loaded with her).
+
 0.60.50
 - Borrowed Look (preview feature, hidden): a travel borrow takes the hero's own ride off (Hawkeye's Sky-Cycle showed under the borrowed look and stayed after the power ended), and reaches costumes in packages of their own name (Kate Bishop).
 - Test command --hold-turn.
