@@ -464,7 +464,9 @@ static class AnimSwap
                 if (lift != 0 && sw!.Ramp != 0)
                 {
                     // ramped in (a start: 0 to lift) or out (an end: lift to 0) over the animation
-                    if (RampRoot(pkg, sd, d, sw.Ramp > 0 ? 0 : lift, sw.Ramp > 0 ? lift : 0, out string rwhy0) is { } rd) { d = rd; lifted = true; log.Add($"  {slot}: lowered {(sw.Ramp > 0 ? "0 to " + lift.ToString("0") : lift.ToString("0") + " to 0")} over the animation"); }
+                    // (on the body's bone, not the root: a root that moves over time is root motion, and the game moved the whole
+                    // hero down into the floor: Spider-Man blinked out; Kurt 2026-10-22)
+                    if (RampRoot(pkg, sd, d, sw.Ramp > 0 ? 0 : lift, sw.Ramp > 0 ? lift : 0, out string rwhy0, RiderBone) is { } rd) { d = rd; riderMoved = true; log.Add($"  {slot}: lowered {(sw.Ramp > 0 ? "0 to " + lift.ToString("0") : lift.ToString("0") + " to 0")} over the animation"); }
                     else log.Add($"  {slot}: not moved {lift:0} ({rwhy0})");
                 }
                 else if (lift != 0)
@@ -492,7 +494,7 @@ static class AnimSwap
                 byte[] dd = d;
                 replace[seq - 1] = _ => dd;
             }
-            if (riderMoved) { sd = WithTranslationBone(pkg, sd, RiderBone, NameIdx); log.Add($"  the rider moved {rider!.Forward:0.#} forward, {rider.Up:0.#} up, leaned {rider.LeanDegrees:0.#} degrees"); }
+            if (riderMoved) { sd = WithTranslationBone(pkg, sd, RiderBone, NameIdx); if (rider is { IsNone: false }) log.Add($"  the rider moved {rider.Forward:0.#} forward, {rider.Up:0.#} up, leaned {rider.LeanDegrees:0.#} degrees"); }
             if (lifted) { sd = WithTranslationBone(pkg, sd, "root", NameIdx); log.Add($"  the set takes the root bone's position (moved {swaps.Max(x => Math.Abs(x.Lift)):0})"); }
             var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))
                      ?? throw new InvalidDataException($"the copied set #{set} has no Sequences list");
@@ -756,7 +758,7 @@ static class AnimSwap
     /// (2026-10-22): the high-flying lift comes on while a borrowed ground start plays; lowered all the way, Spider-Man sank
     /// during Captain America's start, not lowered he floated.
     /// </summary>
-    static byte[]? RampRoot(Package pkg, byte[] set, byte[] d, float from, float to, out string why)
+    static byte[]? RampRoot(Package pkg, byte[] set, byte[] d, float from, float to, out string why, string bone = "root")
     {
         why = "";
         var stags = TagWalker.Walk(pkg, set, 4);
@@ -765,8 +767,8 @@ static class AnimSwap
         if (tb == null || tags == null) { why = "the animation doesn't read"; return null; }
         int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt)), root = -1;
         for (int k = 0; k < nb && root < 0; k++)
-            if (pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * k))].Equals("root", StringComparison.OrdinalIgnoreCase)) root = k;
-        if (root < 0) { why = "no root track"; return null; }
+            if (pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * k))].Equals(bone, StringComparison.OrdinalIgnoreCase)) root = k;
+        if (root < 0) { why = $"no {bone} track"; return null; }
         string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
         string tf = Enum("TranslationCompressionFormat"), kf = Enum("KeyEncodingFormat");
         if (tf.Length > 0 && !tf.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) { why = "positions stored as " + tf; return null; }
@@ -787,6 +789,21 @@ static class AnimSwap
         }
         int countAt = q, len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(q)), streamAt = q + 4;
         if (frames < 2) { why = "one frame"; return null; }
+        // a track with keys over time already: each key moved by the ramp at its frame (in place)
+        if (tOff >= 0 && tKeys >= 2 && tOff + 12 * tKeys <= len)
+        {
+            int timesAt = streamAt + tOff + 12 * tKeys;
+            if (variable) timesAt = streamAt + ((tOff + 12 * tKeys + 3) & ~3);
+            for (int k = 0; k < tKeys; k++)
+            {
+                float fr = !variable ? (float)k * (frames - 1) / (tKeys - 1)
+                    : frames > 0xFF ? BinaryPrimitives.ReadUInt16LittleEndian(d.AsSpan(timesAt + 2 * k)) : d[timesAt + k];
+                float z = from + (to - from) * fr / (frames - 1);
+                int za = streamAt + tOff + 12 * k + 8;
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(za), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(za)) + z);
+            }
+            return d;
+        }
         // the root's place as stored (its first key), else zero
         float x0 = 0, y0 = 0, z0 = 0;
         if (tOff >= 0 && tKeys >= 1 && tOff + 12 <= len)

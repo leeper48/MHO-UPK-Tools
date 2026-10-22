@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.27
+- Borrowed Look (preview feature, hidden): the gradual lowering over a borrowed start moves the body, not the root: a root moving over time is taken as root motion, and Spider-Man vanished into the floor.
+
 0.60.26
 - Borrowed Look (preview feature, hidden): a ground travel power on a high-flying one is lowered gradually over its start (and raised over its end), as the game's lift comes on: Spider-Man with Captain America's run neither sinks nor floats while the shield goes on the back.
 - A held weapon hanging from a bone this hero doesn't have isn't brought (Captain America's shield hangs from his own shield bone: on Spider-Man it lay at his feet).
