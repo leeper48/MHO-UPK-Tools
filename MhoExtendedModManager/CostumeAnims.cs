@@ -22,8 +22,10 @@ sealed class CostumeAnims
         IReadOnlyList<string> TrackBoneNames, IReadOnlySet<string>? TranslationBones, IReadOnlyList<(string Name, int Export)> Sequences)
     {
         public bool Found => Export >= 0;
+        /// <summary>A form's set (the alias a power or condition switches to: Jean Grey's phoenixas, her flying versions), else null.</summary>
+        public string? Alias { get; init; }
         /// <summary>"Storm Base Set", "This Costume's Set" …, for the list.</summary>
-        public string Label => Kind switch
+        public string Label => Alias != null ? $"Form: {Alias}" : Kind switch
         {
             Source.Costume => "This Costume",
             Source.Hero => "Hero's Base",
@@ -42,6 +44,12 @@ sealed class CostumeAnims
     public required string Class { get; init; }
     public required IReadOnlyList<Set> Sets { get; init; }
     public required IReadOnlyList<Anim> Anims { get; init; }
+    /// <summary>
+    /// The animations of the class's form sets (AnimationSetAliases: Jean Grey's flying jeangrey_phoenixform_as and phoenix_as),
+    /// each set's own, apart from <see cref="Anims"/>: they share names with the normal ones and play only in their form
+    /// (a user, 2026-10-22: the list paired her Phoenix powers with her standing animations of the same name).
+    /// </summary>
+    public IReadOnlyList<Anim> FormAnims { get; init; } = [];
     /// <summary>True when the costume sets no list of its own and plays its hero's (the base package's component list).</summary>
     public bool Inherited { get; init; }
 
@@ -102,6 +110,7 @@ sealed class CostumeAnims
             {
                 PackageFile = packageFile, Class = cls, Sets = sets, Inherited = true,
                 Anims = h.Anims.Select(a => a with { From = map[a.From], Overrides = a.Overrides.Select(o => map[o]).ToList() }).ToList(),
+                FormAnims = h.FormAnims,
             };
         }
         // The class's component; else the package's only character component (a class named otherwise).
@@ -191,10 +200,34 @@ sealed class CostumeAnims
                 if (anims.TryGetValue(name, out var a)) { if (!a.Overrides.Contains(s)) ((List<Set>)a.Overrides).Add(s); }
                 else anims[name] = new Anim(name, s, ex, new List<Set>());
             }
+        // The form sets: the class's aliases (else its hero's, from the base package), each an AnimSet export of that package.
+        var formAnims = new List<Anim>();
+        var aliasSource = (Pkg: pkg, Name: own, File: packagePath, Aliases: Aliases(pkg, cls));
+        if (aliasSource.Aliases.Count == 0 && heroBase.Length > 0 && !heroBase.Equals(own, StringComparison.OrdinalIgnoreCase) && fileFor(heroBase) is { } hbf && OpenFile(hbf.Path) is { } hop)
+            aliasSource = (hop.Mpm, heroBase, hbf.Path, Aliases(hop.Mpm, $"MarvelPlayer_{heroBase["UC__MarvelPlayer_".Length..^3]}"));
+        int order = sets.Count;
+        foreach (var (alias, setPath) in aliasSource.Aliases)
+        {
+            if (setPath.Length == 0 || setPath.StartsWith("import:", StringComparison.OrdinalIgnoreCase) || OpenFile(aliasSource.File) is not { } fo) continue;
+            int export = Array.FindIndex(fo.Mpm.Exports, e => fo.Mpm.PathOf(e).Equals(setPath, StringComparison.OrdinalIgnoreCase) && fo.Mpm.ClassOf(e).Equals("AnimSet", StringComparison.OrdinalIgnoreCase));
+            if (export < 0 || AnimObjectReader.FindAnimSets(fo.Anim).FirstOrDefault(s => s.ExportIndex == export) is not { } info) continue;
+            var seqs = new List<(string, int)>();
+            foreach (var s in info.Sequences.Where(s => s.IsExport))
+            {
+                try { seqs.Add((AnimObjectReader.GetSequenceDisplayName(fo.Anim, s.ExportIndex), s.ExportIndex)); }
+                catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException) { }
+            }
+            bool mine = aliasSource.Name.Equals(own, StringComparison.OrdinalIgnoreCase);
+            var set = new Set(order++, setPath, aliasSource.Name, aliasSource.File, export, mine ? Source.Costume : Source.Hero, fileFor(aliasSource.Name)?.FromMod ?? false,
+                info.TrackBoneNames, info.RotationOnly ? new HashSet<string>(info.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null, seqs) { Alias = alias };
+            foreach (var (name, ex) in seqs.DistinctBy(x => x.Item1, StringComparer.OrdinalIgnoreCase).OrderBy(x => x.Item1, StringComparer.OrdinalIgnoreCase))
+                formAnims.Add(new Anim(name, set, ex, []));
+        }
         return new CostumeAnims
         {
             PackageFile = packageFile, Class = cls, Sets = sets,
             Anims = anims.Values.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+            FormAnims = formAnims,
         };
     }
 

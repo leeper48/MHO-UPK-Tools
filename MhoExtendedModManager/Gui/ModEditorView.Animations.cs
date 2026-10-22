@@ -62,10 +62,11 @@ sealed partial class ModEditorView
             if (animRefilling) return;
             var a = SelectedAnim;
             if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
-            if (animChange != null) animChange.Enabled = a != null;
+            if (animChange != null) animChange.Enabled = a != null && a.From.Alias == null;   // (a form's set: not changeable yet)
             if (a == null || animPreview == null) return;
             // A change not saved yet is in a work copy: played from there (the 3D view shows the saved mod).
-            bool saved = editing != null && a.From.File != null && a.From.File.StartsWith(editing.Folder, StringComparison.OrdinalIgnoreCase);
+            // (a form's animation: always from its own set, the 3D view's list holds the normal one of that name)
+            bool saved = editing != null && a.From.File != null && a.From.File.StartsWith(editing.Folder, StringComparison.OrdinalIgnoreCase) && a.From.Alias == null;
             if (saved ? !animPreview.PlayAnimation(a.Name) : !animPreview.PlayRef(a.Ref))
                 animStatus.Text = animPreview.AllAnimations.Count == 0 ? "The 3D View Is Still Loading" : "The 3D View Shows Another Model (Not This Package's)";
             else animStatus.Text = "";
@@ -142,7 +143,7 @@ sealed partial class ModEditorView
         try { FillAnimRows(keep); }
         finally { animRefilling = false; }
         var a = SelectedAnim;
-        if (animChange != null) animChange.Enabled = a != null;
+        if (animChange != null) animChange.Enabled = a != null && a.From.Alias == null;   // (a form's set: not changeable yet)
         if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
     }
 
@@ -151,16 +152,18 @@ sealed partial class ModEditorView
         animGrid!.Rows.Clear();
         if (animData == null) { animCount.Text = animPackages.Count == 0 ? "No Character Package in This Mod" : "No Animation List in This Package"; return; }
         // The power each animation belongs to (from the hero's powers, once the 3D view has loaded them).
+        // (by form: a form's power plays its form set's animation of that name, the others the normal one; Jean Grey's
+        // Phoenix powers share their names with her standing animations)
         var powerOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in animPreview?.AllHeroPowers ?? [])
-            foreach (string an in p.Animations) powerOf.TryAdd(an, p.Name);
+            foreach (string an in p.Animations) powerOf.TryAdd((p.FormAlias ?? "") + "|" + an, p.Name);
         string[] words = animFind.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         int shown = 0, replaced = 0;
         string From(CostumeAnims.Set s) => $"{s.Label}{(s.FromMod ? " (This Mod)" : "")} · {s.Path.Split('.')[^1]}";
         string? file = AnimFile;
-        foreach (var a in animData.Anims)
+        foreach (var a in animData.Anims.Concat(animData.FormAnims))
         {
-            string kind = AnimKind(a.Name), power = powerOf.GetValueOrDefault(a.Name, ""), from = From(a.From);
+            string kind = AnimKind(a.Name), power = powerOf.GetValueOrDefault((a.From.Alias ?? "") + "|" + a.Name, ""), from = From(a.From);
             var swap = IsSwapped(a) ? draft.AnimSwaps.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(a.Name, StringComparison.OrdinalIgnoreCase)) : null;
             if (IsSwapped(a)) from = swap != null ? $"Changed: {swap.Title} · {swap.Animation}" : "Changed";
             string replaces = string.Join(", ", a.Overrides.Select(From).Distinct());
@@ -171,6 +174,7 @@ sealed partial class ModEditorView
             row.Cells["from"].ToolTipText = $"{a.From.PackageName}.upk · {a.From.Path} (set {a.From.Order + 1} of {animData.Sets.Count})";
             if (a.Overrides.Count > 0)
                 row.Cells["replaces"].ToolTipText = "This animation replaces the one of the same name in: " + string.Join("; ", a.Overrides.Select(o => $"{o.PackageName}.upk · {o.Path}"));
+            if (a.From.Alias != null) row.Cells["from"].ToolTipText = $"Plays only in this form (the set the alias {a.From.Alias} switches to: {a.From.PackageName}.upk · {a.From.Path})";
             if (IsSwapped(a)) { row.Cells["from"].Style.ForeColor = Ui.Packages; row.Cells["from"].Style.SelectionForeColor = Ui.Packages; row.Cells["anim"].Style.ForeColor = Ui.Packages; row.Cells["anim"].Style.SelectionForeColor = Ui.Packages; }
             else if (a.From.Kind == CostumeAnims.Source.Costume) { row.Cells["from"].Style.ForeColor = Ui.Accent; row.Cells["from"].Style.SelectionForeColor = Ui.Accent; }
             if (a.Overrides.Count > 0) replaced++;
@@ -193,6 +197,7 @@ sealed partial class ModEditorView
     async void ChangeAnimation()
     {
         if (SelectedAnim is not { } slot || animData == null || editing == null || game == null || AnimFile is not string file) return;
+        if (slot.From.Alias != null) { animStatus.Text = "A Form's Animations Can't Be Changed Yet"; return; }
         if (costumesTask == null || costumesTask.IsFaulted) { string root = game.Root; costumesTask = Task.Run(() => Costume.All(root)); }
         animStatus.Text = "Loading the Characters…";
         var costumes = await costumesTask;

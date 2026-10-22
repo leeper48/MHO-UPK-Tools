@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.56
+- Animations tab: a hero's form sets are listed too (Jean Grey's flying Phoenix animations), marked Form in From, each with its form's power; a form row plays its own version in the 3D view. Before, her Phoenix powers were paired with her standing animations of the same name.
+
 0.60.55
 - Borrowed Look (preview feature, hidden): Thor's hammer in another hero's hand starts turned to face the right way (Turn Z -170, from the fits that looked right on Spider-Man and Hawkeye); Prop Fit's Turn Z starts there.
 

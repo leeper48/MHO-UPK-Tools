@@ -457,6 +457,7 @@ static partial class Program
                     }
                     if (ca == null) { Console.WriteLine($"{tf}: no character mesh component with an AnimSets list"); continue; }
                     Console.WriteLine($"{tf} ({ca.Class}): {ca.Sets.Count} set(s), {ca.Anims.Count} animation(s) ({sw.ElapsedMilliseconds} ms)");
+                    foreach (var g in ca.FormAnims.GroupBy(x => x.From)) Console.WriteLine($"  form {g.Key.Alias}: {g.Key.PackageName} · {g.Key.Path}, {g.Count()} animation(s)");
                     foreach (var s in ca.Sets)
                         Console.WriteLine($"  {s.Order + 1}. {s.PackageName}: {s.Path} [{s.Label}{(s.FromMod ? ", this mod's copy" : "")}] " +
                             (s.Found ? $"{s.Sequences.Count} sequence(s), {s.TrackBoneNames.Count} bones, {(s.TranslationBones == null ? "positions for all bones" : $"rotation only ({s.TranslationBones.Count} bones with positions)")}" : "NOT FOUND"));

@@ -19,6 +19,8 @@ static class PowerList
         public string? Part { get; init; }
         /// <summary>The form this power plays in (the power that applies it: Jean Grey's Unleash the Phoenix), or null.</summary>
         public string? Form { get; init; }
+        /// <summary>The animation-set alias of <see cref="Form"/> (phoenixas): its animations come from that set.</summary>
+        public string? FormAlias { get; init; }
         /// <summary>This power applies a form (Unleash the Phoenix): picked, the preview shows the character in it.</summary>
         public bool IsForm { get; init; }
     }
@@ -123,7 +125,7 @@ static class PowerList
         {
             string key = result[i].Prototype.Replace('/', '\\');
             if (formOf.TryGetValue(key, out var f) && result[i].HasName)
-                result[i] = result[i] with { Name = $"{result[i].Name} ({Display(f.Spec) ?? f.Name})", Form = f.Spec };
+                result[i] = result[i] with { Name = $"{result[i].Name} ({Display(f.Spec) ?? f.Name})", Form = f.Spec, FormAlias = f.Alias };
         }
         // Transform modes (Kurt, 2026-10-19: Rogue's Final Form, Rocket's mech, Loki's Frost Giant): the hero becomes another
         // character with abilities of its own. Each ability is a button named after the transform, its animations read from
