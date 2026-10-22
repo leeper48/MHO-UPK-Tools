@@ -83,14 +83,17 @@ static class PowerBorrow
             bool crossHeroNow = !th.Equals(dh, StringComparison.OrdinalIgnoreCase);
             e.VehicleAuto = crossHeroNow && spawn.Any(x => x.Vehicle) && HeroHeight(StockFiles.For(game.Cooked, heroFile)) is float hh && HeroHeight(donorHero) is float dhh && dhh > 1 ? hh / dhh : null;
             var spawned = new List<SpawnedProp>();
+            // the hero's costumes built as characters of their own (Kate Bishop for Hawkeye): the power stays stock on them
+            var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
+            if (ownClass.Count > 0) log.Add($"stock look kept for {string.Join(", ", ownClass)} (costumes of their own class)");
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
-                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned);
+                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass);
             e.Spawned = spawned;
             // the hero's own ride (Hawkeye's Sky-Cycle): shown by the travel power's condition and hidden again by the power's
             // own components, which the borrow replaces, so it stayed under him after the power ended (Kurt, 2026-10-22):
             // the condition's vehicle attachments go
             if (!e.KeepTiming && travel)
-                foreach (var (f, bytes) in DropConditionVehicles(db, fx, e.Power, Start, log)) built[f] = bytes;
+                foreach (var (f, bytes) in DropConditionVehicles(db, fx, e.Power, Start, log, ownClass)) built[f] = bytes;
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -514,7 +517,7 @@ static class PowerBorrow
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
         IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
-        IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null)
+        IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -545,6 +548,7 @@ static class PowerBorrow
                 var vehicleClasses = (spawn ?? []).Where(x => x.Vehicle).Select(x => Package.Open(x.File).Exports[x.Export].ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 done[tf] = FitProps(done[tf], td, vehicleClasses, vscale, props, log, spawnedOut);
             }
+            if (ownClassCostumes is { Count: > 0 }) done[tf] = KeepStockFor(done[tf], td, pr.TargetFile, ownClassCostumes, log);
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
@@ -871,11 +875,127 @@ static class PowerBorrow
     /// webbing_lt / webbing_rt, which Thor doesn't have).
     /// </summary>
     /// <summary>
+    /// The hero's costumes whose class isn't the hero's (Kate Bishop: MarvelPlayer_KateBishop extends MarvelPlayer, in her own
+    /// package): the game data's costumes for the same avatar not named MarvelPlayer_&lt;hero&gt;[_…], as lower-case class
+    /// names (what EntityRequired / EntityExcluded list). Kurt, 2026-10-22: a borrow must leave such a costume as it is (her
+    /// package is for her own mods), so the power stays stock on her.
+    /// </summary>
+    static List<string> OwnClassCostumes(string gameRoot, string hero)
+    {
+        List<Costume>? all;
+        lock (costumesLock) all = costumes ??= Costume.All(gameRoot);
+        if (all == null) return [];
+        bool Heros(string c) => c.Equals("MarvelPlayer_" + hero, StringComparison.OrdinalIgnoreCase) || c.StartsWith($"MarvelPlayer_{hero}_", StringComparison.OrdinalIgnoreCase);
+        var avatars = all.Where(c => c.Hero != null && Heros(c.Class)).Select(c => c.Hero!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return all.Where(c => c.Hero != null && avatars.Contains(c.Hero) && c.Class.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase) && !Heros(c.Class))
+            .Select(c => c.Class.ToLowerInvariant()).Distinct().OrderBy(x => x).ToList();
+    }
+    static List<Costume>? costumes;
+    static readonly object costumesLock = new();
+
+    /// <summary>
+    /// A component's data with its EntityRequired / EntityExcluded fitted to <paramref name="classes"/>: required (only on
+    /// them: the hero's stock parts) or excluded (never on them: the borrowed parts). A list it already has is merged (a
+    /// stock Yank web for Spider-Girl only stays only for her, if she's one of them). Null when it can't apply on them at all
+    /// (require) or would apply on nobody (exclude).
+    /// </summary>
+    static byte[]? WithEntityLists(Package p, int export, IReadOnlyList<string> classes, bool require, List<string> addNames)
+    {
+        byte[] d = p.ReadExportBytes(p.Exports[export]).ToArray();
+        var tags = TagWalker.Walk(p, d, 16);
+        if (tags == null) return null;
+        List<string> Read(string prop)
+        {
+            var t = tags.FirstOrDefault(x => x.Name.Equals(prop, StringComparison.OrdinalIgnoreCase));
+            var l = new List<string>();
+            if (t == null) return l;
+            int n = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt));
+            for (int k = 0; k < n; k++) l.Add(TagWalker.NameAt(p, d, t.ValueAt + 4 + 8 * k));
+            return l;
+        }
+        var req = Read("EntityRequired"); var exc = Read("EntityExcluded");
+        var set = new HashSet<string>(classes, StringComparer.OrdinalIgnoreCase);
+        if (require)
+        {
+            req = req.Count > 0 ? req.Where(set.Contains).ToList() : classes.Where(c => !exc.Contains(c, StringComparer.OrdinalIgnoreCase)).ToList();
+            exc = [];
+            if (req.Count == 0) return null;
+        }
+        else if (req.Count > 0) { req = req.Where(c => !set.Contains(c)).ToList(); if (req.Count == 0) return null; }
+        else exc = exc.Concat(classes).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return p.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        byte[] List(string prop, List<string> names)
+        {
+            var v = new byte[4 + 8 * names.Count];
+            BinaryPrimitives.WriteInt32LittleEndian(v, names.Count);
+            for (int k = 0; k < names.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(v.AsSpan(4 + 8 * k), NameIdx(names[k]));
+            var t = new byte[24 + v.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(t, NameIdx(prop));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(8), NameIdx("ArrayProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(16), v.Length);
+            v.CopyTo(t, 24);
+            return t;
+        }
+        var m = new MemoryStream();
+        m.Write(d, 0, 16);
+        foreach (var t in tags)
+            if (!t.Name.Equals("EntityRequired", StringComparison.OrdinalIgnoreCase) && !t.Name.Equals("EntityExcluded", StringComparison.OrdinalIgnoreCase)) m.Write(d, t.Start, t.End - t.Start);
+        if (req.Count > 0) m.Write(List("EntityRequired", req));
+        if (exc.Count > 0) m.Write(List("EntityExcluded", exc));
+        m.Write(d, tags.NoneAt, d.Length - tags.NoneAt);
+        return m.ToArray();
+    }
+
+    /// <summary>
+    /// The power on <paramref name="classes"/> (the hero's costumes of their own class) as stock: every component the borrow
+    /// listed excluded from them, and the class default's stock components (by path, from the stock file) listed again, only
+    /// for them.
+    /// </summary>
+    static byte[] KeepStockFor(byte[] package, string targetDefault, string stockFile, IReadOnlyList<string> classes, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        int td = Find(p, targetDefault);
+        if (td < 0) return package;
+        var now = Components(p, td, out var tag, out byte[] d);
+        var sp = Package.Open(stockFile);
+        int sd = Find(sp, targetDefault);
+        var stock = sd < 0 ? [] : Components(sp, sd, out _, out _).Where(r => r > 0).Select(r => Find(p, sp.PathOf(sp.Exports[r - 1]))).Where(i => i >= 0).Select(i => i + 1).ToList();
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var addNames = new List<string>();
+        var list = new List<int>();
+        foreach (int r in now)
+        {
+            if (r <= 0 || stock.Contains(r)) continue;
+            if (WithEntityLists(p, r - 1, classes, require: false, addNames) is { } cd) { rep[r - 1] = _ => cd; list.Add(r); }
+        }
+        int kept = 0;
+        foreach (int r in stock)
+            if (WithEntityLists(p, r - 1, classes, require: true, addNames) is { } cd) { rep[r - 1] = _ => cd; list.Add(r); kept++; }
+        var value = new byte[4 + 4 * list.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
+        for (int k = 0; k < list.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * k), list[k]);
+        byte[] nd = [.. d.AsSpan(0, tag.ValueAt), .. value, .. d.AsSpan(tag.ValueAt + tag.Size)];
+        BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
+        rep[td] = _ => nd;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  {targetDefault}: the stock look for {string.Join(", ", classes)} couldn't be kept ({string.Join("; ", problems.Take(2))})"); return package; }
+        log.Add($"  {targetDefault}: {list.Count - kept} borrowed component(s) not on {string.Join(", ", classes)}; {kept} stock one(s) only on them");
+        return output;
+    }
+
+    /// <summary>
     /// The conditions <paramref name="power"/> sets off, each without its mesh attachments that show a weapon slot (a ride's
     /// vehicle: Hawkeye's skycycleattach shows his "skycycle"); only packages that had one. The condition's other parts
     /// (its animation names, effects) stay.
     /// </summary>
-    static Dictionary<string, byte[]> DropConditionVehicles(Fx.GameData db, Fx.FxGame game, string power, Func<string, string?> start, List<string> log)
+    static Dictionary<string, byte[]> DropConditionVehicles(Fx.GameData db, Fx.FxGame game, string power, Func<string, string?> start, List<string> log, IReadOnlyList<string>? onlyFor = null)
     {
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in Fx.PowerClosure.Of(db, power).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)))
@@ -911,6 +1031,20 @@ static class PowerBorrow
                 if (slot != null) gone.Add($"{p.Exports[r - 1].ObjectName} ({slot})"); else keep.Add(r);
             }
             if (gone.Count == 0) continue;
+            if (onlyFor is { Count: > 0 })
+            {
+                // kept for the costumes the borrow leaves stock (Kate Bishop rides her Sky-Cycle as before)
+                var pr2 = new Dictionary<int, Func<long, byte[]>>();
+                var names2 = new List<string>();
+                foreach (int r in comps.Except(keep))
+                    if (WithEntityLists(p, r - 1, onlyFor, require: true, names2) is { } cd2) pr2[r - 1] = _ => cd2;
+                byte[] out2 = PackageRebuilder.Rebuild(p, pr2, [], out var w2, names2);
+                var pb2 = PackageRebuilder.Verify(p, out2, pr2.Keys.ToList(), [], w2, names2);
+                if (pb2.Count > 0) { log.Add($"  {a.Class}: its vehicle couldn't be limited ({string.Join("; ", pb2.Take(2))})"); continue; }
+                done[name] = out2;
+                log.Add($"  {a.Class}: this hero's own ride shows only for {string.Join(", ", onlyFor)} ({string.Join(", ", gone)})");
+                continue;
+            }
             var list = new byte[4 + 4 * keep.Count];
             BinaryPrimitives.WriteInt32LittleEndian(list, keep.Count);
             for (int k = 0; k < keep.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(list.AsSpan(4 + 4 * k), keep[k]);

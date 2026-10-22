@@ -2350,6 +2350,18 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--name-at":
+            {
+                // Read-only: a package's names by index (hex or decimal). --name-at <package.upk> <index>...
+                if (rest.Count < 3) { Console.WriteLine("--name-at <package.upk> <index>..."); return 1; }
+                var np = MhoPackageModifier.Package.Open(rest[1]);
+                foreach (string ix in rest.Skip(2))
+                {
+                    int k = ix.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? Convert.ToInt32(ix[2..], 16) : int.Parse(ix);
+                    Console.WriteLine($"{ix}: {(k >= 0 && k < np.Names.Length ? np.Names[k] : "?")}");
+                }
+                return 0;
+            }
             case "--hold-turn":
             {
                 // Read-only: the turn that keeps a held prop facing as in the donor's hand (PowerBorrow.HoldTurn).
