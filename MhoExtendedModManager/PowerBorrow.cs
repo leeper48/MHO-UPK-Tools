@@ -574,8 +574,10 @@ static class PowerBorrow
             // ... a ramp (keys added to the body's bones) made him vanish, then stretch like a somersault (Kurt, 2026-10-22):
             // the start and end are lowered half way, steadily, on the root like the loop (lowered fully he sank, not at
             // all he floated: the lift is part way in while they play)
-            bool startOrEnd = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || an.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
-            swaps.Add(found with { Rate = rate, Lift = startOrEnd ? lift / 2 : lift });
+            // 0.60.32: ramped again, on the root (its rotation kept after its moved positions: the order that made him vanish
+            // before), shaped like the lift Kurt measured (about 20 at the start's beginning, 120 mid-way, 140 at its end)
+            int ramp = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : an.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
+            swaps.Add(found with { Rate = rate, Lift = lift, Ramp = ramp });
         }
         if (swaps.Count > 0)
         {

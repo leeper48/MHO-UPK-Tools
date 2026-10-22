@@ -468,8 +468,12 @@ static class AnimSwap
                     // ramped in (a start: 0 to lift) or out (an end: lift to 0) over the animation
                     // (on the body's bone, not the root: a root that moves over time is root motion, and the game moved the whole
                     // hero down into the floor: Spider-Man blinked out; Kurt 2026-10-22)
-                    float from = sw.Ramp > 0 ? 0 : lift, to = sw.Ramp > 0 ? lift : 0;
-                    if (MoveBody(pkg, sd, d, body, (f, n) => new System.Numerics.Vector3(0, 0, from + (to - from) * f / Math.Max(1, n - 1)), bodyMoved, out string rwhy0) is { } rd) { d = rd; log.Add($"  {slot}: lowered {(sw.Ramp > 0 ? "0 to " + lift.ToString("0") : lift.ToString("0") + " to 0")} over the animation"); }
+                    // the root (all of the body and its IK targets with it), the lift's measured shape: 1/7 of it at once,
+                    // then rising fast and easing in (t: 0..1 over a start; an end mirrors it)
+                    static float Shape(float t) => 1f / 7 + 6f / 7 * (1 - (1 - t) * (1 - t));
+                    var rootOnly = new List<(string, System.Numerics.Vector3)> { ("root", System.Numerics.Vector3.Zero) };
+                    int dir = sw.Ramp;
+                    if (MoveBody(pkg, sd, d, rootOnly, (f, n) => { float t = f / Math.Max(1, n - 1); return new System.Numerics.Vector3(0, 0, lift * Shape(dir > 0 ? t : 1 - t)); }, bodyMoved, out string rwhy0) is { } rd) { d = rd; lifted = true; log.Add($"  {slot}: lowered {(sw.Ramp > 0 ? "0 to " + lift.ToString("0") : lift.ToString("0") + " to 0")} over the animation"); }
                     else log.Add($"  {slot}: not moved {lift:0} ({rwhy0})");
                 }
                 else if (lift != 0)

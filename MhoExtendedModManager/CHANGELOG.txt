@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.32
+- Borrowed Look (preview feature, hidden): a ground travel power's start on a high-flying one is lowered on the root following the game's lift (about a seventh at once, most of it by mid-way, all of it at the end; an end animation mirrors it), one key per frame, the root's rotation kept after its moved positions.
+
 0.60.31
 - Borrowed Look (preview feature, hidden): a ground travel power's start and end on a high-flying one are lowered half way, steadily, on the root (like the loop, fully); the gradual lowering on the body's bones made Spider-Man vanish, then stretch.
 
