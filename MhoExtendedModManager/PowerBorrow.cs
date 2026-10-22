@@ -581,7 +581,7 @@ static class PowerBorrow
             // Kurt's flat tests (2026-10-22): root -23 put the start's beginning at the ground, -117 its end: the root steady at
             // the first, the body eased the rest of the way in place (RampBodyInPlace)
             int ramp = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : an.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
-            float atStart = lift * 7f / 140f, atEnd = lift * 101f / 140f;   // (0.60.36: both 1 ft higher: Kurt saw a 1 ft dip at each end)
+            float atStart = lift * 7f / 140f, atEnd = lift * 133f / 140f;   // (0.60.36: Kurt saw 1 ft under at the beginning, 1 ft above by the end: the beginning 1 ft higher, the end 1 ft lower)
             swaps.Add(ramp != 0 ? found with { Rate = rate, Lift = atStart, Ramp = ramp, RampBy = atEnd - atStart } : found with { Rate = rate, Lift = lift });
         }
         if (swaps.Count > 0)
