@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.54
+- 3D preview: a power's animation meant only for some characters isn't picked (Hawkeye's preview played his Sky-Cycle ride kept for Kate Bishop).
+
 0.60.53
 - Borrowed Look (preview feature, hidden): on a hero's costumes built as characters of their own (Kate Bishop for Hawkeye), the power keeps its stock look: the borrowed parts are switched off for them and the stock ones (her Sky-Cycle) only for them, as stock powers do for costume-specific effects (EntityExcluded / EntityRequired).
 - Test command --name-at.

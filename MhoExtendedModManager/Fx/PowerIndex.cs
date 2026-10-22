@@ -52,6 +52,9 @@ static class PowerIndex
                 string rest = path[(d + ".default__".Length)..];
                 string cls = rest.Split('.')[0];
                 var props = FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props ?? [];
+                // only for some characters (EntityRequired: a borrow keeps the stock animation for Kate Bishop only): left
+                // out, like such effects (Kurt, 2026-10-22: Hawkeye's preview played his Sky-Cycle ride again)
+                if (props.Any(x => x.Name.Equals("EntityRequired", StringComparison.OrdinalIgnoreCase))) continue;
                 // no animations of its own: its template's, when the template is in this package (a borrowed ride's anim, whose
                 // template powershared_ridebike.anim the borrow copied in: 0.60.7)
                 if (!props.Any(x => x.Name.Equals("AnimName", StringComparison.OrdinalIgnoreCase) || x.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase))
@@ -131,6 +134,7 @@ static class PowerIndex
             if (!p.T.ClassOf(p.T.Exports[i]).StartsWith("PowerFxAnimation", StringComparison.OrdinalIgnoreCase)) continue;
             if (chain != null && !FxGame.OfChain(p.T.PathOf(i + 1), chain)) continue;
             var props = FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props ?? [];
+            if (props.Any(x => x.Name.Equals("EntityRequired", StringComparison.OrdinalIgnoreCase))) continue;   // (only for some characters)
             names.AddRange(props.Where(x => x.Name.Equals("AnimName", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("NameProperty", StringComparison.OrdinalIgnoreCase)).Select(x => x.Value));
             foreach (var arr in props.Where(x => x.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)))
             {
