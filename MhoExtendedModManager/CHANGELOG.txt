@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.52
+- Borrowed Look (preview feature, hidden): costumes in packages of their own name (Kate Bishop) are left out again, so a borrow on the hero doesn't overwrite a mod made for that costume (Kurt).
+
 0.60.51
 - Borrowed Look (preview feature, hidden): a costume whose class isn't its hero's (Kate Bishop) gets the borrowed animations copied into its own package (an import from the hero's package found nothing: that package isn't loaded with her).
 
