@@ -2350,6 +2350,57 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--set-anim-tree":
+            {
+                // Test (writes the given file, never the game folder): a character component's AnimTreeTemplate set to a shared
+                // tree in Startup.upk (Kurt, 2026-10-22: Cyclops' tilt on his bike may come from his pc_at_v5).
+                // --set-anim-tree <package.upk> <component path> <tree outer> <tree name>
+                if (rest.Count < 5) { Console.WriteLine("--set-anim-tree <package.upk> <component path> <tree outer> <tree name>"); return 1; }
+                if (Settings.IsGameRoot(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(rest[1])))) ?? "")) { Console.WriteLine("refused: a game file"); return 1; }
+                var tp = MhoPackageModifier.Package.Open(rest[1]);
+                int ci = Array.FindIndex(tp.Exports, e => tp.PathOf(e).Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (ci < 0) { Console.WriteLine("no " + rest[2]); return 1; }
+                var tNames = new List<string>();
+                var tImports = new List<MhoPackageModifier.NewImport>();
+                int TName(string n)
+                {
+                    int i = Array.FindIndex(tp.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                    if (i >= 0) return i;
+                    if (!tNames.Contains(n, StringComparer.OrdinalIgnoreCase)) tNames.Add(n);
+                    return tp.Names.Length + tNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                }
+                int outerIdx = Array.FindIndex(tp.Imports, im => im.ObjectName.Equals(rest[3], StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals("Package", StringComparison.OrdinalIgnoreCase) && im.OuterIndex == 0);
+                int outerRef;
+                if (outerIdx >= 0) outerRef = -1 - outerIdx;
+                else
+                {
+                    foreach (string n in new[] { "Core", "Package", rest[3] }) TName(n);
+                    tImports.Add(new MhoPackageModifier.NewImport("Core", "Package", 0, rest[3]));
+                    outerRef = -(tp.Imports.Length + tImports.Count);
+                }
+                int treeIdx = Array.FindIndex(tp.Imports, im => im.ObjectName.Equals(rest[4], StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals("AnimTree", StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outerRef);
+                int treeRef;
+                if (treeIdx >= 0) treeRef = -1 - treeIdx;
+                else
+                {
+                    foreach (string n in new[] { "Engine", "AnimTree", rest[4] }) TName(n);
+                    tImports.Add(new MhoPackageModifier.NewImport("Engine", "AnimTree", outerRef, rest[4]));
+                    treeRef = -(tp.Imports.Length + tImports.Count);
+                }
+                byte[] cd = tp.ReadExportBytes(tp.Exports[ci]).ToArray();
+                var ctags = MhoPackageModifier.TagWalker.Walk(tp, cd, 16);
+                var tt = ctags?.FirstOrDefault(t => t.Name.Equals("AnimTreeTemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
+                if (tt == null) { Console.WriteLine("the component has no AnimTreeTemplate of its own"); return 1; }
+                { int was = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(tt.ValueAt)); Console.WriteLine("AnimTreeTemplate was " + (was < 0 ? tp.Imports[-was - 1].ObjectName : was.ToString())); }
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(cd.AsSpan(tt.ValueAt), treeRef);
+                var trep = new Dictionary<int, Func<long, byte[]>> { [ci] = _ => cd };
+                byte[] tout = MhoPackageModifier.PackageRebuilder.Rebuild(tp, trep, [], out var twritten, tNames, tImports);
+                var tprob = MhoPackageModifier.PackageRebuilder.Verify(tp, tout, trep.Keys.ToList(), [], twritten, tNames, tImports);
+                if (tprob.Count > 0) { Console.WriteLine("didn't verify: " + string.Join("; ", tprob.Take(3))); return 1; }
+                File.WriteAllBytes(rest[1], tout);
+                Console.WriteLine($"AnimTreeTemplate -> {rest[3]}.{rest[4]} ({tout.Length:N0} bytes)");
+                return 0;
+            }
             case "--script-refs":
             {
                 // Read-only: what a compiled script function refers to (objects and names, in code order).
