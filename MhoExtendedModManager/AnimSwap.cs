@@ -715,20 +715,24 @@ static class AnimSwap
             }
             else
             {
-                // new keys at the end: one (a steady move) or first and last frame (a move over time)
+                // new keys at the end: one (a steady move) or one per frame (a move over time: the form of the added cape
+                // tracks, which play in game; two keys at the first and last frame made the hero vanish, Kurt 2026-10-22)
                 Pad();
-                int off = (int)data.Length, keys = changes ? 2 : 1;
+                int off = (int)data.Length, keys = changes ? Math.Max(2, frames) : 1;
                 var b0 = Key(0);
                 for (int k = 0; k < keys; k++)
                 {
-                    var v = b0 + delta(k == 0 ? 0 : frames - 1, frames);
+                    var v = b0 + delta(keys == 1 ? 0 : (float)k * (frames - 1) / (keys - 1), frames);
                     data.Write(BitConverter.GetBytes(v.X)); data.Write(BitConverter.GetBytes(v.Y)); data.Write(BitConverter.GetBytes(v.Z));
                 }
-                if (keys == 2 && variable)
+                if (keys > 1 && variable)
                 {
                     Pad();
-                    if (frames > 0xFF) { data.Write(BitConverter.GetBytes((ushort)0)); data.Write(BitConverter.GetBytes((ushort)(frames - 1))); }
-                    else { data.WriteByte(0); data.WriteByte((byte)(frames - 1)); }
+                    for (int k = 0; k < keys; k++)
+                    {
+                        int fr = (int)MathF.Round((float)k * (frames - 1) / (keys - 1));
+                        if (frames > 0xFF) data.Write(BitConverter.GetBytes((ushort)fr)); else data.WriteByte((byte)fr);
+                    }
                     Pad();
                 }
                 newOffsets[track] = (off, keys);

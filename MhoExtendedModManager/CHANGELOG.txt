@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.29
+- Borrowed Look (preview feature, hidden): position keys the borrow adds for a move over time get one key per frame (the form of the added cape tracks); two keys at the first and last frame made Spider-Man vanish.
+
 0.60.28
 - Borrowed Look (preview feature, hidden): the gradual lowering and Rider Fit's Forward / Back and Up / Down move the whole body: every bone directly under the root (hips, spine, the leg and arm IK targets), not just the spine; the legs hang from the root, not the spine, and stretched 10 feet up. Vehicles' and props' attach points stay.
 
