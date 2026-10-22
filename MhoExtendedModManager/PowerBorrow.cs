@@ -576,8 +576,11 @@ static class PowerBorrow
             // all he floated: the lift is part way in while they play)
             // 0.60.32: ramped again, on the root (its rotation kept after its moved positions: the order that made him vanish
             // before), shaped like the lift Kurt measured (about 20 at the start's beginning, 120 mid-way, 140 at its end)
-            int ramp = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : an.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
-            swaps.Add(found with { Rate = rate, Lift = lift, Ramp = ramp });
+            // ... the root ramp somersaulted and vanished too (Kurt, 2026-10-22): back to a steady lowering on the root; half the
+            // lift was 3 ft too low at first and 3 ft too high mid-way: Kurt's test, half the lift raised 3 ft (about 47)
+            bool startOrEnd = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || an.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
+            float startLift = lift < 0 ? Math.Min(0, lift / 2 + 47) : lift / 2;
+            swaps.Add(found with { Rate = rate, Lift = startOrEnd ? startLift : lift });
         }
         if (swaps.Count > 0)
         {

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.33
+- Borrowed Look (preview feature, hidden): back to a steady lowering of a borrowed start on the root (the root ramp somersaulted and vanished); test: half the lift, raised 3 feet.
+
 0.60.32
 - Borrowed Look (preview feature, hidden): a ground travel power's start on a high-flying one is lowered on the root following the game's lift (about a seventh at once, most of it by mid-way, all of it at the end; an end animation mirrors it), one key per frame, the root's rotation kept after its moved positions.
 
