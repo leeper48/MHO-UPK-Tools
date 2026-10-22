@@ -1345,6 +1345,77 @@ static class PowerBorrow
         return HeroHeight(StockFiles.For(cooked, $"UC__MarvelPlayer_{th}_SF.upk")) is float a && HeroHeight(donorPackage) is float b && b > 1 ? a / b : 1;
     }
 
+    /// <summary>
+    /// A plain prop's move and turn baked into its model copy (<paramref name="md"/>, edited in place): every vertex turned
+    /// (as RotOrigin would: pitch about Y, yaw about Z, roll about X) then moved, packed positions unpacked and packed again
+    /// against a new range, the tangent frames turned, and the bounds moved (their extent made the radius every way).
+    /// </summary>
+    static void BakeMoveTurn(byte[] md, List<AnimExportCli.Meshes.SkeletalMeshReader.PositionSpot> where, System.Numerics.Vector3 move, System.Numerics.Vector3 turn)
+    {
+        static int Units(float deg) => (int)MathF.Round(deg / 360f * 65536f);
+        var rot = ModMeshes.Rotator(Units(turn.Y), Units(turn.Z), Units(turn.X));
+        System.Numerics.Vector3 P(System.Numerics.Vector3 v) => System.Numerics.Vector3.Transform(v, rot) + move;
+        float F(int at) => BinaryPrimitives.ReadSingleLittleEndian(md.AsSpan(at));
+        void W(int at, float v) => BinaryPrimitives.WriteSingleLittleEndian(md.AsSpan(at), v);
+        foreach (var w in where)
+            switch (w.Kind)
+            {
+                case "verts":
+                    for (int k = 0; k < w.Count; k++)
+                    {
+                        int va = w.At + k * w.Stride;
+                        var v = P(new System.Numerics.Vector3(F(va), F(va + 4), F(va + 8)));
+                        W(va, v.X); W(va + 4, v.Y); W(va + 8, v.Z);
+                    }
+                    break;
+                case "packed":
+                {
+                    var ext = new System.Numerics.Vector3(F(w.At2), F(w.At2 + 4), F(w.At2 + 8));
+                    var org = new System.Numerics.Vector3(F(w.At2 + 12), F(w.At2 + 16), F(w.At2 + 20));
+                    var pts = new System.Numerics.Vector3[w.Count];
+                    for (int k = 0; k < w.Count; k++)
+                    {
+                        uint pk = BinaryPrimitives.ReadUInt32LittleEndian(md.AsSpan(w.At + k * w.Stride));
+                        int x = (int)(pk & 0x7FF), y = (int)((pk >> 11) & 0x7FF), z = (int)((pk >> 22) & 0x3FF);
+                        if (x > 1023) x -= 2048; if (y > 1023) y -= 2048; if (z > 511) z -= 1024;
+                        pts[k] = P(new System.Numerics.Vector3(x / 1023f * ext.X + org.X, y / 1023f * ext.Y + org.Y, z / 511f * ext.Z + org.Z));
+                    }
+                    if (w.Count == 0) break;
+                    var lo = pts.Aggregate(System.Numerics.Vector3.Min); var hi = pts.Aggregate(System.Numerics.Vector3.Max);
+                    var no = (lo + hi) / 2; var ne = System.Numerics.Vector3.Max((hi - lo) / 2, new System.Numerics.Vector3(1e-3f));
+                    W(w.At2, ne.X); W(w.At2 + 4, ne.Y); W(w.At2 + 8, ne.Z); W(w.At2 + 12, no.X); W(w.At2 + 16, no.Y); W(w.At2 + 20, no.Z);
+                    for (int k = 0; k < w.Count; k++)
+                    {
+                        var r = (pts[k] - no) / ne;
+                        uint x = (uint)Math.Clamp((int)MathF.Round(r.X * 1023f), -1023, 1023) & 0x7FF;
+                        uint y = (uint)Math.Clamp((int)MathF.Round(r.Y * 1023f), -1023, 1023) & 0x7FF;
+                        uint z = (uint)Math.Clamp((int)MathF.Round(r.Z * 511f), -511, 511) & 0x3FF;
+                        BinaryPrimitives.WriteUInt32LittleEndian(md.AsSpan(w.At + k * w.Stride), x | (y << 11) | (z << 22));
+                    }
+                    break;
+                }
+                case "frames":
+                    for (int k = 0; k < w.Count; k++)
+                        for (int f = 0; f < 2; f++)
+                        {
+                            int fa = w.At + k * w.Stride + 4 * f;
+                            uint pk = BinaryPrimitives.ReadUInt32LittleEndian(md.AsSpan(fa));
+                            var n = new System.Numerics.Vector3((pk & 0xFF) / 127.5f - 1, ((pk >> 8) & 0xFF) / 127.5f - 1, ((pk >> 16) & 0xFF) / 127.5f - 1);
+                            n = System.Numerics.Vector3.TransformNormal(n, rot);
+                            uint B(float c) => (uint)Math.Clamp((int)MathF.Round((c + 1) * 127.5f), 0, 255);
+                            BinaryPrimitives.WriteUInt32LittleEndian(md.AsSpan(fa), B(n.X) | (B(n.Y) << 8) | (B(n.Z) << 16) | (pk & 0xFF000000));
+                        }
+                    break;
+                case "bounds":
+                {
+                    var o = P(new System.Numerics.Vector3(F(w.At), F(w.At + 4), F(w.At + 8)));
+                    float r = F(w.At + 24);
+                    W(w.At, o.X); W(w.At + 4, o.Y); W(w.At + 8, o.Z); W(w.At + 12, r); W(w.At + 16, r); W(w.At + 20, r);
+                    break;
+                }
+            }
+    }
+
     /// <summary>A prop a borrow brings: its attachment class, whether it's a vehicle (ridden) and its automatic size.</summary>
     public sealed record SpawnedProp(string Class, bool Vehicle, float Auto);
 
@@ -1490,6 +1561,12 @@ static class PowerBorrow
         int mesh = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(at));
         if (mesh <= 0) { log.Add("  the attachment's model isn't in this package: not scaled"); return null; }
         bool moved = move != default || turn != default;
+        // A plain (not animated) prop: the move and turn baked into its vertices (Kurt, 2026-10-21: Thor's hammer on
+        // Spider-Man took its size in game but not the Origin / RotOrigin offset; a plain prop is drawn in its rest pose,
+        // where the skinning leaves the vertices as stored). An animated one (a vehicle, the glider) is drawn by its own
+        // animation's root: its model's Origin / RotOrigin (the glider's moved in game).
+        bool bake = !dst.Exports[d].ObjectName.Contains("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase)
+                    && TagWalker.Walk(dst, dst.ReadExportBytes(dst.Exports[d]).ToArray(), 4)?.Any(t => t.Name.Equals("AnimationSet", StringComparison.OrdinalIgnoreCase)) != true;
         string newName = $"{dst.Exports[mesh - 1].ObjectName}_x{(int)MathF.Round(scale * 100)}" + (moved ? $"_fit{(uint)HashCode.Combine(move, turn) % 100000}" : "");
         var cc = CrossMove.Quiet(() => ExportCopy.Copy(dst, mesh - 1, dst, [], newName), out string said);
         if (cc == null) { log.Add("  the model couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim()))); return null; }
@@ -1511,25 +1588,23 @@ static class PowerBorrow
                 case "verts": for (int k = 0; k < w.Count; k++) { int va = w.At + k * w.Stride; Mul(va); Mul(va + 4); Mul(va + 8); } verts += w.Count; break;
                 case "origin":
                     Mul(w.At); Mul(w.At + 4); Mul(w.At + 8);
+                    if (bake) break;
                     for (int c = 0; c < 3; c++) BinaryPrimitives.WriteSingleLittleEndian(md.AsSpan(w.At + 4 * c), BinaryPrimitives.ReadSingleLittleEndian(md.AsSpan(w.At + 4 * c)) + (c == 0 ? move.X : c == 1 ? move.Y : move.Z));
                     break;
                 case "rotorigin":
+                    if (bake) break;
                     // (pitch about Y, yaw about Z, roll about X; 65536 a turn)
                     BinaryPrimitives.WriteInt32LittleEndian(md.AsSpan(w.At), BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(w.At)) + Units(turn.Y));
                     BinaryPrimitives.WriteInt32LittleEndian(md.AsSpan(w.At + 4), BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(w.At + 4)) + Units(turn.Z));
                     BinaryPrimitives.WriteInt32LittleEndian(md.AsSpan(w.At + 8), BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(w.At + 8)) + Units(turn.X));
                     break;
             }
+        if (bake && moved) BakeMoveTurn(md, where, move, turn);
         // the attachment's model (ModelMesh's first, or its mesh component's SkeletalMesh): the copy (the copy went to the
         // end, so the holder's index is unchanged)
         db = dst.ReadExportBytes(dst.Exports[holder]).ToArray();
         BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(at), copy + 1);
-        // moved or turned: no physics asset (Kurt, 2026-10-21: Thor's hammer on Spider-Man took its size in game but not
-        // its place; its physics asset's bodies set its bones, which ignore the model's Origin / RotOrigin: hypothesis)
-        bool noPhysics = false;
-        if (moved && holder == d && TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("ModelPhysicsAsset", StringComparison.OrdinalIgnoreCase)) is { } pa)
-            for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(pa.ValueAt)); k < n; k++)
-                if (BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(pa.ValueAt + 4 + 4 * k)) != 0) { BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(pa.ValueAt + 4 + 4 * k), 0); noPhysics = true; }
+        bool noPhysics = false;   // (0.60.23 dropped the physics asset of a moved prop: that wasn't why the hammer stayed; reverted)
         var rep = new Dictionary<int, Func<long, byte[]>> { [copy] = _ => md, [holder] = _ => db };
         byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);

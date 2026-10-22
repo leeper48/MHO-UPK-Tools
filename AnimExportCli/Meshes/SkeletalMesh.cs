@@ -119,7 +119,7 @@ public static class SkeletalMeshReader
     /// a bone's rest position, a packed vertex buffer's origin / extension), "origin" = the mesh's Origin (3 floats),
     /// "rotorigin" = its RotOrigin (3 ints: pitch, yaw, roll), "radius" = 1 float, "verts" = Count float positions, Stride
     /// bytes apart, from At.</summary>
-    public readonly record struct PositionSpot(string Kind, int At, int Count = 1, int Stride = 0);
+    public readonly record struct PositionSpot(string Kind, int At, int Count = 1, int Stride = 0, int At2 = 0);
 
     [ThreadStatic] static List<PositionSpot>? spots;
 
@@ -163,6 +163,7 @@ public static class SkeletalMeshReader
         spots?.Add(new("vec", cursor.Position));
         spots?.Add(new("vec", cursor.Position + 12));   // the extent
         spots?.Add(new("radius", cursor.Position + 24));
+        spots?.Add(new("bounds", cursor.Position));   // (origin, extent, radius: for a turn)
         cursor.Skip(MeshBounds.ByteSize);
 
         SkipObjectArray(ref cursor); // materials — this tool doesn't need them
@@ -362,8 +363,11 @@ public static class SkeletalMeshReader
         int vertexStart = cursor.Position;
         int uvOffset = layout.PositionOffset + positionBytes;
         // packed positions are stored against the buffer's origin and extension: scaling those scales them
-        if (packedPosition) { spots?.Add(new("vec", extensionAt)); spots?.Add(new("vec", extensionAt + 12)); }
+        // ("packed": Count packed positions from At, Stride apart, stored against the buffer's extension at At2 and origin at
+        // At2 + 12; "frames": each vertex's two packed directions, tangent then normal, from At)
+        if (packedPosition) { spots?.Add(new("vec", extensionAt)); spots?.Add(new("vec", extensionAt + 12)); spots?.Add(new("packed", vertexStart + layout.PositionOffset, count, elementSize, extensionAt)); }
         else spots?.Add(new("verts", vertexStart + layout.PositionOffset, count, elementSize));
+        spots?.Add(new("frames", vertexStart, count, elementSize));
 
         for (int i = 0; i < count; i++)
         {
