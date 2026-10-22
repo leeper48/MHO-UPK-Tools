@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.48
+- Manual (Borrowed Look, hidden): a borrowed ride doesn't tilt with slopes as it does for its own hero.
+
 0.60.47
 - Test command --set-anim-tree: a character package's animation tree set to another shared one (for the bike tilt test).
 
