@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.74
+- Model tab: Source starts on From the Game, and the Source kind you pick is remembered from then on.
+
 0.60.73
 - Model tab: a bullet (•) after a package's name in the Source and Target lists marks a hero's default costume, as the game data has it (a rework or visual update can be the default instead of the package named Base or Classic: Storm Modern VU, Hulk Classic VU).
 

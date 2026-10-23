@@ -337,7 +337,7 @@ sealed partial class ModelPage
         }
         else if (chosenKey != mff || model == null)
         {
-            if (FbxMode) { sourceKind.SelectedIndex = 0; await Task.Delay(300); }   // back to the MFF repository (an FBX test left it on Single Model)
+            if (sourceKind.SelectedIndex != 0) { sourceKind.SelectedIndex = 0; await Task.Delay(300); }   // back to the MFF repository (an FBX test left it on Single Model)
             characterFilter.Text = mff;
             await Task.Delay(500);
             Reselect(characters, mff);

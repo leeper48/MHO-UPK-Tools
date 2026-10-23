@@ -63,6 +63,8 @@ sealed partial class ModelPage : UserControl
     /// <summary>From the Game (Kurt, 2026-10-23): a player costume, team-up or NPC as the source (GameSource).</summary>
     bool GameMode => sourceKind.SelectedIndex == 2;
     const string GameSrc = "gamesrc:";
+    /// <summary>The Source kind is being set from a mod's saved state (not the user's pick, so not remembered).</summary>
+    bool kindByState;
     /// <summary>The FBX file in use as the source (FBX mode); null in MFF mode.</summary>
     string? sourceFbx;
     /// <summary>A source is picked: an MFF model, or an FBX file.</summary>
@@ -313,16 +315,18 @@ sealed partial class ModelPage : UserControl
         heroesOnly.CheckedChanged += (_, _) => FillCharacters();
         // (Kurt, 2026-10-05: "MFF Repository" for the bulk library, "Single Model" for one FBX file or one MFF character folder)
         sourceKind.Items.AddRange(["MFF Repository", "Single Model", "From the Game"]);
-        sourceKind.SelectedIndex = 0;
+        sourceKind.SelectedIndex = Settings.Current.SourceKind is int sk0 and >= 0 and <= 2 ? sk0 : 2;
         Ui.Tip(sourceKind, "Where the model comes from: MFF Repository = a character from your MFF repository folder (retargeted onto the base hero); Single Model = one FBX file (MHO, Mixamo or other skeleton, or no armature) or one MFF character folder picked on its own; From the Game = a hero costume, team-up or NPC from the game (its model and maps, fitted onto the target like an FBX with MHO bones).");
         sourceKind.SelectedIndexChanged += (_, _) =>
         {
             chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
+            if (!kindByState && Settings.Current.SourceKind != sourceKind.SelectedIndex) { Settings.Current.SourceKind = sourceKind.SelectedIndex; Settings.Current.Save(); }
             bool mff = sourceKind.SelectedIndex == 0;
             heroesOnly.Visible = mff; smooth.Enabled = mff; if (!mff) smooth.Checked = false;
             characterFilter.Text = "";
             FillCharacters(); UpdateStatus(); SchedulePreview();
         };
+        { bool mff0 = sourceKind.SelectedIndex == 0; heroesOnly.Visible = mff0; smooth.Enabled = mff0; }
         packageFilter.TextChanged += (_, _) => FillPackages();
         packages.SelectedIndexChanged += (_, _) => PackagePicked();   // first: "From the Game" and the game list's picks
         characters.SelectedIndexChanged += (_, _) => CharacterChosen();
