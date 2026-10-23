@@ -87,7 +87,22 @@ static class ModMeshes
         return result;
     }
 
-    public static List<MeshRef> List(Mod m) => List(m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))));
+    /// <summary>The mod's meshes, its own costumes first: a package a borrowed power look added (the hero's other costumes, for
+    /// the borrowed animations; Kurt, 2026-10-23: Worthy Captain America's Powers preview opened on Age of Ultron, 1 of 28)
+    /// goes last. A borrowed package the mod had before keeps its place: its own copy is kept in Modelorrow_base.</summary>
+    public static List<MeshRef> List(Mod m)
+    {
+        var all = List(m.Manifest.UpkReplacements.Select(f => (f, Path.Combine(m.Folder, f))));
+        var added = BorrowAdded(m);
+        return added.Count == 0 ? all : [.. all.OrderBy(r => added.Contains(r.Package) ? 1 : 0)];
+    }
+
+    /// <summary>The packages a borrowed power look added to the mod (not the mod's own: those keep a copy in Modelorrow_base).</summary>
+    public static HashSet<string> BorrowAdded(Mod m)
+    {
+        var borrowed = (m.Manifest.PowerBorrows ?? []).SelectMany(e => e.Packages);
+        return borrowed.Where(f => !File.Exists(Path.Combine(m.Folder, ModelWork.Folder, "borrow_base", f))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
 
     public sealed record Loaded(string Name, Vector3[] Positions, Vector3[] Normals, Vector4[] Tangents, Vector2[] Uv, int[] Indices, int[] TriangleSection,
         Gui.ModelView.Look?[] Looks, string Info, IReadOnlyList<MeshBone> Bones, IReadOnlyList<VertexInfluence> Influences)

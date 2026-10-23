@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.78
+- 3D previews: a mod with a borrowed power look shows its own costume first, not the hero's other costumes the borrow added for its animations (Worthy Captain America opened on Age of Ultron). The mod card's costume and Costume ▾ ignore those added packages too.
+
 0.60.77
 - Powers tab: after Borrow Look, the selected power plays its new animation in the preview at once (it kept the old one until the mod was saved and opened again).
 

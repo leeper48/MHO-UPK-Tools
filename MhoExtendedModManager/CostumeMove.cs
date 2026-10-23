@@ -65,7 +65,8 @@ static class CostumeMove
     {
         var icons = IconReplacements(mod).Select(x => x.Texture).ToHashSet(StringComparer.OrdinalIgnoreCase);
         int Own(Costume c) => new[] { c.Icon, c.Portrait, c.Store }.Count(p => Costume.IconTexture(p) is { } t && icons.Contains(t.Texture));
-        return [.. mod.Manifest.UpkReplacements
+        var added = ModMeshes.BorrowAdded(mod);   // (the hero's other costumes a borrowed power look added: not the mod's costume)
+        return [.. mod.Manifest.UpkReplacements.Where(f => !added.Contains(f))
             .Select(f => (File: f, Costume: all.Where(c => c.Class.Equals(ClassOfFile(f), StringComparison.OrdinalIgnoreCase)).OrderByDescending(c => c.IsDefault).FirstOrDefault()))
             .Where(x => x.Costume != null).Select(x => (x.File, Costume: x.Costume!)).OrderByDescending(x => Own(x.Costume))];
     }
