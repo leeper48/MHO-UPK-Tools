@@ -9,6 +9,8 @@ namespace MhoExtendedModManager.Gui;
 sealed partial class Preview3D
 {
     readonly PropRig rig = new();
+    /// <summary>Tests: the classes of the props the rig holds.</summary>
+    internal IEnumerable<string> PropClassesForTest => rig.Classes;
     /// <summary>A prop's frame as shown (PropRig.Frame), or null.</summary>
     public System.Numerics.Matrix4x4? PropFrame(string cls) => animator == null ? null : rig.Frame(cls, animator);
     PreviewEffects? effects;

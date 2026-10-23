@@ -675,6 +675,16 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 4 && args[0].Equals("--prop-tab-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --prop-tab-test <dir> <mod> <package name part>  (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.PropTabTest(args[1], args[2], args[3]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 6 && args[0].Equals("--anim-tab-test", StringComparison.OrdinalIgnoreCase))
         {
             // --anim-tab-test <dir> <mod> <slot> <donor title> <animation>  (scratch libraries only)

@@ -354,6 +354,8 @@ sealed partial class StorePreview : Control
         // is a picture; the mod's own mesh choice if it has one, else the costume's model (listed first).
         if (Always3D && meshes.Count > 0 && (key == null || !key.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase)))
             key = new[] { Offered(mod.LocalPreview), Offered(mod.Manifest.PreviewImage) }.FirstOrDefault(k => k != null && k.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase)) ?? meshes[0].Key;
+        // (tests: the model of the package whose name has TestMeshPart)
+        if (TestMeshPart != null && meshes.FirstOrDefault(x => x.Package.Contains(TestMeshPart, StringComparison.OrdinalIgnoreCase)) is { } tm) key = tm.Key;
         if (key != null && key.StartsWith("mesh:", StringComparison.OrdinalIgnoreCase))
         {
             int mi = meshes.FindIndex(x => x.Key.Equals(MeshPart(key), StringComparison.OrdinalIgnoreCase));

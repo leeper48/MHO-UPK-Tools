@@ -22,6 +22,9 @@ sealed partial class ModEditorView
     System.Numerics.Matrix4x4 apAxes = System.Numerics.Matrix4x4.Identity;
     /// <summary>Packages an added prop changed since the last save (the previews read their work copies).</summary>
     readonly HashSet<string> propTouched = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Bumped by every add, remove and refit: a prop build that finishes after a newer one started is thrown away
+    /// (Kurt, 2026-10-23: a re-apply after a borrowed look's rebuild could put a just-removed hammer back).</summary>
+    int propVersion;
 
     Control PropsSection()
     {
@@ -108,6 +111,33 @@ sealed partial class ModEditorView
         _ = ApplyPropsTo(e.Package);
     }
 
+    // ---- Test hooks (--prop-tab-test, scratch libraries only)
+    /// <summary>Picks the Animations tab's package whose name has <paramref name="part"/>.</summary>
+    internal void PropTestPackage(string part)
+    {
+        if (animPackage == null) return;
+        int i = animPackages.FindIndex(f => f.Contains(part, StringComparison.OrdinalIgnoreCase));
+        if (i >= 0) animPackage.SelectedIndex = i;
+        if (animPreview != null) { animPreview.TestMeshPart = part; animPreview.ReloadOverrides(); }
+    }
+    internal string PropTestState() => $"list [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Class))}] package {AnimFile} draft {DraftPath(AnimFile ?? "") ?? "-"} | preview props: {animPreview?.PropsForTest ?? "(no preview)"}";
+    internal async Task PropTestRemove()
+    {
+        if (propList.Items.Count > 0) propList.SelectedIndex = 0;
+        RemovePropAsked();
+        await Task.Delay(6000);
+    }
+    internal async Task PropTestAdd(string hero, string cls)
+    {
+        if (game == null || AnimFile is not string file) return;
+        string from = $"UC__MarvelPlayer_{hero}_SF.upk";
+        var e = new AddedPropEntry { Package = file, From = from, Class = cls, Name = $"{hero}: {cls}", Slot = PowerBorrow.PropSlot(StockFiles.For(game.Cooked, from), cls), Fit = new PropFit { Class = cls, TurnZ = PowerBorrow.DefaultTurnZ(cls) } };
+        draft.AddedProps.Add(e);
+        if (!await ApplyPropsTo(file)) draft.AddedProps.Remove(e);
+        FillPropList();
+        await Task.Delay(6000);
+    }
+
     /// <summary>Add a Prop: a hero, then one of their props; added to the selected costume package.</summary>
     async void AddPropAsked()
     {
@@ -131,14 +161,19 @@ sealed partial class ModEditorView
     async void RemovePropAsked()
     {
         if (propList.SelectedItem is not AddedPropEntry e || DraftPath(e.Package) is not string src) return;
+        int v = ++propVersion;
+        draft.AddedProps.Remove(e);
         var log = new List<string>();
         byte[] bytes;
         try { bytes = await Task.Run(() => PowerBorrow.RemoveProp(File.ReadAllBytes(src), e.Class, log)); }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, "The prop couldn't be taken off: " + ex.Message, "Prop Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        draft.AddedProps.Remove(e);
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { draft.AddedProps.Add(e); Dialog.Show(this, "The prop couldn't be taken off: " + ex.Message, "Prop Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (IsDisposed || v != propVersion) return;
         UseWorkCopy(e.Package, bytes);
         propTouched.Add(e.Package);
+        // checked: the package's props without it
+        bool still = DraftPath(e.Package) is string now && (ModMeshes.AttachmentClasses(now) ?? []).Contains(e.Class, StringComparer.OrdinalIgnoreCase);
         FillPropList();
+        propNote.Text = still ? $"{e.Name} Is Still in the Package (Please Report This)" : $"{e.Name} Taken Off";
         ReloadPropPreviews();
     }
 
@@ -147,6 +182,7 @@ sealed partial class ModEditorView
     async Task<bool> ApplyPropsTo(string file)
     {
         if (game == null || DraftPath(file) is not string src) return false;
+        int v = ++propVersion;
         var props = draft.AddedProps.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
         string cooked = game.Cooked;
         var log = new List<string>();
@@ -168,6 +204,7 @@ sealed partial class ModEditorView
             return false;
         }
         if (IsDisposed) return false;
+        if (v != propVersion) return true;   // (a newer add / remove / refit started meanwhile: its result counts)
         UseWorkCopy(file, bytes);
         propTouched.Add(file);
         propNote.Text = "";

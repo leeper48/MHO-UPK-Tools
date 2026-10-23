@@ -20,6 +20,8 @@ sealed class PropRig
     Vector4[] tan = [];
 
     public int Count => props.Count;
+    /// <summary>The props' classes (tests).</summary>
+    public IEnumerable<string> Classes => props.Select(p => p.Class);
 
     /// <summary>The character and its props as last posed (Update): the box around them, or null before the first pose.</summary>
     public (Vector3 Lo, Vector3 Hi)? Bounds()

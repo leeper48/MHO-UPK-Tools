@@ -96,6 +96,17 @@ static partial class Program
                 return 0;
                 static string WriteTemp(byte[] b) { string t = Path.Combine(Path.GetTempPath(), "mhoextmm_addprop_" + Guid.NewGuid().ToString("N")[..8] + ".upk"); File.WriteAllBytes(t, b); return t; }
             }
+            case "--remove-prop":
+            {
+                // --remove-prop <costume.upk> <prop class> <out.upk>: PowerBorrow.RemoveProp, written to <out> (never into the game)
+                if (rest.Count < 4) { Console.WriteLine("--remove-prop <costume.upk> <prop class> <out.upk>"); return 1; }
+                var rlog = new List<string>();
+                byte[] rb = PowerBorrow.RemoveProp(File.ReadAllBytes(rest[1]), rest[2], rlog);
+                rlog.ForEach(Console.WriteLine);
+                MhoExtendedModManager.Model.Protected.CheckWrite(rest[3]);
+                File.WriteAllBytes(rest[3], rb);
+                return 0;
+            }
             case "--attach-classes":
             {
                 // Read-only: each package's player class default's mAttachmentClasses (the props it always has), or "none".

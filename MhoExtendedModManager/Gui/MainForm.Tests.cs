@@ -944,6 +944,31 @@ sealed partial class MainForm
     /// (as Use This Animation), saved and checked on disk (the slot from a swapped-in set, the manifest's AnimSwaps), then
     /// Back to the Original, saved and checked again. Results in &lt;dir&gt;\result.txt.
     /// </summary>
+    /// <summary>--prop-tab-test: the Animations tab's Props on a scratch mod: remove what's added, add Thor's hammer, remove it;
+    /// the draft and the preview's props after each.</summary>
+    public async Task PropTabTest(string dir, string modName, string package)
+    {
+        Directory.CreateDirectory(dir);
+        var lines = new List<string>();
+        var m = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(modName);
+        if (m == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), "no such mod"); return; }
+        OpenEditor(m);
+        pages.Select(1);
+        var ed = editor!;
+        for (int i = 0; i < ed.TabCount; i++) if (ed.TabTitle(i) == "Animations") ed.SelectTab(i);
+        await Task.Delay(5000);
+        ed.PropTestPackage(package);
+        await Task.Delay(8000);
+        lines.Add("start: " + ed.PropTestState());
+        await ed.PropTestRemove();
+        lines.Add("removed: " + ed.PropTestState());
+        await ed.PropTestAdd("Thor", "marvelattachment_thorhammer");
+        lines.Add("added: " + ed.PropTestState());
+        await ed.PropTestRemove();
+        lines.Add("removed again: " + ed.PropTestState());
+        File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+    }
+
     public async Task AnimTabTest(string dir, string modName, string slot, string donor, string anim)
     {
         Directory.CreateDirectory(dir);
