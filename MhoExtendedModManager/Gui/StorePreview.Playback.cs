@@ -114,7 +114,13 @@ sealed partial class StorePreview
                 var saved = PreviewViews.GetAnim(PreviewViews.Key(mod, r));
                 string? name = saved?.Name ?? wantedAnim;
                 double? at = saved?.Name != null && name != null && saved.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ? saved.Time : null;
-                p3.SetAnimations(t.Result, name, at, false);
+                // a reload of this view (ReloadOverrides): what it showed itself, not the key's last save (another view's)
+                var keep = keepAnim;
+                keepAnim = null;
+                if (keep is { } kk && (kk.Folder != mod.FolderName || kk.Mesh != r.Key)) keep = null;   // (another mod or model since)
+                if (keep is { } kn && kn.Ref == null) { name = kn.Name; at = kn.Name != null ? kn.Time : null; }
+                p3.SetAnimations(t.Result, name, at, keep is { Ref: null, Playing: true });
+                if (keep is { Ref: { } kr } k && p3.PlayRef(kr, false)) { p3.Time = k.Time; if (k.Playing) p3.Play(); }
                 AnimationsLoaded?.Invoke();
                 OwnAfterAnimations();
                 if (frameWanted) FrameFull();
@@ -154,6 +160,8 @@ sealed partial class StorePreview
     public IReadOnlyList<AnimRef> AllAnimations => p3?.AllAnimations ?? [];
     /// <summary>The shown mesh's animations are loaded (AllAnimations).</summary>
     public event Action? AnimationsLoaded;
+    /// <summary>ReloadOverrides: an animation from outside the model's list to show again once the reload's animations are in.</summary>
+    (string Folder, string Mesh, AnimRef? Ref, string? Name, double Time, bool Playing)? keepAnim;
 
     /// <summary>Picks an animation by name (the editor's Animations tab): every animation back in the drop-down, that one
     /// selected and, with <paramref name="play"/>, playing. False when the shown mesh has no animation of that name.</summary>

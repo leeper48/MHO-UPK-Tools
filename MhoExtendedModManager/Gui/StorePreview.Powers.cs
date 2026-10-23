@@ -67,6 +67,10 @@ sealed partial class StorePreview
     {
         if (mod is not { } m) return;
         SaveAnim();   // (the animation and frame showing come back after the reload, not the last one saved: Kurt, 2026-10-23)
+        // this view's own animation and frame, kept here (Kurt, 2026-10-23: a Prop Fit slider on Thor's idle jumped to the
+        // travel power's run: the Powers tab's preview reloads too and saved its own animation under the same model's key);
+        // one played from outside the model's list (the Animations tab's unsaved change, from the donor) is played again as is
+        keepAnim = p3 == null || shownMesh == null ? null : (m.FolderName, shownMesh, p3.CurrentOutsideRef, p3.CurrentAnimation, p3.Time, p3.IsPlaying);
         ownPending = ownFxPackage != null;   // (a character's own effects come back once the model and its animations are in)
         modStamp = "";
         mod = null;

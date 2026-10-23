@@ -125,7 +125,9 @@ sealed partial class ModEditorView
         if (i >= 0) animPackage.SelectedIndex = i;
         if (animPreview != null) { animPreview.TestMeshPart = part; animPreview.ReloadOverrides(); }
     }
-    internal string PropTestState() => $"list [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Class))}] package {AnimFile} draft {DraftPath(AnimFile ?? "") ?? "-"} | preview props: {animPreview?.PropsForTest ?? "(no preview)"}";
+    internal string PropTestState() => $"list [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Class))}] package {AnimFile} draft {DraftPath(AnimFile ?? "") ?? "-"} | preview props: {animPreview?.PropsForTest ?? "(no preview)"} | playing: {animPreview?.CurrentAnimationForTest ?? "-"}";
+    /// <summary>Tests: the Animations tab's preview plays <paramref name="name"/>.</summary>
+    internal void PropTestPlay(string name) => animPreview?.PlayAnimation(name, false);
     internal async Task PropTestFit(float size)
     {
         if (propList.SelectedItem is not AddedPropEntry e) return;

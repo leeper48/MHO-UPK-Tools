@@ -338,12 +338,16 @@ sealed class ModelView : UserControl
         canvas.Resize += (_, _) => Redraw();
         canvas.MouseDown += (_, e) =>
         {
-            dragFrom = downAt = e.Location; dragButton = e.Button; fast = true; canvas.Focus();
+            downAt = e.Location; canvas.Focus();
+            // the size reference under the pointer: dragged along the floor, not the camera (Kurt, 2026-10-23)
+            if (e.Button == MouseButtons.Left && GizmoHit(e.Location) == null && StartPartDrag(e.Location)) { dragFrom = null; return; }
+            dragFrom = e.Location; dragButton = e.Button; fast = true;
             // the quad view's pane the drag started in (a pan follows that pane's own axes)
             dragPane = quad ? (e.X >= canvas.ClientSize.Width / 2 ? 1 : 0) + (e.Y >= canvas.ClientSize.Height / 2 ? 2 : 0) : -1;
         };
         canvas.MouseUp += (_, e) =>
         {
+            if (partDrag != null) { partDrag = null; fast = false; Redraw(); PartDropped?.Invoke(); return; }
             bool moved = dragFrom != null; dragFrom = null; fast = false;
             // a click (no drag) on an axis ball: look along that axis, flat (Kurt, 2026-10-23: as Blender's gizmo; Shift: from
             // the other side)
@@ -351,19 +355,124 @@ sealed class ModelView : UserControl
                 SnapTo((ModifierKeys & Keys.Shift) != 0 ? -dir : dir);
             Redraw(); if (moved) ViewChanged?.Invoke();
         };
-        canvas.MouseMove += (_, e) => Drag(e);
+        canvas.MouseMove += (_, e) =>
+        {
+            if (partDrag != null) { DragPartTo(e.Location); return; }
+            if (dragFrom == null) canvas.Cursor = DragPart != null && PartUnder(e.Location) != null ? Cursors.SizeAll : Cursors.Default;
+            Drag(e);
+        };
         // Wheel zoom: 8 % a notch, 2 % with Shift held (Kurt: one notch went too far for framing an icon).
         canvas.MouseWheel += (_, e) =>
         {
             float step = (ModifierKeys & Keys.Shift) != 0 ? 0.98f : 0.92f;
             distance *= MathF.Pow(step, e.Delta / 120f); distance = Math.Clamp(distance, radius * 0.05f, radius * 50); Redraw(); ViewChanged?.Invoke();
         };
-        canvas.DoubleClick += (_, _) => { FrameMesh(); Redraw(); ViewChanged?.Invoke(); };
+        canvas.DoubleClick += (_, _) =>
+        {
+            if (DragPart != null && PartUnder(downAt) != null) { PartReset?.Invoke(); return; }   // (the drum: back beside the character)
+            FrameMesh(); Redraw(); ViewChanged?.Invoke();
+        };
         Controls.Add(canvas);
     }
 
     /// <summary>The user turned, panned or zoomed the view (after a drag, a wheel step or a double-click).</summary>
     public event Action? ViewChanged;
+
+    // --- a part the mouse drags along the floor (Look ▾ → Size Reference: the oil drum; Kurt, 2026-10-23) --------------------------
+    /// <summary>Vertices (in the mesh shown) the left mouse button drags along the floor instead of turning the view, or null.</summary>
+    public (int First, int Count)? DragPart { get; set; }
+    /// <summary>The part dragged by this much (engine space, Z 0): move it and show the pose again.</summary>
+    public event Action<Vector3>? PartDragged;
+    /// <summary>The drag ended (keep where it is).</summary>
+    public event Action? PartDropped;
+    /// <summary>A double-click on the part (put it back).</summary>
+    public event Action? PartReset;
+    /// <summary>A drag under way: the view's camera, its part of the canvas, the plane it slides in (a point, its normal: the
+    /// floor, or upright facing the camera in a view along the floor), the last point on it (display space, scaled).</summary>
+    (Cam Cam, Rectangle Area, Vector3 Normal, Vector3 Last)? partDrag;
+
+    Rectangle PaneArea(int pane)
+    {
+        var rc = canvas.ClientRectangle;
+        int hw = rc.Width / 2, hh = rc.Height / 2;
+        return pane < 0 ? rc : new Rectangle(rc.Left + pane % 2 * hw, rc.Top + pane / 2 * hh, pane % 2 == 0 ? hw : rc.Width - hw, pane / 2 == 0 ? hh : rc.Height - hh);
+    }
+
+    /// <summary>The view under <paramref name="p"/> when the part shows there (inside its outline on screen), else null.</summary>
+    (Cam Cam, Rectangle Area)? PartUnder(Point p)
+    {
+        if (DragPart is not (int first, int count) || first < 0 || first + count > pos.Length || count == 0) return null;
+        foreach (var (cam, pane) in cams)
+        {
+            var area = PaneArea(pane);
+            if (!area.Contains(p)) continue;
+            float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+            for (int i = first; i < first + count; i++)
+            {
+                var d = pos[i] * ModelScale - cam.Eye;
+                float z = Vector3.Dot(d, cam.F);
+                if (z < cam.Near) return null;
+                float sx = area.X + (cam.Cx + Vector3.Dot(d, cam.R) * cam.Focal / z) * area.Width / cam.W, sy = area.Y + (cam.Cy - Vector3.Dot(d, cam.U) * cam.Focal / z) * area.Height / cam.H;
+                x0 = Math.Min(x0, sx); x1 = Math.Max(x1, sx); y0 = Math.Min(y0, sy); y1 = Math.Max(y1, sy);
+            }
+            return p.X >= x0 - 3 && p.X <= x1 + 3 && p.Y >= y0 - 3 && p.Y <= y1 + 3 ? (cam, area) : null;
+        }
+        return null;
+    }
+
+    /// <summary>Where the ray through <paramref name="p"/> meets the plane through <paramref name="at"/> with <paramref name="n"/>.</summary>
+    static Vector3? OnPlane(Point p, Cam c, Rectangle area, Vector3 at, Vector3 n)
+    {
+        float sx = (p.X - area.X) * (float)c.W / Math.Max(1, area.Width), sy = (p.Y - area.Y) * (float)c.H / Math.Max(1, area.Height);
+        var dir = c.F + c.R * ((sx - c.Cx) / c.Focal) - c.U * ((sy - c.Cy) / c.Focal);
+        float den = Vector3.Dot(dir, n);
+        if (MathF.Abs(den) < 1e-6f) return null;
+        float t = Vector3.Dot(at - c.Eye, n) / den;
+        return t > 0 ? c.Eye + dir * t : null;
+    }
+
+    bool StartPartDrag(Point p)
+    {
+        if (PartUnder(p) is not var (cam, area) || DragPart is not (int first, int count)) return false;
+        var mid = Vector3.Zero;
+        for (int i = first; i < first + count; i++) mid += pos[i];
+        mid = mid / count * ModelScale;
+        var flat = new Vector3(cam.F.X, cam.F.Y, 0);
+        var n = MathF.Abs(cam.F.Z) > 0.15f || flat.LengthSquared() < 1e-6f ? Vector3.UnitZ : Vector3.Normalize(flat);
+        if (OnPlane(p, cam, area, mid, n) is not Vector3 hit) return false;
+        partDrag = (cam, area, n, hit);
+        canvas.Cursor = Cursors.SizeAll;
+        fast = true;
+        return true;
+    }
+
+    /// <summary>Tests (--anim-render, MHO_RENDER_DRAGTEST): the drag part pressed at its middle on screen, moved by
+    /// (<paramref name="dx"/>, <paramref name="dy"/>) pixels in two steps, released. False when it isn't under its middle.</summary>
+    internal bool TestDragPart(int dx, int dy)
+    {
+        if (DragPart is not (int first, int count) || cams.Count == 0 || count == 0) return false;
+        var mid = Vector3.Zero;
+        for (int i = first; i < first + count; i++) mid += pos[i];
+        mid /= count;
+        var (cam, pane) = cams[0];
+        if (OnCanvas(new Vector3(mid.X, -mid.Y, mid.Z), cam, PaneArea(pane)) is not PointF c) return false;
+        var p = Point.Round(c);
+        if (!StartPartDrag(p)) return false;
+        DragPartTo(new Point(p.X + dx / 2, p.Y + dy / 2));
+        DragPartTo(new Point(p.X + dx, p.Y + dy));
+        partDrag = null; fast = false;
+        PartDropped?.Invoke();
+        return true;
+    }
+
+    void DragPartTo(Point p)
+    {
+        if (partDrag is not var (cam, area, n, last) || OnPlane(p, cam, area, last, n) is not Vector3 hit) return;
+        partDrag = (cam, area, n, hit);
+        var d = (hit - last) / Math.Max(1e-4f, ModelScale);
+        if (d.X == 0 && d.Y == 0) return;
+        PartDragged?.Invoke(new Vector3(d.X, -d.Y, 0));   // (display space mirrors engine Y)
+    }
 
     /// <summary>Shows a loaded mesh (bind pose) with its section looks.</summary>
     /// <summary>
@@ -907,13 +1016,11 @@ sealed class ModelView : UserControl
     void PaintMarkers(Graphics g)
     {
         if (markers.Count == 0 || cams.Count == 0) return;
-        var rc = canvas.ClientRectangle;
-        int hw = rc.Width / 2, hh = rc.Height / 2;
         float s = Ui.Dpi(DeviceDpi), len = Math.Max(6, radius * 0.22f);
         Color[] cols = [Color.FromArgb(232, 72, 85), Color.FromArgb(132, 196, 46), Color.FromArgb(62, 138, 238)];
         foreach (var (cam, pane) in cams)
         {
-            var area = pane < 0 ? rc : new Rectangle(rc.Left + pane % 2 * hw, rc.Top + pane / 2 * hh, pane % 2 == 0 ? hw : rc.Width - hw, pane / 2 == 0 ? hh : rc.Height - hh);
+            var area = PaneArea(pane);
             g.SetClip(area);
             foreach (var (m, label) in markers)
             {

@@ -189,6 +189,25 @@ sealed class PropRig
 
     BoneAnimation? parentSeq;
 
+    /// <summary>The vertices of the prop of class <paramref name="cls"/> in the combined mesh (after the character's
+    /// <paramref name="characterVertices"/>), or null.</summary>
+    public (int First, int Count)? RangeOf(string cls, int characterVertices)
+    {
+        int at = characterVertices;
+        foreach (var p in props)
+        {
+            if (p.Class == cls) return (at, p.Mesh.Positions.Length);
+            at += p.Mesh.Positions.Length;
+        }
+        return null;
+    }
+
+    /// <summary>A prop's offset changed (the size reference dragged): shown at the next Update.</summary>
+    public void SetOffset(string cls, Matrix4x4 offset)
+    {
+        for (int i = 0; i < props.Count && i < offsets.Count; i++) if (props[i].Class == cls) offsets[i] = offset;
+    }
+
     /// <summary>Every shown prop's frame as last posed (as Update places it): Look ▾ → Prop Pivots draws them.</summary>
     public List<(Matrix4x4 Frame, string Label)> ShownFrames(MeshAnimator animator)
     {

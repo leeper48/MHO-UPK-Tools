@@ -145,6 +145,10 @@ sealed partial class Preview3D : UserControl
         frame.ValueChanged += ScrubTo;
         frame.Committed += () => PlaybackMoved?.Invoke();
         view.ViewChanged += () => ViewChanged?.Invoke();
+        // the size reference: dragged along the floor, kept on the drop, put back by a double-click (Kurt, 2026-10-23)
+        view.PartDragged += d => { SizeReference.Spot += new System.Numerics.Vector2(d.X, d.Y); rig.SetOffset("size_reference", SizeReference.Place); ShowPose(); };
+        view.PartDropped += SizeReference.Keep;
+        view.PartReset += () => { SizeReference.Reset(); rig.SetOffset("size_reference", SizeReference.Place); ShowPose(); };
         frame.Enabled = false; frame.Format = _ => "–";
         anims.SelectedIndexChanged += (_, _) => AnimationChosen();
         Ui.Lit(loop, prefs.Loop);
@@ -210,7 +214,7 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Spec, () => prefs.Spec = !prefs.Spec, () => prefs.Reflect, () => prefs.Reflect = !prefs.Reflect, () => prefs.Glow, () => prefs.Glow = !prefs.Glow,
                 () => prefs.Bloom, () => prefs.Bloom = !prefs.Bloom, () => prefs.Props, () => { prefs.Props = !prefs.Props; LoadProps(); },
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
-            items.Add(new("Size Reference", "A 55-gallon oil drum from the game (Brooklyn's docks) on the floor beside the character, to judge sizes by. Remembered for every 3D view.", () => PreviewViews.SizeRef, () => { PreviewViews.SizeRef = !PreviewViews.SizeRef; Props.Rebuild(); }));
+            items.Add(new("Size Reference", "A 55-gallon oil drum from the game (Brooklyn's docks) on the floor beside the character, to judge sizes by. Drag it to move it along the floor (in any pane); double-click it to put it back beside the character. Remembered for every 3D view.", () => PreviewViews.SizeRef, () => { PreviewViews.SizeRef = !PreviewViews.SizeRef; Props.Rebuild(); }));
             items.Add(new("Prop Pivots", "Each prop's pivot: the point its model is placed and turned around (its bone, the attachment's offset and its own move and turn), with its axes (X red, Y green, Z blue). Prop Fit moves and turns the prop about it. Remembered for every 3D view.", () => PreviewViews.Pivots, () => { PreviewViews.Pivots = !PreviewViews.Pivots; ShowPose(); }));
             items.Add(new("Axis Gizmo", "The game's axes in the view's corner, as Blender's: X red (the way the character faces), Y green, Z blue (up). Remembered for every 3D view.", () => PreviewViews.Gizmo, () => PreviewViews.Gizmo = !PreviewViews.Gizmo));
             items.AddRange(ExtraLook);
@@ -332,6 +336,8 @@ sealed partial class Preview3D : UserControl
     // --- animations ---------------------------------------------------------------------------------------------------------------
     /// <summary>The animation picked in the drop-down (null = rest pose).</summary>
     public string? CurrentAnimation => anims.SelectedIndex > 0 ? anims.SelectedItem as string : null;
+    /// <summary>The animation showing when it isn't one of the model's own (PlayRef: an unsaved change's donor animation), else null.</summary>
+    public AnimRef? CurrentOutsideRef => anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count && animList[anims.SelectedIndex - 1] is var a && !allAnims.Any(x => ReferenceEquals(x, a)) ? a : null;
     /// <summary>Every animation of the shown character (not only the power filter's).</summary>
     public IReadOnlyList<AnimRef> AllAnimations => allAnims;
     public bool IsPlaying => player is { Paused: false };
@@ -487,6 +493,7 @@ sealed partial class Preview3D : UserControl
         rig.At(anim == null || seconds <= 0 ? 0 : Math.Min(playTime, seconds));
         rig.Update(view, animator);
         view.Markers = PreviewViews.Pivots ? rig.ShownFrames(animator) : [];
+        view.DragPart = PreviewViews.SizeRef ? rig.RangeOf("size_reference", animator.Positions.Length) : null;
     }
 
     void ScrubTo()

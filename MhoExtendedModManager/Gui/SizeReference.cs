@@ -15,7 +15,22 @@ static class SizeReference
     const string MeshPath = "mtnt_undrgrnd_oildrum_a.meshes.mtnt_undrgrnd_oildrum_a";
     /// <summary>The drum's material: its mesh sections name none (the level's placed component sets it).</summary>
     const string MaterialPath = "mtnt_undrgrnd_oildrum_a.materials.mtnt_undgrnd_oildruml_mat_a";
-    static (string Cooked, ModMeshes.Loaded Mesh, Matrix4x4 Place)? cached;
+    static (string Cooked, ModMeshes.Loaded Mesh, Matrix4x4 Base, Vector2 Beside)? cached;
+
+    /// <summary>Where the drum stands now (engine X, Y of its middle): dragged in a 3D view (saved on the drop), else beside
+    /// the character.</summary>
+    public static Vector2 Spot
+    {
+        get => spot ?? (PreviewViews.SizeRefAt is [var x, var y] ? new Vector2(x, y) : cached?.Beside ?? Vector2.Zero);
+        set => spot = value;
+    }
+    static Vector2? spot;
+    /// <summary>The spot dragged to, saved for every 3D view.</summary>
+    public static void Keep() { if (spot is { } s) PreviewViews.SizeRefAt = [s.X, s.Y]; }
+    /// <summary>Back beside the character (a double-click on the drum).</summary>
+    public static void Reset() { spot = null; PreviewViews.SizeRefAt = null; }
+    /// <summary>The drum's placement at <see cref="Spot"/>.</summary>
+    public static Matrix4x4 Place => cached is { } c ? c.Base * Matrix4x4.CreateTranslation(Spot.X, Spot.Y, 0) : Matrix4x4.Identity;
     static readonly object gate = new();
 
     /// <summary>The drum and where it stands (beside the character, on the floor), or null when it can't be read.</summary>
@@ -24,7 +39,7 @@ static class SizeReference
         if (cooked == null) return null;
         lock (gate)
         {
-            if (cached is { } c && c.Cooked == cooked) return (c.Mesh, c.Place);
+            if (cached is { } c && c.Cooked == cooked) return (c.Mesh, Place);
             foreach (string f in Packages)
             {
                 string path = StockFiles.For(cooked, f);
@@ -50,13 +65,12 @@ static class SizeReference
                     }
                     var mesh = new ModMeshes.Loaded("size reference: oil drum", pos, nrm, ModMeshes.Tangents(pos, nrm, uv, idx), uv, idx, tri, looks,
                         $"{pos.Length} vertices", [], []);
-                    // on the floor, centred under itself, to the character's side (−Y: away from the default camera, which looks
-                    // from +X turned toward +Y) and a little behind
+                    // on the floor, centred under itself; at first to the character's side (−Y: away from the default camera,
+                    // which looks from +X turned toward +Y) and a little behind
                     float minZ = pos.Min(v => v.Z), cx = (pos.Min(v => v.X) + pos.Max(v => v.X)) / 2, cy = (pos.Min(v => v.Y) + pos.Max(v => v.Y)) / 2;
                     float half = Math.Max(pos.Max(v => v.Y) - pos.Min(v => v.Y), pos.Max(v => v.X) - pos.Min(v => v.X)) / 2;
-                    var place = Matrix4x4.CreateTranslation(-cx - 20, -(70 + half) - cy, -minZ);
-                    cached = (cooked, mesh, place);
-                    return (mesh, place);
+                    cached = (cooked, mesh, Matrix4x4.CreateTranslation(-cx, -cy, -minZ), new Vector2(-20, -(70 + half)));
+                    return (mesh, Place);
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
             }

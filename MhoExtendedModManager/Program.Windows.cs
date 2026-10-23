@@ -457,6 +457,15 @@ static partial class Program
                     renderRig?.At(secs * at);
                     if (fxp != null) { v.Effects = fxp.Quads(); v.EffectTris = fxp.Tris(); Console.WriteLine($"    {v.Effects.Count} sprites, {v.EffectTris.Count} triangles"); }
                     rrig.Update(v, anim8);
+                    // MHO_RENDER_DRAGTEST=<dx>,<dy>: the size reference dragged by that many pixels before the third frame
+                    if (at == 0.66f && Environment.GetEnvironmentVariable("MHO_RENDER_DRAGTEST") is string rdt && rdt.Split(',') is [var sdx, var sdy])
+                    {
+                        v.DragPart = rrig.RangeOf("size_reference", anim8.Positions.Length);
+                        var before = Gui.SizeReference.Spot;
+                        v.PartDragged += d => { Gui.SizeReference.Spot += new System.Numerics.Vector2(d.X, d.Y); rrig.SetOffset("size_reference", Gui.SizeReference.Place); rrig.Update(v, anim8); };
+                        bool dragged = v.TestDragPart(int.Parse(sdx), int.Parse(sdy));
+                        Console.WriteLine($"  drag test: {(dragged ? "dragged" : "not under its middle")}, drum {before} -> {Gui.SizeReference.Spot}, kept {string.Join(", ", PreviewViews.SizeRefAt ?? [])}");
+                    }
                     if (Environment.GetEnvironmentVariable("MHO_RENDER_PIVOTS") == "1") v.Markers = rrig.ShownFrames(anim8);   // (Look -> Prop Pivots)
                     await Task.Delay(200);
                     var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); shots.Add(b);

@@ -955,10 +955,15 @@ sealed partial class MainForm
         OpenEditor(m);
         pages.Select(1);
         var ed = editor!;
+        // the Powers tab's preview first (it opens on the travel power: Kurt, 2026-10-23, a prop change then showed its run here)
+        for (int i = 0; i < ed.TabCount; i++) if (ed.TabTitle(i) == "Powers") ed.SelectTab(i);
+        await Task.Delay(8000);
         for (int i = 0; i < ed.TabCount; i++) if (ed.TabTitle(i) == "Animations") ed.SelectTab(i);
         await Task.Delay(5000);
         ed.PropTestPackage(package);
         await Task.Delay(8000);
+        ed.PropTestPlay("idle");
+        await Task.Delay(1500);
         lines.Add("start: " + ed.PropTestState());
         await ed.PropTestRemove();
         lines.Add("removed: " + ed.PropTestState());
