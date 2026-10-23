@@ -499,6 +499,12 @@ sealed class ModelView : UserControl
 
     void Redraw() { Render(); canvas.Invalidate(); }
 
+    /// <summary>Drawn over the view after the overlay (Create from 3D's framing guides); never in a snapshot.</summary>
+    public Action<Graphics, Rectangle>? PaintGuides { get; set; }
+
+    /// <summary>Paints the view again (the guides changed).</summary>
+    public void RepaintGuides() => canvas.Invalidate();
+
     void PaintFrame(Graphics g)
     {
         if (frame == null)
@@ -517,6 +523,7 @@ sealed class ModelView : UserControl
             var r = canvas.ClientRectangle;
             g.DrawImage(overlay, r, 0, 0, overlay.Width, overlay.Height, GraphicsUnit.Pixel, ia);
         }
+        PaintGuides?.Invoke(g, canvas.ClientRectangle);
     }
 
     // ---------------------------------------------------------------- the renderer

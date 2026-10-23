@@ -50,7 +50,43 @@ sealed class IconCreatorView : UserControl
     readonly LightSlider turnSlider = new() { Label = "Turn", Min = -180, Max = 180, Step = 1, Mark = 0 };
     bool syncingTurn;
     readonly ModelView view = new() { Background = Color.FromArgb(22, 22, 24) };
-    readonly Button specBtn, reflBtn, glowBtn, fxBtn;
+    readonly Button specBtn, reflBtn, glowBtn, fxBtn, thirdsBtn, centerBtn, safeBtn;
+    /// <summary>The safe area's margin, a fraction of each side (a generic inset: the game's own frames aren't measured).</summary>
+    const float SafeMargin = 0.08f;
+
+    /// <summary>The framing guides over the view (lines only; not in the snapshot).</summary>
+    void PaintGuides(Graphics g, Rectangle r)
+    {
+        if (!PreviewViews.GuideThirds && !PreviewViews.GuideCenter && !PreviewViews.GuideSafe) return;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using var shadow = new Pen(Color.FromArgb(110, 0, 0, 0), 3);
+        using var pen = new Pen(Color.FromArgb(200, 255, 255, 255), 1);
+        void Line(float x1, float y1, float x2, float y2) { g.DrawLine(shadow, x1, y1, x2, y2); g.DrawLine(pen, x1, y1, x2, y2); }
+        if (PreviewViews.GuideThirds)
+            for (int k = 1; k <= 2; k++)
+            {
+                float x = r.Left + r.Width * k / 3f, y = r.Top + r.Height * k / 3f;
+                Line(x, r.Top, x, r.Bottom); Line(r.Left, y, r.Right, y);
+            }
+        if (PreviewViews.GuideCenter)
+        {
+            float cx = r.Left + r.Width / 2f, cy = r.Top + r.Height / 2f, arm = Math.Min(r.Width, r.Height) * 0.06f;
+            Line(cx - arm, cy, cx + arm, cy); Line(cx, cy - arm, cx, cy + arm);
+            g.DrawEllipse(shadow, cx - arm / 3, cy - arm / 3, arm * 2 / 3, arm * 2 / 3); g.DrawEllipse(pen, cx - arm / 3, cy - arm / 3, arm * 2 / 3, arm * 2 / 3);
+        }
+        if (PreviewViews.GuideSafe)
+        {
+            using var dash = new Pen(Color.FromArgb(220, 255, 214, 90), 1) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+            var sr = new RectangleF(r.Left + r.Width * SafeMargin, r.Top + r.Height * SafeMargin, r.Width * (1 - 2 * SafeMargin), r.Height * (1 - 2 * SafeMargin));
+            g.DrawRectangle(shadow, sr.X, sr.Y, sr.Width, sr.Height); g.DrawRectangle(dash, sr.X, sr.Y, sr.Width, sr.Height);
+        }
+    }
+
+    void ApplyGuides()
+    {
+        Ui.Lit(thirdsBtn, PreviewViews.GuideThirds); Ui.Lit(centerBtn, PreviewViews.GuideCenter); Ui.Lit(safeBtn, PreviewViews.GuideSafe);
+        view.RepaintGuides();
+    }
     // The character's own effects (Ghost Rider's head flames; a user, 2026-10-22: the icons came out without them), as the
     // main 3D preview shows them (its Power FXs toggle, shared): grown in for a few seconds on the pose shown.
     PreviewEffects? effects;
@@ -167,7 +203,16 @@ sealed class IconCreatorView : UserControl
         ApplyShading();
         // The main preview may have changed them since: pick them up whenever this shows again.
         VisibleChanged += (_, _) => { if (Visible) ApplyShading(); };
-        Row(Caption("LOOK"), 8); Row(lightSlider); Row(shading); Row(backBox); Row(overlaySlider); Row(overlayBtn);
+        // Framing guides (a user, 2026-10-22): over the view only, the snapshot stays clean.
+        var guides = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Width = cw, Height = (int)(30 * s), Margin = new Padding(0, 4, 0, 0) };
+        for (int i = 0; i < 3; i++) guides.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+        thirdsBtn = Ui.FlatButton("Thirds", () => { PreviewViews.GuideThirds = !PreviewViews.GuideThirds; ApplyGuides(); }, tip: "Rule-of-thirds lines over the view, to place the face or the body. They're not in the snapshot. Lit when on.");
+        centerBtn = Ui.FlatButton("Center", () => { PreviewViews.GuideCenter = !PreviewViews.GuideCenter; ApplyGuides(); }, tip: "A cross at the center of the view. It's not in the snapshot. Lit when on.");
+        safeBtn = Ui.FlatButton("Safe Area", () => { PreviewViews.GuideSafe = !PreviewViews.GuideSafe; ApplyGuides(); }, tip: "A dashed frame 8 % inside each edge: keep the important parts within it, as frames and borders in the game can cover the edges. It's not in the snapshot. Lit when on.");
+        foreach (var b in new[] { thirdsBtn, centerBtn, safeBtn }) { b.AutoSize = false; b.Dock = DockStyle.Fill; b.Margin = new Padding(0, 0, 3, 0); b.Padding = new Padding(0); guides.Controls.Add(b); }
+        view.PaintGuides = PaintGuides;
+        ApplyGuides();
+        Row(Caption("LOOK"), 8); Row(lightSlider); Row(shading); Row(backBox); Row(overlaySlider); Row(overlayBtn); Row(guides);
         previousBtn = Ui.FlatButton("Use Previous Setup", UsePrevious, tip: "Set this icon up like the one you had open before.");
         previousBtn.AutoEllipsis = true;
         Row(Caption("FRAMING"), 8); Row(turnSlider); Row(lensSlider); Row(presets); Row(previousBtn);

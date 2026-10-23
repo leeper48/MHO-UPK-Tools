@@ -44,9 +44,12 @@ sealed class FxTextures(IReadOnlyList<FxPkg> packages, string cooked)
         var at = Resolve(p, materialRef);
         if (at == null) return null;
         string matName = at.Value.P.T.Exports[at.Value.Export].ObjectName;
-        // Distortion (heat haze) and radial remaps can't be shown from a texture alone: left out.
+        // Distortion (heat haze) and radial remaps can't be shown from a texture alone: left out. Not a plain "…_distort"
+        // material: that's a textured one whose shape is warped (Ghost Rider's head flames: mat_tendril_distort_2,
+        // mat_black_fire_distort_02, mat_smoke_distort02; a user, 2026-10-22: they drew nothing); the haze ones say so
+        // (mat_distortion_exhaust, mat_spritewarpdistortt).
         string ml = matName.ToLowerInvariant();
-        if (ml.Contains("distort") || ml.Contains("warp") || ml.Contains("refract") || ml.Contains("radial")) return null;
+        if (ml.Contains("distortion") || ml.Contains("warp") || ml.Contains("refract") || ml.Contains("radial") || ml.Contains("heathaze") || ml.Contains("heat_haze")) return null;
         (List<(FxPkg P, int Export)> Found, bool? Additive, int Unresolved) Gather((FxPkg P, int Export)? at)
         {
             var candidates = new List<(FxPkg P, int Export)>();

@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.61
+- 3D previews and Create from 3D: flame and smoke effects whose material is named "…distort" draw with their textures (Ghost Rider's burning head showed only a red glow); only heat haze ("distortion", "warp") is left out.
+- Create from 3D: framing guides over the view (Thirds, Center, Safe Area), never in the snapshot.
+
 0.60.60
 - Create from 3D: an Effects button (shared with the 3D preview's Power FXs) shows the character's own effects in the view and the snapshot, grown in on the pose; on a transparent background their light keeps its color.
 - A costume's own effects include those its hero's base package defines (Ghost Rider's head and neck flames showed no effects on a costume package).

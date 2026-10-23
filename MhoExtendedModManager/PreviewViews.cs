@@ -26,6 +26,10 @@ static class PreviewViews
         public bool Props { get; set; } = true;
         /// <summary>Power effects played with a power's animation in the preview.</summary>
         public bool Powers { get; set; } = true;
+        /// <summary>Create from 3D's framing guides (a user, 2026-10-22): rule of thirds, center cross, safe area.</summary>
+        public bool GuideThirds { get; set; }
+        public bool GuideCenter { get; set; }
+        public bool GuideSafe { get; set; }
         /// <summary>The power effects' strength in the 3D previews (Look ▾ → Effects).</summary>
         public float EffectStrength { get; set; } = DefaultFxPower;
         public Dictionary<string, float> Lights { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -186,6 +190,9 @@ static class PreviewViews
     public static bool Ground { get => D.Ground; set { if (D.Ground == value) return; D.Ground = value; Save(); } }
     public static bool Props { get => D.Props; set { if (D.Props == value) return; D.Props = value; Save(); } }
     public static bool Powers { get => D.Powers; set { if (D.Powers == value) return; D.Powers = value; Save(); } }
+    public static bool GuideThirds { get => D.GuideThirds; set { if (D.GuideThirds == value) return; D.GuideThirds = value; Save(); } }
+    public static bool GuideCenter { get => D.GuideCenter; set { if (D.GuideCenter == value) return; D.GuideCenter = value; Save(); } }
+    public static bool GuideSafe { get => D.GuideSafe; set { if (D.GuideSafe == value) return; D.GuideSafe = value; Save(); } }
 
     /// <summary>The color picker's five most recent colors (Kurt, 2026-10-03), newest first; kept on this PC for every mod.</summary>
     public static IReadOnlyList<string> RecentColors => D.RecentColors ?? [];
