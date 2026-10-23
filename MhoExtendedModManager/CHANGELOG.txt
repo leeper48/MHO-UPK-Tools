@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.62
+- 3D previews: a character's own always-on effects (Ghost Rider's burning head) play with every animation, a power's or not, with the Power FXs toggle. Before, they showed only in the Powers tab's FX entry and Create from 3D.
+
 0.60.61
 - 3D previews and Create from 3D: flame and smoke effects whose material is named "…distort" draw with their textures (Ghost Rider's burning head showed only a red glow); only heat haze ("distortion", "warp") is left out.
 - Create from 3D: framing guides over the view (Thirds, Center, Safe Area), never in the snapshot.

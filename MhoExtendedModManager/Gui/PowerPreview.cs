@@ -40,12 +40,36 @@ static class PowerPreview
 
     /// <summary>A power's effects ready to play: the effects, the power's prototype, the mesh's sockets and which effects play
     /// in this animation (start / loop / end phases).</summary>
+    /// <summary>
+    /// A power's effects with the character's own always-on ones added (Kurt, 2026-10-22: Ghost Rider's head didn't burn while
+    /// a power played; in game it always does): PowerEffects.Own of the shown model's package, played in every phase.
+    /// </summary>
+    public static Loaded? WithOwn(Loaded? l, string cooked, IEnumerable<string> modFiles, string packageFile, string meshFile, string meshName)
+    {
+        Fx.PowerEffects own;
+        try { own = Fx.PowerEffects.Own(new Fx.FxGame(cooked, modFiles), packageFile); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException) { return l; }
+        if (own.Effects.Count == 0) return l;
+        // an animation of no power (idle, run): the own effects alone
+        if (l == null) return new Loaded(own, OwnPrefix + packageFile, Fx.FxSockets.Of(meshFile, meshName), _ => true);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in own.Effects)
+            if (!l.Effects.Effects.Any(x => x.Name.Equals(e.Name, StringComparison.OrdinalIgnoreCase))) { l.Effects.Effects.Add(e); names.Add(e.Name); }
+        foreach (var (em, look) in own.Looks) l.Effects.Looks.TryAdd(em, look);
+        var phase = l.Phase;
+        return l with { Phase = e => names.Contains(e.Name) || phase(e) };
+    }
+
     public sealed record Loaded(Fx.PowerEffects Effects, string Power, Dictionary<string, (string Bone, Matrix4x4 Local)> Sockets, Func<Fx.PowerEffects.Effect, bool> Phase)
     {
         public int Count => Effects.Effects.Count(e => Phase(e));
         /// <summary>The caption: "Diplomatic Immunity · 3 Effects".</summary>
-        public string Label => $"{Ui.TitleCase(SplitWords(Path.GetFileNameWithoutExtension(Power)))} · {Count} Effect{(Count == 1 ? "" : "s")}";
+        public string Label => Power.StartsWith(OwnPrefix, StringComparison.Ordinal) ? $"Own Effects · {Count} Effect{(Count == 1 ? "" : "s")}"
+            : $"{Ui.TitleCase(SplitWords(Path.GetFileNameWithoutExtension(Power)))} · {Count} Effect{(Count == 1 ? "" : "s")}";
     }
+
+    /// <summary>The Power of a Loaded that is a character's own effects only (no power).</summary>
+    public const string OwnPrefix = "own:";
 
     public static string SplitWords(string s) => System.Text.RegularExpressions.Regex.Replace(s, "(?<=[a-z])(?=[A-Z])", " ");
 

@@ -270,10 +270,11 @@ sealed partial class Preview3D
         // a form's version of a power picked (Pyrokinetic Barrier (Unleash the Phoenix)): its own effects, not those of the plain
         // power its animation's name also belongs to
         var formPower = form != null && powerFilter != null ? heroPowers.FirstOrDefault(p => p.Prototype == powerFilter && p.Form != null) : null;
+        string ownPackage = main.Package;
         Effects.Load(cooked, true, db => db == null ? null
-            : FormEffects(db, only != null ? PowerPreview.ForPower(db, only, hero, cooked, modFiles, entity, main.File, main.Name)
+            : PowerPreview.WithOwn(FormEffects(db, only != null ? PowerPreview.ForPower(db, only, hero, cooked, modFiles, entity, main.File, main.Name)
                 : formPower != null ? PowerPreview.ForPowerAnimation(db, formPower.Prototype, name, formPower.Animations, hero, cooked, modFiles, entity, main.File, main.Name)
-                : PowerPreview.ForAnimation(db, hero, cooked, modFiles, name, entity, main.File, main.Name), hero, cooked, modFiles, entity, main, formNow),
+                : PowerPreview.ForAnimation(db, hero, cooked, modFiles, name, entity, main.File, main.Name), hero, cooked, modFiles, entity, main, formNow), cooked, modFiles, ownPackage, main.File, main.Name),
             c.SwapsFor?.Invoke(cooked));
     }
 
