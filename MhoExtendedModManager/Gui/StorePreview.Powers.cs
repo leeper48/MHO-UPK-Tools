@@ -66,6 +66,7 @@ sealed partial class StorePreview
     public void ReloadOverrides()
     {
         if (mod is not { } m) return;
+        SaveAnim();   // (the animation and frame showing come back after the reload, not the last one saved: Kurt, 2026-10-23)
         ownPending = ownFxPackage != null;   // (a character's own effects come back once the model and its animations are in)
         modStamp = "";
         mod = null;

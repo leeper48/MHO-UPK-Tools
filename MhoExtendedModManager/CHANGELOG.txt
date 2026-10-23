@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.98
+- Editor previews: a reload after a prop or borrow change keeps the animation and frame showing (it went back to the last one saved, often a power).
+
 0.60.97
 - Model tab: a Lean slider under Feet (±20°): turns an MFF model above its feet at the ankles, + forward, − back, soles flat; the preview shows it, Build writes it (Captain America S07 on Cap Classic: −3° matches the hero's own stance in the idle).
 
