@@ -193,6 +193,9 @@ sealed class MeshAnimator
     /// <summary>False: the root's X / Y moves with the animation (an animated actor leaping in); true (the hero): in place.</summary>
     public bool InPlace { get; set; } = true;
 
+    /// <summary>The posed model and its bones moved by this (the Model tab's Feet on the Floor: the built mesh's Origin).</summary>
+    public Vector3 Shift { get; set; }
+
     int[]? parentMap;
     MeshAnimator? mappedTo;
 
@@ -238,7 +241,7 @@ sealed class MeshAnimator
     public IEnumerable<string> BoneNames => bones.Select(b => b.Name);
 
     /// <summary>A bone's transform (bone → model space) in the pose last made by Pose: what a held prop follows.</summary>
-    public Matrix4x4 BoneMatrix(int bone) => bone >= 0 && bone < posed.Length ? posed[bone] : Matrix4x4.Identity;
+    public Matrix4x4 BoneMatrix(int bone) => bone >= 0 && bone < posed.Length ? (Shift == Vector3.Zero ? posed[bone] : posed[bone] * Matrix4x4.CreateTranslation(Shift)) : Matrix4x4.Identity;
 
     /// <summary>A bone's index by name (case-insensitive), or -1.</summary>
     public int BoneIndex(string name) { int i = 0; foreach (var b in bones) { if (b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) return i; i++; } return -1; }
@@ -291,7 +294,7 @@ sealed class MeshAnimator
         for (int v = 0; v < restPos.Length; v++)
         {
             var inf = v < influences.Count ? influences[v] : default;
-            if (inf.Bones == null || inf.Bones.Count == 0) { Positions[v] = restPos[v]; if (v < Normals.Length) Normals[v] = restNrm[v]; if (v < Tangents.Length) Tangents[v] = restTan[v]; continue; }
+            if (inf.Bones == null || inf.Bones.Count == 0) { Positions[v] = restPos[v] + Shift; if (v < Normals.Length) Normals[v] = restNrm[v]; if (v < Tangents.Length) Tangents[v] = restTan[v]; continue; }
             Vector3 sp = Vector3.Zero, sn = Vector3.Zero, st = Vector3.Zero; float total = 0;
             var rt = v < restTan.Length ? new Vector3(restTan[v].X, restTan[v].Y, restTan[v].Z) : Vector3.Zero;
             for (int k = 0; k < inf.Bones.Count; k++)
@@ -303,7 +306,7 @@ sealed class MeshAnimator
                 if (v < restTan.Length) st += Vector3.TransformNormal(rt, skin[bi]) * w;
                 total += w;
             }
-            Positions[v] = total > 0 ? sp / total : restPos[v];
+            Positions[v] = (total > 0 ? sp / total : restPos[v]) + Shift;
             if (v < Normals.Length) Normals[v] = total > 0 && sn != Vector3.Zero ? Vector3.Normalize(sn) : restNrm[v];
             if (v < Tangents.Length) Tangents[v] = total > 0 && st != Vector3.Zero ? new Vector4(Vector3.Normalize(st), restTan[v].W) : restTan[v];
         }

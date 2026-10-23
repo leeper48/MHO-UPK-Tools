@@ -16,6 +16,8 @@ sealed partial class PreviewPanel
     /// <summary>What the preview needs from a retarget, made off the UI thread (looks decoded, normal maps generated).</summary>
     public sealed record Prepared(ModMeshes.Loaded Mesh, List<MeshBone> Bones, List<AnimRef> Animations, string Note, ModMeshes.Loaded? Stock = null, string Material = "")
     {
+        /// <summary>How far Build's Feet on the Floor moves the model (ImportBuild.FeetOffset).</summary>
+        public float Feet { get; init; }
         /// <summary>No source picked: the target's own model only (shown as Compare, which stays on).</summary>
         public bool TargetOnly { get; init; }
         /// <summary>The bone map the retarget used (MFF sources), for the Bone Map tab.</summary>
@@ -250,6 +252,7 @@ sealed partial class PreviewPanel
             donor == null ? "Base Mesh's Own" : donor == MaterialChoice.Glow ? "Metal + Glow" : donor == MaterialChoice.Metal ? "Metal" : donor == MaterialChoice.Default ? "Cloth" : donor.Split(':').Last())
         {
             Map = r.Source != null ? BoneMapFile.From(r, sk.Name) : FbxBoneList(r, sk.Name), MhoBones = sk.Bones.Select(b => b.Name).ToList(),
+            Feet = ImportBuild.FeetOffset(r, sk)?.By ?? 0,
             MhoParents = sk.Bones.Select((b, i) => b.ParentIndex == i ? -1 : b.ParentIndex).ToList(),
             PackagePath = packagePath, PackageMeshes = pkgMeshes, MainRef = mr,
             MaterialList = r.Sections.GroupBy(x => x.Material).Select(g => (g.Key, g.First().Tex)).ToList(),

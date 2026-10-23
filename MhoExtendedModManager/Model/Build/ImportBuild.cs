@@ -258,7 +258,7 @@ sealed class ImportBuild
             float oz = BitConverter.ToSingle(built.Origins, 8);
             built.Origins = [.. built.Origins];
             BitConverter.TryWriteBytes(built.Origins.AsSpan(8), oz + feet.By);
-            log($"feet:    {(feet.By > 0 ? "raised" : "lowered")} {MathF.Abs(feet.By):0.0} units (the model's soles {feet.Model:0.0} below its ankles, the stock model's {feet.Stock:0.0}: the leg IK sets the ankles where the stock ones are)");
+            log($"feet:    {(feet.By > 0 ? "raised" : "lowered")} {MathF.Abs(feet.By):0.0} units (the model's hips {feet.Model:0.0} above its soles, the stock model's {feet.Stock:0.0}: the animations hold the hips at the stock height)");
         }
         if (extra != null) log($"bones:   {baseN.Bones.Count} + {extra.Count} borrowed ({string.Join(", ", sk.Bones.Skip(baseN.Bones.Count).Select(b => b.Name))}), skeletal depth {built.SkeletalDepth} (stock {baseN.SkeletalDepth})");
         var native = built.Write();
@@ -353,19 +353,21 @@ sealed class ImportBuild
     }
 
     /// <summary>
-    /// How far the built model must move up (+) or down (-) for its soles to meet the floor: the game's animations keep the leg
-    /// IK targets (g_l/r_legikeffector) where the stock model has them, so the ankles land where the stock ankles are and the
-    /// soles hang below them by the model's own ankle-to-sole height (--feet-gap: MFF models -4.6 to +0.2 units on Agent 13).
-    /// Null without ankles.
+    /// How far the built model must move up (+) or down (-) for its soles to meet the floor: the game's animations hold the
+    /// hips (g_l/r_hip, core position bones) at the stock model's height and the legs hang from there at the model's own length
+    /// (the leg IK only runs where an animation's metadata turns it on: Agent 13's animations have none). So a model whose hips
+    /// sit lower above its soles than the stock one's hovers by the difference (Kurt, 2026-10-22: Sharon Carter's MFF model on
+    /// Agent 13, hips 46.4 above her soles against 57.8, floated in the preview; --feet-gap). Null without hips.
     /// </summary>
     public static (float By, float Model, float Stock)? FeetOffset(Retargeted r, MhoSkeleton sk)
     {
         var stockPos = sk.Mesh.HighestDetail?.Positions;
         if (stockPos == null || stockPos.Count == 0 || r.Sections.Count == 0) return null;
-        var mAnk = r.Bones.Where(b => b.Name.Equals("g_l_ankle", StringComparison.OrdinalIgnoreCase) || b.Name.Equals("g_r_ankle", StringComparison.OrdinalIgnoreCase)).Select(b => b.Position.Z).ToList();
-        var sAnk = new[] { sk.Find("g_l_ankle"), sk.Find("g_r_ankle") }.Where(i => i >= 0).Select(i => sk.Pos(i).Z).ToList();
-        if (mAnk.Count == 0 || sAnk.Count == 0) return null;
-        float model = mAnk.Average() - r.Sections.SelectMany(x => x.Pos).Min(v => v.Z), stock = sAnk.Average() - stockPos.Min(v => v.Z);
+        static bool Hip(string n) => n.Equals("g_l_hip", StringComparison.OrdinalIgnoreCase) || n.Equals("g_r_hip", StringComparison.OrdinalIgnoreCase);
+        var mHip = r.Bones.Where(b => Hip(b.Name)).Select(b => b.Position.Z).ToList();
+        var sHip = new[] { sk.Find("g_l_hip"), sk.Find("g_r_hip") }.Where(i => i >= 0).Select(i => sk.Pos(i).Z).ToList();
+        if (mHip.Count == 0 || sHip.Count == 0) return null;
+        float model = mHip.Average() - r.Sections.SelectMany(x => x.Pos).Min(v => v.Z), stock = sHip.Average() - stockPos.Min(v => v.Z);
         return (model - stock, model, stock);
     }
 

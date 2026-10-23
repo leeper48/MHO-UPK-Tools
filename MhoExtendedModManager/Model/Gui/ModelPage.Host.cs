@@ -467,7 +467,7 @@ sealed partial class ModelPage
         if (smooth.Enabled) smooth.Checked = st.Subdivide;
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
         SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
-        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; feetOnFloor.Checked = st.FeetOnFloor;
+        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; feetOnFloor.Checked = st.FeetOnFloor; preview.FeetOnFloor = st.FeetOnFloor;
         restoring2 = false;
         AssumeBuilt();
         SchedulePreview();

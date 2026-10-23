@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.67
+- Model tab: Feet on the Floor measures by the hips (the animations hold them at the stock height and the legs hang from there; the leg IK only runs where an animation turns it on), and the preview shows the model moved as Build moves it.
+
 0.60.66
 - Model tab: Feet on the Floor (on by default). In game the legs reach for where the stock hero's ankles are, so a model whose soles sit further below its ankles sank into the floor, a closer one hovered; Build now moves the whole model by that difference (the mesh's Origin).
 - --feet-gap <package> [name filter] [max]: how far MFF models' soles would be off the floor on a hero (read only).

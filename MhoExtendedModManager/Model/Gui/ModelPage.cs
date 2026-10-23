@@ -278,7 +278,7 @@ sealed partial class ModelPage : UserControl
         Ui.Tip(matchSteps, "The game moves a character at the same speed whatever its size, so a bigger one would slide its feet. With this on, the costume's run, walk and other movement animations play slower for a bigger character and faster for a smaller one (1 / size), so the steps match the ground. Only this costume's animations change (copied into its own package, as the Animations tab does).");
         matchSteps.CheckedChanged += (_, _) => SaveState();
         Ui.Tip(feetOnFloor, "In game the legs reach for where the stock hero's ankles are, so a model whose soles sit lower or higher below its ankles than the stock one's would sink into the floor or hover. With this on, Build moves the whole model up or down by that difference (the log says how far).");
-        feetOnFloor.CheckedChanged += (_, _) => SaveState();
+        feetOnFloor.CheckedChanged += (_, _) => { preview.FeetOnFloor = feetOnFloor.Checked; SaveState(); };
         sizeSlider.ValueChanged += () => preview.Size = sizeSlider.Value;
         sizeSlider.Committed += () => { preview.Size = sizeSlider.Value; SchedulePreview(); };
 

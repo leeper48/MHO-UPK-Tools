@@ -184,7 +184,7 @@ sealed partial class PreviewPanel : UserControl
         heldView = null; heldPlaying = false; heldAt = 0;
         bool samePackage = shown != null && shown.PackagePath.Equals(p.PackagePath, StringComparison.OrdinalIgnoreCase);
         shown = p;
-        mffAnimator = new MeshAnimator(p.Bones, p.Mesh.Positions, p.Mesh.Normals, p.Mesh.Influences, p.Mesh.Tangents);
+        mffAnimator = new MeshAnimator(p.Bones, p.Mesh.Positions, p.Mesh.Normals, p.Mesh.Influences, p.Mesh.Tangents) { Shift = new Vector3(0, 0, feetOnFloor ? p.Feet : 0) };
         stockAnimator = p.Stock is { } st ? new MeshAnimator(st.Bones.ToList(), st.Positions, st.Normals, st.Influences, st.Tangents) : null;
         if (stockAnimator == null && comparing) { comparing = false; Ui.Lit(compare, false); }
         compare.Enabled = stockAnimator != null;
@@ -243,6 +243,18 @@ sealed partial class PreviewPanel : UserControl
     public void CompareOn() { if (!comparing) ToggleCompare(); }
 
     /// <summary>Swaps between the MFF model and the base hero's own mesh, keeping the animation, frame and camera.</summary>
+    bool feetOnFloor = true;
+    /// <summary>The Model tab's Feet on the Floor: the model moved as Build moves it (Prepared.Feet).</summary>
+    public bool FeetOnFloor
+    {
+        get => feetOnFloor;
+        set
+        {
+            feetOnFloor = value;
+            if (mffAnimator != null && shown != null) { mffAnimator.Shift = new Vector3(0, 0, value ? shown.Feet : 0); p3.SwapCharacter(comparing ? shown.Stock! : shown.Mesh, comparing ? stockAnimator! : mffAnimator); }
+        }
+    }
+
     float size = 1;
     /// <summary>The Model tab's Size: the model drawn that much larger or smaller (Compare shows the hero at its own size).</summary>
     public float Size { get => size; set { size = value; view.ModelScale = ShownScale; view.Invalidate(); } }
