@@ -210,6 +210,7 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Spec, () => prefs.Spec = !prefs.Spec, () => prefs.Reflect, () => prefs.Reflect = !prefs.Reflect, () => prefs.Glow, () => prefs.Glow = !prefs.Glow,
                 () => prefs.Bloom, () => prefs.Bloom = !prefs.Bloom, () => prefs.Props, () => { prefs.Props = !prefs.Props; LoadProps(); },
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
+            items.Add(new("Prop Pivots", "Each prop's pivot: the point its model is placed and turned around (its bone, the attachment's offset and its own move and turn), with its axes (X red, Y green, Z blue). Prop Fit moves and turns the prop about it. Remembered for every 3D view.", () => PreviewViews.Pivots, () => { PreviewViews.Pivots = !PreviewViews.Pivots; ShowPose(); }));
             items.Add(new("Axis Gizmo", "The game's axes in the view's corner, as Blender's: X red (the way the character faces), Y green, Z blue (up). Remembered for every 3D view.", () => PreviewViews.Gizmo, () => PreviewViews.Gizmo = !PreviewViews.Gizmo));
             items.AddRange(ExtraLook);
             lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });
@@ -484,6 +485,7 @@ sealed partial class Preview3D : UserControl
         else if (view.Effects.Count > 0 || view.EffectTris.Count > 0) { view.Effects = []; view.EffectTris = []; }
         rig.At(anim == null || seconds <= 0 ? 0 : Math.Min(playTime, seconds));
         rig.Update(view, animator);
+        view.Markers = PreviewViews.Pivots ? rig.ShownFrames(animator) : [];
     }
 
     void ScrubTo()

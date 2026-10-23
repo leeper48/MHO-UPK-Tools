@@ -536,6 +536,7 @@ sealed class ModelView : UserControl
             g.DrawImage(overlay, r, 0, 0, overlay.Width, overlay.Height, GraphicsUnit.Pixel, ia);
         }
         PaintGuides?.Invoke(g, canvas.ClientRectangle);
+        PaintMarkers(g);
         PaintAxes(g);
     }
 
@@ -865,10 +866,65 @@ sealed class ModelView : UserControl
     public double DrawMsTotal { get; private set; }
     public (int W, int H) LastSize => (W, H);
 
-    void Render() { if (quad) RenderQuad(); else Flat(ortho, () => Render(0, 0)); }
+    void Render()
+    {
+        cams.Clear();
+        if (quad) RenderQuad();
+        else { Flat(ortho, () => Render(0, 0)); cams.Add((lastCam, -1)); }
+    }
 
     Point downAt;
     bool ortho;
+
+    /// <summary>Points to mark over the model (engine space, with their axes: Look ▾ → Prop Pivots), drawn after the frame.</summary>
+    public List<Matrix4x4> Markers { get => markers; set { markers = value; canvas.Invalidate(); } }
+    List<Matrix4x4> markers = [];
+    /// <summary>The camera of each view last drawn (one, or the quad view's four) and the part of the canvas it fills.</summary>
+    readonly record struct Cam(Vector3 R, Vector3 U, Vector3 F, Vector3 Eye, float Focal, float Cx, float Cy, int W, int H, float Near);
+    Cam lastCam;
+    readonly List<(Cam Cam, int Pane)> cams = [];
+
+    /// <summary>An engine-space point on the canvas, through a view's camera, or null behind it.</summary>
+    PointF? OnCanvas(Vector3 engine, Cam c, Rectangle area)
+    {
+        var d = new Vector3(engine.X, -engine.Y, engine.Z) * ModelScale - c.Eye;
+        float z = Vector3.Dot(d, c.F);
+        if (z < c.Near) return null;
+        float sx = c.Cx + Vector3.Dot(d, c.R) * c.Focal / z, sy = c.Cy - Vector3.Dot(d, c.U) * c.Focal / z;
+        return new PointF(area.X + sx * area.Width / c.W, area.Y + sy * area.Height / c.H);
+    }
+
+    void PaintMarkers(Graphics g)
+    {
+        if (markers.Count == 0 || cams.Count == 0) return;
+        var rc = canvas.ClientRectangle;
+        int hw = rc.Width / 2, hh = rc.Height / 2;
+        float s = Ui.Dpi(DeviceDpi), len = Math.Max(6, radius * 0.22f);
+        Color[] cols = [Color.FromArgb(232, 72, 85), Color.FromArgb(132, 196, 46), Color.FromArgb(62, 138, 238)];
+        foreach (var (cam, pane) in cams)
+        {
+            var area = pane < 0 ? rc : new Rectangle(rc.Left + pane % 2 * hw, rc.Top + pane / 2 * hh, pane % 2 == 0 ? hw : rc.Width - hw, pane / 2 == 0 ? hh : rc.Height - hh);
+            g.SetClip(area);
+            foreach (var m in markers)
+            {
+                if (OnCanvas(m.Translation, cam, area) is not PointF o) continue;
+                Vector3[] axes = [new(m.M11, m.M12, m.M13), new(m.M21, m.M22, m.M23), new(m.M31, m.M32, m.M33)];
+                for (int k = 0; k < 3; k++)
+                {
+                    var a = axes[k].LengthSquared() > 1e-12f ? Vector3.Normalize(axes[k]) : axes[k];
+                    if (OnCanvas(m.Translation + a * len, cam, area) is not PointF e) continue;
+                    using var pen = new Pen(cols[k], 2 * s) { EndCap = System.Drawing.Drawing2D.LineCap.ArrowAnchor };
+                    g.DrawLine(pen, o, e);
+                }
+                using var ring = new Pen(Color.White, 1.5f * s);
+                using var fill = new SolidBrush(Color.FromArgb(230, 255, 200, 40));
+                float rr = 3.5f * s;
+                g.FillEllipse(fill, o.X - rr, o.Y - rr, rr * 2, rr * 2);
+                g.DrawEllipse(ring, o.X - rr, o.Y - rr, rr * 2, rr * 2);
+            }
+            g.ResetClip();
+        }
+    }
     /// <summary>The main camera is flat (an axis ball was clicked); turning the view makes it perspective again.</summary>
     public bool Ortho => ortho;
     /// <summary>The camera's stand-back for a flat view (far back, with a lens narrowed to keep the framing).</summary>
@@ -937,6 +993,7 @@ sealed class ModelView : UserControl
                 var (r, u, f, _) = Basis();
                 quadBasis[v] = (r, u, f);
                 if (v == 0) Flat(ortho, () => Render(qw, qh)); else Render(qw, qh);
+                cams.Add((lastCam, v));
                 int ox = v % 2 * qw, oy = v / 2 * qh;
                 for (int y = 0; y < qh; y++) Array.Copy(color, y * qw, all, (oy + y) * qw * 2 + ox, qw);
             }
@@ -1022,6 +1079,7 @@ sealed class ModelView : UserControl
 
         var (r, u, f, eye) = Basis();
         float focal = H / 2f / MathF.Tan(Fov / 2), cx = W / 2f, cy = H / 2f, near = distance * 0.01f;
+        lastCam = new Cam(r, u, f, eye, focal, cx, cy, W, H, near);
         int n = pos.Length;
         if (sx.Length != n) { sx = new float[n]; sy = new float[n]; iz = new float[n]; }
         for (int i = 0; i < n; i++)

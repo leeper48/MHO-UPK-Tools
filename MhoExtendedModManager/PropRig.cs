@@ -187,6 +187,19 @@ sealed class PropRig
 
     BoneAnimation? parentSeq;
 
+    /// <summary>Every shown prop's frame as last posed (as Update places it): Look ▾ → Prop Pivots draws them.</summary>
+    public List<Matrix4x4> ShownFrames(MeshAnimator animator)
+    {
+        var list = new List<Matrix4x4>();
+        for (int i = 0; i < props.Count; i++)
+        {
+            if (i < visible.Length && !visible[i]) continue;
+            int bone = props[i].Bone;
+            list.Add(props[i].Mesh.MeshTransform * (i < offsets.Count ? offsets[i] : Matrix4x4.Identity) * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone)));
+        }
+        return list;
+    }
+
     /// <summary>Where a prop of class <paramref name="cls"/> is held as last posed: its own transform, the attachment's offset,
     /// then its bone (as Update places it), or null when the rig has none. Prop Fit's global axes read it.</summary>
     public Matrix4x4? Frame(string cls, MeshAnimator animator)

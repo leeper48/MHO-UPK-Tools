@@ -455,6 +455,7 @@ static partial class Program
                     renderRig?.At(secs * at);
                     if (fxp != null) { v.Effects = fxp.Quads(); v.EffectTris = fxp.Tris(); Console.WriteLine($"    {v.Effects.Count} sprites, {v.EffectTris.Count} triangles"); }
                     rrig.Update(v, anim8);
+                    if (Environment.GetEnvironmentVariable("MHO_RENDER_PIVOTS") == "1") v.Markers = rrig.ShownFrames(anim8);   // (Look -> Prop Pivots)
                     await Task.Delay(200);
                     var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); shots.Add(b);
                     Console.WriteLine($"  frame at {at:0.00}: {v.LastFrameMs:0} ms");

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.83
+- 3D views: Look ▾ → Prop Pivots marks each prop's pivot (a yellow dot with its X / Y / Z axes), in every pane of the quad view.
+
 0.60.82
 - Model tab: MFF models with two spine bones (no Spine2, Captain America S07) no longer lean forward: the chest now curves back to the neck as the hero's does (idle: the head 5.2° over the feet, was 8.1°; the game's model 3.4°).
 - Every slider: click its number to type a value (Enter takes it, Esc leaves it).
