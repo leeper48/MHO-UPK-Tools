@@ -569,6 +569,15 @@ static partial class Program
                 try { Directory.Delete(outDir, true); } catch (IOException) { }
                 return built == null ? 1 : 0;
             }
+            case "--default-costumes":
+            {
+                // --default-costumes (read only): each hero's default costume (avatar StartingCostume) and its package: the
+                // Model tab's lists mark those with a bullet
+                var settings = MhoExtendedModManager.Settings.Load();
+                foreach (var c in (Costume.All(settings.GameRoot!) ?? []).Where(c => c.IsDefault && !c.IsTeamUp && !c.Prototype.Contains("zTesting", StringComparison.OrdinalIgnoreCase)).OrderBy(c => c.Short, StringComparer.OrdinalIgnoreCase))
+                    Console.WriteLine($"{c.Short,-40} {c.Package}");
+                return 0;
+            }
             case "--game-source":
             {
                 // --game-source <game package> [target package] (scratch MHO_EXTMM_HOME): the Model tab's From the Game source:

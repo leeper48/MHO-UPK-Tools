@@ -75,7 +75,7 @@ sealed partial class ModelPage
                      .OrderBy(p => DescribePackage(p.File).Title, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.File, StringComparer.OrdinalIgnoreCase))
         {
             var (title, detail) = DescribePackage(file);
-            packages.Items.Add(new CharacterList.Item(file, title, detail + (built.ContainsKey(file) ? " · built by the Model tab" : "")));
+            packages.Items.Add(new CharacterList.Item(file, Dot(file, title), detail + (built.ContainsKey(file) ? " · built by the Model tab" : "")));
         }
         packages.Items.Add(new CharacterList.Item("game:", "From the Game", "add another base hero's package to the mod"));
         packages.Items.Add(new CharacterList.Item("browse:", "Browse for a Package", "any .upk with a character in it (a pet, a vehicle, a prop …)"));

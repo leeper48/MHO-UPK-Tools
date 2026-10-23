@@ -506,10 +506,28 @@ sealed partial class ModelPage : UserControl
         FillCharacters();
         FillPackages();
         UpdateStatus();
+        LoadDefaultCostumes();
         int others = allPackages.Count(p => OtherTargets.Contains(p.File));
         // (Kurt, 2026-10-06: a user found the old wording unclear)
         Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others:N0} hero and team-up packages and {others:N0} NPCs, enemies and bosses.");
         if (!stateLoaded) { stateLoaded = true; LoadState(); }
+    }
+
+    /// <summary>The packages of the heroes' default costumes (Kurt, 2026-10-23: reworks and visual updates moved some off the
+    /// package named Base or Classic): each hero avatar's StartingCostume → its class's package (Costume.All, the game data).
+    /// Null until read.</summary>
+    HashSet<string>? defaultCostumes;
+
+    /// <summary>A list title with " •" when the package is a hero's default costume.</summary>
+    string Dot(string file, string title) => defaultCostumes?.Contains(file) == true ? title + " •" : title;
+
+    async void LoadDefaultCostumes()
+    {
+        if (defaultCostumes != null || Settings.Current.GameFolder is not string root) return;
+        var set = await Task.Run(() => Costume.All(root)?.Where(c => c.IsDefault && !c.IsTeamUp && !c.Prototype.Contains("zTesting", StringComparison.OrdinalIgnoreCase)).Select(c => c.Package).ToHashSet(StringComparer.OrdinalIgnoreCase));
+        if (set == null || IsDisposed) return;
+        defaultCostumes = set;
+        FillCharacters(); FillPackages();
     }
 
     /// <summary>The NPC and enemy / boss packages offered as targets (Kurt, 2026-10-05): those whose character has the humanoid
@@ -631,7 +649,7 @@ sealed partial class ModelPage : UserControl
         foreach (var g in groups)
         {
             var list = g.ToList();
-            if (list.Count == 1) { var p = list[0]; characters.Items.Add(new CharacterList.Item(GameSrc + p.File, p.Title, p.Detail, ThumbKey: p.File)); continue; }
+            if (list.Count == 1) { var p = list[0]; characters.Items.Add(new CharacterList.Item(GameSrc + p.File, Dot(p.File, p.Title), p.Detail, ThumbKey: p.File)); continue; }
             bool open = f.Length > 0 || expanded.Contains("game " + g.Key) || list.Any(p => (GameSrc + p.File).Equals(chosenKey ?? pendingState?.Source, StringComparison.OrdinalIgnoreCase));
             var first = list.FirstOrDefault(p => p.Detail.StartsWith("Base Package", StringComparison.OrdinalIgnoreCase));
             characters.Items.Add(new CharacterList.Item("group:game " + g.Key, list[0].Title, $"{list.Count} packages", Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
@@ -639,7 +657,7 @@ sealed partial class ModelPage : UserControl
                 foreach (var p in list)
                 {
                     int dot = p.Detail.IndexOf(" · ", StringComparison.Ordinal);
-                    characters.Items.Add(new CharacterList.Item(GameSrc + p.File, dot > 0 ? p.Detail[..dot] : p.Detail, dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1, ThumbKey: p.File));
+                    characters.Items.Add(new CharacterList.Item(GameSrc + p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1, ThumbKey: p.File));
                 }
         }
         characters.EndUpdate();
@@ -709,7 +727,7 @@ sealed partial class ModelPage : UserControl
         foreach (var g in groups)
         {
             var list = g.ToList();
-            if (list.Count == 1) { var p = list[0]; packages.Items.Add(new CharacterList.Item(p.File, p.Title, p.Detail)); continue; }
+            if (list.Count == 1) { var p = list[0]; packages.Items.Add(new CharacterList.Item(p.File, Dot(p.File, p.Title), p.Detail)); continue; }
             bool open = f.Length > 0 || expandedHeroes.Contains(g.Key) || list.Any(p => p.File.Equals(keep, StringComparison.OrdinalIgnoreCase));
             var first = list.FirstOrDefault(p => p.Detail.StartsWith("Base Package", StringComparison.OrdinalIgnoreCase));
             packages.Items.Add(new CharacterList.Item("hero:" + g.Key, list[0].Title, $"{list.Count} packages", Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
@@ -717,7 +735,7 @@ sealed partial class ModelPage : UserControl
                 foreach (var p in list)
                 {
                     int dot = p.Detail.IndexOf(" · ", StringComparison.Ordinal);
-                    packages.Items.Add(new CharacterList.Item(p.File, dot > 0 ? p.Detail[..dot] : p.Detail, dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1));
+                    packages.Items.Add(new CharacterList.Item(p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1));
                 }
         }
         packages.EndUpdate();
