@@ -33,6 +33,8 @@ sealed class Settings
     /// <summary>The Model tab's Source kind last picked (0 MFF Repository, 1 Single Model, 2 From the Game; Kurt, 2026-10-23:
     /// From the Game by default, then the user's pick).</summary>
     public int? SourceKind { get; set; }
+    /// <summary>The Target list shows From the Game (true, the default) or the mod's packages (Kurt, 2026-10-23).</summary>
+    public bool? TargetFromGame { get; set; }
     /// <summary>The image editor the Materials tab opens maps in (null: the first one found).</summary>
     public string? ImageEditorPath { get; set; }
     /// <summary>The Model tab's panel sizes (column / row shares, the log's height) and folded panels.</summary>
@@ -58,7 +60,7 @@ sealed class Settings
         public float GlowStrength { get; set; } = 1;
     }
 
-    sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); public string? ImageEditorPath { get; set; } public Dictionary<string, float>? Layout { get; set; } public List<string>? Folded { get; set; } public string? LastModelFolder { get; set; } public int? SourceKind { get; set; } }
+    sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); public string? ImageEditorPath { get; set; } public Dictionary<string, float>? Layout { get; set; } public List<string>? Folded { get; set; } public string? LastModelFolder { get; set; } public int? SourceKind { get; set; } public bool? TargetFromGame { get; set; } }
     static string OwnFile => Path.Combine(Home, "settings.json");
 
     /// <summary>The engine's own work folder (thumbnails, exports, command-line outputs): model\ in the Mod Manager's data.</summary>
@@ -94,7 +96,7 @@ sealed class Settings
     {
         try
         {
-            if (File.Exists(OwnFile) && System.Text.Json.JsonSerializer.Deserialize<Own>(File.ReadAllText(OwnFile)) is { } o) { Preview = o.Preview; RecentFbx = o.RecentFbx; ImageEditorPath = o.ImageEditorPath; Layout = o.Layout ?? new(); Folded = o.Folded ?? new(); LastModelFolder = o.LastModelFolder; SourceKind = o.SourceKind; }
+            if (File.Exists(OwnFile) && System.Text.Json.JsonSerializer.Deserialize<Own>(File.ReadAllText(OwnFile)) is { } o) { Preview = o.Preview; RecentFbx = o.RecentFbx; ImageEditorPath = o.ImageEditorPath; Layout = o.Layout ?? new(); Folded = o.Folded ?? new(); LastModelFolder = o.LastModelFolder; SourceKind = o.SourceKind; TargetFromGame = o.TargetFromGame; }
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { }
         return this;
@@ -106,7 +108,7 @@ sealed class Settings
         var s = App ?? MemmSettings.Load();
         if (s.BlenderPath != BlenderPath || s.SkipBlenderAddonOffer != SkipAddonOffer) Change(m => { m.BlenderPath = BlenderPath; m.SkipBlenderAddonOffer = SkipAddonOffer; });
         Directory.CreateDirectory(Home);
-        File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx, ImageEditorPath = ImageEditorPath, Layout = Layout, Folded = Folded, LastModelFolder = LastModelFolder, SourceKind = SourceKind }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(OwnFile, System.Text.Json.JsonSerializer.Serialize(new Own { Preview = Preview, RecentFbx = RecentFbx, ImageEditorPath = ImageEditorPath, Layout = Layout, Folded = Folded, LastModelFolder = LastModelFolder, SourceKind = SourceKind, TargetFromGame = TargetFromGame }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
 }
 

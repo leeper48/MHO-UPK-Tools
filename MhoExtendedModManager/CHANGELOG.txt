@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.75
+- Model tab: Target starts on From the Game too (a mod's saved target still opens on its own packages), and the list you switch to is remembered.
+- Model tab: B shows / hides the bones, W the weights (as Look ▾ → Bones / Weights).
+
 0.60.74
 - Model tab: Source starts on From the Game, and the Source kind you pick is remembered from then on.
 

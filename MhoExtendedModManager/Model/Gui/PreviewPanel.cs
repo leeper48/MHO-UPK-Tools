@@ -70,8 +70,8 @@ sealed partial class PreviewPanel : UserControl
         p3.IsOverridden = n => IsOverridden?.Invoke(n) == true;
         p3.DisplayMesh = Display;
         p3.MeshShown += MeasureBones;
-        p3.ExtraLook.Add(new("Bones", "The skeleton over the model; the Bone Map tab's selected row in orange.", () => showBones, () => ShowBones = !showBones));
-        p3.ExtraLook.Add(new("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting.", () => showWeights, () => ShowWeights = !showWeights));
+        p3.ExtraLook.Add(new("Bones", "The skeleton over the model; the Bone Map tab's selected row in orange. Key: B.", () => showBones, () => ShowBones = !showBones));
+        p3.ExtraLook.Add(new("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting. Key: W.", () => showWeights, () => ShowWeights = !showWeights));
         showBones = P.Bones;
         // a narrow window: the menu's caption shortens so the animation drop-down keeps at least 160 px (0.16.5)
         var bar = p3.Bar;

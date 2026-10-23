@@ -507,6 +507,7 @@ sealed partial class ModelPage : UserControl
                 allPackages.Add((n, t, det));
             }
         allPackages.Sort((a, b) => string.Compare(a.Title + a.Detail, b.Title + b.Detail, StringComparison.OrdinalIgnoreCase));
+        if (!stateLoaded) gameList = Settings.Current.TargetFromGame ?? true;   // (a mod's saved target switches back: LoadState)
         FillCharacters();
         FillPackages();
         UpdateStatus();

@@ -85,12 +85,19 @@ sealed partial class ModelPage
         UpdateStatus();
     }
 
+    /// <summary>The Target list the user switched to (From the Game or the mod's packages), for the next time.</summary>
+    void RememberTargetList()
+    {
+        if (Settings.Current.TargetFromGame == gameList) return;
+        Settings.Current.TargetFromGame = gameList; Settings.Current.Save();
+    }
+
     /// <summary>The list's special rows, and a game package picked: added to the mod (asked first).</summary>
     void PackagePicked()
     {
         if (packages.SelectedItem is not CharacterList.Item { Header: false } it) return;
-        if (it.Key == "game:") { gameList = true; packageFilter.Text = ""; FillPackages(); return; }
-        if (it.Key == "back:") { gameList = false; packageFilter.Text = ""; FillPackages(); return; }
+        if (it.Key == "game:") { gameList = true; RememberTargetList(); packageFilter.Text = ""; FillPackages(); return; }
+        if (it.Key == "back:") { gameList = false; RememberTargetList(); packageFilter.Text = ""; FillPackages(); return; }
         if (it.Key == "browse:") { BeginInvoke(BrowsePackage); return; }
         if (!gameList) return;
         if (host.Packages.Any(p => p.File.Equals(it.Key, StringComparison.OrdinalIgnoreCase))) { gameList = false; FillPackages(); Reselect(packages, it.Key); return; }
@@ -440,6 +447,7 @@ sealed partial class ModelPage
         foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;
         buildFrom.SelectedIndex = st.FromStock ? 1 : 0;
+        if (st.Package != null) gameList = false;   // (the mod's saved target is one of its packages)
         FillPackages();
         if (st.Package != null) Reselect(packages, st.Package);
         restoring2 = false;

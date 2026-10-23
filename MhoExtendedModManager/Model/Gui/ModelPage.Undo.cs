@@ -71,10 +71,13 @@ sealed partial class ModelPage
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        bool typing = ActiveControl is TextBox || (ActiveControl is ContainerControl c && c.ActiveControl is TextBox);
+        bool typing = ActiveControl is TextBox || (ActiveControl is ContainerControl c && c.ActiveControl is TextBox)
+            || ActiveControl is DataGridView { IsCurrentCellInEditMode: true };   // (a grid cell being typed in: B / W are letters there)
         if (keyData == Keys.F11) { preview.ToggleFull(); return true; }
         if (!typing && keyData == Keys.Escape && preview.PausePlayback()) return true;
         if (!typing && keyData == Keys.P && preview.TogglePlayback()) return true;   // (P: play / pause in every 3D view)
+        if (!typing && keyData == Keys.B) { preview.ShowBones = !preview.ShowBones; return true; }   // (Kurt, 2026-10-23)
+        if (!typing && keyData == Keys.W) { preview.ShowWeights = !preview.ShowWeights; return true; }
         if (!typing && keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
         if (!typing && (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z))) { Redo(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);
