@@ -986,6 +986,9 @@ sealed partial class MainForm
         ed.SaveStayForTest();
         await Task.Delay(30000);
         string man = File.ReadAllText(Path.Combine(m.Folder, "manifest.json"));
+        lines.Add("change fidget01: " + await ed.AnimTestChange("fidget01", "Thor", "fidget01"));
+        await Task.Delay(8000);
+        lines.Add("changed fidget01 (pinned): " + ed.PropTestState());
         lines.Add("saved: " + ed.PropTestPinState() + " | manifest PinPivot " + man.Contains("\"PinPivot\": true") + " | " + ed.PropTestState());
         await ed.PropTestRemove();
         lines.Add("removed again: " + ed.PropTestState());

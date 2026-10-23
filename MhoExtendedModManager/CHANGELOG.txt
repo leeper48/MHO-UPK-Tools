@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.104
+- Animations tab: with Pivot on the Hand ticked, an animation just changed to another character's (and the one showing when you tick it) keeps the prop in the hand at once, not only after a save.
+
 0.60.103
 - Animations tab: moving a Prop Fit slider several times in a row no longer switches the preview to the travel power's animation (a reload still under way lost what it was keeping).
 

@@ -165,11 +165,20 @@ sealed partial class StorePreview
 
     /// <summary>Picks an animation by name (the editor's Animations tab): every animation back in the drop-down, that one
     /// selected and, with <paramref name="play"/>, playing. False when the shown mesh has no animation of that name.</summary>
-    public bool PlayAnimation(string name, bool play = true) => p3 != null && p3.PlayAnimation(name, play);
+    public bool PlayAnimation(string name, bool play = true)
+    {
+        // (a reload under way: this pick is what comes back, not what showed before it)
+        if (keepAnim is { } k) keepAnim = (k.Folder, k.Mesh, null, name, 0, play);
+        return p3 != null && p3.PlayAnimation(name, play);
+    }
 
     /// <summary>Plays an animation from anywhere on the shown model (the Animations tab's picker: try another character's
     /// before using it). It shows at the top of the drop-down until the mesh's own list is shown again.</summary>
-    public bool PlayRef(AnimRef a, bool play = true) => p3 != null && p3.PlayRef(a, play);
+    public bool PlayRef(AnimRef a, bool play = true)
+    {
+        if (keepAnim is { } k) keepAnim = (k.Folder, k.Mesh, a, a.Name, 0, play);
+        return p3 != null && p3.PlayRef(a, play);
+    }
 
     /// <summary>A picture shows: the 3D view is hidden but kept (mesh, animation paused where it was, camera).</summary>
     void Hide3D()

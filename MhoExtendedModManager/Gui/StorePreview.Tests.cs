@@ -167,7 +167,7 @@ sealed partial class StorePreview
     internal void ScrubForTest(double fraction) { if (p3?.Playing != null && p3.Frames > 0) p3.FrameSlider.Value = (float)(Math.Round(fraction * p3.Frames) / p3.Frames); }
 
     internal object? P3ForTest => p3;
-    internal string? CurrentAnimationForTest => p3 == null ? null : p3.CurrentAnimation + (p3.CurrentOutsideRef != null ? " (unsaved change)" : "");
+    internal string? CurrentAnimationForTest => p3 == null ? null : p3.CurrentAnimation + (p3.CurrentOutsideRef is { } cr ? " (unsaved change" + (cr.TranslationBones?.Contains("g_r_palm") == true ? ", moves g_r_palm" : ", g_r_palm held") + ")" : "");
     /// <summary>Tests: the 3D view opens the model of the package whose name has this (the user's pick otherwise).</summary>
     internal string? TestMeshPart { get; set; }
     internal string PropsForTest => p3 == null ? "(no 3D view)" : string.Join(", ", p3.PropClassesForTest);

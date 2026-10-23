@@ -188,7 +188,9 @@ sealed partial class ModEditorView
             UseWorkCopy(e.Package, bytes);
             OnBorrowBase(e.Package, b => { byte[] k = File.ReadAllBytes(b); return PowerBorrow.PinPropBones(k, PowerBorrow.HeldPropBones(k, e.Class), false, log); });
         }
-        await ApplyPropsTo(e.Package);
+        if (!await ApplyPropsTo(e.Package) || IsDisposed) return;
+        // the list read again: a changed row plays the sets as pinned now (it held the ones read before)
+        if (SelectedAnim is { } sel && AnimFile is string af && af.Equals(e.Package, StringComparison.OrdinalIgnoreCase)) ReloadAt(sel.Name);
     }
 
     /// <summary>Add a Prop: a hero, then one of their props; added to the selected costume package.</summary>
