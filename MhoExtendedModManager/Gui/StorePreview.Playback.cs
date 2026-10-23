@@ -190,6 +190,7 @@ sealed partial class StorePreview
     /// <summary>P (Kurt, 2026-10-04: the 3D views' play / pause key): plays or pauses the shown animation; false when the 3D
     /// view has no animation picked (P then does nothing).</summary>
     public bool TogglePlayback() => show3D && p3 != null && p3.TogglePlayback();
+    public bool ToggleQuad() => show3D && p3 != null && p3.ToggleQuad();
 
     /// <summary>Esc (Kurt): pauses a playing animation; false when nothing was playing (Esc then does its usual job).</summary>
     public bool PausePlayback() => show3D && p3 != null && p3.PausePlayback();

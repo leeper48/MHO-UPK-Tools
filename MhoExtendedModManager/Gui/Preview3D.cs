@@ -43,7 +43,7 @@ sealed partial class Preview3D : UserControl
 {
     readonly ModelView view = new() { Dock = DockStyle.Fill };
     readonly DropDown anims = new() { Dock = DockStyle.Fill };
-    readonly Button play, loop, reset, look, frameHead, frameBust, frameFull, fullScreen, powersButton;
+    readonly Button play, loop, reset, look, frameHead, frameBust, frameFull, quadButton, fullScreen, powersButton;
     readonly LightSlider frame = new() { Dock = DockStyle.Fill, Label = "Frame", Min = 0, Max = 1, Step = 0, Mark = null, Height = 26 };
     readonly LightSlider light = new() { Label = "Light", Height = 26 };
     readonly LightSlider glowSlider = new() { Label = "Glow", Min = 0f, Max = 2f, Height = 26 };
@@ -116,6 +116,7 @@ sealed partial class Preview3D : UserControl
         reset = Ui.FlatButton("Reset View", () => { if (ResetViewAction != null) ResetViewAction(); else view.ResetView(); }, "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Ground on or off, and the Light, Glow and Lens sliders. Remembered.");
         (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);
+        quadButton = PreviewControls.QuadButton(() => ToggleQuad(), S);
         fullScreen = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
         powersButton = Ui.FlatButton("Power FXs", () => { prefs.Powers = !prefs.Powers; prefs.Save(); ApplyLook(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's power packages). Lit when on; remembered.");
         Icons.Make(loop, "Loop", Icons.Loop, S);
@@ -159,7 +160,7 @@ sealed partial class Preview3D : UserControl
         root.Controls.Add(view, 0, 0);
         // one row (Kurt, 2026-10-04: the animation list was twice as wide as it needs; Look, Reset View, the framing and full
         // screen buttons beside it): the list takes what the buttons leave
-        bar = Strip(anims, [play, loop, .. barButtons, look, reset, frameHead, frameBust, frameFull, fullScreen]);
+        bar = Strip(anims, [play, loop, .. barButtons, look, reset, frameHead, frameBust, frameFull, quadButton, fullScreen]);
         root.Controls.Add(bar, 0, 1);
         root.Controls.Add(frame, 0, 2);
         powerBlock = PowerBlock();
@@ -195,7 +196,8 @@ sealed partial class Preview3D : UserControl
     void ApplyLook()
     {
         view.ShowSpec = prefs.Spec; view.ShowReflections = prefs.Reflect; view.ShowGlow = prefs.Glow; view.ShowBloom = prefs.Bloom; view.ShowGround = prefs.Ground;
-        view.Quad = PreviewViews.Quad;
+        view.Quad = PreviewViews.Quad; view.ShowAxes = PreviewViews.Gizmo;
+        Ui.Lit(quadButton, PreviewViews.Quad);
         Ui.Lit(powersButton, prefs.Powers);
     }
 
@@ -208,7 +210,7 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Spec, () => prefs.Spec = !prefs.Spec, () => prefs.Reflect, () => prefs.Reflect = !prefs.Reflect, () => prefs.Glow, () => prefs.Glow = !prefs.Glow,
                 () => prefs.Bloom, () => prefs.Bloom = !prefs.Bloom, () => prefs.Props, () => { prefs.Props = !prefs.Props; LoadProps(); },
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
-            items.Add(new("Quad View", "Splits the view into four, as Blender's: this camera, then Top, Front and Side. Drag and zoom in any of them to move this camera; the others follow its zoom.", () => PreviewViews.Quad, () => PreviewViews.Quad = !PreviewViews.Quad));
+            items.Add(new("Axis Gizmo", "The game's axes in the view's corner, as Blender's: X red (the way the character faces), Y green, Z blue (up). Remembered for every 3D view.", () => PreviewViews.Gizmo, () => PreviewViews.Gizmo = !PreviewViews.Gizmo));
             items.AddRange(ExtraLook);
             lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });
         }
@@ -438,6 +440,14 @@ sealed partial class Preview3D : UserControl
     }
 
     /// <summary>P (Kurt, 2026-10-04): plays or pauses the picked animation; false when none is picked.</summary>
+    /// <summary>Quad view on or off (the Quad View button, Shift+Q), remembered for every 3D view. True: done.</summary>
+    public bool ToggleQuad()
+    {
+        PreviewViews.Quad = !PreviewViews.Quad;
+        ApplyLook();
+        return true;
+    }
+
     public bool TogglePlayback()
     {
         if (anim == null || animator == null) return false;

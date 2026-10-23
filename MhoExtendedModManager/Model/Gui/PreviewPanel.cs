@@ -226,6 +226,7 @@ sealed partial class PreviewPanel : UserControl
 
     /// <summary>P / Esc (the main window's keys) and full screen, as the 3D preview does them.</summary>
     public bool TogglePlayback() => p3.TogglePlayback();
+    public bool ToggleQuad() => p3.ToggleQuad();
     public bool PausePlayback() => p3.PausePlayback();
     public void ToggleFull() => p3.ToggleFull();
     public bool IsFull => p3.IsFull;
@@ -394,6 +395,8 @@ sealed partial class PreviewPanel : UserControl
         float fov = 2 * MathF.Atan(12f / view.FocalLength);
         float lensScale = MathF.Tan(ModelView.ReferenceFov / 2) / MathF.Tan(fov / 2);
         float yaw = vs[0], pitch = vs[1], distance = vs[2] * frameRadius * lensScale;
+        // a flat view (an axis ball clicked): far back with a narrow lens, as the view draws it
+        if (view.Ortho && !view.Quad) { distance *= ModelView.OrthoBack; fov = 2 * MathF.Atan(MathF.Tan(fov / 2) / ModelView.OrthoBack); }
         var target = frameCenter + new Vector3(vs[3], vs[4], vs[5]) * frameRadius;
         var eye = target + distance * new Vector3(MathF.Cos(pitch) * MathF.Cos(yaw), MathF.Cos(pitch) * MathF.Sin(yaw), MathF.Sin(pitch));
         var f = Vector3.Normalize(target - eye);

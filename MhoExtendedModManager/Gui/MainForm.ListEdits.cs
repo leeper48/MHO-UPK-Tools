@@ -86,6 +86,8 @@ sealed partial class MainForm
             if (keyData == Keys.Escape && storePreview.PausePlayback()) return true;
             // P: play / pause the 3D preview (Kurt, 2026-10-04: one key in every 3D view)
             if (keyData == Keys.P && storePreview.TogglePlayback()) return true;
+            // Shift+Q: quad view (Kurt, 2026-10-23, as Blender's Ctrl+Alt+Q)
+            if (keyData == (Keys.Shift | Keys.Q) && storePreview.ToggleQuad()) return true;
             // Del: Remove Mod (Kurt), which asks first as the button does.
             if (keyData == Keys.Delete && Selected is Mod && !readOnly) { RemoveMod(); return true; }
             // Ctrl+Up / Down: priority one step; Ctrl+Home / End: to the top / bottom (a marked group moves together).

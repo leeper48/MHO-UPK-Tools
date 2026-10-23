@@ -336,8 +336,16 @@ sealed class ModelView : UserControl
     {
         canvas.Paint += (_, e) => PaintFrame(e.Graphics);
         canvas.Resize += (_, _) => Redraw();
-        canvas.MouseDown += (_, e) => { dragFrom = e.Location; dragButton = e.Button; fast = true; canvas.Focus(); };
-        canvas.MouseUp += (_, _) => { bool moved = dragFrom != null; dragFrom = null; fast = false; Redraw(); if (moved) ViewChanged?.Invoke(); };
+        canvas.MouseDown += (_, e) => { dragFrom = downAt = e.Location; dragButton = e.Button; fast = true; canvas.Focus(); };
+        canvas.MouseUp += (_, e) =>
+        {
+            bool moved = dragFrom != null; dragFrom = null; fast = false;
+            // a click (no drag) on an axis ball: look along that axis, flat (Kurt, 2026-10-23: as Blender's gizmo; Shift: from
+            // the other side)
+            if (e.Button == MouseButtons.Left && Math.Abs(e.X - downAt.X) + Math.Abs(e.Y - downAt.Y) < 4 && GizmoHit(e.Location) is Vector3 dir)
+                SnapTo((ModifierKeys & Keys.Shift) != 0 ? -dir : dir);
+            Redraw(); if (moved) ViewChanged?.Invoke();
+        };
         canvas.MouseMove += (_, e) => Drag(e);
         // Wheel zoom: 8 % a notch, 2 % with Shift held (Kurt: one notch went too far for framing an icon).
         canvas.MouseWheel += (_, e) =>
@@ -449,7 +457,7 @@ sealed class ModelView : UserControl
         if (dragFrom is not Point from) return;
         float dx = e.X - from.X, dy = e.Y - from.Y;
         dragFrom = e.Location;
-        if (dragButton == MouseButtons.Left) { yaw -= dx * 0.01f; pitch = Math.Clamp(pitch + dy * 0.01f, -1.5f, 1.5f); }
+        if (dragButton == MouseButtons.Left && (dx != 0 || dy != 0)) { yaw -= dx * 0.01f; pitch = Math.Clamp(pitch + dy * 0.01f, -1.5f, 1.5f); ortho = false; }
         else
         {
             var (r, u, _, _) = Basis();
@@ -857,7 +865,46 @@ sealed class ModelView : UserControl
     public double DrawMsTotal { get; private set; }
     public (int W, int H) LastSize => (W, H);
 
-    void Render() { if (quad) RenderQuad(); else Render(0, 0); }
+    void Render() { if (quad) RenderQuad(); else Flat(ortho, () => Render(0, 0)); }
+
+    Point downAt;
+    bool ortho;
+    /// <summary>The main camera is flat (an axis ball was clicked); turning the view makes it perspective again.</summary>
+    public bool Ortho => ortho;
+    /// <summary>The camera's stand-back for a flat view (far back, with a lens narrowed to keep the framing).</summary>
+    public const float OrthoBack = 60;
+
+    /// <summary>Runs <paramref name="draw"/> with the camera far back and the lens narrowed (a flat view), when <paramref name="flat"/>.</summary>
+    void Flat(bool flat, Action draw)
+    {
+        if (!flat) { draw(); return; }
+        float d0 = distance, f0 = Fov;
+        distance = d0 * OrthoBack; Fov = 2 * MathF.Atan(MathF.Tan(f0 / 2) / OrthoBack);
+        try { draw(); } finally { distance = d0; Fov = f0; }
+    }
+
+    /// <summary>The gizmo's balls as last painted (the main view's): centre, radius, the axis (display space) it shows.</summary>
+    readonly List<(PointF At, float R, Vector3 Dir)> gizmoBalls = [];
+
+    Vector3? GizmoHit(Point p)
+    {
+        // the nearest ball under the point (the front one when they overlap: painted last, so listed last)
+        for (int k = gizmoBalls.Count - 1; k >= 0; k--)
+        {
+            var (at, r, dir) = gizmoBalls[k];
+            if ((p.X - at.X) * (p.X - at.X) + (p.Y - at.Y) * (p.Y - at.Y) <= r * r * 1.4f) return dir;
+        }
+        return null;
+    }
+
+    /// <summary>The camera put on the <paramref name="dir"/> side of the target, looking back along it, flat.</summary>
+    void SnapTo(Vector3 dir)
+    {
+        if (MathF.Abs(dir.Z) > 0.99f) { pitch = MathF.Sign(dir.Z) * (MathF.PI / 2 - 0.0005f); yaw = -MathF.PI / 2; }
+        else { pitch = 0; yaw = MathF.Atan2(dir.Y, dir.X); }
+        ortho = true;
+        ViewChanged?.Invoke();
+    }
 
     // --- quad view and the axis gizmo (Kurt, 2026-10-23: "like Blender has") ----------------------------------------------------
     bool quad;
@@ -865,10 +912,12 @@ sealed class ModelView : UserControl
     /// lens, so the shading, ground and effects draw as in the main view). The mouse turns and zooms the main camera; the
     /// other three follow its target and zoom.</summary>
     public bool Quad { get => quad; set { if (quad == value) return; quad = value; Redraw(); } }
+    bool showAxes = PreviewViews.Gizmo;
+    /// <summary>The axis gizmo in the corner (Look ▾ → Axis Gizmo; remembered for every 3D view).</summary>
+    public bool ShowAxes { get => showAxes; set { if (showAxes == value) return; showAxes = value; canvas.Invalidate(); } }
     /// <summary>The fixed views: Top looks down with +X to the right; Front looks at the face (characters face +X); Side looks
     /// from -Y.</summary>
     static readonly (string Label, float Yaw, float Pitch)[] FixedViews = [("Top", -MathF.PI / 2, MathF.PI / 2 - 0.0005f), ("Front", 0, 0), ("Side", -MathF.PI / 2, 0)];
-    const float OrthoBack = 60;
     readonly (Vector3 R, Vector3 U, Vector3 F)[] quadBasis = new (Vector3, Vector3, Vector3)[4];
 
     void RenderQuad()
@@ -887,7 +936,7 @@ sealed class ModelView : UserControl
                 if (v > 0) { yaw = FixedViews[v - 1].Yaw; pitch = FixedViews[v - 1].Pitch; distance = d0 * OrthoBack; Fov = 2 * MathF.Atan(MathF.Tan(f0 / 2) / OrthoBack); }
                 var (r, u, f, _) = Basis();
                 quadBasis[v] = (r, u, f);
-                Render(qw, qh);
+                if (v == 0) Flat(ortho, () => Render(qw, qh)); else Render(qw, qh);
                 int ox = v % 2 * qw, oy = v / 2 * qh;
                 for (int y = 0; y < qh; y++) Array.Copy(color, y * qw, all, (oy + y) * qw * 2 + ox, qw);
             }
@@ -910,13 +959,14 @@ sealed class ModelView : UserControl
     {
         var rc = canvas.ClientRectangle;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        if (!quad) { var (r, u, f, _) = Basis(); Gizmo(g, rc, r, u, f); return; }
+        gizmoBalls.Clear();
+        if (!quad) { if (showAxes) { var (r, u, f, _) = Basis(); Gizmo(g, rc, r, u, f, gizmoBalls); } return; }
         int hw = rc.Width / 2, hh = rc.Height / 2;
         string[] names = ["Perspective", "Top", "Front", "Side"];
         for (int v = 0; v < 4; v++)
         {
             var area = new Rectangle(rc.Left + v % 2 * hw, rc.Top + v / 2 * hh, v % 2 == 0 ? hw : rc.Width - hw, v / 2 == 0 ? hh : rc.Height - hh);
-            Gizmo(g, area, quadBasis[v].R, quadBasis[v].U, quadBasis[v].F);
+            if (showAxes) Gizmo(g, area, quadBasis[v].R, quadBasis[v].U, quadBasis[v].F, v == 0 ? gizmoBalls : null);
             TextRenderer.DrawText(g, names[v], Font, new Point(area.Left + (int)(8 * Ui.Dpi(DeviceDpi)), area.Top + (int)(6 * Ui.Dpi(DeviceDpi))), Color.FromArgb(220, 225, 235));
         }
         using var pen = new Pen(Color.FromArgb(150, 20, 22, 30), Math.Max(1, 2 * Ui.Dpi(DeviceDpi)));
@@ -926,7 +976,7 @@ sealed class ModelView : UserControl
 
     /// <summary>The engine's axes as the view draws them (it shows the engine's Y mirrored: engine +Y is display -Y), so the
     /// gizmo's Y is the Y that Prop Fit's Move Y and the game use.</summary>
-    void Gizmo(Graphics g, Rectangle area, Vector3 r, Vector3 u, Vector3 f)
+    void Gizmo(Graphics g, Rectangle area, Vector3 r, Vector3 u, Vector3 f, List<(PointF At, float R, Vector3 Dir)>? balls = null)
     {
         float s = Ui.Dpi(DeviceDpi), len = 24 * s, dot = 7 * s;
         var c = new PointF(area.Left + 14 * s + len, area.Bottom - 14 * s - len);
@@ -936,6 +986,7 @@ sealed class ModelView : UserControl
         foreach (var (a, col, name, sign) in axes.SelectMany(x => new[] { (x.A, x.C, x.N, 1f), (x.A, x.C, x.N, -1f) }).OrderByDescending(x => Vector3.Dot(x.A * x.Item4, f)))
         {
             var end = new PointF(c.X + Vector3.Dot(a, r) * len * sign, c.Y - Vector3.Dot(a, u) * len * sign);
+            balls?.Add((end, sign > 0 ? dot : dot * 0.8f, a * sign));
             if (sign > 0)
             {
                 using (var pen = new Pen(col, 2 * s)) g.DrawLine(pen, c, end);

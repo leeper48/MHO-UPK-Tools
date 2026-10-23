@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.81
+- 3D views: Quad View is a button between Full Body and full screen (lit while on) and Shift+Q; Look ▾ → Axis Gizmo turns the gizmo off and on.
+- 3D views: a click on a gizmo ball looks along that axis, flat (Shift+click: from the other side); turning the view makes it perspective again.
+
 0.60.80
 - 3D views: an axis gizmo in the lower left corner (X red, Y green, Z blue, as in Blender), and Look ▾ → Quad View: this camera plus Top, Front and Side.
 - Editor: Ctrl+S saves and keeps editing; Ctrl+Enter saves and goes back to the mod list.

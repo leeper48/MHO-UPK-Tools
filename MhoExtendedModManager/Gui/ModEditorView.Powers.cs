@@ -78,6 +78,9 @@ sealed partial class ModEditorView
         // Ctrl+S: Save and Keep Editing; Ctrl+Enter: Save Changes and back to the Mods tab (Kurt, 2026-10-23); as the buttons
         if (keyData == (Keys.Control | Keys.S) && saveStayButton is { Enabled: true, Visible: true }) { KeepEditing = true; SaveAsked(); return true; }
         if (keyData == (Keys.Control | Keys.Enter) && saveButton is { Enabled: true, Visible: true }) { KeepEditing = false; SaveAsked(); return true; }
+        if (keyData == (Keys.Shift | Keys.Q) && !Typing())
+            foreach (var pv in new[] { powerPreview, animPreview })
+                if (pv != null && pv.Visible && pv.ToggleQuad()) return true;
         if (keyData is Keys.Escape or Keys.P && !Typing())
             foreach (var pv in new[] { powerPreview, animPreview })
                 if (pv != null && pv.Visible && (keyData == Keys.Escape ? pv.PausePlayback() : pv.TogglePlayback())) return true;

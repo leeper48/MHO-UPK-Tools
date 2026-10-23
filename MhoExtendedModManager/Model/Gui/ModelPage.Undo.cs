@@ -76,6 +76,7 @@ sealed partial class ModelPage
         if (keyData == Keys.F11) { preview.ToggleFull(); return true; }
         if (!typing && keyData == Keys.Escape && preview.PausePlayback()) return true;
         if (!typing && keyData == Keys.P && preview.TogglePlayback()) return true;   // (P: play / pause in every 3D view)
+        if (!typing && keyData == (Keys.Shift | Keys.Q) && preview.ToggleQuad()) return true;   // (quad view)
         if (!typing && keyData == Keys.B) { preview.ShowBones = !preview.ShowBones; return true; }   // (Kurt, 2026-10-23)
         if (!typing && keyData == Keys.W) { preview.ShowWeights = !preview.ShowWeights; return true; }
         if (!typing && keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }

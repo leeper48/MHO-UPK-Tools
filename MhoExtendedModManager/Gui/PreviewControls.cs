@@ -26,6 +26,25 @@ static class PreviewControls
         return (head, bust, full);
     }
 
+    /// <summary>The Quad View button (four panes; lit while on).</summary>
+    public static Button QuadButton(Action toggle, float s)
+    {
+        var b = Ui.FlatButton("Quad View", toggle, "Quad view, as Blender's (Shift+Q): this camera plus Top, Front and Side. Drag or zoom in any of them to move this camera; the others follow its zoom. Remembered.");
+        b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size((int)(34 * s), (int)(30 * s));
+        Ui.IconPainters.AddOrUpdate(b, (g, r, c) => QuadIcon(g, r, c));
+        return b;
+    }
+
+    public static void QuadIcon(Graphics g, Rectangle r, Color c)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float m = r.Width * 0.27f, gap = Math.Max(1.5f, r.Width / 18f);
+        var b = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
+        float w = (b.Width - gap) / 2, h = (b.Height - gap) / 2;
+        using var pen = new Pen(c, Math.Max(1.4f, r.Width / 20f)) { LineJoin = LineJoin.Round };
+        for (int k = 0; k < 4; k++) g.DrawRectangle(pen, b.X + k % 2 * (w + gap), b.Y + k / 2 * (h + gap), w, h);
+    }
+
     /// <summary>The ⛶ button (corners out; a cross while full screen).</summary>
     public static Button FullScreenButton(Action toggle, Func<bool> isFull, float s)
     {
