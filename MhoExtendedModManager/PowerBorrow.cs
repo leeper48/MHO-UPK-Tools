@@ -87,7 +87,9 @@ static class PowerBorrow
             var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
             if (ownClass.Count > 0) log.Add($"stock look kept for {string.Join(", ", ownClass)} (costumes of their own class)");
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
-                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass, keepWeapons: e.KeepWeapons);
+                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass, keepWeapons: e.KeepWeapons,
+                held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
+                heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()]);
             e.Spawned = spawned;
             // the hero's own ride (Hawkeye's Sky-Cycle): shown by the travel power's condition and hidden again by the power's
             // own components, which the borrow replaces, so it stayed under him after the power ended (Kurt, 2026-10-22):
@@ -517,7 +519,8 @@ static class PowerBorrow
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
         IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
-        IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false)
+        IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false,
+        (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -536,13 +539,15 @@ static class PowerBorrow
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (pr.Role == "projectile") done[tf] = ProjectileSlots(done[tf], td, pr.DonorFile, dd, log);
-            if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
+            if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log, held);
             // a spawned vehicle sized for this hero: the Vehicle Fit's size, else the two heroes' heights (Kurt, 2026-10-20:
             // Cyclops' bike looked small under Thor; x1.14 by the heights looked right in game)
             float vscale = vehicleScale is float vs && vs > 0 ? vs : HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
             // (MHO_BORROW_VEHICLE_SCALE_FORCE=<n>: that scale instead, to see whether it reaches the vehicle at all)
             if (float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE_FORCE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vforce) && vforce > 0) vscale = vforce;
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
+            // a prop the costumes in heldBy hold now (added to them): its spawn left out for them, so the power throws the held one
+            if (crossHero && pr.Role == "power" && held is { Classes.Count: > 0 } hc && heldBy is { Count: > 0 }) done[tf] = NotForHolders(done[tf], td, hc.Classes, heldBy, log);
             if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
             else if (crossHero && pr.Role == "power" && keepWeapons) log.Add("  this hero's weapons stay shown while the power runs (Keep This Hero's Weapons)");
             // every prop the power now brings (a spawned vehicle or weapon, the donor's own shown ones): its fit
@@ -778,7 +783,9 @@ static class PowerBorrow
     /// Angela's bladed bow hides her sword), so the target's own weapons don't show. Components that only show a slot are
     /// turned into hiding it (the donor's weapon isn't the target's to show).
     /// </summary>
-    public static byte[] SpawnBorrowedAttachments(byte[] package, string targetDefault, List<string> log)
+    /// <param name="held">Props this hero now holds (added to the costume: Thor's hammer in Cap's hand) and their slots: a
+    /// component showing only those is left as it is, so the power uses the held one (as the other hero's own power does).</param>
+    public static byte[] SpawnBorrowedAttachments(byte[] package, string targetDefault, List<string> log, (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null)
     {
         var p = Package.FromBytes(package);
         int td = Find(p, targetDefault);
@@ -822,6 +829,13 @@ static class PowerBorrow
                 for (int k = 0; k < n; k++) { int c = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(show.ValueAt + 4 + 4 * k)); if (c != 0) classes.Add(c); }
             }
             string? slotName = slot != null ? TagWalker.NameAt(p, d, slot.ValueAt) : null;
+            // a prop the hero holds now (an added prop): shown as the other hero's power shows its own, not spawned
+            string ClassName(int c) => c > 0 ? p.Exports[c - 1].ObjectName : p.RefName(c);
+            if (held is { } h && (classes.Count > 0 ? classes.All(c => h.Classes.Contains(ClassName(c))) : slotName != null && h.Slots.Contains(slotName)))
+            {
+                log.Add($"  {e.ObjectName}: shows this hero's held {(classes.Count > 0 ? string.Join(", ", classes.Select(ClassName)) : slotName)} (an added prop), as the other hero's power does");
+                continue;
+            }
             // the component's other properties (timing, conditions) stay; the show / hide lists and slots go
             string[] drop = ["AttachmentsToShowOnActivate", "AttachmentsToHideOnActivate", "WeaponSlotToShowOnActivate", "WhileActivatedShowWeaponSlot", "WhileActivatedAttachmentClass", "WhileActivatedHideWeaponSlot"];
             byte[] head = d[..16];
@@ -898,6 +912,47 @@ static class PowerBorrow
     }
     static List<Costume>? costumes;
     static readonly object costumesLock = new();
+
+    /// <summary>A costume package's player class, as EntityRequired / EntityExcluded name it (UC__MarvelPlayer_CaptainAmerica_Classic_SF.upk
+    /// → marvelplayer_captainamerica_classic).</summary>
+    static string CostumeClassOf(string file)
+    {
+        string n = Path.GetFileNameWithoutExtension(file);
+        if (n.StartsWith("UC__", StringComparison.OrdinalIgnoreCase)) n = n[4..];
+        if (n.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) n = n[..^3];
+        return n.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// The power's spawn components for <paramref name="classes"/> (a prop added to some costumes: Thor's hammer in Cap Classic's
+    /// hand) made EntityExcluded for <paramref name="holders"/>: those costumes throw the held one; the others still get the
+    /// spawned copy.
+    /// </summary>
+    static byte[] NotForHolders(byte[] package, string targetDefault, IReadOnlySet<string> classes, IReadOnlyList<string> holders, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        int td = Find(p, targetDefault);
+        if (td < 0) return package;
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var addNames = new List<string>();
+        var done = new List<string>();
+        foreach (int r in Components(p, td, out _, out _))
+        {
+            if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
+            if (TagWalker.Walk(p, d, 16)?.FirstOrDefault(t => t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is not { } ct) continue;
+            int c = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ct.ValueAt));
+            string cn = c > 0 ? p.Exports[c - 1].ObjectName : c < 0 ? p.RefName(c) : "";
+            if (!classes.Contains(cn)) continue;
+            if (WithEntityLists(p, r - 1, holders, require: false, addNames) is { } nd) { rep[r - 1] = _ => nd; done.Add(p.Exports[r - 1].ObjectName); }
+        }
+        if (rep.Count == 0) return package;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  the held props' spawns couldn't be left out for {string.Join(", ", holders)} ({string.Join("; ", problems.Take(2))})"); return package; }
+        log.Add($"  {string.Join(", ", done)}: not for {string.Join(", ", holders)} (they hold the prop: the power uses theirs)");
+        return output;
+    }
 
     /// <summary>
     /// A component's data with its EntityRequired / EntityExcluded fitted to <paramref name="classes"/>: required (only on
@@ -1739,7 +1794,7 @@ static class PowerBorrow
     /// in another hero's hand (Kurt fitted it by hand: -161 on Spider-Man, -180 on Hawkeye; both right in game, 2026-10-22),
     /// though the palm bones rest alike: about -170 by default.
     /// </summary>
-    static float DefaultTurnZ(string cls) => cls.StartsWith("marvelattachment_thorhammer", StringComparison.OrdinalIgnoreCase) ? -170 : 0;
+    internal static float DefaultTurnZ(string cls) => cls.StartsWith("marvelattachment_thorhammer", StringComparison.OrdinalIgnoreCase) ? -170 : 0;
 
     /// <summary>
     /// Prop Fit (Kurt, 2026-10-21: glider, Thor's hammer, Cap's shield: size, place, turn): every attachment class the
@@ -1774,6 +1829,148 @@ static class PowerBorrow
             if (FitModel(dst, "marvelgamecontent.default__" + cls, scale, move, turn, log) is { } fitted) dst = fitted;
         }
         return dst.RawFile;
+    }
+
+    /// <summary>The props a character package has: its attachment classes with a model (its own list, mAttachmentClasses, first).</summary>
+    public static List<string> PropClasses(string package)
+    {
+        var p = Package.Open(package);
+        var own = ModMeshes.AttachmentClasses(package) ?? [];
+        var list = new List<string>();
+        foreach (var e in p.Exports)
+        {
+            if (!p.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) || !e.ObjectName.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase)) continue;
+            int d = Find(p, "marvelgamecontent.default__" + e.ObjectName);
+            if (d < 0) continue;
+            byte[] b = p.ReadExportBytes(p.Exports[d]).ToArray();
+            if (TagWalker.Walk(p, b, 4)?.Any(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase)) == true) list.Add(e.ObjectName);
+        }
+        return [.. list.OrderBy(c => own.Contains(c, StringComparer.OrdinalIgnoreCase) ? 0 : 1)];
+    }
+
+    /// <summary>
+    /// A prop added to a costume (AddedPropEntry; Kurt, 2026-10-23): its attachment class copied from <paramref name="fromPath"/>
+    /// into <paramref name="package"/> when it isn't there yet (bones the costume's skeleton lacks set to its root), fitted
+    /// from its original model (so a fit applied again doesn't stack), and listed in the costume's own props
+    /// (mAttachmentClasses of its player class default). Applying it again gives the same package. Verified; throws
+    /// InvalidDataException with the reason.
+    /// </summary>
+    public static byte[] AddProp(byte[] package, AddedPropEntry e, string fromPath, List<string> log)
+    {
+        MeshCopy.Register();   // (the prop's skeletal mesh copies with the class)
+        var dst = Package.FromBytes(package);
+        string cls = e.Class.ToLowerInvariant(), def = "marvelgamecontent.default__" + cls;
+        int ClassExport(Package p) => Array.FindIndex(p.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && p.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
+        if (ClassExport(dst) < 0)
+        {
+            var hp = Package.Open(fromPath);
+            int ce = ClassExport(hp);
+            if (ce < 0) throw new InvalidDataException($"{e.Class} isn't in {Path.GetFileName(fromPath)}");
+            var cc = CrossMove.Quiet(() => ExportCopy.Copy(hp, ce, dst, []), out string said)
+                ?? throw new InvalidDataException($"{e.Class} couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
+            dst = Package.FromBytes(cc.Output);
+            log.Add($"{e.Class} copied from {Path.GetFileName(fromPath)}");
+            // bones the costume's skeleton doesn't have: its root
+            if (CostumeBones(dst) is { Count: > 0 } bones) dst = RootMissingBones(dst, def, bones, log);
+        }
+        // the fit, from the original model (a refit replaces the earlier one)
+        int d = Find(dst, def);
+        if (d < 0) throw new InvalidDataException($"{def} isn't in the package");
+        dst = WithOriginalModel(dst, def, log);
+        var f = e.Fit;
+        float scale = f.Scale is float fs && fs > 0 ? fs : 1;
+        var move = new System.Numerics.Vector3(f.X, f.Y, f.Z);
+        var turn = new System.Numerics.Vector3(f.TurnX, f.TurnY, f.TurnZ == 0 && f.IsIdentity ? DefaultTurnZ(cls) : f.TurnZ);
+        if (Math.Abs(scale - 1) > 0.005f || move != default || turn != default)
+            if (FitModel(dst, def, scale, move, turn, log) is { } fitted) dst = fitted;
+        // listed in the costume's own props
+        int classRef = ClassExport(dst) + 1;
+        int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+        if (pd < 0) throw new InvalidDataException("the package has no player class default (not a costume)");
+        byte[] pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
+        var at = TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase))
+                 ?? throw new InvalidDataException("this costume has no prop list of its own (it uses its hero's): not supported yet");
+        int n = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt));
+        for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return dst.RawFile;   // listed already
+        byte[] np = [.. pb.AsSpan(0, at.End), .. BitConverter.GetBytes(classRef), .. pb.AsSpan(at.End)];
+        BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.ValueAt), n + 1);
+        BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.Start + 16), at.Size + 4);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [pd] = _ => np };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
+        log.Add($"{e.Class} added to {dst.Exports[pd].ObjectName}'s props ({n + 1} now)");
+        return output;
+    }
+
+    /// <summary>
+    /// The prop taken off the costume again: out of its props list (its copied class and models stay in the package, unused).
+    /// </summary>
+    public static byte[] RemoveProp(byte[] package, string cls, List<string> log)
+    {
+        var dst = Package.FromBytes(package);
+        int ce = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
+        int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+        if (ce < 0 || pd < 0) return package;
+        byte[] pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
+        if (TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is not { } at) return package;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt));
+        var refs = Enumerable.Range(0, n).Select(k => BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k))).ToList();
+        if (!refs.Remove(ce + 1)) return package;
+        byte[] value = [.. BitConverter.GetBytes(refs.Count), .. refs.SelectMany(BitConverter.GetBytes)];
+        byte[] np = [.. pb.AsSpan(0, at.ValueAt), .. value, .. pb.AsSpan(at.End)];
+        BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.Start + 16), value.Length);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [pd] = _ => np };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
+        log.Add($"{cls} taken off {dst.Exports[pd].ObjectName}'s props");
+        return output;
+    }
+
+    /// <summary>The bones of the costume's own model (CostumeMesh), else of its first skeletal mesh.</summary>
+    static HashSet<string>? CostumeBones(Package p)
+    {
+        try
+        {
+            var ap = AnimExportCli.Packages.Package.Read(p.RawFile);
+            var meshes = ap.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).ToList();
+            if (meshes.Count == 0) return null;
+            int pick = meshes.OrderByDescending(i => AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i)?.Bones.Count ?? 0).First();
+            return AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, pick)?.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { return null; }
+    }
+
+    /// <summary>The class default's model pointed back at the original it was fitted from (FitModel names its copies
+    /// "&lt;original&gt;_x&lt;size&gt;[_fit&lt;n&gt;]").</summary>
+    static Package WithOriginalModel(Package dst, string classDefault, List<string> log)
+    {
+        int d = Find(dst, classDefault);
+        byte[] db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        if (TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase)) is not { } mt || BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt)) < 1) return dst;
+        int mesh = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt + 4));
+        if (mesh <= 0) return dst;
+        string name = dst.Exports[mesh - 1].ObjectName;
+        var m = System.Text.RegularExpressions.Regex.Match(name, @"^(.+?)_x\d+(_fit\d+)?$");
+        if (!m.Success) return dst;
+        int orig = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(m.Groups[1].Value, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase));
+        if (orig < 0) return dst;
+        BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(mt.ValueAt + 4), orig + 1);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => db };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+        return PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written).Count == 0 ? Package.FromBytes(output) : dst;
+    }
+
+    /// <summary>The weapon slot a prop class is held in (its class default's WeaponSlot), or null.</summary>
+    public static string? PropSlot(string package, string cls)
+    {
+        var p = Package.Open(package);
+        int d = Find(p, "marvelgamecontent.default__" + cls.ToLowerInvariant());
+        if (d < 0) return null;
+        byte[] b = p.ReadExportBytes(p.Exports[d]).ToArray();
+        return TagWalker.Walk(p, b, 4)?.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase)) is { } t && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt)) > 0
+            ? TagWalker.NameAt(p, b, t.ValueAt + 4) : null;
     }
 
     /// <summary>The bones a class default names in AttachmentBones (none: empty).</summary>
@@ -1877,6 +2074,15 @@ static class PowerBorrow
     /// every position scaled and its Origin / RotOrigin set (the engine draws a skeletal mesh turned by RotOrigin, then moved
     /// by Origin: Blade's motorcycle's yaw 90), and the attachment's ModelMesh pointed at the copy.
     /// </summary>
+    /// <summary>The same number for the same move and turn in every run (HashCode.Combine changes per process: a fit saved again in
+    /// another session made another copy of the model).</summary>
+    static uint StableFitHash(System.Numerics.Vector3 move, System.Numerics.Vector3 turn)
+    {
+        uint h = 2166136261;
+        foreach (char c in FormattableString.Invariant($"{move.X:0.##},{move.Y:0.##},{move.Z:0.##},{turn.X:0.##},{turn.Y:0.##},{turn.Z:0.##}")) h = (h ^ c) * 16777619;
+        return h;
+    }
+
     static Package? FitModel(Package dst, string classDefault, float scale, System.Numerics.Vector3 move, System.Numerics.Vector3 turn, List<string> log)
     {
         int d = Find(dst, classDefault);
@@ -1903,7 +2109,19 @@ static class PowerBorrow
         // animation's root: its model's Origin / RotOrigin (the glider's moved in game).
         bool bake = !dst.Exports[d].ObjectName.Contains("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase)
                     && TagWalker.Walk(dst, dst.ReadExportBytes(dst.Exports[d]).ToArray(), 4)?.Any(t => t.Name.Equals("AnimationSet", StringComparison.OrdinalIgnoreCase)) != true;
-        string newName = $"{dst.Exports[mesh - 1].ObjectName}_x{(int)MathF.Round(scale * 100)}" + (moved ? $"_fit{(uint)HashCode.Combine(move, turn) % 100000}" : "");
+        string newName = $"{dst.Exports[mesh - 1].ObjectName}_x{(int)MathF.Round(scale * 100)}" + (moved ? $"_fit{StableFitHash(move, turn) % 100000}" : "");
+        // a fitted copy of that name there already (the same fit applied again: an added prop on Save): used as it is
+        int had = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(newName, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase));
+        if (had >= 0)
+        {
+            byte[] hb = dst.ReadExportBytes(dst.Exports[holder]).ToArray();
+            BinaryPrimitives.WriteInt32LittleEndian(hb.AsSpan(at), had + 1);
+            var hrep = new Dictionary<int, Func<long, byte[]>> { [holder] = _ => hb };
+            byte[] hout = PackageRebuilder.Rebuild(dst, hrep, [], out var hwritten);
+            if (PackageRebuilder.Verify(dst, hout, hrep.Keys.ToList(), [], hwritten).Count > 0) return null;
+            log.Add($"  {dst.Exports[d].ObjectName}: its fitted model {newName} (already there)");
+            return Package.FromBytes(hout);
+        }
         var cc = CrossMove.Quiet(() => ExportCopy.Copy(dst, mesh - 1, dst, [], newName), out string said);
         if (cc == null) { log.Add("  the model couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim()))); return null; }
         dst = Package.FromBytes(cc.Output);

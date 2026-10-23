@@ -29,6 +29,7 @@ sealed partial class ModEditorView
     {
         var d = new Dictionary<string, string>(borrowFiles, StringComparer.OrdinalIgnoreCase);
         foreach (var (f, b) in ghostBuilt) if (draft.DodgeGhosts.Any(g => g.Package.Equals(f, StringComparison.OrdinalIgnoreCase)) && GhostKey(f) == b.Key) d[f] = b.Path;
+        foreach (string f in propTouched) if (DraftPath(f) is string pp) d[f] = pp;   // (added props: the work copy, after the borrowed looks)
         return d;
     }
 

@@ -306,6 +306,13 @@ sealed partial class ModEditorView : UserControl
             if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
             Dialog.Show(this, "The dodge ghosts couldn't be made: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
+        string? propsWork;
+        try { propsWork = ApplyAddedProps(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+            Dialog.Show(this, "The added props couldn't be put in: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         try { powerWork = ApplyPowerColors(powerLog, borrowed); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
         {
@@ -331,6 +338,8 @@ sealed partial class ModEditorView : UserControl
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
         if (partsWork != null) try { Directory.Delete(partsWork, true); } catch (IOException) { }
+        if (propsWork != null) try { Directory.Delete(propsWork, true); } catch (IOException) { }
+        if (saved != null) propTouched.Clear();
         foreach (string? bw in new[] { borrowWorkSave, saved != null ? borrowWork : null })
             if (bw != null) try { Directory.Delete(bw, true); } catch (IOException) { }
         if (saved != null) borrowWork = null;

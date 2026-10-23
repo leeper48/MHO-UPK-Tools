@@ -50,6 +50,7 @@ sealed class ModDraft
     public List<PartOffEntry> PartsOff = [];
     public List<DodgeGhostEntry> DodgeGhosts = [];
     public List<PowerBorrowEntry> PowerBorrows = [];
+    public List<AddedPropEntry> AddedProps = [];
     public List<string> PostImages = [];
     /// <summary>The Model tab's work (bone maps, FBX edits, its choices, the package before the model): a folder copied into
     /// the mod as Model\ on Save (null: the mod's own Model folder stays as it is).</summary>
@@ -112,6 +113,7 @@ sealed class ModDraft
         d.PartsOff = m.Manifest.PartsOff?.ToList() ?? [];
         d.DodgeGhosts = m.Manifest.DodgeGhosts?.Select(g => new DodgeGhostEntry { Package = g.Package, Ghost = g.Ghost, ModelPackage = g.ModelPackage, ModelMesh = g.ModelMesh, Anim = g.Anim, Frame = g.Frame, KeepEffectSize = g.KeepEffectSize, Lean = g.Lean, LeanDegrees = g.LeanDegrees }).ToList() ?? [];
         d.PowerBorrows = m.Manifest.PowerBorrows?.ToList() ?? [];
+        d.AddedProps = m.Manifest.AddedProps?.ToList() ?? [];
         var log = m.Manifest.Changelog ?? [];
         d.Changes = log.FirstOrDefault(e => e.Version.Trim().Equals((m.Manifest.Version ?? "").Trim(), StringComparison.OrdinalIgnoreCase))?.Changes ?? "";
         d.Changelog = log.Select(e => new ChangelogEntry { Version = e.Version, Changes = e.Changes }).ToList();
@@ -193,6 +195,7 @@ static class ModWriter
             manifest.PartsOff = d.PartsOff.Count > 0 ? d.PartsOff : null;
             manifest.DodgeGhosts = d.DodgeGhosts.Count > 0 ? d.DodgeGhosts : null;
             manifest.PowerBorrows = d.PowerBorrows.Count > 0 ? d.PowerBorrows : null;
+            manifest.AddedProps = d.AddedProps.Count > 0 ? d.AddedProps : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));
             var lists = new[] { manifest.Replacements, manifest.AchievementReplacements, manifest.StoreReplacements };
             for (int k = 0; k < lists.Length; k++)

@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.89
+- Borrow Look (preview feature): a costume holding the borrowed power's prop (an added prop) throws its own; the power's spawned copy is left out for that costume only (Captain America's other costumes still get it).
+
+0.60.88
+- Animations tab: Props: Add a Prop gives the costume another character's prop (Thor's hammer for Captain America), held in every animation, with Size, Move (global axes) and Turn; Remove takes it off. Saved with the mod; a borrowed power that shows that slot uses the held prop.
+- Fitted props get the same model name in every session (a fit saved again added another copy).
+
 0.60.87
 - Borrow Look (preview feature): Rename This Power (with its name box) and Use Its Icon are in the Powers tab's Borrowed Look too, for a power already borrowed; changing them updates the Strings and Icons tabs at once (no rebuild).
 

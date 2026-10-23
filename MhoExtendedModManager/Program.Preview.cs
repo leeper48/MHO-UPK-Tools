@@ -77,6 +77,31 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--add-prop":
+            {
+                // --add-prop <costume.upk> <from.upk> <prop class> <out.upk> [size movex movey movez turnx turny turnz]: the prop added
+                // (PowerBorrow.AddProp), applied twice (the second must change nothing), written to <out> (never into the game)
+                if (rest.Count < 5) { Console.WriteLine("--add-prop <costume.upk> <from.upk> <prop class> <out.upk> [size mx my mz tx ty tz]"); return 1; }
+                float F(int i, float dflt) => rest.Count > i ? float.Parse(rest[i], System.Globalization.CultureInfo.InvariantCulture) : dflt;
+                var ent = new AddedPropEntry { Package = Path.GetFileName(rest[1]), From = Path.GetFileName(rest[2]), Class = rest[3],
+                    Fit = new PropFit { Class = rest[3], Scale = rest.Count > 5 ? F(5, 1) : null, X = F(6, 0), Y = F(7, 0), Z = F(8, 0), TurnX = F(9, 0), TurnY = F(10, 0), TurnZ = F(11, 0) } };
+                var alog = new List<string>();
+                byte[] once = PowerBorrow.AddProp(File.ReadAllBytes(rest[1]), ent, rest[2], alog);
+                byte[] twice = PowerBorrow.AddProp(once, ent, rest[2], alog);
+                alog.ForEach(Console.WriteLine);
+                var a1 = ModMeshes.AttachmentClasses(WriteTemp(once)); var a2 = ModMeshes.AttachmentClasses(WriteTemp(twice));
+                Console.WriteLine($"props once: {string.Join(", ", a1 ?? [])}; again: {string.Join(", ", a2 ?? [])} ({once.Length:N0} / {twice.Length:N0} bytes)");
+                MhoExtendedModManager.Model.Protected.CheckWrite(rest[4]);
+                File.WriteAllBytes(rest[4], twice);
+                return 0;
+                static string WriteTemp(byte[] b) { string t = Path.Combine(Path.GetTempPath(), "mhoextmm_addprop_" + Guid.NewGuid().ToString("N")[..8] + ".upk"); File.WriteAllBytes(t, b); return t; }
+            }
+            case "--attach-classes":
+            {
+                // Read-only: each package's player class default's mAttachmentClasses (the props it always has), or "none".
+                foreach (string f in rest.Skip(1)) Console.WriteLine($"{Path.GetFileName(f)}: {(ModMeshes.AttachmentClasses(f) is { } l ? string.Join(", ", l) : "no list of its own")}");
+                return 0;
+            }
             case "--mod-props":
             {
                 // Read-only: for each of a mod's meshes, the props the 3D preview shows with it (PropRig.Attached) and their bones.

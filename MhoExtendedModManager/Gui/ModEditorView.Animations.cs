@@ -49,6 +49,7 @@ sealed partial class ModEditorView
             animPreview = new StorePreview { Dock = DockStyle.Fill, CookedFolder = game.Cooked, Catalog = catalog, PowerStrip = false, Always3D = true };
             animPreview.ControlAdded += (_, _) => Ui.RestyleButtons(animPreview);
             animPreview.HeroPowersLoaded += FillAnimGrid;   // the Power column
+            animPreview.OverrideFiles = PreviewOverrides;   // (added props not saved yet)
             host.Controls.Add(animPreview);
             animPreview.Mod = editing;
         };
@@ -82,7 +83,7 @@ sealed partial class ModEditorView
         {
             animPackage = new DropDown { Width = (int)(300 * S) };
             animPackage.Items.AddRange([.. animPackages]);
-            animPackage.SelectedIndexChanged += (_, _) => LoadAnimations();
+            animPackage.SelectedIndexChanged += (_, _) => { LoadAnimations(); FillPropList(); };
             Ui.Tip(animPackage, "The mod's package whose animations are listed.");
             tools.Add(animPackage);
         }
@@ -91,8 +92,11 @@ sealed partial class ModEditorView
         animChange.Enabled = animBack.Enabled = false;
         animCopy = Ui.FlatButton("Copy From a Character", CopyFromCharacter, "Use many of another character's animations at once: each one with the same name as one of this costume's (ticked; untick what to leave). The Target undoes the ticked ones.");
         tools.AddRange([animChange, animBack, animCopy, find, animFind, animCount, animStatus]);
-        var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 0, 0) };
-        right.Controls.Add(Page(animGrid, Toolbar([.. tools]), hint));
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 0, 0), ColumnCount = 1, RowCount = 2 };
+        right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        right.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        right.Controls.Add(Page(animGrid, Toolbar([.. tools]), hint), 0, 0);
+        right.Controls.Add(PropsSection(), 0, 1);   // (props added from other characters: Thor's hammer for Cap's idles)
         page.Controls.Add(right, 1, 0);
         Disposed += (_, _) => { animPreview?.Dispose(); if (animWork != null) try { Directory.Delete(animWork, true); } catch (IOException) { } };
         if (animPackage != null) animPackage.SelectedIndex = 0; else LoadAnimations();

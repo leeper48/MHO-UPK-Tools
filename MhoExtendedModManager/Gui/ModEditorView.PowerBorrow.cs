@@ -381,6 +381,7 @@ sealed partial class ModEditorView
             borrowFiles = t.Result;
             if (old != null) try { Directory.Delete(old, true); } catch (IOException) { }
             RefreshPackages();
+            if (draft.AddedProps.Count > 0) ReapplyProps();   // (the rebuild started from the packages before the added props)
             paletteCache.Clear();   // a borrowed power's colors are the borrowed look's
             powerList.Invalidate();
             if (powerPreview != null) { powerPreview.OverrideFiles = PreviewOverrides; powerPreview.ReloadOverrides(); }

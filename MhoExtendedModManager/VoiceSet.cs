@@ -61,6 +61,27 @@ sealed class PowerBorrowEntry
 
 /// <summary>A brought prop's fit: its size (null: automatic: a vehicle sized for the hero, else as made), moved along its
 /// model's X / Y / Z (game units) and turned about them (degrees).</summary>
+/// <summary>
+/// A prop added to a costume from another character (Kurt, 2026-10-23: Thor's hammer in Captain America's hand for his idles):
+/// its attachment class copied into the costume's package and added to the costume's own props (mAttachmentClasses), fitted
+/// like a borrowed power's prop. Manifest AddedProps (an extension; a legacy export leaves it out, the package keeps it).
+/// </summary>
+sealed class AddedPropEntry
+{
+    /// <summary>The costume package it's added to.</summary>
+    public string Package { get; set; } = "";
+    /// <summary>The package it comes from (a game package file name, UC__MarvelPlayer_Thor_SF.upk).</summary>
+    public string From { get; set; } = "";
+    /// <summary>Its attachment class (marvelattachment_thorhammer).</summary>
+    public string Class { get; set; } = "";
+    /// <summary>"Thor: Thorhammer", as the Animations tab lists it.</summary>
+    public string Name { get; set; } = "";
+    /// <summary>The weapon slot it's held in (its WeaponSlot: righthand), so a borrowed power that shows that slot uses it.</summary>
+    public string? Slot { get; set; }
+    /// <summary>Its fit (size, move, turn; Class unused).</summary>
+    public PropFit Fit { get; set; } = new();
+}
+
 sealed class PropFit
 {
     public string Class { get; set; } = "";
