@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.96
+- Animations tab: another hero's animations put in (Change Animation, Copy From a Character) are fitted to the costume's skeleton where a bone rests turned differently, as borrowed looks are (Thor's idle crumpled Captain America's right toes).
+
 0.60.95
 - Editor previews: a refit prop shows at once (the changed package's models are listed from its unsaved copy, where a refit adds a model of a new name).
 

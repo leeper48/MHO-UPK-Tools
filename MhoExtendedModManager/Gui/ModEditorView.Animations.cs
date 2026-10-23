@@ -231,7 +231,8 @@ sealed partial class ModEditorView
         var log = new List<string>();
         animStatus.Text = "Copying the Animation…";
         byte[] bytes;
-        try { bytes = await Task.Run(() => AnimSwap.Build(src, cls, [swap], log, inherited)); OnBorrowBase(file, b => AnimSwap.Build(b, cls, [swap], log, inherited)); }
+        var turns = await Task.Run(() => RestTurnsFor(pick.From.File, src));
+        try { bytes = await Task.Run(() => AnimSwap.Build(src, cls, [swap], log, inherited, retarget: turns)); OnBorrowBase(file, b => AnimSwap.Build(b, cls, [swap], log, inherited, retarget: turns)); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s \"{pick.Name}\" couldn't be put in: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
@@ -276,8 +277,9 @@ sealed partial class ModEditorView
         byte[]? bytes;
         try
         {
-            bytes = await Task.Run(() => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, slots, log) : AnimSwap.Build(src, cls, swaps, log, inherited));
-            OnBorrowBase(file, b => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(b), cls, slots, log) : AnimSwap.Build(b, cls, swaps, log, inherited));
+            var turns = undo || swaps.Count == 0 ? null : await Task.Run(() => RestTurnsFor(swaps[0].DonorFile, src));
+            bytes = await Task.Run(() => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, slots, log) : AnimSwap.Build(src, cls, swaps, log, inherited, retarget: turns));
+            OnBorrowBase(file, b => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(b), cls, slots, log) : AnimSwap.Build(b, cls, swaps, log, inherited, retarget: turns));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s animations couldn't be put in: {ex.Message}", "Animations Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -377,6 +379,22 @@ sealed partial class ModEditorView
     /// Save starts from it, and dropped every animation changed after the first borrow (Kurt, 2026-10-23: fidget02 from Thor
     /// was Cap's again after Save, though the manifest listed it).
     /// </summary>
+    /// <summary>
+    /// The turns that fit another character's animations to this costume's skeleton (AnimSwap.RestTurns: bones whose rest
+    /// rotations differ by more than 45 degrees), as a borrowed look applies them (Kurt, 2026-10-23: Thor's idle on Captain
+    /// America crumpled his right toes: Thor's g_r_ball rests turned 180 degrees from Cap's). Null for the same skeleton or
+    /// when a skeleton can't be read.
+    /// </summary>
+    static Dictionary<string, System.Numerics.Quaternion>? RestTurnsFor(string donorPackage, string targetPackage)
+    {
+        if (Path.GetFullPath(donorPackage).Equals(Path.GetFullPath(targetPackage), StringComparison.OrdinalIgnoreCase)) return null;
+        var d = PowerBorrow.HeroSkeleton(donorPackage);
+        var t = PowerBorrow.HeroSkeleton(targetPackage);
+        if (d == null || t == null) return null;
+        var turns = AnimSwap.RestTurns(d, t);
+        return turns.Count > 0 ? turns : null;
+    }
+
     void OnBorrowBase(string file, Func<string, byte[]?> change)
     {
         string kept = Path.Combine(WorkFolder, "borrow_base", file);

@@ -2311,7 +2311,7 @@ static class PowerBorrow
     static HashSet<string>? HeroBones(string heroPackage) => HeroSkeleton(heroPackage)?.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A hero's main model's skeleton (its base package's skeletal mesh with the most vertices), else null.</summary>
-    static IReadOnlyList<AnimExportCli.Meshes.MeshBone>? HeroSkeleton(string heroPackage)
+    internal static IReadOnlyList<AnimExportCli.Meshes.MeshBone>? HeroSkeleton(string heroPackage)
     {
         try
         {
