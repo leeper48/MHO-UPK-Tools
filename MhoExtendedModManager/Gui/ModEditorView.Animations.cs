@@ -467,7 +467,7 @@ sealed partial class ModEditorView
         if (a == null) return "no slot " + slot;
         costumesTask ??= Task.Run(() => Costume.All(game.Root));
         var donors = AnimPickerForm.Donors(editing, file, await costumesTask, lib, game.Cooked);
-        var d = donors.FirstOrDefault(x => x.Title.Contains(donorTitle, StringComparison.OrdinalIgnoreCase));
+        var d = donors.FirstOrDefault(x => x.Title.Equals(donorTitle, StringComparison.OrdinalIgnoreCase) || x.Title.StartsWith(donorTitle + " (", StringComparison.OrdinalIgnoreCase)) ?? donors.FirstOrDefault(x => x.Title.Contains(donorTitle, StringComparison.OrdinalIgnoreCase));
         if (d == null) return "no donor " + donorTitle + " (have: " + string.Join(", ", donors.Take(4).Select(x => x.Kind + " " + x.Title)) + " …)";
         var da = CostumeAnims.Read(d.Path, d.File, CostumeAnims.FilesFor(d.Mod, game.Cooked))?.Anims.FirstOrDefault(x => x.Name.Equals(anim, StringComparison.OrdinalIgnoreCase));
         if (da == null) return $"{d.Title} has no {anim}";

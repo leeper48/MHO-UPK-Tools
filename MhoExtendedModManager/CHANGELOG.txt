@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.103
+- Animations tab: moving a Prop Fit slider several times in a row no longer switches the preview to the travel power's animation (a reload still under way lost what it was keeping).
+
 0.60.102
 - 3D views: Look ▾ → Size Reference is now called Barrel Size Reference.
 

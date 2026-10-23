@@ -70,7 +70,10 @@ sealed partial class StorePreview
         // this view's own animation and frame, kept here (Kurt, 2026-10-23: a Prop Fit slider on Thor's idle jumped to the
         // travel power's run: the Powers tab's preview reloads too and saved its own animation under the same model's key);
         // one played from outside the model's list (the Animations tab's unsaved change, from the donor) is played again as is
-        keepAnim = p3 == null || shownMesh == null ? null : (m.FolderName, shownMesh, p3.CurrentOutsideRef, p3.CurrentAnimation, p3.Time, p3.IsPlaying);
+        // (a reload still under way, Prop Fit sliders moved in quick succession: what it keeps stays, the view shows nothing
+        // yet; Kurt, 2026-10-23, it went to the travel run again)
+        if (keepAnim == null || keepAnim.Value.Folder != m.FolderName)
+            keepAnim = p3 == null || shownMesh == null ? null : (m.FolderName, shownMesh, p3.CurrentOutsideRef, p3.CurrentAnimation, p3.Time, p3.IsPlaying);
         ownPending = ownFxPackage != null;   // (a character's own effects come back once the model and its animations are in)
         modStamp = "";
         mod = null;

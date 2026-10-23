@@ -128,12 +128,27 @@ sealed partial class ModEditorView
     internal string PropTestState() => $"list [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Class))}] package {AnimFile} draft {DraftPath(AnimFile ?? "") ?? "-"} | preview props: {animPreview?.PropsForTest ?? "(no preview)"} | playing: {animPreview?.CurrentAnimationForTest ?? "-"}";
     /// <summary>Tests: the Animations tab's preview plays <paramref name="name"/>.</summary>
     internal void PropTestPlay(string name) => animPreview?.PlayAnimation(name, false);
+    /// <summary>Tests: the Animations tab's row of <paramref name="slot"/> selected (it plays as a click does).</summary>
+    internal void PropTestSelect(string slot)
+    {
+        if (animGrid?.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is CostumeAnims.Anim x && x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase)) is not { } row) return;
+        animGrid.ClearSelection();
+        row.Selected = true;
+        animGrid.CurrentCell = row.Cells[0];
+    }
     internal async Task PropTestFit(float size)
     {
         if (propList.SelectedItem is not AddedPropEntry e) return;
         e.Fit.Scale = size;
         await ApplyPropsTo(e.Package);
         await Task.Delay(6000);
+    }
+    /// <summary>Tests: slider steps in quick succession (each a new apply and preview reload before the last one is in).</summary>
+    internal async Task PropTestFitQuick(params float[] sizes)
+    {
+        if (propList.SelectedItem is not AddedPropEntry e) return;
+        foreach (float s in sizes) { e.Fit.Scale = s; _ = ApplyPropsTo(e.Package); await Task.Delay(250); }
+        await Task.Delay(8000);
     }
     internal async Task PropTestRemove()
     {

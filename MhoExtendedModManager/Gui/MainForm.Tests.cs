@@ -971,6 +971,15 @@ sealed partial class MainForm
         lines.Add("added: " + ed.PropTestState());
         await ed.PropTestFit(0.8f);
         lines.Add("refit 80 %: " + ed.PropTestState());
+        await ed.PropTestFitQuick(0.85f, 0.9f, 0.95f, 0.9f);
+        lines.Add("quick refits: " + ed.PropTestState());
+        // an unsaved changed animation (Thor's idle on Cap: Kurt's case), played from the donor
+        lines.Add("change idle: " + await ed.AnimTestChange("idle", "Thor", "idle"));
+        ed.PropTestSelect("fidget01"); await Task.Delay(1500);
+        ed.PropTestSelect("idle"); await Task.Delay(2500);
+        lines.Add("changed idle: " + ed.PropTestState());
+        await ed.PropTestFitQuick(0.85f, 0.9f, 0.95f);
+        lines.Add("quick refits on the changed idle: " + ed.PropTestState());
         await ed.PropTestRemove();
         lines.Add("removed again: " + ed.PropTestState());
         File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
