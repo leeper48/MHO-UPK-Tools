@@ -41,6 +41,10 @@ sealed record RetargetOptions
     public bool TranslationBind { get; init; } = true;
     /// <summary>MFF_NECKAIM=1: the neck is aimed at MHO's neck → head line (before 0.10.14).</summary>
     public bool NeckAim { get; init; }
+    /// <summary>MFF_NECKUPRIGHT=1 (test, 2026-10-23, Kurt: MFF models lean forward about 5°): the neck is aimed at MHO's
+    /// neck → head line, so the head sits over the chest where the hero's does, and the head keeps its MFF angle to the chest
+    /// (it doesn't bow with the neck, which NeckAim did to Black Cat S01).</summary>
+    public bool NeckUpright { get; init; }
     /// <summary>MFF_HELPERSKIN=0: a helper bone's weight goes to the joint it sits on, not the limb its skin lies on (before 0.10.20).</summary>
     public bool HelperBySkin { get; init; } = true;
     /// <summary>MFF_HAIRBYBONE=1: skin on hair bones counts as hanging hair however close to the neck (0.10.22 test: a crease
@@ -74,6 +78,7 @@ sealed record RetargetOptions
         SpineSplit = Environment.GetEnvironmentVariable("MFF_SPINESPLIT") != "0",
         TranslationBind = Environment.GetEnvironmentVariable("MFF_TRANSBIND") != "0",
         NeckAim = Environment.GetEnvironmentVariable("MFF_NECKAIM") == "1",
+        NeckUpright = Environment.GetEnvironmentVariable("MFF_NECKUPRIGHT") == "1",
         HelperBySkin = Environment.GetEnvironmentVariable("MFF_HELPERSKIN") != "0",
         HairByBone = Environment.GetEnvironmentVariable("MFF_HAIRBYBONE") == "1",
         RootChainsOnTorso = Environment.GetEnvironmentVariable("MFF_ROOTCHAINS") != "0",
@@ -306,8 +311,9 @@ static partial class Retarget
         // --- 1. swing the MFF skeleton (MFF normalized frame) -------------------------------------------------------------------
         void Swing()
         {
+            // (the first aim a bone has: a spine bone's fallback toward the neck only when its own next bone is missing)
             var aimOf = Aims().Where(x => Mff(x.Bone) >= 0 && Mff(x.Toward) >= 0 && r.Map.ContainsKey(x.Bone) && r.Map.ContainsKey(x.Toward))
-                              .ToDictionary(x => Mff(x.Bone), x => Mff(x.Toward));
+                              .GroupBy(x => Mff(x.Bone)).ToDictionary(g => g.Key, g => Mff(g.First().Toward));
             delta = new Quaternion[nb]; newPos = new Vector3[nb];
             for (int i = 0; i < nb; i++)   // bones are parent-before-child (built by a tree walk)
             {
@@ -353,7 +359,7 @@ static partial class Retarget
                 else if (aimOf.TryGetValue(i, out int c) && (opt.HandAim || !isHand)
                          // The neck isn't aimed (0.10.14; Black Cat S01's neck bone points 18 deg back, MHO's 13 deg forward: aimed, her
                          // head bowed 31 deg): head and neck keep their MFF angle to the chest. MFF_NECKAIM=1: aimed (before).
-                         && (opt.NeckAim || !b.Name.Equals("Bip001 Neck", StringComparison.OrdinalIgnoreCase)))
+                         && (opt.NeckAim || opt.NeckUpright || !b.Name.Equals("Bip001 Neck", StringComparison.OrdinalIgnoreCase)))
                 {
                     var aimAt = ballPoint.TryGetValue(i, out var bp) ? bp : m.Bones[c].Position;   // feet: at the ball, not the toe tip
                     var cur = Vector3.Transform(aimAt - b.Position, qParent);
@@ -365,6 +371,10 @@ static partial class Retarget
                     if (opt.ForearmRoll && b.Name.EndsWith(" Forearm", StringComparison.OrdinalIgnoreCase) && want.LengthSquared() > 1e-8f && ForearmRoll(i, q, Vector3.Normalize(want)) is Quaternion roll)
                         q = roll * q;
                 }
+                // NeckUpright: the head placed by the aimed neck but turned as the chest (its MFF angle to the chest kept)
+                if (opt.NeckUpright && b.Name.Equals("Bip001 Head", StringComparison.OrdinalIgnoreCase) && b.Parent >= 0
+                    && m.Bones[b.Parent].Name.Equals("Bip001 Neck", StringComparison.OrdinalIgnoreCase) && m.Bones[b.Parent].Parent >= 0)
+                    q = delta[m.Bones[b.Parent].Parent];
                 delta[i] = Quaternion.Normalize(q);
             }
         }

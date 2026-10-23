@@ -356,10 +356,64 @@ sealed class LightSlider : Control
         TextRenderer.DrawText(g, Enabled ? Format(value) : "–", font, new Rectangle(t.Right + (int)(6 * S), 0, Width - t.Right - (int)(6 * S), Height), Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
     }
 
+    // --- the value typed in (Kurt, 2026-10-23: every slider's number clickable and editable) ------------------------------------
+    TextBox? editBox;
+    /// <summary>The number shown for <paramref name="v"/> (the first number in Format: "100 %" → 100, "+0.5" → 0.5).</summary>
+    static float? Number(string text)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(text.Replace('−', '-').Replace(',', '.'), @"[-+]?\d*\.?\d+");
+        return m.Success && float.TryParse(m.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) ? f : null;
+    }
+    /// <summary>Shown number per unit of Value (100 for a "%" slider), from the format itself.</summary>
+    float Shown()
+    {
+        foreach (float v in new[] { value, Max, Min, (Min + Max) / 2 })
+            if (Math.Abs(v) > 1e-4f && Number(Format(v)) is float n && Math.Abs(n) > 1e-6f) return n / v;
+        return 1;
+    }
+    /// <summary>A text box over the value: Enter (or clicking away) takes the typed number, Esc leaves it.</summary>
+    void BeginEdit()
+    {
+        if (editBox != null || !Enabled) return;
+        var t = Track;
+        float k = Shown();
+        var box = editBox = new TextBox
+        {
+            Text = (Number(Format(value)) ?? value * k).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture),
+            Font = labelFont, BorderStyle = BorderStyle.FixedSingle, BackColor = Ui.Card, ForeColor = Ui.Text,
+            Bounds = new Rectangle(t.Right + (int)(4 * S), Math.Max(0, Height / 2 - (int)(11 * S)), Math.Max((int)(48 * S), Width - t.Right - (int)(4 * S)), (int)(22 * S)),
+        };
+        bool done = false;
+        void Finish(bool take)
+        {
+            if (done) return;
+            done = true;
+            if (take && Number(box.Text) is float typed)
+            {
+                float was = value;
+                Value = typed / k;
+                if (Math.Abs(was - value) > 1e-6f) Committed?.Invoke();
+            }
+            editBox = null;
+            BeginInvoke(() => { box.Dispose(); Focus(); Invalidate(); });   // (disposed while still in this control: Ui.Tips rule)
+        }
+        box.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Finish(true); }
+            else if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; Finish(false); }
+        };
+        box.PreviewKeyDown += (_, e) => { if (e.KeyCode is Keys.Escape or Keys.Enter) e.IsInputKey = true; };   // (before a window's Esc / Enter)
+        box.LostFocus += (_, _) => Finish(true);
+        Controls.Add(box);
+        box.Focus(); box.SelectAll();
+    }
+
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
+        // a click on the number: type a value
+        if (e.X > Track.Right + (int)(4 * S)) { BeginEdit(); return; }
         Focus();   // then the arrow keys step it
         // A press on the thumb only selects it (no jump); elsewhere on the track it goes there, as before.
         var t = Track;
@@ -367,8 +421,13 @@ sealed class LightSlider : Control
         dragging = true; Capture = true;
         if (Math.Abs(e.X - tx) > 7 * S) Value = ValueAt(e.X);
     }
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (dragging) Value = ValueAt(e.X); }
     protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if (!dragging) return; dragging = false; Capture = false; Committed?.Invoke(); }
     protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Value += e.Delta > 0 ? Math.Max(Step, (Max - Min) / 40) : -Math.Max(Step, (Max - Min) / 40); Committed?.Invoke(); }
-    protected override void OnDoubleClick(EventArgs e) { base.OnDoubleClick(e); Value = Home?.Invoke() ?? 1; Committed?.Invoke(); }
+    protected override void OnDoubleClick(EventArgs e) { base.OnDoubleClick(e); if (editBox != null || PointToClient(MousePosition).X > Track.Right + (int)(4 * S)) return; Value = Home?.Invoke() ?? 1; Committed?.Invoke(); }
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (dragging) Value = ValueAt(e.X);
+        Cursor = !dragging && e.X > Track.Right + (int)(4 * S) ? Cursors.IBeam : Cursors.Hand;   // (the number: type a value)
+    }
 }

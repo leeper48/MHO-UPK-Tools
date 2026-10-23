@@ -128,6 +128,8 @@ sealed class MffModel
     public List<Bone> Bones { get; } = new();
     public float SourceHeight;        // body height (feet to top of head) in the file's units (meters)
     public string FrameFrom = "";     // "bones" or "bounding box"
+    /// <summary>How far the bones' up (pelvis to head) is from the nearest file axis, in degrees (--lean).</summary>
+    public float UpTilt;
     public bool ToesForward;          // check: toes ahead of the feet after normalizing
     public double BindError;          // max |rest-pose skinning − mesh| over all weighted vertices, normalized units
     public int MaxInfluences;
@@ -482,6 +484,7 @@ sealed class MffModel
             left = up == Vector3.UnitZ ? Vector3.UnitY : Vector3.UnitZ;
         }
         // Snap to the nearest file axis when within 5° (rips are axis-aligned; keeps the result exact).
+        UpTilt = MathF.Acos(Math.Clamp(new[] { Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ }.Max(a => MathF.Abs(Vector3.Dot(up, a))), -1, 1)) * 180 / MathF.PI;
         up = Snap(up); left = Snap(left);
         var fwd = Vector3.Normalize(Vector3.Cross(left, up));
         left = Vector3.Cross(up, fwd);

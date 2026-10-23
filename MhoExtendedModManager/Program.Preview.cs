@@ -2703,6 +2703,99 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--lean-posed":
+            {
+                // Read-only: an MFF model fitted as the Model tab's preview fits it, and the hero's own model, both posed in the
+                // same animations: how far forward the head (and chest) sit over the ankles, from upright, at a few frames.
+                // --lean-posed <mff model> <package> [animation …]
+                if (rest.Count < 3) { Console.WriteLine("--lean-posed <mff model> <package> [animation …]"); return 1; }
+                MhoExtendedModManager.Model.Settings.Reset();
+                string lpkg = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
+                var lpm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1]));
+                var prep = MhoExtendedModManager.Model.Gui.PreviewPanel.Prepare(lpm, null, lpkg, null);
+                if (prep.Stock == null) { Console.WriteLine("no stock model to compare"); return 1; }
+                var want = rest.Count > 3 ? rest.Skip(3).ToList() : ["idle", "run", "idle_combat"];
+                static float Deg(System.Numerics.Vector3 top, System.Numerics.Vector3 foot) => MathF.Atan2(top.X - foot.X, top.Z - foot.Z) * 180 / MathF.PI;
+                foreach (string an in want)
+                {
+                    var ar = prep.Animations.FirstOrDefault(a => a.Name.Equals(an, StringComparison.OrdinalIgnoreCase));
+                    if (ar == null || ModAnimations.Load(ar) is not { } ba) { Console.WriteLine($"{an}: not found"); continue; }
+                    float frames = MeshAnimator.Span(ba).Frames;
+                    foreach (var (label, l) in new[] { ("stock ", prep.Stock), ("fitted", prep.Mesh with { Bones = prep.Bones }) })
+                    {
+                        var animr = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents);
+                        int B(string n) { for (int k = 0; k < l.Bones.Count; k++) if (l.Bones[k].Name.Equals(n, StringComparison.OrdinalIgnoreCase)) return k; return -1; }
+                        int head = B("g_head"), chest = B("g_spine03"), la = B("g_l_ankle"), ra = B("g_r_ankle");
+                        var line = new List<string>();
+                        for (float f = 0; f <= frames; f += Math.Max(1, frames / 4))
+                        {
+                            animr.Pose(ba, f);
+                            var ank = (animr.BonePosition(la) + animr.BonePosition(ra)) / 2;
+                            line.Add($"head {Deg(animr.BonePosition(head), ank),5:+0.0;-0.0} chest {Deg(animr.BonePosition(chest), ank),5:+0.0;-0.0}");
+                        }
+                        Console.WriteLine($"{an,-12} {label}: {string.Join(" | ", line)}");
+                    }
+                }
+                return 0;
+            }
+            case "--lean-census":
+            {
+                // Read-only: every MFF model's pelvis-to-head angle from the nearest file axis (MffModel.UpTilt), as counts
+                var tilts = new List<(string Name, float T)>();
+                foreach (string dir in MhoExtendedModManager.Model.Source.AllModelFolders())
+                    try { var cm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(Path.GetFileName(dir))); if (cm.FrameFrom == "bones") tilts.Add((Path.GetFileName(dir), cm.UpTilt)); }
+                    catch (Exception) { }
+                foreach (var (lo, hi) in new[] { (0f, 1f), (1f, 2f), (2f, 3f), (3f, 4f), (4f, 5f), (5f, 6f), (6f, 8f), (8f, 12f), (12f, 90f) })
+                    Console.WriteLine($"{lo,4:0}-{hi,-3:0}°: {tilts.Count(t => t.T >= lo && t.T < hi)}");
+                foreach (var t in tilts.OrderByDescending(t => t.T).Take(15)) Console.WriteLine($"  {t.Name} {t.T:0.0}°");
+                return 0;
+            }
+            case "--lean":
+            {
+                // Read-only (2026-10-23, Kurt: MFF models lean forward about 5 degrees in the rest pose): an MFF model fitted to a
+                // package's skeleton; how far forward (+X) its head, neck, chest and pelvis sit over the ankles, as angles from
+                // upright, for the stock skeleton, the fitted bones and the fitted mesh (its top and bottom tenth).
+                // --lean <mff model> <package>
+                if (rest.Count < 3) { Console.WriteLine("--lean <mff model> <package>"); return 1; }
+                var lsk = MhoExtendedModManager.Model.MhoSkeleton.Load(MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true), null);
+                var lm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1]));
+                Console.WriteLine($"frame from {lm.FrameFrom}: pelvis-to-head {lm.UpTilt:0.0}° from the nearest file axis ({(lm.UpTilt <= 5 ? "snapped to it" : "kept: the model is turned by it")})");
+                var lr = MhoExtendedModManager.Model.Retarget.Run(lm, lm.Selected(null), lsk);
+                string[] names = ["g_pelvis", "g_spine01", "g_spine03", "g_neck", "g_head"];
+                static string Ang(System.Numerics.Vector3 top, System.Numerics.Vector3 foot) => $"{MathF.Atan2(top.X - foot.X, top.Z - foot.Z) * 180 / MathF.PI,6:+0.0;-0.0}° (side {MathF.Atan2(top.Y - foot.Y, top.Z - foot.Z) * 180 / MathF.PI:+0.0;-0.0})";
+                System.Numerics.Vector3? Stock(string n) => lsk.Find(n) is int i and >= 0 ? lsk.Pos(i) : null;
+                System.Numerics.Vector3? Fit(string n) => lr.Bones.FirstOrDefault(b => b.Name.Equals(n, StringComparison.OrdinalIgnoreCase))?.Position;
+                System.Numerics.Vector3 Mid(Func<string, System.Numerics.Vector3?> f) => ((f("g_l_ankle") ?? default) + (f("g_r_ankle") ?? default)) / 2;
+                var sa = Mid(Stock); var fa = Mid(Fit);
+                foreach (string n in names)
+                    Console.WriteLine($"{n,-10} stock {(Stock(n) is { } sv ? Ang(sv, sa) : "-"),-26} fitted {(Fit(n) is { } fv ? Ang(fv, fa) : "-")}");
+                var vs = lr.Sections.SelectMany(x => x.Pos).ToList();
+                var sp = lsk.Mesh.HighestDetail?.Positions ?? [];
+                (System.Numerics.Vector3 Top, System.Numerics.Vector3 Bottom) Ends(IReadOnlyList<System.Numerics.Vector3> p)
+                {
+                    float lo = p.Min(v => v.Z), hi = p.Max(v => v.Z), h = hi - lo;
+                    var top = p.Where(v => v.Z > hi - h * 0.1f).ToList(); var bot = p.Where(v => v.Z < lo + h * 0.1f).ToList();
+                    return (top.Aggregate(System.Numerics.Vector3.Zero, (a, v) => a + v) / top.Count, bot.Aggregate(System.Numerics.Vector3.Zero, (a, v) => a + v) / bot.Count);
+                }
+                // the MFF model itself (its normalized frame: Z up, facing +X), before the fit
+                System.Numerics.Vector3? Src(string n) => lm.Bones.FirstOrDefault(b => b.Name.Equals(n, StringComparison.OrdinalIgnoreCase))?.Position;
+                var srcFeet = ((Src("Bip001 L Foot") ?? default) + (Src("Bip001 R Foot") ?? default)) / 2;
+                foreach (string n in new[] { "Bip001 Pelvis", "Bip001 Spine2", "Bip001 Neck", "Bip001 Head" })
+                    if (Src(n) is { } v) Console.WriteLine($"{n,-14} source {Ang(v, srcFeet)}");
+                foreach (var (mho, mff) in new[] { ("g_head", "Bip001 Head"), ("g_pelvis", "Bip001 Pelvis"), ("g_l_hip", "Bip001 L Thigh"), ("g_l_knee", "Bip001 L Calf"), ("g_l_ankle", "Bip001 L Foot"), ("g_l_ball", "Bip001 L Toe0") })
+                    Console.WriteLine($"  {mho,-10} stock {Stock(mho)?.ToString("0.0") ?? "-",-28} fitted {Fit(mho)?.ToString("0.0") ?? "-",-28} source x scale {(Src(mff) is { } q ? (q * lr.Scale).ToString("0.0") : "-")}");
+                foreach (var (from, to) in new[] { ("g_pelvis", "g_spine01"), ("g_spine01", "g_spine02"), ("g_spine02", "g_spine03"), ("g_spine03", "g_neck"), ("g_neck", "g_head"), ("g_l_hip", "g_l_knee"), ("g_l_knee", "g_l_ankle") })
+                    if (Stock(from) is { } s0 && Stock(to) is { } s1 && Fit(from) is { } f0 && Fit(to) is { } f1)
+                        Console.WriteLine($"  {from} → {to}: stock {Ang(s1, s0)} len {(s1 - s0).Length():0.0}   fitted {Ang(f1, f0)} len {(f1 - f0).Length():0.0}");
+                Console.WriteLine("  MFF spine bones: " + string.Join(", ", lm.Bones.Where(x => x.Name.Contains("Spine", StringComparison.OrdinalIgnoreCase) || x.Name.Contains("Neck", StringComparison.OrdinalIgnoreCase) || x.Name.EndsWith("Pelvis")).Select(x => x.Name)));
+                Console.WriteLine("  map: " + string.Join(", ", lr.Map.Where(kv => kv.Key.Contains("Spine", StringComparison.OrdinalIgnoreCase) || kv.Key.Contains("Neck", StringComparison.OrdinalIgnoreCase) || kv.Key.Contains("Pelvis") || kv.Key.Contains("Head")).Select(kv => kv.Key + " → " + kv.Value)));
+                foreach (var nt in lr.Notes.Where(x => x.Contains("spine", StringComparison.OrdinalIgnoreCase))) Console.WriteLine("  note: " + nt);
+                var srcPos = lm.Parts.Where(x => x.DefaultOn).SelectMany(x => x.Sections).SelectMany(x => x.Pos).ToList();
+                if (srcPos.Count > 0) { var e = Ends(srcPos); Console.WriteLine($"mesh       source {Ang(e.Top, e.Bottom)}"); }
+                if (sp.Count > 0) { var e = Ends(sp); Console.WriteLine($"mesh       stock {Ang(e.Top, e.Bottom)}"); }
+                if (vs.Count > 0) { var e = Ends(vs); Console.WriteLine($"mesh       fitted {Ang(e.Top, e.Bottom)}"); }
+                return 0;
+            }
             case "--helper-sweep":
             {
                 // Read-only (2026-10-06): every MFF model in the MFF folder retargeted onto a package's skeleton (no build); the

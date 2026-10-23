@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.82
+- Model tab: MFF models with two spine bones (no Spine2, Captain America S07) no longer lean forward: the chest now curves back to the neck as the hero's does (idle: the head 5.2° over the feet, was 8.1°; the game's model 3.4°).
+- Every slider: click its number to type a value (Enter takes it, Esc leaves it).
+- --lean / --lean-posed <mff model> <package>: how far an MFF model leans, fitted and posed, against the hero's own (read only).
+
 0.60.81
 - 3D views: Quad View is a button between Full Body and full screen (lit while on) and Shift+Q; Look ▾ → Axis Gizmo turns the gizmo off and on.
 - 3D views: a click on a gizmo ball looks along that axis, flat (Shift+click: from the other side); turning the view makes it perspective again.

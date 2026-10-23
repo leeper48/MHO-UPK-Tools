@@ -52,12 +52,23 @@ static partial class Retarget
 
     /// <summary>Aim pairs: the segment from the first MFF bone to the second is swung onto the MHO segment between their
     /// mapped bones. Bones without one keep their parent's swing.</summary>
+    /// <summary>MFF_SPINEAIM=0: a spine without Spine2 keeps its chest unaimed (before 0.60.82).</summary>
+    static bool SpineFallback => Environment.GetEnvironmentVariable("MFF_SPINEAIM") != "0";
+
     static IEnumerable<(string Bone, string Toward)> Aims()
     {
         yield return ("Bip001 Spine", "Bip001 Spine1");
         yield return ("Bip001 Spine1", "Bip001 Spine2");
         yield return ("Bip001 Spine2", "Bip001 Neck");
         yield return ("Bip001 Neck", "Bip001 Head");
+        // a spine with fewer bones (Kurt, 2026-10-23: Captain America S07 has Spine and Spine1, no Spine2): its top bone aims
+        // at the neck, else the chest kept MFF's straight upper back where the hero's curves back (15 deg), and the head sat
+        // about 5 deg forward over the feet in every animation. Used only when the bone's own aim above is missing.
+        if (SpineFallback)
+        {
+            yield return ("Bip001 Spine1", "Bip001 Neck");
+            yield return ("Bip001 Spine", "Bip001 Neck");
+        }
         foreach (var s in new[] { "L", "R" })
         {
             yield return ($"Bip001 {s} Thigh", $"Bip001 {s} Calf");
