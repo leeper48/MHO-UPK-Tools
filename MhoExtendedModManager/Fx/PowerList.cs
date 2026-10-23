@@ -66,7 +66,8 @@ static class PowerList
     public static List<Power> For(GameData db, string hero, string cooked, IEnumerable<string> modFiles, bool effectOnly = false)
     {
         string gameRoot = Path.GetFullPath(Path.Combine(cooked, "..", "..", ".."));
-        var idx = PowerIndex.For(hero, cooked, modFiles);
+        var mods = modFiles.ToList();
+        var idx = PowerIndex.For(hero, cooked, mods, PowerIndex.HeroClassFiles(db, hero, cooked, mods));
         var byClass = PowerIndex.PrototypesByClass(db);
         var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var (anim, refs) in idx)

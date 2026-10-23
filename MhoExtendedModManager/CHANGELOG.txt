@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.76
+- Powers: a hero's powers whose class lives in a package not named after the hero now have their animations (Thor's Hammer of Storms in UC__PowerFlyMjolnir_SF; Storm's Tornadoes, Maelstrom and Chain Lightning; Hawkeye's arrows; Colossus's Fastball Special; Hulk's Avalanche Leap). They play in the 3D previews and can be borrowed.
+
 0.60.75
 - Model tab: Target starts on From the Game too (a mod's saved target still opens on its own packages), and the list you switch to is remembered.
 - Model tab: B shows / hides the bones, W the weights (as Look ▾ → Bones / Weights).

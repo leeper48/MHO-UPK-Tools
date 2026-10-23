@@ -18,7 +18,8 @@ static class PowerIndex
     /// The hero's power packages (the mod's copies first, by file name; then the game's), indexed by animation name.
     /// <paramref name="hero"/> is the class's hero part (MarvelPlayer_DoctorStrange_Classic → DoctorStrange).
     /// </summary>
-    public static Dictionary<string, List<PowerRef>> For(string hero, string? cooked, IEnumerable<string> modFiles)
+    /// <param name="extra">More packages to index (HeroClassFiles: those of the hero's power classes not named after him).</param>
+    public static Dictionary<string, List<PowerRef>> For(string hero, string? cooked, IEnumerable<string> modFiles, IEnumerable<string>? extra = null)
     {
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string prefix = $"UC__Power{hero}_";
@@ -31,6 +32,7 @@ static class PowerIndex
             foreach (string f in Directory.EnumerateFiles(cooked, "UC__Power*_SF.upk"))
                 if (Mine(Path.GetFileName(f)) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase))
                     files.TryAdd(Path.GetFileName(f), StockFiles.For(cooked, Path.GetFileName(f)));
+        foreach (string f in extra ?? []) files.TryAdd(Path.GetFileName(f), f);
         string key = hero + "|" + string.Join("|", files.Values.Select(f => f + File.GetLastWriteTimeUtc(f).Ticks));
         lock (cache) if (cache.TryGetValue(key, out var hit)) return hit;
 
@@ -84,6 +86,46 @@ static class PowerIndex
     }
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Dictionary<string, List<PowerRef>>, Dictionary<string, List<PowerRef>>> withTravel = new();
+    static readonly Dictionary<(GameData, string), List<string>> heroClassNames = [];
+
+    /// <summary>
+    /// The packages of the hero's power classes that aren't named after the hero (Kurt, 2026-10-23: Thor's Hammer of Storms is
+    /// class PowerFlyMjolnir in UC__PowerFlyMjolnir_SF, so its throw was missing and it couldn't be borrowed): every prototype
+    /// under Powers\Player\&lt;Hero&gt;\ names its PowerUnrealClass; its package UC__&lt;Class&gt;_SF, the mod's copy first.
+    /// </summary>
+    public static List<string> HeroClassFiles(GameData db, string hero, string? cooked, IReadOnlyCollection<string> modFiles)
+    {
+        if (cooked == null) return [];
+        List<string>? names;
+        lock (heroClassNames) heroClassNames.TryGetValue((db, hero), out names);
+        if (names == null)
+        {
+            names = [];
+            string folder = $@"Powers\Player\{hero}\";
+            var byClass = PrototypesByClass(db);
+            foreach (var e in db.Prototypes.Values)
+            {
+                if (!e.Path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)) continue;
+                string? cls;
+                try { cls = PowerEffects.UnrealClassOf(db, e.Path); } catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { continue; }
+                if (cls == null) continue;
+                // only a class of this hero's alone (Colossus's Fastball Special sets off Wolverine's Slashing Leap; Deadpool's
+                // allies use Cable's Pulse Bolt): another hero's power isn't one of his buttons
+                if (byClass.TryGetValue(cls, out var users) && users.Any(u => !u.StartsWith(folder, StringComparison.OrdinalIgnoreCase))) continue;
+                string file = $"UC__{cls}_SF.upk";
+                if (!names.Contains(file, StringComparer.OrdinalIgnoreCase)) names.Add(file);
+            }
+            lock (heroClassNames) heroClassNames[(db, hero)] = names;
+        }
+        var result = new List<string>();
+        foreach (string n in names)
+        {
+            string? mine = modFiles.FirstOrDefault(f => Path.GetFileName(f).Equals(n, StringComparison.OrdinalIgnoreCase) && File.Exists(f));
+            string path = mine ?? StockFiles.For(cooked, n);
+            if (File.Exists(path)) result.Add(path);
+        }
+        return result;
+    }
 
     /// <summary>
     /// <see cref="For(string, string?, IEnumerable{string})"/> plus the hero's travel power (the avatar's TravelPower): its
@@ -94,7 +136,7 @@ static class PowerIndex
     public static Dictionary<string, List<PowerRef>> For(string hero, string? cooked, IEnumerable<string> modFiles, GameData db)
     {
         var mods = modFiles.ToList();
-        var idx = For(hero, cooked, mods);
+        var idx = For(hero, cooked, mods, HeroClassFiles(db, hero, cooked, mods));
         lock (withTravel) if (withTravel.TryGetValue(idx, out var hit)) return hit;
         var merged = idx;
         if (cooked != null && PowerList.TravelPowerOf(db, hero) is string travel && PowerList.TravelClassOf(db, travel) is string cls)
