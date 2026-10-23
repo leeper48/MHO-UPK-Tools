@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.60
+- Create from 3D: an Effects button (shared with the 3D preview's Power FXs) shows the character's own effects in the view and the snapshot, grown in on the pose; on a transparent background their light keeps its color.
+- A costume's own effects include those its hero's base package defines (Ghost Rider's head and neck flames showed no effects on a costume package).
+- Particle effects spawn per unit moved (trails that only appear while a character travels).
+
 0.60.59
 - Editor: removing a package from the mod also removes its voice shift and shift sound pack (a removed costume's pack stayed, and its lines clashed with a new shift: "158 skipped").
 - A sound file put back to the game's own gets the game's date again, like packages, so it doesn't look changed.

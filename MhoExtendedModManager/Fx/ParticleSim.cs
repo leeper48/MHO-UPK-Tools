@@ -35,7 +35,8 @@ sealed class ParticleSim
     {
         public readonly ParticleData.Emitter E = e;
         public readonly List<P> Ps = new();
-        public float Time, Accum;
+        public float Time, Accum, UnitAccum;
+        public Vector3? LastAt;   // where the system was at the last step (spawn per unit moved)
         public int Loop;
         public readonly HashSet<int> Bursts = new();
         public bool Done;
@@ -99,8 +100,24 @@ sealed class ParticleSim
         }
         var rr = rq.Dist("SpawnRate", 1);
         if (rr?.IsSet == true) rate += rr.F(t, rng);
+        // Spawn per unit moved (UE3's ParticleModuleSpawnPerUnit: SpawnPerUnit particles per UnitScalar units the system
+        // travels, past MovementTolerance × UnitScalar; a user, 2026-10-22: Ghost Rider's head flames trail with 7 such
+        // emitters, rate 0, and never spawned here)
+        var at = Origin.Translation;
+        if (m.E.Module("ParticleModuleSpawnPerUnit") is { } pu)
+        {
+            float unit = Math.Max(0.001f, pu.Float("UnitScalar", 50));
+            float moved = m.LastAt is { } last ? Vector3.Distance(last, at) : 0;
+            if (moved > pu.Float("MovementTolerance", 0.1f) * unit && pu.Dist("SpawnPerUnit", 1) is { IsSet: true } spu)
+            {
+                m.UnitAccum += moved / unit * spu.F(t, rng);
+                if (pu.Bool("bIgnoreSpawnRateWhenMoving", false)) rate = 0;
+            }
+        }
+        m.LastAt = at;
         m.Accum += Math.Max(0, rate) * dt;
         int n = (int)m.Accum; m.Accum -= n;
+        int byUnit = (int)m.UnitAccum; m.UnitAccum -= byUnit; n += byUnit;
         if (m.E.Spawn is { } sp2) n += Bursts(sp2, m, t / duration);
         // A beam that doesn't spawn by rate or burst keeps its beams up as long as it runs (UE3's beam emitters fill up to
         // MaxBeamCount themselves; Vision's Channeled Solar Beam: rate 0, no bursts, lifetime 0; Kurt, 2026-10-06: no beam showed)

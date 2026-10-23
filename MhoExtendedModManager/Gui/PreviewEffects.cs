@@ -261,6 +261,17 @@ sealed class PreviewEffects : IDisposable
         clock.Replay(seconds, t => an.Pose(p, secs > 0 ? (float)(t / secs * frames) : 0));
     }
 
+    /// <summary>
+    /// The effects run for <paramref name="seconds"/> while the character holds one pose (<paramref name="pose"/>): Create from
+    /// 3D's still, with its looping effects (Ghost Rider's head flames) grown in as they are in game.
+    /// </summary>
+    public void ReplayHeld(double seconds, Action pose)
+    {
+        // (the effects run as long as the hold: with no animation the player's length is 0.1 s and they'd end at once)
+        if (clock.Player is { } pl && pl.AnimSeconds < seconds + 1) pl.AnimSeconds = (float)seconds + 1;
+        clock.Replay(seconds, _ => pose());
+    }
+
     /// <summary>The colour of the power playing changed (the Powers tab): shown at once.</summary>
     public void RefreshColor()
     {

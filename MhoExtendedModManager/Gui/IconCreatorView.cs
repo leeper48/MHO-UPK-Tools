@@ -50,13 +50,29 @@ sealed class IconCreatorView : UserControl
     readonly LightSlider turnSlider = new() { Label = "Turn", Min = -180, Max = 180, Step = 1, Mark = 0 };
     bool syncingTurn;
     readonly ModelView view = new() { Background = Color.FromArgb(22, 22, 24) };
-    readonly Button specBtn, reflBtn, glowBtn;
+    readonly Button specBtn, reflBtn, glowBtn, fxBtn;
+    // The character's own effects (Ghost Rider's head flames; a user, 2026-10-22: the icons came out without them), as the
+    // main 3D preview shows them (its Power FXs toggle, shared): grown in for a few seconds on the pose shown.
+    PreviewEffects? effects;
+    bool effectsHeld;
+    const double EffectSeconds = 2.5;
+    PreviewEffects Effects => effects ??= new PreviewEffects(rig, this)
+    {
+        Shown = () => animator != null && loaded != null ? (view, animator, loaded) : null,
+        Playing = () => playing,
+        Seconds = () => playing == null ? 0 : MeshAnimator.Span(playing).Seconds,
+        Frames = () => playFrames,
+        Time = () => 0,
+        ShowPose = ShowEffects,
+        RebuildRig = PoseAll,
+        CookedFor = () => cooked,
+    };
 
     /// <summary>The Spec / Reflect / Glow toggles (shared with the main preview) into the view, and their look.</summary>
     void ApplyShading()
     {
         view.ShowSpec = PreviewViews.Spec; view.ShowReflections = PreviewViews.Reflect; view.ShowGlow = PreviewViews.Glow; view.ShowBloom = PreviewViews.Bloom;
-        Ui.Lit(specBtn, PreviewViews.Spec); Ui.Lit(reflBtn, PreviewViews.Reflect); Ui.Lit(glowBtn, PreviewViews.Glow);
+        Ui.Lit(specBtn, PreviewViews.Spec); Ui.Lit(reflBtn, PreviewViews.Reflect); Ui.Lit(glowBtn, PreviewViews.Glow); Ui.Lit(fxBtn, PreviewViews.Powers);
     }
     readonly Panel stage = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
     readonly PictureBox result = new() { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
@@ -141,12 +157,13 @@ sealed class IconCreatorView : UserControl
         Row(Caption("POSE"), 8); Row(findRow); Row(animBox); Row(frameSlider);
         overlayBtn = Ui.FlatButton("Original Overlay", ToggleOverlay, tip: "Show or hide the game's original over the view (shortcut: O). Its opacity is the slider above.");
         // Spec / Reflect / Glow (Kurt): as in the main 3D preview, and shared with it; the snapshot is taken as shown.
-        var shading = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, Width = cw, Height = (int)(30 * s), Margin = new Padding(0) };
-        for (int i = 0; i < 3; i++) shading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+        var shading = new TableLayoutPanel { ColumnCount = 4, RowCount = 1, Width = cw, Height = (int)(30 * s), Margin = new Padding(0) };
+        for (int i = 0; i < 4; i++) shading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
         specBtn = Ui.FlatButton("Spec", () => { PreviewViews.Spec = !PreviewViews.Spec; ApplyShading(); }, tip: "Show the specular highlights (shine) the materials set, in the view and the snapshot. Lit when on; shared with the main 3D preview.");
         reflBtn = Ui.FlatButton("Reflect", () => { PreviewViews.Reflect = !PreviewViews.Reflect; ApplyShading(); }, tip: "Show reflections of the materials' own environment images, in the view and the snapshot. Lit when on; shared with the main 3D preview.");
         glowBtn = Ui.FlatButton("Glow", () => { PreviewViews.Glow = !PreviewViews.Glow; ApplyShading(); }, tip: "Show glowing (emissive) parts, in the view and the snapshot. Lit when on; shared with the main 3D preview.");
-        foreach (var b in new[] { specBtn, reflBtn, glowBtn }) { b.AutoSize = false; b.Dock = DockStyle.Fill; b.Margin = new Padding(0, 0, 3, 0); b.Padding = new Padding(0); shading.Controls.Add(b); }
+        fxBtn = Ui.FlatButton("Effects", () => { PreviewViews.Powers = !PreviewViews.Powers; ApplyShading(); LoadEffects(); }, tip: "Show the character's own effects (glows, flames, trails: Ghost Rider's burning head), in the view and the snapshot. Lit when on; shared with the main 3D preview's Power FXs.");
+        foreach (var b in new[] { specBtn, reflBtn, glowBtn, fxBtn }) { b.AutoSize = false; b.Dock = DockStyle.Fill; b.Margin = new Padding(0, 0, 3, 0); b.Padding = new Padding(0); shading.Controls.Add(b); }
         ApplyShading();
         // The main preview may have changed them since: pick them up whenever this shows again.
         VisibleChanged += (_, _) => { if (Visible) ApplyShading(); };
@@ -452,6 +469,7 @@ sealed class IconCreatorView : UserControl
         FillProps(r, setup);
         await LoadPropsAsync(req);
         if (IsDisposed || req != request) return;
+        LoadEffects();
         var pkgs = meshes.Select(m => (m.Package, m.File)).Distinct().ToList();
         var found = await Task.Run(() => { try { return ModAnimations.For(r, l.Bones, pkgs, cooked); } catch { return []; } });
         if (IsDisposed || req != request) return;
@@ -535,6 +553,36 @@ sealed class IconCreatorView : UserControl
     {
         if (animator == null || loaded == null) return;
         animator.Pose(playing, playing != null ? frameSlider.Value : 0);
+        effectsHeld = false;
+        ShowEffects();
+    }
+
+    /// <summary>The character's own effects for the character shown (when Effects is on), else none.</summary>
+    void LoadEffects()
+    {
+        if (loadedRef is not { } r || animator == null || !PreviewViews.Powers || cooked is not string ck) { effects?.Clear(); PoseAll(); return; }
+        var modFiles = packages().Select(p => p.Path).ToList();
+        string pkgFile = r.Package;
+        effectsHeld = false;
+        Effects.Load(ck, false, _ => new PowerPreview.Loaded(Fx.PowerEffects.Own(new Fx.FxGame(ck, modFiles), pkgFile, null), "own:" + pkgFile, Fx.FxSockets.Of(r.File, r.Name), _ => true),
+            null, "Reading Effects…", l => l.Effects.Effects.Count == 0 ? "No Effects of Its Own" : $"Own Effects · {l.Effects.Effects.Count} Effect{(l.Effects.Effects.Count == 1 ? "" : "s")}");
+    }
+
+    /// <summary>The pose with its effects: grown in on it (once per pose), then the props.</summary>
+    void ShowEffects()
+    {
+        if (animator == null || loaded == null) return;
+        if (effects?.Player is { } fxp)
+        {
+            if (!effectsHeld)
+            {
+                effectsHeld = true;
+                var hold = playing; float at = playing != null ? frameSlider.Value : 0;
+                effects.ReplayHeld(EffectSeconds, () => animator.Pose(hold, at));
+            }
+            view.Effects = fxp.Quads(); view.EffectTris = fxp.Tris();
+        }
+        else if (view.Effects.Count > 0 || view.EffectTris.Count > 0) { view.Effects = []; view.EffectTris = []; }
         rig.Update(view, animator);
     }
 
@@ -744,6 +792,9 @@ sealed class IconCreatorView : UserControl
         bool Looking() => animBox.Items.Count > 0 && animBox.Items[0]?.ToString()?.Contains("looking", StringComparison.OrdinalIgnoreCase) == true;
         for (int t = 0; t < 20000 && (loaded == null || Looking()); t += 100) { await Task.Delay(100); Application.DoEvents(); }
         if (loaded == null) return "FAIL no character loaded: " + status.Text;
+        // the character's own effects (when Effects is on), read in the background
+        for (int t = 0; t < 8000 && PreviewViews.Powers && effects?.Player == null && effects?.Note.StartsWith("Reading", StringComparison.Ordinal) != false; t += 100) { await Task.Delay(100); Application.DoEvents(); }
+        string fxNote = $"; effects: {(effects?.Player is not null ? $"{view.Effects.Count} sprite(s), {effects.Note}" : "none")}";
         if (anim != null)
         {
             int i = anims.FindIndex(a => a.Name.Contains(anim, StringComparison.OrdinalIgnoreCase));
@@ -825,12 +876,12 @@ sealed class IconCreatorView : UserControl
             prevNote = $"; Use Previous Setup ({me} → {other}): {(offered && same ? "ok" : $"WRONG (offered {offered}, same {same})")}";
         }
 
-        return $"{(size && searchOk ? "ok  " : "FAIL")} {snapInfo}{lensNote}; props: {(props.Count == 0 ? "none" : string.Join(", ", props.Select(p => $"{p.Ref.Name} on {p.BoneName}")))}{searchNote}{prevNote}";
+        return $"{(size && searchOk ? "ok  " : "FAIL")} {snapInfo}{lensNote}; props: {(props.Count == 0 ? "none" : string.Join(", ", props.Select(p => $"{p.Ref.Name} on {p.BoneName}")))}{searchNote}{prevNote}{fxNote}";
     }
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { snapshot?.Dispose(); backdrop?.Dispose(); customBack?.Dispose(); original?.Dispose(); result.Image?.Dispose(); }
+        if (disposing) { snapshot?.Dispose(); backdrop?.Dispose(); customBack?.Dispose(); original?.Dispose(); result.Image?.Dispose(); effects?.Dispose(); }
         base.Dispose(disposing);
     }
 }

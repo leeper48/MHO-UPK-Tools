@@ -842,6 +842,10 @@ sealed class PowerEffects
     /// </summary>
     /// <param name="onlyPart">One particle part of the class default only (the Powers tab's Parts ▶, 2026-10-17: the dodge
     /// ghosts), whatever starts it (a dodge, a hover, a power's start): an EntityFxParticle or a power's PowerFxParticle.</param>
+    /// <summary>A costume package's hero base package (UC__MarvelPlayer_GhostRider_Original_SF → UC__MarvelPlayer_GhostRider_SF), or null.</summary>
+    static string? HeroBase(string stem) => System.Text.RegularExpressions.Regex.Match(stem, @"^UC__MarvelPlayer_([A-Za-z0-9]+)_", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } m
+        ? $"UC__MarvelPlayer_{m.Groups[1].Value}_SF" : null;
+
     public static PowerEffects Own(FxGame g, string packageFile, string? onlyPart = null)
     {
         var fx = new PowerEffects();
@@ -864,9 +868,10 @@ sealed class PowerEffects
             if (n >= 0 && a.Size == 4 + 4 * n) for (int k = 0; k < n; k++) list.Add(BitConverter.ToInt32(p.Bytes, a.ValueAt + 4 + 4 * k));
             return list;
         }
-        void Add(string name, int sysRef, List<string> sockets)
+        void Add(string name, int sysRef, List<string> sockets, FxPkg? from = null)
         {
-            if (Resolve(p, sysRef, look, g) is not { } sysAt) { if (sysRef != 0) fx.Notes.Add($"{name}: its particle system {p.T.PathOf(sysRef)} isn't in a package the view reads"); return; }
+            var src = from ?? p;
+            if (Resolve(src, sysRef, look, g) is not { } sysAt) { if (sysRef != 0) fx.Notes.Add($"{name}: its particle system {src.T.PathOf(sysRef)} isn't in a package the view reads"); return; }
             ParticleData? data;
             try { data = ParticleData.Read(sysAt.P, sysAt.Export); }
             catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException) { fx.Notes.Add($"{name}: {ex.Message}"); return; }
@@ -883,27 +888,41 @@ sealed class PowerEffects
             {
                 if (r == 0) continue;
                 string aname = r > 0 ? p.T.Exports[r - 1].ObjectName : p.T.Imports[-r - 1].ObjectName;
+                // the attachment's default: in this package, else in the hero's base package (a user, 2026-10-22: Ghost
+                // Rider's head flames, marvelattachment_ghostrider, are defined there; a costume package showed none)
+                var q = p;
                 int ad = Find("marvelgamecontent.default__" + aname.ToLowerInvariant());
+                if (ad < 0 && HeroBase(stem) is string hb && !hb.Equals(stem, StringComparison.OrdinalIgnoreCase))
+                {
+                    FxPkg? bp = null;
+                    try { bp = g.Open(hb); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                    string want = "marvelgamecontent.default__" + aname.ToLowerInvariant();
+                    int bi = -1;
+                    if (bp != null) for (int i = 0; i < bp.T.Exports.Count && bi < 0; i++) if (bp.T.PathOf(i + 1).Equals(want, StringComparison.OrdinalIgnoreCase)) bi = i;
+                    if (bi >= 0) { q = bp!; ad = bi; if (!look.Contains(bp!)) { look.Add(bp!); tex = new FxTextures([.. look, .. g.AlwaysLoaded()], g.Cooked); } }
+                }
                 if (ad < 0) { fx.Notes.Add($"{aname}: its default isn't in {stem}"); continue; }
-                var ap = Props(ad);
+                var ap = FxProps.Find(q.Bytes, q.T, q.T.Exports[ad])?.Props ?? [];
                 // SpawnSockets: one socket name per template (the clone's 16 glows and its eye trails: 17 and 17)
                 var names = new List<string>();
                 if (ap.FirstOrDefault(x => x.Name.Equals("SpawnSockets", StringComparison.OrdinalIgnoreCase)) is { } ss && ss.Size >= 4
-                    && BitConverter.ToInt32(p.Bytes, ss.ValueAt) is int sn && sn >= 0 && ss.Size == 4 + 8 * sn)
+                    && BitConverter.ToInt32(q.Bytes, ss.ValueAt) is int sn && sn >= 0 && ss.Size == 4 + 8 * sn)
                     for (int k = 0; k < sn; k++)
                     {
-                        int ni = BitConverter.ToInt32(p.Bytes, ss.ValueAt + 4 + 8 * k);
-                        names.Add(ni >= 0 && ni < p.T.Names.Count ? p.T.Names[ni].Text : "None");
+                        int ni = BitConverter.ToInt32(q.Bytes, ss.ValueAt + 4 + 8 * k);
+                        names.Add(ni >= 0 && ni < q.T.Names.Count ? q.T.Names[ni].Text : "None");
                     }
-                if (ap.FirstOrDefault(x => x.Name.Equals("PEffectTemplates", StringComparison.OrdinalIgnoreCase)) is { } et)
+                if (ap.FirstOrDefault(x => x.Name.Equals("PEffectTemplates", StringComparison.OrdinalIgnoreCase)) is { } et && et.Size >= 4)
                 {
-                    var templates = Refs(et);
+                    int tn = BitConverter.ToInt32(q.Bytes, et.ValueAt);
+                    var templates = new List<int>();
+                    if (tn >= 0 && et.Size == 4 + 4 * tn) for (int k = 0; k < tn; k++) templates.Add(BitConverter.ToInt32(q.Bytes, et.ValueAt + 4 + 4 * k));
                     for (int k = 0; k < templates.Count; k++)
                     {
                         int sr = templates[k];
                         if (sr == 0) continue;
                         var at = k < names.Count && !names[k].Equals("None", StringComparison.OrdinalIgnoreCase) ? new List<string> { names[k] } : names.Count == 1 ? names : [];
-                        Add($"{aname}: {(sr > 0 ? p.T.Exports[sr - 1].ObjectName : p.T.Imports[-sr - 1].ObjectName)}", sr, at);
+                        Add($"{aname}: {(sr > 0 ? q.T.Exports[sr - 1].ObjectName : q.T.Imports[-sr - 1].ObjectName)}", sr, at, q);
                     }
                 }
             }

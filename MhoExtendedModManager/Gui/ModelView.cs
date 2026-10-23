@@ -1144,14 +1144,24 @@ sealed class ModelView : UserControl
         if (idx.Length == 0 || w < 1 || h < 1) return null;
         int bw = w * supersample, bh = h * supersample;
         bool wasFast = fast; fast = false;
+        var wasBack = Background;
+        Background = Color.Black;   // (over black, an effect's light on the background is its own colour)
         try
         {
             Render(bw, bh);
             var big = new byte[bw * bh * 4];
             for (int p = 0; p < bw * bh; p++)
             {
-                if (gTri[p] < 0) continue;   // background: fully transparent
                 int c = color[p];
+                if (gTri[p] < 0)
+                {
+                    // background: transparent, but an effect's light on it (Ghost Rider's head flames past his skull; a user,
+                    // 2026-10-22: the icons came out without them) keeps its colour with its brightness as opacity
+                    int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255, a = Math.Max(r, Math.Max(g, b));
+                    if (a < 4) continue;
+                    big[p * 4] = (byte)(b * 255 / a); big[p * 4 + 1] = (byte)(g * 255 / a); big[p * 4 + 2] = (byte)(r * 255 / a); big[p * 4 + 3] = (byte)a;
+                    continue;
+                }
                 big[p * 4] = (byte)c; big[p * 4 + 1] = (byte)(c >> 8); big[p * 4 + 2] = (byte)(c >> 16); big[p * 4 + 3] = 255;
             }
             // Box-filter down with premultiplied colour, so the soft edge doesn't pick up the background's colour.
@@ -1177,7 +1187,7 @@ sealed class ModelView : UserControl
             bmp.UnlockBits(bd);
             return bmp;
         }
-        finally { fast = wasFast; Redraw(); }   // back to the view's own size
+        finally { fast = wasFast; Background = wasBack; Redraw(); }   // back to the view's own size
     }
 
     /// <summary>Bloom strength and spread (by eye; UE3 blooms the scene colour past a threshold, blurred, added back).</summary>

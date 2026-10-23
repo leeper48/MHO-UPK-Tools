@@ -264,6 +264,7 @@ static partial class Program
             var rm = rlib.Find(args[1]);
             string? rgr = st.ResolvedGameRoot(rlib.DataFolder);
             string? rc = rgr != null && Settings.IsGameRoot(rgr) ? Settings.Cooked(rgr) : null;
+            if (rc != null) StockFiles.Init(new GameState(rgr!, rlib.DataFolder), st.CleanGameFiles, Path.Combine(rlib.DataFolder, "originals"));   // (the game's own copies, as the app reads them)
             // Optional 5th argument: which mesh (e.g. a cross-hero move's copied mesh), else the first.
             var mr = rm == null ? null : ModMeshes.List(rm).FirstOrDefault(x => args.Length < 5 || x.Name.Equals(args[4], StringComparison.OrdinalIgnoreCase));
             var ld = mr == null ? null : ModMeshes.Load(mr, rc, out _);
@@ -477,6 +478,7 @@ static partial class Program
             string? igr = st.ResolvedGameRoot(ilib.DataFolder);
             var igame = igr != null && Settings.IsGameRoot(igr) ? new GameState(igr, ilib.DataFolder) : null;
             var icat = igame != null ? new StockCatalog(ilib, igame) : null;
+            StockFiles.Init(igame, st.CleanGameFiles, Path.Combine(ilib.DataFolder, "originals"));   // (the game's own copies, as the app reads them)
             string file = args[3].StartsWith("store_", StringComparison.OrdinalIgnoreCase) ? Applier.IconPackages[2].File : Applier.IconPackages[0].File;
             if (im == null || icat?.Size(file, args[3]) is not { } isz) { Console.WriteLine("no such mod, or the texture's size isn't known"); return 1; }
             Directory.CreateDirectory(args[1]);
