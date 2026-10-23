@@ -193,7 +193,26 @@ sealed partial class ModEditorView
     Button? voiceHintButton;
     FlowLayoutPanel? voiceHintRow;
     (string CostumeFile, string CostumeName, VoiceSet.Source Voice)? heroVoice;
+    /// <summary>The mod's own costume package the hero's voice goes into (else the default costume's, added).</summary>
+    string? heroVoiceInto;
     int hintRun;
+
+    bool HasVoiceSlot(string file)
+    {
+        var src = draft.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source;
+        try { return src != null && File.Exists(src) && VoiceSet.Slot(MhoPackageModifier.Package.Open(src)) >= 0; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { return false; }
+    }
+
+    /// <summary>
+    /// The mod's own costume package for <paramref name="hero"/> (UC__MarvelPlayer_&lt;hero&gt;_&lt;costume&gt;_SF, not the base,
+    /// not <paramref name="exceptDefault"/>) with a voice slot: the costume the mod is for. A user, 2026-10-22: White Tiger on
+    /// Iron Fist Classic added his default costume (White) and shifted its voice; Classic plays its own slot, empty, so
+    /// the hero's base voice: in game the lines stayed male.
+    /// </summary>
+    string? OwnCostumeFile(string hero, string exceptDefault) => draft.Packages.Select(p => p.File)
+        .FirstOrDefault(f => f.StartsWith($"UC__MarvelPlayer_{hero}_", StringComparison.OrdinalIgnoreCase) && !f.Equals($"UC__MarvelPlayer_{hero}_SF.upk", StringComparison.OrdinalIgnoreCase)
+            && !f.Equals(exceptDefault, StringComparison.OrdinalIgnoreCase) && HasVoiceSlot(f));
 
     /// <summary>
     /// No sound lines in the mod's packages (Scream on Carnage's base package: one banter target): says where the hero's
@@ -213,6 +232,14 @@ sealed partial class ModEditorView
         heroVoice = found;
         if (found is not { } f) { voiceHintRow.Visible = false; return; }
         string heroName = f.Voice.Title.Split(" · ")[0];
+        heroVoiceInto = OwnCostumeFile(hero, f.CostumeFile);
+        if (heroVoiceInto != null)
+        {
+            voiceHint.Text = $"No voice lines in this mod's packages. In the game, this costume plays {heroName}'s voice \"{f.Voice.Title}\": copied into {heroVoiceInto}, its lines can be played, turned off and shifted for this costume.";
+            voiceHintButton!.Text = "Use " + f.Voice.Title;
+            voiceHintRow.Visible = true;
+            return;
+        }
         bool have = draft.Packages.Any(p => p.File.Equals(f.CostumeFile, StringComparison.OrdinalIgnoreCase));
         voiceHint.Text = $"No voice lines in this mod's packages. In the game, {heroName}'s {f.CostumeName} costume plays the voice \"{f.Voice.Title}\""
             + (have ? "." : $" ({f.CostumeFile}, not in this mod).");
@@ -223,6 +250,7 @@ sealed partial class ModEditorView
     void UseHeroVoice()
     {
         if (heroVoice is not { } f || game == null) return;
+        if (heroVoiceInto != null) { UseVoice(heroVoiceInto, f.Voice); return; }
         if (!draft.Packages.Any(p => p.File.Equals(f.CostumeFile, StringComparison.OrdinalIgnoreCase)))
         {
             string src = StockFiles.For(game.Cooked, f.CostumeFile);

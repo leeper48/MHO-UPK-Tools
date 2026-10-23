@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.58
+- Voice tab: in a mod for one of the hero's costumes, the "no voice lines" button puts the hero's voice into that costume's own package. It used to add the hero's default costume and put the voice there, so a Voice Shift changed that costume and the modded one kept its old voice (White Tiger on Iron Fist Classic stayed male).
+
 0.60.57
 - Sound packs after a Steam verify: the game's sound files (.pck) come back unchanged but newly dated, and the app took only stock-dated ones as originals, so every sound pack was skipped ("no original"), Remove refused, and a voice shift didn't reach the game. The app now ships the stock checksums of all 227 sound files and accepts one that matches.
 - --make-pck-checksums.
