@@ -964,6 +964,8 @@ sealed partial class MainForm
         lines.Add("removed: " + ed.PropTestState());
         await ed.PropTestAdd("Thor", "marvelattachment_thorhammer");
         lines.Add("added: " + ed.PropTestState());
+        await ed.PropTestFit(0.8f);
+        lines.Add("refit 80 %: " + ed.PropTestState());
         await ed.PropTestRemove();
         lines.Add("removed again: " + ed.PropTestState());
         File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);

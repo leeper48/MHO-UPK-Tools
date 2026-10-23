@@ -93,9 +93,10 @@ sealed partial class StorePreview : Control
                 try { ms = ModMeshes.List(m); } catch { ms = []; }
                 // a package the editor changed and hasn't saved (an added prop, a borrowed look): its model read from there, so
                 // its props are the changed ones (Kurt, 2026-10-23: an added hammer didn't show)
+                // (each package's whole list from the changed copy, in the saved list's place: a refit adds a model of a new name)
                 if (over.Count > 0)
-                    ms = [.. ms.Select(r => over.TryGetValue(r.Package, out var o) && File.Exists(o)
-                        ? ModMeshes.List([(r.Package, o)], anyPackage: true).FirstOrDefault(x => x.Name.Equals(r.Name, StringComparison.OrdinalIgnoreCase)) ?? r : r)];
+                    ms = [.. ms.GroupBy(r => r.Package, StringComparer.OrdinalIgnoreCase).SelectMany(g => over.TryGetValue(g.Key, out var o) && File.Exists(o)
+                        ? ModMeshes.List([(g.Key, o)], anyPackage: true) is { Count: > 0 } fresh ? fresh : [.. g] : [.. g])];
                 return (pics, ms);
             }).ContinueWith(t =>
             {

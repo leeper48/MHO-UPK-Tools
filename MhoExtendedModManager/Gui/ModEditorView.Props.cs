@@ -126,6 +126,13 @@ sealed partial class ModEditorView
         if (animPreview != null) { animPreview.TestMeshPart = part; animPreview.ReloadOverrides(); }
     }
     internal string PropTestState() => $"list [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Class))}] package {AnimFile} draft {DraftPath(AnimFile ?? "") ?? "-"} | preview props: {animPreview?.PropsForTest ?? "(no preview)"}";
+    internal async Task PropTestFit(float size)
+    {
+        if (propList.SelectedItem is not AddedPropEntry e) return;
+        e.Fit.Scale = size;
+        await ApplyPropsTo(e.Package);
+        await Task.Delay(6000);
+    }
     internal async Task PropTestRemove()
     {
         if (propList.Items.Count > 0) propList.SelectedIndex = 0;

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.95
+- Editor previews: a refit prop shows at once (the changed package's models are listed from its unsaved copy, where a refit adds a model of a new name).
+
 0.60.94
 - Animations tab Props: Pivot on the Hand: the animations the costume took from another character (Thor's fidgets and idles) stop moving the bone the prop hangs on, so it stays in the hand and turns with it; applied again after every animation change and at Save.
 

@@ -21,7 +21,7 @@ sealed class PropRig
 
     public int Count => props.Count;
     /// <summary>The props' classes (tests).</summary>
-    public IEnumerable<string> Classes => props.Select(p => p.Class);
+    public IEnumerable<string> Classes => props.Select(p => p.Class + "=" + p.Mesh.Name);
 
     /// <summary>The character and its props as last posed (Update): the box around them, or null before the first pose.</summary>
     public (Vector3 Lo, Vector3 Hi)? Bounds()
