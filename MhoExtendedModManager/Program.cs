@@ -446,6 +446,18 @@ static partial class Program
                 Console.WriteLine(why ?? (dry ? $"{m.Name} can be removed (dry run: nothing changed)." : $"Removed {m.Name} (its folder is in the Recycle Bin)."));
                 return why == null ? 0 : 1;
             }
+            case "--duplicate":
+            {
+                // --duplicate <mod> <name of the copy>: the mod copied under a new name, added off at the top (Duplicate in the
+                // card's menu)
+                if (IsOldManager(data)) { Console.WriteLine(OldManagerRefusal); return 1; }
+                var m = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                if (m == null) { Console.WriteLine("--duplicate <mod> <name of the copy>"); return 1; }
+                var dlog = new List<string>();
+                string? copy = ModInstaller.Duplicate(lib, m, rest[2], dlog);
+                foreach (string l in dlog) Console.WriteLine(l);
+                return copy == null ? 1 : 0;
+            }
             case "--enable" or "--disable":
             {
                 if (IsOldManager(data)) { Console.WriteLine(OldManagerRefusal); return 1; }

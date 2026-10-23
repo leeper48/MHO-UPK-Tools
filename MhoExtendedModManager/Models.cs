@@ -136,6 +136,18 @@ sealed class ModState
         Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to); Move(Previews, from, to); Move(CardPictures, from, to);
     }
 
+    /// <summary>A mod duplicated (Duplicate Mod): the copy gets this PC's tags, hidden tags, note and picture picks of the
+    /// original (not its Nexus link or lock: the copy is a mod of its own).</summary>
+    public void CopyMod(string from, string to)
+    {
+        Copy(Tags, from, to, v => [.. v]); Copy(HiddenTags, from, to, v => [.. v]); Copy(Notes, from, to, v => v); Copy(Previews, from, to, v => v); Copy(CardPictures, from, to, v => v);
+    }
+
+    static void Copy<T>(Dictionary<string, T>? d, string from, string to, Func<T, T> clone)
+    {
+        if (d != null && d.Keys.FirstOrDefault(k => k.Equals(from, StringComparison.OrdinalIgnoreCase)) is string key) d[to] = clone(d[key]);
+    }
+
     static void Move<T>(Dictionary<string, T>? d, string from, string to)
     {
         if (d != null && d.Keys.FirstOrDefault(k => k.Equals(from, StringComparison.OrdinalIgnoreCase)) is string key) { var v = d[key]; d.Remove(key); d[to] = v; }

@@ -39,7 +39,26 @@ sealed partial class ModEditorView
             if (powerList.Items[i] is Fx.PowerList.Power p && p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) { powerList.SelectedIndex = i; break; }
         for (int w = 0; w < 60 && powerPreview?.CurrentAnimationName == null; w++) await Task.Delay(1000);
         await Task.Delay(3000);
-        return $"prop fit {(propFit.Visible ? "shown" : "hidden")}, note '{heldNote.Text}', fit sliders {(pSize?.Visible == true ? "shown" : "hidden")}, block {(powerAnimBlock?.Root.Visible == true ? powerAnimBlock.State() : "hidden")}, playing {powerPreview?.CurrentAnimationName}";
+        string state = $"prop fit {(propFit.Visible ? "shown" : "hidden")}, note '{heldNote.Text}', fit sliders {(pSize?.Visible == true ? $"shown at {pSize.Value * 100:0} %" : "hidden")}, block {(powerAnimBlock?.Root.Visible == true ? powerAnimBlock.State() : "hidden")}, playing {powerPreview?.CurrentAnimationName}";
+        // the held prop's Size from here (MHO_TEST_POWER_SIZE): its fit, the Animations tab's slider, the preview's props
+        if (Environment.GetEnvironmentVariable("MHO_TEST_POWER_SIZE") is string sz && pSize != null && propPick.SelectedItem is PowerBorrow.SpawnedProp sp0 && HeldAs(sp0.Class) is { } held)
+        {
+            pSize.Value = float.Parse(sz, System.Globalization.CultureInfo.InvariantCulture);
+            PropFitChanged();
+            await Task.Delay(15000);
+            state += $" | after Size {sz}: held fit x{held.Fit.Scale}, Animations tab slider {(apSize != null ? $"{apSize.Value * 100:0} %" : "-")}, power preview props {powerPreview?.PropsForTest}";
+        }
+        return state;
+    }
+
+    /// <summary>A held prop's fit changed from the Powers tab: its pin (letting go needs the sets' own keys back), then the
+    /// prop built again into its package and the borrowed powers' animations; the Animations tab's sliders follow.</summary>
+    async Task HeldFitApplied(AddedPropEntry held, bool pin)
+    {
+        if (held.Fit.PinPivot != pin) await SetPin(held, pin);
+        else await ApplyPropsTo(held.Package);
+        if (propList.SelectedItem == held) ShowPropFit();
+        if (powerAnimBlock?.Root.Visible == true) powerAnimBlock.Show();
     }
 
     /// <summary>The added prop (Animations tab) a borrowed power's prop of <paramref name="cls"/> is, else null.</summary>
@@ -160,11 +179,24 @@ sealed partial class ModEditorView
                 pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? sp.TurnZAuto;
                 pTZ.Home = () => sp.TurnZAuto; pTZ.Mark = sp.TurnZAuto;
                 pinPivot.Checked = fit?.PinPivot == true;
-                // a prop the costume holds (added in the Animations tab): the power throws that one; its fit is there
+                // a prop the costume holds (added in the Animations tab): the power throws that one; the sliders are its own
+                // fit (the same as the Animations tab's: every animation), In This Animation below for this power's
                 var held = HeldAs(sp.Class);
                 heldNote.Visible = held != null;
-                heldNote.Text = held == null ? "" : $"This power uses the {PropName(sp)} the costume holds ({held.Name}, Animations tab → Props): its size and fit are there. Below, adjust it in this power's animation only.";
-                foreach (var c in new Control?[] { pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ }) if (c != null) c.Visible = held == null;
+                heldNote.Text = held == null ? "" : $"This power uses the {PropName(sp)} the costume holds ({held.Name}): these sliders are its fit in every animation, the same as the Animations tab's (Props). In This Animation adjusts it in this power's animation only.";
+                if (held != null)
+                {
+                    var hf = held.Fit;
+                    float dz = PowerBorrow.DefaultTurnZ(held.Class);
+                    pSize.Home = () => 1; pSize.Mark = 1;
+                    pSize.Value = hf.Scale is float hs && hs > 0 ? hs : 1;
+                    fitAxes = powerPreview?.PropFrame(held.Class) is { } hpf ? Turn(hpf) : System.Numerics.Matrix4x4.Identity;
+                    var hw = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(hf.X, hf.Y, hf.Z), fitAxes);
+                    pX.Value = hw.X; pY.Value = hw.Y; pZ.Value = hw.Z;
+                    pTX.Value = hf.TurnX; pTY.Value = hf.TurnY; pTZ.Value = hf.TurnZ == 0 && hf.IsIdentity ? dz : hf.TurnZ;
+                    pTZ.Home = () => dz; pTZ.Mark = dz;
+                    pinPivot.Checked = hf.PinPivot;
+                }
                 if (powerAnimBlock != null) { powerAnimBlock.Root.Visible = held != null; powerAnimBlock.Show(); }
             }
             vForward.Value = e.RiderForward; vUp.Value = e.RiderUp; vLean.Value = e.RiderLean;
@@ -189,6 +221,16 @@ sealed partial class ModEditorView
     {
         if (vShowing || borrowBuilding || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e || propPick.SelectedItem is not PowerBorrow.SpawnedProp sp
             || pSize == null || pX == null || pY == null || pZ == null || pTX == null || pTY == null || pTZ == null) return;
+        // a prop the costume holds: these sliders are its own fit, the Animations tab's (Kurt, 2026-10-23: the base here too)
+        if (HeldAs(sp.Class) is { } held)
+        {
+            var hown = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(pX.Value, pY.Value, pZ.Value), System.Numerics.Matrix4x4.Transpose(fitAxes));
+            held.Fit.Scale = Math.Abs(pSize.Value - 1) > 0.005f ? MathF.Round(pSize.Value, 2) : null;
+            held.Fit.X = MathF.Round(hown.X, 2); held.Fit.Y = MathF.Round(hown.Y, 2); held.Fit.Z = MathF.Round(hown.Z, 2);
+            held.Fit.TurnX = pTX.Value; held.Fit.TurnY = pTY.Value; held.Fit.TurnZ = pTZ.Value;
+            _ = HeldFitApplied(held, pinPivot.Checked);
+            return;
+        }
         e.Props ??= [];
         var fit = e.Props.FirstOrDefault(f => f.Class.Equals(sp.Class, StringComparison.OrdinalIgnoreCase));
         if (fit == null) e.Props.Add(fit = new PropFit { Class = sp.Class });

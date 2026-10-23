@@ -161,6 +161,25 @@ sealed partial class MainForm
         });
     }
 
+    /// <summary>Duplicate (Kurt, 2026-10-23): the mod copied under a new name, added off at the top (ModInstaller.Duplicate).</summary>
+    void DuplicateMod(Mod m)
+    {
+        if (lib == null) return;
+        string Free(string n) { string t = n; for (int k = 2; lib.Mods.Any(x => x.Name.Equals(t, StringComparison.OrdinalIgnoreCase) || x.FolderName.Equals(ModInstaller.Sanitise(t), StringComparison.OrdinalIgnoreCase)); k++) t = $"{n} {k}"; return t; }
+        string? name = Ui.Prompt(this, "Duplicate Mod", $"Name of the copy of \"{Short(m.Name)}\":", Free($"{m.Name} (Copy)"));
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var log = new List<string>();
+        string? folder;
+        Cursor = Cursors.WaitCursor;
+        try { folder = ModInstaller.Duplicate(lib, m, name.Trim(), log); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException) { folder = null; log.Add(ex.Message); }
+        finally { Cursor = Cursors.Default; }
+        if (folder == null) { Dialog.Show(this, string.Join("\n", log), "Not Duplicated", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        Reload();
+        FillList(folder);
+        status.Text = $"\"{name.Trim()}\" Added at the Top, Off: A Copy of \"{m.Name}\" to Experiment From";
+    }
+
     /// <summary>A card's right-click menu: on/off, edit, export, then the tags.</summary>
     ContextMenuStrip CardMenu(Mod m)
     {
@@ -169,6 +188,7 @@ sealed partial class MainForm
         menu.Items.Insert(at++, new ToolStripMenuItem(m.Enabled ? "Turn Off" : "Turn On", null, (_, _) => Toggle(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Edit", null, (_, _) => EditMod(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP", null, (_, _) => ExportMod()));
+        menu.Items.Insert(at++, new ToolStripMenuItem("Duplicate", null, (_, _) => DuplicateMod(m)) { Enabled = !readOnly, ToolTipText = "A copy of this mod under a new name (all its files, Model work and settings), added at the top of the list, off: a start to experiment from while this one stays as it is." });
         menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Create Post", null, (_, _) => CreatePost(m)));
         menu.Items.Insert(at++, NexusMenu(m));

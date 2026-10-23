@@ -272,7 +272,13 @@ sealed partial class ModEditorView
     async void PinChanged()
     {
         if (propShowing || propList.SelectedItem is not AddedPropEntry e || e.Fit.PinPivot == propPin.Checked) return;
-        e.Fit.PinPivot = propPin.Checked;
+        await SetPin(e, propPin.Checked);
+    }
+
+    /// <summary>An added prop's Pivot on the Hand set (the Animations tab's box, or the Powers tab's for a held prop).</summary>
+    async Task SetPin(AddedPropEntry e, bool on)
+    {
+        e.Fit.PinPivot = on;
         if (!e.Fit.PinPivot && DraftPath(e.Package) is string src)
         {
             // let go: the bone back in the sets' positions, then the props as they are
@@ -285,6 +291,14 @@ sealed partial class ModEditorView
             if (IsDisposed || v != propVersion) return;
             UseWorkCopy(e.Package, bytes);
             OnBorrowBase(e.Package, b => { byte[] k = File.ReadAllBytes(b); return LetGo(e.Package, b)(k, PowerBorrow.HeldPropBones(k, e.Class), log); });
+            // the borrowed powers' animations in the hero's package: their own keys back too
+            if (Borrows(e.Package) is { } bw && !bw.Anims.File.Equals(e.Package, StringComparison.OrdinalIgnoreCase))
+            {
+                byte[]? bb = null;
+                try { bb = await Task.Run(() => PropHold.Apply(File.ReadAllBytes(bw.Path), PowerBorrow.HeldPropBones(bytes, e.Class), false, bw.Anims.Donors, PowerBorrow.HeroSkeleton(bw.Path), log, onlyKnown: true)); }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { log.Add(ex.Message); }
+                if (bb != null && !IsDisposed && v == propVersion) { UseWorkCopy(bw.Anims.File, bb); propTouched.Add(bw.Anims.File); }
+            }
         }
         if (!await ApplyPropsTo(e.Package) || IsDisposed) return;
         // the list read again: a changed row plays the sets as pinned now (it held the ones read before)

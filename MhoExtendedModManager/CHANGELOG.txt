@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.110
+- Mods tab: right-click a card → Duplicate: a copy of the mod under a new name (all its files and settings), added off at the top, to experiment from.
+- Powers tab: for a borrowed power that throws the prop the costume holds, the Prop Fit sliders are that prop's own fit again (the same as the Animations tab's), with In This Animation under them.
+
 0.60.109
 - Powers tab: a borrowed power that throws the prop the costume holds (an added prop) says so in Prop Fit, and its In This Animation moves and turns that prop in the power's animation playing only. Pivot on the Hand now also holds the prop in the borrowed powers' animations in the hero's package, baked in.
 

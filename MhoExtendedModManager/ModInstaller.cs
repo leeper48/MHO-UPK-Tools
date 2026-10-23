@@ -316,6 +316,41 @@ static class ModInstaller
         Directory.Delete(from, true);
     }
 
+    /// <summary>
+    /// Duplicate Mod (Kurt, 2026-10-23: one mod as the start of experiments): the mod's whole folder copied byte for byte
+    /// (its packages, Model work, kept originals, post, pictures) under <paramref name="newName"/>, only the manifest's name
+    /// changed, then installed as a new mod (top of the list, off) with this PC's tags, note and picture picks of the
+    /// original. Returns the copy's folder name, or null (the reason in the log).
+    /// </summary>
+    public static string? Duplicate(ModLibrary lib, Mod m, string newName, List<string> log)
+    {
+        string name = Sanitise(newName);
+        if (name.Length == 0) { log.Add("The name is empty."); return null; }
+        if (lib.Mods.Any(x => x.FolderName.Equals(name, StringComparison.OrdinalIgnoreCase) || x.Name.Equals(newName, StringComparison.OrdinalIgnoreCase))
+            || Directory.Exists(Path.Combine(lib.DataFolder, "mods", name))) { log.Add($"A mod named \"{newName}\" is in the library already."); return null; }
+        string temp = Path.Combine(lib.DataFolder, "duplicate-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            string dir = Path.Combine(temp, name);
+            CopyDirectory(m.Folder, dir);
+            var want = Directory.GetFiles(m.Folder, "*", SearchOption.AllDirectories).Select(f => (Path.GetRelativePath(m.Folder, f), new FileInfo(f).Length)).Order().ToList();
+            var got = Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Select(f => (Path.GetRelativePath(dir, f), new FileInfo(f).Length)).Order().ToList();
+            if (!want.SequenceEqual(got)) { log.Add("The copy didn't check out (files or sizes differ): nothing was added."); return null; }
+            string mp = Path.Combine(dir, "manifest.json");
+            var man = ModManifest.Load(mp);
+            man.Name = newName;
+            File.WriteAllText(mp, JsonSerializer.Serialize(man, ModManifest.Json));
+            var installed = Install(temp, lib, log);
+            if (installed.Count != 1) return null;
+            var fresh = ModLibrary.Load(lib.DataFolder);
+            fresh.State.CopyMod(m.FolderName, installed[0]);
+            fresh.SaveState();
+            log.Add($"\"{newName}\" is a copy of \"{m.Name}\" ({got.Count} files).");
+            return installed[0];
+        }
+        finally { try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
     public static string Sanitise(string name)
     {
         var bad = Path.GetInvalidFileNameChars();

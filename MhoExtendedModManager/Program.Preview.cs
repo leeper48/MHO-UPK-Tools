@@ -2979,7 +2979,7 @@ static partial class Program
                 float restErr = ld.Positions.Select((p, i) => Vector3.Distance(p, anim8.Positions[i])).Max();
                 Console.WriteLine($"  rest pose through the skinning: max vertex error {restErr:0.000} units");
                 var wanted = rest.Skip(2).ToList();
-                foreach (var a in anims.Where(a => wanted.Count == 0 ? true : wanted.Any(w => a.Name.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(4))
+                foreach (var a in anims.Where(a => wanted.Count == 0 ? true : wanted.Any(w => a.Name.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(wanted.Count == 0 ? 4 : 400))
                 {
                     var ba = ModAnimations.Load(a);
                     if (ba == null) { Console.WriteLine($"  {a.Name}: can't be read"); continue; }
