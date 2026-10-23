@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.64
+- 3D previews and Create from 3D: a blended effect whose texture has no transparency of its own (fire on black) uses its brightness as opacity, so it no longer draws black squares (Ghost Rider's head flames).
+
 0.60.63
 - A costume whose class lists no attachments of its own (Ghost Rider Modern) takes its hero's own effects: his head burns with every animation and power in the 3D previews and in Create from 3D, not only on the FX tile.
 

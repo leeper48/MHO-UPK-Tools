@@ -96,7 +96,10 @@ sealed class ModelView : UserControl
             // blended, with an alpha that stays up at the borders while the colour fades to black there (Iceman's Frozen Orb,
             // tex_frost2: its alpha is noise the material uses for something else): the opacity follows the colour
             bool colorOpacity = !additive && AlphaVaries && edge > 0.2f && edgeLum < 0.06f;
-            bool needs = force || colorOpacity || (additive ? edge > (cellsX * cellsY > 1 ? 0.03f : 0.15f) : !AlphaVaries && edge > 0.05f);   // (a flipbook's
+            // blended with no alpha of its own: the opacity is the brightness even with dark borders (Ghost Rider's head flames,
+            // tex_fire_tendril on black: drawn opaque, the black showed as squares; Kurt, 2026-10-22)
+            bool lumOpacity = !additive && !AlphaVaries;
+            bool needs = force || colorOpacity || lumOpacity || (additive && edge > (cellsX * cellsY > 1 ? 0.03f : 0.15f));   // (a flipbook's
             // frames are drawn big and stacked: even a dim cell border adds up to a straight edge, Doom's Latverian Blockade smoke)
             if (needs && cw > 2 && chh > 2)
             {
@@ -110,6 +113,7 @@ sealed class ModelView : UserControl
                         float r = MathF.Sqrt(dx * dx + dy * dy);
                         float t = Math.Clamp((1 - r) / 0.35f, 0, 1), f = t * t * (3 - 2 * t);   // smoothstep: 1 inside r 0.65, 0 at r 1
                         if (colorOpacity && !force) f = 1;   // (the colour fades by itself)
+                        if (lumOpacity && !force && edge <= 0.05f) f = 1;   // (dark at its borders already: no vignette)
                         int o = (y * w + x) * 4;
                         if (additive) { dst[o] = (byte)(src[o] * f); dst[o + 1] = (byte)(src[o + 1] * f); dst[o + 2] = (byte)(src[o + 2] * f); }
                         else if (AlphaVaries && !colorOpacity) dst[o + 3] = (byte)(src[o + 3] * f);
