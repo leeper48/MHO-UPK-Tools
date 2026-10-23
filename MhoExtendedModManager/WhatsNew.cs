@@ -34,9 +34,23 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
+    /// <summary>0.60.75 (Kurt, 2026-10-23): Model tab From the Game source, feet and size; effects in Create from 3D.</summary>
+    static Notice GameSourceFeet() => new(
+        "0.60.75-game-source-feet", "0.60.75",
+        "[!]Model tab: Source → From the Game: any hero costume, team-up or NPC from the game can be the model, with its own textures, fitted onto the target." + nl +
+        "  • Source and Target both start on From the Game, and the list you pick is remembered." + nl +
+        "  • A • after a name marks the hero's default costume, as the game has it (after reworks and visual updates that's often not the one named Base or Classic)." + nl + nl +
+        "[!]Model tab: A Feet slider puts a model's feet on the floor in game." + nl +
+        "  • It starts at an automatic amount, measured on the model in the hero's idle. If the feet still float or sink, move it; double-click goes back to automatic." + nl +
+        "  • Keep the Source's Size keeps an MFF model at its own size instead of the target's height (Hulk stays Hulk-sized on Black Widow)." + nl +
+        "  • B shows the bones, W the weights." + nl + nl +
+        "Create from 3D: an Effects button shows the character's own effects (Ghost Rider's burning head) in the view and the icon, and Thirds / Center / Safe Area guides help framing. The 3D previews play those effects with every animation." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "model");
+
     /// <summary>0.60.59 (Kurt, 2026-10-22): a user's report on a costume's voice shift.</summary>
     static Notice RemoveCleans() => new(
         "0.60.59-remove-cleans", "0.60.59",
