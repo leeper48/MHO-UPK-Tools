@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.77
+- Powers tab: after Borrow Look, the selected power plays its new animation in the preview at once (it kept the old one until the mod was saved and opened again).
+
 0.60.76
 - Powers: a hero's powers whose class lives in a package not named after the hero now have their animations (Thor's Hammer of Storms in UC__PowerFlyMjolnir_SF; Storm's Tornadoes, Maelstrom and Chain Lightning; Hawkeye's arrows; Colossus's Fastball Special; Hulk's Avalanche Leap). They play in the 3D previews and can be borrowed.
 

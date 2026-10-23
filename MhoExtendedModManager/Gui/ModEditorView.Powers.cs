@@ -220,6 +220,7 @@ sealed partial class ModEditorView
         if (powerPreview == null) return;
         string? keep = (powerList.SelectedItem as Fx.PowerList.Power)?.Prototype;
         string? keepPart = (powerList.SelectedItem as Fx.PowerList.Power)?.Part;
+        var keepAnims = (powerList.SelectedItem as Fx.PowerList.Power)?.Animations.ToList();
         powerList.BeginUpdate();
         powerList.Items.Clear();
         foreach (var p in powerPreview.AllHeroPowers) powerList.Items.Add(p);
@@ -255,7 +256,10 @@ sealed partial class ModEditorView
         bool waiting = !powerPreview.HeroPowersReady && CharacterEntries().Count > 0 && at < 0;
         // the same entry again (the list filled again after the preview reloaded: a ghost build, the hero's powers coming in):
         // selected without starting it over, so the animation and frame showing stay (Kurt, 2026-10-17)
-        refillSame = keep != null && at >= 0 && at < shown.Count && shown[at].Prototype == keep && shown[at].Part == keepPart;
+        // (but not when its animations changed: a borrowed look gives Shield Toss Thor's throw, which then plays; Kurt,
+        // 2026-10-23: it showed only after Save, closing and opening again)
+        refillSame = keep != null && at >= 0 && at < shown.Count && shown[at].Prototype == keep && shown[at].Part == keepPart
+            && keepAnims != null && shown[at].Animations.SequenceEqual(keepAnims, StringComparer.OrdinalIgnoreCase);
         try { if (powerList.Items.Count > 0 && !waiting) powerList.SelectedIndex = Math.Max(0, at); }
         finally { refillSame = false; }
         if (powerList.Items.Count == 0) { powerCaption.Text = "No Powers Found for This Hero"; ShowPowerTitle(); }
