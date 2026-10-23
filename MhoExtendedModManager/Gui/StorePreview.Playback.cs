@@ -92,7 +92,7 @@ sealed partial class StorePreview
         void Show(ModMeshes.Loaded l)
         {
             if (p3 == null || mod == null) return;
-            var animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents);
+            var animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents) { Shift = l.MeshTransform.Translation };   // (the mesh's Origin: the game draws the model moved by it; the Model tab's Feet slider writes it)
             string? cooked2 = CookedFolder;
             // The hero whose animations these are: UC__MarvelPlayer_<Hero>_… (a moved costume plays its target hero's).
             string? hero = HeroOf.Package(r.Package, cooked2);

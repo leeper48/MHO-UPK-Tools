@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.70
+- 3D preview and Create from 3D: a model is drawn moved by its mesh's Origin, as the game draws it (a model built with the Feet slider stood in the floor in the Mods tab preview).
+
 0.60.69
 - Model tab: Feet on the Floor is now a Feet slider (±60 units): it starts at the automatic amount, moves the preview live, and a value you set is what Build uses; double-click for automatic.
 

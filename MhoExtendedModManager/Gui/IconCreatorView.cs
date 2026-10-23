@@ -503,7 +503,7 @@ sealed class IconCreatorView : UserControl
         loaded = l; loadedRef = r;
         view.ShowMesh(l);
         view.Brightness = lightSlider.Value;
-        animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents);
+        animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents) { Shift = l.MeshTransform.Translation };   // (the mesh's Origin, as the game draws it)
         playing = null; anims = [];
         current = -1; shown = [];
         restoring = true; animBox.Items.Clear(); animBox.Items.Add("Rest Pose  ·  (looking for animations…)"); animBox.SelectedIndex = 0; restoring = false;
