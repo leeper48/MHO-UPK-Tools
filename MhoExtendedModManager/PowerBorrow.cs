@@ -1794,6 +1794,17 @@ static class PowerBorrow
     /// in another hero's hand (Kurt fitted it by hand: -161 on Spider-Man, -180 on Hawkeye; both right in game, 2026-10-22),
     /// though the palm bones rest alike: about -170 by default.
     /// </summary>
+    /// <summary>An added prop's fit as its fitted model is made (FitModel, BakeMoveTurn): the original model's points scaled,
+    /// turned, then moved, in the frame of the bone that holds it.</summary>
+    internal static System.Numerics.Matrix4x4 FitMatrix(AddedPropEntry e)
+    {
+        var f = e.Fit;
+        float scale = f.Scale is float fs && fs > 0 ? fs : 1;
+        float tz = f.TurnZ == 0 && f.IsIdentity ? DefaultTurnZ(e.Class.ToLowerInvariant()) : f.TurnZ;
+        static int Units(float deg) => (int)MathF.Round(deg / 360f * 65536f);
+        return System.Numerics.Matrix4x4.CreateScale(scale) * ModMeshes.Rotator(Units(f.TurnY), Units(tz), Units(f.TurnX)) * System.Numerics.Matrix4x4.CreateTranslation(f.X, f.Y, f.Z);
+    }
+
     internal static float DefaultTurnZ(string cls) => cls.StartsWith("marvelattachment_thorhammer", StringComparison.OrdinalIgnoreCase) ? -170 : 0;
 
     /// <summary>
@@ -1855,8 +1866,11 @@ static class PowerBorrow
     /// (mAttachmentClasses of its player class default). Applying it again gives the same package. Verified; throws
     /// InvalidDataException with the reason.
     /// </summary>
-    public static byte[] AddProp(byte[] package, AddedPropEntry e, string fromPath, List<string> log)
+    /// <param name="hold">Pivot on the Hand: the package, the prop's bones, its fit (FitMatrix), the log → the package
+    /// holding them (PropHold, baked into the copied animations); null: the copied sets stop moving the bones (PinPropBones).</param>
+    public static byte[] AddProp(byte[] package, AddedPropEntry e, string fromPath, List<string> log, Func<byte[], IReadOnlyList<string>, System.Numerics.Matrix4x4, List<string>, byte[]>? hold = null)
     {
+        hold ??= (b, bones, _, l) => PinPropBones(b, bones, true, l);
         MeshCopy.Register();   // (the prop's skeletal mesh copies with the class)
         var dst = Package.FromBytes(package);
         string cls = e.Class.ToLowerInvariant(), def = "marvelgamecontent.default__" + cls;
@@ -1895,7 +1909,7 @@ static class PowerBorrow
                  ?? throw new InvalidDataException("this costume has no prop list of its own (it uses its hero's): not supported yet");
         int n = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt));
         var pinBones = AttachBones(dst, def);
-        for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return e.Fit.PinPivot ? PinPropBones(dst.RawFile, pinBones, true, log) : dst.RawFile;   // listed already
+        for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return e.Fit.PinPivot ? hold(dst.RawFile, pinBones, FitMatrix(e), log) : dst.RawFile;   // listed already
         byte[] np = [.. pb.AsSpan(0, at.End), .. BitConverter.GetBytes(classRef), .. pb.AsSpan(at.End)];
         BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.ValueAt), n + 1);
         BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.Start + 16), at.Size + 4);
@@ -1904,7 +1918,7 @@ static class PowerBorrow
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{e.Class} added to {dst.Exports[pd].ObjectName}'s props ({n + 1} now)");
-        return e.Fit.PinPivot ? PinPropBones(output, pinBones, true, log) : output;
+        return e.Fit.PinPivot ? hold(output, pinBones, FitMatrix(e), log) : output;
     }
 
     /// <summary>

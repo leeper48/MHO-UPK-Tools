@@ -983,12 +983,16 @@ sealed partial class MainForm
         // Pivot on the Hand, then Save and Keep Editing (Kurt, 2026-10-23: ticked, Ctrl+S, the hammer flew off: the tick was lost)
         await ed.PropTestPin(true);
         lines.Add("pinned: " + ed.PropTestPinState() + " | " + ed.PropTestState());
-        ed.SaveStayForTest();
-        await Task.Delay(30000);
-        string man = File.ReadAllText(Path.Combine(m.Folder, "manifest.json"));
         lines.Add("change fidget01: " + await ed.AnimTestChange("fidget01", "Thor", "fidget01"));
         await Task.Delay(8000);
         lines.Add("changed fidget01 (pinned): " + ed.PropTestState());
+        lines.Add("change fidget02: " + await ed.AnimTestChange("fidget02", "Thor", "fidget02"));
+        await Task.Delay(8000);
+        lines.Add("changed fidget02 (pinned): " + ed.PropTestState());
+        lines.Add("prop log: " + ed.PropTestLog());
+        ed.SaveStayForTest();
+        await Task.Delay(30000);
+        string man = File.ReadAllText(Path.Combine(m.Folder, "manifest.json"));
         lines.Add("saved: " + ed.PropTestPinState() + " | manifest PinPivot " + man.Contains("\"PinPivot\": true") + " | " + ed.PropTestState());
         await ed.PropTestRemove();
         lines.Add("removed again: " + ed.PropTestState());

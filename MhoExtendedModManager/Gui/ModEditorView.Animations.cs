@@ -244,9 +244,10 @@ sealed partial class ModEditorView
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s \"{pick.Name}\" couldn't be put in: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
-        UseWorkCopy(file, bytes); await PropsAfterAnimChange(file);
+        UseWorkCopy(file, bytes);
         draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase));
         draft.AnimSwaps.Add(new AnimSwapEntry { Package = file, Slot = slot.Name, Donor = donor.Mod?.Name ?? donor.File, Animation = pick.Name, Title = donor.Kind == "Target" ? donor.Title.Replace(" (the Original)", "") : donor.Title });
+        await PropsAfterAnimChange(file);   // (after the swaps list: Pivot on the Hand reads each copy's source there)
         animStatus.Text = $"\"{slot.Name}\" Now Plays {donor.Title.Replace(" (the Original)", "")} · {pick.Name}";
         ReloadAt(slot.Name);
     }
@@ -293,11 +294,12 @@ sealed partial class ModEditorView
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s animations couldn't be put in: {ex.Message}", "Animations Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
         if (bytes == null) { animStatus.Text = "Nothing Was Changed"; return; }
-        UseWorkCopy(file, bytes); await PropsAfterAnimChange(file);
+        UseWorkCopy(file, bytes);
         draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && slots.Contains(x.Slot, StringComparer.OrdinalIgnoreCase));
         if (!undo)
             foreach (var p in picks)
                 draft.AnimSwaps.Add(new AnimSwapEntry { Package = file, Slot = p.Name, Donor = donor.Mod?.Name ?? donor.File, Animation = p.Name, Title = donor.Title });
+        await PropsAfterAnimChange(file);   // (after the swaps list: Pivot on the Hand reads each copy's source there)
         animStatus.Text = undo ? $"{slots.Count} Animations Are the Original Again" : $"{swaps.Count} Animations Now From {donor.Title}";
         ReloadAt(slots[0]);
     }
@@ -376,8 +378,9 @@ sealed partial class ModEditorView
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { Dialog.Show(this, $"\"{slot.Name}\" couldn't be changed back: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed || bytes == null) return;
-        UseWorkCopy(file, bytes); await PropsAfterAnimChange(file);
+        UseWorkCopy(file, bytes);
         draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase));
+        await PropsAfterAnimChange(file);   // (after the swaps list: Pivot on the Hand reads each copy's source there)
         animStatus.Text = $"\"{slot.Name}\" Is the Original Again";
         ReloadAt(slot.Name);
     }

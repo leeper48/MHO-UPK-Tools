@@ -55,7 +55,7 @@ sealed partial class ModEditorView
         apTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll). Double-click: back to 0.");
         apTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch). Double-click: back to 0.");
         apTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw). Some props start turned for this hand (Thor's hammer). Double-click: back to that start.");
-        Ui.Tip(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) stop moving the bone this prop hangs on, so it stays in the hand and turns with it (Thor's animations move his palm bone). Look ▾ → Prop Pivots shows the pivot.");
+        Ui.Tip(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) hold the prop as that character holds it: in the hand where they hold it, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). Worked out from that character's own animation and baked into the copies. Look ▾ → Prop Pivots shows the pivot.");
         propPin.CheckedChanged += (_, _) => PinChanged();
         box.Controls.AddRange([head, Toolbar(add, propRemove), propList, propPin, apSize, apX, apY, apZ, apTX, apTY, apTZ, propNote]);
         FillPropList();
@@ -153,6 +153,8 @@ sealed partial class ModEditorView
     /// <summary>Tests: Pivot on the Hand ticked or not on the selected prop, as a click does.</summary>
     internal async Task PropTestPin(bool on) { propPin.Checked = on; await Task.Delay(6000); }
     /// <summary>Tests: the selected prop's pin as the editor holds it (the box, the draft's entry).</summary>
+    List<string> propLastLog = [];
+    internal string PropTestLog() => string.Join(" / ", propLastLog);
     internal string PropTestPinState() => $"box {propPin.Checked}, draft [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Fit.PinPivot))}]";
     internal async Task PropTestRemove()
     {
@@ -182,15 +184,47 @@ sealed partial class ModEditorView
             int v = ++propVersion;
             var log = new List<string>();
             byte[] bytes;
-            try { bytes = await Task.Run(() => { byte[] b = File.ReadAllBytes(src); return PowerBorrow.PinPropBones(b, PowerBorrow.HeldPropBones(b, e.Class), false, log); }); }
+            var letGo = LetGo(e.Package, src);
+            try { bytes = await Task.Run(() => { byte[] b = File.ReadAllBytes(src); return letGo(b, PowerBorrow.HeldPropBones(b, e.Class), log); }); }
             catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, ex.Message, "Pivot Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             if (IsDisposed || v != propVersion) return;
             UseWorkCopy(e.Package, bytes);
-            OnBorrowBase(e.Package, b => { byte[] k = File.ReadAllBytes(b); return PowerBorrow.PinPropBones(k, PowerBorrow.HeldPropBones(k, e.Class), false, log); });
+            OnBorrowBase(e.Package, b => { byte[] k = File.ReadAllBytes(b); return LetGo(e.Package, b)(k, PowerBorrow.HeldPropBones(k, e.Class), log); });
         }
         if (!await ApplyPropsTo(e.Package) || IsDisposed) return;
         // the list read again: a changed row plays the sets as pinned now (it held the ones read before)
         if (SelectedAnim is { } sel && AnimFile is string af && af.Equals(e.Package, StringComparison.OrdinalIgnoreCase)) ReloadAt(sel.Name);
+    }
+
+    /// <summary>A copied animation's source in <paramref name="package"/> (the Animations tab's change of that slot): the
+    /// donor's package and animation, else null.</summary>
+    /// <remarks>Read on the UI thread: the result is a lookup the background build can call.</remarks>
+    Func<string, PropHold.Donor?> DonorsOf(string package)
+    {
+        var map = new Dictionary<string, PropHold.Donor>(StringComparer.OrdinalIgnoreCase);
+        if (game != null)
+            foreach (var s in draft.AnimSwaps.Where(x => x.Package.Equals(package, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (!s.Donor.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) continue;   // (a mod's own package: not known here)
+                string path = StockFiles.For(game.Cooked, s.Donor);
+                if (File.Exists(path)) map[s.Slot] = new PropHold.Donor(path, s.Animation);
+            }
+        return slot => map.TryGetValue(slot, out var d) ? d : null;
+    }
+
+    /// <summary>Pivot on the Hand for <paramref name="package"/> (its skeleton read from <paramref name="path"/>): the prop's
+    /// bones held in the copied animations, baked in (PropHold).</summary>
+    Func<byte[], IReadOnlyList<string>, System.Numerics.Matrix4x4, List<string>, byte[]> Hold(string package, string path)
+    {
+        var donors = DonorsOf(package);
+        return (b, bones, fit, l) => PropHold.Apply(b, bones, true, donors, PowerBorrow.HeroSkeleton(path), l, fit);
+    }
+
+    /// <summary>Pivot on the Hand off: the copied animations' own keys of the prop's bones back (PropHold).</summary>
+    Func<byte[], IReadOnlyList<string>, List<string>, byte[]> LetGo(string package, string path)
+    {
+        var donors = DonorsOf(package);
+        return (b, bones, l) => PropHold.Apply(b, bones, false, donors, PowerBorrow.HeroSkeleton(path), l);
     }
 
     /// <summary>Add a Prop: a hero, then one of their props; added to the selected costume package.</summary>
@@ -241,6 +275,7 @@ sealed partial class ModEditorView
         var props = draft.AddedProps.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
         string cooked = game.Cooked;
         var log = new List<string>();
+        var hold = Hold(file, src);
         propNote.Text = "Putting the Prop In…";
         byte[] bytes;
         try
@@ -248,7 +283,7 @@ sealed partial class ModEditorView
             bytes = await Task.Run(() =>
             {
                 byte[] b = File.ReadAllBytes(src);
-                foreach (var p in props) b = PowerBorrow.AddProp(b, p, StockFiles.For(cooked, p.From), log);
+                foreach (var p in props) b = PowerBorrow.AddProp(b, p, StockFiles.For(cooked, p.From), log, hold);
                 return b;
             });
         }
@@ -262,6 +297,7 @@ sealed partial class ModEditorView
         if (v != propVersion) return true;   // (a newer add / remove / refit started meanwhile: its result counts)
         UseWorkCopy(file, bytes);
         propTouched.Add(file);
+        propLastLog = log;
         propNote.Text = "";
         ReloadPropPreviews();
         return true;
@@ -289,7 +325,7 @@ sealed partial class ModEditorView
         {
             if (DraftPath(g.Key) is not string src) throw new InvalidDataException($"{g.Key} isn't in the mod");
             byte[] b = File.ReadAllBytes(src);
-            foreach (var p in g) b = PowerBorrow.AddProp(b, p, StockFiles.For(game.Cooked, p.From), log);
+            foreach (var p in g) b = PowerBorrow.AddProp(b, p, StockFiles.For(game.Cooked, p.From), log, Hold(g.Key, src));
             string path = Path.Combine(work, g.Key);
             File.WriteAllBytes(path, b);
             int k = draft.Packages.FindIndex(x => x.File.Equals(g.Key, StringComparison.OrdinalIgnoreCase));

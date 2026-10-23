@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.105
+- Animations tab: Pivot on the Hand now holds an added prop the way the animations' own character holds it, baked in frame by frame: in the hand where theirs is held, swinging where theirs swings (Thor's hammer swings by its strap in his fidget02 on Captain America). Animations of a borrowed power keep it still in the hand as before.
+
 0.60.104
 - Animations tab: with Pivot on the Hand ticked, an animation just changed to another character's (and the one showing when you tick it) keeps the prop in the hand at once, not only after a save.
 

@@ -950,7 +950,7 @@ static class AnimSwap
     internal static float LeanSign = float.TryParse(Environment.GetEnvironmentVariable("MHO_RIDER_LEAN_SIGN"), out float ls0) ? ls0 : -1;
 
     /// <summary>The Hamilton product a x b.</summary>
-    static System.Numerics.Quaternion Mul(System.Numerics.Quaternion a, System.Numerics.Quaternion b) => new(
+    internal static System.Numerics.Quaternion Mul(System.Numerics.Quaternion a, System.Numerics.Quaternion b) => new(
         a.W * b.X + a.X * b.W + a.Y * b.Z - a.Z * b.Y,
         a.W * b.Y - a.X * b.Z + a.Y * b.W + a.Z * b.X,
         a.W * b.Z + a.X * b.Y - a.Y * b.X + a.Z * b.W,

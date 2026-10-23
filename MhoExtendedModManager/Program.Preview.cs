@@ -2852,6 +2852,38 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--bone-rel":
+            {
+                // Read-only (2026-10-23, Thor's hammer swinging by its strap in fidget02): a bone's place relative to another
+                // through an animation of a costume package (the game's copy), every few frames: position (in the other
+                // bone's frame) and the angle between them. --bone-rel <costume package file> <animation> <bone> <relative to>
+                if (rest.Count < 5) { Console.WriteLine("--bone-rel <costume package file> <animation> <bone> <relative to>"); return 1; }
+                string? ck = Settings.Load().GameRoot is string gr && Settings.IsGameRoot(gr) ? Settings.Cooked(gr) : null;
+                if (ck == null) { Console.WriteLine("no game folder"); return 1; }
+                string pf = File.Exists(rest[1]) ? Path.GetFullPath(rest[1]) : StockFiles.For(ck, rest[1]);   // (a path: that file, e.g. a mod's)
+                var mr = ModMeshes.List([(Path.GetFileName(pf), pf)]).FirstOrDefault();
+                var ml = mr == null ? null : ModMeshes.Load(mr, ck, out _);
+                if (mr == null || ml == null) { Console.WriteLine("no skeletal mesh in " + rest[1]); return 1; }
+                bool restPose = rest[2].Equals("rest", StringComparison.OrdinalIgnoreCase);   // (the bind pose)
+                var ar = restPose ? null : ModAnimations.For(mr, ml.Bones, [(Path.GetFileName(pf), pf)], ck).FirstOrDefault(x => x.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (ar == null && !restPose) { Console.WriteLine("no animation " + rest[2]); return 1; }
+                var ba = ar == null ? null : ModAnimations.Load(ar);
+                var an = new MeshAnimator(ml.Bones, ml.Positions, ml.Normals, ml.Influences, ml.Tangents);
+                int bi = an.BoneIndex(rest[3]), ri = an.BoneIndex(rest[4]);
+                if (bi < 0 || ri < 0) { Console.WriteLine("bone not found"); return 1; }
+                Console.WriteLine($"{mr.Name}: {rest[3]} (parent {(ml.Bones[bi].ParentIndex >= 0 ? ml.Bones[ml.Bones[bi].ParentIndex].Name : "-")}) relative to {rest[4]}; {(ar == null ? "the bind pose" : $"{ar.Name} from {ar.File}, {(ar.TranslationBones?.Contains(rest[3]) == true ? "positions taken" : "positions not taken")} for {rest[3]}")}");
+                var (fr, sec) = ba == null ? (0f, 0f) : MeshAnimator.Span(ba);
+                for (int f = 0; f <= (int)fr; f += Math.Max(1, (int)fr / 16))
+                {
+                    an.Pose(ba, f);
+                    System.Numerics.Matrix4x4.Invert(an.BoneMatrix(ri), out var inv);
+                    var rel = an.BoneMatrix(bi) * inv;
+                    var q = System.Numerics.Quaternion.CreateFromRotationMatrix(rel);
+                    double deg = 2 * Math.Acos(Math.Min(1, Math.Abs(q.W))) * 180 / Math.PI;
+                    Console.WriteLine($"  frame {f,4}: at {rel.Translation.X,7:0.0} {rel.Translation.Y,7:0.0} {rel.Translation.Z,7:0.0}  ({rel.Translation.Length(),5:0.0} away)  turned {deg,5:0}°");
+                }
+                return 0;
+            }
             case "--bone-frames":
             {
                 // Read-only (2026-10-05, Storm's idle twisted on Jean's Phoenix set): the first skeletal mesh of two packages,
