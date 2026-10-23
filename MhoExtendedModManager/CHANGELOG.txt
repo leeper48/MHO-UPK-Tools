@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.111
+- Powers tab: with more than one borrowed power, every borrow's animations are listed for the costumes that have an animation list of their own (only the first borrow's were, so the others stood in their rest pose in game while the preview played them).
+
 0.60.110
 - Mods tab: right-click a card → Duplicate: a copy of the mod under a new name (all its files and settings), added off at the top, to experiment from.
 - Powers tab: for a borrowed power that throws the prop the costume holds, the Prop Fit sliders are that prop's own fit again (the same as the Animations tab's), with In This Animation under them.

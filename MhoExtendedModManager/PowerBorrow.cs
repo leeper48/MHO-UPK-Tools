@@ -625,7 +625,10 @@ static class PowerBorrow
             {
                 var hp = Package.FromBytes(done[hf]);
                 string suffix = "_on_" + targetHeroClass.ToLowerInvariant();
-                var sets = hp.Exports.Where(x => hp.ClassOf(x).Equals("AnimSet", StringComparison.OrdinalIgnoreCase) && x.ObjectName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                // (every borrow's set: the copy gets a number when the name's taken, …_on_<class>_2: Kurt, 2026-10-23, only the
+                // first was listed, so the costumes with a list of their own stood in their rest pose for the other borrows in game)
+                var setName = new System.Text.RegularExpressions.Regex(System.Text.RegularExpressions.Regex.Escape(suffix) + @"(_\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var sets = hp.Exports.Where(x => hp.ClassOf(x).Equals("AnimSet", StringComparison.OrdinalIgnoreCase) && setName.IsMatch(x.ObjectName))
                     .Select(hp.PathOf).ToList();
                 string hero = targetHeroClass["MarvelPlayer_".Length..];
                 foreach (string cf in Directory.EnumerateFiles(cooked, $"UC__MarvelPlayer_{hero}_*_SF.upk").Select(Path.GetFileName).OfType<string>()
