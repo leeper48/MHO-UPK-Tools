@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.99
+- Animations tab: the divider between the 3D view and the list can be dragged; its place is remembered.
+- Quad view: a middle-drag pans along the axes of the pane it starts in (in Top, Front and Side it moved another way).
+
 0.60.98
 - Editor previews: a reload after a prop or borrow change keeps the animation and frame showing (it went back to the last one saved, often a power).
 

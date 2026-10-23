@@ -336,7 +336,12 @@ sealed class ModelView : UserControl
     {
         canvas.Paint += (_, e) => PaintFrame(e.Graphics);
         canvas.Resize += (_, _) => Redraw();
-        canvas.MouseDown += (_, e) => { dragFrom = downAt = e.Location; dragButton = e.Button; fast = true; canvas.Focus(); };
+        canvas.MouseDown += (_, e) =>
+        {
+            dragFrom = downAt = e.Location; dragButton = e.Button; fast = true; canvas.Focus();
+            // the quad view's pane the drag started in (a pan follows that pane's own axes)
+            dragPane = quad ? (e.X >= canvas.ClientSize.Width / 2 ? 1 : 0) + (e.Y >= canvas.ClientSize.Height / 2 ? 2 : 0) : -1;
+        };
         canvas.MouseUp += (_, e) =>
         {
             bool moved = dragFrom != null; dragFrom = null; fast = false;
@@ -460,8 +465,11 @@ sealed class ModelView : UserControl
         if (dragButton == MouseButtons.Left && (dx != 0 || dy != 0)) { yaw -= dx * 0.01f; pitch = Math.Clamp(pitch + dy * 0.01f, -1.5f, 1.5f); ortho = false; }
         else
         {
+            // (in the quad view: the axes and size of the pane dragged in: Top, Front and Side pan as they show; Kurt,
+            // 2026-10-23: a drag in Top moved the other way)
             var (r, u, _, _) = Basis();
-            float s = distance * 2 * MathF.Tan(Fov / 2) / Math.Max(1, canvas.ClientSize.Height);
+            if (dragPane > 0) (r, u) = (quadBasis[dragPane].R, quadBasis[dragPane].U);
+            float s = distance * 2 * MathF.Tan(Fov / 2) / Math.Max(1, quad ? canvas.ClientSize.Height / 2 : canvas.ClientSize.Height);
             target += -r * dx * s + u * dy * s;
         }
         Redraw();
@@ -874,6 +882,8 @@ sealed class ModelView : UserControl
     }
 
     Point downAt;
+    /// <summary>The quad view's pane a drag started in (0 this camera, 1 Top, 2 Front, 3 Side), -1 outside the quad view.</summary>
+    int dragPane = -1;
     bool ortho;
 
     /// <summary>Points to mark over the model (engine space, with their axes: Look ▾ → Prop Pivots), drawn after the frame.</summary>

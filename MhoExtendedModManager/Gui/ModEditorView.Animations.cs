@@ -32,8 +32,6 @@ sealed partial class ModEditorView
 
     Control AnimationsPage()
     {
-        var page = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-        page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42)); page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
         const string hint = "The animations this costume plays, as the game finds them (a later set replaces the same name in an earlier one). Click a row to play it.";
         if (editing == null || game == null)
         {
@@ -42,6 +40,16 @@ sealed partial class ModEditorView
         }
         // The 3D view is made when the tab first shows (as on the Powers tab: the editor's theme pass would give its surface a
         // transparent background, which crashed the editor).
+        // the 3D view and the list side by side, the divider draggable (Kurt, 2026-10-23), its place remembered
+        var page = new GradientSplit { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterWidth = (int)(6 * S) };
+        bool placed = false;
+        page.SizeChanged += (_, _) =>
+        {
+            if (placed || page.Width < 200) return;
+            placed = true;
+            page.SplitterDistance = Math.Clamp((int)(page.Width * PreviewViews.AnimSplit), 150, page.Width - 250);
+        };
+        page.SplitterMoved += (_, _) => { if (placed && page.Width >= 200) PreviewViews.AnimSplit = (float)page.SplitterDistance / page.Width; };
         var host = new Panel { Dock = DockStyle.Fill };
         host.VisibleChanged += (_, _) =>
         {
@@ -53,7 +61,7 @@ sealed partial class ModEditorView
             host.Controls.Add(animPreview);
             animPreview.Mod = editing;
         };
-        page.Controls.Add(host, 0, 0);
+        page.Panel1.Controls.Add(host);
 
         animGrid = Ui.Grid(S, false, ("Animation", 250), ("Kind", 110), ("Power", 170), ("From", 250), ("Replaces", 0));
         foreach (var (c, name) in animGrid.Columns.Cast<DataGridViewColumn>().Zip(new[] { "anim", "kind", "power", "from", "replaces" })) c.Name = name;
@@ -97,7 +105,7 @@ sealed partial class ModEditorView
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.Controls.Add(Page(animGrid, Toolbar([.. tools]), hint), 0, 0);
         right.Controls.Add(PropsSection(), 0, 1);   // (props added from other characters: Thor's hammer for Cap's idles)
-        page.Controls.Add(right, 1, 0);
+        page.Panel2.Controls.Add(right);
         Disposed += (_, _) => { animPreview?.Dispose(); if (animWork != null) try { Directory.Delete(animWork, true); } catch (IOException) { } };
         if (animPackage != null) animPackage.SelectedIndex = 0; else LoadAnimations();
         return page;
