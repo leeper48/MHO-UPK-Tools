@@ -15,6 +15,8 @@ static class ModInstaller
 {
     /// <summary>The stock package checksum list shipped next to the exe (see StockData\README.txt).</summary>
     public static string ShippedStockList => Path.Combine(AppContext.BaseDirectory, "StockData", "upk_checksums.json");
+    /// <summary>The stock sound packages' checksums (ours, made from a clean copy: --make-pck-checksums).</summary>
+    public static string ShippedPckList => Path.Combine(AppContext.BaseDirectory, "StockData", "pck_checksums.json");
 
     public static void CreateEmptyLibrary(string library)
     {

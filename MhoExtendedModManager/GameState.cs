@@ -32,6 +32,10 @@ sealed class GameState
         if (list != null)
             foreach (var kv in JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(list)) ?? [])
                 if (uint.TryParse(kv.Value, System.Globalization.NumberStyles.HexNumber, null, out uint c)) stock[kv.Key] = c;
+        // the sound packages' (.pck): always the shipped list (no library copy, no MHModManager list of them)
+        if (File.Exists(ModInstaller.ShippedPckList))
+            foreach (var kv in JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(ModInstaller.ShippedPckList)) ?? [])
+                if (uint.TryParse(kv.Value, System.Globalization.NumberStyles.HexNumber, null, out uint c)) stock[kv.Key] = c;
     }
 
     public uint Crc(string path)

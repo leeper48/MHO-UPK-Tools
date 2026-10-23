@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.57
+- Sound packs after a Steam verify: the game's sound files (.pck) come back unchanged but newly dated, and the app took only stock-dated ones as originals, so every sound pack was skipped ("no original"), Remove refused, and a voice shift didn't reach the game. The app now ships the stock checksums of all 227 sound files and accepts one that matches.
+- --make-pck-checksums.
+
 0.60.56
 - Animations tab: a hero's form sets are listed too (Jean Grey's flying Phoenix animations), marked Form in From, each with its form's power; a form row plays its own version in the 3D view. Before, her Phoenix powers were paired with her standing animations of the same name.
 

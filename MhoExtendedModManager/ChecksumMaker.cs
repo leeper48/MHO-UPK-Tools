@@ -17,6 +17,39 @@ static class ChecksumMaker
 {
     static readonly DateTime StockDate = new(2024, 3, 14);
 
+    /// <summary>
+    /// --make-pck-checksums &lt;clean CookedPCConsole&gt; &lt;out.json&gt;: the same list for the sound packages (.pck), which
+    /// have no list of MHModManager's (a user, 2026-10-22: after a Steam verify every .pck was stock again but newly dated, so
+    /// none was accepted as an original and sound packs were skipped). Each must be stock-dated and an AKPK file.
+    /// </summary>
+    public static int RunPck(string folder, string outPath)
+    {
+        if (!Directory.Exists(folder)) { Console.WriteLine($"No folder {folder}"); return 1; }
+        var files = Directory.GetFiles(folder, "*.pck").OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase).ToList();
+        var list = new Dictionary<string, string>();
+        var odd = new List<string>();
+        long bytes = 0;
+        foreach (string f in files)
+        {
+            var crc = new Crc32();
+            using (var s = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan))
+            {
+                var head = new byte[4];
+                if (s.Read(head, 0, 4) != 4 || head[0] != 'A' || head[1] != 'K' || head[2] != 'P' || head[3] != 'K') odd.Add(Path.GetFileName(f) + " (not AKPK)");
+                s.Position = 0;
+                crc.Append(s);
+                bytes += s.Length;
+            }
+            list[Path.GetFileName(f)] = Convert.ToHexString(crc.GetCurrentHash().Reverse().ToArray());
+            if (File.GetLastWriteTime(f).Date != StockDate) odd.Add(Path.GetFileName(f) + " (not dated 2024-03-14)");
+        }
+        File.WriteAllText(outPath, JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+        Console.WriteLine($"Wrote {outPath}: {list.Count} sound packages, {bytes / 1073741824.0:0.00} GB read.");
+        foreach (string o in odd) Console.WriteLine("  " + o);
+        Console.WriteLine(odd.Count == 0 ? "Clean: every one is stock-dated and an AKPK file." : $"{odd.Count} thing(s) to look at before trusting this list.");
+        return odd.Count == 0 ? 0 : 1;
+    }
+
     public static int Run(string folder, string outPath, string? compareWith)
     {
         if (!Directory.Exists(folder)) { Console.WriteLine($"No folder {folder}"); return 1; }

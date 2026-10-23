@@ -52,7 +52,8 @@ sealed class Originals(string libraryData, GameState game)
     /// <summary>
     /// Sound packages (.pck) have no stock checksums either. Their original: originals\sounds, else MHModManager's backup
     /// (legacy\sound_backups; Kurt's two are stock-dated and identical to live), else the live file only while it still
-    /// has the stock date (2024-03-14), i.e. hasn't been rewritten by anything.
+    /// has the stock date (2024-03-14), i.e. hasn't been rewritten by anything, or matches the stock checksum
+    /// (StockData\pck_checksums.json: a Steam verify restores stock files with a new date; a user, 2026-10-22).
     /// </summary>
     public string? FindSound(string pck, string legacy)
     {
@@ -61,7 +62,7 @@ sealed class Originals(string libraryData, GameState game)
         string old = Path.Combine(legacy, "sound_backups", pck);
         if (File.Exists(old)) return old;
         string live = Path.Combine(game.Cooked, pck);
-        return File.Exists(live) && File.GetLastWriteTime(live).Date == GameState.StockDate ? live : null;
+        return File.Exists(live) && (File.GetLastWriteTime(live).Date == GameState.StockDate || game.MatchesStock(pck, live)) ? live : null;
     }
 
     public string? EnsureSound(string pck, string legacy)

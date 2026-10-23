@@ -44,6 +44,7 @@ static partial class Program
         ("--sign-file", "--sign-file <file> <private key .pem>", "Sign a release file: writes <file>.sig, checked against the key built into the app. Updates install only with a valid signature."),
         ("--check-update", "--check-update", "Look for a newer version (GitHub releases of leeper48/MHO-UPK-Tools, tag extmm-v<version>)."),
         ("--update", "--update", "Download, verify (SHA-256) and install a newer version over this one (data\\ is never touched); restart afterwards."),
+        ("--make-pck-checksums", "--make-pck-checksums <clean CookedPCConsole> <out.json>", "Make the stock checksum list of the sound packages (.pck) from a clean copy of the game's files. Reads the folder only."),
         ("--make-checksums", "--make-checksums <clean CookedPCConsole> <out.json> [--compare <list.json>]", "Make the stock checksum list (CRC-32 of every .upk) from a clean copy of the game's packages; checks each has the stock traits (date, compressed) and compares with another list. Reads the folder only."),
         ("--material-probe", "--material-probe <mod | package.upk> [png folder]", "Each section's material for a mod's meshes (parent, switches, parameters, maps); with a folder, the maps as PNG and the spec map's channels one by one. Changes nothing."),
         ("--costume-move", "--costume-move <mod> [target costume] [--from <package>] [--build <folder>] [--create | --update-copy]", "Plan moving a costume mod onto another costume of the same hero: the package renames, icons and costume name that would move. Without a target, lists the hero's costumes. --build writes the moved package(s) to a folder (not the game's), verified; --create adds the moved costume as a new disabled mod; --update-copy rebuilds an existing moved copy in place. Changes nothing in the game."),
@@ -183,6 +184,7 @@ static partial class Program
             int ci = rest.FindIndex(x => x.Equals("--compare", StringComparison.OrdinalIgnoreCase));
             return ChecksumMaker.Run(rest[1], rest[2], ci > 0 && ci + 1 < rest.Count ? rest[ci + 1] : null);
         }
+        if (rest[0].Equals("--make-pck-checksums", StringComparison.OrdinalIgnoreCase) && rest.Count >= 3) return ChecksumMaker.RunPck(rest[1], rest[2]);
         if (rest[0].Equals("--make-signing-key", StringComparison.OrdinalIgnoreCase) && rest.Count >= 2)
         {
             // The release key pair (ReleaseSigning): the private key to a file (never overwritten); the public key printed.
