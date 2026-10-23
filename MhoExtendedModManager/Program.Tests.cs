@@ -199,7 +199,10 @@ static partial class Program
                 // 1. on
                 string? s1 = Save(bm, d =>
                 {
-                    d.PowerBorrows.Add(new PowerBorrowEntry { Power = tp, Name = Path.GetFileNameWithoutExtension(tp), Donor = dp, DonorName = Path.GetFileNameWithoutExtension(dp), KeepTiming = keep });
+                    d.PowerBorrows.RemoveAll(x => x.Power.Equals(tp, StringComparison.OrdinalIgnoreCase));
+                    d.PowerBorrows.Add(new PowerBorrowEntry { Power = tp, Name = Path.GetFileNameWithoutExtension(tp), Donor = dp, DonorName = Path.GetFileNameWithoutExtension(dp), KeepTiming = keep,
+                        // --pin <prop class>: that prop's Pivot on the Hand
+                        Props = rest.IndexOf("--pin") is int pi && pi >= 0 && pi + 1 < rest.Count ? [new PropFit { Class = rest[pi + 1], PinPivot = true }] : null });
                     if (color) d.PowerColors.Add(new PowerColorEntry { Power = tp, Name = Path.GetFileNameWithoutExtension(tp), Hue = 120 });
                 }, out var l1);
                 blog.ForEach(x => Console.WriteLine("    " + x)); blog.Clear();

@@ -73,8 +73,12 @@ sealed class PropFit
     public float TurnY { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public float TurnZ { get; set; }
+    /// <summary>Pivot on the Hand (Kurt, 2026-10-23): the borrowed animations stop moving the bone the prop hangs on (Thor's
+    /// Hammer of Storms moves g_r_palm out along the strap), so the prop turns about the hand; Move places it from there.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PinPivot { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool IsIdentity => Scale == null && X == 0 && Y == 0 && Z == 0 && TurnX == 0 && TurnY == 0 && TurnZ == 0;
+    public bool IsIdentity => Scale == null && X == 0 && Y == 0 && Z == 0 && TurnX == 0 && TurnY == 0 && TurnZ == 0 && !PinPivot;
 }
 
 sealed class PowerColorEntry

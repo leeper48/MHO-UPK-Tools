@@ -21,6 +21,7 @@ sealed partial class ModEditorView
     readonly FlowLayoutPanel riderFit = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Visible = false, Margin = new Padding(0, 4, 0, 0) };
     readonly DropDown propPick = new() { Width = 320 };
     LightSlider? pSize, pX, pY, pZ, pTX, pTY, pTZ, vForward, vUp, vLean;
+    readonly CheckBox pinPivot = new() { Text = "Pivot on the Hand", AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
     bool vShowing;
     readonly HashSet<string> fitBuilt = new(StringComparer.OrdinalIgnoreCase);
 
@@ -54,7 +55,9 @@ sealed partial class ModEditorView
         propPick.Format = o => o is PowerBorrow.SpawnedProp sp ? PropName(sp) : o.ToString() ?? "";
         propPick.SelectedIndexChanged += (_, _) => { if (!vShowing && powerList.SelectedItem is Fx.PowerList.Power p0) ShowFits(BorrowOf(p0.Prototype)); };
         Ui.Tip(propPick, "The prop to fit.");
-        propFit.Controls.AddRange([propHead, propPick, pSize, pX, pY, pZ, pTX, pTY, pTZ]);
+        Ui.Tip(pinPivot, "The borrowed animations stop moving the bone this prop hangs on, so it turns about the hand (Thor's Hammer of Storms moves his palm bone out along the strap to swing the hammer). Then Move places the prop from the hand. Look ▾ → Prop Pivots shows where the pivot is.");
+        pinPivot.CheckedChanged += (_, _) => PropFitChanged();
+        propFit.Controls.AddRange([propHead, propPick, pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ]);
         vForward = Slider("Forward / Back", -80, 80, 1, Units, "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.", RiderFitChanged);
         vUp = Slider("Up / Down", -80, 80, 1, Units, "Moves the rider up (+) or down (−) on the vehicle, in game units. Double-click: back to 0.", RiderFitChanged);
         vLean = Slider("Lean", -30, 30, 1, Deg, "Leans the rider forward (+) or back (−), in degrees. Double-click: back to 0.", RiderFitChanged);
@@ -86,7 +89,7 @@ sealed partial class ModEditorView
         riderFit.Visible = props.Any(x => x.Vehicle);
         bool on = !borrowBuilding;
         foreach (var sl in new[] { pSize, pX, pY, pZ, pTX, pTY, pTZ, vForward, vUp, vLean }) if (sl != null) sl.Enabled = on;
-        propPick.Enabled = on;
+        propPick.Enabled = on; pinPivot.Enabled = on;
         if (e == null || pSize == null || pX == null || pY == null || pZ == null || pTX == null || pTY == null || pTZ == null || vForward == null || vUp == null || vLean == null) return;
         vShowing = true;
         try
@@ -112,6 +115,7 @@ sealed partial class ModEditorView
                 pX.Value = world.X; pY.Value = world.Y; pZ.Value = world.Z;
                 pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? sp.TurnZAuto;
                 pTZ.Home = () => sp.TurnZAuto; pTZ.Mark = sp.TurnZAuto;
+                pinPivot.Checked = fit?.PinPivot == true;
             }
             vForward.Value = e.RiderForward; vUp.Value = e.RiderUp; vLean.Value = e.RiderLean;
         }
@@ -144,6 +148,7 @@ sealed partial class ModEditorView
         var own = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(pX.Value, pY.Value, pZ.Value), System.Numerics.Matrix4x4.Transpose(fitAxes));
         fit.X = MathF.Round(own.X, 2); fit.Y = MathF.Round(own.Y, 2); fit.Z = MathF.Round(own.Z, 2);
         fit.TurnX = pTX.Value; fit.TurnY = pTY.Value; fit.TurnZ = pTZ.Value;
+        fit.PinPivot = pinPivot.Checked;
         e.Props.RemoveAll(f => f.IsIdentity);
         if (e.Props.Count == 0) e.Props = null;
         RebuildBorrows();

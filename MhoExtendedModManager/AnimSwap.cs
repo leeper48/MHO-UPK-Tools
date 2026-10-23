@@ -374,7 +374,8 @@ static class AnimSwap
     /// <param name="retarget">Per bone: the turn that takes the donor skeleton's rest rotation to the target's
     /// (RestTurns), for bones whose rest differs; their rotation keys in the copies are turned by it.</param>
     public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1,
-        IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton = null)
+        IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton = null,
+        IReadOnlyCollection<string>? noPositions = null)
     {
         var body = BodyRoots(skeleton);
         var pkg = Package.Open(costumePath);
@@ -520,6 +521,9 @@ static class AnimSwap
                 replace[seq - 1] = _ => dd;
             }
             foreach (string bm in bodyMoved) sd = WithTranslationBone(pkg, sd, bm, NameIdx);
+            // Pivot on the Hand: these bones' positions in the animations aren't taken (they stay where the skeleton has them)
+            foreach (string pin in noPositions ?? [])
+                if (WithoutTranslationBone(pkg, sd, pin) is { } pinnedSet) { sd = pinnedSet; log.Add($"  {pin}: not moved by these animations (its pivot stays on the hand)"); }
             if (riderMoved) { sd = WithTranslationBone(pkg, sd, RiderBone, NameIdx); if (rider is { IsNone: false }) log.Add($"  the rider moved {rider.Forward:0.#} forward, {rider.Up:0.#} up, leaned {rider.LeanDegrees:0.#} degrees"); }
             if (lifted) { sd = WithTranslationBone(pkg, sd, "root", NameIdx); log.Add($"  the set takes the root bone's position (moved {swaps.Max(x => Math.Abs(x.Lift)):0})"); }
             var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase))
@@ -1094,6 +1098,25 @@ static class AnimSwap
 
     /// <summary>A set's data with <paramref name="bone"/> in its UseTranslationBoneNames (added when missing; the list must exist:
     /// without one every bone takes its animated position already).</summary>
+    /// <summary>The set with <paramref name="bone"/> taken out of UseTranslationBoneNames, or null when it isn't listed.</summary>
+    static byte[]? WithoutTranslationBone(Package pkg, byte[] set, string bone)
+    {
+        var t = TagWalker.Walk(pkg, set, 4)?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
+        if (t == null) return null;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(t.ValueAt));
+        for (int k = 0; k < n; k++)
+        {
+            int at = t.ValueAt + 4 + 8 * k;
+            int ni = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(at));
+            if (ni >= pkg.Names.Length || !pkg.Names[ni].Equals(bone, StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] o = [.. set.AsSpan(0, at), .. set.AsSpan(at + 8)];
+            BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(t.ValueAt), n - 1);
+            BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(t.Start + 16), t.Size - 8);
+            return o;
+        }
+        return null;
+    }
+
     static byte[] WithTranslationBone(Package pkg, byte[] set, string bone, Func<string, int> nameIdx)
     {
         var t = TagWalker.Walk(pkg, set, 4)?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));

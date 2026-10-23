@@ -523,6 +523,7 @@ static class PowerBorrow
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var targetAnims = new List<string>(); var donorAnims = new List<string>();
         bool donorLoops = false;
+        var spawnedHere = spawnedOut ?? [];   // (the props each pair brings: Pivot on the Hand needs their bones)
         // another hero's attachments are spawned, not switched on (SpawnBorrowedAttachments)
         bool crossHero = !Path.GetFileNameWithoutExtension(donorHeroPackage).Equals($"UC__{targetHeroClass}_SF", StringComparison.OrdinalIgnoreCase);
         foreach (var pr in pairs)
@@ -547,7 +548,7 @@ static class PowerBorrow
             if (crossHero && pr.Role == "power")
             {
                 var vehicleClasses = (spawn ?? []).Where(x => x.Vehicle).Select(x => Package.Open(x.File).Exports[x.Export].ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                done[tf] = FitProps(done[tf], td, vehicleClasses, vscale, props, log, spawnedOut);
+                done[tf] = FitProps(done[tf], td, vehicleClasses, vscale, props, log, spawnedHere);
             }
             if (ownClassCostumes is { Count: > 0 }) done[tf] = KeepStockFor(done[tf], td, pr.TargetFile, ownClassCostumes, log);
         }
@@ -604,7 +605,10 @@ static class PowerBorrow
             if (done.TryGetValue(hf, out var hb)) temps.Add(heroPath = WriteTemp(hf, hb));
             // another hero's skeleton: bones that rest turned differently get their keys turned to fit (Thor's right toes)
             var turns = crossHero && HeroSkeleton(donorHeroPackage) is { } dsk && HeroSkeleton(targetHeroPackage) is { } tsk ? AnimSwap.RestTurns(dsk, tsk) : null;
-            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider, skeleton: HeroSkeleton(targetHeroPackage));
+            // Pivot on the Hand: the props' bones the borrowed animations stop moving (they still turn them)
+            var pinned = (props ?? []).Where(f => f.PinPivot).SelectMany(f => spawnedHere.Where(s => s.Class.Equals(f.Class, StringComparison.OrdinalIgnoreCase)).SelectMany(s => s.Bones ?? []))
+                .Where(b => !b.Equals("none", StringComparison.OrdinalIgnoreCase) && !b.Equals("root", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider, skeleton: HeroSkeleton(targetHeroPackage), noPositions: pinned);
             // the target's own animated bones the donor's animations don't move (Thor's cape in Kitty's Air Walking) get the
             // target's own run's keys, looped (travel borrows; tested on Thor's six, Kurt 2026-10-20 / 21)
             if (crossHero && (ownTracks || Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1"))
@@ -1726,7 +1730,8 @@ static class PowerBorrow
     }
 
     /// <summary>A prop a borrow brings: its attachment class, whether it's a vehicle (ridden) and its automatic size.</summary>
-    public sealed record SpawnedProp(string Class, bool Vehicle, float Auto, float TurnZAuto = 0);
+    /// <param name="Bones">The bones its attachment hangs it on (AttachmentBones).</param>
+    public sealed record SpawnedProp(string Class, bool Vehicle, float Auto, float TurnZAuto = 0, IReadOnlyList<string>? Bones = null);
 
     /// <summary>
     /// A prop's starting turn about its Z axis (degrees) on another hero, before any Prop Fit: Thor's hammer faces backward
@@ -1759,7 +1764,7 @@ static class PowerBorrow
             bool vehicle = vehicleClasses.Contains(cls);
             float auto = vehicle ? vehicleAuto : 1;
             float turnAuto = DefaultTurnZ(cls);
-            spawnedOut?.Add(new SpawnedProp(cls, vehicle, auto, turnAuto));
+            spawnedOut?.Add(new SpawnedProp(cls, vehicle, auto, turnAuto, AttachBones(dst, "marvelgamecontent.default__" + cls)));
             var fit = fits?.FirstOrDefault(f => f.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
             float scale = fit?.Scale is float fs && fs > 0 ? fs : auto;
             var move = fit == null ? default : new System.Numerics.Vector3(fit.X, fit.Y, fit.Z);
@@ -1768,6 +1773,19 @@ static class PowerBorrow
             if (FitModel(dst, "marvelgamecontent.default__" + cls, scale, move, turn, log) is { } fitted) dst = fitted;
         }
         return dst.RawFile;
+    }
+
+    /// <summary>The bones a class default names in AttachmentBones (none: empty).</summary>
+    static List<string> AttachBones(Package p, string classDefault)
+    {
+        var list = new List<string>();
+        int d = Find(p, classDefault);
+        if (d < 0) return list;
+        byte[] b = p.ReadExportBytes(p.Exports[d]).ToArray();
+        if (TagWalker.Walk(p, b, 4)?.FirstOrDefault(t => t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase)) is not { } t) return list;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt));
+        for (int k = 0; k < n && t.ValueAt + 12 + 8 * k <= t.End; k++) list.Add(TagWalker.NameAt(p, b, t.ValueAt + 4 + 8 * k));
+        return list;
     }
 
     /// <summary>A hero's main model's height (its base package's skeletal mesh with the most vertices: top minus bottom of
