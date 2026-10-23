@@ -667,6 +667,25 @@ sealed class ModelView : UserControl
             float a = Math.Clamp(t.W * tint.W, 0, 1);
             rr = br + (t.X * tint.X - br) * a; gg = bgc + (t.Y * tint.Y - bgc) * a; b2 = bb + (t.Z * tint.Z - bb) * a;
         }
+        int a0i = (int)((uint)c0 >> 24);
+        if (a0i < 255)
+        {
+            // A see-through pixel (the view's backdrop shows there: Create from 3D's portrait backdrop): the effect's coverage
+            // becomes its opacity, as the snapshot works it out (Kurt, 2026-10-22: faint flame sprites drew dark squares over
+            // the backdrop). Premultiplied: the light (additive) or the colour times its alpha (blended) over what's there.
+            float a0 = a0i / 255f;
+            float pr = br * a0, pg = bgc * a0, pb = bb * a0, pa;
+            if (additive) { pr = rr - br + pr; pg = gg - bgc + pg; pb = b2 - bb + pb; pa = Math.Min(1, Math.Max(a0, Math.Max(pr, Math.Max(pg, pb)))); }
+            else
+            {
+                float a = Math.Clamp(t.W * tint.W, 0, 1);
+                pr = pr * (1 - a) + t.X * tint.X * a; pg = pg * (1 - a) + t.Y * tint.Y * a; pb = pb * (1 - a) + t.Z * tint.Z * a;
+                pa = a0 + a * (1 - a0);
+            }
+            if (pa <= 0.002f) return;
+            color[p] = (Math.Clamp((int)(pa * 255), 0, 255) << 24) | (Math.Clamp((int)(pr / pa * 255), 0, 255) << 16) | (Math.Clamp((int)(pg / pa * 255), 0, 255) << 8) | Math.Clamp((int)(pb / pa * 255), 0, 255);
+            return;
+        }
         color[p] = unchecked((int)0xFF000000) | (Math.Clamp((int)(rr * 255), 0, 255) << 16) | (Math.Clamp((int)(gg * 255), 0, 255) << 8) | Math.Clamp((int)(b2 * 255), 0, 255);
     }
 

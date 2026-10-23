@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.65
+- Create from 3D: effects over the portrait backdrop let it show through in the view as in the snapshot (faint flame sprites drew dark squares there).
+
 0.60.64
 - 3D previews and Create from 3D: a blended effect whose texture has no transparency of its own (fire on black) uses its brightness as opacity, so it no longer draws black squares (Ghost Rider's head flames).
 
