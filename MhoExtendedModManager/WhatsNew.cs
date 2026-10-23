@@ -34,9 +34,22 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
+    /// <summary>0.60.58 (Kurt, 2026-10-22): users' reports: sound packs after a Steam verify, a costume's voice shift, Jean's form animations.</summary>
+    static Notice SoundsAndForms() => new(
+        "0.60.58-sounds-forms", "0.60.58",
+        "[!]Sound packs work again after a Steam verify:" + nl +
+        "  • A verify puts the game's sound files back unchanged but newly dated, and the app skipped them (\"no original\"), so sound packs and voice shifts didn't reach the game and Remove Mod refused." + nl +
+        "  • The app now knows all 227 stock sound files by their contents: Apply Changes rebuilds them." + nl + nl +
+        "[!]Voice tab: In a mod for one of a hero's costumes, Use <voice> puts the hero's voice into that costume's own package, so a Voice Shift changes that costume." + nl +
+        "  • Before, it added the hero's default costume and shifted that one (White Tiger on Iron Fist Classic kept his voice)." + nl +
+        "  • A mod made that way: remove the default costume's package from the mod, then Use <voice> and shift again." + nl + nl +
+        "Animations tab: A hero's form animations are listed too (Jean Grey's flying Phoenix ones, marked Form), each with its form's powers, and play their own version in the 3D view." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "animations");
+
     static Notice FormsAndSummons() => new(
         "0.50.16-forms-summons", "0.50.16",
         "[!]3D previews show forms, transforms and summons:" + nl +
