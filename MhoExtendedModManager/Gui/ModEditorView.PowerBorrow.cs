@@ -42,6 +42,7 @@ sealed partial class ModEditorView
             RebuildBorrows();
         };
         box.Controls.Add(keepWeapons);
+        box.Controls.Add(NameIconControls());
         LightSlider Slider(string label, float min, float max, float step, Func<float, string> format, string tip, Action changed)
         {
             var sl = new LightSlider { Label = label, Min = min, Max = max, Step = step, Mark = 0, Home = () => 0, Format = format, Width = (int)(320 * S), Height = (int)(30 * S), Margin = new Padding(0, 2, 0, 0) };
@@ -183,6 +184,7 @@ sealed partial class ModEditorView
         vShowing = true;
         try { keepWeapons.Visible = e != null && !e.KeepTiming; keepWeapons.Checked = e?.KeepWeapons == true; keepWeapons.Enabled = !borrowBuilding; }
         finally { vShowing = false; }
+        ShowNameIcon(e);
         ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
             : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")})"
@@ -265,13 +267,20 @@ sealed partial class ModEditorView
     }
 
     /// <summary>The name and icons a borrow put in, taken off (Game's Look, or another borrow for the power).</summary>
-    void TakeOffNameAndIcon(PowerBorrowEntry e)
+    void TakeOffNameAndIcon(PowerBorrowEntry e) { TakeOffName(e); TakeOffIcons(e); }
+
+    void TakeOffName(PowerBorrowEntry e)
     {
         if (e.NameId is ulong id)
         {
             draft.Strings.RemoveAll(x => x.Language == "eng" && x.Id == id);
             stringsPage.Drop("eng", id);
         }
+        e.NameId = null;
+    }
+
+    void TakeOffIcons(PowerBorrowEntry e)
+    {
         foreach (string k in e.Icons ?? [])
         {
             string pkg = k.Split('|')[0], tex = k.Split('|')[^1];
@@ -280,7 +289,66 @@ sealed partial class ModEditorView
             else draft.Extra.RemoveAll(x => x.Package.Equals(pkg, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
         }
         if (e.Icons != null) foreach (var tp in texturePages) tp.Refresh();
-        e.NameId = null; e.Icons = null;
+        e.Icons = null;
+    }
+
+    // --- the name and icon of a power that has a borrowed look, in the Powers tab (Kurt, 2026-10-23: the Borrow window was
+    // the only place to set them) ---------------------------------------------------------------------------------------------
+    readonly CheckBox renamePower = new() { Text = "Rename This Power", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
+    readonly TextBox renameText = new() { Width = 300, Margin = new Padding(22, 2, 0, 0) };
+    readonly CheckBox useIcon = new() { Text = "Use Its Icon", AutoSize = true, Margin = new Padding(0, 4, 0, 2) };
+    /// <summary>The three together (shown for a power with a borrowed look; the name box's frame doesn't follow the box itself).</summary>
+    readonly FlowLayoutPanel nameIconBox = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0), Visible = false };
+
+    /// <summary>The borrowed power's own name ("Thor: Hammer of Storms" → "Hammer of Storms").</summary>
+    static string DonorPowerName(PowerBorrowEntry e) => e.DonorName.Contains(": ") ? e.DonorName[(e.DonorName.IndexOf(": ", StringComparison.Ordinal) + 2)..] : e.DonorName;
+
+    Control NameIconControls()
+    {
+        var box = nameIconBox;
+        renameText.Width = (int)(300 * S);
+        Ui.Tip(renamePower, "The power's name in game becomes the one in the box (at first the borrowed power's; type your own). It's put in the Strings tab (English), and Game's Look takes it off again.");
+        Ui.Tip(renameText, "The power's new name in game: Enter (or clicking away) puts it in.");
+        Ui.Tip(useIcon, "The power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it), converted to this power's icon size; it's put in the Icons tab, and Game's Look takes it off again.");
+        renamePower.CheckedChanged += (_, _) =>
+        {
+            renameText.Enabled = renamePower.Checked;
+            if (vShowing || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e) return;
+            if (renamePower.Checked) { if (renameText.Text.Trim().Length == 0) renameText.Text = DonorPowerName(e); PutNameAndIcon(e, renameText.Text.Trim(), false); }
+            else TakeOffName(e);
+        };
+        void Rename()
+        {
+            if (vShowing || !renamePower.Checked || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e || renameText.Text.Trim().Length == 0) return;
+            PutNameAndIcon(e, renameText.Text.Trim(), false);
+        }
+        renameText.KeyDown += (_, ke) => { if (ke.KeyCode == Keys.Enter) { ke.SuppressKeyPress = true; Rename(); } };
+        renameText.Leave += (_, _) => Rename();
+        useIcon.CheckedChanged += (_, _) =>
+        {
+            if (vShowing || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e) return;
+            if (useIcon.Checked) { PutNameAndIcon(e, null, true); if (e.Icons == null) { vShowing = true; useIcon.Checked = false; vShowing = false; } }
+            else TakeOffIcons(e);
+        };
+        box.Controls.AddRange([renamePower, renameText, useIcon]);
+        return box;
+    }
+
+    /// <summary>The selected power's borrow into the name and icon controls.</summary>
+    void ShowNameIcon(PowerBorrowEntry? e)
+    {
+        bool on = e != null;
+        nameIconBox.Visible = on;
+        if (e == null) return;
+        vShowing = true;
+        try
+        {
+            renamePower.Checked = e.NameId != null;
+            renameText.Text = e.NameId is ulong id && draft.Strings.FirstOrDefault(x => x.Language == "eng" && x.Id == id) is { } s ? s.Text : DonorPowerName(e);
+            renameText.Enabled = renamePower.Checked;
+            useIcon.Checked = e.Icons != null;
+        }
+        finally { vShowing = false; }
     }
 
     /// <summary>Every borrow built again (in the background), then the preview reads the built packages.</summary>

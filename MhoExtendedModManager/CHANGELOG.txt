@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.87
+- Borrow Look (preview feature): Rename This Power (with its name box) and Use Its Icon are in the Powers tab's Borrowed Look too, for a power already borrowed; changing them updates the Strings and Icons tabs at once (no rebuild).
+
 0.60.86
 - Borrow Look (preview feature): Keep This Hero's Weapons keeps the weapons the hero always holds (Captain America's shield) shown while the borrowed power runs; they were always hidden.
 
