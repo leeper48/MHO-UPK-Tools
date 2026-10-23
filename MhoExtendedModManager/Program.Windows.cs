@@ -345,6 +345,8 @@ static partial class Program
                         renderRig = rrig;
                         Console.WriteLine("  prop rules: " + (sw.Count == 0 ? "none" : string.Join(", ", sw.Select(x => $"{(x.Show ? "show" : "hide")} {x.Target} @{x.StartPoint}+{x.StartOffset:0.##}{(x.EndPoint != null ? $" to {x.EndPoint}+{x.EndOffset:0.##}" : "")}"))));
                     }
+                    // MHO_RENDER_SIZEREF=1: Look -> Size Reference (the oil drum beside the character)
+                    if (Environment.GetEnvironmentVariable("MHO_RENDER_SIZEREF") == "1") { if (Gui.SizeReference.For(rc) is { } sref) { rrig.Add(sref.Mesh, -1, [], false, "size_reference", offset: sref.Place); Console.WriteLine($"  size reference: {sref.Mesh.Positions.Length} vertices, drum X {sref.Mesh.Positions.Min(p => p.X):0}..{sref.Mesh.Positions.Max(p => p.X):0} Y {sref.Mesh.Positions.Min(p => p.Y):0}..{sref.Mesh.Positions.Max(p => p.Y):0} Z {sref.Mesh.Positions.Min(p => p.Z):0}..{sref.Mesh.Positions.Max(p => p.Z):0}, place {sref.Place.Translation}; character X {ld.Positions.Min(p => p.X):0}..{ld.Positions.Max(p => p.X):0} Y {ld.Positions.Min(p => p.Y):0}..{ld.Positions.Max(p => p.Y):0} Z {ld.Positions.Min(p => p.Z):0}..{ld.Positions.Max(p => p.Z):0}"); } else Console.WriteLine("  size reference: not found"); }
                     v.ShowMesh(rrig.Combine(ld), ld.Positions.Length);
                     // MHO_GRIP=1: how far each hand is from the bike's grip on that side (the ride's handlebars), mid-animation.
                     if (Environment.GetEnvironmentVariable("MHO_GRIP") == "1" && ba != null)

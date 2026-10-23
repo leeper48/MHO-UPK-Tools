@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.100
+- 3D views: Look ▾ → Size Reference puts a 55-gallon oil drum from the game on the floor beside the character, to judge sizes by.
+
 0.60.99
 - Animations tab: the divider between the 3D view and the list can be dragged; its place is remembered.
 - Quad view: a middle-drag pans along the axes of the pane it starts in (in Top, Front and Side it moved another way).

@@ -196,6 +196,7 @@ sealed class PropRig
         for (int i = 0; i < props.Count; i++)
         {
             if (i < visible.Length && !visible[i]) continue;
+            if (props[i].Class == "size_reference") continue;   // (Look ▾ → Size Reference: not a prop)
             int bone = props[i].Bone;
             list.Add((props[i].Mesh.MeshTransform * (i < offsets.Count ? offsets[i] : Matrix4x4.Identity) * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone)),
                       bone < 0 ? "on the character's skeleton" : "on " + animator.BoneName(bone)));

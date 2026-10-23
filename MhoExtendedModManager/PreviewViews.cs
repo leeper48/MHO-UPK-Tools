@@ -28,6 +28,8 @@ static class PreviewViews
         public bool Gizmo { get; set; } = true;
         /// <summary>Each prop's pivot marked in the 3D views (Kurt, 2026-10-23).</summary>
         public bool Pivots { get; set; }
+        /// <summary>A 55-gallon oil drum beside the character in the 3D views (Kurt, 2026-10-23).</summary>
+        public bool SizeRef { get; set; }
         /// <summary>The Animations tab's split: the 3D view's share of the width (Kurt, 2026-10-23: draggable).</summary>
         public float AnimSplit { get; set; } = 0.42f;
         /// <summary>Props (weapons the game attaches) shown with the character in the preview.</summary>
@@ -199,6 +201,7 @@ static class PreviewViews
     public static bool Quad { get => D.Quad; set { if (D.Quad == value) return; D.Quad = value; Save(); } }
     public static bool Gizmo { get => D.Gizmo; set { if (D.Gizmo == value) return; D.Gizmo = value; Save(); } }
     public static bool Pivots { get => D.Pivots; set { if (D.Pivots == value) return; D.Pivots = value; Save(); } }
+    public static bool SizeRef { get => D.SizeRef; set { if (D.SizeRef == value) return; D.SizeRef = value; Save(); } }
     public static float AnimSplit { get => D.AnimSplit; set { if (Math.Abs(D.AnimSplit - value) < 0.002f) return; D.AnimSplit = value; Save(); } }
     public static bool Props { get => D.Props; set { if (D.Props == value) return; D.Props = value; Save(); } }
     public static bool Powers { get => D.Powers; set { if (D.Powers == value) return; D.Powers = value; Save(); } }
