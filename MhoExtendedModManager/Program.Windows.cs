@@ -436,6 +436,7 @@ static partial class Program
                     v.EffectStrength = PreviewViews.FxPower;
                 }
                 v.Moving = Environment.GetEnvironmentVariable("MHO_RENDER_MOVING") == "1";   // timed as during playback
+                v.Quad = Environment.GetEnvironmentVariable("MHO_RENDER_QUAD") == "1";   // (the quad view: perspective, top, front, side)
                 // MHO_RENDER_VIEW=<yaw added (degrees)>[,<distance factor>[,<target height, fraction of the radius>]]: the camera turned / closer
                 if (Environment.GetEnvironmentVariable("MHO_RENDER_VIEW") is string rview)
                 {

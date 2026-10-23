@@ -68,11 +68,16 @@ sealed partial class ModEditorView
     int sharedRequest;
     bool fillingPower;
     Fx.GameData? powerDb;
+    /// <summary>The bottom bar's Save Changes and Save and Keep Editing (their keys: Ctrl+Enter, Ctrl+S).</summary>
+    Button? saveButton, saveStayButton;
 
     /// <summary>In the Powers and Animations tabs' 3D previews (whichever shows): Esc stops the animation (as on the Mods tab,
     /// Kurt: the Animations tab too), P plays / pauses it; not while typing. Otherwise the keys do what they did.</summary>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // Ctrl+S: Save and Keep Editing; Ctrl+Enter: Save Changes and back to the Mods tab (Kurt, 2026-10-23); as the buttons
+        if (keyData == (Keys.Control | Keys.S) && saveStayButton is { Enabled: true, Visible: true }) { KeepEditing = true; SaveAsked(); return true; }
+        if (keyData == (Keys.Control | Keys.Enter) && saveButton is { Enabled: true, Visible: true }) { KeepEditing = false; SaveAsked(); return true; }
         if (keyData is Keys.Escape or Keys.P && !Typing())
             foreach (var pv in new[] { powerPreview, animPreview })
                 if (pv != null && pv.Visible && (keyData == Keys.Escape ? pv.PausePlayback() : pv.TogglePlayback())) return true;

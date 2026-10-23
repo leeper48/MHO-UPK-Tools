@@ -187,6 +187,19 @@ sealed class PropRig
 
     BoneAnimation? parentSeq;
 
+    /// <summary>Where a prop of class <paramref name="cls"/> is held as last posed: its own transform, the attachment's offset,
+    /// then its bone (as Update places it), or null when the rig has none. Prop Fit's global axes read it.</summary>
+    public Matrix4x4? Frame(string cls, MeshAnimator animator)
+    {
+        for (int i = 0; i < props.Count; i++)
+        {
+            if (!props[i].Class.Equals(cls, StringComparison.OrdinalIgnoreCase)) continue;
+            int bone = props[i].Bone;
+            return props[i].Mesh.MeshTransform * (i < offsets.Count ? offsets[i] : Matrix4x4.Identity) * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone));
+        }
+        return null;
+    }
+
     /// <summary>The character's animation, for props rigged to its skeleton (UseParentAnim): they're posed with it, bone by
     /// bone name; with none they show in their bind pose, which is already in the character's hands.</summary>
     public void SetParentAnimation(BoneAnimation? seq)

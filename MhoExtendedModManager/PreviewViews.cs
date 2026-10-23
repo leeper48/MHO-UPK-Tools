@@ -22,6 +22,8 @@ static class PreviewViews
         public bool Bloom { get; set; } = true;
         /// <summary>The ground plane at the feet (Kurt, 2026-10-18). On at first.</summary>
         public bool Ground { get; set; } = true;
+        /// <summary>The 3D views split into perspective, top, front and side (Kurt, 2026-10-23).</summary>
+        public bool Quad { get; set; }
         /// <summary>Props (weapons the game attaches) shown with the character in the preview.</summary>
         public bool Props { get; set; } = true;
         /// <summary>Power effects played with a power's animation in the preview.</summary>
@@ -188,6 +190,7 @@ static class PreviewViews
     public static bool Glow { get => D.Glow; set { if (D.Glow == value) return; D.Glow = value; Save(); } }
     public static bool Bloom { get => D.Bloom; set { if (D.Bloom == value) return; D.Bloom = value; Save(); } }
     public static bool Ground { get => D.Ground; set { if (D.Ground == value) return; D.Ground = value; Save(); } }
+    public static bool Quad { get => D.Quad; set { if (D.Quad == value) return; D.Quad = value; Save(); } }
     public static bool Props { get => D.Props; set { if (D.Props == value) return; D.Props = value; Save(); } }
     public static bool Powers { get => D.Powers; set { if (D.Powers == value) return; D.Powers = value; Save(); } }
     public static bool GuideThirds { get => D.GuideThirds; set { if (D.GuideThirds == value) return; D.GuideThirds = value; Save(); } }

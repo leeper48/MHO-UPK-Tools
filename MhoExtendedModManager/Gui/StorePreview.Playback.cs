@@ -8,6 +8,8 @@ namespace MhoExtendedModManager.Gui;
 sealed partial class StorePreview
 {
     Preview3D? p3;
+    /// <summary>A prop's frame as the 3D view shows it (Prop Fit's global axes), or null.</summary>
+    public System.Numerics.Matrix4x4? PropFrame(string cls) => p3?.PropFrame(cls);
     /// <summary>Holds the power block under the pictures strip (Preview3D.PlacePowerBlock).</summary>
     Panel? powerArea;
 

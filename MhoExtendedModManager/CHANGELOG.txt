@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.80
+- 3D views: an axis gizmo in the lower left corner (X red, Y green, Z blue, as in Blender), and Look ▾ → Quad View: this camera plus Top, Front and Side.
+- Editor: Ctrl+S saves and keeps editing; Ctrl+Enter saves and goes back to the mod list.
+- Borrow Look (preview feature): Prop Fit's Move X / Y / Z move the prop along the global axes (the gizmo's), as it's held in the frame shown.
+
 0.60.79
 - Borrow Look (preview feature): Rename This Power and Use Its Icon put the borrowed power's name (or one you type) and icon into the Strings and Icons tabs; Game's Look takes them off again.
 - Borrow Look: a borrowed projectile throws what the other one throws (its weapon slot and return socket): Shield Toss with Hammer of Storms throws the hammer, not the hammer and the shield.

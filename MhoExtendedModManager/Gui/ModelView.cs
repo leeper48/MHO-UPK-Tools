@@ -528,6 +528,7 @@ sealed class ModelView : UserControl
             g.DrawImage(overlay, r, 0, 0, overlay.Width, overlay.Height, GraphicsUnit.Pixel, ia);
         }
         PaintGuides?.Invoke(g, canvas.ClientRectangle);
+        PaintAxes(g);
     }
 
     // ---------------------------------------------------------------- the renderer
@@ -856,7 +857,100 @@ sealed class ModelView : UserControl
     public double DrawMsTotal { get; private set; }
     public (int W, int H) LastSize => (W, H);
 
-    void Render() => Render(0, 0);
+    void Render() { if (quad) RenderQuad(); else Render(0, 0); }
+
+    // --- quad view and the axis gizmo (Kurt, 2026-10-23: "like Blender has") ----------------------------------------------------
+    bool quad;
+    /// <summary>Four views: this camera (top left), then Top, Front and Side (orthographic: the camera far back with a narrow
+    /// lens, so the shading, ground and effects draw as in the main view). The mouse turns and zooms the main camera; the
+    /// other three follow its target and zoom.</summary>
+    public bool Quad { get => quad; set { if (quad == value) return; quad = value; Redraw(); } }
+    /// <summary>The fixed views: Top looks down with +X to the right; Front looks at the face (characters face +X); Side looks
+    /// from -Y.</summary>
+    static readonly (string Label, float Yaw, float Pitch)[] FixedViews = [("Top", -MathF.PI / 2, MathF.PI / 2 - 0.0005f), ("Front", 0, 0), ("Side", -MathF.PI / 2, 0)];
+    const float OrthoBack = 60;
+    readonly (Vector3 R, Vector3 U, Vector3 F)[] quadBasis = new (Vector3, Vector3, Vector3)[4];
+
+    void RenderQuad()
+    {
+        int cw = canvas.ClientSize.Width, ch = canvas.ClientSize.Height;
+        if (idx.Length == 0 || cw < 16 || ch < 16) return;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        float scale = fast ? 2 : moving ? Math.Max(1f, MathF.Sqrt((float)cw * ch / movingBudget)) : 1;
+        int qw = Math.Max(8, (int)(cw / 2f / scale)), qh = Math.Max(8, (int)(ch / 2f / scale));
+        var all = new int[qw * 2 * qh * 2];
+        float y0 = yaw, p0 = pitch, d0 = distance, f0 = Fov;
+        try
+        {
+            for (int v = 0; v < 4; v++)
+            {
+                if (v > 0) { yaw = FixedViews[v - 1].Yaw; pitch = FixedViews[v - 1].Pitch; distance = d0 * OrthoBack; Fov = 2 * MathF.Atan(MathF.Tan(f0 / 2) / OrthoBack); }
+                var (r, u, f, _) = Basis();
+                quadBasis[v] = (r, u, f);
+                Render(qw, qh);
+                int ox = v % 2 * qw, oy = v / 2 * qh;
+                for (int y = 0; y < qh; y++) Array.Copy(color, y * qw, all, (oy + y) * qw * 2 + ox, qw);
+            }
+        }
+        finally { yaw = y0; pitch = p0; distance = d0; Fov = f0; }
+        W = qw * 2; H = qh * 2;
+        if (frame == null || frame.Width != W || frame.Height != H) { frame?.Dispose(); frame = new Bitmap(W, H, PixelFormat.Format32bppArgb); }
+        var bd = frame.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        for (int y = 0; y < H; y++) Marshal.Copy(all, y * W, bd.Scan0 + y * bd.Stride, W);
+        frame.UnlockBits(bd);
+        LastFrameMs = clock.Elapsed.TotalMilliseconds;
+        FramesDrawn++; DrawMsTotal += LastFrameMs;
+        if (moving && !fast)
+            movingBudget = LastFrameMs > 30 ? Math.Max(60_000, movingBudget * 0.75f) : LastFrameMs < 18 ? Math.Min(MovingPixels, movingBudget * 1.15f) : movingBudget;
+    }
+
+    /// <summary>The axis gizmo in a view's lower left corner (X red, Y green, Z blue, as Blender's), turning with the camera;
+    /// the quad view's names and dividers.</summary>
+    void PaintAxes(Graphics g)
+    {
+        var rc = canvas.ClientRectangle;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        if (!quad) { var (r, u, f, _) = Basis(); Gizmo(g, rc, r, u, f); return; }
+        int hw = rc.Width / 2, hh = rc.Height / 2;
+        string[] names = ["Perspective", "Top", "Front", "Side"];
+        for (int v = 0; v < 4; v++)
+        {
+            var area = new Rectangle(rc.Left + v % 2 * hw, rc.Top + v / 2 * hh, v % 2 == 0 ? hw : rc.Width - hw, v / 2 == 0 ? hh : rc.Height - hh);
+            Gizmo(g, area, quadBasis[v].R, quadBasis[v].U, quadBasis[v].F);
+            TextRenderer.DrawText(g, names[v], Font, new Point(area.Left + (int)(8 * Ui.Dpi(DeviceDpi)), area.Top + (int)(6 * Ui.Dpi(DeviceDpi))), Color.FromArgb(220, 225, 235));
+        }
+        using var pen = new Pen(Color.FromArgb(150, 20, 22, 30), Math.Max(1, 2 * Ui.Dpi(DeviceDpi)));
+        g.DrawLine(pen, rc.Left + hw, rc.Top, rc.Left + hw, rc.Bottom);
+        g.DrawLine(pen, rc.Left, rc.Top + hh, rc.Right, rc.Top + hh);
+    }
+
+    /// <summary>The engine's axes as the view draws them (it shows the engine's Y mirrored: engine +Y is display -Y), so the
+    /// gizmo's Y is the Y that Prop Fit's Move Y and the game use.</summary>
+    void Gizmo(Graphics g, Rectangle area, Vector3 r, Vector3 u, Vector3 f)
+    {
+        float s = Ui.Dpi(DeviceDpi), len = 24 * s, dot = 7 * s;
+        var c = new PointF(area.Left + 14 * s + len, area.Bottom - 14 * s - len);
+        (Vector3 A, Color C, string N)[] axes = [(Vector3.UnitX, Color.FromArgb(232, 72, 85), "X"), (-Vector3.UnitY, Color.FromArgb(132, 196, 46), "Y"), (Vector3.UnitZ, Color.FromArgb(62, 138, 238), "Z")];
+        using var font = new Font(Font.FontFamily, 7f, FontStyle.Bold);
+        // the far ends first, so the nearer ones draw over them
+        foreach (var (a, col, name, sign) in axes.SelectMany(x => new[] { (x.A, x.C, x.N, 1f), (x.A, x.C, x.N, -1f) }).OrderByDescending(x => Vector3.Dot(x.A * x.Item4, f)))
+        {
+            var end = new PointF(c.X + Vector3.Dot(a, r) * len * sign, c.Y - Vector3.Dot(a, u) * len * sign);
+            if (sign > 0)
+            {
+                using (var pen = new Pen(col, 2 * s)) g.DrawLine(pen, c, end);
+                using (var b = new SolidBrush(col)) g.FillEllipse(b, end.X - dot, end.Y - dot, dot * 2, dot * 2);
+                TextRenderer.DrawText(g, name, font, new Rectangle((int)(end.X - dot), (int)(end.Y - dot), (int)(dot * 2), (int)(dot * 2)), Color.FromArgb(20, 20, 24), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
+            else
+            {
+                using var b = new SolidBrush(Color.FromArgb(70, col));
+                using var pen = new Pen(Color.FromArgb(150, col), 1.5f * s);
+                g.FillEllipse(b, end.X - dot * 0.8f, end.Y - dot * 0.8f, dot * 1.6f, dot * 1.6f);
+                g.DrawEllipse(pen, end.X - dot * 0.8f, end.Y - dot * 0.8f, dot * 1.6f, dot * 1.6f);
+            }
+        }
+    }
 
     /// <summary>Draws the view; with a size, at that size for a snapshot (the frame shown isn't touched).</summary>
     void Render(int width, int height)

@@ -195,6 +195,7 @@ sealed partial class Preview3D : UserControl
     void ApplyLook()
     {
         view.ShowSpec = prefs.Spec; view.ShowReflections = prefs.Reflect; view.ShowGlow = prefs.Glow; view.ShowBloom = prefs.Bloom; view.ShowGround = prefs.Ground;
+        view.Quad = PreviewViews.Quad;
         Ui.Lit(powersButton, prefs.Powers);
     }
 
@@ -207,6 +208,7 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Spec, () => prefs.Spec = !prefs.Spec, () => prefs.Reflect, () => prefs.Reflect = !prefs.Reflect, () => prefs.Glow, () => prefs.Glow = !prefs.Glow,
                 () => prefs.Bloom, () => prefs.Bloom = !prefs.Bloom, () => prefs.Props, () => { prefs.Props = !prefs.Props; LoadProps(); },
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
+            items.Add(new("Quad View", "Splits the view into four, as Blender's: this camera, then Top, Front and Side. Drag and zoom in any of them to move this camera; the others follow its zoom.", () => PreviewViews.Quad, () => PreviewViews.Quad = !PreviewViews.Quad));
             items.AddRange(ExtraLook);
             lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });
         }

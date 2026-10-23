@@ -42,9 +42,9 @@ sealed partial class ModEditorView
         string Units(float v) => $"{v:+0;-0;0}";
         string Deg(float v) => $"{v:+0;-0;0}°";
         pSize = Slider("Size", 0.25f, 3f, 0.01f, v => $"{v * 100:0} %", "The prop's size. A vehicle starts sized for this hero (this hero's height over the other hero's), anything else as it was made. Double-click: back to that size.", PropFitChanged);
-        pX = Slider("Move X", -120, 120, 1, Units, "Moves the prop along its own X axis, in game units. Double-click: back to 0.", PropFitChanged);
-        pY = Slider("Move Y", -120, 120, 1, Units, "Moves the prop along its own Y axis, in game units. Double-click: back to 0.", PropFitChanged);
-        pZ = Slider("Move Z", -120, 120, 1, Units, "Moves the prop along its own Z axis, in game units. Double-click: back to 0.", PropFitChanged);
+        pX = Slider("Move X", -120, 120, 1, Units, "Moves the prop along the global X axis (red on the 3D view's axis gizmo: the way the character faces), in game units, as the prop is held in the frame shown. Double-click: back to 0.", PropFitChanged);
+        pY = Slider("Move Y", -120, 120, 1, Units, "Moves the prop along the global Y axis (green on the 3D view's axis gizmo), in game units, as the prop is held in the frame shown. Double-click: back to 0.", PropFitChanged);
+        pZ = Slider("Move Z", -120, 120, 1, Units, "Moves the prop along the global Z axis (blue on the 3D view's axis gizmo: up), in game units, as the prop is held in the frame shown. Double-click: back to 0.", PropFitChanged);
         pTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll), in degrees. Double-click: back to 0.", PropFitChanged);
         pTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch), in degrees. Double-click: back to 0.", PropFitChanged);
         pTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw), in degrees. Some props start turned for another hero's hand (Thor's hammer). Double-click: back to that start.", PropFitChanged);
@@ -106,13 +106,28 @@ sealed partial class ModEditorView
                 float auto = sp.Vehicle && e.VehicleScale is float vs && vs > 0 ? vs : sp.Auto;
                 pSize.Home = () => sp.Auto; pSize.Mark = sp.Auto;
                 pSize.Value = fit?.Scale is float fs && fs > 0 ? fs : auto;
-                pX.Value = fit?.X ?? 0; pY.Value = fit?.Y ?? 0; pZ.Value = fit?.Z ?? 0;
+                // global axes (Kurt, 2026-10-23): the fit's own move shown along the character's axes, as the prop is held now
+                fitAxes = powerPreview?.PropFrame(sp.Class) is { } pf ? Turn(pf) : System.Numerics.Matrix4x4.Identity;
+                var world = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(fit?.X ?? 0, fit?.Y ?? 0, fit?.Z ?? 0), fitAxes);
+                pX.Value = world.X; pY.Value = world.Y; pZ.Value = world.Z;
                 pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? sp.TurnZAuto;
                 pTZ.Home = () => sp.TurnZAuto; pTZ.Mark = sp.TurnZAuto;
             }
             vForward.Value = e.RiderForward; vUp.Value = e.RiderUp; vLean.Value = e.RiderLean;
         }
         finally { vShowing = false; }
+    }
+
+    /// <summary>The prop's own axes in the character's, as shown when the sliders were filled (identity: the preview doesn't
+    /// show the prop, so the sliders move along its own axes).</summary>
+    System.Numerics.Matrix4x4 fitAxes = System.Numerics.Matrix4x4.Identity;
+
+    /// <summary>A frame's turn only: its rows made unit length (a size in it left out), no move.</summary>
+    static System.Numerics.Matrix4x4 Turn(System.Numerics.Matrix4x4 m)
+    {
+        static System.Numerics.Vector3 N(float x, float y, float z) { var v = new System.Numerics.Vector3(x, y, z); return v.LengthSquared() > 1e-12f ? System.Numerics.Vector3.Normalize(v) : v; }
+        var a = N(m.M11, m.M12, m.M13); var b = N(m.M21, m.M22, m.M23); var c = N(m.M31, m.M32, m.M33);
+        return new System.Numerics.Matrix4x4(a.X, a.Y, a.Z, 0, b.X, b.Y, b.Z, 0, c.X, c.Y, c.Z, 0, 0, 0, 0, 1);
     }
 
     /// <summary>A Prop Fit slider let go: the selected prop's fit into the borrow, which is built again.</summary>
@@ -125,7 +140,9 @@ sealed partial class ModEditorView
         if (fit == null) e.Props.Add(fit = new PropFit { Class = sp.Class });
         fit.Scale = Math.Abs(pSize.Value - sp.Auto) > 0.005f ? MathF.Round(pSize.Value, 2) : null;
         if (sp.Vehicle) e.VehicleScale = null;   // (the older Vehicle Fit size: the prop's own now)
-        fit.X = pX.Value; fit.Y = pY.Value; fit.Z = pZ.Value;
+        // the sliders are global (along the character's axes, as the prop is held in the frame shown): into the prop's own
+        var own = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(pX.Value, pY.Value, pZ.Value), System.Numerics.Matrix4x4.Transpose(fitAxes));
+        fit.X = MathF.Round(own.X, 2); fit.Y = MathF.Round(own.Y, 2); fit.Z = MathF.Round(own.Z, 2);
         fit.TurnX = pTX.Value; fit.TurnY = pTY.Value; fit.TurnZ = pTZ.Value;
         e.Props.RemoveAll(f => f.IsIdentity);
         if (e.Props.Count == 0) e.Props = null;
