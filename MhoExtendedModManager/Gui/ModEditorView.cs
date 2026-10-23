@@ -215,7 +215,16 @@ sealed partial class ModEditorView : UserControl
     // ---- Packages
     Control PackagesPage() => Page(packages, Toolbar(Ui.FlatButton("Add .UPK Files", AddPackages, tip: "Add game packages (.UPK) this mod replaces; each file name must match the package it replaces."), Ui.Tip(Ui.FlatButton("Remove", () =>
         {
-            foreach (DataGridViewRow r in packages.SelectedRows) draft.Packages.RemoveAll(x => x.File == (string)r.Tag!);
+            foreach (DataGridViewRow r in packages.SelectedRows)
+            {
+                string f = (string)r.Tag!;
+                draft.Packages.RemoveAll(x => x.File == f);
+                // its voice shift, shift pack and turned-off lines go too (a user, 2026-10-22: a removed costume's shift pack
+                // stayed in the mod, and its lines' events clashed with the new shift's: 158 lines skipped)
+                draft.VoiceShifts.RemoveAll(x => x.Package.Equals(f, StringComparison.OrdinalIgnoreCase));
+                draft.SoundPacks.RemoveAll(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(f), StringComparison.OrdinalIgnoreCase));
+                draft.VoiceOff.RemoveAll(o => o.Package.Equals(f, StringComparison.OrdinalIgnoreCase));
+            }
             RefreshPackages();
         }), "Take the selected packages out of the mod.")), "Whole packages that replace the game's own (same file name, in CookedPCConsole).");
 

@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.59
+- Editor: removing a package from the mod also removes its voice shift and shift sound pack (a removed costume's pack stayed, and its lines clashed with a new shift: "158 skipped").
+- A sound file put back to the game's own gets the game's date again, like packages, so it doesn't look changed.
+
 0.60.58
 - Voice tab: in a mod for one of the hero's costumes, the "no voice lines" button puts the hero's voice into that costume's own package. It used to add the hero's default costume and put the voice there, so a Voice Shift changed that costume and the modded one kept its old voice (White Tiger on Iron Fist Classic stayed male).
 

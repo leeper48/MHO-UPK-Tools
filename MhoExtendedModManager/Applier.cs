@@ -385,7 +385,8 @@ static class Applier
             }, bakBeside: s.Type == Kind.Package);
             if (!ok) { Console.WriteLine($"Stopped after {done} of {p.Steps.Count}."); return false; }
             // A package put back to the game's own (CRC is the stock one): the stock date again, so it doesn't look modified.
-            if (s.Type == Kind.Package && game.MatchesStock(s.File, live)) MeshImport.SetStockDate(live);
+            // (a sound package too: a user, 2026-10-22, saw today's date on a restored .pck and took it for not restored)
+            if (s.Type is Kind.Package or Kind.Sound && game.MatchesStock(s.File, live)) MeshImport.SetStockDate(live);
             if (s.Type == Kind.Package) { ledger.Set(s.File, s.Crc); ledger.Save(); }   // what this app put there
             done++;
         }

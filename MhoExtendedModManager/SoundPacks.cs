@@ -489,6 +489,7 @@ sealed class Akpk
                 if (found is not { } fs) return $"target {target:X8} (type {tgt.Type}) has no child sound";
                 sound = fs;
             }
+            if (Environment.GetEnvironmentVariable("MHO_SOUND_DEBUG") == "1") Console.WriteLine($"  {p.OriginalEvent}: event actions {BinaryPrimitives.ReadUInt32LittleEndian(ev.Body)}, action {actionId:X8} (type {act.Type}, body {Convert.ToHexString(act.Body.AsSpan(0, Math.Min(12, act.Body.Length)))}), target {target:X8} (type {tgt.Type}), copied {sound.Id:X8} (type {sound.Type}, stream {sound.Body[4]})");
             byte[] body = (byte[])sound.Body.Clone();
             if (body.Length < 13) return "sound object too short";
             byte streamType = body[4];
