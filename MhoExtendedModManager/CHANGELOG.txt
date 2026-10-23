@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.63
+- A costume whose class lists no attachments of its own (Ghost Rider Modern) takes its hero's own effects: his head burns with every animation and power in the 3D previews and in Create from 3D, not only on the FX tile.
+
 0.60.62
 - 3D previews: a character's own always-on effects (Ghost Rider's burning head) play with every animation, a power's or not, with the Power FXs toggle. Before, they showed only in the Powers tab's FX entry and Create from 3D.
 

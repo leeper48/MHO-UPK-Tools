@@ -943,6 +943,15 @@ sealed class PowerEffects
                 .Select(d => d.TryGetValue("socketname", out var n) ? n : "None").Where(n => !n.Equals("None", StringComparison.OrdinalIgnoreCase)).ToList() : [];
             Add(p.T.Exports[i].ObjectName, sysRef, sockets);
         }
+        // A costume whose class lists no attachments and has no effects of its own takes its hero's (Ghost Rider Modern: the head
+        // flames are the base class's marvelattachment_ghostrider; Kurt, 2026-10-22: a power played in the Powers tab showed his
+        // head without them, the FX tile, which reads the base package, with them)
+        if (onlyPart == null && fx.Effects.Count == 0 && dp.FirstOrDefault(x => x.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) == null
+            && HeroBase(stem) is string hb0 && !hb0.Equals(stem, StringComparison.OrdinalIgnoreCase))
+        {
+            var fromHero = Own(g, hb0 + ".upk");
+            if (fromHero.Effects.Count > 0) return fromHero;
+        }
         // 3. the condition classes the package defines (2026-10-07: Jean Grey's audio package holds her Dark Phoenix form,
         // marvelconditioneffect_jeangrey_darkphoenixmaelstrom: its flames and aura are ConditionFxParticles of that class)
         string? hero = stem.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase) ? stem.Split('_', StringSplitOptions.RemoveEmptyEntries)[2] : null;
