@@ -25,6 +25,37 @@ sealed partial class ModEditorView
     readonly CheckBox pinPivot = new() { Text = "Pivot on the Hand", AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
     bool vShowing;
     readonly HashSet<string> fitBuilt = new(StringComparer.OrdinalIgnoreCase);
+    // the power throws the prop the costume holds (an added prop, Animations tab): that prop in this power's animations
+    // (Kurt, 2026-10-23: the Prop Fit sliders changed a hammer the costume no longer shows)
+    readonly Label heldNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 6, 0, 2), MaximumSize = new Size(560, 0), Visible = false };
+    AnimFitBlock? powerAnimBlock;
+
+    /// <summary>Tests: the Powers tab on the power named <paramref name="name"/>; what its Prop Fit shows.</summary>
+    internal async Task<string> PowerFitTest(string name)
+    {
+        for (int i = 0; i < TabCount; i++) if (TabTitle(i) == "Powers") SelectTab(i);
+        await Task.Delay(8000);
+        for (int i = 0; i < powerList.Items.Count; i++)
+            if (powerList.Items[i] is Fx.PowerList.Power p && p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) { powerList.SelectedIndex = i; break; }
+        for (int w = 0; w < 60 && powerPreview?.CurrentAnimationName == null; w++) await Task.Delay(1000);
+        await Task.Delay(3000);
+        return $"prop fit {(propFit.Visible ? "shown" : "hidden")}, note '{heldNote.Text}', fit sliders {(pSize?.Visible == true ? "shown" : "hidden")}, block {(powerAnimBlock?.Root.Visible == true ? powerAnimBlock.State() : "hidden")}, playing {powerPreview?.CurrentAnimationName}";
+    }
+
+    /// <summary>The added prop (Animations tab) a borrowed power's prop of <paramref name="cls"/> is, else null.</summary>
+    AddedPropEntry? HeldAs(string cls) => draft.AddedProps.FirstOrDefault(a => a.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The Powers tab's In This Animation: the held prop, the power's animation playing, and what's missing.</summary>
+    (AddedPropEntry? Entry, string? Slot, string Why) PowerAnimTarget()
+    {
+        var held = propPick.SelectedItem is PowerBorrow.SpawnedProp sp ? HeldAs(sp.Class) : null;
+        string? slot = powerPreview?.CurrentAnimationName;
+        if (held == null) return (null, slot, "");
+        if (!held.Fit.PinPivot) return (held, slot, "Tick Pivot on the Hand for the prop in the Animations tab to adjust it in this power's animations.");
+        if (slot == null) return (held, null, "Play one of this power's animations.");
+        if (BorrowAnims(held.Package)?.Donors(slot) == null) return (held, slot, "This animation isn't one the borrowed power brought: adjust the prop in it in the Animations tab.");
+        return (held, slot, "");
+    }
 
     Control BorrowSection()
     {
@@ -67,7 +98,10 @@ sealed partial class ModEditorView
         Ui.Tip(propPick, "The prop to fit.");
         Ui.Tip(pinPivot, "The borrowed animations stop moving the bone this prop hangs on, so it turns about the hand (Thor's Hammer of Storms moves his palm bone out along the strap to swing the hammer). Then Move places the prop from the hand. Look ▾ → Prop Pivots shows where the pivot is.");
         pinPivot.CheckedChanged += (_, _) => PropFitChanged();
-        propFit.Controls.AddRange([propHead, propPick, pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ]);
+        powerAnimBlock = new AnimFitBlock(S, "The prop the costume holds, moved and turned further in this power's animation playing (the throw), for a pose that wants it elsewhere. Its fit is in the Animations tab (Props).",
+            PowerAnimTarget, SetAnimFit, c => Toolbar(c));
+        powerAnimBlock.Root.Visible = false;
+        propFit.Controls.AddRange([propHead, propPick, heldNote, pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ, powerAnimBlock.Root]);
         vForward = Slider("Forward / Back", -80, 80, 1, Units, "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.", RiderFitChanged);
         vUp = Slider("Up / Down", -80, 80, 1, Units, "Moves the rider up (+) or down (−) on the vehicle, in game units. Double-click: back to 0.", RiderFitChanged);
         vLean = Slider("Lean", -30, 30, 1, Deg, "Leans the rider forward (+) or back (−), in degrees. Double-click: back to 0.", RiderFitChanged);
@@ -126,6 +160,12 @@ sealed partial class ModEditorView
                 pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? sp.TurnZAuto;
                 pTZ.Home = () => sp.TurnZAuto; pTZ.Mark = sp.TurnZAuto;
                 pinPivot.Checked = fit?.PinPivot == true;
+                // a prop the costume holds (added in the Animations tab): the power throws that one; its fit is there
+                var held = HeldAs(sp.Class);
+                heldNote.Visible = held != null;
+                heldNote.Text = held == null ? "" : $"This power uses the {PropName(sp)} the costume holds ({held.Name}, Animations tab → Props): its size and fit are there. Below, adjust it in this power's animation only.";
+                foreach (var c in new Control?[] { pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ }) if (c != null) c.Visible = held == null;
+                if (powerAnimBlock != null) { powerAnimBlock.Root.Visible = held != null; powerAnimBlock.Show(); }
             }
             vForward.Value = e.RiderForward; vUp.Value = e.RiderUp; vLean.Value = e.RiderLean;
         }

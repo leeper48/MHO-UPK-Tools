@@ -965,6 +965,24 @@ sealed partial class MainForm
         ed.PropTestPlay("idle");
         await Task.Delay(1500);
         lines.Add("start: " + ed.PropTestState());
+        if (Environment.GetEnvironmentVariable("MHO_TEST_POWER_TAB") is string pname)
+        {
+            lines.Add("powers tab: " + await ed.PowerFitTest(pname));
+            { using var b = new Bitmap(Width, Height); DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(dir, "power_fit.png")); }
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
+        if (Environment.GetEnvironmentVariable("MHO_TEST_POWER_FIT") is string pf)
+        {
+            // (Kurt, 2026-10-23: a borrowed power throwing the held hammer: adjust it in the power's animation) <slot>,<move z>
+            var parts = pf.Split(',');
+            await ed.PropTestAnimFitAny(parts[0], 0, 0, float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture), 0);
+            lines.Add("power anim adjusted: " + ed.PropTestAnimFitState() + " | log " + ed.PropTestLog());
+            ed.SaveStayForTest();
+            await Task.Delay(40000);
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
         if (Environment.GetEnvironmentVariable("MHO_TEST_SIZE_ONLY") is string row)
         {
             // (Kurt, 2026-10-23: on fidget01 the fit's Size did nothing)

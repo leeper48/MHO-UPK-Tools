@@ -35,6 +35,7 @@ sealed partial class StorePreview
             // A restored animation is shown as it was left, not a new pick (no undo step, the preview choice unchanged).
             if (user) Picked?.Invoke(mod, CurrentMeshKey());
             SaveAnim();
+            AnimationShown?.Invoke();
             Invalidate();
         };
         p3.PlaybackMoved += SaveAnim;
@@ -160,6 +161,8 @@ sealed partial class StorePreview
     public IReadOnlyList<AnimRef> AllAnimations => p3?.AllAnimations ?? [];
     /// <summary>The shown mesh's animations are loaded (AllAnimations).</summary>
     public event Action? AnimationsLoaded;
+    /// <summary>Another animation shows (picked, played by a power button, restored).</summary>
+    public event Action? AnimationShown;
     /// <summary>ReloadOverrides: an animation from outside the model's list to show again once the reload's animations are in.</summary>
     (string Folder, string Mesh, AnimRef? Ref, string? Name, double Time, bool Playing)? keepAnim;
 

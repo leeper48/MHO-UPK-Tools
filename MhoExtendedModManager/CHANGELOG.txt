@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.109
+- Powers tab: a borrowed power that throws the prop the costume holds (an added prop) says so in Prop Fit, and its In This Animation moves and turns that prop in the power's animation playing only. Pivot on the Hand now also holds the prop in the borrowed powers' animations in the hero's package, baked in.
+
 0.60.108
 - Animations tab: after Save and Keep Editing, the prop's Size / Move / Turn sliders change the prop again (they changed the props from before the save, which the build no longer read).
 

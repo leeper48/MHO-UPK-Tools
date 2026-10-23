@@ -38,8 +38,10 @@ static class PropHold
     /// frame, so it pivots where the donor's does (the hammer's strap) whatever its size and turn in this hand.</param>
     /// <param name="extra">Per animation (its slot), a further turn and move along the character's axes (PropAnimFit), the
     /// turn about the bone's place, or null.</param>
+    /// <param name="onlyKnown">Leave a set alone when one of its animations has no known source (the hero's package with a
+    /// borrowed power's sets beside the others: only those change), instead of pinning it.</param>
     public static byte[] Apply(byte[] package, IReadOnlyList<string> bones, bool hold, Func<string, Donor?> donorFor, IReadOnlyList<MeshBone>? target, List<string> log, Matrix4x4? fit = null,
-        Func<string, (Matrix4x4 Turn, Vector3 Move)?>? extra = null)
+        Func<string, (Matrix4x4 Turn, Vector3 Move)?>? extra = null, bool onlyKnown = false)
     {
         var use = bones.Where(b => !b.Equals("none", StringComparison.OrdinalIgnoreCase) && !b.Equals("root", StringComparison.OrdinalIgnoreCase)).ToList();
         if (use.Count == 0) return package;
@@ -95,6 +97,7 @@ static class PropHold
                 done[s] = d;
             }
             byte[] nsd = sd;
+            if (!all && onlyKnown) continue;   // (onlyKnown: a set with an animation of unknown source stays as it is)
             if (all && done.Count > 0)
             {
                 foreach (var (s, d) in done) { byte[] keep = d; rep[s] = _ => keep; }
