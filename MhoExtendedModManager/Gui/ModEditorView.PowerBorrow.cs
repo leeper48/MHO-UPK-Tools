@@ -163,8 +163,10 @@ sealed partial class ModEditorView
         using var f = new BorrowPowerForm(powerDb, g.Cooked, p.Prototype, p.Name, BorrowOf(p.Prototype));
         if (f.ShowDialog(this) != DialogResult.OK || f.Result is not { } chosen) return;
         if (chosen.Donor.Equals(p.Prototype, StringComparison.OrdinalIgnoreCase)) { borrowCaption.Text = "That's this power's own look"; return; }
+        if (BorrowOf(p.Prototype) is { } old) TakeOffNameAndIcon(old);
         draft.PowerBorrows.RemoveAll(e => e.Power.Equals(p.Prototype, StringComparison.OrdinalIgnoreCase));
         chosen.Power = p.Prototype; chosen.Name = p.Name;
+        PutNameAndIcon(chosen, f.NewName, f.UseIcon);
         draft.PowerBorrows.Add(chosen);
         RebuildBorrows();
     }
@@ -172,8 +174,79 @@ sealed partial class ModEditorView
     void RemoveBorrow()
     {
         if (powerList.SelectedItem is not Fx.PowerList.Power p) return;
+        if (BorrowOf(p.Prototype) is { } old) TakeOffNameAndIcon(old);
         draft.PowerBorrows.RemoveAll(e => e.Power.Equals(p.Prototype, StringComparison.OrdinalIgnoreCase));
         RebuildBorrows();
+    }
+
+    /// <summary>
+    /// A borrow's name and icon (Kurt, 2026-10-23): the power's DisplayName string set to <paramref name="name"/> (English,
+    /// in the Strings tab) and its icons (IconPath, IconPathHiRes) replaced by the donor's, converted to this power's icon
+    /// size and format (Icons tab). Both are the mod format's own strings and icons, so the old manager installs them too.
+    /// </summary>
+    void PutNameAndIcon(PowerBorrowEntry e, string? name, bool icon)
+    {
+        if (powerDb is not { } db) return;
+        ulong? Str(string proto, string field) => db.Find(proto) is { } d && Fx.PowerList.Field(db, d.Id, field, 'S', true) is { Found: true } f ? f.Raw : null;
+        string? Asset(string proto, string field) => db.Find(proto) is { } d && Fx.PowerList.Field(db, d.Id, field, 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a) ? a.Asset.Name : null;
+        if (name != null && Str(e.Power, "DisplayName") is ulong id && id != 0)
+        {
+            var s = new StringReplacement("eng", CostumeMove.StringFileFor("eng", id), id, name);
+            draft.Strings.RemoveAll(x => x.Language == "eng" && x.Id == id);
+            draft.Strings.Add(s);
+            stringsPage.Put(s);
+            e.NameId = id;
+        }
+        if (!icon || catalog == null) return;
+        var icons = new List<string>();
+        var notes = new List<string>();
+        foreach (string field in new[] { "IconPath", "IconPathHiRes" })
+        {
+            if (Costume.IconTexture(Asset(e.Power, field)) is not { } mine || Costume.IconTexture(Asset(e.Donor, field)) is not { } theirs) continue;
+            string png = Path.Combine(Settings.Home, "converted", $"borrow_{ModInstaller.Sanitise(theirs.Texture)}.png");
+            string dds = Path.Combine(Settings.Home, "converted", $"borrow_{ModInstaller.Sanitise(theirs.Texture)}_{ModInstaller.Sanitise(mine.Texture)}.dds");
+            Directory.CreateDirectory(Path.GetDirectoryName(png)!);
+            try
+            {
+                if (catalog.ExportImage(theirs.Package, theirs.Texture, png) is string why) { notes.Add($"{theirs.Texture} can't be read ({why})."); continue; }
+                catalog.ImageToDds(mine.Package, mine.Texture, png, dds);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException) { notes.Add($"{theirs.Texture} can't be used ({ex.Message})."); continue; }
+            int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(mine.Package, StringComparison.OrdinalIgnoreCase));
+            if (view >= 0)
+            {
+                draft.Textures[view].RemoveAll(r => r.Texture.Equals(mine.Texture, StringComparison.OrdinalIgnoreCase));
+                draft.Textures[view].Add((mine.Texture, dds));
+            }
+            else
+            {
+                draft.Extra.RemoveAll(x => x.Package.Equals(mine.Package, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(mine.Texture, StringComparison.OrdinalIgnoreCase));
+                draft.Extra.Add((mine.Package, mine.Texture, dds));
+            }
+            icons.Add(mine.Package + "|" + mine.Texture);
+        }
+        if (icons.Count > 0) e.Icons = icons;
+        if (notes.Count > 0) Dialog.Show(this, "The icon wasn't changed:" + Environment.NewLine + string.Join(Environment.NewLine, notes.Select(n => "  • " + n)), "Icon Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        foreach (var tp in texturePages) tp.Refresh();
+    }
+
+    /// <summary>The name and icons a borrow put in, taken off (Game's Look, or another borrow for the power).</summary>
+    void TakeOffNameAndIcon(PowerBorrowEntry e)
+    {
+        if (e.NameId is ulong id)
+        {
+            draft.Strings.RemoveAll(x => x.Language == "eng" && x.Id == id);
+            stringsPage.Drop("eng", id);
+        }
+        foreach (string k in e.Icons ?? [])
+        {
+            string pkg = k.Split('|')[0], tex = k.Split('|')[^1];
+            int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(pkg, StringComparison.OrdinalIgnoreCase));
+            if (view >= 0) draft.Textures[view].RemoveAll(r => r.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
+            else draft.Extra.RemoveAll(x => x.Package.Equals(pkg, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
+        }
+        if (e.Icons != null) foreach (var tp in texturePages) tp.Refresh();
+        e.NameId = null; e.Icons = null;
     }
 
     /// <summary>Every borrow built again (in the background), then the preview reads the built packages.</summary>

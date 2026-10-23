@@ -182,6 +182,21 @@ sealed partial class ModEditorView
             }
         }
 
+        /// <summary>A replacement put in from elsewhere (a borrowed power's name), or the row of that ID changed to it.</summary>
+        public void Put(StringReplacement s)
+        {
+            foreach (DataGridViewRow r in grid.Rows)
+                if (!r.IsNewRow && (string?)r.Cells["Lang"].Value == s.Language && (string?)r.Cells["ID"].Value == s.Id.ToString()) { r.Cells[ReplacementCol].Value = s.Text; return; }
+            grid.Rows[grid.Rows.Add(s.Language, s.File, s.Id.ToString(), "", s.Text)].Tag = s;
+        }
+
+        /// <summary>The row of that ID taken out (a borrowed power's name, when its look goes back to the game's).</summary>
+        public void Drop(string language, ulong id)
+        {
+            foreach (DataGridViewRow r in grid.Rows)
+                if (!r.IsNewRow && (string?)r.Cells["Lang"].Value == language && (string?)r.Cells["ID"].Value == id.ToString()) { grid.Rows.Remove(r); return; }
+        }
+
         public List<StringReplacement> Collect()
         {
             grid.EndEdit();

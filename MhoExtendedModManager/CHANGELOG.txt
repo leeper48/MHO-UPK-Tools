@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.79
+- Borrow Look (preview feature): Rename This Power and Use Its Icon put the borrowed power's name (or one you type) and icon into the Strings and Icons tabs; Game's Look takes them off again.
+- Borrow Look: a borrowed projectile throws what the other one throws (its weapon slot and return socket): Shield Toss with Hammer of Storms throws the hammer, not the hammer and the shield.
+
 0.60.78
 - 3D previews: a mod with a borrowed power look shows its own costume first, not the hero's other costumes the borrow added for its animations (Worthy Captain America opened on Age of Ultron). The mod card's costume and Costume ▾ ignore those added packages too.
 

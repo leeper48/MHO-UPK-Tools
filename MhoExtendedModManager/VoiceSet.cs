@@ -15,6 +15,11 @@ sealed class PowerBorrowEntry
     public string Name { get; set; } = "";
     /// <summary>The power the look comes from, and its name ("Human Torch: Burning Volley").</summary>
     public string Donor { get; set; } = "";
+    /// <summary>The power's name the borrow put in (Kurt, 2026-10-23: Rename This Power): its string ID, so Game's Look takes
+    /// it off again. Null: the name wasn't changed.</summary>
+    public ulong? NameId { get; set; }
+    /// <summary>The icons the borrow put in (Use Its Icon): "package|texture", taken off by Game's Look.</summary>
+    public List<string>? Icons { get; set; }
     public string DonorName { get; set; } = "";
     /// <summary>Keep the target's components and timing, take only what they draw (powers built differently: a beam from a
     /// channeled beam); false: the donor's components, animation and projectile look.</summary>

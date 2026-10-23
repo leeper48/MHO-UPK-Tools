@@ -32,6 +32,16 @@ sealed class BorrowPowerForm : Form
     readonly Label vehicleHead = new() { Text = "VEHICLE FIT", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 2) };
     float autoSize = 1;
     bool sizeSet;
+    // the power's name and icon (Kurt, 2026-10-23): the borrowed power's, or a name typed in; into the Strings and Icons tabs
+    readonly CheckBox useName = new() { Text = "Rename This Power", AutoSize = true, Checked = true, Margin = new Padding(0, 10, 0, 0) };
+    readonly TextBox nameBox = new() { Width = 300, Margin = new Padding(22, 2, 0, 0) };
+    readonly CheckBox useIcon = new() { Text = "Use Its Icon", AutoSize = true, Checked = true, Margin = new Padding(0, 6, 0, 0) };
+    string? nameShown;
+
+    /// <summary>The name to give this power (Rename This Power), or null.</summary>
+    public string? NewName => useName.Checked && nameBox.Text.Trim() is { Length: > 0 } n ? n : null;
+    /// <summary>This power takes the borrowed power's icon.</summary>
+    public bool UseIcon => useIcon.Checked;
 
     /// <summary>The chosen donor power (prototype, display name), the mode and the fit.</summary>
     public PowerBorrowEntry? Result { get; private set; }
@@ -60,7 +70,13 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
-        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote]);
+        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, useName, nameBox, useIcon]);
+        Ui.Tip(useName, "The power's name in game becomes this (the borrowed power's, or type your own). It goes into the Strings tab (English), where you can change it; Game's Look takes it off again.");
+        Ui.Tip(nameBox, "The new name of this power in game.");
+        Ui.Tip(useIcon, "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Game's Look takes them off again.");
+        useName.CheckedChanged += (_, _) => nameBox.Enabled = useName.Checked;
+        if (current != null && current.NameId == null) useName.Checked = false;
+        if (current != null && current.Icons == null) useIcon.Checked = false;
         foreach (var sl in new[] { vSize, vForward, vUp, vLean }) { sl.Width = 460; sl.Height = 30; sl.Margin = new Padding(0, 2, 0, 0); }
         vehicleFit.Controls.AddRange([vehicleHead, vSize, vForward, vUp, vLean]);
         vSize.Home = () => autoSize;
@@ -97,7 +113,12 @@ sealed class BorrowPowerForm : Form
         // powers built like this one first (a thrown power from a thrown one, a beam from a beam); the others dimmed, with their kind
         powerBox.Format = o => o is Fx.PowerList.Power p ? p.Name + (Different(p) is { } k ? "  ·  " + k.Label : "") : o.ToString() ?? "";
         powerBox.ItemColor = i => i >= 0 && i < powerBox.Items.Count && powerBox.Items[i] is Fx.PowerList.Power p && Different(p) != null ? Ui.Subtle : null;
-        powerBox.SelectedIndexChanged += (_, _) => Suggest();
+        powerBox.SelectedIndexChanged += (_, _) =>
+        {
+            // the name follows the picked power, unless one was typed
+            if (powerBox.SelectedItem is Fx.PowerList.Power np && (nameBox.Text.Length == 0 || nameBox.Text == nameShown)) nameBox.Text = nameShown = np.Name;
+            Suggest();
+        };
         string? startHero = current != null ? current.DonorHero ?? PowerBorrow.HeroOf(current.Donor) : null;
         if (current != null) { whole.Checked = !current.KeepTiming; look.Checked = current.KeepTiming; fit.Checked = current.Fit; vForward.Value = current.RiderForward; vUp.Value = current.RiderUp; vLean.Value = current.RiderLean; }
         savedSize = current?.VehicleScale;

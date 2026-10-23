@@ -534,6 +534,7 @@ static class PowerBorrow
             if (keepTiming && pr.Role == "power") { done[tf] = SwapLooks(cur, td, pr.DonorFile, dd, log); continue; }
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
+            if (pr.Role == "projectile") done[tf] = ProjectileSlots(done[tf], td, pr.DonorFile, dd, log);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log);
             // a spawned vehicle sized for this hero: the Vehicle Fit's size, else the two heroes' heights (Kurt, 2026-10-20:
             // Cyclops' bike looked small under Thor; x1.14 by the heights looked right in game)
@@ -975,8 +976,17 @@ static class PowerBorrow
             if (WithEntityLists(p, r - 1, classes, require: false, addNames) is { } cd) { rep[r - 1] = _ => cd; list.Add(r); }
         }
         int kept = 0;
+        var meshes = new List<string>();
         foreach (int r in stock)
+        {
+            // a model (Cap's flying shield, a projectile's StaticMeshComponent) can't be limited to some costumes: a mesh
+            // component draws for everyone whatever its EntityRequired says (Kurt, 2026-10-23: Shield Toss ← Hammer of Storms
+            // threw the hammer and the shield), so it's left out
+            string cls = p.ClassOf(p.Exports[r - 1]);
+            if (cls.Equals("StaticMeshComponent", StringComparison.OrdinalIgnoreCase) || cls.Equals("SkeletalMeshComponent", StringComparison.OrdinalIgnoreCase)) { meshes.Add(p.Exports[r - 1].ObjectName); continue; }
             if (WithEntityLists(p, r - 1, classes, require: true, addNames) is { } cd) { rep[r - 1] = _ => cd; list.Add(r); kept++; }
+        }
+        if (meshes.Count > 0) log.Add($"  {targetDefault}: its model ({string.Join(", ", meshes)}) left out for every costume (a model can't be kept for some only)");
         var value = new byte[4 + 4 * list.Count];
         BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
         for (int k = 0; k < list.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * k), list[k]);
@@ -987,6 +997,61 @@ static class PowerBorrow
         var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
         if (problems.Count > 0) { log.Add($"  {targetDefault}: the stock look for {string.Join(", ", classes)} couldn't be kept ({string.Join("; ", problems.Take(2))})"); return package; }
         log.Add($"  {targetDefault}: {list.Count - kept} borrowed component(s) not on {string.Join(", ", classes)}; {kept} stock one(s) only on them");
+        return output;
+    }
+
+    /// <summary>
+    /// A borrowed projectile's own settings for what flies (Kurt, 2026-10-23: Shield Toss ← Hammer of Storms threw the shield
+    /// with the hammer): the hero's weapon slot it takes from the hand (OwnerWeaponSlotToDetach: Cap's lefthand shield,
+    /// Thor's righthand hammer) and the socket it comes back to (TargetSocket), as the donor's projectile has them; one the
+    /// donor doesn't set is taken off (its default).
+    /// </summary>
+    static byte[] ProjectileSlots(byte[] package, string targetDefault, string donorFile, string donorDefault, List<string> log)
+    {
+        string[] props = ["OwnerWeaponSlotToDetach", "TargetSocket"];
+        var p = Package.FromBytes(package);
+        int ti = Find(p, targetDefault);
+        var sp = Package.Open(donorFile);
+        int si = Find(sp, donorDefault);
+        if (ti < 0 || si < 0) return package;
+        byte[] d = p.ReadExportBytes(p.Exports[ti]).ToArray(), sd = sp.ReadExportBytes(sp.Exports[si]).ToArray();
+        if (TagWalker.Walk(p, d, 4) is not { } tt || TagWalker.Walk(sp, sd, 4) is not { } st) return package;
+        bool Ours(TagWalker.Tag t) => props.Any(x => x.Equals(t.Name, StringComparison.OrdinalIgnoreCase)) && t.Type.Equals("NameProperty", StringComparison.OrdinalIgnoreCase);
+        string Val(Package q, byte[] b, TagWalker.Tag? t) => t == null ? "(none)" : TagWalker.NameAt(q, b, t.ValueAt);
+        var changes = new List<string>();
+        foreach (string prop in props)
+        {
+            var a = tt.FirstOrDefault(t => t.Name.Equals(prop, StringComparison.OrdinalIgnoreCase) && Ours(t));
+            var b = st.FirstOrDefault(t => t.Name.Equals(prop, StringComparison.OrdinalIgnoreCase) && Ours(t));
+            if (!Val(p, d, a).Equals(Val(sp, sd, b), StringComparison.OrdinalIgnoreCase)) changes.Add($"{prop} {Val(p, d, a)} → {Val(sp, sd, b)}");
+        }
+        if (changes.Count == 0) return package;
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+            return p.Names.Length + j;
+        }
+        var nd = new List<byte>(d.AsSpan(0, 4).ToArray());
+        foreach (var t in tt) if (!Ours(t)) nd.AddRange(d.AsSpan(t.Start, t.End - t.Start).ToArray());
+        foreach (var t in st.Where(Ours))
+        {
+            // name, NameProperty, size 8, array index, then the value (a name and its number)
+            nd.AddRange(BitConverter.GetBytes(NameIdx(t.Name))); nd.AddRange(BitConverter.GetBytes(0));
+            nd.AddRange(BitConverter.GetBytes(NameIdx("NameProperty"))); nd.AddRange(BitConverter.GetBytes(0));
+            nd.AddRange(BitConverter.GetBytes(8)); nd.AddRange(sd.AsSpan(t.Start + 20, 4).ToArray());
+            nd.AddRange(BitConverter.GetBytes(NameIdx(TagWalker.NameAt(sp, sd, t.ValueAt)))); nd.AddRange(sd.AsSpan(t.ValueAt + 4, 4).ToArray());
+        }
+        nd.AddRange(d.AsSpan(tt.NoneAt));
+        byte[] data = [.. nd];
+        var rep = new Dictionary<int, Func<long, byte[]>> { [ti] = _ => data };
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  {targetDefault}: what it throws couldn't be changed ({string.Join("; ", problems.Take(2))})"); return package; }
+        log.Add($"  {targetDefault}: throws what the other projectile throws: {string.Join(", ", changes)}");
         return output;
     }
 

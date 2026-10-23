@@ -195,7 +195,7 @@ static class CostumeMove
 
     /// <summary>The .string file an ID lives in: its top two bits pick one of four (checked: Thor Classic's name 0x2BF1… is in
     /// eng.all_3FFF…, Age of Ultron's 0x910B… in eng.all_BFFF…).</summary>
-    static string StringFileFor(string lang, ulong id) => $"{lang}.all_{(id >> 62) switch { 0 => "3F", 1 => "7F", 2 => "BF", _ => "FF" }}FFFFFFFFFFFFFF.string";
+    internal static string StringFileFor(string lang, ulong id) => $"{lang}.all_{(id >> 62) switch { 0 => "3F", 1 => "7F", 2 => "BF", _ => "FF" }}FFFFFFFFFFFFFF.string";
 
     static string CaseLike(string cls, string tok) => cls.Length >= tok.Length ? cls[^tok.Length..] : tok;
 
