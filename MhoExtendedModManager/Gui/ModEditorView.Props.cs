@@ -150,6 +150,10 @@ sealed partial class ModEditorView
         foreach (float s in sizes) { e.Fit.Scale = s; _ = ApplyPropsTo(e.Package); await Task.Delay(250); }
         await Task.Delay(8000);
     }
+    /// <summary>Tests: Pivot on the Hand ticked or not on the selected prop, as a click does.</summary>
+    internal async Task PropTestPin(bool on) { propPin.Checked = on; await Task.Delay(6000); }
+    /// <summary>Tests: the selected prop's pin as the editor holds it (the box, the draft's entry).</summary>
+    internal string PropTestPinState() => $"box {propPin.Checked}, draft [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Fit.PinPivot))}]";
     internal async Task PropTestRemove()
     {
         if (propList.Items.Count > 0) propList.SelectedIndex = 0;

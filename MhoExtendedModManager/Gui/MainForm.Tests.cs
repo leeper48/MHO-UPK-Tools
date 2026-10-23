@@ -980,6 +980,13 @@ sealed partial class MainForm
         lines.Add("changed idle: " + ed.PropTestState());
         await ed.PropTestFitQuick(0.85f, 0.9f, 0.95f);
         lines.Add("quick refits on the changed idle: " + ed.PropTestState());
+        // Pivot on the Hand, then Save and Keep Editing (Kurt, 2026-10-23: ticked, Ctrl+S, the hammer flew off: the tick was lost)
+        await ed.PropTestPin(true);
+        lines.Add("pinned: " + ed.PropTestPinState() + " | " + ed.PropTestState());
+        ed.SaveStayForTest();
+        await Task.Delay(30000);
+        string man = File.ReadAllText(Path.Combine(m.Folder, "manifest.json"));
+        lines.Add("saved: " + ed.PropTestPinState() + " | manifest PinPivot " + man.Contains("\"PinPivot\": true") + " | " + ed.PropTestState());
         await ed.PropTestRemove();
         lines.Add("removed again: " + ed.PropTestState());
         File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
