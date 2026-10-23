@@ -34,9 +34,18 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
+    /// <summary>0.60.59 (Kurt, 2026-10-22): a user's report on a costume's voice shift.</summary>
+    static Notice RemoveCleans() => new(
+        "0.60.59-remove-cleans", "0.60.59",
+        "[!]Editor: Removing a package from a mod also removes its voice shift and its sound pack." + nl +
+        "  • Before, a removed costume's shift stayed in the mod, and a new shift's lines clashed with it (\"158 skipped\")." + nl + nl +
+        "A sound file put back to the game's own gets the game's date again, like packages, so it doesn't look changed." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "voice");
+
     /// <summary>0.60.58 (Kurt, 2026-10-22): users' reports: sound packs after a Steam verify, a costume's voice shift, Jean's form animations.</summary>
     static Notice SoundsAndForms() => new(
         "0.60.58-sounds-forms", "0.60.58",
