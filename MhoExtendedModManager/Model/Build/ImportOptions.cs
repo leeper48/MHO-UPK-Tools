@@ -20,6 +20,8 @@ sealed record ImportOptions
     public bool FeetMeasured { get; init; }
     /// <summary>Keep the Source's Size (RetargetOptions.KeepSourceSize).</summary>
     public bool KeepSourceSize { get; init; }
+    /// <summary>Lean (RetargetOptions.Lean): the body above the feet turned at the ankles, degrees, + forward.</summary>
+    public float Lean { get; init; }
     /// <summary>An edited bone map (--map); null = the automatic one.</summary>
     public string? MapFile { get; init; }
     /// <summary>The animation the check render poses (name part); null = the first attack.</summary>

@@ -46,7 +46,7 @@ sealed partial class PreviewPanel
     static void StartStages() { Timings.Clear(); stageClock.Restart(); }
 
     public static Prepared Prepare(MffModel model, string? parts, string packagePath, string? materialDonor, bool subdivide = false, string? modelFbx = null, string? mapFile = null,
-        int cape = 0, int hair = 0, string? overrides = null, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, bool keepSourceSize = false)
+        int cape = 0, int hair = 0, string? overrides = null, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, bool keepSourceSize = false, float lean = 0)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
@@ -56,7 +56,7 @@ sealed partial class PreviewPanel
         var picked = model.Selected(parts);
         if (subdivide) picked = Subdivision.Apply(picked);
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
-        var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() with { KeepSourceSize = keepSourceSize });
+        var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() with { KeepSourceSize = keepSourceSize, Lean = lean });
         if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });
         Stage("retarget");
         MaterialOverrides.Apply(r, overrides);

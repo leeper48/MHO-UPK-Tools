@@ -88,7 +88,8 @@ sealed class ImportBuild
             // a prop target (a weapon or shield picked under Model ▾): with no parts named, the part most like it
             if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, sk) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
             if (o.Subdivide) picked = Subdivision.Apply(picked);
-            r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize });
+            r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize, Lean = o.Lean });
+            if (MathF.Abs(o.Lean) >= 0.01f) log($"lean:    the body above the feet turned {o.Lean:+0.#;-0.#} degrees at the ankles (+ forward)");
             if (o.KeepSourceSize) log($"size:    the source's own size (scale {r.Scale:0.###}, not fitted to {sk.Name}'s height)");
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }

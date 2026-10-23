@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.97
+- Model tab: a Lean slider under Feet (±20°): turns an MFF model above its feet at the ankles, + forward, − back, soles flat; the preview shows it, Build writes it (Captain America S07 on Cap Classic: −3° matches the hero's own stance in the idle).
+
 0.60.96
 - Animations tab: another hero's animations put in (Change Animation, Copy From a Character) are fitted to the costume's skeleton where a bone rests turned differently, as borrowed looks are (Thor's idle crumpled Captain America's right toes).
 

@@ -12,6 +12,9 @@ sealed record RetargetOptions
     /// MFF cm → MHO units scale, <see cref="Retarget.SourceScale"/>) instead of the target model's height (Hulk on Black Widow came
     /// out Widow's height).</summary>
     public bool KeepSourceSize { get; init; }
+    /// <summary>Lean (Kurt, 2026-10-23, like the Feet slider; the fitted body tipped forward from flat soles, bending at the
+    /// ankles): everything but the feet turned about the ankles, in degrees, + forward, − back.</summary>
+    public float Lean { get; init; }
     /// <summary>MFF_HANDAIM=1: aim the hand at the middle finger again (off since 0.6.2: it kinked the wrist).</summary>
     public bool HandAim { get; init; }
     /// <summary>MFF_HAIRFALL=0 turns the long-hair rules off (0.6.11).</summary>
@@ -143,6 +146,27 @@ static partial class Retarget
         }
 
         int Mff(string n) => m.Bones.FindIndex(b => b.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>The Lean option: every bone but the feet (Bip001 L / R Foot and what hangs under them) turned about the
+        /// ankles' line (MFF frame: facing +X, left +Y, up +Z), with the skin it carries (its swing turned too).</summary>
+        void Lean()
+        {
+            if (MathF.Abs(opt.Lean) < 0.01f) return;
+            int lf = Mff("Bip001 L Foot"), rf = Mff("Bip001 R Foot");
+            if (lf < 0 || rf < 0) return;
+            var q = Quaternion.CreateFromAxisAngle(Vector3.UnitY, opt.Lean * MathF.PI / 180);
+            var pivot = (newPos[lf] + newPos[rf]) / 2;
+            bool InFoot(int i) { for (int j = i, guard = 0; j >= 0 && guard < 512; j = m.Bones[j].Parent, guard++) if (j == lf || j == rf) return true; return false; }
+            int n = 0;
+            for (int i = 0; i < nb; i++)
+            {
+                if (InFoot(i)) continue;
+                newPos[i] = pivot + Vector3.Transform(newPos[i] - pivot, q);
+                delta[i] = Quaternion.Normalize(q * delta[i]);
+                n++;
+            }
+            r.Notes.Add($"lean: the body above the feet ({n} bones) turned {opt.Lean:+0.#;-0.#} degrees at the ankles");
+        }
         Vector3 ToMho(Vector3 p) => Mirror(p) * r.Scale;
 
         public Retargeted Run()
@@ -154,6 +178,7 @@ static partial class Retarget
             r.Scale = opt.KeepSourceSize ? SourceScale : sk.Height > 0 && mffHeight > 0 ? sk.Height / mffHeight : 0.5f;
             Feet();
             Swing();
+            Lean();
             Chains();
             CapeShape();
             Targets();
