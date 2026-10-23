@@ -243,6 +243,9 @@ sealed class MeshAnimator
     /// <summary>A bone's transform (bone → model space) in the pose last made by Pose: what a held prop follows.</summary>
     public Matrix4x4 BoneMatrix(int bone) => bone >= 0 && bone < posed.Length ? (Shift == Vector3.Zero ? posed[bone] : posed[bone] * Matrix4x4.CreateTranslation(Shift)) : Matrix4x4.Identity;
 
+    /// <summary>A bone's name, or "".</summary>
+    public string BoneName(int bone) => bone >= 0 && bone < bones.Count ? bones[bone].Name : "";
+
     /// <summary>A bone's index by name (case-insensitive), or -1.</summary>
     public int BoneIndex(string name) { int i = 0; foreach (var b in bones) { if (b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) return i; i++; } return -1; }
 

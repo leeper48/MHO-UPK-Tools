@@ -188,14 +188,15 @@ sealed class PropRig
     BoneAnimation? parentSeq;
 
     /// <summary>Every shown prop's frame as last posed (as Update places it): Look ▾ → Prop Pivots draws them.</summary>
-    public List<Matrix4x4> ShownFrames(MeshAnimator animator)
+    public List<(Matrix4x4 Frame, string Label)> ShownFrames(MeshAnimator animator)
     {
-        var list = new List<Matrix4x4>();
+        var list = new List<(Matrix4x4, string)>();
         for (int i = 0; i < props.Count; i++)
         {
             if (i < visible.Length && !visible[i]) continue;
             int bone = props[i].Bone;
-            list.Add(props[i].Mesh.MeshTransform * (i < offsets.Count ? offsets[i] : Matrix4x4.Identity) * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone)));
+            list.Add((props[i].Mesh.MeshTransform * (i < offsets.Count ? offsets[i] : Matrix4x4.Identity) * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone)),
+                      bone < 0 ? "on the character's skeleton" : "on " + animator.BoneName(bone)));
         }
         return list;
     }

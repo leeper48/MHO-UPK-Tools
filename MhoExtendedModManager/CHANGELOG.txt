@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.84
+- Prop Pivots: each pivot names the bone the prop hangs on.
+
 0.60.83
 - 3D views: Look ▾ → Prop Pivots marks each prop's pivot (a yellow dot with its X / Y / Z axes), in every pane of the quad view.
 

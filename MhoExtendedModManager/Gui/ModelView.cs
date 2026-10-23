@@ -877,8 +877,8 @@ sealed class ModelView : UserControl
     bool ortho;
 
     /// <summary>Points to mark over the model (engine space, with their axes: Look ▾ → Prop Pivots), drawn after the frame.</summary>
-    public List<Matrix4x4> Markers { get => markers; set { markers = value; canvas.Invalidate(); } }
-    List<Matrix4x4> markers = [];
+    public List<(Matrix4x4 Frame, string Label)> Markers { get => markers; set { markers = value; canvas.Invalidate(); } }
+    List<(Matrix4x4 Frame, string Label)> markers = [];
     /// <summary>The camera of each view last drawn (one, or the quad view's four) and the part of the canvas it fills.</summary>
     readonly record struct Cam(Vector3 R, Vector3 U, Vector3 F, Vector3 Eye, float Focal, float Cx, float Cy, int W, int H, float Near);
     Cam lastCam;
@@ -905,7 +905,7 @@ sealed class ModelView : UserControl
         {
             var area = pane < 0 ? rc : new Rectangle(rc.Left + pane % 2 * hw, rc.Top + pane / 2 * hh, pane % 2 == 0 ? hw : rc.Width - hw, pane / 2 == 0 ? hh : rc.Height - hh);
             g.SetClip(area);
-            foreach (var m in markers)
+            foreach (var (m, label) in markers)
             {
                 if (OnCanvas(m.Translation, cam, area) is not PointF o) continue;
                 Vector3[] axes = [new(m.M11, m.M12, m.M13), new(m.M21, m.M22, m.M23), new(m.M31, m.M32, m.M33)];
@@ -921,6 +921,8 @@ sealed class ModelView : UserControl
                 float rr = 3.5f * s;
                 g.FillEllipse(fill, o.X - rr, o.Y - rr, rr * 2, rr * 2);
                 g.DrawEllipse(ring, o.X - rr, o.Y - rr, rr * 2, rr * 2);
+                // the bone it hangs on
+                if (label.Length > 0) TextRenderer.DrawText(g, label, Font, new Point((int)(o.X + rr + 4 * s), (int)(o.Y - 8 * s)), Color.FromArgb(255, 220, 90));
             }
             g.ResetClip();
         }

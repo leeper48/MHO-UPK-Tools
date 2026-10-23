@@ -229,6 +229,8 @@ static class PowerPreview
     /// rotation (Ghost Rider's bike: yaw 90°).</summary>
     public static void AddProps(PropRig rig, MeshAnimator animator, IEnumerable<BaseProp> baseProps, IEnumerable<BaseProp> powerProps)
     {
+        if (Environment.GetEnvironmentVariable("MHO_PROP_DEBUG") == "1")
+            foreach (var p in baseProps.Concat(powerProps)) Console.WriteLine($"  prop {p.W.Class}: bone {p.W.Bone ?? "(none)"} -> #{(p.W.UseParentAnim ? -1 : PropRig.BoneFor(animator, p.W.Bone))}{(p.W.UseParentAnim ? " (parent anim)" : "")}, slots {string.Join("/", p.W.Slots)}");
         foreach (var p in baseProps.Concat(powerProps)) rig.Add(p.Mesh, p.W.UseParentAnim ? -1 : PropRig.BoneFor(animator, p.W.Bone), p.W.Slots, p.W.OnDemand, p.W.Class, p.Anim, p.Refs, p.W.UseParentAnim, p.W.Offset, p.Sockets);
     }
 
