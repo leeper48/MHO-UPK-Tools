@@ -276,6 +276,7 @@ sealed partial class ModEditorView : UserControl
         powerPreview?.Rebind(saved);
         animPreview?.Rebind(saved);
         if (animGrid != null) LoadAnimations();
+        FillPropList();   // (the list held the props before the save: a fit slider changed those, the build read the new ones; Kurt, 2026-10-23)
         FillGhosts();
         MarkSaved();
         Saves++;

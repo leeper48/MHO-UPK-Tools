@@ -965,6 +965,18 @@ sealed partial class MainForm
         ed.PropTestPlay("idle");
         await Task.Delay(1500);
         lines.Add("start: " + ed.PropTestState());
+        if (Environment.GetEnvironmentVariable("MHO_TEST_SIZE_ONLY") is string row)
+        {
+            // (Kurt, 2026-10-23: on fidget01 the fit's Size did nothing)
+            ed.PropTestSelect(row); await Task.Delay(3000);
+            lines.Add($"{row} selected: " + ed.PropTestState());
+            void SizeShot(string n) { using var b = new Bitmap(Width, Height); DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(dir, n)); }
+            SizeShot("size_before.png");
+            lines.Add("size 150 %: " + await ed.PropTestSizeSlider(1.5f));
+            SizeShot("size_after.png");
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
         await ed.PropTestRemove();
         lines.Add("removed: " + ed.PropTestState());
         await ed.PropTestAdd("Thor", "marvelattachment_thorhammer");
@@ -990,14 +1002,17 @@ sealed partial class MainForm
         await Task.Delay(8000);
         lines.Add("changed fidget02 (pinned): " + ed.PropTestState());
         lines.Add("prop log: " + ed.PropTestLog());
+        lines.Add("pinned refit (X 20, 120 %): " + await ed.PropTestFitMove(20, 1.2f));
         // In This Animation: fidget02 only, its hammer 10 up the bone's Z and turned 30 degrees about its X
         var af = (Environment.GetEnvironmentVariable("MHO_TEST_ANIMFIT") ?? "0,0,10,30").Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
         await ed.PropTestAnimFit("fidget02", af[0], af[1], af[2], af[3]);
         lines.Add("fidget02 adjusted: " + ed.PropTestAnimFitState() + " | " + ed.PropTestState());
+        lines.Add("fit slider on fidget02 (Move X 25): " + await ed.PropTestFitSlider(25));
         { using var b = new Bitmap(Width, Height); DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(dir, "anim_fit.png")); }
         ed.SaveStayForTest();
         await Task.Delay(30000);
         string man = File.ReadAllText(Path.Combine(m.Folder, "manifest.json"));
+        lines.Add("size after the save (150 %): " + await ed.PropTestSizeSlider(1.5f));
         lines.Add("saved: " + ed.PropTestPinState() + " | manifest PinPivot " + man.Contains("\"PinPivot\": true") + " | " + ed.PropTestState());
         await ed.PropTestRemove();
         lines.Add("removed again: " + ed.PropTestState());

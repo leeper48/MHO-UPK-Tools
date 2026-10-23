@@ -290,6 +290,36 @@ sealed partial class ModEditorView
         ShowAnimFit();
     }
     internal string PropTestAnimFitState() => $"note '{animFitNote.Text}', head '{animFitHead.Text}', sliders {(amX?.Visible == true ? "shown" : "hidden")}, anims [{string.Join(", ", (propList.SelectedItem as AddedPropEntry)?.Anims?.Select(a => $"{a.Slot} {a.X}/{a.Y}/{a.Z} {a.TurnX}°") ?? [])}]";
+    /// <summary>Tests: the selected prop's fit set (its own move along X, a size), applied; the prop's place in the frame shown.</summary>
+    internal async Task<string> PropTestFitMove(float x, float size)
+    {
+        if (propList.SelectedItem is not AddedPropEntry e) return "no prop";
+        string before = animPreview?.PropFrame(e.Class)?.Translation.ToString("0.0", null) ?? "-";
+        e.Fit.X = x; e.Fit.Scale = size;
+        await ApplyPropsTo(e.Package);
+        await Task.Delay(8000);
+        return $"pivot {before} -> {animPreview?.PropFrame(e.Class)?.Translation.ToString("0.0", null) ?? "-"}, preview props {animPreview?.PropsForTest}";
+    }
+    /// <summary>Tests: the fit's Move X slider set and let go (as a drag does), applied; the fit as stored after.</summary>
+    internal async Task<string> PropTestFitSlider(float moveX)
+    {
+        if (propList.SelectedItem is not AddedPropEntry e || apX == null) return "no prop";
+        string before = $"{e.Fit.X}/{e.Fit.Y}/{e.Fit.Z} x{e.Fit.Scale}";
+        apX.Value = moveX;
+        PropFitCommitted();
+        await Task.Delay(8000);
+        return $"fit {before} -> {e.Fit.X}/{e.Fit.Y}/{e.Fit.Z} x{e.Fit.Scale} (shown {apX.Value}), propShowing {propShowing}, preview props {animPreview?.PropsForTest}";
+    }
+    /// <summary>Tests: the fit's Size slider set and let go, applied; the fit, the build's log and the preview's props after.</summary>
+    internal async Task<string> PropTestSizeSlider(float size)
+    {
+        if (propList.SelectedItem is not AddedPropEntry e || apSize == null) return "no prop";
+        string before = $"x{e.Fit.Scale} props {animPreview?.PropsForTest}";
+        apSize.Value = size;
+        PropFitCommitted();
+        await Task.Delay(9000);
+        return $"{before} -> x{e.Fit.Scale} props {animPreview?.PropsForTest} | log {PropTestLog()}";
+    }
     internal async Task PropTestRemove()
     {
         if (propList.Items.Count > 0) propList.SelectedIndex = 0;

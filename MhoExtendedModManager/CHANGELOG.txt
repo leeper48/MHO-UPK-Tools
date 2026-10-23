@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.108
+- Animations tab: after Save and Keep Editing, the prop's Size / Move / Turn sliders change the prop again (they changed the props from before the save, which the build no longer read).
+
 0.60.107
 - Animations tab: In This Animation moves the prop along the global axes and turns it about them (around the point it hangs on), the same in every frame; it went along the swinging hammer's own axes before. Values set with 0.60.106 need setting again.
 
