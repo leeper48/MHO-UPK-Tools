@@ -23,8 +23,6 @@ sealed partial class ModEditorView
     readonly Label animFitNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 2, 0, 4), MaximumSize = new Size(420, 0) };
     readonly DropDown animFitCopy = new() { ShowsSelection = false, Placeholder = "Copy From" };
     Control? animFitTools;
-    /// <summary>The bone's axes in the character's, without the shown animation's own turn (filled with the sliders).</summary>
-    System.Numerics.Matrix4x4 amAxes = System.Numerics.Matrix4x4.Identity;
     Button? propRemove;
     bool propShowing;
     /// <summary>The prop's own axes in the character's when the sliders were filled (identity: the 3D view doesn't show it).</summary>
@@ -73,12 +71,12 @@ sealed partial class ModEditorView
             return sl;
         }
         const string only = " In the selected animation only, on top of the prop's fit; baked into it on Save. Double-click: back to 0.";
-        amX = AnimSlider("Move X", -60, 60, Units, "Moves the prop along the global X axis (red on the axis gizmo), as it's held in the frame shown." + only);
-        amY = AnimSlider("Move Y", -60, 60, Units, "Moves the prop along the global Y axis (green on the axis gizmo), as it's held in the frame shown." + only);
-        amZ = AnimSlider("Move Z", -60, 60, Units, "Moves the prop along the global Z axis (blue on the axis gizmo: up), as it's held in the frame shown." + only);
-        amTX = AnimSlider("Turn X", -180, 180, Deg, "Turns the prop about the X axis of the bone it hangs on." + only);
-        amTY = AnimSlider("Turn Y", -180, 180, Deg, "Turns the prop about the Y axis of the bone it hangs on." + only);
-        amTZ = AnimSlider("Turn Z", -180, 180, Deg, "Turns the prop about the Z axis of the bone it hangs on." + only);
+        amX = AnimSlider("Move X", -60, 60, Units, "Moves the prop along the global X axis (red on the axis gizmo: the way the character faces), in every frame." + only);
+        amY = AnimSlider("Move Y", -60, 60, Units, "Moves the prop along the global Y axis (green on the axis gizmo), in every frame." + only);
+        amZ = AnimSlider("Move Z", -60, 60, Units, "Moves the prop along the global Z axis (blue on the axis gizmo: up), in every frame." + only);
+        amTX = AnimSlider("Turn X", -180, 180, Deg, "Turns the prop about the global X axis (red), around the point it hangs on (Look ▾ → Prop Pivots), in every frame." + only);
+        amTY = AnimSlider("Turn Y", -180, 180, Deg, "Turns the prop about the global Y axis (green), around the point it hangs on, in every frame." + only);
+        amTZ = AnimSlider("Turn Z", -180, 180, Deg, "Turns the prop about the global Z axis (blue: up), around the point it hangs on, in every frame." + only);
         animFitHead.Font = Ui.Bold(8.5f);
         Ui.Tip(animFitHead, "The prop moved and turned further in one animation (the row selected above), for a pose that wants it elsewhere. Needs Pivot on the Hand and an animation from another character (a Changed row).");
         animFitCopy.Width = (int)(150 * S);
@@ -171,11 +169,12 @@ sealed partial class ModEditorView
 
     static PropAnimFit? AnimFitOf(AddedPropEntry e, string? slot) => slot == null ? null : e.Anims?.FirstOrDefault(a => a.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>A prop's frame as shown, without the shown animation's own adjustment (the bone's frame).</summary>
+    /// <summary>A prop's frame as shown, turned back by the shown animation's own adjustment (its turn about the character's
+    /// axes), for the fit's axes.</summary>
     System.Numerics.Matrix4x4 WithoutAnimFit(AddedPropEntry e, System.Numerics.Matrix4x4 frame)
     {
         if (AnimFitOf(e, animPreview?.Visible == true ? animPreview.CurrentAnimationName : null) is not { IsZero: false } a) return frame;
-        return System.Numerics.Matrix4x4.Invert(a.Matrix(), out var inv) ? inv * frame : frame;
+        return Turn(frame) * System.Numerics.Matrix4x4.Transpose(a.Turn());
     }
 
     void ShowAnimFit()
@@ -194,9 +193,8 @@ sealed partial class ModEditorView
         propShowing = true;
         try
         {
-            amAxes = animPreview?.PropFrame(e.Class) is { } pf ? Turn(WithoutAnimFit(e, pf)) : System.Numerics.Matrix4x4.Identity;
-            var w = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(a.X, a.Y, a.Z), amAxes);
-            amX.Value = w.X; amY.Value = w.Y; amZ.Value = w.Z;
+            // (the character's axes: the values as stored)
+            amX.Value = a.X; amY.Value = a.Y; amZ.Value = a.Z;
             amTX.Value = a.TurnX; amTY.Value = a.TurnY; amTZ.Value = a.TurnZ;
         }
         finally { propShowing = false; }
@@ -207,8 +205,7 @@ sealed partial class ModEditorView
     {
         if (propShowing || propList.SelectedItem is not AddedPropEntry e || AnimFitSlot(e, out _) is not string slot
             || amX == null || amY == null || amZ == null || amTX == null || amTY == null || amTZ == null) return;
-        var own = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(amX.Value, amY.Value, amZ.Value), System.Numerics.Matrix4x4.Transpose(amAxes));
-        SetAnimFit(e, slot, new PropAnimFit { Slot = slot, X = MathF.Round(own.X, 2), Y = MathF.Round(own.Y, 2), Z = MathF.Round(own.Z, 2), TurnX = amTX.Value, TurnY = amTY.Value, TurnZ = amTZ.Value });
+        SetAnimFit(e, slot, new PropAnimFit { Slot = slot, X = amX.Value, Y = amY.Value, Z = amZ.Value, TurnX = amTX.Value, TurnY = amTY.Value, TurnZ = amTZ.Value });
     }
 
     void SetAnimFit(AddedPropEntry e, string slot, PropAnimFit? a)
@@ -356,7 +353,7 @@ sealed partial class ModEditorView
         var donors = DonorsOf(package);
         return (b, e, bones, l) =>
         {
-            var anims = (e.Anims ?? []).Where(a => !a.IsZero).ToDictionary(a => a.Slot, a => a.Matrix(), StringComparer.OrdinalIgnoreCase);
+            var anims = (e.Anims ?? []).Where(a => !a.IsZero).ToDictionary(a => a.Slot, a => (a.Turn(), a.Move), StringComparer.OrdinalIgnoreCase);
             return PropHold.Apply(b, bones, true, donors, PowerBorrow.HeroSkeleton(path), l, PowerBorrow.FitMatrix(e), slot => anims.TryGetValue(slot, out var m) ? m : null);
         };
     }

@@ -991,7 +991,8 @@ sealed partial class MainForm
         lines.Add("changed fidget02 (pinned): " + ed.PropTestState());
         lines.Add("prop log: " + ed.PropTestLog());
         // In This Animation: fidget02 only, its hammer 10 up the bone's Z and turned 30 degrees about its X
-        await ed.PropTestAnimFit("fidget02", 0, 0, 10, 30);
+        var af = (Environment.GetEnvironmentVariable("MHO_TEST_ANIMFIT") ?? "0,0,10,30").Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        await ed.PropTestAnimFit("fidget02", af[0], af[1], af[2], af[3]);
         lines.Add("fidget02 adjusted: " + ed.PropTestAnimFitState() + " | " + ed.PropTestState());
         { using var b = new Bitmap(Width, Height); DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(dir, "anim_fit.png")); }
         ed.SaveStayForTest();

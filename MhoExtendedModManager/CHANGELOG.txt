@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.107
+- Animations tab: In This Animation moves the prop along the global axes and turns it about them (around the point it hangs on), the same in every frame; it went along the swinging hammer's own axes before. Values set with 0.60.106 need setting again.
+
 0.60.106
 - Animations tab: In This Animation, beside an added prop's fit: move and turn the prop further in the selected animation only (Copy From another animation's, Reset), baked into it. For animations from another character with Pivot on the Hand.
 

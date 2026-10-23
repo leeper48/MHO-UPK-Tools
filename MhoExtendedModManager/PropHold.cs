@@ -36,9 +36,10 @@ static class PropHold
     /// </summary>
     /// <param name="fit">The prop's fit on the bone (PowerBorrow.FitMatrix): the donor's motion is taken in the prop's own
     /// frame, so it pivots where the donor's does (the hammer's strap) whatever its size and turn in this hand.</param>
-    /// <param name="extra">Per animation (its slot), a further move and turn in the bone's own frame (PropAnimFit), or null.</param>
+    /// <param name="extra">Per animation (its slot), a further turn and move along the character's axes (PropAnimFit), the
+    /// turn about the bone's place, or null.</param>
     public static byte[] Apply(byte[] package, IReadOnlyList<string> bones, bool hold, Func<string, Donor?> donorFor, IReadOnlyList<MeshBone>? target, List<string> log, Matrix4x4? fit = null,
-        Func<string, Matrix4x4?>? extra = null)
+        Func<string, (Matrix4x4 Turn, Vector3 Move)?>? extra = null)
     {
         var use = bones.Where(b => !b.Equals("none", StringComparison.OrdinalIgnoreCase) && !b.Equals("root", StringComparison.OrdinalIgnoreCase)).ToList();
         if (use.Count == 0) return package;
@@ -89,7 +90,7 @@ static class PropHold
                 else if (DataFor(dn.Package) is not { } dd) why = "the source's skeleton doesn't read";
                 else
                     foreach (string bone in use)
-                        if (!Rewrite(p, d, trackNames, bone, hold, dn, dd, target!, fit ?? Matrix4x4.Identity, (hold ? extra?.Invoke(slot) : null) ?? Matrix4x4.Identity, out why)) break;
+                        if (!Rewrite(p, d, trackNames, bone, hold, dn, dd, target!, fit ?? Matrix4x4.Identity, hold ? extra?.Invoke(slot) : null, out why)) break;
                 if (why.Length > 0) { all = false; notes.Add($"{slot}: {why}"); break; }
                 done[s] = d;
             }
@@ -122,7 +123,7 @@ static class PropHold
     /// One copied animation's keys of <paramref name="bone"/> rewritten in place (plain float keys: positions ACF_None,
     /// rotations Float96NoW, not per-track; the key counts as stored), from the donor's animation of the same keys.
     /// </summary>
-    static bool Rewrite(Package p, byte[] d, List<string> trackNames, string bone, bool hold, Donor dn, DonorData dd, IReadOnlyList<MeshBone> target, Matrix4x4 fit, Matrix4x4 extra, out string why)
+    static bool Rewrite(Package p, byte[] d, List<string> trackNames, string bone, bool hold, Donor dn, DonorData dd, IReadOnlyList<MeshBone> target, Matrix4x4 fit, (Matrix4x4 Turn, Vector3 Move)? extra, out string why)
     {
         why = "";
         int ti = trackNames.FindIndex(n => n.Equals(bone, StringComparison.OrdinalIgnoreCase));
@@ -187,8 +188,36 @@ static class PropHold
             var mine = Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(target[tb].Orientation)) * Matrix4x4.CreateTranslation(target[tb].Position);
             // the donor's move off its grip, in the bone's (the prop's) own frame: rel = move × grip; here the same move in the
             // fitted prop's frame, from this skeleton's grip
-            // (then this animation's own adjustment, in the bone's frame)
-            Matrix4x4 Local(float frame) => extra * fitInv * (Rel(da, frame) * gripInv) * fit * mine;
+            Matrix4x4 Held(float frame) => fitInv * (Rel(da, frame) * gripInv) * fit * mine;
+            // this animation's own adjustment, along the character's axes (the same in every frame): this skeleton posed as
+            // the copy plays (the donor's keys, turned to this skeleton's rest as the copy has them), its place there turned
+            // about the bone's place and moved, then back under the parent
+            Func<float, Matrix4x4> Local = Held;
+            if (extra is { } ex)
+            {
+                var turned = new AnimExportCli.Animation.BoneAnimation
+                {
+                    Name = da.Name, DurationSeconds = da.DurationSeconds,
+                    Tracks = da.Tracks.ToDictionary(kv => kv.Key, kv => !dd.Turns.TryGetValue(kv.Key, out var turn) ? kv.Value : new AnimExportCli.Animation.BoneTrack
+                    {
+                        PositionKeys = kv.Value.PositionKeys,
+                        RotationKeys = [.. kv.Value.RotationKeys.Select(k => new AnimExportCli.Animation.BoneRotationKey(k.TimeFrame, Quaternion.Normalize(AnimSwap.Mul(k.Rotation, turn))))],
+                    }, StringComparer.OrdinalIgnoreCase),
+                };
+                ModAnimations.SetTranslationBones(turned, ModAnimations.TranslationBones(da));
+                var mineAnim = new MeshAnimator(target, [], [], []);
+                int tp = target[tb].ParentIndex;
+                Local = frame =>
+                {
+                    mineAnim.Pose(turned, frame);
+                    var parentAt = mineAnim.BoneMatrix(tp);
+                    var at = Held(frame) * parentAt;
+                    var o = at.Translation;
+                    var moved = at * Matrix4x4.CreateTranslation(-o) * ex.Turn * Matrix4x4.CreateTranslation(o + ex.Move);
+                    Matrix4x4.Invert(parentAt, out var pInv);
+                    return moved * pInv;
+                };
+            }
             for (int k = 0; k < pos.Length; k++) pos[k] = Local(track.PositionKeys[k].TimeFrame).Translation;
             rot = new Quaternion[track.RotationKeys.Count];
             for (int k = 0; k < rot.Length; k++)

@@ -30,6 +30,8 @@ static class ModAnimations
     /// </summary>
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BoneAnimation, IReadOnlySet<string>> translation = new();
     public static IReadOnlySet<string>? TranslationBones(BoneAnimation a) => translation.TryGetValue(a, out var s) ? s : null;
+    /// <summary>An animation made here (PropHold's turned copy) takes another's bones with positions.</summary>
+    public static void SetTranslationBones(BoneAnimation a, IReadOnlySet<string>? s) { if (s != null) translation.AddOrUpdate(a, s); }
 
     static readonly Dictionary<string, AnimPackage> open = new(StringComparer.OrdinalIgnoreCase);
 
