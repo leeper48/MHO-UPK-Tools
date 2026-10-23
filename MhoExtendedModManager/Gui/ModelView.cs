@@ -378,7 +378,7 @@ sealed class ModelView : UserControl
     /// <summary>The user turned, panned or zoomed the view (after a drag, a wheel step or a double-click).</summary>
     public event Action? ViewChanged;
 
-    // --- a part the mouse drags along the floor (Look ▾ → Size Reference: the oil drum; Kurt, 2026-10-23) --------------------------
+    // --- a part the mouse drags along the floor (Look ▾ → Barrel Size Reference: the oil drum; Kurt, 2026-10-23) --------------------------
     /// <summary>Vertices (in the mesh shown) the left mouse button drags along the floor instead of turning the view, or null.</summary>
     public (int First, int Count)? DragPart { get; set; }
     /// <summary>The part dragged by this much (engine space, Z 0): move it and show the pose again.</summary>

@@ -1,12 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.102
+- 3D views: Look ▾ → Size Reference is now called Barrel Size Reference.
+
 0.60.101
-- 3D views: drag the Size Reference oil drum to move it along the floor (any pane); double-click it to put it back beside the character. Where it stands is remembered.
+- 3D views: drag the Barrel Size Reference oil drum to move it along the floor (any pane); double-click it to put it back beside the character. Where it stands is remembered.
 - Animations tab: changing a prop (Prop Fit sliders, add, remove) no longer switches the preview to the travel power's animation; the animation and frame showing stay, an unsaved changed one too.
 
 0.60.100
-- 3D views: Look ▾ → Size Reference puts a 55-gallon oil drum from the game on the floor beside the character, to judge sizes by.
+- 3D views: Look ▾ → Barrel Size Reference puts a 55-gallon oil drum from the game on the floor beside the character, to judge sizes by.
 
 0.60.99
 - Animations tab: the divider between the 3D view and the list can be dragged; its place is remembered.

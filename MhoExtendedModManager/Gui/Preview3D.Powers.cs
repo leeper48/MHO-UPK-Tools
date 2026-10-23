@@ -300,7 +300,7 @@ sealed partial class Preview3D
         AddMore = r =>
         {
             effects?.AddActors(r);
-            // Look ▾ → Size Reference: the game's oil drum on the floor beside the character (no bone: it stays put)
+            // Look ▾ → Barrel Size Reference: the game's oil drum on the floor beside the character (no bone: it stays put)
             if (PreviewViews.SizeRef && SizeReference.For(ctx?.Cooked) is { } d) r.Add(d.Mesh, -1, [], false, "size_reference", offset: d.Place);
         },
     };

@@ -4,7 +4,7 @@ using MhoPackageModifier;
 namespace MhoExtendedModManager.Gui;
 
 /// <summary>
-/// The 3D views' size reference (Kurt, 2026-10-23: a 55-gallon oil drum from the game, Look ▾ → Size Reference): the
+/// The 3D views' size reference (Kurt, 2026-10-23: a 55-gallon oil drum from the game, Look ▾ → Barrel Size Reference): the
 /// Brooklyn levels' mtnt_undrgrnd_oildrum_a static mesh, read once from the game's stock copy, standing on the floor beside
 /// the character (not on a bone: it stays put while the character moves). Read only.
 /// </summary>
