@@ -34,7 +34,12 @@ sealed partial class ModelPage : UserControl
     readonly DropDown material = new();
     readonly CheckBox smooth = new() { Text = "Smooth (Subdivide)", AutoSize = true };
     readonly CheckBox matchSteps = new() { Text = "Match Steps to Size", AutoSize = true, Checked = true };
-    readonly CheckBox feetOnFloor = new() { Text = "Feet on the Floor", AutoSize = true, Checked = true };
+    // Feet (Kurt, 2026-10-22: a slider, not a checkbox; Hulk on Black Widow still poked through): the model moved up or down,
+    // starting at the automatic amount (ImportBuild.FeetOffset); double-click goes back to it. A value moved off it is kept.
+    readonly LightSlider feetSlider = new() { Label = "Feet", Min = -60, Max = 60, Step = 0.5f, Mark = 0, Dock = DockStyle.Top };
+    float feetAuto;
+    float? feetCustom;
+    bool restoringFeet;
     readonly LightSlider sizeSlider = new() { Label = "Size", Min = 0.05f, Max = 4f, Step = 0.01f, Mark = 1f, Home = () => 1f, Dock = DockStyle.Top };
     /// <summary>A cape / long hair borrowed from other heroes (preview prototype; Kurt: generic numbers, matched motion).</summary>
     // the bone map editor (0.11.5)
@@ -213,10 +218,13 @@ sealed partial class ModelPage : UserControl
         sizeBox.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         sizeSlider.Dock = DockStyle.Fill; sizeSlider.Margin = new Padding(0);
         matchSteps.Margin = new Padding(2, 4, 12, 0);
-        feetOnFloor.Margin = new Padding(2, 4, 0, 0);
+        feetSlider.Height = sizeSlider.Height; feetSlider.Dock = DockStyle.Fill; feetSlider.Margin = new Padding(0, 2, 0, 0);
+        feetSlider.Home = () => feetAuto;
+        feetSlider.Format = v => $"{v:+0.0;-0.0;0}" + (feetCustom == null && MathF.Abs(v - feetAuto) < 0.05f ? " Auto" : "");
         var checks = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0) };
-        checks.Controls.Add(matchSteps); checks.Controls.Add(feetOnFloor);
-        sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(checks, 0, 1);
+        checks.Controls.Add(matchSteps);
+        sizeBox.RowCount = 3;
+        sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(feetSlider, 0, 1); sizeBox.Controls.Add(checks, 0, 2);
         var sizeColumn = Column("SIZE IN GAME", null, sizeBox, autoHeight: true);
         right.Controls.Add(sizeColumn, 0, 4);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
@@ -277,8 +285,17 @@ sealed partial class ModelPage : UserControl
         Ui.TipTitled(sizeSlider, "Size in Game", "How big the character is in game, compared with the game's own size (100 %). The whole character is scaled as the game scales its own costumes (Spider-Man Homecoming, Carnage …), so the animations keep their shape and the feet stay on the ground. Drag, the mouse wheel or the arrow keys; double-click for 100 %. Compare shows the hero at the game's size.");
         Ui.Tip(matchSteps, "The game moves a character at the same speed whatever its size, so a bigger one would slide its feet. With this on, the costume's run, walk and other movement animations play slower for a bigger character and faster for a smaller one (1 / size), so the steps match the ground. Only this costume's animations change (copied into its own package, as the Animations tab does).");
         matchSteps.CheckedChanged += (_, _) => SaveState();
-        Ui.Tip(feetOnFloor, "In game the legs reach for where the stock hero's ankles are, so a model whose soles sit lower or higher below its ankles than the stock one's would sink into the floor or hover. With this on, Build moves the whole model up or down by that difference (the log says how far).");
-        feetOnFloor.CheckedChanged += (_, _) => { preview.FeetOnFloor = feetOnFloor.Checked; SaveState(); };
+        Ui.TipTitled(feetSlider, "Feet", "Moves the whole model up (+) or down (-) in game, in units. The game's animations hold the hips at the stock hero's height and the legs hang from there, so a model with shorter legs would hover and one with longer legs would sink into the floor. It starts at the automatic amount for this model and target (marked Auto); move it if the feet still float or sink in an animation. Double-click: back to automatic. The preview shows it; Build writes it.");
+        feetSlider.ValueChanged += () => { if (!restoringFeet) preview.FeetShift = feetSlider.Value; };
+        feetSlider.Committed += () => { feetCustom = MathF.Abs(feetSlider.Value - feetAuto) < 0.05f ? null : feetSlider.Value; preview.FeetShift = feetCustom; feetSlider.Invalidate(); SaveState(); };
+        preview.FeetAutoChanged += auto =>
+        {
+            // another model or target: back to automatic
+            if (MathF.Abs(auto - feetAuto) > 0.01f) feetCustom = null;
+            feetAuto = auto;
+            restoringFeet = true; feetSlider.Value = feetCustom ?? auto; restoringFeet = false;
+            feetSlider.Invalidate();
+        };
         sizeSlider.ValueChanged += () => preview.Size = sizeSlider.Value;
         sizeSlider.Committed += () => { preview.Size = sizeSlider.Value; SchedulePreview(); };
 

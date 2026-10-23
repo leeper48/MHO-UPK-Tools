@@ -393,8 +393,8 @@ sealed partial class ModelPage
         public float Size { get; set; } = 1;
         /// <summary>Match Steps to Size: movement animations at 1 / size (StepRate).</summary>
         public bool MatchSteps { get; set; } = true;
-        /// <summary>Feet on the Floor (ImportOptions.FeetOnFloor).</summary>
-        public bool FeetOnFloor { get; set; } = true;
+        /// <summary>The Feet slider when moved off its automatic amount (null: automatic).</summary>
+        public float? FeetCustom { get; set; }
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
@@ -414,7 +414,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetOnFloor = feetOnFloor.Checked,
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
@@ -467,7 +467,7 @@ sealed partial class ModelPage
         if (smooth.Enabled) smooth.Checked = st.Subdivide;
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
         SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
-        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; feetOnFloor.Checked = st.FeetOnFloor; preview.FeetOnFloor = st.FeetOnFloor;
+        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;
         restoring2 = false;
         AssumeBuilt();
         SchedulePreview();

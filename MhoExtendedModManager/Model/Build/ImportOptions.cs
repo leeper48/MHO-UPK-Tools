@@ -13,6 +13,9 @@ sealed record ImportOptions
     /// <summary>Feet on the Floor: the mesh's Origin raised or lowered so the soles meet the floor where the stock model's do
     /// (users, 2026-10-22: some MFF models' feet hovered or sank). On by default.</summary>
     public bool FeetOnFloor { get; init; } = true;
+    /// <summary>The Model tab's Feet slider when moved from its automatic value: the model moved by this (units, + up), in
+    /// place of the automatic amount. Null: automatic (FeetOnFloor).</summary>
+    public float? FeetShift { get; init; }
     /// <summary>An edited bone map (--map); null = the automatic one.</summary>
     public string? MapFile { get; init; }
     /// <summary>The animation the check render poses (name part); null = the first attack.</summary>

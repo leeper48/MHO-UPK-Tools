@@ -252,13 +252,16 @@ sealed class ImportBuild
     {
         var locals = builtBones.Select(b => (b.Orientation, b.Position)).ToList();
         built = SkelEncoder.Build(baseN, locals, enc, matRefs, extra);
-        if (o.FeetOnFloor && FeetOffset(r, sk) is { } feet && MathF.Abs(feet.By) >= 0.05f && built.Origins.Length >= 12)
+        var feet = FeetOffset(r, sk);
+        float feetBy = o.FeetShift ?? (o.FeetOnFloor && feet is { } fa ? fa.By : 0);
+        if (MathF.Abs(feetBy) >= 0.05f && built.Origins.Length >= 12)
         {
             // the mesh's Origin (the game draws the posed model moved by it: the whole model up or down)
             float oz = BitConverter.ToSingle(built.Origins, 8);
             built.Origins = [.. built.Origins];
-            BitConverter.TryWriteBytes(built.Origins.AsSpan(8), oz + feet.By);
-            log($"feet:    {(feet.By > 0 ? "raised" : "lowered")} {MathF.Abs(feet.By):0.0} units (the model's hips {feet.Model:0.0} above its soles, the stock model's {feet.Stock:0.0}: the animations hold the hips at the stock height)");
+            BitConverter.TryWriteBytes(built.Origins.AsSpan(8), oz + feetBy);
+            log($"feet:    {(feetBy > 0 ? "raised" : "lowered")} {MathF.Abs(feetBy):0.0} units" + (o.FeetShift != null ? $" (set on the Feet slider; automatic {feet?.By ?? 0:+0.0;-0.0;0})"
+                : $" (the model's hips {feet!.Value.Model:0.0} above its soles, the stock model's {feet.Value.Stock:0.0}: the animations hold the hips at the stock height)"));
         }
         if (extra != null) log($"bones:   {baseN.Bones.Count} + {extra.Count} borrowed ({string.Join(", ", sk.Bones.Skip(baseN.Bones.Count).Select(b => b.Name))}), skeletal depth {built.SkeletalDepth} (stock {baseN.SkeletalDepth})");
         var native = built.Write();
