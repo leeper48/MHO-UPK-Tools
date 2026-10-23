@@ -247,7 +247,7 @@ sealed class MeshAnimator
     public int BoneIndex(string name) { int i = 0; foreach (var b in bones) { if (b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) return i; i++; } return -1; }
 
     /// <summary>A bone's position in the pose last made by Pose (engine space).</summary>
-    public Vector3 BonePosition(int bone) => bone >= 0 && bone < posed.Length ? posed[bone].Translation : Vector3.Zero;
+    public Vector3 BonePosition(int bone) => bone >= 0 && bone < posed.Length ? posed[bone].Translation + Shift : Vector3.Zero;
 
     /// <summary>The frames an animation spans (its last key), and its length in seconds.</summary>
     public static (float Frames, float Seconds) Span(BoneAnimation a)

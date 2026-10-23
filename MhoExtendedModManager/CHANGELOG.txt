@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.68
+- Model tab: the skeleton overlay (Look ▾ → Bones) moves with the model when Feet on the Floor moves it.
+
 0.60.67
 - Model tab: Feet on the Floor measures by the hips (the animations hold them at the stock height and the legs hang from there; the leg IK only runs where an animation turns it on), and the preview shows the model moved as Build moves it.
 
