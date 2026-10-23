@@ -57,6 +57,9 @@ sealed partial class StorePreview
     public void Rebind(Mod m)
     {
         if (mod == null || !mod.Folder.Equals(m.Folder, StringComparison.OrdinalIgnoreCase)) { Mod = m; return; }
+        // a model shown from an unsaved work copy (an added prop, a borrowed look): what was saved may differ, so read again
+        // (Kurt, 2026-10-23: after Save and Keep Editing the hammer was gone from the view, though the saved mod has it)
+        if (meshes.Any(r => !Path.GetFullPath(r.File).StartsWith(Path.GetFullPath(m.Folder), StringComparison.OrdinalIgnoreCase))) { mod = m; ReloadOverrides(); return; }
         mod = m; modStamp = FilesStamp(m);
     }
 

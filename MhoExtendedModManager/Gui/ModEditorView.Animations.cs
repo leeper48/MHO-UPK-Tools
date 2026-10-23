@@ -231,7 +231,7 @@ sealed partial class ModEditorView
         var log = new List<string>();
         animStatus.Text = "Copying the Animation…";
         byte[] bytes;
-        try { bytes = await Task.Run(() => AnimSwap.Build(src, cls, [swap], log, inherited)); }
+        try { bytes = await Task.Run(() => AnimSwap.Build(src, cls, [swap], log, inherited)); OnBorrowBase(file, b => AnimSwap.Build(b, cls, [swap], log, inherited)); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s \"{pick.Name}\" couldn't be put in: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
@@ -277,6 +277,7 @@ sealed partial class ModEditorView
         try
         {
             bytes = await Task.Run(() => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, slots, log) : AnimSwap.Build(src, cls, swaps, log, inherited));
+            OnBorrowBase(file, b => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(b), cls, slots, log) : AnimSwap.Build(b, cls, swaps, log, inherited));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s animations couldn't be put in: {ex.Message}", "Animations Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -361,7 +362,7 @@ sealed partial class ModEditorView
         string cls = animData.Class;
         var log = new List<string>();
         byte[]? bytes;
-        try { bytes = await Task.Run(() => AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, [slot.Name], log)); }
+        try { bytes = await Task.Run(() => AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, [slot.Name], log)); OnBorrowBase(file, b => AnimSwap.Unswap(MhoPackageModifier.Package.Open(b), cls, [slot.Name], log)); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { Dialog.Show(this, $"\"{slot.Name}\" couldn't be changed back: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed || bytes == null) return;
@@ -369,6 +370,18 @@ sealed partial class ModEditorView
         draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase));
         animStatus.Text = $"\"{slot.Name}\" Is the Original Again";
         ReloadAt(slot.Name);
+    }
+
+    /// <summary>
+    /// The same change on the borrowed looks' kept copy of the package (Modelorrow_base), when there is one: their rebuild at
+    /// Save starts from it, and dropped every animation changed after the first borrow (Kurt, 2026-10-23: fidget02 from Thor
+    /// was Cap's again after Save, though the manifest listed it).
+    /// </summary>
+    void OnBorrowBase(string file, Func<string, byte[]?> change)
+    {
+        string kept = Path.Combine(WorkFolder, "borrow_base", file);
+        if (!File.Exists(kept)) return;
+        if (change(kept) is byte[] b) File.WriteAllBytes(kept, b);
     }
 
     void UseWorkCopy(string file, byte[] bytes)

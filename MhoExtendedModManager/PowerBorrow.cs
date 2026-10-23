@@ -1861,7 +1861,9 @@ static class PowerBorrow
         var dst = Package.FromBytes(package);
         string cls = e.Class.ToLowerInvariant(), def = "marvelgamecontent.default__" + cls;
         int ClassExport(Package p) => Array.FindIndex(p.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && p.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
-        if (ClassExport(dst) < 0)
+        // there already, perhaps renamed by Save's Make Unique (marvelattachment_thorhammer_<mod tag>): that one, by its own name
+        if (HeldClass(dst, cls) is int had && had >= 0) { cls = dst.Exports[had].ObjectName.ToLowerInvariant(); def = "marvelgamecontent.default__" + cls; }
+        else
         {
             var hp = Package.Open(fromPath);
             int ce = ClassExport(hp);
@@ -1885,6 +1887,7 @@ static class PowerBorrow
             if (FitModel(dst, def, scale, move, turn, log) is { } fitted) dst = fitted;
         // listed in the costume's own props
         int classRef = ClassExport(dst) + 1;
+        if (classRef <= 0) throw new InvalidDataException($"{e.Class} isn't in the package after copying");
         int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
         if (pd < 0) throw new InvalidDataException("the package has no player class default (not a costume)");
         byte[] pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
@@ -1909,7 +1912,7 @@ static class PowerBorrow
     public static byte[] RemoveProp(byte[] package, string cls, List<string> log)
     {
         var dst = Package.FromBytes(package);
-        int ce = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
+        int ce = HeldClass(dst, cls.ToLowerInvariant());
         int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
         if (ce < 0 || pd < 0) return package;
         byte[] pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
@@ -1926,6 +1929,28 @@ static class PowerBorrow
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{cls} taken off {dst.Exports[pd].ObjectName}'s props");
         return output;
+    }
+
+    /// <summary>
+    /// A prop class of the package: <paramref name="cls"/> itself, else one Save's Make Unique renamed (<paramref name="cls"/> +
+    /// "_" + the mod's tag) that the costume's own props list. -1 when there's none.
+    /// </summary>
+    static int HeldClass(Package p, string cls)
+    {
+        bool IsClass(int i) => p.ClassOf(p.Exports[i]).Equals("Class", StringComparison.OrdinalIgnoreCase);
+        int exact = Array.FindIndex(p.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase));
+        if (exact >= 0 && IsClass(exact)) return exact;
+        int pd = Array.FindIndex(p.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && p.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+        if (pd < 0) return -1;
+        byte[] pb = p.ReadExportBytes(p.Exports[pd]).ToArray();
+        if (TagWalker.Walk(p, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is not { } at) return -1;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt));
+        for (int k = 0; k < n; k++)
+        {
+            int r = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k));
+            if (r > 0 && p.Exports[r - 1].ObjectName.StartsWith(cls + "_", StringComparison.OrdinalIgnoreCase) && IsClass(r - 1)) return r - 1;
+        }
+        return -1;
     }
 
     /// <summary>The bones of the costume's own model (CostumeMesh), else of its first skeletal mesh.</summary>

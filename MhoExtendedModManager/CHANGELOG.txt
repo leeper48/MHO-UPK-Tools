@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.92
+- Animations tab: an animation changed on a costume that a borrowed look also changes is kept at Save (the borrow's rebuild started from its copy of the package before the change and dropped it); the change goes into that copy too.
+- Save and Keep Editing: a 3D view that showed unsaved copies reads the saved mod again (an added prop vanished from the view).
+- Added props: one Save's Make Unique renamed (…_<mod tag>) is recognized, so saving again doesn't copy it a second time; Remove finds it too.
+
 0.60.91
 - Animations tab Props: a prop build that finishes after a newer add or remove is dropped (a re-apply after a borrowed look's rebuild could put a removed prop back); Remove checks the package and says so.
 - --prop-tab-test, --remove-prop (scratch / read only).
