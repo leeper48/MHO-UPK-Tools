@@ -174,6 +174,9 @@ sealed partial class StorePreview
 
     /// <summary>Plays an animation from anywhere on the shown model (the Animations tab's picker: try another character's
     /// before using it). It shows at the top of the drop-down until the mesh's own list is shown again.</summary>
+    /// <summary>The animation showing (its name), or null.</summary>
+    public string? CurrentAnimationName => p3?.CurrentAnimation;
+
     public bool PlayRef(AnimRef a, bool play = true)
     {
         if (keepAnim is { } k) keepAnim = (k.Folder, k.Mesh, a, a.Name, 0, play);

@@ -17,6 +17,14 @@ sealed partial class ModEditorView
     readonly Label propNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 4) };
     readonly CheckBox propPin = new() { Text = "Pivot on the Hand", AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
     LightSlider? apSize, apX, apY, apZ, apTX, apTY, apTZ;
+    // In This Animation (Kurt, 2026-10-23, phase 2): the selected prop moved and turned further in the selected animation only
+    LightSlider? amX, amY, amZ, amTX, amTY, amTZ;
+    readonly Label animFitHead = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 10, 0, 2) };
+    readonly Label animFitNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 2, 0, 4), MaximumSize = new Size(420, 0) };
+    readonly DropDown animFitCopy = new() { ShowsSelection = false, Placeholder = "Copy From" };
+    Control? animFitTools;
+    /// <summary>The bone's axes in the character's, without the shown animation's own turn (filled with the sliders).</summary>
+    System.Numerics.Matrix4x4 amAxes = System.Numerics.Matrix4x4.Identity;
     Button? propRemove;
     bool propShowing;
     /// <summary>The prop's own axes in the character's when the sliders were filled (identity: the 3D view doesn't show it).</summary>
@@ -57,7 +65,37 @@ sealed partial class ModEditorView
         apTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw). Some props start turned for this hand (Thor's hammer). Double-click: back to that start.");
         Ui.Tip(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) hold the prop as that character holds it: in the hand where they hold it, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). Worked out from that character's own animation and baked into the copies. Look ▾ → Prop Pivots shows the pivot.");
         propPin.CheckedChanged += (_, _) => PinChanged();
-        box.Controls.AddRange([head, Toolbar(add, propRemove), propList, propPin, apSize, apX, apY, apZ, apTX, apTY, apTZ, propNote]);
+        LightSlider AnimSlider(string label, float min, float max, Func<float, string> format, string tip)
+        {
+            var sl = new LightSlider { Label = label, Min = min, Max = max, Step = 1, Mark = 0, Home = () => 0, Format = format, Width = (int)(320 * S), Height = (int)(30 * S), Margin = new Padding(0, 2, 0, 0) };
+            Ui.Tip(sl, tip);
+            sl.Committed += AnimFitCommitted;
+            return sl;
+        }
+        const string only = " In the selected animation only, on top of the prop's fit; baked into it on Save. Double-click: back to 0.";
+        amX = AnimSlider("Move X", -60, 60, Units, "Moves the prop along the global X axis (red on the axis gizmo), as it's held in the frame shown." + only);
+        amY = AnimSlider("Move Y", -60, 60, Units, "Moves the prop along the global Y axis (green on the axis gizmo), as it's held in the frame shown." + only);
+        amZ = AnimSlider("Move Z", -60, 60, Units, "Moves the prop along the global Z axis (blue on the axis gizmo: up), as it's held in the frame shown." + only);
+        amTX = AnimSlider("Turn X", -180, 180, Deg, "Turns the prop about the X axis of the bone it hangs on." + only);
+        amTY = AnimSlider("Turn Y", -180, 180, Deg, "Turns the prop about the Y axis of the bone it hangs on." + only);
+        amTZ = AnimSlider("Turn Z", -180, 180, Deg, "Turns the prop about the Z axis of the bone it hangs on." + only);
+        animFitHead.Font = Ui.Bold(8.5f);
+        Ui.Tip(animFitHead, "The prop moved and turned further in one animation (the row selected above), for a pose that wants it elsewhere. Needs Pivot on the Hand and an animation from another character (a Changed row).");
+        animFitCopy.Width = (int)(150 * S);
+        animFitCopy.Opening += (_, _) => FillAnimFitCopy();
+        animFitCopy.SelectedIndexChanged += (_, _) => { if (animFitCopy.SelectedItem is string from) CopyAnimFit(from); };
+        Ui.Tip(animFitCopy, "Start from another animation's adjustment of this prop (a copy: change it from there).");
+        var reset = Ui.FlatButton("Reset", ResetAnimFit, "This animation's adjustment back to none: the prop as its fit holds it.");
+        animFitTools = Toolbar(animFitCopy, reset);
+        // the fit (left) and this animation's adjustment (right), side by side so the list above keeps its room
+        var fitCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        fitCol.Controls.AddRange([propPin, apSize, apX, apY, apZ, apTX, apTY, apTZ]);
+        var animCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding((int)(24 * S), 0, 0, 0) };
+        animFitHead.Margin = new Padding(0, 6, 0, 2);
+        animCol.Controls.AddRange([animFitHead, animFitNote, amX, amY, amZ, amTX, amTY, amTZ, animFitTools]);
+        var cols = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0) };
+        cols.Controls.AddRange([fitCol, animCol]);
+        box.Controls.AddRange([head, Toolbar(add, propRemove), propList, cols, propNote]);
         FillPropList();
         return box;
     }
@@ -87,6 +125,7 @@ sealed partial class ModEditorView
         foreach (var sl in new[] { apSize, apX, apY, apZ, apTX, apTY, apTZ }) if (sl != null) sl.Visible = on;
         propPin.Visible = on;
         if (propRemove != null) propRemove.Enabled = on;
+        ShowAnimFit();
         propNote.Text = on ? "" : "No props added to this costume.";
         if (e == null || apSize == null || apX == null || apY == null || apZ == null || apTX == null || apTY == null || apTZ == null) return;
         propShowing = true;
@@ -95,7 +134,7 @@ sealed partial class ModEditorView
             var f = e.Fit;
             apSize.Value = f.Scale is float s && s > 0 ? s : 1;
             // global axes: the prop's own move shown along the character's axes, as it's held now
-            apAxes = (animPreview?.Visible == true ? animPreview.PropFrame(e.Class) : powerPreview?.PropFrame(e.Class)) is { } pf ? Turn(pf) : System.Numerics.Matrix4x4.Identity;
+            apAxes = (animPreview?.Visible == true ? animPreview.PropFrame(e.Class) : powerPreview?.PropFrame(e.Class)) is { } pf ? Turn(WithoutAnimFit(e, pf)) : System.Numerics.Matrix4x4.Identity;
             var w = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(f.X, f.Y, f.Z), apAxes);
             apX.Value = w.X; apY.Value = w.Y; apZ.Value = w.Z;
             float dz = PowerBorrow.DefaultTurnZ(e.Class);
@@ -114,6 +153,93 @@ sealed partial class ModEditorView
         e.Fit.X = MathF.Round(own.X, 2); e.Fit.Y = MathF.Round(own.Y, 2); e.Fit.Z = MathF.Round(own.Z, 2);
         e.Fit.TurnX = apTX.Value; e.Fit.TurnY = apTY.Value; e.Fit.TurnZ = apTZ.Value;
         _ = ApplyPropsTo(e.Package);
+    }
+
+    // ---- In This Animation (phase 2) --------------------------------------------------------------------------------------------
+
+    /// <summary>The selected animation's slot when the selected prop can be adjusted in it (Pivot on the Hand, an animation
+    /// from another character), else null; <paramref name="why"/> says what's missing.</summary>
+    string? AnimFitSlot(AddedPropEntry? e, out string why)
+    {
+        why = "";
+        string? slot = SelectedAnim?.Name;
+        if (e == null) return null;
+        if (!e.Fit.PinPivot) { why = "Tick Pivot on the Hand to adjust the prop in one animation."; return null; }
+        if (slot == null || AnimFile is not string file || DonorsOf(file)(slot) == null) { why = "Pick an animation changed to another character's (a Changed row) to adjust the prop in it only."; return null; }
+        return slot;
+    }
+
+    static PropAnimFit? AnimFitOf(AddedPropEntry e, string? slot) => slot == null ? null : e.Anims?.FirstOrDefault(a => a.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A prop's frame as shown, without the shown animation's own adjustment (the bone's frame).</summary>
+    System.Numerics.Matrix4x4 WithoutAnimFit(AddedPropEntry e, System.Numerics.Matrix4x4 frame)
+    {
+        if (AnimFitOf(e, animPreview?.Visible == true ? animPreview.CurrentAnimationName : null) is not { IsZero: false } a) return frame;
+        return System.Numerics.Matrix4x4.Invert(a.Matrix(), out var inv) ? inv * frame : frame;
+    }
+
+    void ShowAnimFit()
+    {
+        if (amX == null || amY == null || amZ == null || amTX == null || amTY == null || amTZ == null || animFitTools == null) return;
+        var e = propList.SelectedItem as AddedPropEntry;
+        string? slot = AnimFitSlot(e, out string why);
+        bool can = slot != null;
+        animFitHead.Visible = e != null;
+        animFitHead.Text = SelectedAnim?.Name is string n ? "IN THIS ANIMATION: " + n.ToUpperInvariant() : "IN THIS ANIMATION";
+        foreach (var c in new Control[] { amX, amY, amZ, amTX, amTY, amTZ, animFitTools }) c.Visible = can;
+        animFitNote.Text = e == null ? "" : why;
+        animFitNote.Visible = e != null && why.Length > 0;
+        if (!can || e == null) return;
+        var a = AnimFitOf(e, slot) ?? new PropAnimFit();
+        propShowing = true;
+        try
+        {
+            amAxes = animPreview?.PropFrame(e.Class) is { } pf ? Turn(WithoutAnimFit(e, pf)) : System.Numerics.Matrix4x4.Identity;
+            var w = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(a.X, a.Y, a.Z), amAxes);
+            amX.Value = w.X; amY.Value = w.Y; amZ.Value = w.Z;
+            amTX.Value = a.TurnX; amTY.Value = a.TurnY; amTZ.Value = a.TurnZ;
+        }
+        finally { propShowing = false; }
+    }
+
+    /// <summary>An In This Animation slider let go: the adjustment into the prop's list (none when back to zero), built again.</summary>
+    void AnimFitCommitted()
+    {
+        if (propShowing || propList.SelectedItem is not AddedPropEntry e || AnimFitSlot(e, out _) is not string slot
+            || amX == null || amY == null || amZ == null || amTX == null || amTY == null || amTZ == null) return;
+        var own = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(amX.Value, amY.Value, amZ.Value), System.Numerics.Matrix4x4.Transpose(amAxes));
+        SetAnimFit(e, slot, new PropAnimFit { Slot = slot, X = MathF.Round(own.X, 2), Y = MathF.Round(own.Y, 2), Z = MathF.Round(own.Z, 2), TurnX = amTX.Value, TurnY = amTY.Value, TurnZ = amTZ.Value });
+    }
+
+    void SetAnimFit(AddedPropEntry e, string slot, PropAnimFit? a)
+    {
+        var list = e.Anims ?? [];
+        list.RemoveAll(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase));
+        if (a is { IsZero: false }) list.Add(a);
+        e.Anims = list.Count > 0 ? list : null;
+        _ = ApplyPropsTo(e.Package);
+    }
+
+    void FillAnimFitCopy()
+    {
+        animFitCopy.Items.Clear();
+        if (propList.SelectedItem is not AddedPropEntry e) return;
+        string? slot = SelectedAnim?.Name;
+        animFitCopy.Items.AddRange([.. (e.Anims ?? []).Where(a => !a.IsZero && !a.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase)).Select(a => (object)a.Slot)]);
+    }
+
+    void CopyAnimFit(string from)
+    {
+        if (propList.SelectedItem is not AddedPropEntry e || AnimFitSlot(e, out _) is not string slot || AnimFitOf(e, from) is not { } src) return;
+        SetAnimFit(e, slot, new PropAnimFit { Slot = slot, X = src.X, Y = src.Y, Z = src.Z, TurnX = src.TurnX, TurnY = src.TurnY, TurnZ = src.TurnZ });
+        ShowAnimFit();
+    }
+
+    void ResetAnimFit()
+    {
+        if (propList.SelectedItem is not AddedPropEntry e || AnimFitSlot(e, out _) is not string slot) return;
+        SetAnimFit(e, slot, null);
+        ShowAnimFit();
     }
 
     // ---- Test hooks (--prop-tab-test, scratch libraries only)
@@ -156,6 +282,17 @@ sealed partial class ModEditorView
     List<string> propLastLog = [];
     internal string PropTestLog() => string.Join(" / ", propLastLog);
     internal string PropTestPinState() => $"box {propPin.Checked}, draft [{string.Join(", ", draft.AddedProps.Select(p => p.Package + ":" + p.Fit.PinPivot))}]";
+    /// <summary>Tests: an In This Animation adjustment on <paramref name="slot"/> (in the bone's own frame), applied.</summary>
+    internal async Task PropTestAnimFit(string slot, float x, float y, float z, float turnX)
+    {
+        if (propList.SelectedItem is not AddedPropEntry e) return;
+        PropTestSelect(slot);
+        await Task.Delay(1500);
+        SetAnimFit(e, slot, new PropAnimFit { Slot = slot, X = x, Y = y, Z = z, TurnX = turnX });
+        await Task.Delay(8000);
+        ShowAnimFit();
+    }
+    internal string PropTestAnimFitState() => $"note '{animFitNote.Text}', head '{animFitHead.Text}', sliders {(amX?.Visible == true ? "shown" : "hidden")}, anims [{string.Join(", ", (propList.SelectedItem as AddedPropEntry)?.Anims?.Select(a => $"{a.Slot} {a.X}/{a.Y}/{a.Z} {a.TurnX}°") ?? [])}]";
     internal async Task PropTestRemove()
     {
         if (propList.Items.Count > 0) propList.SelectedIndex = 0;
@@ -214,10 +351,14 @@ sealed partial class ModEditorView
 
     /// <summary>Pivot on the Hand for <paramref name="package"/> (its skeleton read from <paramref name="path"/>): the prop's
     /// bones held in the copied animations, baked in (PropHold).</summary>
-    Func<byte[], IReadOnlyList<string>, System.Numerics.Matrix4x4, List<string>, byte[]> Hold(string package, string path)
+    Func<byte[], AddedPropEntry, IReadOnlyList<string>, List<string>, byte[]> Hold(string package, string path)
     {
         var donors = DonorsOf(package);
-        return (b, bones, fit, l) => PropHold.Apply(b, bones, true, donors, PowerBorrow.HeroSkeleton(path), l, fit);
+        return (b, e, bones, l) =>
+        {
+            var anims = (e.Anims ?? []).Where(a => !a.IsZero).ToDictionary(a => a.Slot, a => a.Matrix(), StringComparer.OrdinalIgnoreCase);
+            return PropHold.Apply(b, bones, true, donors, PowerBorrow.HeroSkeleton(path), l, PowerBorrow.FitMatrix(e), slot => anims.TryGetValue(slot, out var m) ? m : null);
+        };
     }
 
     /// <summary>Pivot on the Hand off: the copied animations' own keys of the prop's bones back (PropHold).</summary>

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.106
+- Animations tab: In This Animation, beside an added prop's fit: move and turn the prop further in the selected animation only (Copy From another animation's, Reset), baked into it. For animations from another character with Pivot on the Hand.
+
 0.60.105
 - Animations tab: Pivot on the Hand now holds an added prop the way the animations' own character holds it, baked in frame by frame: in the hand where theirs is held, swinging where theirs swings (Thor's hammer swings by its strap in his fidget02 on Captain America). Animations of a borrowed power keep it still in the hand as before.
 

@@ -990,6 +990,10 @@ sealed partial class MainForm
         await Task.Delay(8000);
         lines.Add("changed fidget02 (pinned): " + ed.PropTestState());
         lines.Add("prop log: " + ed.PropTestLog());
+        // In This Animation: fidget02 only, its hammer 10 up the bone's Z and turned 30 degrees about its X
+        await ed.PropTestAnimFit("fidget02", 0, 0, 10, 30);
+        lines.Add("fidget02 adjusted: " + ed.PropTestAnimFitState() + " | " + ed.PropTestState());
+        { using var b = new Bitmap(Width, Height); DrawToBitmap(b, new Rectangle(0, 0, Width, Height)); b.Save(Path.Combine(dir, "anim_fit.png")); }
         ed.SaveStayForTest();
         await Task.Delay(30000);
         string man = File.ReadAllText(Path.Combine(m.Folder, "manifest.json"));

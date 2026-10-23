@@ -72,6 +72,7 @@ sealed partial class ModEditorView
             var a = SelectedAnim;
             if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
             if (animChange != null) animChange.Enabled = a != null && a.From.Alias == null;   // (a form's set: not changeable yet)
+            ShowAnimFit();   // (the prop's In This Animation follows the row)
             if (a == null || animPreview == null) return;
             // A change not saved yet is in a work copy: played from there (the 3D view shows the saved mod).
             // (a form's animation: always from its own set, the 3D view's list holds the normal one of that name)

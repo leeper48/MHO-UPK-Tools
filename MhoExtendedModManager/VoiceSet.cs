@@ -80,6 +80,37 @@ sealed class AddedPropEntry
     public string? Slot { get; set; }
     /// <summary>Its fit (size, move, turn; Class unused).</summary>
     public PropFit Fit { get; set; } = new();
+    /// <summary>Per animation, a further move and turn (Kurt, 2026-10-23: a pose that wants the prop elsewhere), baked into
+    /// that animation only (PropHold, with Pivot on the Hand); null when none.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<PropAnimFit>? Anims { get; set; }
+}
+
+/// <summary>An added prop's adjustment in one animation (its slot): moved along and turned about the bone it hangs on
+/// (game units, degrees), on top of its fit.</summary>
+sealed class PropAnimFit
+{
+    public string Slot { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float X { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Y { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float Z { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float TurnX { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float TurnY { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float TurnZ { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsZero => X == 0 && Y == 0 && Z == 0 && TurnX == 0 && TurnY == 0 && TurnZ == 0;
+    /// <summary>As a matrix in the bone's own frame: turned about its origin (as a fit's turn), then moved.</summary>
+    public System.Numerics.Matrix4x4 Matrix()
+    {
+        static int Units(float deg) => (int)MathF.Round(deg / 360f * 65536f);
+        return ModMeshes.Rotator(Units(TurnY), Units(TurnZ), Units(TurnX)) * System.Numerics.Matrix4x4.CreateTranslation(X, Y, Z);
+    }
 }
 
 sealed class PropFit

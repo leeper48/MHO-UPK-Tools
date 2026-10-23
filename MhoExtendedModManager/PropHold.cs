@@ -36,7 +36,9 @@ static class PropHold
     /// </summary>
     /// <param name="fit">The prop's fit on the bone (PowerBorrow.FitMatrix): the donor's motion is taken in the prop's own
     /// frame, so it pivots where the donor's does (the hammer's strap) whatever its size and turn in this hand.</param>
-    public static byte[] Apply(byte[] package, IReadOnlyList<string> bones, bool hold, Func<string, Donor?> donorFor, IReadOnlyList<MeshBone>? target, List<string> log, Matrix4x4? fit = null)
+    /// <param name="extra">Per animation (its slot), a further move and turn in the bone's own frame (PropAnimFit), or null.</param>
+    public static byte[] Apply(byte[] package, IReadOnlyList<string> bones, bool hold, Func<string, Donor?> donorFor, IReadOnlyList<MeshBone>? target, List<string> log, Matrix4x4? fit = null,
+        Func<string, Matrix4x4?>? extra = null)
     {
         var use = bones.Where(b => !b.Equals("none", StringComparison.OrdinalIgnoreCase) && !b.Equals("root", StringComparison.OrdinalIgnoreCase)).ToList();
         if (use.Count == 0) return package;
@@ -87,7 +89,7 @@ static class PropHold
                 else if (DataFor(dn.Package) is not { } dd) why = "the source's skeleton doesn't read";
                 else
                     foreach (string bone in use)
-                        if (!Rewrite(p, d, trackNames, bone, hold, dn, dd, target!, fit ?? Matrix4x4.Identity, out why)) break;
+                        if (!Rewrite(p, d, trackNames, bone, hold, dn, dd, target!, fit ?? Matrix4x4.Identity, (hold ? extra?.Invoke(slot) : null) ?? Matrix4x4.Identity, out why)) break;
                 if (why.Length > 0) { all = false; notes.Add($"{slot}: {why}"); break; }
                 done[s] = d;
             }
@@ -120,7 +122,7 @@ static class PropHold
     /// One copied animation's keys of <paramref name="bone"/> rewritten in place (plain float keys: positions ACF_None,
     /// rotations Float96NoW, not per-track; the key counts as stored), from the donor's animation of the same keys.
     /// </summary>
-    static bool Rewrite(Package p, byte[] d, List<string> trackNames, string bone, bool hold, Donor dn, DonorData dd, IReadOnlyList<MeshBone> target, Matrix4x4 fit, out string why)
+    static bool Rewrite(Package p, byte[] d, List<string> trackNames, string bone, bool hold, Donor dn, DonorData dd, IReadOnlyList<MeshBone> target, Matrix4x4 fit, Matrix4x4 extra, out string why)
     {
         why = "";
         int ti = trackNames.FindIndex(n => n.Equals(bone, StringComparison.OrdinalIgnoreCase));
@@ -185,7 +187,8 @@ static class PropHold
             var mine = Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(target[tb].Orientation)) * Matrix4x4.CreateTranslation(target[tb].Position);
             // the donor's move off its grip, in the bone's (the prop's) own frame: rel = move × grip; here the same move in the
             // fitted prop's frame, from this skeleton's grip
-            Matrix4x4 Local(float frame) => fitInv * (Rel(da, frame) * gripInv) * fit * mine;
+            // (then this animation's own adjustment, in the bone's frame)
+            Matrix4x4 Local(float frame) => extra * fitInv * (Rel(da, frame) * gripInv) * fit * mine;
             for (int k = 0; k < pos.Length; k++) pos[k] = Local(track.PositionKeys[k].TimeFrame).Translation;
             rot = new Quaternion[track.RotationKeys.Count];
             for (int k = 0; k < rot.Length; k++)
