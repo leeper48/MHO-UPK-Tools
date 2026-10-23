@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.93
+- Save and Keep Editing with a borrowed look: the Powers tab's preview no longer falls back to the stock power (it read the borrow's preview builds, which Save deletes), and Prop Fit comes back (the borrow is built again once to know its props).
+
 0.60.92
 - Animations tab: an animation changed on a costume that a borrowed look also changes is kept at Save (the borrow's rebuild started from its copy of the package before the change and dropped it); the change goes into that copy too.
 - Save and Keep Editing: a 3D view that showed unsaved copies reads the saved mod again (an added prop vanished from the view).

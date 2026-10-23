@@ -339,7 +339,15 @@ sealed partial class ModEditorView : UserControl
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
         if (partsWork != null) try { Directory.Delete(partsWork, true); } catch (IOException) { }
         if (propsWork != null) try { Directory.Delete(propsWork, true); } catch (IOException) { }
-        if (saved != null) propTouched.Clear();
+        if (saved != null)
+        {
+            propTouched.Clear();
+            // the borrowed looks' preview builds were deleted above: the saved mod has them now; built again (once) when the
+            // Powers tab shows a borrow, so its Prop Fit knows the props (Kurt, 2026-10-23: after Save the view fell back to
+            // the stock throw and Prop Fit vanished)
+            borrowFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            fitBuilt.Clear();
+        }
         foreach (string? bw in new[] { borrowWorkSave, saved != null ? borrowWork : null })
             if (bw != null) try { Directory.Delete(bw, true); } catch (IOException) { }
         if (saved != null) borrowWork = null;

@@ -42,7 +42,7 @@ sealed partial class StorePreview
     /// <paramref name="skip"/> leaves out SkipModFile's.</summary>
     List<(string File, string Path)> ModPackages(Mod m, bool skip = false)
     {
-        var over = OverrideFiles?.Invoke() ?? new Dictionary<string, string>();
+        var over = (OverrideFiles?.Invoke() ?? new Dictionary<string, string>()).Where(kv => File.Exists(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);   // (a build deleted after Save: the saved file)
         var list = m.Manifest.UpkReplacements.Where(f => !skip || SkipModFile?.Invoke(f) != true)
             .Select(f => (f, over.TryGetValue(f, out var o) ? o : Path.Combine(m.Folder, f))).ToList();
         foreach (var (f, p) in over) if (!list.Any(x => x.f.Equals(f, StringComparison.OrdinalIgnoreCase))) list.Add((f, p));
