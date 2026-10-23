@@ -68,7 +68,7 @@ static class FbxExport
             texFiles[sec.Material] = png;
         }
         string model = Path.Combine(outDir, "model.fbx");
-        WriteModel(model, r, mesh, lod, texFiles);
+        WriteModel(model, [.. r.Sections.Select(s => s.Material)], mesh, lod, texFiles);
         log($"model: {model} ({lod.Positions.Count:N0} vertices, {r.Sections.Count} sections, {bones.Count} bones, {texFiles.Count} textures)");
 
         // the animations
@@ -162,7 +162,7 @@ static class FbxExport
 
     /// <summary>The model: FbxExporter's scene (same skeleton, axes, skin, winding) plus a material per section with its
     /// colour map.</summary>
-    static void WriteModel(string path, Retargeted r, SkeletalMesh mesh, SkeletalMeshLod lod, Dictionary<string, string> tex)
+    internal static void WriteModel(string path, IReadOnlyList<string> sectionMaterials, SkeletalMesh mesh, SkeletalMeshLod lod, Dictionary<string, string> tex)
     {
         var scene = new Scene { RootNode = new Node("Scene") };
         var rest = SkeletonPose.Rest(mesh.Bones);
@@ -182,7 +182,7 @@ static class FbxExport
             var used = new Dictionary<int, int>(); var order = new List<int>();
             for (int c = section.BaseIndex; c < section.BaseIndex + section.TriangleCount * 3; c++)
                 if (used.TryAdd(lod.Indices[c], order.Count)) order.Add(lod.Indices[c]);
-            var part = new AssimpMesh(SafeName(r.Sections[s].Material), PrimitiveType.Triangle);
+            var part = new AssimpMesh(SafeName(sectionMaterials[s]), PrimitiveType.Triangle);
             foreach (int v in order)
             {
                 var p = FbxExporter.ToFileSpace(lod.Positions[v]); var n = FbxExporter.ToFileSpace(lod.Normals[v]);
@@ -209,8 +209,8 @@ static class FbxExport
                 if (!byBone.ContainsKey(b)) byBone[b] = new Assimp.Bone { Name = mesh.Bones[b].Name, OffsetMatrix = ToAssimp(FbxExporter.ToFileSpace(rest.ModelToBone[b])) };
             foreach (var bone in byBone.OrderBy(kv => kv.Key).Select(kv => kv.Value)) part.Bones.Add(bone);
 
-            var mat = new Material { Name = SafeName(r.Sections[s].Material) };
-            if (tex.TryGetValue(r.Sections[s].Material, out var file))
+            var mat = new Material { Name = SafeName(sectionMaterials[s]) };
+            if (tex.TryGetValue(sectionMaterials[s], out var file))
                 mat.TextureDiffuse = new TextureSlot(file, TextureType.Diffuse, 0, TextureMapping.FromUV, 0, 1f, TextureOperation.Multiply, TextureWrapMode.Wrap, TextureWrapMode.Wrap, 0);
             part.MaterialIndex = scene.MaterialCount;
             scene.Materials.Add(mat);

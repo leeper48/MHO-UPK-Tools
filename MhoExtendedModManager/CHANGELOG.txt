@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.72
+- Model tab: Source → From the Game: a hero costume, team-up or NPC from the game as the source (its model with its color, normal, spec and glow maps), fitted onto the target like an FBX with the game's bones.
+
 0.60.71
 - Model tab: Keep the Source's Size (under Size in Game): an MFF model keeps its own size against the other MFF characters instead of being fitted to the target's height (Hulk on Black Widow stays Hulk-sized).
 - Model tab: the automatic Feet amount is measured on the model posed in the hero's idle, as the preview shows it (it lowered Hulk on Black Widow into the floor before); Build uses the amount the slider shows.

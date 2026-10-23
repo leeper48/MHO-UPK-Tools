@@ -60,6 +60,9 @@ sealed partial class ModelPage : UserControl
     /// <summary>Where models come from (0.11.3, Kurt: "MFF or FBX as the source"; MSF / MCoC may follow).</summary>
     readonly DropDown sourceKind = new() { Width = 220 };
     bool FbxMode => sourceKind.SelectedIndex == 1;
+    /// <summary>From the Game (Kurt, 2026-10-23): a player costume, team-up or NPC as the source (GameSource).</summary>
+    bool GameMode => sourceKind.SelectedIndex == 2;
+    const string GameSrc = "gamesrc:";
     /// <summary>The FBX file in use as the source (FBX mode); null in MFF mode.</summary>
     string? sourceFbx;
     /// <summary>A source is picked: an MFF model, or an FBX file.</summary>
@@ -309,13 +312,14 @@ sealed partial class ModelPage : UserControl
         characterFilter.TextChanged += (_, _) => FillCharacters();
         heroesOnly.CheckedChanged += (_, _) => FillCharacters();
         // (Kurt, 2026-10-05: "MFF Repository" for the bulk library, "Single Model" for one FBX file or one MFF character folder)
-        sourceKind.Items.AddRange(["MFF Repository", "Single Model"]);
+        sourceKind.Items.AddRange(["MFF Repository", "Single Model", "From the Game"]);
         sourceKind.SelectedIndex = 0;
-        Ui.Tip(sourceKind, "Where the model comes from: MFF Repository = a character from your MFF repository folder (retargeted onto the base hero); Single Model = one FBX file (MHO, Mixamo or other skeleton, or no armature) or one MFF character folder picked on its own.");
+        Ui.Tip(sourceKind, "Where the model comes from: MFF Repository = a character from your MFF repository folder (retargeted onto the base hero); Single Model = one FBX file (MHO, Mixamo or other skeleton, or no armature) or one MFF character folder picked on its own; From the Game = a hero costume, team-up or NPC from the game (its model and maps, fitted onto the target like an FBX with MHO bones).");
         sourceKind.SelectedIndexChanged += (_, _) =>
         {
             chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
-            heroesOnly.Visible = !FbxMode; smooth.Enabled = !FbxMode; if (FbxMode) smooth.Checked = false;
+            bool mff = sourceKind.SelectedIndex == 0;
+            heroesOnly.Visible = mff; smooth.Enabled = mff; if (!mff) smooth.Checked = false;
             characterFilter.Text = "";
             FillCharacters(); UpdateStatus(); SchedulePreview();
         };
@@ -332,6 +336,7 @@ sealed partial class ModelPage : UserControl
             if (e.KeyCode is Keys.Enter or Keys.Space && characters.SelectedItem is CharacterList.Item { Header: true } h) { ToggleGroup(h); e.Handled = true; }
         };
         characters.Thumb = it => it.Key.StartsWith("browse") ? null
+            : GameMode ? Thumbs.BaseHero(it.ThumbKey ?? it.Key)
             : it.Key.StartsWith("fbx:") ? (File.Exists(it.Key[4..]) ? Thumbs.Fbx(it.Key[4..]) : null)   // (its color map: Kurt, 2026-10-04)
             : it.Key.StartsWith(MffDir) ? (Directory.Exists(it.Key[MffDir.Length..]) ? Thumbs.Model(it.Key[MffDir.Length..]) : null)
             : Thumbs.Model(it.ThumbKey ?? it.Key);
@@ -556,6 +561,7 @@ sealed partial class ModelPage : UserControl
     void FillCharacters()
     {
         if (FbxMode) { FillFbx(); return; }
+        if (GameMode) { FillGameSources(); return; }
         string f = characterFilter.Text.Trim();
         int top = characters.TopIndex;
         characters.BeginUpdate(); characters.Items.Clear();
@@ -610,6 +616,50 @@ sealed partial class ModelPage : UserControl
         }
         characters.EndUpdate();
         if (chosenKey != null) Reselect(characters, chosenKey);
+    }
+
+    /// <summary>From the Game's list: the same heroes, team-ups and NPCs as the target's game list, one header per hero with
+    /// several packages.</summary>
+    void FillGameSources()
+    {
+        string f = new string(characterFilter.Text.Where(char.IsLetterOrDigit).ToArray());
+        int top = characters.TopIndex;
+        characters.BeginUpdate(); characters.Items.Clear();
+        var shown = allPackages.Where(p => f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase));
+        var groups = shown.GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase);
+        if (f.Length > 0) groups = groups.OrderBy(g => g.Min(p => TargetKind(p.File)));
+        foreach (var g in groups)
+        {
+            var list = g.ToList();
+            if (list.Count == 1) { var p = list[0]; characters.Items.Add(new CharacterList.Item(GameSrc + p.File, p.Title, p.Detail, ThumbKey: p.File)); continue; }
+            bool open = f.Length > 0 || expanded.Contains("game " + g.Key) || list.Any(p => (GameSrc + p.File).Equals(chosenKey ?? pendingState?.Source, StringComparison.OrdinalIgnoreCase));
+            var first = list.FirstOrDefault(p => p.Detail.StartsWith("Base Package", StringComparison.OrdinalIgnoreCase));
+            characters.Items.Add(new CharacterList.Item("group:game " + g.Key, list[0].Title, $"{list.Count} packages", Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
+            if (open)
+                foreach (var p in list)
+                {
+                    int dot = p.Detail.IndexOf(" · ", StringComparison.Ordinal);
+                    characters.Items.Add(new CharacterList.Item(GameSrc + p.File, dot > 0 ? p.Detail[..dot] : p.Detail, dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1, ThumbKey: p.File));
+                }
+        }
+        characters.EndUpdate();
+        if (chosenKey != null) Reselect(characters, chosenKey);
+        if (top < characters.Items.Count && f.Length == 0) characters.TopIndex = top;
+    }
+
+    /// <summary>A game package picked as the source: its character written as an FBX once (GameSource), then read as one.</summary>
+    async void GameChosen(string key)
+    {
+        string file = key[GameSrc.Length..];
+        chosenKey = key; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); UpdateStatus();
+        status.Text = "Loading…";
+        string fbx;
+        using (Busy.Begin($"Model: reading {file} from the game"))
+            try { fbx = await Task.Run(() => GameSource.Export(file, line => BeginInvoke(() => Log(line)))); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+            { Log($"{file}: {ex.Message}"); UpdateStatus(); return; }
+        if (chosenKey != key) return;
+        FbxChosen(key, fbx);
     }
 
     /// <summary>A click on a group header folds it open or shut (the chosen model stays chosen).</summary>
@@ -699,6 +749,7 @@ sealed partial class ModelPage : UserControl
         if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Key == chosenKey) return;
         if (it.Key == "browse:") { BrowseFbx(); return; }
         if (it.Key.StartsWith("fbx:")) { FbxChosen(it.Key); return; }
+        if (it.Key.StartsWith(GameSrc)) { GameChosen(it.Key); return; }
         chosenKey = it.Key; sourceFbx = null; unrigged = null;
         model = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
@@ -781,9 +832,10 @@ sealed partial class ModelPage : UserControl
 
     /// <summary>An FBX file as the source: its meshes become the parts (all ticked); the base hero is suggested from an
     /// export's folder name ("… on UC__…").</summary>
-    async void FbxChosen(string key)
+    /// <param name="file">The FBX, when the key isn't "fbx:" + it (From the Game).</param>
+    async void FbxChosen(string key, string? file = null)
     {
-        string file = key[4..];
+        file ??= key[4..];
         chosenKey = key; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
         using var busy = Busy.Begin("Model: loading the model");
@@ -853,7 +905,7 @@ sealed partial class ModelPage : UserControl
         bool ready = HasSource && ChosenPackage != null && !building;
         buildButton.Enabled = ready || (ChosenPackage != null && !building);   // no source: the size only
         fbxButton.Enabled = ready;
-        status.Text = building ? "Building…" : !HasSource ? (ChosenPackage != null ? "No source: Build into Mod writes only the size." : FbxMode ? "Pick an FBX or an MFF folder." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
+        status.Text = building ? "Building…" : !HasSource ? (ChosenPackage != null ? "No source: Build into Mod writes only the size." : FbxMode ? "Pick an FBX or an MFF folder." : GameMode ? "Pick a character from the game." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
         status.ForeColor = Ui.Subtle;
     }
 

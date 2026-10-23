@@ -445,7 +445,8 @@ sealed partial class ModelPage
         restoring2 = false;
         if (st.Source == null) { if (st.Package != null) AssumeBuilt(); return; }
         pendingState = st;
-        if (st.Source.StartsWith("fbx:") || st.Source.StartsWith(MffDir)) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
+        if (st.Source.StartsWith(GameSrc)) { if (!GameMode) sourceKind.SelectedIndex = 2; }
+        else if (st.Source.StartsWith("fbx:") || st.Source.StartsWith(MffDir)) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
         else characterFilter.Text = st.Source;
         Reselect(characters, st.Source);
     }

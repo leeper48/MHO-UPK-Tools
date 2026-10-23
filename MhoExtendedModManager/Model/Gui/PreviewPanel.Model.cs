@@ -114,7 +114,7 @@ sealed partial class PreviewPanel
 
     /// <summary>A costume package without a mesh of its own (Carnage Classic: 2.7 KB, its class and component only; the mesh
     /// is its hero's) is shown with its hero's base package (the copy beside it, else the game's); any other package as it is.</summary>
-    static string MeshPackage(string packagePath)
+    internal static string MeshPackage(string packagePath)
     {
         try
         {

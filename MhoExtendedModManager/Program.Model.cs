@@ -569,6 +569,20 @@ static partial class Program
                 try { Directory.Delete(outDir, true); } catch (IOException) { }
                 return built == null ? 1 : 0;
             }
+            case "--game-source":
+            {
+                // --game-source <game package> [target package] (scratch MHO_EXTMM_HOME): the Model tab's From the Game source:
+                // the package's character written as an FBX source, then prepared onto the target as the preview does
+                if (rest.Count < 2) { Console.WriteLine("--game-source <game package> [target package]"); return 1; }
+                MhoExtendedModManager.Model.Settings.Reset();
+                string fbx = MhoExtendedModManager.Model.GameSource.Export(rest[1], Console.WriteLine);
+                foreach (var f in Directory.GetFiles(Path.GetDirectoryName(fbx)!)) Console.WriteLine($"  {Path.GetFileName(f)}  {new FileInfo(f).Length:N0}");
+                if (rest.Count < 3) return 0;
+                string pkg = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
+                var prep = MhoExtendedModManager.Model.Gui.PreviewPanel.PrepareFbx(fbx, null, pkg, null);
+                Console.WriteLine($"prepared onto {rest[2]}: {prep.Mesh.Info}, feet {prep.Feet:+0.0;-0.0;0}");
+                return 0;
+            }
             case "--fbx-thumb":
             {
                 // --fbx-thumb <fbx> <out.png> (scratch MHO_EXTMM_HOME): the source list's thumbnail of an FBX (its color map)
