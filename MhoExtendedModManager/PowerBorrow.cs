@@ -87,7 +87,7 @@ static class PowerBorrow
             var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
             if (ownClass.Count > 0) log.Add($"stock look kept for {string.Join(", ", ownClass)} (costumes of their own class)");
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
-                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass);
+                e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass, keepWeapons: e.KeepWeapons);
             e.Spawned = spawned;
             // the hero's own ride (Hawkeye's Sky-Cycle): shown by the travel power's condition and hidden again by the power's
             // own components, which the borrow replaces, so it stayed under him after the power ended (Kurt, 2026-10-22):
@@ -517,7 +517,7 @@ static class PowerBorrow
     /// </summary>
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
         IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
-        IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null)
+        IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -543,7 +543,8 @@ static class PowerBorrow
             // (MHO_BORROW_VEHICLE_SCALE_FORCE=<n>: that scale instead, to see whether it reaches the vehicle at all)
             if (float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE_FORCE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vforce) && vforce > 0) vscale = vforce;
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
-            if (crossHero && pr.Role == "power" && cooked != null) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
+            if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
+            else if (crossHero && pr.Role == "power" && keepWeapons) log.Add("  this hero's weapons stay shown while the power runs (Keep This Hero's Weapons)");
             // every prop the power now brings (a spawned vehicle or weapon, the donor's own shown ones): its fit
             if (crossHero && pr.Role == "power")
             {

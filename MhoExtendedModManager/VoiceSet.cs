@@ -26,6 +26,11 @@ sealed class PowerBorrowEntry
     public bool KeepTiming { get; set; }
     /// <summary>The donor's animation played at the rate that fits it to the target's own (whole-power borrows).</summary>
     public bool Fit { get; set; } = true;
+    /// <summary>Keep This Hero's Weapons (Kurt, 2026-10-23: Cap's shield vanished during Hammer of Storms): the weapons this
+    /// hero always holds stay shown while the borrowed power runs (they're hidden by default: the other hero's animation
+    /// isn't made to hold them).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool KeepWeapons { get; set; }
     /// <summary>The hero parts of the two heroes' base packages (UC__MarvelPlayer_&lt;hero&gt;_SF): not always the prototype
     /// folder's name (Captain Marvel's is MsMarvel). Null: worked out at the build.</summary>
     public string? Hero { get; set; }

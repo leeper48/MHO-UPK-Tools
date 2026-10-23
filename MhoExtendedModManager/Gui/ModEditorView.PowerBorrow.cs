@@ -21,6 +21,7 @@ sealed partial class ModEditorView
     readonly FlowLayoutPanel riderFit = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Visible = false, Margin = new Padding(0, 4, 0, 0) };
     readonly DropDown propPick = new() { Width = 320 };
     LightSlider? pSize, pX, pY, pZ, pTX, pTY, pTZ, vForward, vUp, vLean;
+    readonly CheckBox keepWeapons = new() { Text = "Keep This Hero's Weapons", AutoSize = true, Margin = new Padding(0, 6, 0, 2), Visible = false };
     readonly CheckBox pinPivot = new() { Text = "Pivot on the Hand", AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
     bool vShowing;
     readonly HashSet<string> fitBuilt = new(StringComparer.OrdinalIgnoreCase);
@@ -33,6 +34,14 @@ sealed partial class ModEditorView
         borrowRemove = Ui.FlatButton("Game's Look", RemoveBorrow, tip: "Take this power back to its own look (the borrowed one comes out of the mod at Save).");
         box.Controls.Add(Toolbar(borrowButton, borrowRemove));
         box.Controls.Add(borrowCaption);
+        Ui.Tip(keepWeapons, "Keeps the weapons this hero always holds (Captain America's shield) shown while the borrowed power runs. Off: they're hidden then, since the other hero's animation isn't made to hold them (a weapon can stick out of the body).");
+        keepWeapons.CheckedChanged += (_, _) =>
+        {
+            if (vShowing || borrowBuilding || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e || e.KeepWeapons == keepWeapons.Checked) return;
+            e.KeepWeapons = keepWeapons.Checked;
+            RebuildBorrows();
+        };
+        box.Controls.Add(keepWeapons);
         LightSlider Slider(string label, float min, float max, float step, Func<float, string> format, string tip, Action changed)
         {
             var sl = new LightSlider { Label = label, Min = min, Max = max, Step = step, Mark = 0, Home = () => 0, Format = format, Width = (int)(320 * S), Height = (int)(30 * S), Margin = new Padding(0, 2, 0, 0) };
@@ -171,6 +180,9 @@ sealed partial class ModEditorView
         var e = BorrowOf(p.Prototype);
         if (borrowButton != null) borrowButton.Enabled = can && !borrowBuilding;
         if (borrowRemove != null) borrowRemove.Enabled = e != null && !borrowBuilding;
+        vShowing = true;
+        try { keepWeapons.Visible = e != null && !e.KeepTiming; keepWeapons.Checked = e?.KeepWeapons == true; keepWeapons.Enabled = !borrowBuilding; }
+        finally { vShowing = false; }
         ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
             : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")})"
