@@ -167,6 +167,13 @@ sealed partial class StorePreview
     internal void ScrubForTest(double fraction) { if (p3?.Playing != null && p3.Frames > 0) p3.FrameSlider.Value = (float)(Math.Round(fraction * p3.Frames) / p3.Frames); }
 
     internal object? P3ForTest => p3;
+    internal string? UnlistedForTest => p3?.UnlistedWarningForTest;
+    /// <summary>Tests: the 3D view shown (a click on its tile) and its animations in.</summary>
+    internal async Task Show3DForTest()
+    {
+        if (!show3D && thumbRects.FirstOrDefault(t => t.Index == 0) is { Rect.Width: > 0 } tile) OnMouseClick(new MouseEventArgs(MouseButtons.Left, 1, tile.Rect.X + 4, tile.Rect.Y + 4, 0));
+        for (int t = 0; t < 30000 && !(show3D && p3?.Animator != null && p3.AllAnimations.Count > 0); t += 100) await Task.Delay(100);
+    }
     internal string? CurrentAnimationForTest => p3 == null ? null : p3.CurrentAnimation + (p3.CurrentOutsideRef is { } cr ? " (unsaved change" + (cr.TranslationBones?.Contains("g_r_palm") == true ? ", moves g_r_palm" : ", g_r_palm held") + ")" : "");
     /// <summary>Tests: the 3D view opens the model of the package whose name has this (the user's pick otherwise).</summary>
     internal string? TestMeshPart { get; set; }

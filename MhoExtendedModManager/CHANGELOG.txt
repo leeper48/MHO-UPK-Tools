@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.112
+- 3D views: a warning over the view when the animation playing is one the game won't play for this costume (a borrowed or copied set its animation list doesn't name: rest pose in game), with how to fix it on a click.
+- Powers tab: Prop Fit and In This Animation side by side, as in the Animations tab.
+
 0.60.111
 - Powers tab: with more than one borrowed power, every borrow's animations are listed for the costumes that have an animation list of their own (only the first borrow's were, so the others stood in their rest pose in game while the preview played them).
 

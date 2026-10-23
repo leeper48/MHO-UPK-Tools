@@ -2974,6 +2974,8 @@ static partial class Program
                 var anims = ModAnimations.For(mr, ld.Bones, am.Manifest.UpkReplacements.Select(f => (f, Path.Combine(am.Folder, f))), ac);
                 Console.WriteLine($"{mr.Name}: {ld.Bones.Count} bones, {anims.Count} animation(s) ({sw.ElapsedMilliseconds} ms) from {string.Join(", ", anims.Select(a => a.Package).Distinct())}");
                 Console.WriteLine("  first: " + string.Join(", ", anims.Take(12).Select(a => a.Name)));
+                if (anims.Where(a => a.Unlisted != null).ToList() is { Count: > 0 } unl)
+                    Console.WriteLine($"  not in the costume's list (the game won't play them): {unl.Count}: " + string.Join(", ", unl.Take(20).Select(a => $"{a.Name} ({a.Unlisted})")));
                 var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences);
                 anim8.Pose(null, 0);
                 float restErr = ld.Positions.Select((p, i) => Vector3.Distance(p, anim8.Positions[i])).Max();

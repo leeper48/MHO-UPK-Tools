@@ -120,7 +120,13 @@ sealed partial class ModEditorView
         powerAnimBlock = new AnimFitBlock(S, "The prop the costume holds, moved and turned further in this power's animation playing (the throw), for a pose that wants it elsewhere. Its fit is in the Animations tab (Props).",
             PowerAnimTarget, SetAnimFit, c => Toolbar(c));
         powerAnimBlock.Root.Visible = false;
-        propFit.Controls.AddRange([propHead, propPick, heldNote, pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ, powerAnimBlock.Root]);
+        // the fit (left) and In This Animation (right), side by side as in the Animations tab (Kurt, 2026-10-23: no scrolling)
+        var fitCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        fitCol.Controls.AddRange([pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ]);
+        powerAnimBlock.Root.Margin = new Padding((int)(24 * S), 0, 0, 0);
+        var cols = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0) };
+        cols.Controls.AddRange([fitCol, powerAnimBlock.Root]);
+        propFit.Controls.AddRange([propHead, propPick, heldNote, cols]);
         vForward = Slider("Forward / Back", -80, 80, 1, Units, "Moves the rider forward (+) or back (−) on the vehicle, in game units; the vehicle stays where it is. Double-click: back to 0.", RiderFitChanged);
         vUp = Slider("Up / Down", -80, 80, 1, Units, "Moves the rider up (+) or down (−) on the vehicle, in game units. Double-click: back to 0.", RiderFitChanged);
         vLean = Slider("Lean", -30, 30, 1, Deg, "Leans the rider forward (+) or back (−), in degrees. Double-click: back to 0.", RiderFitChanged);

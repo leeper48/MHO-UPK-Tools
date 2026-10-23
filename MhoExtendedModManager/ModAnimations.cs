@@ -10,6 +10,10 @@ sealed record AnimRef(string Package, string File, string Name, int SequenceExpo
 {
     /// <summary>The AnimSet's bones that take the animation's positions; null = all (bAnimRotationOnly false).</summary>
     public IReadOnlySet<string>? TranslationBones { get; init; }
+    /// <summary>The set it's in, when that set is one this app made (…_on_…: a borrowed power's, an Animations tab copy) and
+    /// isn't in the costume's own animation list (found in another of the mod's packages): the preview plays it, the game
+    /// doesn't (rest pose in game; Kurt, 2026-10-23). Null when listed.</summary>
+    public string? Unlisted { get; init; }
 }
 
 /// <summary>
@@ -71,6 +75,9 @@ static class ModAnimations
         // wins (Storm's rework set replaces three combo animations of her first set; a costume's own set its idle, emotes …).
         // Then the sets of the packages below that the list doesn't name (a prop's own skeleton).
         var listed = new HashSet<(string, int)>();
+        // the list's sets by name too (a set it names by a path not read here, a borrowed one in the hero's package, counts)
+        var listedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool ownList = false;
         Func<string, (string Path, bool FromMod)?> fileFor = name =>
         {
             string f = name.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? name : name + ".upk";
@@ -81,8 +88,11 @@ static class ModAnimations
             return File.Exists(stock) ? (stock, false) : null;
         };
         if (mesh.Package.StartsWith("UC__", StringComparison.OrdinalIgnoreCase) && CostumeAnims.Read(mesh.File, mesh.Package, fileFor) is { } ca)
-            foreach (var set in ca.Sets.Reverse().Where(s => s.Found))
+            foreach (var set in ca.Sets.Reverse().Where(s => s.Found || s.Path.Length > 0))
             {
+                ownList = true;
+                listedNames.Add(set.Path[(set.Path.LastIndexOf('.') + 1)..]);
+                if (!set.Found) continue;
                 listed.Add((set.File!, set.Export));
                 // The game matches tracks to bones by name whatever their number: a set it lists counts when half of the
                 // smaller skeleton matches (Storm's 161-bone set swapped onto Rescue's 83 bones matches 79).
@@ -104,8 +114,10 @@ static class ModAnimations
                 {
                     string name;
                     try { name = AnimObjectReader.GetSequenceDisplayName(pkg, seq.ExportIndex); } catch { continue; }
+                    string setName = pkg.GetExportName(set.ExportIndex);
                     if (seen.Add(name)) result.Add(new AnimRef(file, path, name, seq.ExportIndex, set.TrackBoneNames)
-                        { TranslationBones = set.RotationOnly ? new HashSet<string>(set.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null });
+                        { TranslationBones = set.RotationOnly ? new HashSet<string>(set.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase) : null,
+                          Unlisted = ownList && setName.Contains("_on_", StringComparison.OrdinalIgnoreCase) && !listedNames.Contains(setName) ? $"{setName} in {file}" : null });   // (only the sets this app makes: a prop's or a summon's own set is played another way)
                 }
             }
         }

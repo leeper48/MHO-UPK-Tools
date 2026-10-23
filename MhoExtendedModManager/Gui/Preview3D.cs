@@ -42,6 +42,11 @@ sealed record PreviewContext(string? Hero, string? Cooked, MeshRef? MainRef, IRe
 sealed partial class Preview3D : UserControl
 {
     readonly ModelView view = new() { Dock = DockStyle.Fill };
+    /// <summary>Over the view while the animation playing is one the game won't play for this costume (its set isn't in the
+    /// costume's animation list: AnimRef.Unlisted); a click says how to fix it (Kurt, 2026-10-23).</summary>
+    readonly Label unlistedWarn = new() { Dock = DockStyle.Top, AutoSize = false, TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.FromArgb(74, 56, 18), ForeColor = Color.FromArgb(255, 206, 92), Cursor = Cursors.Hand, Visible = false,
+        Text = "⚠  The Game Won't Play This Animation for This Costume (Rest Pose in Game)  ·  Click for How to Fix" };
+    string? unlistedSet;
     readonly DropDown anims = new() { Dock = DockStyle.Fill };
     readonly Button play, loop, reset, look, frameHead, frameBust, frameFull, quadButton, fullScreen, powersButton;
     readonly LightSlider frame = new() { Dock = DockStyle.Fill, Label = "Frame", Min = 0, Max = 1, Step = 0, Mark = null, Height = 26 };
@@ -162,6 +167,11 @@ sealed partial class Preview3D : UserControl
         // second was clipped; Kurt, 2026-10-12), set in FitPowerRow
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         root.Controls.Add(view, 0, 0);
+        unlistedWarn.Height = LogicalToDeviceUnits(24);
+        unlistedWarn.Padding = new Padding(LogicalToDeviceUnits(8), 0, LogicalToDeviceUnits(8), 0);
+        view.Controls.Add(unlistedWarn);   // (added after the canvas: docked first, along the top)
+        Ui.Tip(unlistedWarn, "This animation comes from an animation set the costume's own list doesn't name. The preview finds it in the mod's packages, but the game only plays the sets the list names: in game this costume stands in its rest pose (A pose) for it. Click for how to fix it.");
+        unlistedWarn.Click += (_, _) => ShowUnlistedHelp();
         // one row (Kurt, 2026-10-04: the animation list was twice as wide as it needs; Look, Reset View, the framing and full
         // screen buttons beside it): the list takes what the buttons leave
         bar = Strip(anims, [play, loop, .. barButtons, look, reset, frameHead, frameBust, frameFull, quadButton, fullScreen]);
@@ -391,6 +401,8 @@ sealed partial class Preview3D : UserControl
             a = TransformAnimation != null ? TransformAnimation(animList[i], a) : a;
         }
         Player.Set(a, keepFraction is double kf && a != null ? kf * MeshAnimator.Span(a).Seconds : 0);
+        unlistedSet = i >= 0 && i < animList.Count ? animList[i].Unlisted : null;
+        unlistedWarn.Visible = unlistedSet != null;
         keepFraction = null;
         frame.Enabled = a != null;
         float fr = frames; frame.Format = v => fr > 0 ? $"{v * fr:0} / {fr:0}" : "–";
@@ -427,6 +439,21 @@ sealed partial class Preview3D : UserControl
         if (anims.SelectedIndex == 1) AnimationChosen(); else anims.SelectedIndex = 1;
         return true;
     }
+
+    /// <summary>The steps to fix an animation the game won't play for this costume (the warning over the view).</summary>
+    void ShowUnlistedHelp()
+    {
+        string name = CurrentAnimation ?? "this animation";
+        Dialog.Show(FindForm() ?? (IWin32Window)this,
+            $"WHY\n\n  • The preview plays \"{name}\" from {unlistedSet ?? "a set in another of the mod's packages"}.\n  • This costume's own animation list doesn't name that set, and the game only plays the sets the list names.\n  • So in game this costume stands in its rest pose (A pose) for it.\n\n"
+            + "HOW TO FIX\n\n  • A borrowed power's animation (Powers tab, Borrow Look): Open the mod in the Editor and save it (Ctrl+S). The save adds every borrowed power's set to the lists of the costumes that have one. Then Apply Changes.\n"
+            + "  • An animation changed in the Animations tab for another package: Pick this costume's package there and change the animation for it too.\n"
+            + "  • Still shown after a save: The mod itself is missing it. Tell its author (or report it, if the Mod Manager built it).",
+            "Not in the Costume's Animation List", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+
+    /// <summary>Tests: the warning over the view, if shown.</summary>
+    internal string? UnlistedWarningForTest => unlistedWarn.Visible ? unlistedSet : null;
 
     /// <summary>The animation playing (null: rest pose), where it is (seconds), and its length.</summary>
     public BoneAnimation? Playing => anim;

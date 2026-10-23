@@ -948,6 +948,21 @@ sealed partial class MainForm
     /// the draft and the preview's props after each.</summary>
     public async Task PropTabTest(string dir, string modName, string package)
     {
+        if (Environment.GetEnvironmentVariable("MHO_TEST_UNLISTED") is string ua)
+        {
+            // (Kurt, 2026-10-23) the Mods tab's preview playing <ua>: the warning over the view
+            Directory.CreateDirectory(dir);
+            var um = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(modName);
+            if (um == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), "no such mod"); return; }
+            FillList(um.FolderName);
+            await Task.Delay(5000);
+            await storePreview.Show3DForTest();
+            bool played = storePreview.PlayAnimation(ua, false);
+            await Task.Delay(3000);
+            using (var ub = new Bitmap(Width, Height)) { DrawToBitmap(ub, new Rectangle(0, 0, Width, Height)); ub.Save(Path.Combine(dir, "unlisted.png")); }
+            File.WriteAllText(Path.Combine(dir, "result.txt"), $"played {played}: warning {storePreview.UnlistedForTest ?? "(none)"}");
+            return;
+        }
         Directory.CreateDirectory(dir);
         var lines = new List<string>();
         var m = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(modName);
