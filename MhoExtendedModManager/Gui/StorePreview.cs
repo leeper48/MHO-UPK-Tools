@@ -85,11 +85,17 @@ sealed partial class StorePreview : Control
             if (value == null) return;
             int req = ++request;
             var cat = Catalog; var m = value;
+            var over = OverrideFiles?.Invoke() ?? new Dictionary<string, string>();
             Task.Run(() =>
             {
                 List<PreviewCandidate> pics; List<MeshRef> ms;
                 try { lock (Ui.StockLock) pics = PreviewImages.For(m, cat); } catch { pics = []; }
                 try { ms = ModMeshes.List(m); } catch { ms = []; }
+                // a package the editor changed and hasn't saved (an added prop, a borrowed look): its model read from there, so
+                // its props are the changed ones (Kurt, 2026-10-23: an added hammer didn't show)
+                if (over.Count > 0)
+                    ms = [.. ms.Select(r => over.TryGetValue(r.Package, out var o) && File.Exists(o)
+                        ? ModMeshes.List([(r.Package, o)], anyPackage: true).FirstOrDefault(x => x.Name.Equals(r.Name, StringComparison.OrdinalIgnoreCase)) ?? r : r)];
                 return (pics, ms);
             }).ContinueWith(t =>
             {

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.90
+- Editor previews: a costume package changed but not saved yet (an added prop, a borrowed look) shows its model from the changed copy, so an added prop shows before Save.
+
 0.60.89
 - Borrow Look (preview feature): a costume holding the borrowed power's prop (an added prop) throws its own; the power's spawned copy is left out for that costume only (Captain America's other costumes still get it).
 
