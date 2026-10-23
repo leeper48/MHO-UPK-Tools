@@ -1099,7 +1099,7 @@ static class AnimSwap
     /// <summary>A set's data with <paramref name="bone"/> in its UseTranslationBoneNames (added when missing; the list must exist:
     /// without one every bone takes its animated position already).</summary>
     /// <summary>The set with <paramref name="bone"/> taken out of UseTranslationBoneNames, or null when it isn't listed.</summary>
-    static byte[]? WithoutTranslationBone(Package pkg, byte[] set, string bone)
+    internal static byte[]? WithoutTranslationBone(Package pkg, byte[] set, string bone)
     {
         var t = TagWalker.Walk(pkg, set, 4)?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
         if (t == null) return null;
@@ -1117,7 +1117,7 @@ static class AnimSwap
         return null;
     }
 
-    static byte[] WithTranslationBone(Package pkg, byte[] set, string bone, Func<string, int> nameIdx)
+    internal static byte[] WithTranslationBone(Package pkg, byte[] set, string bone, Func<string, int> nameIdx)
     {
         var t = TagWalker.Walk(pkg, set, 4)?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
         if (t == null) return set;

@@ -15,6 +15,7 @@ sealed partial class ModEditorView
 {
     readonly DropDown propList = new() { Width = 320 };
     readonly Label propNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 4) };
+    readonly CheckBox propPin = new() { Text = "Pivot on the Hand", AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
     LightSlider? apSize, apX, apY, apZ, apTX, apTY, apTZ;
     Button? propRemove;
     bool propShowing;
@@ -54,7 +55,9 @@ sealed partial class ModEditorView
         apTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll). Double-click: back to 0.");
         apTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch). Double-click: back to 0.");
         apTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw). Some props start turned for this hand (Thor's hammer). Double-click: back to that start.");
-        box.Controls.AddRange([head, Toolbar(add, propRemove), propList, apSize, apX, apY, apZ, apTX, apTY, apTZ, propNote]);
+        Ui.Tip(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) stop moving the bone this prop hangs on, so it stays in the hand and turns with it (Thor's animations move his palm bone). Look ▾ → Prop Pivots shows the pivot.");
+        propPin.CheckedChanged += (_, _) => PinChanged();
+        box.Controls.AddRange([head, Toolbar(add, propRemove), propList, propPin, apSize, apX, apY, apZ, apTX, apTY, apTZ, propNote]);
         FillPropList();
         return box;
     }
@@ -82,6 +85,7 @@ sealed partial class ModEditorView
         bool on = e != null;
         propList.Visible = on;
         foreach (var sl in new[] { apSize, apX, apY, apZ, apTX, apTY, apTZ }) if (sl != null) sl.Visible = on;
+        propPin.Visible = on;
         if (propRemove != null) propRemove.Enabled = on;
         propNote.Text = on ? "" : "No props added to this costume.";
         if (e == null || apSize == null || apX == null || apY == null || apZ == null || apTX == null || apTY == null || apTZ == null) return;
@@ -97,6 +101,7 @@ sealed partial class ModEditorView
             float dz = PowerBorrow.DefaultTurnZ(e.Class);
             apTX.Value = f.TurnX; apTY.Value = f.TurnY; apTZ.Value = f.TurnZ;
             apTZ.Home = () => dz; apTZ.Mark = dz;
+            propPin.Checked = f.PinPivot;
         }
         finally { propShowing = false; }
     }
@@ -136,6 +141,26 @@ sealed partial class ModEditorView
         if (!await ApplyPropsTo(file)) draft.AddedProps.Remove(e);
         FillPropList();
         await Task.Delay(6000);
+    }
+
+    /// <summary>Pivot on the Hand ticked or not: the costume's borrowed animations stop or start moving the prop's bone.</summary>
+    async void PinChanged()
+    {
+        if (propShowing || propList.SelectedItem is not AddedPropEntry e || e.Fit.PinPivot == propPin.Checked) return;
+        e.Fit.PinPivot = propPin.Checked;
+        if (!e.Fit.PinPivot && DraftPath(e.Package) is string src)
+        {
+            // let go: the bone back in the sets' positions, then the props as they are
+            int v = ++propVersion;
+            var log = new List<string>();
+            byte[] bytes;
+            try { bytes = await Task.Run(() => { byte[] b = File.ReadAllBytes(src); return PowerBorrow.PinPropBones(b, PowerBorrow.HeldPropBones(b, e.Class), false, log); }); }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, ex.Message, "Pivot Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (IsDisposed || v != propVersion) return;
+            UseWorkCopy(e.Package, bytes);
+            OnBorrowBase(e.Package, b => { byte[] k = File.ReadAllBytes(b); return PowerBorrow.PinPropBones(k, PowerBorrow.HeldPropBones(k, e.Class), false, log); });
+        }
+        await ApplyPropsTo(e.Package);
     }
 
     /// <summary>Add a Prop: a hero, then one of their props; added to the selected costume package.</summary>

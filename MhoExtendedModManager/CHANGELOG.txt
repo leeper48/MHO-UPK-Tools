@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.94
+- Animations tab Props: Pivot on the Hand: the animations the costume took from another character (Thor's fidgets and idles) stop moving the bone the prop hangs on, so it stays in the hand and turns with it; applied again after every animation change and at Save.
+
 0.60.93
 - Save and Keep Editing with a borrowed look: the Powers tab's preview no longer falls back to the stock power (it read the borrow's preview builds, which Save deletes), and Prop Fit comes back (the borrow is built again once to know its props).
 

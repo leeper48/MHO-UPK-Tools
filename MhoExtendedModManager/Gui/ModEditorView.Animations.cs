@@ -235,7 +235,7 @@ sealed partial class ModEditorView
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s \"{pick.Name}\" couldn't be put in: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
-        UseWorkCopy(file, bytes);
+        UseWorkCopy(file, bytes); PropsAfterAnimChange(file);
         draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase));
         draft.AnimSwaps.Add(new AnimSwapEntry { Package = file, Slot = slot.Name, Donor = donor.Mod?.Name ?? donor.File, Animation = pick.Name, Title = donor.Kind == "Target" ? donor.Title.Replace(" (the Original)", "") : donor.Title });
         animStatus.Text = $"\"{slot.Name}\" Now Plays {donor.Title.Replace(" (the Original)", "")} · {pick.Name}";
@@ -283,7 +283,7 @@ sealed partial class ModEditorView
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s animations couldn't be put in: {ex.Message}", "Animations Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
         if (bytes == null) { animStatus.Text = "Nothing Was Changed"; return; }
-        UseWorkCopy(file, bytes);
+        UseWorkCopy(file, bytes); PropsAfterAnimChange(file);
         draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && slots.Contains(x.Slot, StringComparer.OrdinalIgnoreCase));
         if (!undo)
             foreach (var p in picks)
@@ -366,7 +366,7 @@ sealed partial class ModEditorView
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { Dialog.Show(this, $"\"{slot.Name}\" couldn't be changed back: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed || bytes == null) return;
-        UseWorkCopy(file, bytes);
+        UseWorkCopy(file, bytes); PropsAfterAnimChange(file);
         draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase));
         animStatus.Text = $"\"{slot.Name}\" Is the Original Again";
         ReloadAt(slot.Name);
@@ -382,6 +382,13 @@ sealed partial class ModEditorView
         string kept = Path.Combine(WorkFolder, "borrow_base", file);
         if (!File.Exists(kept)) return;
         if (change(kept) is byte[] b) File.WriteAllBytes(kept, b);
+    }
+
+    /// <summary>After an animation change: the package's added props applied again (a new set from another character moves
+    /// the bone a pinned prop hangs on).</summary>
+    async void PropsAfterAnimChange(string file)
+    {
+        if (draft.AddedProps.Any(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && p.Fit.PinPivot)) await ApplyPropsTo(file);
     }
 
     void UseWorkCopy(string file, byte[] bytes)

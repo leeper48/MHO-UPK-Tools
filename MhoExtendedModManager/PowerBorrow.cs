@@ -1894,7 +1894,8 @@ static class PowerBorrow
         var at = TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase))
                  ?? throw new InvalidDataException("this costume has no prop list of its own (it uses its hero's): not supported yet");
         int n = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt));
-        for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return dst.RawFile;   // listed already
+        var pinBones = AttachBones(dst, def);
+        for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return e.Fit.PinPivot ? PinPropBones(dst.RawFile, pinBones, true, log) : dst.RawFile;   // listed already
         byte[] np = [.. pb.AsSpan(0, at.End), .. BitConverter.GetBytes(classRef), .. pb.AsSpan(at.End)];
         BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.ValueAt), n + 1);
         BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.Start + 16), at.Size + 4);
@@ -1903,7 +1904,7 @@ static class PowerBorrow
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{e.Class} added to {dst.Exports[pd].ObjectName}'s props ({n + 1} now)");
-        return output;
+        return e.Fit.PinPivot ? PinPropBones(output, pinBones, true, log) : output;
     }
 
     /// <summary>
@@ -1929,6 +1930,58 @@ static class PowerBorrow
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{cls} taken off {dst.Exports[pd].ObjectName}'s props");
         return output;
+    }
+
+    /// <summary>
+    /// An added prop's Pivot on the Hand (Kurt, 2026-10-23: Thor's fidget01 on Cap moved the palm, and the hammer, away from his
+    /// hand): the animation sets this costume took from other characters (the Animations tab's copies, named …_on_…) stop
+    /// (<paramref name="pin"/>) or start again taking positions for <paramref name="bones"/>; they still turn them.
+    /// </summary>
+    public static byte[] PinPropBones(byte[] package, IReadOnlyList<string> bones, bool pin, List<string> log)
+    {
+        if (bones.Count == 0) return package;
+        var p = Package.FromBytes(package);
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+            return p.Names.Length + j;
+        }
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var sets = new List<string>();
+        for (int i = 0; i < p.Exports.Length; i++)
+        {
+            if (!p.ClassOf(p.Exports[i]).Equals("AnimSet", StringComparison.OrdinalIgnoreCase) || !p.Exports[i].ObjectName.Contains("_on_", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[i]).ToArray();
+            bool changed = false;
+            foreach (string b in bones)
+            {
+                if (b.Equals("none", StringComparison.OrdinalIgnoreCase) || b.Equals("root", StringComparison.OrdinalIgnoreCase)) continue;
+                if (pin) { if (AnimSwap.WithoutTranslationBone(p, d, b) is { } nd) { d = nd; changed = true; } }
+                else { byte[] nd = AnimSwap.WithTranslationBone(p, d, b, NameIdx); if (nd.Length != d.Length) { d = nd; changed = true; } }
+            }
+            if (!changed) continue;
+            byte[] keep = d;
+            rep[i] = _ => keep;
+            sets.Add(p.Exports[i].ObjectName);
+        }
+        if (rep.Count == 0) return package;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the pivot couldn't be " + (pin ? "kept on the hand: " : "let go again: ") + string.Join("; ", problems.Take(2)));
+        log.Add($"{string.Join(", ", bones)}: {(pin ? "not moved" : "moved again")} by {string.Join(", ", sets)}");
+        return output;
+    }
+
+    /// <summary>The bones a held prop hangs on, in the package (its class as Save may have renamed it).</summary>
+    public static List<string> HeldPropBones(byte[] package, string cls)
+    {
+        var p = Package.FromBytes(package);
+        int c = HeldClass(p, cls.ToLowerInvariant());
+        return c < 0 ? [] : AttachBones(p, "marvelgamecontent.default__" + p.Exports[c].ObjectName.ToLowerInvariant());
     }
 
     /// <summary>

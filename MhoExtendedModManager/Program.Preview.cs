@@ -84,7 +84,7 @@ static partial class Program
                 if (rest.Count < 5) { Console.WriteLine("--add-prop <costume.upk> <from.upk> <prop class> <out.upk> [size mx my mz tx ty tz]"); return 1; }
                 float F(int i, float dflt) => rest.Count > i ? float.Parse(rest[i], System.Globalization.CultureInfo.InvariantCulture) : dflt;
                 var ent = new AddedPropEntry { Package = Path.GetFileName(rest[1]), From = Path.GetFileName(rest[2]), Class = rest[3],
-                    Fit = new PropFit { Class = rest[3], Scale = rest.Count > 5 ? F(5, 1) : null, X = F(6, 0), Y = F(7, 0), Z = F(8, 0), TurnX = F(9, 0), TurnY = F(10, 0), TurnZ = F(11, 0) } };
+                    Fit = new PropFit { Class = rest[3], Scale = rest.Count > 5 ? F(5, 1) : null, X = F(6, 0), Y = F(7, 0), Z = F(8, 0), TurnX = F(9, 0), TurnY = F(10, 0), TurnZ = F(11, 0), PinPivot = Environment.GetEnvironmentVariable("MHO_PIN") == "1" } };
                 var alog = new List<string>();
                 byte[] once = PowerBorrow.AddProp(File.ReadAllBytes(rest[1]), ent, rest[2], alog);
                 byte[] twice = PowerBorrow.AddProp(once, ent, rest[2], alog);
