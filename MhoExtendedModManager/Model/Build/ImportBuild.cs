@@ -252,6 +252,14 @@ sealed class ImportBuild
     {
         var locals = builtBones.Select(b => (b.Orientation, b.Position)).ToList();
         built = SkelEncoder.Build(baseN, locals, enc, matRefs, extra);
+        if (o.FeetOnFloor && FeetOffset(r, sk) is { } feet && MathF.Abs(feet.By) >= 0.05f && built.Origins.Length >= 12)
+        {
+            // the mesh's Origin (the game draws the posed model moved by it: the whole model up or down)
+            float oz = BitConverter.ToSingle(built.Origins, 8);
+            built.Origins = [.. built.Origins];
+            BitConverter.TryWriteBytes(built.Origins.AsSpan(8), oz + feet.By);
+            log($"feet:    {(feet.By > 0 ? "raised" : "lowered")} {MathF.Abs(feet.By):0.0} units (the model's soles {feet.Model:0.0} below its ankles, the stock model's {feet.Stock:0.0}: the leg IK sets the ankles where the stock ones are)");
+        }
         if (extra != null) log($"bones:   {baseN.Bones.Count} + {extra.Count} borrowed ({string.Join(", ", sk.Bones.Skip(baseN.Bones.Count).Select(b => b.Name))}), skeletal depth {built.SkeletalDepth} (stock {baseN.SkeletalDepth})");
         var native = built.Write();
         int pat = 4;
@@ -342,6 +350,23 @@ sealed class ImportBuild
             src = MhoPackageModifier.Package.FromBytes(bytes);
         }
         return ApplySize(TurnOnlySets(InheritedMorphs(packageBytes)));
+    }
+
+    /// <summary>
+    /// How far the built model must move up (+) or down (-) for its soles to meet the floor: the game's animations keep the leg
+    /// IK targets (g_l/r_legikeffector) where the stock model has them, so the ankles land where the stock ankles are and the
+    /// soles hang below them by the model's own ankle-to-sole height (--feet-gap: MFF models -4.6 to +0.2 units on Agent 13).
+    /// Null without ankles.
+    /// </summary>
+    public static (float By, float Model, float Stock)? FeetOffset(Retargeted r, MhoSkeleton sk)
+    {
+        var stockPos = sk.Mesh.HighestDetail?.Positions;
+        if (stockPos == null || stockPos.Count == 0 || r.Sections.Count == 0) return null;
+        var mAnk = r.Bones.Where(b => b.Name.Equals("g_l_ankle", StringComparison.OrdinalIgnoreCase) || b.Name.Equals("g_r_ankle", StringComparison.OrdinalIgnoreCase)).Select(b => b.Position.Z).ToList();
+        var sAnk = new[] { sk.Find("g_l_ankle"), sk.Find("g_r_ankle") }.Where(i => i >= 0).Select(i => sk.Pos(i).Z).ToList();
+        if (mAnk.Count == 0 || sAnk.Count == 0) return null;
+        float model = mAnk.Average() - r.Sections.SelectMany(x => x.Pos).Min(v => v.Z), stock = sAnk.Average() - stockPos.Min(v => v.Z);
+        return (model - stock, model, stock);
     }
 
     /// <summary>The positions every player AnimSet keeps (--anim-probe on Storm, Thor, Daredevil, Spider-Man, Hulk: these 16,

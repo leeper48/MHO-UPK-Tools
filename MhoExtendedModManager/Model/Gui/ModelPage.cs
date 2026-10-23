@@ -34,6 +34,7 @@ sealed partial class ModelPage : UserControl
     readonly DropDown material = new();
     readonly CheckBox smooth = new() { Text = "Smooth (Subdivide)", AutoSize = true };
     readonly CheckBox matchSteps = new() { Text = "Match Steps to Size", AutoSize = true, Checked = true };
+    readonly CheckBox feetOnFloor = new() { Text = "Feet on the Floor", AutoSize = true, Checked = true };
     readonly LightSlider sizeSlider = new() { Label = "Size", Min = 0.05f, Max = 4f, Step = 0.01f, Mark = 1f, Home = () => 1f, Dock = DockStyle.Top };
     /// <summary>A cape / long hair borrowed from other heroes (preview prototype; Kurt: generic numbers, matched motion).</summary>
     // the bone map editor (0.11.5)
@@ -211,8 +212,11 @@ sealed partial class ModelPage : UserControl
         var sizeBox = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0) };
         sizeBox.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         sizeSlider.Dock = DockStyle.Fill; sizeSlider.Margin = new Padding(0);
-        matchSteps.Margin = new Padding(2, 4, 0, 0);
-        sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(matchSteps, 0, 1);
+        matchSteps.Margin = new Padding(2, 4, 12, 0);
+        feetOnFloor.Margin = new Padding(2, 4, 0, 0);
+        var checks = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0) };
+        checks.Controls.Add(matchSteps); checks.Controls.Add(feetOnFloor);
+        sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(checks, 0, 1);
         var sizeColumn = Column("SIZE IN GAME", null, sizeBox, autoHeight: true);
         right.Controls.Add(sizeColumn, 0, 4);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
@@ -273,6 +277,8 @@ sealed partial class ModelPage : UserControl
         Ui.TipTitled(sizeSlider, "Size in Game", "How big the character is in game, compared with the game's own size (100 %). The whole character is scaled as the game scales its own costumes (Spider-Man Homecoming, Carnage …), so the animations keep their shape and the feet stay on the ground. Drag, the mouse wheel or the arrow keys; double-click for 100 %. Compare shows the hero at the game's size.");
         Ui.Tip(matchSteps, "The game moves a character at the same speed whatever its size, so a bigger one would slide its feet. With this on, the costume's run, walk and other movement animations play slower for a bigger character and faster for a smaller one (1 / size), so the steps match the ground. Only this costume's animations change (copied into its own package, as the Animations tab does).");
         matchSteps.CheckedChanged += (_, _) => SaveState();
+        Ui.Tip(feetOnFloor, "In game the legs reach for where the stock hero's ankles are, so a model whose soles sit lower or higher below its ankles than the stock one's would sink into the floor or hover. With this on, Build moves the whole model up or down by that difference (the log says how far).");
+        feetOnFloor.CheckedChanged += (_, _) => SaveState();
         sizeSlider.ValueChanged += () => preview.Size = sizeSlider.Value;
         sizeSlider.Committed += () => { preview.Size = sizeSlider.Value; SchedulePreview(); };
 

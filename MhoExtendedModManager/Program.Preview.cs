@@ -2666,6 +2666,43 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--feet-gap":
+            {
+                // Read-only (2026-10-22, users: MFF models' feet above or into the floor): MFF models retargeted onto a package's
+                // skeleton (no build); each one's pelvis height above its soles (bind pose) against the stock model's. The game's
+                // player animations keep the pelvis at the stock height, so the difference is how far the soles end up off the
+                // floor. --feet-gap <package name or file> [name filter] [max count]
+                var fsk = MhoExtendedModManager.Model.MhoSkeleton.Load(MhoExtendedModManager.Model.BasePackage.Resolve(rest[1], true), null);
+                int fp = fsk.Find("g_pelvis");
+                var stockPos = fsk.Mesh.HighestDetail?.Positions ?? [];
+                if (fp < 0 || stockPos.Count == 0) { Console.WriteLine("no g_pelvis or no stock mesh"); return 1; }
+                float stockDrop = fsk.Pos(fp).Z - stockPos.Min(v => v.Z);
+                Console.WriteLine($"stock: pelvis {fsk.Pos(fp).Z:0.0} above its soles by {stockDrop:0.0}");
+                int max = rest.Count > 3 && int.TryParse(rest[3], out int mx2) ? mx2 : int.MaxValue, done2 = 0;
+                foreach (string dir in MhoExtendedModManager.Model.Source.AllModelFolders())
+                {
+                    if (done2 >= max) break;
+                    if (rest.Count > 2 && rest[2] != "*" && !Path.GetFileName(dir).Contains(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        var mm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(Path.GetFileName(dir)));
+                        if (!mm.Bones.Any(b => b.Name.Equals("Bip001 Pelvis", StringComparison.OrdinalIgnoreCase))) continue;
+                        var rr = MhoExtendedModManager.Model.Retarget.Run(mm, mm.Selected(null), fsk);
+                        var pel = rr.Bones.FirstOrDefault(b => b.Name.Equals("g_pelvis", StringComparison.OrdinalIgnoreCase));
+                        if (pel == null || rr.Sections.Count == 0) continue;
+                        float floor = rr.Sections.SelectMany(x => x.Pos).Min(v => v.Z), drop = pel.Position.Z - floor;
+                        // the ankles: the leg IK puts them where the stock ankles are; the soles hang below by the model's own
+                        float Ank(IEnumerable<System.Numerics.Vector3> ps) => ps.Any() ? ps.Average(v => v.Z) : float.NaN;
+                        float mAnk = Ank(rr.Bones.Where(b => b.Name is "g_l_ankle" or "g_r_ankle").Select(b => b.Position));
+                        float sAnk = Ank(new[] { fsk.Find("g_l_ankle"), fsk.Find("g_r_ankle") }.Where(i => i >= 0).Select(fsk.Pos));
+                        float sFloor = stockPos.Min(v => v.Z);
+                        Console.WriteLine($"{Path.GetFileName(dir),-40} pelvis drop {drop,5:0.0} (stock {stockDrop:0.0})  ankle drop {mAnk - floor,5:0.0} (stock {sAnk - sFloor:0.0})  → by the ankles feet {(sAnk - sFloor) - (mAnk - floor),5:+0.0;-0.0} off the floor");
+                        done2++;
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(dir)} | error: {ex.Message}"); }
+                }
+                return 0;
+            }
             case "--helper-sweep":
             {
                 // Read-only (2026-10-06): every MFF model in the MFF folder retargeted onto a package's skeleton (no build); the

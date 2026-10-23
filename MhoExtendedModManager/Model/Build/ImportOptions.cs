@@ -10,6 +10,9 @@ sealed record ImportOptions
 {
     /// <summary>Which MFF parts (null / "default" = the importer's guess of the body, "all", or names).</summary>
     public string? Parts { get; init; }
+    /// <summary>Feet on the Floor: the mesh's Origin raised or lowered so the soles meet the floor where the stock model's do
+    /// (users, 2026-10-22: some MFF models' feet hovered or sank). On by default.</summary>
+    public bool FeetOnFloor { get; init; } = true;
     /// <summary>An edited bone map (--map); null = the automatic one.</summary>
     public string? MapFile { get; init; }
     /// <summary>The animation the check render poses (name part); null = the first attack.</summary>

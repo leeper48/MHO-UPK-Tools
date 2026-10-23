@@ -24,7 +24,7 @@ sealed partial class ModelPage
         string? print = Fingerprint();
         bool ok = false;
         using var busy = Busy.Begin($"Model: building onto {ChosenPackage?.Key}");
-        var options = new ImportOptions { Parts = string.Join(",", picked), Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
+        var options = new ImportOptions { Parts = string.Join(",", picked), FeetOnFloor = feetOnFloor.Checked, Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
             MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
             MaterialOverrides = OverridesFile(),
             Hair = HairChoice, Cape = CapeChoice, Rigs = OtherRigs(),
@@ -200,7 +200,7 @@ sealed partial class ModelPage
     {
         if (ChosenPackage is not CharacterList.Item pkg) return null;
         var sb = new System.Text.StringBuilder();
-        sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked);
+        sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked).Append('|').Append(feetOnFloor.Checked);
         if (HasSource)
         {
             sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))
