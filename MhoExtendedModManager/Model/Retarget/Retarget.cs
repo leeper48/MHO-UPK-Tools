@@ -77,6 +77,11 @@ static partial class Retarget
 
     static Vector3 Mirror(Vector3 v) => new(v.X, -v.Y, v.Z);
 
+    /// <summary>MFF cm → MHO units for Keep the Source's Size: each MFF hero fitted onto its own MHO hero (--feet-gap, 2026-10-22:
+    /// Sharon Carter 0.529, Black Widow 0.516, Captain America 0.528, Thor 0.525, Hulk 0.525, Storm 0.500, Spider-Man 0.527,
+    /// Wolverine 0.506).</summary>
+    public const float SourceScale = 0.52f;
+
     /// <summary>Retargets the parts onto the MHO skeleton (see <see cref="Job"/> for the steps). <paramref name="file"/>: an
     /// edited bone map (it decides every pair); <paramref name="options"/>: the switches (default: from the MFF_* environment).</summary>
     public static Retargeted Run(MffModel m, IEnumerable<Part> parts, MhoSkeleton sk, BoneMapFile? file = null, RetargetOptions? options = null)

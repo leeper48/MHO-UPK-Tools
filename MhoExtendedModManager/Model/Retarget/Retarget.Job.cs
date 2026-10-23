@@ -8,6 +8,10 @@ sealed record RetargetOptions
     /// <summary>MFF_HELPER: how helper bones' weights are given out: "limb" (all to the limb joint they sit on, default since
     /// 0.4.2), "split" (half to the parent, 0.4.1), "parent" (all to the parent, before 0.4.1).</summary>
     public string Helper { get; init; } = "limb";
+    /// <summary>Keep the Source's Size (Kurt, 2026-10-22): the MFF model at its own size against other MFF characters (a fixed
+    /// MFF cm → MHO units scale, <see cref="Retarget.SourceScale"/>) instead of the target model's height (Hulk on Black Widow came
+    /// out Widow's height).</summary>
+    public bool KeepSourceSize { get; init; }
     /// <summary>MFF_HANDAIM=1: aim the hand at the middle finger again (off since 0.6.2: it kinked the wrist).</summary>
     public bool HandAim { get; init; }
     /// <summary>MFF_HAIRFALL=0 turns the long-hair rules off (0.6.11).</summary>
@@ -142,7 +146,7 @@ static partial class Retarget
             if (!r.Map.ContainsKey("Bip001 Pelvis")) throw new InvalidDataException("the MFF model has no Bip001 Pelvis (not a Biped rig): Phase 2 handles Biped rigs only.");
             // Scale: MFF body height (cm) onto the MHO mesh's height.
             float mffHeight = m.SourceHeight * MffModel.UnitScale;
-            r.Scale = sk.Height > 0 && mffHeight > 0 ? sk.Height / mffHeight : 0.5f;
+            r.Scale = opt.KeepSourceSize ? SourceScale : sk.Height > 0 && mffHeight > 0 ? sk.Height / mffHeight : 0.5f;
             Feet();
             Swing();
             Chains();

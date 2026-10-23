@@ -88,7 +88,8 @@ sealed class ImportBuild
             // a prop target (a weapon or shield picked under Model ▾): with no parts named, the part most like it
             if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, sk) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
             if (o.Subdivide) picked = Subdivision.Apply(picked);
-            r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null);
+            r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize });
+            if (o.KeepSourceSize) log($"size:    the source's own size (scale {r.Scale:0.###}, not fitted to {sk.Name}'s height)");
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.Apply(r, o.ModelFbx, log); }
@@ -260,7 +261,7 @@ sealed class ImportBuild
             float oz = BitConverter.ToSingle(built.Origins, 8);
             built.Origins = [.. built.Origins];
             BitConverter.TryWriteBytes(built.Origins.AsSpan(8), oz + feetBy);
-            log($"feet:    {(feetBy > 0 ? "raised" : "lowered")} {MathF.Abs(feetBy):0.0} units" + (o.FeetShift != null ? $" (set on the Feet slider; automatic {feet?.By ?? 0:+0.0;-0.0;0})"
+            log($"feet:    {(feetBy > 0 ? "raised" : "lowered")} {MathF.Abs(feetBy):0.0} units" + (o.FeetShift != null ? (o.FeetMeasured ? " (automatic: the model's lowest point in the hero's idle, as the preview shows it)" : " (set on the Feet slider)")
                 : $" (the model's hips {feet!.Value.Model:0.0} above its soles, the stock model's {feet.Value.Stock:0.0}: the animations hold the hips at the stock height)"));
         }
         if (extra != null) log($"bones:   {baseN.Bones.Count} + {extra.Count} borrowed ({string.Join(", ", sk.Bones.Skip(baseN.Bones.Count).Select(b => b.Name))}), skeletal depth {built.SkeletalDepth} (stock {baseN.SkeletalDepth})");

@@ -16,6 +16,10 @@ sealed record ImportOptions
     /// <summary>The Model tab's Feet slider when moved from its automatic value: the model moved by this (units, + up), in
     /// place of the automatic amount. Null: automatic (FeetOnFloor).</summary>
     public float? FeetShift { get; init; }
+    /// <summary>FeetShift is the Model tab's automatic amount (measured on the model posed in the hero's idle), not one the user set.</summary>
+    public bool FeetMeasured { get; init; }
+    /// <summary>Keep the Source's Size (RetargetOptions.KeepSourceSize).</summary>
+    public bool KeepSourceSize { get; init; }
     /// <summary>An edited bone map (--map); null = the automatic one.</summary>
     public string? MapFile { get; init; }
     /// <summary>The animation the check render poses (name part); null = the first attack.</summary>
@@ -71,7 +75,7 @@ sealed record ImportOptions
         return new ImportOptions
         {
             MaterialOverrides = Env("MFF_OVERRIDES"),   // a Materials tab overrides file (materials\<source>.json), for command-line builds and tests
-            Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation,
+            Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation, KeepSourceSize = Env("MFF_KEEPSIZE") == "1",
             Material = Env("MFF_MATERIAL") is { Length: > 0 } m ? m : null,
             ValuesFrom = Env("MFF_VALUES_FROM"),
             Glow = float.TryParse(Env("MFF_GLOW"), NumberStyles.Float, CultureInfo.InvariantCulture, out float g) ? g : 3f,

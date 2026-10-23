@@ -46,7 +46,7 @@ sealed partial class PreviewPanel
     static void StartStages() { Timings.Clear(); stageClock.Restart(); }
 
     public static Prepared Prepare(MffModel model, string? parts, string packagePath, string? materialDonor, bool subdivide = false, string? modelFbx = null, string? mapFile = null,
-        int cape = 0, int hair = 0, string? overrides = null, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null)
+        int cape = 0, int hair = 0, string? overrides = null, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, bool keepSourceSize = false)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
@@ -56,7 +56,7 @@ sealed partial class PreviewPanel
         var picked = model.Selected(parts);
         if (subdivide) picked = Subdivision.Apply(picked);
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
-        var r = Retarget.Run(model, picked, sk, file);
+        var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() with { KeepSourceSize = keepSourceSize });
         if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });
         Stage("retarget");
         MaterialOverrides.Apply(r, overrides);
@@ -196,6 +196,27 @@ sealed partial class PreviewPanel
         return (meshes, mr, stock);
     }
 
+    /// <summary>
+    /// The automatic Feet amount, measured as it shows (Kurt, 2026-10-22: by the hips it lowered Hulk on Black Widow 9.8 units
+    /// while his feet went through the floor running): the model posed in the hero's idle (as built) at a few frames, its
+    /// lowest point on average, moved to the floor. Null without an idle.
+    /// </summary>
+    static float? PosedFeet(ModMeshes.Loaded mesh, List<MeshBone> bones, List<AnimRef> anims)
+    {
+        var idle = anims.FirstOrDefault(a => a.Name.Equals("idle", StringComparison.OrdinalIgnoreCase))
+            ?? anims.FirstOrDefault(a => a.Name.Contains("idle", StringComparison.OrdinalIgnoreCase) && !a.Name.Contains("combat", StringComparison.OrdinalIgnoreCase));
+        if (idle == null || mesh.Positions.Length == 0) return null;
+        try
+        {
+            if (ModAnimations.Load(idle) is not { } ba) return null;
+            var an = new MeshAnimator(bones, mesh.Positions, mesh.Normals, mesh.Influences, mesh.Tangents);
+            float frames = MeshAnimator.Span(ba).Frames, sum = 0; int n = 0;
+            for (float f = 0; f <= frames; f += Math.Max(1, frames / 8)) { an.Pose(ba, f); sum += an.Positions.Min(v => v.Z); n++; if (Environment.GetEnvironmentVariable("MHO_FEETDEBUG") == "1") Console.WriteLine($"feet: {idle.Name} f{f:0} min {an.Positions.Min(v => v.Z):0.0} rest {mesh.Positions.Min(v => v.Z):0.0}"); }
+            return n == 0 ? null : -sum / n;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { return null; }
+    }
+
     static Prepared FromRetarget(Retargeted r, MhoSkeleton sk, string packagePath, string? materialDonor)
     {
         var bones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
@@ -252,7 +273,7 @@ sealed partial class PreviewPanel
             donor == null ? "Base Mesh's Own" : donor == MaterialChoice.Glow ? "Metal + Glow" : donor == MaterialChoice.Metal ? "Metal" : donor == MaterialChoice.Default ? "Cloth" : donor.Split(':').Last())
         {
             Map = r.Source != null ? BoneMapFile.From(r, sk.Name) : FbxBoneList(r, sk.Name), MhoBones = sk.Bones.Select(b => b.Name).ToList(),
-            Feet = ImportBuild.FeetOffset(r, sk)?.By ?? 0,
+            Feet = PosedFeet(mesh, bones, list) ?? ImportBuild.FeetOffset(r, sk)?.By ?? 0,
             MhoParents = sk.Bones.Select((b, i) => b.ParentIndex == i ? -1 : b.ParentIndex).ToList(),
             PackagePath = packagePath, PackageMeshes = pkgMeshes, MainRef = mr,
             MaterialList = r.Sections.GroupBy(x => x.Material).Select(g => (g.Key, g.First().Tex)).ToList(),

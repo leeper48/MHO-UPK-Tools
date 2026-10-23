@@ -34,10 +34,12 @@ sealed partial class ModelPage : UserControl
     readonly DropDown material = new();
     readonly CheckBox smooth = new() { Text = "Smooth (Subdivide)", AutoSize = true };
     readonly CheckBox matchSteps = new() { Text = "Match Steps to Size", AutoSize = true, Checked = true };
+    readonly CheckBox keepSourceSize = new() { Text = "Keep the Source's Size", AutoSize = true };
     // Feet (Kurt, 2026-10-22: a slider, not a checkbox; Hulk on Black Widow still poked through): the model moved up or down,
     // starting at the automatic amount (ImportBuild.FeetOffset); double-click goes back to it. A value moved off it is kept.
     readonly LightSlider feetSlider = new() { Label = "Feet", Min = -60, Max = 60, Step = 0.5f, Mark = 0, Dock = DockStyle.Top };
     float feetAuto;
+    bool feetKnown;   // (feetAuto measured for the model shown: Build uses it)
     float? feetCustom;
     bool restoringFeet;
     readonly LightSlider sizeSlider = new() { Label = "Size", Min = 0.05f, Max = 4f, Step = 0.01f, Mark = 1f, Home = () => 1f, Dock = DockStyle.Top };
@@ -222,7 +224,8 @@ sealed partial class ModelPage : UserControl
         feetSlider.Home = () => feetAuto;
         feetSlider.Format = v => $"{v:+0.0;-0.0;0}" + (feetCustom == null && MathF.Abs(v - feetAuto) < 0.05f ? " Auto" : "");
         var checks = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0) };
-        checks.Controls.Add(matchSteps);
+        keepSourceSize.Margin = new Padding(2, 4, 0, 0);
+        checks.Controls.Add(matchSteps); checks.Controls.Add(keepSourceSize);
         sizeBox.RowCount = 3;
         sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(feetSlider, 0, 1); sizeBox.Controls.Add(checks, 0, 2);
         var sizeColumn = Column("SIZE IN GAME", null, sizeBox, autoHeight: true);
@@ -287,12 +290,14 @@ sealed partial class ModelPage : UserControl
         matchSteps.CheckedChanged += (_, _) => SaveState();
         Ui.TipTitled(feetSlider, "Feet", "Moves the whole model up (+) or down (-) in game, in units. The game's animations hold the hips at the stock hero's height and the legs hang from there, so a model with shorter legs would hover and one with longer legs would sink into the floor. It starts at the automatic amount for this model and target (marked Auto); move it if the feet still float or sink in an animation. Double-click: back to automatic. The preview shows it; Build writes it.");
         feetSlider.ValueChanged += () => { if (!restoringFeet) preview.FeetShift = feetSlider.Value; };
+        Ui.Tip(keepSourceSize, "An MFF model is fitted to the target's height by default (Hulk on Black Widow comes out her height). With this on it keeps its own size against the other MFF characters (Hulk stays Hulk-sized on any hero); Size and Feet then start from there.");
+        keepSourceSize.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
         feetSlider.Committed += () => { feetCustom = MathF.Abs(feetSlider.Value - feetAuto) < 0.05f ? null : feetSlider.Value; preview.FeetShift = feetCustom; feetSlider.Invalidate(); SaveState(); };
         preview.FeetAutoChanged += auto =>
         {
             // another model or target: back to automatic
             if (MathF.Abs(auto - feetAuto) > 0.01f) feetCustom = null;
-            feetAuto = auto;
+            feetAuto = auto; feetKnown = true;
             restoringFeet = true; feetSlider.Value = feetCustom ?? auto; restoringFeet = false;
             feetSlider.Invalidate();
         };
@@ -909,7 +914,7 @@ sealed partial class ModelPage : UserControl
         var picked = SelectedParts();
         if (picked.Count == 0) { preview.ShowMessage("Tick at least one part"); return; }
         Remember(pkg.Key);
-        var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx;
+        var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx; bool keepSize = keepSourceSize.Checked;
         string? uf = unrigged;
         int capeChoice = CapeChoice, hairChoice = HairChoice;
         var moreRigs = OtherRigs();
@@ -921,7 +926,7 @@ sealed partial class ModelPage : UserControl
             string? modelFbx = EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
             var prepared = await Task.Run(() => sfbx != null
                 ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx)
-                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs));
+                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs, keepSize));
             if (id != previewId || IsDisposed) return;   // something changed meanwhile
             preview.Show(prepared);
             shownMap = prepared.Map; mhoBones = prepared.MhoBones; mhoParents = prepared.MhoParents; FillMap();

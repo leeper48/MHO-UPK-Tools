@@ -552,8 +552,8 @@ static partial class Program
                 for (int r = 1; r <= runs; r++)
                 {
                     total.Restart();
-                    _ = fbx ? MhoExtendedModManager.Model.Gui.PreviewPanel.PrepareFbx(rest[1], null, pkg, null) : MhoExtendedModManager.Model.Gui.PreviewPanel.Prepare(model!, null, pkg, null);
-                    Console.WriteLine($"preview run {r}: {total.ElapsedMilliseconds} ms  ({string.Join(", ", MhoExtendedModManager.Model.Gui.PreviewPanel.Timings.Select(t => $"{t.Stage} {t.Ms:0}"))})");
+                    var prep = fbx ? MhoExtendedModManager.Model.Gui.PreviewPanel.PrepareFbx(rest[1], null, pkg, null) : MhoExtendedModManager.Model.Gui.PreviewPanel.Prepare(model!, null, pkg, null, keepSourceSize: Environment.GetEnvironmentVariable("MFF_KEEPSIZE") == "1");
+                    Console.WriteLine($"preview run {r}: {total.ElapsedMilliseconds} ms, feet {prep.Feet:+0.0;-0.0;0}  ({string.Join(", ", MhoExtendedModManager.Model.Gui.PreviewPanel.Timings.Select(t => $"{t.Stage} {t.Ms:0}"))})");
                 }
                 string outDir = Path.Combine(Path.GetTempPath(), "MHO_ExtMM_perf_build");
                 if (Directory.Exists(outDir)) Directory.Delete(outDir, true);

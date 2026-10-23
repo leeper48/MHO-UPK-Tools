@@ -2696,7 +2696,7 @@ static partial class Program
                         float mAnk = Ank(rr.Bones.Where(b => b.Name is "g_l_ankle" or "g_r_ankle").Select(b => b.Position));
                         float sAnk = Ank(new[] { fsk.Find("g_l_ankle"), fsk.Find("g_r_ankle") }.Where(i => i >= 0).Select(fsk.Pos));
                         float sFloor = stockPos.Min(v => v.Z);
-                        Console.WriteLine($"{Path.GetFileName(dir),-40} pelvis drop {drop,5:0.0} (stock {stockDrop:0.0})  ankle drop {mAnk - floor,5:0.0} (stock {sAnk - sFloor:0.0})  → by the ankles feet {(sAnk - sFloor) - (mAnk - floor),5:+0.0;-0.0} off the floor");
+                        Console.WriteLine($"{Path.GetFileName(dir),-40} pelvis drop {drop,5:0.0} (stock {stockDrop:0.0})  ankle drop {mAnk - floor,5:0.0} (stock {sAnk - sFloor:0.0})  → by the ankles feet {(sAnk - sFloor) - (mAnk - floor),5:+0.0;-0.0} off the floor  scale {rr.Scale:0.0000} (MFF height {mm.SourceHeight * MhoExtendedModManager.Model.MffModel.UnitScale:0.0}, MHO {fsk.Height:0.0})");
                         done2++;
                     }
                     catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(dir)} | error: {ex.Message}"); }
