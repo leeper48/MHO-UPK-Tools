@@ -227,6 +227,16 @@ sealed partial class MainForm
         var pv = page.PreviewForTest;
         for (int i = 0; i < 1200 && pv.HeroPowers.Count == 0; i++) { await Task.Delay(100); Application.DoEvents(); }
         say($"{pv.HeroPowers.Count} power button(s)");
+        if (power.StartsWith("@"))
+        {
+            // "@idle_combat": that animation instead of a power (where the Model tab plays it from)
+            bool ok = pv.PlayAnimationForTest(power[1..]);
+            for (int i = 0; i < 30; i++) { await Task.Delay(100); Application.DoEvents(); }
+            say($"animation {power[1..]}: {(ok ? "playing " + pv.CurrentAnimationName + " from " + pv.CurrentAnimationSource : "not in the list")}");
+            if (ok && pv.AnimationsForExport().TryGetValue(power[1..], out var ex0)) say($"export takes it from {Path.GetFileName(ex0.File)} #{ex0.Export}");
+            CloseEditor();
+            return ok ? 0 : 1;
+        }
         if (pv.HeroPowers.FirstOrDefault(p => p.Name.Contains(power, StringComparison.OrdinalIgnoreCase)) is { } hp) say($"power {hp.Name} ({hp.Prototype}): animations {string.Join(", ", hp.Animations)}");
         if (!pv.ClickPower(power)) { say("no power " + power); CloseEditor(); return 1; }
         for (int i = 0; i < 100; i++) { await Task.Delay(100); Application.DoEvents(); }

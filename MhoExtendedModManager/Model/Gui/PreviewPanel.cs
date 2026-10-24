@@ -260,6 +260,8 @@ sealed partial class PreviewPanel : UserControl
     public Bitmap ViewShot() => p3.ViewShot();
     /// <summary>Clicks a power button by name (checks).</summary>
     public bool ClickPower(string name) => p3.ClickPower(name);
+    /// <summary>Tests: an animation picked by name.</summary>
+    public bool PlayAnimationForTest(string name) => p3.PlayAnimation(name, false);
 
     public void CompareOn() { if (!comparing) ToggleCompare(); }
 

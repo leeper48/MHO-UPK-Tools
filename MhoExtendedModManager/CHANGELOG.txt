@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.116
+- Model tab: the preview plays, and Open in Blender / Single Animation export, the animations as the mod has them: one changed in the Animations tab (Thor's idle_combat on Captain America) instead of the costume's own.
+
 0.60.115
 - Model tab: a build of a package that borrowed powers or Animations tab changes also touch is kept: the animation changes are put back on it, the borrowed powers are built again on top (they started from the package before the build, so Save dropped it) and the added props go back in.
 - Model tab: an animation fixed in Blender that a borrowed power brought (the flight) builds (it stopped with "the costume plays no animation named …") and stays the one the game plays (the borrowed set was listed after it).
