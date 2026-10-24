@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.120
+- Model tab: Back to the Game's for an animation edited in Blender now takes the edit out on the next Build (the build kept the earlier edit copy).
+- Model tab: after a Build, an Animations tab change that took an animation from this costume itself (idle_combat ← this costume's idle, which the mod made Thor's) keeps the mod's version, not the game's original.
+
 0.60.119
 - Model tab: Build updates its earlier edit copy of an animation in place instead of copying it again each time (Classic grew by a copy per build), and sets left empty are taken off the costume's list.
 - Model tab: after a Build, two slots the Animations tab changed to the same animation (idle and idle_combat both Thor's idle) both keep it (the first was lost).

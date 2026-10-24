@@ -158,7 +158,8 @@ sealed partial class ModEditorView : IModelHost
         byte[]? bytes;
         string cooked = game.Cooked;
         Mod? mod = editing;
-        try { bytes = await Task.Run(() => ReapplySwaps(file, path, swaps, mod, cooked, log)); }
+        var mine = draft.Packages.Where(x => !x.File.Equals(file, StringComparison.OrdinalIgnoreCase)).ToDictionary(x => x.File, x => x.Source, StringComparer.OrdinalIgnoreCase);
+        try { bytes = await Task.Run(() => ReapplySwaps(file, path, swaps, mod, cooked, log, f => mine.TryGetValue(f, out var mp) && File.Exists(mp) ? mp : null)); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException or ArgumentException)
         {
             Dialog.Show(this, $"The model is built, but this package's animation changes (Animations tab) couldn't be put back on it: {ex.Message}\n\nChange them again in the Animations tab before saving.", "Animation Changes Not Kept", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -181,7 +182,8 @@ sealed partial class ModEditorView : IModelHost
     /// <summary>The Animations tab's changes of <paramref name="file"/> (AnimSwaps) applied to the package at
     /// <paramref name="path"/>: earlier copies of those slots taken out first, then each donor's animations copied in as the
     /// tab does (turned to this skeleton's rest). Null when there's nothing to do.</summary>
-    static byte[]? ReapplySwaps(string file, string path, List<AnimSwapEntry> swaps, Mod? mod, string cooked, List<string> log)
+    /// <param name="modCopy">The mod's own copy of another package (a source in the mod: its animations as the mod has them).</param>
+    static byte[]? ReapplySwaps(string file, string path, List<AnimSwapEntry> swaps, Mod? mod, string cooked, List<string> log, Func<string, string?>? modCopy = null)
     {
         if (swaps.Count == 0) return null;
         var files = CostumeAnims.FilesFor(mod, cooked);
@@ -189,15 +191,20 @@ sealed partial class ModEditorView : IModelHost
         string cls = ca.Class;
         var inherited = ca.Inherited ? ca.Sets.Select(x => x.Path).ToList() : null;
         string tmp = Path.Combine(Path.GetTempPath(), $"mhoextmm_swaps_{Guid.NewGuid():N}_{file}");
+        string selfCopy = Path.Combine(Path.GetTempPath(), $"mhoextmm_self_{Guid.NewGuid():N}_{file}");
         try
         {
             byte[] cur = File.ReadAllBytes(path);
             if (AnimSwap.Unswap(MhoPackageModifier.Package.FromBytes(cur), cls, swaps.Select(s => s.Slot), log) is { } un) cur = un;
-            foreach (var g in swaps.GroupBy(s => s.Donor, StringComparer.OrdinalIgnoreCase))
+            // this package's own animations last (Kurt's idle_combat took "this costume's idle", which in the mod is Thor's: read
+            // after the other changes are back on), from the mod's copy when another of its packages is the source
+            foreach (var g in swaps.GroupBy(s => s.Donor, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key.Equals(file, StringComparison.OrdinalIgnoreCase)))
             {
                 if (!g.Key.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) { log.Add($"{string.Join(", ", g.Select(s => s.Slot))}: from the mod \"{g.Key}\", not put back (change them again in the Animations tab)"); continue; }
-                string donorPath = StockFiles.For(cooked, g.Key);
-                var dca = CostumeAnims.Read(donorPath, g.Key, CostumeAnims.FilesFor(null, cooked)) ?? throw new InvalidDataException($"{g.Key}'s animations don't read");
+                bool self = g.Key.Equals(file, StringComparison.OrdinalIgnoreCase);
+                if (self) File.WriteAllBytes(selfCopy, cur);
+                string donorPath = self ? selfCopy : modCopy?.Invoke(g.Key) ?? StockFiles.For(cooked, g.Key);
+                var dca = CostumeAnims.Read(donorPath, g.Key, self || donorPath != StockFiles.For(cooked, g.Key) ? files : CostumeAnims.FilesFor(null, cooked)) ?? throw new InvalidDataException($"{g.Key}'s animations don't read");
                 var list = new List<AnimSwap.Swap>();
                 string? from = null;
                 foreach (var s in g)
@@ -224,7 +231,7 @@ sealed partial class ModEditorView : IModelHost
             if (AnimSwap.DropEmptySets(MhoPackageModifier.Package.FromBytes(cur), cls, log) is { } tidy) cur = tidy;
             return cur;
         }
-        finally { try { File.Delete(tmp); } catch (IOException) { } }
+        finally { try { File.Delete(tmp); File.Delete(selfCopy); } catch (IOException) { } }
     }
 
     public void RemovePackage(string file)

@@ -57,6 +57,7 @@ sealed class ImportBuild
         string? pkgOut = WritePackage(basePackage, export);
         if (pkgOut == null) return null;
         if ((rigs.Count > 0 || o.AnimFbx is { Count: > 0 }) && !HairAnimation(pkgOut)) return null;
+        DropOldEdits(pkgOut);
         var result = o.NoMod ? new Result(pkgOut, "", "", "") : WriteMod(pkgOut);
         CheckReadBack(native);
         return result;
@@ -301,6 +302,24 @@ sealed class ImportBuild
             src = MhoPackageModifier.Package.FromBytes(bytes);
         }
         return sk.Bones.Skip(baseBones).Select(b => ((long)Array.FindIndex(src.Names, x => x.Equals(b.Name, StringComparison.OrdinalIgnoreCase)), b.ParentIndex)).ToList();
+    }
+
+    /// <summary>An animation set back to the game's (no Blender edit now): out of the edit copies an earlier build left in the
+    /// package this one started from.</summary>
+    void DropOldEdits(string pkgOut)
+    {
+        try
+        {
+            var lines = new List<string>();
+            var edited = new HashSet<string>(o.AnimFbx?.Keys ?? [], StringComparer.OrdinalIgnoreCase);
+            if (AnimSwap.DropOldEdits(MhoPackageModifier.Package.Open(pkgOut), ConditionSwaps.ClassOf(package), edited, lines) is { } b)
+            {
+                Protected.CheckWrite(pkgOut);
+                File.WriteAllBytes(pkgOut, b);
+            }
+            foreach (string l in lines) log("anims:   " + l);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException) { log("anims:   the old edit copies couldn't be cleared: " + ex.Message); }
     }
 
     /// <summary>The hair's motion into the written package (<see cref="HairAnims"/>), verified and read back; false (logged)

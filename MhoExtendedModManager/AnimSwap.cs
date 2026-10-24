@@ -1260,6 +1260,56 @@ static class AnimSwap
         return output;
     }
 
+    /// <summary>
+    /// The Model tab's edit copies (…_mffedit sets) without the animations that have no Blender edit any more (Kurt,
+    /// 2026-10-23: Back to the Game's "idle_combat" didn't set it back: a build starts from the last one, which kept the copy).
+    /// Null when nothing changes.
+    /// </summary>
+    public static byte[]? DropOldEdits(Package pkg, string costumeClass, IReadOnlySet<string> edited, List<string> log)
+    {
+        string compPath = $"marvelgamecontent.default__{costumeClass.ToLowerInvariant()}.initialskeletalmesh";
+        int comp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+        if (comp < 0) return null;
+        byte[] cd = pkg.ReadExportBytes(pkg.Exports[comp]).ToArray();
+        var at = TagWalker.Walk(pkg, cd, 16)?.FirstOrDefault(x => x.Name.Equals("AnimSets", StringComparison.OrdinalIgnoreCase));
+        if (at == null) return null;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt));
+        var replace = new Dictionary<int, Func<long, byte[]>>();
+        for (int k = 0; k < n; k++)
+        {
+            int r = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt + 4 + 4 * k));
+            if (r <= 0 || !pkg.Exports[r - 1].ObjectName.EndsWith("_mffedit", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] sd = pkg.ReadExportBytes(pkg.Exports[r - 1]).ToArray();
+            var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase));
+            if (st == null) continue;
+            int count = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(st.ValueAt));
+            var keep = new List<int>();
+            for (int i = 0; i < count; i++)
+            {
+                int q = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(st.ValueAt + 4 + 4 * i));
+                string? name = null;
+                if (q > 0)
+                {
+                    byte[] qd = pkg.ReadExportBytes(pkg.Exports[q - 1]).ToArray();
+                    if (TagWalker.Walk(pkg, qd, 4)?.FirstOrDefault(x => x.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && x.Size == 8) is { } nt)
+                        name = TagWalker.NameAt(pkg, qd, nt.ValueAt);
+                }
+                if (name != null && !edited.Contains(name)) { log.Add($"{name}: no Blender edit any more, out of {pkg.PathOf(pkg.Exports[r - 1])}"); continue; }
+                keep.Add(q);
+            }
+            if (keep.Count == count) continue;
+            byte[] list = [.. BitConverter.GetBytes(keep.Count), .. keep.SelectMany(BitConverter.GetBytes)];
+            byte[] nsd = [.. sd.AsSpan(0, st.ValueAt), .. list, .. sd.AsSpan(st.End)];
+            BinaryPrimitives.WriteInt32LittleEndian(nsd.AsSpan(st.Start + 16), list.Length);
+            replace[r - 1] = _ => nsd;
+        }
+        if (replace.Count == 0) return null;
+        byte[] output = PackageRebuilder.Rebuild(pkg, replace, [], out var written);
+        var problems = PackageRebuilder.Verify(pkg, output, replace.Keys.ToList(), [], written);
+        if (problems.Count > 0) throw new InvalidDataException("the edit copies without the reverted animations didn't verify: " + string.Join("; ", problems.Take(3)));
+        return DropEmptySets(Package.FromBytes(output), costumeClass, log) ?? output;
+    }
+
     public static byte[]? Unswap(Package pkg, string costumeClass, IEnumerable<string> slots, List<string> log)
     {
         var want = slots.ToHashSet(StringComparer.OrdinalIgnoreCase);
