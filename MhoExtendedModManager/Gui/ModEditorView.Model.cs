@@ -130,9 +130,93 @@ sealed partial class ModEditorView : IModelHost
         int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
         if (k >= 0) draft.Packages[k] = (draft.Packages[k].File, path); else draft.Packages.Add((file, path));
         RefreshPackages();
+        _ = AfterModelBuild(file, path);
     }
 
-    public void AddPackage(string file, string path) => SetPackage(file, path);
+    public void AddPackage(string file, string path)
+    {
+        int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+        if (k >= 0) draft.Packages[k] = (draft.Packages[k].File, path); else draft.Packages.Add((file, path));
+        RefreshPackages();
+    }
+
+    /// <summary>
+    /// A Model tab build handed in (Kurt, 2026-10-23: an elbow fixed in Blender showed in the Model tab, not in the Powers
+    /// tab, and Save would have dropped it). A build starts from the stock package (or the one kept before the model), so the
+    /// Animations tab's changes of that package are applied to it again; when borrowed powers change the package too, that
+    /// result becomes the package the borrows start from (Model\borrow_base, which they rebuild from on every change and on
+    /// Save: they didn't see a build made after the first borrow) and the borrows are built again; the added props go back in.
+    /// </summary>
+    async Task AfterModelBuild(string file, string path)
+    {
+        if (game == null) return;
+        var swaps = draft.AnimSwaps.Where(s => s.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
+        string kept = Path.Combine(WorkFolder, "borrow_base", file);
+        bool borrowed = File.Exists(kept);
+        if (swaps.Count == 0 && !borrowed) return;
+        var log = new List<string>();
+        byte[]? bytes;
+        string cooked = game.Cooked;
+        Mod? mod = editing;
+        try { bytes = await Task.Run(() => ReapplySwaps(file, path, swaps, mod, cooked, log)); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException or ArgumentException)
+        {
+            Dialog.Show(this, $"The model is built, but this package's animation changes (Animations tab) couldn't be put back on it: {ex.Message}\n\nChange them again in the Animations tab before saving.", "Animation Changes Not Kept", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (IsDisposed || DraftPath(file) is not string now || !now.Equals(path, StringComparison.OrdinalIgnoreCase)) return;   // (another build came meanwhile)
+        if (bytes != null) UseWorkCopy(file, bytes);
+        ModelSyncLog = log;
+        if (borrowed && DraftPath(file) is string withSwaps)
+        {
+            File.Copy(withSwaps, kept, true);   // (the package before the borrows: the model as built, the animation changes on it)
+            RebuildBorrows();                   // (then the added props: ReapplyProps)
+        }
+        else if (draft.AddedProps.Any(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase))) await ApplyPropsTo(file);
+    }
+
+    /// <summary>What the last Model tab build's sync did (tests).</summary>
+    internal List<string> ModelSyncLog { get; private set; } = [];
+
+    /// <summary>The Animations tab's changes of <paramref name="file"/> (AnimSwaps) applied to the package at
+    /// <paramref name="path"/>: earlier copies of those slots taken out first, then each donor's animations copied in as the
+    /// tab does (turned to this skeleton's rest). Null when there's nothing to do.</summary>
+    static byte[]? ReapplySwaps(string file, string path, List<AnimSwapEntry> swaps, Mod? mod, string cooked, List<string> log)
+    {
+        if (swaps.Count == 0) return null;
+        var files = CostumeAnims.FilesFor(mod, cooked);
+        var ca = CostumeAnims.Read(path, file, files) ?? throw new InvalidDataException($"{file}'s animation list doesn't read");
+        string cls = ca.Class;
+        var inherited = ca.Inherited ? ca.Sets.Select(x => x.Path).ToList() : null;
+        string tmp = Path.Combine(Path.GetTempPath(), $"mhoextmm_swaps_{Guid.NewGuid():N}_{file}");
+        try
+        {
+            byte[] cur = File.ReadAllBytes(path);
+            if (AnimSwap.Unswap(MhoPackageModifier.Package.FromBytes(cur), cls, swaps.Select(s => s.Slot), log) is { } un) cur = un;
+            foreach (var g in swaps.GroupBy(s => s.Donor, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!g.Key.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) { log.Add($"{string.Join(", ", g.Select(s => s.Slot))}: from the mod \"{g.Key}\", not put back (change them again in the Animations tab)"); continue; }
+                string donorPath = StockFiles.For(cooked, g.Key);
+                var dca = CostumeAnims.Read(donorPath, g.Key, CostumeAnims.FilesFor(null, cooked)) ?? throw new InvalidDataException($"{g.Key}'s animations don't read");
+                var list = new List<AnimSwap.Swap>();
+                string? from = null;
+                foreach (var s in g)
+                {
+                    var pick = dca.Anims.FirstOrDefault(a => a.Name.Equals(s.Animation, StringComparison.OrdinalIgnoreCase));
+                    if (pick?.From.File == null) { log.Add($"{s.Slot}: {g.Key} has no {s.Animation}, left as the game's"); continue; }
+                    list.Add(new AnimSwap.Swap(s.Slot, pick.From.File, pick.From.Export, pick.Export));
+                    from ??= pick.From.File;
+                }
+                if (list.Count == 0) continue;
+                File.WriteAllBytes(tmp, cur);
+                var turns = RestTurnsFor(from!, tmp);
+                cur = AnimSwap.Build(tmp, cls, list, log, inherited, retarget: turns);
+                log.Add($"{string.Join(", ", list.Select(x => x.Slot))}: {Path.GetFileNameWithoutExtension(g.Key)}'s again, on the new build");
+            }
+            return cur;
+        }
+        finally { try { File.Delete(tmp); } catch (IOException) { } }
+    }
 
     public void RemovePackage(string file)
     {

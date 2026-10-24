@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.115
+- Model tab: a build of a package that borrowed powers or Animations tab changes also touch is kept: the animation changes are put back on it, the borrowed powers are built again on top (they started from the package before the build, so Save dropped it) and the added props go back in.
+- Model tab: an animation fixed in Blender that a borrowed power brought (the flight) builds (it stopped with "the costume plays no animation named …") and stays the one the game plays (the borrowed set was listed after it).
+
 0.60.114
 - Model tab: Open in Blender / Single Animation export a borrowed power's animation too (one only in the mod's copy of the hero's package came over as the model alone).
 

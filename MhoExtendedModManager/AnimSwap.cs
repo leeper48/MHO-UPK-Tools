@@ -546,7 +546,11 @@ static class AnimSwap
         if (at != null)
         {
             int n = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt));
-            ncd = [.. cd.AsSpan(0, at.End), .. add, .. cd.AsSpan(at.End)];
+            // before the Model tab's edited copies (…_mffedit), which stay the last to name their animations
+            string RefName(int r) => r > 0 && r <= pkg.Exports.Length ? pkg.Exports[r - 1].ObjectName : r < 0 && -r <= pkg.Imports.Length ? pkg.Imports[-r - 1].ObjectName : "";
+            int insertAt = Enumerable.Range(0, n).FirstOrDefault(k => RefName(BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt + 4 + 4 * k))).EndsWith("_mffedit", StringComparison.OrdinalIgnoreCase), n);
+            int pos = at.ValueAt + 4 + 4 * insertAt;
+            ncd = [.. cd.AsSpan(0, pos), .. add, .. cd.AsSpan(pos)];
             BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.ValueAt), n + newSets.Count);
             BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.Start + 16), at.Size + add.Length);
         }
@@ -1198,7 +1202,11 @@ static class AnimSwap
             return outer;
         }
         byte[] add = [.. todo.Select(ImportOf).SelectMany(BitConverter.GetBytes)];
-        byte[] ncd = [.. cd.AsSpan(0, at.End), .. add, .. cd.AsSpan(at.End)];
+        // before the Model tab's edited copies (…_mffedit: an animation fixed in Blender), which must stay the last to name it
+        // (Kurt, 2026-10-23: a borrowed flight's elbow fix lost to the borrowed set added after it)
+        int insertAt = Enumerable.Range(0, n).FirstOrDefault(k => RefPath(BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt + 4 + 4 * k))).EndsWith("_mffedit", StringComparison.OrdinalIgnoreCase), n);
+        int pos = at.ValueAt + 4 + 4 * insertAt;
+        byte[] ncd = [.. cd.AsSpan(0, pos), .. add, .. cd.AsSpan(pos)];
         BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.ValueAt), n + todo.Count);
         BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.Start + 16), at.Size + add.Length);
         var replace = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => ncd };

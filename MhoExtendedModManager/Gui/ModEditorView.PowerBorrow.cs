@@ -14,6 +14,7 @@ sealed partial class ModEditorView
     Dictionary<string, string> borrowFiles = new(StringComparer.OrdinalIgnoreCase);
     string? borrowWork;
     bool borrowBuilding;
+    internal bool BorrowBuildingForTest => borrowBuilding;
     // Prop Fit and Rider Fit (Kurt, 2026-10-21: adjusted after the borrow is in, here, not in the Borrow window): each prop
     // the borrowed power brings (a vehicle, a mount, a weapon) sized, moved and turned; on a vehicle the rider moved and
     // leaned. Each change rebuilds the borrow and the preview shows it.

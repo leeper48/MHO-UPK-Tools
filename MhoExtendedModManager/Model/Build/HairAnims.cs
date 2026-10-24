@@ -56,6 +56,9 @@ static class HairAnims
         {
             string f = name.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? name : name + ".upk";
             if (f.Equals(packageFile, StringComparison.OrdinalIgnoreCase)) return ((string, bool)?)(builtPath, true);
+            // the hero's package from the mod first (its borrowed powers' sets: Kurt, 2026-10-23, an edited borrowed flight
+            // stopped the build, "the costume plays no animation named movement_run_flying")
+            if (MhoAnim.BaseLookup?.Invoke(f) is string mine && File.Exists(mine)) return ((string, bool)?)(mine, true);
             try { string p = BasePackage.Resolve(f, true); return File.Exists(p) ? (p, false) : null; }
             catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or IOException) { return null; }   // a group, not a file
         };

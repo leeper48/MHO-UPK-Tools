@@ -47,6 +47,8 @@ sealed partial class Preview3D : UserControl
     readonly Label unlistedWarn = new() { Dock = DockStyle.Top, AutoSize = false, TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.FromArgb(74, 56, 18), ForeColor = Color.FromArgb(255, 206, 92), Cursor = Cursors.Hand, Visible = false,
         Text = "⚠  The Game Won't Play This Animation for This Costume (Rest Pose in Game)  ·  Click for How to Fix" };
     string? unlistedSet;
+    /// <summary>Show the warning over the view (the Model tab's preview doesn't: its package isn't the mod's final one).</summary>
+    public bool WarnUnlisted { get; init; } = true;
     readonly DropDown anims = new() { Dock = DockStyle.Fill };
     readonly Button play, loop, reset, look, frameHead, frameBust, frameFull, quadButton, fullScreen, powersButton;
     readonly LightSlider frame = new() { Dock = DockStyle.Fill, Label = "Frame", Min = 0, Max = 1, Step = 0, Mark = null, Height = 26 };
@@ -403,7 +405,7 @@ sealed partial class Preview3D : UserControl
             a = TransformAnimation != null ? TransformAnimation(animList[i], a) : a;
         }
         Player.Set(a, keepFraction is double kf && a != null ? kf * MeshAnimator.Span(a).Seconds : 0);
-        unlistedSet = i >= 0 && i < animList.Count ? animList[i].Unlisted : null;
+        unlistedSet = WarnUnlisted && i >= 0 && i < animList.Count ? animList[i].Unlisted : null;
         unlistedWarn.Visible = unlistedSet != null;
         keepFraction = null;
         frame.Enabled = a != null;

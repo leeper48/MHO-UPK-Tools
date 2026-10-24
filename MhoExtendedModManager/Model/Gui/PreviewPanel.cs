@@ -82,7 +82,9 @@ sealed partial class PreviewPanel : UserControl
         edits = Ui.FlatButton("Single Animation ▾", ShowEditsMenu, "The animation picked here and Blender: export just it (Export FBX: … Only, Open … in Blender: the model and this one animation, quick), bring edits back (an FBX's animation in place of it, and / or its mesh with its weights in place of the model's; kept in the edits folder, built into the mod) and revert them. The buttons on the right export all the animations.");
         compare = Ui.FlatButton("Compare", ToggleCompare, "Show the base hero's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the MFF model).");
         edits.AutoSize = true; edits.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        p3 = new Preview3D(P, edits, compare) { Dock = DockStyle.Fill };
+        // (no warning about sets the costume's list doesn't name: the Model tab shows its own build, which the editor gives the
+        // borrowed powers' sets afterwards)
+        p3 = new Preview3D(P, edits, compare) { Dock = DockStyle.Fill, WarnUnlisted = false };
         p3.TransformAnimation = Transform;
         p3.IsOverridden = n => IsOverridden?.Invoke(n) == true;
         p3.DisplayMesh = Display;

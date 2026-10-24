@@ -425,6 +425,15 @@ sealed partial class MainForm
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         Check(rel != null, "the save in Blender came back as an FBX edit of " + anim);
         if (rel == null) { CloseEditor(); return 1; }
+        // MHO_TEST_BUILD_AFTER=1: Build with the edit, then the editor's sync of that build (animation changes, borrows, props)
+        if (Environment.GetEnvironmentVariable("MHO_TEST_BUILD_AFTER") == "1")
+        {
+            string? built = await page.TestBuild(mff, package, say);
+            Check(built != null, "built with the edit");
+            for (int i = 0; i < 900 && (editor.ModelSyncLog.Count == 0 || editor.BorrowBuildingForTest); i++) await Task.Delay(100);
+            await Task.Delay(3000);
+            say("sync: " + string.Join(" / ", editor.ModelSyncLog));
+        }
         await editor.SaveForTest();
         await Task.Delay(500);
         var saved = lib?.Find(modName);
