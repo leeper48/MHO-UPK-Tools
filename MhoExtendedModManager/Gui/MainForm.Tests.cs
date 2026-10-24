@@ -227,10 +227,13 @@ sealed partial class MainForm
         var pv = page.PreviewForTest;
         for (int i = 0; i < 1200 && pv.HeroPowers.Count == 0; i++) { await Task.Delay(100); Application.DoEvents(); }
         say($"{pv.HeroPowers.Count} power button(s)");
+        if (pv.HeroPowers.FirstOrDefault(p => p.Name.Contains(power, StringComparison.OrdinalIgnoreCase)) is { } hp) say($"power {hp.Name} ({hp.Prototype}): animations {string.Join(", ", hp.Animations)}");
         if (!pv.ClickPower(power)) { say("no power " + power); CloseEditor(); return 1; }
         for (int i = 0; i < 100; i++) { await Task.Delay(100); Application.DoEvents(); }
         say("caption: " + pv.EffectsNote);
+        say("playing: " + pv.CurrentAnimationName + " from " + pv.CurrentAnimationSource + $" (of {pv.AnimationNames.Count} animations; borrowed ones listed: {string.Join(", ", pv.AnimationNames.Where(a => a.Contains("mjolnir", StringComparison.OrdinalIgnoreCase) || a.Contains("hammersmash", StringComparison.OrdinalIgnoreCase)).Take(4))})");
         say("material swap: " + pv.SwapNote);
+        if (pv.CurrentAnimationName is string cur && pv.AnimationsForExport().TryGetValue(cur, out var ex)) say($"export takes {cur} from {Path.GetFileName(ex.File)} #{ex.Export}");
         using (var shot = pv.ViewShot()) shot.Save(png);
         say("picture: " + png);
         CloseEditor();

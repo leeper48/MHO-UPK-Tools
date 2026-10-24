@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.113
+- Model tab: the preview reads the mod's own packages: a borrowed power's button plays its borrowed animation (and the mod's other animation changes show), and Open in Blender / Single Animation export each animation as the preview plays it.
+
 0.60.112
 - 3D views: a warning over the view when the animation playing is one the game won't play for this costume (a borrowed or copied set its animation list doesn't name: rest pose in game), with how to fix it on a click.
 - Powers tab: Prop Fit and In This Animation side by side, as in the Animations tab.

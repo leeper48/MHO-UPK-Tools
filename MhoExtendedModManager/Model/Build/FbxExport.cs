@@ -29,8 +29,10 @@ static class FbxExport
     /// <param name="adjust">Each animation as written (0.16.1: FBX edits in place of the game's, borrowed hair's motion);
     /// null = the game's.</param>
     /// <param name="exact">The filter names whole animations (the middle panel's one-animation export), not name parts.</param>
+    /// <param name="prefer">Per animation name, the copy to export (the Mod Manager's preview: the one the game plays for
+    /// this costume, a borrowed power's under its slot name; Kurt, 2026-10-23), in place of the first one found here.</param>
     public static void Run(Retargeted r, string package, string outDir, IReadOnlyCollection<string> animFilter, Action<string> log,
-        Func<MhoAnimRef, BoneAnimation, BoneAnimation>? adjust = null, bool exact = false)
+        Func<MhoAnimRef, BoneAnimation, BoneAnimation>? adjust = null, bool exact = false, IReadOnlyDictionary<string, MhoAnimRef>? prefer = null)
     {
         Protected.CheckWrite(outDir);
         Directory.CreateDirectory(outDir);
@@ -72,7 +74,7 @@ static class FbxExport
         log($"model: {model} ({lod.Positions.Count:N0} vertices, {r.Sections.Count} sections, {bones.Count} bones, {texFiles.Count} textures)");
 
         // the animations
-        var anims = MhoAnim.For(package, bones.Select(b => b.Name));
+        var anims = MhoAnim.For(package, bones.Select(b => b.Name)).Select(a => prefer != null && prefer.TryGetValue(a.Name, out var p) ? p : a).ToList();
         var picked = animFilter.Count == 0 ? anims : anims.Where(a => animFilter.Any(f => exact ? a.Name.Equals(f, StringComparison.OrdinalIgnoreCase) : a.Name.Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
         string animDir = Path.Combine(outDir, "anims");
         Directory.CreateDirectory(animDir);
@@ -102,7 +104,7 @@ static class FbxExport
 
     public static void Work(MffModel m, IEnumerable<string> picked, bool subdivide, string package, string? mapFile, int hair, AnimEdits? edits,
         string outDir, Action<string> log, IReadOnlyCollection<string>? animFilter = null, bool exact = false, int cape = 0, string? overrides = null,
-        IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null)
+        IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, IReadOnlyDictionary<string, MhoAnimRef>? prefer = null)
     {
         var sk = MhoSkeleton.Load(package, null);
         (sk, var rigs) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(cape, hair, rigsMore), m, log);
@@ -123,7 +125,7 @@ static class FbxExport
             foreach (var rig in rigs)
                 if (!bones.Where(b => rig.Bones.IsMatch(b.Name) && sk.Borrowed.Contains(b.Name)).All(b => x.Tracks.ContainsKey(b.Name))) x = rig.Apply(x, bones);
             return x;
-        }, exact);
+        }, exact, prefer);
         if (edited > 0) log($"FBX edits: {edited} animation(s) written as edited");
     }
 

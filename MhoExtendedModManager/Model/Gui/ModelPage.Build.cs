@@ -387,6 +387,7 @@ sealed partial class ModelPage
         int hairChoice = sfbx == null ? HairChoice : 0, capeChoice = sfbx == null ? CapeChoice : 0;
         var moreRigs = sfbx == null ? OtherRigs() : [];
         var exportEdits = AnimEdits.Parse(EnsureEdits().Serialize());
+        var prefer = preview.AnimationsForExport();   // (each animation as the preview plays it: a borrowed power's under its slot name)
         string outDir = UniqueDir(Path.Combine(Settings.Home, "fbx", $"{name} on {Path.GetFileNameWithoutExtension(pkg.Key)}{(onlyAnim != null ? " - " + FbxExport.SafeName(onlyAnim) : "")}"));
         building = true; UpdateStatus(); status.Text = "Exporting FBX…";
         Log($"Exporting FBX: {name} on {pkg.Key} → {outDir}");
@@ -402,9 +403,9 @@ sealed partial class ModelPage
                     // the FBX edits as the preview and Build use them: the mesh from Blender, the replaced animations
                     if (exportEdits.ModelFbx is string emf && File.Exists(emf)) FbxReimport.Apply(r, emf, _ => { });
                     MaterialOverrides.Apply(r, ovr);
-                    FbxExport.Run(r, package, outDir, onlyAnim != null ? [onlyAnim] : [], line => BeginInvoke(() => Log(line)), FbxExport.EditsAdjust(exportEdits), exact: onlyAnim != null);
+                    FbxExport.Run(r, package, outDir, onlyAnim != null ? [onlyAnim] : [], line => BeginInvoke(() => Log(line)), FbxExport.EditsAdjust(exportEdits), exact: onlyAnim != null, prefer: prefer);
                 }
-                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice, overrides: ovr, rigsMore: moreRigs);
+                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice, overrides: ovr, rigsMore: moreRigs, prefer: prefer);
             });
             lastZip = Path.Combine(outDir, "model.fbx");   // Open Folder shows the latest output (a build's .ZIP or this)
             // in a new Blender scene (0.16.2), else the folder

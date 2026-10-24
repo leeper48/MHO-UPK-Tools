@@ -141,7 +141,7 @@ sealed partial class PreviewPanel
             ?? throw new InvalidDataException($"{file} has no mesh named {sk.Name}");
         var stock = ModMeshes.Load(mr, cooked, out _) ?? throw new InvalidDataException($"{sk.Name} couldn't be read");
         var bones = stock.Bones.ToList();
-        var list = ModAnimations.For(new MeshRef(file, packagePath, sk.Name, 0), bones, [], cooked);
+        var list = ModAnimations.For(new MeshRef(file, packagePath, sk.Name, 0), bones, ModsNow, cooked);
         return new Prepared(stock, bones, list, $"{sk.Name}: the target's own model (pick a source on the left to put a model on it) · {list.Count} animations", stock, "")
         {
             TargetOnly = true, MhoBones = sk.Bones.Select(b => b.Name).ToList(),
@@ -175,11 +175,21 @@ sealed partial class PreviewPanel
         return $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{Settings.Current.CookedFolder ?? Settings.Current.StockFolder}";
     }
 
+    /// <summary>
+    /// The mod's packages as the editor holds them (set by the Model tab before each preview; Kurt, 2026-10-23): the
+    /// animations come from them too (a borrowed power's sets in the mod's copy of the hero's package, an Animations tab
+    /// change), and the power buttons read the mod's power packages (a borrowed power names the other hero's animations).
+    /// </summary>
+    internal static IReadOnlyList<(string File, string Path)> ModsNow = [];
+
+    static string ModsStamp(IReadOnlyList<(string File, string Path)> mods) => string.Join(";", mods.Where(m => File.Exists(m.Path)).Select(m => { var fi = new FileInfo(m.Path); return $"{m.File}={fi.Length}/{fi.LastWriteTimeUtc.Ticks}"; }));
+
     static List<AnimRef> AnimationsCached(string file, string packagePath, string mesh, List<MeshBone> bones)
     {
-        string key = Stamp(packagePath) + "|" + mesh + "|" + string.Join(",", bones.Select(b => b.Name));   // (added cape / hair bones change the list)
+        var mods = ModsNow;
+        string key = Stamp(packagePath) + "|" + mesh + "|" + string.Join(",", bones.Select(b => b.Name)) + "|" + ModsStamp(mods);   // (added cape / hair bones change the list)
         lock (cacheLock) if (animCache.TryGetValue(key, out var hit)) return hit;
-        var list = ModAnimations.For(new MeshRef(file, packagePath, mesh, 0), bones, [], Settings.Current.CookedFolder ?? Settings.Current.StockFolder)
+        var list = ModAnimations.For(new MeshRef(file, packagePath, mesh, 0), bones, mods, Settings.Current.CookedFolder ?? Settings.Current.StockFolder)
             .Select(ImportBuild.AsBuilt).ToList();
         lock (cacheLock) { if (animCache.Count > 32) animCache.Clear(); animCache[key] = list; }
         return list;

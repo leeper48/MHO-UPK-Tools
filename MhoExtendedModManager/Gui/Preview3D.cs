@@ -346,6 +346,8 @@ sealed partial class Preview3D : UserControl
     // --- animations ---------------------------------------------------------------------------------------------------------------
     /// <summary>The animation picked in the drop-down (null = rest pose).</summary>
     public string? CurrentAnimation => anims.SelectedIndex > 0 ? anims.SelectedItem as string : null;
+    /// <summary>The animation playing, as found (its package and export), or null.</summary>
+    public AnimRef? CurrentRef => anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count ? animList[anims.SelectedIndex - 1] : null;
     /// <summary>The animation showing when it isn't one of the model's own (PlayRef: an unsaved change's donor animation), else null.</summary>
     public AnimRef? CurrentOutsideRef => anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count && animList[anims.SelectedIndex - 1] is var a && !allAnims.Any(x => ReferenceEquals(x, a)) ? a : null;
     /// <summary>Every animation of the shown character (not only the power filter's).</summary>

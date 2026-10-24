@@ -45,6 +45,23 @@ sealed partial class PreviewPanel : UserControl
     public string? CurrentAnimation => p3.CurrentAnimation;
     /// <summary>Every animation of the shown model (not only the power filter's).</summary>
     public IReadOnlyList<string> AnimationNames => p3.AllAnimations.Select(a => a.Name).ToList();
+    /// <summary>The animations as the preview plays them (the game's: a later set's wins), by name, for an export.</summary>
+    public Dictionary<string, MhoAnimRef> AnimationsForExport()
+    {
+        var d = new Dictionary<string, MhoAnimRef>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in p3.AllAnimations) d.TryAdd(a.Name, new MhoAnimRef(a.File, a.Name, a.SequenceExport, a.TrackBoneNames, a.TranslationBones));
+        return d;
+    }
+
+    /// <summary>The animation playing (tests).</summary>
+    public string? CurrentAnimationName => p3.CurrentAnimation;
+    /// <summary>Where the animation playing comes from (tests): its package file and the set it's in.</summary>
+    public string? CurrentAnimationSource => p3.CurrentRef is { } r ? $"{Path.GetFileName(r.File)} #{r.SequenceExport} {SetOf(r)}" : null;
+    static string SetOf(AnimRef r)
+    {
+        try { var pk = MhoPackageModifier.Package.Open(r.File); var ex = pk.Exports[r.SequenceExport]; return ex.OuterIndex > 0 ? pk.Exports[ex.OuterIndex - 1].ObjectName : ""; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or IndexOutOfRangeException) { return ""; }
+    }
     /// <summary>The animations Full Export writes: the hero's and the costume's own, not the shared ones every hero plays
     /// (blink, interactions: sets in Startup / MarvelGame).</summary>
     public int OwnAnimationCount => p3.AllAnimations.Count(a => !a.Package.StartsWith("startup", StringComparison.OrdinalIgnoreCase) && !a.Package.StartsWith("marvelgame", StringComparison.OrdinalIgnoreCase));
@@ -196,7 +213,7 @@ sealed partial class PreviewPanel : UserControl
         view.ModelScale = ShownScale;
         Ui.Tip(compare, p.TargetOnly ? "No source is picked: this is the target's own model. Pick a source on the left to put a model on it; Compare then switches between the two."
             : "Show the target's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the source's model).");
-        var ctx = new PreviewContext(Hero(), Cooked, p.MainRef, p.PackageMeshes, [], () => TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(p.PackagePath), SwapsFor);
+        var ctx = new PreviewContext(Hero(), Cooked, p.MainRef, p.PackageMeshes, PreviewPanel.ModsNow, () => TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(p.PackagePath), SwapsFor);
         p3.ShowCharacter(comparing ? p.Stock! : p.Mesh, (comparing ? stockAnimator : mffAnimator)!, p.Animations, ctx, keep, keepAt, wasPlaying, keepView, samePackage);
         Ui.Tip(view, p.Note);
         ShowCount++;

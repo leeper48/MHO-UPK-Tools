@@ -960,6 +960,7 @@ sealed partial class ModelPage : UserControl
     async Task RefreshPreviewCore()
     {
         int id = ++previewId;
+        PreviewPanel.ModsNow = [.. host.Packages];   // (the mod's packages: its borrowed powers' animations and power packages)
         if (HasSource) packageMaps = null;
         using var busy = Busy.Begin("Model: preview");
         if (!HasSource && ChosenPackage is CharacterList.Item tpkg)
