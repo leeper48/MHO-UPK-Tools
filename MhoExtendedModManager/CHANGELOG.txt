@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.119
+- Model tab: Build updates its earlier edit copy of an animation in place instead of copying it again each time (Classic grew by a copy per build), and sets left empty are taken off the costume's list.
+- Model tab: after a Build, two slots the Animations tab changed to the same animation (idle and idle_combat both Thor's idle) both keep it (the first was lost).
+- Model tab: the Animations tab's changes put back after a Build no longer take an animation edited in Blender out of its edit copy.
+- 3D views: a borrowed power's own prop that a costume holding one doesn't get (EntityExcluded) isn't shown for it (two hammers in Leaping Smite).
+
 0.60.118
 - Apply Changes: an icon package a mod replaces images in (beyond the three main ones: a borrowed power's icon in ICO__MarvelUIIcons_HD_SF) is no longer put back to stock by the next Apply (every second Apply undid the one before, so one change always seemed left).
 

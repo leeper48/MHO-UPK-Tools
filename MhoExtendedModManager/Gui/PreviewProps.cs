@@ -24,6 +24,8 @@ sealed class PreviewProps
     public Func<ModMeshes.Loaded, ModMeshes.Loaded>? Display { get; init; }
     /// <summary>Props left out by their attachment class (the Model tab: the target's props switched off before Save).</summary>
     public Func<string, bool>? Hidden { get; set; }
+    /// <summary>The character class shown (a power's components can exclude it: EntityExcluded).</summary>
+    public Func<string?>? Entity { get; set; }
     /// <summary>More meshes for the rig after the props (the Mods tab's power actors).</summary>
     public Action<PropRig>? AddMore { get; init; }
 
@@ -97,8 +99,9 @@ sealed class PreviewProps
         var dbTask = PowerPreview.GameDb(cooked);
         var idxTask = PowerPreview.PowerIndex(hero, cooked, modFiles);
         float secs = Seconds();
+        string? entity = Entity?.Invoke();
         Task.WhenAll(idxTask, dbTask).ContinueWith(done => idxTask.Status != TaskStatus.RanToCompletion ? PowerPreview.Switches.None
-                : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, anim, cooked, have, motionRefs, secs, formRules, formFiles))
+                : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, anim, cooked, have, motionRefs, secs, formRules, formFiles, entity))
             .ContinueWith(t =>
             {
                 if (owner.IsDisposed || req != switchRequest || t.Status != TaskStatus.RanToCompletion) return;

@@ -602,7 +602,12 @@ static class ModMeshes
     /// End are a point (power_on_start = 0, a contact / target-result point = the power's contact time, power_on_end = the
     /// animation's end) plus seconds.
     /// </summary>
-    public sealed record PropRule(bool Show, string Target, string StartPoint, float StartOffset, string? EndPoint, float EndOffset);
+    public sealed record PropRule(bool Show, string Target, string StartPoint, float StartOffset, string? EndPoint, float EndOffset)
+    {
+        /// <summary>The characters (player classes, lower case) its component isn't for (EntityExcluded: a borrowed power's
+        /// own hammer is left out for a costume holding one; Kurt, 2026-10-23, the preview showed both); null: none.</summary>
+        public IReadOnlyList<string>? Excluded { get; init; }
+    }
 
     static readonly Dictionary<string, List<PropRule>> ruleCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -631,6 +636,13 @@ static class ModMeshes
                 if (TagWalker.Walk(pkg, d, 16) is not { } tags) continue;   // a component: properties from byte 16
                 TagWalker.Tag? T(string n) => tags.FirstOrDefault(t => t.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
                 if (T("ConditionRequired") != null || T("EntityRequired") != null) continue;
+                List<string>? excluded = null;
+                if (T("EntityExcluded") is { } ex)
+                {
+                    excluded = [];
+                    for (int k = 0, n = BitConverter.ToInt32(d, ex.ValueAt); k < n && ex.ValueAt + 4 + 8 * k + 8 <= d.Length; k++) excluded.Add(TagWalker.NameAt(pkg, d, ex.ValueAt + 4 + 8 * k).ToLowerInvariant());
+                }
+                int ruleStart = result.Count;
                 string? Nm(string n) => T(n) is { } t ? TagWalker.NameAt(pkg, d, t.ValueAt) : null;
                 float Fl(string n) => T(n) is { } t && t.Size == 4 ? BitConverter.ToSingle(d, t.ValueAt) : 0;
                 string start = Nm("ActivationPoint") ?? "power_on_start", end = Nm("DeactivationPoint") ?? "";
@@ -674,6 +686,7 @@ static class ModMeshes
                         }
                     }
                 }
+                if (excluded is { Count: > 0 }) for (int k = ruleStart; k < result.Count; k++) result[k] = result[k] with { Excluded = excluded };
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }

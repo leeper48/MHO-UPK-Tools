@@ -40,7 +40,7 @@ sealed partial class ModEditorView
             if (powerList.Items[i] is Fx.PowerList.Power p && p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) { powerList.SelectedIndex = i; break; }
         for (int w = 0; w < 60 && powerPreview?.CurrentAnimationName == null; w++) await Task.Delay(1000);
         await Task.Delay(3000);
-        string state = $"prop fit {(propFit.Visible ? "shown" : "hidden")}, note '{heldNote.Text}', fit sliders {(pSize?.Visible == true ? $"shown at {pSize.Value * 100:0} %" : "hidden")}, block {(powerAnimBlock?.Root.Visible == true ? powerAnimBlock.State() : "hidden")}, playing {powerPreview?.CurrentAnimationName}";
+        string state = $"props shown: {powerPreview?.PropsForTest} | prop fit {(propFit.Visible ? "shown" : "hidden")}, note '{heldNote.Text}', fit sliders {(pSize?.Visible == true ? $"shown at {pSize.Value * 100:0} %" : "hidden")}, block {(powerAnimBlock?.Root.Visible == true ? powerAnimBlock.State() : "hidden")}, playing {powerPreview?.CurrentAnimationName}";
         // the held prop's Size from here (MHO_TEST_POWER_SIZE): its fit, the Animations tab's slider, the preview's props
         if (Environment.GetEnvironmentVariable("MHO_TEST_POWER_SIZE") is string sz && pSize != null && propPick.SelectedItem is PowerBorrow.SpawnedProp sp0 && HeldAs(sp0.Class) is { } held)
         {

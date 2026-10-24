@@ -208,11 +208,20 @@ sealed partial class ModEditorView : IModelHost
                     from ??= pick.From.File;
                 }
                 if (list.Count == 0) continue;
-                File.WriteAllBytes(tmp, cur);
-                var turns = RestTurnsFor(from!, tmp);
-                cur = AnimSwap.Build(tmp, cls, list, log, inherited, retarget: turns);
-                log.Add($"{string.Join(", ", list.Select(x => x.Slot))}: {Path.GetFileNameWithoutExtension(g.Key)}'s again, on the new build");
+                // one copy step per use of a source animation (two slots playing the same one: Kurt's idle and idle_combat both
+                // Thor's idle; in one step the second dropped the first)
+                Dictionary<string, System.Numerics.Quaternion>? turns = null;
+                while (list.Count > 0)
+                {
+                    var batch = list.GroupBy(x => (x.DonorFile, x.DonorSet, x.DonorSequence)).Select(x => x.First()).ToList();
+                    foreach (var x in batch) list.Remove(x);
+                    File.WriteAllBytes(tmp, cur);
+                    turns ??= RestTurnsFor(from!, tmp);
+                    cur = AnimSwap.Build(tmp, cls, batch, log, inherited, retarget: turns);
+                    log.Add($"{string.Join(", ", batch.Select(x => x.Slot))}: {Path.GetFileNameWithoutExtension(g.Key)}'s again, on the new build");
+                }
             }
+            if (AnimSwap.DropEmptySets(MhoPackageModifier.Package.FromBytes(cur), cls, log) is { } tidy) cur = tidy;
             return cur;
         }
         finally { try { File.Delete(tmp); } catch (IOException) { } }

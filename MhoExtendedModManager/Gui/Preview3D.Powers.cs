@@ -297,6 +297,7 @@ sealed partial class Preview3D
         Seconds = () => seconds,
         ShowPose = ShowPose,
         Display = Display,
+        Entity = () => ctx?.Entity(),
         AddMore = r =>
         {
             effects?.AddActors(r);

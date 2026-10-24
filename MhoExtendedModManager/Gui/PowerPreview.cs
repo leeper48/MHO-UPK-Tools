@@ -261,7 +261,7 @@ static class PowerPreview
     /// <param name="formRules">A form's own prop rules (its condition: Jean Grey's Phoenix wings on, cape off), always on.</param>
     /// <param name="formFiles">Where the form's props are looked for when the character doesn't have them.</param>
     public static Switches SwitchesFor(Fx.GameData? db, Dictionary<string, List<Fx.PowerIndex.PowerRef>> index, string? anim, string cooked, IReadOnlyList<PropRig.Prop> have, IEnumerable<(string Class, AnimRef Ref)> motionRefs, float seconds,
-        IReadOnlyList<ModMeshes.PropRule>? formRules = null, IReadOnlyList<string>? formFiles = null)
+        IReadOnlyList<ModMeshes.PropRule>? formRules = null, IReadOnlyList<string>? formFiles = null, string? entity = null)
     {
         List<Fx.PowerIndex.PowerRef>? refs = null;
         if (anim != null) index.TryGetValue(anim, out refs);
@@ -274,7 +274,8 @@ static class PowerPreview
         }
         refs ??= [];
         var files = refs.Select(r => r.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var rules = files.SelectMany(ModMeshes.PropRules).Distinct().ToList();
+        var rules = files.SelectMany(ModMeshes.PropRules).Distinct()
+            .Where(r => r.Excluded == null || entity == null || !r.Excluded.Contains(entity.ToLowerInvariant())).ToList();   // (not for this character)
         // (a form's rules hold the whole animation, whatever it is: its wings stay on)
         if (formRules != null) rules.AddRange(formRules.Select(r => r with { StartPoint = "power_on_start", StartOffset = 0, EndPoint = null, EndOffset = 0 }));
         if (formFiles != null) files.AddRange(formFiles.Where(f => !files.Contains(f, StringComparer.OrdinalIgnoreCase)));

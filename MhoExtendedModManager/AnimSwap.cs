@@ -1222,6 +1222,44 @@ static class AnimSwap
     /// component's list, named …_on_…), so the name is found in the hero's (or costume's own) set again. The copied
     /// sequences stay in the file, unlisted (the game looks only through a set's Sequences). Null when no slot was swapped.
     /// </summary>
+    /// <summary>
+    /// The costume's list without the sets of this package that hold no animation any more (copies emptied by Unswap or by
+    /// earlier builds: Kurt, 2026-10-23, Worthy Captain America's Classic listed six). Their data stays in the file; null when
+    /// none is listed.
+    /// </summary>
+    public static byte[]? DropEmptySets(Package pkg, string costumeClass, List<string> log)
+    {
+        string compPath = $"marvelgamecontent.default__{costumeClass.ToLowerInvariant()}.initialskeletalmesh";
+        int comp = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(compPath, StringComparison.OrdinalIgnoreCase));
+        if (comp < 0) return null;
+        byte[] cd = pkg.ReadExportBytes(pkg.Exports[comp]).ToArray();
+        var at = TagWalker.Walk(pkg, cd, 16)?.FirstOrDefault(x => x.Name.Equals("AnimSets", StringComparison.OrdinalIgnoreCase));
+        if (at == null) return null;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt));
+        var keep = new List<int>(); var dropped = new List<string>();
+        for (int k = 0; k < n; k++)
+        {
+            int r = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt + 4 + 4 * k));
+            if (r > 0 && pkg.ClassOf(pkg.Exports[r - 1]).Equals("AnimSet", StringComparison.OrdinalIgnoreCase))
+            {
+                byte[] sd = pkg.ReadExportBytes(pkg.Exports[r - 1]).ToArray();
+                var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase));
+                if (st != null && BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(st.ValueAt)) == 0) { dropped.Add(pkg.Exports[r - 1].ObjectName); continue; }
+            }
+            keep.Add(r);
+        }
+        if (dropped.Count == 0) return null;
+        byte[] list = [.. BitConverter.GetBytes(keep.Count), .. keep.SelectMany(BitConverter.GetBytes)];
+        byte[] ncd = [.. cd.AsSpan(0, at.ValueAt), .. list, .. cd.AsSpan(at.End)];
+        BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.Start + 16), list.Length);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => ncd };
+        byte[] output = PackageRebuilder.Rebuild(pkg, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(pkg, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) throw new InvalidDataException("the list without the empty sets didn't verify: " + string.Join("; ", problems.Take(2)));
+        log.Add($"empty sets off the list: {string.Join(", ", dropped)}");
+        return output;
+    }
+
     public static byte[]? Unswap(Package pkg, string costumeClass, IEnumerable<string> slots, List<string> log)
     {
         var want = slots.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1237,6 +1275,7 @@ static class AnimSwap
         {
             int r = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt + 4 + 4 * k));
             if (r <= 0 || !pkg.Exports[r - 1].ObjectName.Contains("_on_", StringComparison.OrdinalIgnoreCase)) continue;
+            if (pkg.Exports[r - 1].ObjectName.EndsWith("_mffedit", StringComparison.OrdinalIgnoreCase)) continue;   // (the Model tab's edits: an animation fixed in Blender stays)
             byte[] sd = pkg.ReadExportBytes(pkg.Exports[r - 1]).ToArray();
             var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(x => x.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase));
             if (st == null) continue;

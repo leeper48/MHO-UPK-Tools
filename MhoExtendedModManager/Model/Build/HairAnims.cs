@@ -78,10 +78,20 @@ static class HairAnims
         // package, so every name and reference in their bytes already means the same thing (and ExportCopy can't read every
         // sequence: Carnage's carry morph curves, curvedata).
         var pkg = Package.Open(builtPath);
+        string pkg0Name(CostumeAnims.Set s) => s.Export >= 0 && s.Export < pkg.Exports.Length ? pkg.Exports[s.Export].ObjectName : "";
         var work = new List<(CostumeAnims.Set From, int SetIndex, bool Clone)>();
+        // an edit copy made by an earlier build (…_mffedit), already in the list: edited in place (Kurt, 2026-10-23: each build
+        // cloned the last one again, …_mffedit_mffedit_mffedit, and the package grew by every copy)
+        var inPlace = new HashSet<int>();
         foreach (var s in copy)
         {
-            if (s.File!.Equals(builtPath, StringComparison.OrdinalIgnoreCase)) { work.Add((s, s.Export, true)); continue; }
+            if (s.File!.Equals(builtPath, StringComparison.OrdinalIgnoreCase))
+            {
+                bool earlierEdit = !all && pkg0Name(s).EndsWith(Suffix, StringComparison.OrdinalIgnoreCase);
+                if (earlierEdit) inPlace.Add(s.Export);
+                work.Add((s, s.Export, !earlierEdit));
+                continue;
+            }
             var src = Package.Open(s.File);
             string setName = src.Exports[s.Export].ObjectName, name = UniqueName(pkg, [], setName + Suffix);
             var r = Quiet(() => ExportCopy.Copy(src, s.Export, pkg, [], name), out string said)
@@ -116,6 +126,8 @@ static class HairAnims
             return e;
         }
         var setRefs = new List<int>();
+        int touched = 0;
+        var replacedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // (an earlier edit copy can hold a name twice)
         var expect = new List<Expect>();
         int sequences = 0, statics = 0, replacedCount = 0;
         var restLocal = bones.ToDictionary(b => b.Name, b => b.Position, StringComparer.OrdinalIgnoreCase);
@@ -163,7 +175,7 @@ static class HairAnims
                     seqData.Add((q, eqd));
                     expect.Add(new Expect(eRef, seqName, track, full, from.File!, -1, from.TrackBoneNames));
                     lines.Add($"\"{seqName}\" replaced by {Path.GetFileName(fbx)}: {eFrames} frames, {edit.Tracks.Count} tracks from the edit (ConstantKeyLerp, Float96NoW)");
-                    sequences++; replacedCount++;
+                    sequences++; replacedCount++; replacedNames.Add(seqName);
                     continue;
                 }
                 if (anim != null && frames > 0)
@@ -216,11 +228,13 @@ static class HairAnims
             {
                 replace[setIndex] = _ => nsd;
                 foreach (var (old, data) in seqData) replace[old - 1] = _ => data;
+                if (inPlace.Contains(setIndex)) lines.Add($"set {from.Path}: the earlier edit copy, its animations replaced in place");
             }
-            setRefs.Add(setRef);
+            if (!inPlace.Contains(setIndex)) setRefs.Add(setRef);   // (an earlier edit copy is listed already)
+            touched++;
         }
-        if (setRefs.Count == 0) throw new InvalidDataException("every set has the hair bones already");
-        if (replacedCount != overrides.Count) throw new InvalidDataException($"{replacedCount} of {overrides.Count} replaced animations written (a name in no copied set?)");
+        if (touched == 0) throw new InvalidDataException("every set has the hair bones already");
+        if (replacedNames.Count != overrides.Count) throw new InvalidDataException($"{replacedCount} of {overrides.Count} replaced animations written (a name in no copied set?)");
 
         // the component's list: the copies at its end (a costume without a list of its own gets its hero's first)
         string compPath = $"marvelgamecontent.default__{cls}.initialskeletalmesh";
