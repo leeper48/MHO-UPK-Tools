@@ -2879,6 +2879,68 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--anim-compare":
+            {
+                // Read-only: two AnimSequences of a package (export paths) bone by bone, as stored: the angle between their
+                // rotations at the first and middle frame, key counts; the bones that differ most. --anim-compare <package> <a> <b>
+                if (rest.Count < 4) { Console.WriteLine("--anim-compare <package> <sequence a> <sequence b>"); return 1; }
+                var cp2 = AnimExportCli.Packages.Package.Open(rest[1]);
+                var cm2 = MhoPackageModifier.Package.Open(rest[1]);
+                AnimExportCli.Animation.BoneAnimation? Seq(string path)
+                {
+                    int e = Array.FindIndex(cm2.Exports, x => cm2.PathOf(x).Equals(path, StringComparison.OrdinalIgnoreCase));
+                    if (e < 0) return null;
+                    var info = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(cp2).FirstOrDefault(x => x.ExportIndex == cm2.Exports[e].OuterIndex - 1);
+                    return info == null ? null : AnimExportCli.Animation.AnimObjectReader.TryRead(cp2, e, info.TrackBoneNames);
+                }
+                var sa = Seq(rest[2]); var sb = Seq(rest[3]);
+                if (sa == null || sb == null) { Console.WriteLine("one doesn't decode"); return 1; }
+                double Ang(System.Numerics.Quaternion x, System.Numerics.Quaternion y) => 2 * Math.Acos(Math.Min(1, Math.Abs(System.Numerics.Quaternion.Dot(System.Numerics.Quaternion.Normalize(x), System.Numerics.Quaternion.Normalize(y))))) * 180 / Math.PI;
+                var rows = new List<(string Bone, double First, double Mid, int Ka, int Kb)>();
+                foreach (var (bn, ta) in sa.Tracks)
+                {
+                    if (!sb.Tracks.TryGetValue(bn, out var tb2) || ta.RotationKeys.Count == 0 || tb2.RotationKeys.Count == 0) continue;
+                    var ra = ta.RotationKeys; var rb = tb2.RotationKeys;
+                    rows.Add((bn, Ang(ra[0].Rotation, rb[0].Rotation), Ang(ra[ra.Count / 2].Rotation, rb[rb.Count / 2].Rotation), ra.Count, rb.Count));
+                }
+                var prow = new List<(string Bone, float First, float Mid)>();
+                foreach (var (bn, ta) in sa.Tracks)
+                {
+                    if (!sb.Tracks.TryGetValue(bn, out var tb3) || ta.PositionKeys.Count == 0 || tb3.PositionKeys.Count == 0) continue;
+                    var pa2 = ta.PositionKeys; var pb2 = tb3.PositionKeys;
+                    prow.Add((bn, System.Numerics.Vector3.Distance(pa2[0].Position, pb2[0].Position), System.Numerics.Vector3.Distance(pa2[pa2.Count / 2].Position, pb2[pb2.Count / 2].Position)));
+                }
+                Console.WriteLine("  positions that differ most:");
+                foreach (var r in prow.OrderByDescending(r => Math.Max(r.First, r.Mid)).Take(10))
+                    Console.WriteLine($"    {r.Bone,-28} first {r.First,7:0.00}  mid {r.Mid,7:0.00}  ({sa.Tracks[r.Bone].PositionKeys[0].Position} vs {sb.Tracks[r.Bone].PositionKeys[0].Position})");
+                Console.WriteLine("  rotations that differ most:");
+                foreach (var r in rows.OrderByDescending(r => Math.Max(r.First, r.Mid)).Take(15))
+                    Console.WriteLine($"  {r.Bone,-28} first {r.First,6:0.0}°  mid {r.Mid,6:0.0}°  keys {r.Ka} vs {r.Kb}");
+                Console.WriteLine($"  {rows.Count} bones compared; {rows.Count(r => Math.Max(r.First, r.Mid) > 10)} differ by more than 10°");
+                return 0;
+            }
+            case "--anim-keys":
+            {
+                // Read-only: a package's AnimSequence (by export path) decoded as stored (no single-key rule): each named
+                // bone's key counts, first and middle rotation, first position. --anim-keys <package> <sequence path> <bone>...
+                if (rest.Count < 4) { Console.WriteLine("--anim-keys <package> <sequence path> <bone>..."); return 1; }
+                var kp = AnimExportCli.Packages.Package.Open(rest[1]);
+                var mp = MhoPackageModifier.Package.Open(rest[1]);
+                int ke = Array.FindIndex(mp.Exports, x => mp.PathOf(x).Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (ke < 0) { Console.WriteLine("no " + rest[2]); return 1; }
+                int ks = mp.Exports[ke].OuterIndex - 1;
+                var kinfo = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(kp).FirstOrDefault(x => x.ExportIndex == ks);
+                if (kinfo == null) { Console.WriteLine("its set doesn't read"); return 1; }
+                var ka = AnimExportCli.Animation.AnimObjectReader.TryRead(kp, ke, kinfo.TrackBoneNames);
+                if (ka == null) { Console.WriteLine("doesn't decode"); return 1; }
+                foreach (string bn in rest.Skip(3))
+                {
+                    if (!ka.Tracks.TryGetValue(bn, out var kt)) { Console.WriteLine($"  {bn}: no track"); continue; }
+                    string Q(System.Numerics.Quaternion q) => $"({q.X:0.000} {q.Y:0.000} {q.Z:0.000} {q.W:0.000})";
+                    Console.WriteLine($"  {bn}: {kt.PositionKeys.Count} pos / {kt.RotationKeys.Count} rot keys; rot first {Q(kt.RotationKeys[0].Rotation)} mid {Q(kt.RotationKeys[kt.RotationKeys.Count / 2].Rotation)}; pos first {kt.PositionKeys.FirstOrDefault().Position}");
+                }
+                return 0;
+            }
             case "--bone-rel":
             {
                 // Read-only (2026-10-23, Thor's hammer swinging by its strap in fidget02): a bone's place relative to another

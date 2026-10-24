@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.117
+- Model tab: an animation edited in Blender no longer turns the whole body in game: bones whose turn doesn't change (the root and the *_offset helpers) are written as one key, as the game's own files store them (as plain keys the game read the root the other way round: Captain America lay on his side in his edited idle_combat).
+
 0.60.116
 - Model tab: the preview plays, and Open in Blender / Single Animation export, the animations as the mod has them: one changed in the Animations tab (Thor's idle_combat on Captain America) instead of the costume's own.
 

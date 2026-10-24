@@ -418,6 +418,11 @@ static class HairAnims
             // rotation (Float96NoW, conjugated)
             int rOff = (int)stream.Length;
             var rot = t?.RotationKeys is { Count: > 0 } rk ? Enumerable.Range(0, numFrames).Select(f => Quaternion.Normalize(FbxExporter.SampleRotation(rk, f, restRot))).ToArray() : [restRot];
+            // a turn that doesn't change: one key, as the game's files store it (Kurt, 2026-10-23: an edited idle_combat lay
+            // Captain America on his side in game. Its root, one key in the original that the game reads the other way round
+            // (its rest turn, -90 degrees; the preview's single-key rule shows it so), went in as 97 plain keys of +90; written
+            // as one key, an unchanged bone's bytes are the original's)
+            if (rot.Length > 1 && rot.All(q => MathF.Abs(Quaternion.Dot(q, rot[0])) > 0.999999f)) rot = [rot[0]];
             foreach (var q in rot) { var st = Stored(q); w.Write(st.X); w.Write(st.Y); w.Write(st.Z); }
             full[name] = rot;
             offsets.AddRange([tOff, pos.Length, rOff, rot.Length]);
