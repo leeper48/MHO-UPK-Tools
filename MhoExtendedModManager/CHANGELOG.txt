@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.122
+- What's New: a notice for the changes since 0.60.75.
+
 0.60.121
 - Model tab: an added prop's model (Thor's hammer on Captain America) no longer counts as "another model you built", so Build starts from the game's package again instead of the last build: the textures stopped piling up (a package grew to 33 MB) and Feet and Lean apply as set.
 
@@ -35,17 +38,17 @@ MHO Extended Mod Manager: what's new
 
 0.60.112
 - 3D views: a warning over the view when the animation playing is one the game won't play for this costume (a borrowed or copied set its animation list doesn't name: rest pose in game), with how to fix it on a click.
-- Powers tab: Prop Fit and In This Animation side by side, as in the Animations tab.
+- Borrowed Look (preview feature, hidden): Prop Fit and In This Animation side by side, as in the Animations tab.
 
 0.60.111
-- Powers tab: with more than one borrowed power, every borrow's animations are listed for the costumes that have an animation list of their own (only the first borrow's were, so the others stood in their rest pose in game while the preview played them).
+- Borrowed Look (preview feature, hidden): with more than one borrowed power, every borrow's animations are listed for the costumes that have an animation list of their own (only the first borrow's were, so the others stood in their rest pose in game while the preview played them).
 
 0.60.110
 - Mods tab: right-click a card → Duplicate: a copy of the mod under a new name (all its files and settings), added off at the top, to experiment from.
-- Powers tab: for a borrowed power that throws the prop the costume holds, the Prop Fit sliders are that prop's own fit again (the same as the Animations tab's), with In This Animation under them.
+- Borrowed Look (preview feature, hidden): for a borrowed power that throws the prop the costume holds, the Prop Fit sliders are that prop's own fit again (the same as the Animations tab's), with In This Animation under them.
 
 0.60.109
-- Powers tab: a borrowed power that throws the prop the costume holds (an added prop) says so in Prop Fit, and its In This Animation moves and turns that prop in the power's animation playing only. Pivot on the Hand now also holds the prop in the borrowed powers' animations in the hero's package, baked in.
+- Borrowed Look (preview feature, hidden): a borrowed power that throws the prop the costume holds (an added prop) says so in Prop Fit, and its In This Animation moves and turns that prop in the power's animation playing only. Pivot on the Hand now also holds the prop in the borrowed powers' animations in the hero's package, baked in.
 
 0.60.108
 - Animations tab: after Save and Keep Editing, the prop's Size / Move / Turn sliders change the prop again (they changed the props from before the save, which the build no longer read).
@@ -95,7 +98,7 @@ MHO Extended Mod Manager: what's new
 - Animations tab Props: Pivot on the Hand: the animations the costume took from another character (Thor's fidgets and idles) stop moving the bone the prop hangs on, so it stays in the hand and turns with it; applied again after every animation change and at Save.
 
 0.60.93
-- Save and Keep Editing with a borrowed look: the Powers tab's preview no longer falls back to the stock power (it read the borrow's preview builds, which Save deletes), and Prop Fit comes back (the borrow is built again once to know its props).
+- Borrowed Look (preview feature, hidden): Save and Keep Editing: the Powers tab's preview no longer falls back to the stock power (it read the borrow's preview builds, which Save deletes), and Prop Fit comes back (the borrow is built again once to know its props).
 
 0.60.92
 - Animations tab: an animation changed on a costume that a borrowed look also changes is kept at Save (the borrow's rebuild started from its copy of the package before the change and dropped it); the change goes into that copy too.
@@ -110,20 +113,20 @@ MHO Extended Mod Manager: what's new
 - Editor previews: a costume package changed but not saved yet (an added prop, a borrowed look) shows its model from the changed copy, so an added prop shows before Save.
 
 0.60.89
-- Borrow Look (preview feature): a costume holding the borrowed power's prop (an added prop) throws its own; the power's spawned copy is left out for that costume only (Captain America's other costumes still get it).
+- Borrowed Look (preview feature, hidden): a costume holding the borrowed power's prop (an added prop) throws its own; the power's spawned copy is left out for that costume only (Captain America's other costumes still get it).
 
 0.60.88
 - Animations tab: Props: Add a Prop gives the costume another character's prop (Thor's hammer for Captain America), held in every animation, with Size, Move (global axes) and Turn; Remove takes it off. Saved with the mod; a borrowed power that shows that slot uses the held prop.
 - Fitted props get the same model name in every session (a fit saved again added another copy).
 
 0.60.87
-- Borrow Look (preview feature): Rename This Power (with its name box) and Use Its Icon are in the Powers tab's Borrowed Look too, for a power already borrowed; changing them updates the Strings and Icons tabs at once (no rebuild).
+- Borrowed Look (preview feature, hidden): Rename This Power (with its name box) and Use Its Icon are in the Powers tab's Borrowed Look too, for a power already borrowed; changing them updates the Strings and Icons tabs at once (no rebuild).
 
 0.60.86
-- Borrow Look (preview feature): Keep This Hero's Weapons keeps the weapons the hero always holds (Captain America's shield) shown while the borrowed power runs; they were always hidden.
+- Borrowed Look (preview feature, hidden): Keep This Hero's Weapons keeps the weapons the hero always holds (Captain America's shield) shown while the borrowed power runs; they were always hidden.
 
 0.60.85
-- Borrow Look (preview feature): Prop Fit → Pivot on the Hand: the borrowed animations stop moving the bone the prop hangs on (Hammer of Storms moves Thor's palm out along the strap), so the prop turns about the hand and Move places it from there.
+- Borrowed Look (preview feature, hidden): Prop Fit → Pivot on the Hand: the borrowed animations stop moving the bone the prop hangs on (Hammer of Storms moves Thor's palm out along the strap), so the prop turns about the hand and Move places it from there.
 
 0.60.84
 - Prop Pivots: each pivot names the bone the prop hangs on.
@@ -143,17 +146,17 @@ MHO Extended Mod Manager: what's new
 0.60.80
 - 3D views: an axis gizmo in the lower left corner (X red, Y green, Z blue, as in Blender), and Look ▾ → Quad View: this camera plus Top, Front and Side.
 - Editor: Ctrl+S saves and keeps editing; Ctrl+Enter saves and goes back to the mod list.
-- Borrow Look (preview feature): Prop Fit's Move X / Y / Z move the prop along the global axes (the gizmo's), as it's held in the frame shown.
+- Borrowed Look (preview feature, hidden): Prop Fit's Move X / Y / Z move the prop along the global axes (the gizmo's), as it's held in the frame shown.
 
 0.60.79
-- Borrow Look (preview feature): Rename This Power and Use Its Icon put the borrowed power's name (or one you type) and icon into the Strings and Icons tabs; Game's Look takes them off again.
-- Borrow Look: a borrowed projectile throws what the other one throws (its weapon slot and return socket): Shield Toss with Hammer of Storms throws the hammer, not the hammer and the shield.
+- Borrowed Look (preview feature, hidden): Rename This Power and Use Its Icon put the borrowed power's name (or one you type) and icon into the Strings and Icons tabs; Game's Look takes them off again.
+- Borrowed Look (preview feature, hidden): a borrowed projectile throws what the other one throws (its weapon slot and return socket): Shield Toss with Hammer of Storms throws the hammer, not the hammer and the shield.
 
 0.60.78
 - 3D previews: a mod with a borrowed power look shows its own costume first, not the hero's other costumes the borrow added for its animations (Worthy Captain America opened on Age of Ultron). The mod card's costume and Costume ▾ ignore those added packages too.
 
 0.60.77
-- Powers tab: after Borrow Look, the selected power plays its new animation in the preview at once (it kept the old one until the mod was saved and opened again).
+- Borrowed Look (preview feature, hidden): after Borrow Look, the selected power plays its new animation in the preview at once (it kept the old one until the mod was saved and opened again).
 
 0.60.76
 - Powers: a hero's powers whose class lives in a package not named after the hero now have their animations (Thor's Hammer of Storms in UC__PowerFlyMjolnir_SF; Storm's Tornadoes, Maelstrom and Chain Lightning; Hawkeye's arrows; Colossus's Fastball Special; Hulk's Avalanche Leap). They play in the 3D previews and can be borrowed.

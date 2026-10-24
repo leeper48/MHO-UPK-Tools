@@ -34,9 +34,26 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
+    /// <summary>0.60.122 (Kurt, 2026-10-24): props from other characters, 3D view tools, Duplicate, Model tab fixes.</summary>
+    static Notice PropsAndViews() => new(
+        "0.60.122-props-views", "0.60.122",
+        "[!]Animations tab: Props → Add a Prop gives a costume another character's prop (Thor's hammer for Captain America), held in every animation." + nl +
+        "  • Size, Move and Turn fit it. Pivot on the Hand holds it in the other character's animations the way that character does (the hammer swings by its strap in Thor's fidgets)." + nl +
+        "  • In This Animation moves and turns it further in one animation only." + nl + nl +
+        "[!]3D views:" + nl +
+        "  • An axis gizmo (X red, Y green, Z blue): click a ball to look along that axis." + nl +
+        "  • Quad View (Shift+Q): the camera plus Top, Front and Side." + nl +
+        "  • Look ▾ → Barrel Size Reference (an oil drum to judge sizes by: drag it, double-click to put it back) and Prop Pivots." + nl +
+        "  • An amber warning when the animation playing won't play in game for this costume, with how to fix it." + nl + nl +
+        "Mods tab: Right-click a card → Duplicate makes a copy of a mod to experiment from." + nl + nl +
+        "Model tab: A Lean slider under Feet; models with two spine bones no longer lean forward; the preview and Blender export play the mod's own animation changes; animations edited in Blender no longer turn the body in game, and repeated Builds no longer pile up copies." + nl + nl +
+        "Also: Click a slider's number to type a value; Ctrl+S saves and keeps editing, Ctrl+Enter saves and goes back; another hero's animations are fitted to the costume's skeleton; Apply Changes no longer undoes an extra icon package every second time." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "animations");
+
     /// <summary>0.60.75 (Kurt, 2026-10-23): Model tab From the Game source, feet and size; effects in Create from 3D.</summary>
     static Notice GameSourceFeet() => new(
         "0.60.75-game-source-feet", "0.60.75",
