@@ -48,6 +48,9 @@ static class Applier
         var winners = lib.PackageWinners();
         var ledger = Ledger.Load(lib.DataFolder, game);
         var icons = IconPackages.Select(p => p.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // (and the other icon packages a mod names images in: the icon step below rebuilds them; as a left-over a written one
+        // went back to stock, so every second Apply undid the last one: Kurt, 2026-10-23, ICO__MarvelUIIcons_HD_SF)
+        icons.UnionWith(lib.Mods.SelectMany(m => m.Manifest.Extra.Select(r => r.Package)));
         // Also every package this app wrote before (its undo history) that no mod names now: a mod that dropped a package in
         // an edit or update, or a mod folder deleted by hand. It goes back to the original like a mod turned off; before
         // 0.37.72 it stayed changed for good (Kurt's Ms. Marvel power colors after Blue Marvel lost them).
