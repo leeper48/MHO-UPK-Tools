@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.114
+- Model tab: Open in Blender / Single Animation export a borrowed power's animation too (one only in the mod's copy of the hero's package came over as the model alone).
+
 0.60.113
 - Model tab: the preview reads the mod's own packages: a borrowed power's button plays its borrowed animation (and the mod's other animation changes show), and Open in Blender / Single Animation export each animation as the preview plays it.
 

@@ -2852,6 +2852,33 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--anim-tracks":
+            {
+                // Read-only (2026-10-23, a borrowed flight exported to Blender with only its root): one animation of a mod's
+                // costume package as the preview finds it (the mod's packages), decoded by the preview and by the FBX export.
+                // --anim-tracks <mod> <costume package file> <animation>
+                var tm = rest.Count > 3 ? lib.Find(rest[1]) : null;
+                if (tm == null) { Console.WriteLine("--anim-tracks <mod> <costume package file> <animation>"); return 1; }
+                string? tgr = settings.ResolvedGameRoot(data);
+                string? tck = tgr != null && Settings.IsGameRoot(tgr) ? Settings.Cooked(tgr) : null;
+                var mods = tm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(tm.Folder, f))).ToList();
+                string cp = Path.Combine(tm.Folder, rest[2]);
+                var tmr = ModMeshes.List([(rest[2], cp)], anyPackage: true).FirstOrDefault();
+                var tld = tmr == null ? null : ModMeshes.Load(tmr, tck, out _);
+                if (tmr == null || tld == null) { Console.WriteLine("no mesh in " + rest[2]); return 1; }
+                var tr = ModAnimations.For(tmr, tld.Bones, mods, tck).FirstOrDefault(x => x.Name.Equals(rest[3], StringComparison.OrdinalIgnoreCase));
+                if (tr == null) { Console.WriteLine("no animation " + rest[3]); return 1; }
+                Console.WriteLine($"{tr.Name}: {Path.GetFileName(tr.File)} #{tr.SequenceExport}, {tr.TrackBoneNames.Count} track names, positions for {tr.TranslationBones?.Count.ToString() ?? "all"}{(tr.Unlisted != null ? ", unlisted" : "")}");
+                var pa = ModAnimations.Load(tr);
+                var ea = MhoExtendedModManager.Model.MhoAnim.Load(new MhoExtendedModManager.Model.MhoAnimRef(tr.File, tr.Name, tr.SequenceExport, tr.TrackBoneNames, tr.TranslationBones));
+                foreach (var (what, an) in new[] { ("preview", pa), ("export", ea) })
+                {
+                    if (an == null) { Console.WriteLine($"  {what}: can't be read"); continue; }
+                    int moving = an.Tracks.Count(t => t.Value.RotationKeys.Count > 1 || t.Value.PositionKeys.Count > 1);
+                    Console.WriteLine($"  {what}: {an.Tracks.Count} tracks, {moving} with more than one key, mesh bones covered {tld.Bones.Count(b => an.Tracks.ContainsKey(b.Name))} of {tld.Bones.Count}; e.g. {string.Join(", ", an.Tracks.Keys.Take(6))}");
+                }
+                return 0;
+            }
             case "--bone-rel":
             {
                 // Read-only (2026-10-23, Thor's hammer swinging by its strap in fidget02): a bone's place relative to another

@@ -75,6 +75,11 @@ static class FbxExport
 
         // the animations
         var anims = MhoAnim.For(package, bones.Select(b => b.Name)).Select(a => prefer != null && prefer.TryGetValue(a.Name, out var p) ? p : a).ToList();
+        // the preview's that aren't here (a borrowed power's, only in the mod's copy of the hero's package: Kurt, 2026-10-23, its
+        // flight came to Blender as the model alone), but not the shared ones every hero plays (Startup's blink, interactions)
+        if (prefer != null)
+            foreach (var p in prefer.Values)
+                if (Path.GetFileName(p.File).StartsWith("UC__", StringComparison.OrdinalIgnoreCase) && !anims.Any(a => a.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase))) anims.Add(p);
         var picked = animFilter.Count == 0 ? anims : anims.Where(a => animFilter.Any(f => exact ? a.Name.Equals(f, StringComparison.OrdinalIgnoreCase) : a.Name.Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
         string animDir = Path.Combine(outDir, "anims");
         Directory.CreateDirectory(animDir);
