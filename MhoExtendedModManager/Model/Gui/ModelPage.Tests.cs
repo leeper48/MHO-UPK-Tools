@@ -14,6 +14,11 @@ sealed partial class ModelPage
         // MHO_TEST_PKGMAPS=1 with no source ("-"): the package's own textures listed, one edited in the image editor (MHO_TEST_EDITOR)
         if (mff == "-" && Environment.GetEnvironmentVariable("MHO_TEST_PKGMAPS") == "1")
             return await TestPackageMaps(say) ? TestChanged?.Path ?? built.GetValueOrDefault(package) : null;
+        // MHO_TEST_FEET=12 / MHO_TEST_LEAN=-3: the Feet and Lean sliders set before the build
+        if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_FEET"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tf))
+        { feetCustom = tf; feetSlider.Value = tf; preview.FeetShift = tf; SaveState(); }
+        if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_LEAN"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tl))
+        { leanSlider.Value = tl; SaveState(); }
         // MHO_TEST_SIZE=1.2: the Size slider set before the build (its Scale is checked after)
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts))
         { sizeSlider.Value = ts; preview.Size = ts; }

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.121
+- Model tab: an added prop's model (Thor's hammer on Captain America) no longer counts as "another model you built", so Build starts from the game's package again instead of the last build: the textures stopped piling up (a package grew to 33 MB) and Feet and Lean apply as set.
+
 0.60.120
 - Model tab: Back to the Game's for an animation edited in Blender now takes the edit out on the next Build (the build kept the earlier edit copy).
 - Model tab: after a Build, an Animations tab change that took an animation from this costume itself (idle_combat ← this costume's idle, which the mod made Thor's) keeps the mod's version, not the game's original.

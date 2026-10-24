@@ -133,12 +133,18 @@ sealed partial class ModelPage
             string target = MhoSkeleton.Load(baseStart, null).Name;
             var a = AnimExportCli.Packages.Package.Open(baseStart);
             var b = AnimExportCli.Packages.Package.Open(current);
+            // props' models aren't a model built here (an added prop's, its fitted copies, a borrowed power's: Kurt, 2026-10-24,
+            // Thor's hammer on Captain America made every build start from the last one, so its textures piled up and Feet
+            // seemed to do nothing)
+            var props = MhoExtendedModManager.ModMeshes.Attachments(current).Select(x => x.Mesh.Split('.').Last()).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (int i in b.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName))
             {
                 string name = b.GetExportName(i);
                 if (name.Equals(target, StringComparison.OrdinalIgnoreCase)) continue;
+                if (props.Contains(name) || System.Text.RegularExpressions.Regex.IsMatch(name, @"_x\d+(_fit\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;   // (a prop's fitted copy: …_x85_fit49176)
                 int j = a.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).FirstOrDefault(k => a.GetExportName(k).Equals(name, StringComparison.OrdinalIgnoreCase), -1);
-                if (j < 0 || !a.GetExportData(j).SequenceEqual(b.GetExportData(i))) return name;
+                // (only a model the game's package has, changed: the tab builds onto those; one it doesn't have is a prop's)
+                if (j >= 0 && !a.GetExportData(j).SequenceEqual(b.GetExportData(i))) return name;
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
