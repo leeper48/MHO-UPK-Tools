@@ -263,7 +263,7 @@ sealed partial class MainForm : Form
         var headLabel = new Label { Text = "INSTALLED MODS", AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Bold(8.5f), Tag = "subtle" };
         lhead.Controls.Add(headLabel, 0, 0);
         lhead.Controls.Add(countLabel, 1, 0);
-        undoButton = Ui.FlatButton("Undo", Undo); redoButton = Ui.FlatButton("Redo", Redo);
+        undoButton = ShortcutsUi.Attach(Ui.FlatButton("Undo", Undo), "mods.undo"); redoButton = ShortcutsUi.Attach(Ui.FlatButton("Redo", Redo), "mods.redo");
         Icons.Make(undoButton, "Undo", Icons.Undo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)); Icons.Make(redoButton, "Redo", Icons.Redo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         lhead.Controls.Add(undoButton, 2, 0); lhead.Controls.Add(redoButton, 3, 0);
         var priorityLabel = new Label { Text = "Priority:", AutoSize = true, Anchor = AnchorStyles.Right, Font = Ui.Regular(8.5f), Tag = "subtle", Margin = new Padding(10, 0, 0, 0) };
@@ -813,7 +813,7 @@ sealed partial class MainForm : Form
     }
 
     static readonly (string Key, string Name)[] Sorts = [("priority", "Priority"), ("name", "Name"), ("author", "Author"), ("tag", "Tag"), ("enabled", "On First"), ("update", "Updates First")];
-    static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author"), ("overlap", "Overlap"), ("conflict", "Conflicts")];
+    static readonly (string Key, string Name)[] Groups = [("none", "None"), ("tag", "Tag"), ("author", "Author"), ("overlap", "Overlap"), ("crash", "Crash Risk"), ("conflict", "Conflicts")];
 
     /// <summary>The list shows the priority order as it is: the priority buttons and padlocks work only then.</summary>
     bool ReorderView => settings.ListSort == "priority" && settings.ListGroup == "none";
@@ -860,13 +860,15 @@ sealed partial class MainForm : Form
 
         var items = new List<object>();
         string grouping = settings.ListGroup;
-        if (grouping is "tag" or "author" or "overlap" or "conflict")
+        if (grouping is "tag" or "author" or "overlap" or "crash" or "conflict")
         {
             // Overlap (Kurt, 2026-10-12): the mods with the OVERLAP warning, then the rest. Conflicts: the cards' stripe, red
             // (part of the mod loses to a higher one) first, then amber (it wins every shared change), then the rest.
-            string none = grouping == "tag" ? "Untagged" : grouping == "overlap" ? "No Overlap" : grouping == "conflict" ? "No Conflicts" : "(No Author)";
+            // Crash Risk (Kurt, 2026-10-25): the mods with the CRASH RISK warning first, as Overlap
+            string none = grouping == "tag" ? "Untagged" : grouping == "overlap" ? "No Overlap" : grouping == "crash" ? "No Crash Risk" : grouping == "conflict" ? "No Conflicts" : "(No Author)";
             List<string> KeysOf(Mod m) => grouping == "tag" ? (m.Tags.Count > 0 ? m.Tags : [none])
                 : grouping == "overlap" ? [OverlapReason(m) != null ? "Overlap" : none]
+                : grouping == "crash" ? [CrashCheck.Reason(m) != null ? "Crash Risk" : none]
                 : grouping == "conflict" ? [list.Overridden.Contains(m) ? "Overridden" : conflicted.Contains(m) ? "Wins Its Conflicts" : none]
                 : [string.IsNullOrWhiteSpace(m.Manifest.Author) ? none : m.Manifest.Author.Trim()];
             foreach (string k in modList.SelectMany(KeysOf).Distinct(cmp).OrderBy(k => k == none ? 1 : 0).ThenBy(k => grouping == "conflict" ? (k == "Overridden" ? "0" : "1") : k, cmp))

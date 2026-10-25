@@ -145,7 +145,7 @@ static class Ui
     public static T TipTitled<T>(T c, string title, string? text) where T : Control
     {
         LimitTipWidth(Tips);
-        Tips.SetToolTip(c, Titled(title, text));
+        SetTip(c, Titled(title, text));
         ForgetOnDispose(c);
         return c;
     }
@@ -673,7 +673,55 @@ static class Ui
     }
     /// <summary>Stock images (the original icon packages) are decoded one at a time (the list's and the preview's pictures).</summary>
     public static readonly object StockLock = new();
-    public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) { LimitTipWidth(Tips); Tips.SetToolTip(c, text); ForgetOnDispose(c); } return c; }
+    public static T Tip<T>(T c, string? text) where T : Control { if (!string.IsNullOrEmpty(text)) { LimitTipWidth(Tips); SetTip(c, text); ForgetOnDispose(c); } return c; }
+
+    /// <summary>The tooltips as written (with the default shortcut keys), so a changed shortcut can be put into them again.</summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, string> tipWritten = new();
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, object?> placing = new();
+
+    /// <summary>A tooltip with the user's shortcut keys in place of the defaults it names (Kurt, 2026-10-25: tooltips kept saying
+    /// the default keys after a change; Shortcuts.Rewrite).</summary>
+    static void SetTip(Control c, string text)
+    {
+        tipWritten.AddOrUpdate(c, text);
+        Tips.SetToolTip(c, Shown(c, text));
+    }
+
+    /// <summary>A tooltip as written (before the shortcut keys are put in), else what the tooltip shows.</summary>
+    public static string WrittenTip(Control c) => tipWritten.TryGetValue(c, out var t) ? t : Tips.GetToolTip(c);
+
+    /// <summary>A tooltip as shown: the user's keys in place of the defaults it names, and the control's own shortcut (its
+    /// command's, or one given to the button by right-click) after the title, or on a last line (Kurt, 2026-10-25: the
+    /// shortcuts didn't show in the tooltips).</summary>
+    static string Shown(Control c, string text)
+    {
+        string? id = ShortcutsUi.AttachedTo(c);
+        text = Shortcuts.Rewrite(text, id);
+        // a button's own shortcut needs its window (its id): again once it's placed in one
+        if (id == null && c is Button nb && nb.FindForm() == null && Shortcuts.ButtonBindings().Count > 0 && placing.TryAdd(nb, null)) nb.HandleCreated += (_, _) => Retip(nb);
+        string key = id != null ? Shortcuts.Text(id) : c is Button b && b.FindForm() != null ? Shortcuts.Text(ShortcutsUi.ButtonId(b)) : "";
+        if (key.Length == 0) return text;
+        key = key.Replace(", ", " / ");
+        // (already named where it stands alone: "(Ctrl+Enter)", not the P in "Play")
+        bool Names(string t) => key.Split(" / ").All(k => System.Text.RegularExpressions.Regex.IsMatch(t, @"(?<![A-Za-z0-9+])" + System.Text.RegularExpressions.Regex.Escape(k) + @"(?=\)|;|,|: |\.|\s|$|\+[cC]lick)"));
+        var (title, body) = SplitTitle(text);
+        if (title != null) return Names(text) ? text : Titled($"{title} ({key})", body);
+        return Names(text) ? text : text + "\n\nShortcut: " + key;
+    }
+
+    /// <summary>One control's tooltip again with the current shortcut keys (its command was just attached).</summary>
+    public static void Retip(Control c) { if (tipWritten.TryGetValue(c, out var t)) Tips.SetToolTip(c, Shown(c, t)); }
+
+    /// <summary>Every tooltip in the open windows again with the current shortcut keys (after Settings → Keyboard Shortcuts).</summary>
+    public static void RefreshShortcutTips()
+    {
+        void Walk(Control c)
+        {
+            if (tipWritten.TryGetValue(c, out var t)) Tips.SetToolTip(c, Shown(c, t));
+            foreach (Control k in c.Controls) Walk(k);
+        }
+        foreach (Form f in Application.OpenForms) Walk(f);
+    }
 
     /// <summary>Buttons under a control that have no tooltip (on the shared tooltip or <paramref name="other"/>).</summary>
     public static List<string> MissingTips(Control root, params ToolTip[] other)

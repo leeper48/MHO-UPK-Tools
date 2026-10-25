@@ -33,7 +33,7 @@ sealed partial class MainForm
         {
             if (IsDisposed || run != sharedCheck) return;
             // grouped or filtered by overlap: the list is made again now that it's known
-            BeginInvoke(() => { if (settings.ListGroup == "overlap" || filter.Text.Contains("is:overlap", StringComparison.OrdinalIgnoreCase) || filter.Text.Contains("is:crash", StringComparison.OrdinalIgnoreCase)) FillList(Selected?.FolderName); else list.Invalidate(); });
+            BeginInvoke(() => { if (settings.ListGroup is "overlap" or "crash" || filter.Text.Contains("is:overlap", StringComparison.OrdinalIgnoreCase) || filter.Text.Contains("is:crash", StringComparison.OrdinalIgnoreCase)) FillList(Selected?.FolderName); else list.Invalidate(); });
         });
     }
 

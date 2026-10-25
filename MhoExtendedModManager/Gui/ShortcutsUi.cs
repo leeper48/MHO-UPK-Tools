@@ -18,7 +18,10 @@ static class ShortcutsUi
     static readonly ConditionalWeakTable<Control, string> attached = new();
 
     /// <summary>The button runs <paramref name="id"/>: its right-click changes that command's shortcut.</summary>
-    public static T Attach<T>(T c, string id) where T : Control { attached.AddOrUpdate(c, id); return c; }
+    public static T Attach<T>(T c, string id) where T : Control { attached.AddOrUpdate(c, id); Ui.Retip(c); return c; }
+
+    /// <summary>The command a control runs (Attach), or null.</summary>
+    public static string? AttachedTo(Control c) => attached.TryGetValue(c, out var id) ? id : null;
 
     /// <summary>A button's own shortcut id: its window and its name (an icon button's accessible name, else its text).</summary>
     public static string ButtonId(Button b)
@@ -43,6 +46,7 @@ static class ShortcutsUi
         if (s.Shortcuts.Count == 0) s.Shortcuts = null;
         s.Save();
         Shortcuts.Load(s.Shortcuts);
+        Ui.RefreshShortcutTips();
     }
 
     sealed class Filter : IMessageFilter
@@ -279,7 +283,7 @@ sealed class ShortcutsForm : Form
     {
         if (Dialog.Show(this, "Put every shortcut back to its default, and remove the shortcuts given to buttons?", "Reset All Shortcuts", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         var s = ShortcutsUi.AppSettings ?? Settings.Load();
-        s.Shortcuts = null; s.Save(); Shortcuts.Load(null);
+        s.Shortcuts = null; s.Save(); Shortcuts.Load(null); Ui.RefreshShortcutTips();
         Fill();
     }
 
@@ -293,5 +297,6 @@ sealed class ShortcutsForm : Form
         if (s.Shortcuts.Count == 0) s.Shortcuts = null;
         s.Save();
         Shortcuts.Load(s.Shortcuts);
+        Ui.RefreshShortcutTips();
     }
 }

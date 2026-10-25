@@ -11,7 +11,7 @@ static class Icons
     /// <summary>Turns <paramref name="b"/> into an icon button: square, no text, its tooltip the name (bold) + the old tip.</summary>
     public static void Make(Button b, string name, Action<Graphics, RectangleF, Pen, Brush> paint, float scale)
     {
-        string tip = Ui.Tips.GetToolTip(b);
+        string tip = Ui.WrittenTip(b);   // (as written: the shortcut keys are put in again by Ui.SetTip)
         b.Text = ""; b.AccessibleName = name;
         b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size((int)(34 * scale), (int)(30 * scale));
         Ui.TipTitled(b, name, tip);

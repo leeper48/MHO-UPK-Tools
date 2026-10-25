@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.141
+- Every button with a shortcut shows it in its tooltip: after the title ("Paint (Shift+P)") or on a last line ("Shortcut: W"), the app's own and the ones given by right-click, and it follows a change in Keyboard Shortcuts (the tooltips didn't show the keys).
+
+0.60.140
+- Tooltips name your own shortcut keys after a change in Keyboard Shortcuts (they kept the defaults); Undo / Redo buttons can be given other keys by right-click.
+- Mods tab: Group ▾ → Crash Risk: the mods with a CRASH RISK warning together, first (as Overlap).
+
 0.60.139
 - Sign In with Nexus: a waiting window (Cancel) with a box for when the browser can't reach the app ("127.0.0.1 refused to connect"): paste Nexus's "Having issues?" text or the address, then Use Code. The app now waits 15 minutes for the browser (5 was too short with Nexus's extra Continue page).
 

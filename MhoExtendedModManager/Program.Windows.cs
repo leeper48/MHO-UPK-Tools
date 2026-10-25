@@ -886,9 +886,28 @@ static partial class Program
             Shortcuts.Load(new Dictionary<string, string> { ["button:MainForm/Install Mod"] = "Shift+P" });
             var bc = Shortcuts.Everything().Last();
             Check(Shortcuts.Conflicts(bc, Shortcuts.Text).Any(x => x.Other.Id == "model.paint"), "a button given Shift+P clashes with Paint");
+            // tooltips name the user's keys (Shortcuts.Rewrite)
+            Shortcuts.Load(new Dictionary<string, string> { ["paint.radius"] = "G", ["paint.strength"] = "Shift+G", ["model.weights"] = "V", ["model.undo"] = "Ctrl+U" });
+            string tp = Shortcuts.Rewrite("F: radius, Shift+F: strength (move the mouse).", null);
+            Check(tp == "G: radius, Shift+G: strength (move the mouse).", "F and Shift+F rewritten apart: " + tp);
+            string tw = Shortcuts.Rewrite("Key: W (off → 50 %).", null);
+            Check(tw == "Key: V (off → 50 %).", "Key: W follows the Weights key: " + tw);
+            Check(Shortcuts.Rewrite("Undo (Ctrl+Z).", null) == "Undo (Ctrl+Z)." && Shortcuts.Rewrite("Undo (Ctrl+Z).", "model.undo") == "Undo (Ctrl+U).", "a shared default (Ctrl+Z) is rewritten only on its own command's control");
+            Check(Shortcuts.Rewrite("Play or pause the animation (P; Esc pauses).", null) == "Play or pause the animation (P; Esc pauses).", "unchanged shortcuts leave the text as it is");
+            // buttons show their shortcut in the tooltip (Ui.SetTip)
+            Shortcuts.Load(null);
+            Gui.Ui.UseDarkTheme();
+            var bw = Gui.ShortcutsUi.Attach(Gui.Ui.Tip(new Button(), "Weight paint: colour the model."), "model.weights");
+            var bp = Gui.ShortcutsUi.Attach(Gui.Ui.TipTitled(new Button(), "Paint", "Weight painting."), "model.paint");
+            var bpl = Gui.ShortcutsUi.Attach(Gui.Ui.Tip(new Button(), "Play or pause the animation (P; Esc pauses)."), "view.play");
+            static string Flat(string t) => t.Replace("\n", " | ").TrimStart('\u0001');
+            Check(Gui.Ui.Tips.GetToolTip(bw).EndsWith("Shortcut: W"), "a plain tooltip ends with its shortcut: " + Flat(Gui.Ui.Tips.GetToolTip(bw)));
+            Check(Gui.Ui.Tips.GetToolTip(bp).Contains("Paint (Shift+P)"), "a titled tooltip has it after the title: " + Flat(Gui.Ui.Tips.GetToolTip(bp)));
+            Check(!Gui.Ui.Tips.GetToolTip(bpl).Contains("Shortcut:"), "a tooltip that names its key already isn't given it again");
+            Shortcuts.Load(new Dictionary<string, string> { ["model.weights"] = "V" }); Gui.Ui.Retip(bw);
+            Check(Gui.Ui.Tips.GetToolTip(bw).EndsWith("Shortcut: V"), "a changed shortcut shows: " + Flat(Gui.Ui.Tips.GetToolTip(bw)));
             Shortcuts.Load(null);
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
-            Gui.Ui.UseDarkTheme();
             using var sf = new Gui.ShortcutsForm { StartPosition = FormStartPosition.Manual, Location = new System.Drawing.Point(-6000, -6000) };
             sf.Shown += async (_, _) =>
             {

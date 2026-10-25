@@ -132,6 +132,7 @@ sealed partial class ModelPage : UserControl
         undoButton = Ui.FlatButton("↶ Undo", Undo, "Undo the last change to the parts, Smooth, the material or the bone map (Ctrl+Z).");
         redoButton = Ui.FlatButton("↷ Redo", Redo, "Redo what Undo took back (Ctrl+Y).");
         undoButton.Enabled = redoButton.Enabled = false;
+        ShortcutsUi.Attach(undoButton, "model.undo"); ShortcutsUi.Attach(redoButton, "model.redo");   // (right-click: their shortcuts; tooltips name them)
         historyButton = Ui.FlatButton("History", ShowHistory, "Every Undo step of the Model tab by name (parts, bone map, materials, each paint stroke …), the one now marked; click a step to go back or forward to it.");
         Icons.Make(historyButton, "History", Icons.History, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(undoButton, "Undo", Icons.Undo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));

@@ -162,6 +162,28 @@ static class Shortcuts
     /// (Pick a Bone (Painting)): a stroke doesn't start then.</summary>
     public static bool PaintSuppressed(MouseButtons button, Keys modifiers) => Click("paint.pickbone", button, modifiers);
 
+    // --- tooltips ---------------------------------------------------------------------------------------------------------------
+    /// <summary>
+    /// A tooltip with the user's keys in place of the default ones it names: "(Ctrl+Z)", "(P; …", "(F1)", "Key: W", "Ctrl+click"
+    /// … With <paramref name="id"/> (the control's own command) only that command's; otherwise every changed command whose
+    /// default no other command has (Undo's Ctrl+Z is two commands' default: a tooltip can't tell which it means).
+    /// </summary>
+    public static string Rewrite(string text, string? id)
+    {
+        if (user.Count == 0 || text.Length == 0) return text;
+        IEnumerable<Command> which = id != null && Find(id) is { } own ? [own]
+            : All.Where(c => user.ContainsKey(c.Id) && All.Count(o => Normalize(o.Default) == Normalize(c.Default)) == 1);
+        // longest defaults first (Shift+F before F), each only where it stands alone ("F" not inside "Shift+F")
+        foreach (var c in which.OrderByDescending(c => c.Default.Length))
+        {
+            if (!user.TryGetValue(c.Id, out var now)) continue;
+            string shown = now.Length > 0 ? now.Replace(", ", " / ") : "no shortcut";
+            foreach (var d in c.Default.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).OrderByDescending(d => d.Length))
+                text = System.Text.RegularExpressions.Regex.Replace(text, @"(?<![A-Za-z0-9+])" + System.Text.RegularExpressions.Regex.Escape(d) + @"(?=\)|;|,|: |\.|\s\(|$|\+[cC]lick)", shown.Replace("$", "$$"));
+        }
+        return text;
+    }
+
     // --- conflicts --------------------------------------------------------------------------------------------------------------
     /// <summary>Whether two areas can be active at once (their bindings would clash).</summary>
     public static bool Overlap(Area a, Area b)
