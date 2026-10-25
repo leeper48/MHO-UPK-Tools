@@ -12,9 +12,9 @@ sealed partial class ModelPage
 {
     // --- undo / redo (0.12.0, Kurt) ---------------------------------------------------------------------------------------------
     /// <summary>What Undo / Redo restores: the ticked parts, Smooth, the material and the bone map file (its text; null = none).</summary>
-    sealed record UiState(bool[] Parts, bool Subdivide, int Material, string? Map, string Rigs = "", string Edits = "", string? Overrides = null, float Size = 1)
+    sealed record UiState(bool[] Parts, bool Subdivide, int Material, string? Map, string Rigs = "", string Edits = "", string? Overrides = null, float Size = 1, string? Paint = null)
     {
-        public bool Same(UiState o) => Parts.SequenceEqual(o.Parts) && Subdivide == o.Subdivide && Material == o.Material && Map == o.Map && Rigs == o.Rigs && Edits == o.Edits && Overrides == o.Overrides && Math.Abs(Size - o.Size) < 1e-4;
+        public bool Same(UiState o) => Parts.SequenceEqual(o.Parts) && Subdivide == o.Subdivide && Material == o.Material && Map == o.Map && Rigs == o.Rigs && Edits == o.Edits && Overrides == o.Overrides && Math.Abs(Size - o.Size) < 1e-4 && Paint == o.Paint;
     }
     readonly Stack<UiState> undo = new(), redo = new();
     UiState? committed;
@@ -23,7 +23,7 @@ sealed partial class ModelPage
 
     UiState Capture() => new(parts.Rows.Cast<DataGridViewRow>().Select(r => r.Cells["use"].Value is true).ToArray(), smooth.Checked,
         Math.Max(0, material.SelectedIndex), MapPath() is string p && File.Exists(p) ? File.ReadAllText(p) : null, RigsText(), EnsureEdits().Serialize(),
-        OverridesFile() is string ov ? File.ReadAllText(ov) : null, sizeSlider.Value);
+        OverridesFile() is string ov ? File.ReadAllText(ov) : null, sizeSlider.Value, PaintText());
 
     /// <summary>Called as the preview rebuilds (after the short delay, so quick clicks are one step): a change since the
     /// last state becomes an undo step. The history starts over for another character or base hero.</summary>
@@ -64,8 +64,9 @@ sealed partial class ModelPage
             if (s.Overrides == null) { if (File.Exists(op)) File.Delete(op); }
             else { Protected.CheckWrite(op); Directory.CreateDirectory(Path.GetDirectoryName(op)!); File.WriteAllText(op, s.Overrides); }
         }
+        if (PaintText() != s.Paint) RestorePaint(s.Paint);
         undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
-        Log(what + ": back to the earlier parts / Smooth / material / size / bone map / FBX edits.");
+        Log(what + ": back to the earlier parts / Smooth / material / size / bone map / FBX edits / weight paint.");
         FillMap(); SchedulePreview();
     }
 
@@ -74,7 +75,10 @@ sealed partial class ModelPage
         bool typing = ActiveControl is TextBox || (ActiveControl is ContainerControl c && c.ActiveControl is TextBox)
             || ActiveControl is DataGridView { IsCurrentCellInEditMode: true };   // (a grid cell being typed in: B / W are letters there)
         if (keyData == Keys.F11) { preview.ToggleFull(); return true; }
+        if (!typing && keyData == Keys.Escape && preview.CancelBrushAdjust()) return true;   // (F / Shift+F: the old brush back)
         if (!typing && keyData == Keys.Escape && preview.PausePlayback()) return true;
+        if (!typing && keyData == Keys.F && preview.BeginBrushAdjust(false)) return true;   // (painting: Blender's F radius / Shift+F strength)
+        if (!typing && keyData == (Keys.Shift | Keys.F) && preview.BeginBrushAdjust(true)) return true;
         if (!typing && keyData == Keys.P && preview.TogglePlayback()) return true;   // (P: play / pause in every 3D view)
         if (!typing && keyData == (Keys.Shift | Keys.Q) && preview.ToggleQuad()) return true;   // (quad view)
         if (!typing && keyData == Keys.B) { preview.ShowBones = !preview.ShowBones; return true; }   // (Kurt, 2026-10-23)

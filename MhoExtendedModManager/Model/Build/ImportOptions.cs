@@ -22,6 +22,10 @@ sealed record ImportOptions
     public bool KeepSourceSize { get; init; }
     /// <summary>Lean (RetargetOptions.Lean): the body above the feet turned at the ankles, degrees, + forward.</summary>
     public float Lean { get; init; }
+    /// <summary>Game Joint Blend (RetargetOptions.JointFit).</summary>
+    public bool JointFit { get; init; }
+    /// <summary>The Model tab's weight paint (WeightPaint), applied last; null = none.</summary>
+    public string? PaintFile { get; init; }
     /// <summary>An edited bone map (--map); null = the automatic one.</summary>
     public string? MapFile { get; init; }
     /// <summary>The animation the check render poses (name part); null = the first attack.</summary>
@@ -77,7 +81,7 @@ sealed record ImportOptions
         return new ImportOptions
         {
             MaterialOverrides = Env("MFF_OVERRIDES"),   // a Materials tab overrides file (materials\<source>.json), for command-line builds and tests
-            Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation, KeepSourceSize = Env("MFF_KEEPSIZE") == "1",
+            Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation, KeepSourceSize = Env("MFF_KEEPSIZE") == "1", JointFit = Env("MFF_JOINTFIT") == "1",
             Material = Env("MFF_MATERIAL") is { Length: > 0 } m ? m : null,
             ValuesFrom = Env("MFF_VALUES_FROM"),
             Glow = float.TryParse(Env("MFF_GLOW"), NumberStyles.Float, CultureInfo.InvariantCulture, out float g) ? g : 3f,

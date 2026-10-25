@@ -91,6 +91,7 @@ sealed partial class ModelPage
         if (mapGrid.CurrentCell != null) pickedBone = null;
         var bones = SelectedBones();
         preview.Highlight(bones);
+        preview.PaintBone = bones.FirstOrDefault();   // (the bone the brush paints)
         mapSmooth.Enabled = bones.Count > 0 && MapPath() != null;
     }
 
@@ -120,7 +121,8 @@ sealed partial class ModelPage
         if (row >= 0)
         {
             mapGrid.CurrentCell = mapGrid.Rows[row].Cells["mff"];
-            mapGrid.FirstDisplayedScrollingRowIndex = Math.Max(0, row - 3);
+            // (only with room for rows: a list squeezed to no rows throws, Kurt 2026-10-25 with the paint controls open)
+            if (mapGrid.DisplayedRowCount(false) > 0) try { mapGrid.FirstDisplayedScrollingRowIndex = Math.Max(0, row - 3); } catch (InvalidOperationException) { }
             Log($"Picked {bone}: {mapGrid.Rows[row].Cells["mff"].Value} → {mapGrid.Rows[row].Cells["mho"].Value}");
         }
         else

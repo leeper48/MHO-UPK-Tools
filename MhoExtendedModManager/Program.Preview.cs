@@ -2774,6 +2774,31 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--fit-distort":
+                // Read-only (2026-10-25): how much a fit stretches the skin per region, at rest and in animations (FitDistort)
+                return MhoExtendedModManager.Model.FitDistort.Run(rest.Skip(1).ToList());
+            case "--jaw-sweep":
+            {
+                // Read-only (2026-10-25): every MFF model retargeted onto a package's skeleton (no build); its jaw note.
+                // --jaw-sweep <package name or file> [name filter]
+                var jsk = MhoExtendedModManager.Model.MhoSkeleton.Load(MhoExtendedModManager.Model.BasePackage.Resolve(rest[1], true), null);
+                foreach (string dir in MhoExtendedModManager.Model.Source.AllModelFolders())
+                {
+                    if (rest.Count > 2 && !Path.GetFileName(dir).Contains(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        var mm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(Path.GetFileName(dir)));
+                        if (!mm.Bones.Any(b => b.Name.Equals("Bip001 Pelvis", StringComparison.OrdinalIgnoreCase))) continue;
+                        var rr = MhoExtendedModManager.Model.Retarget.Run(mm, mm.Selected(null), jsk);
+                        Console.WriteLine($"{Path.GetFileName(dir)} | {rr.Notes.FirstOrDefault(n => n.StartsWith("jaw:")) ?? "no jaw"}");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"{Path.GetFileName(dir)} | error: {ex.Message}"); }
+                }
+                return 0;
+            }
+            case "--fit-heat":
+                // Read-only (2026-10-25): the stretch heat map, fitted and game models at an animation's worst frame (FitHeat)
+                return MhoExtendedModManager.Model.FitHeat.Run(rest.Skip(1).ToList());
             case "--lean-census":
             {
                 // Read-only: every MFF model's pelvis-to-head angle from the nearest file axis (MffModel.UpTilt), as counts

@@ -17,7 +17,7 @@ namespace MhoExtendedModManager.Gui;
 /// Left-drag rotates round the mesh, right- or middle-drag pans, the wheel zooms (Shift: finer), double-click frames the mesh.
 /// UE is left-handed (X forward, Y right, Z up): everything is mirrored in Y for display.
 /// </summary>
-sealed class ModelView : UserControl
+sealed partial class ModelView : UserControl
 {
     /// <summary>A texture with its mip chain (BGRA bytes per level), sampled bilinearly with wrapping.</summary>
     public sealed class Map
@@ -339,6 +339,7 @@ sealed class ModelView : UserControl
         canvas.MouseDown += (_, e) =>
         {
             downAt = e.Location; canvas.Focus();
+            if (PaintMouseDown(e)) return;   // (weight painting: ModelView.Paint.cs)
             // the size reference under the pointer: dragged along the floor, not the camera (Kurt, 2026-10-23)
             if (e.Button == MouseButtons.Left && GizmoHit(e.Location) == null && StartPartDrag(e.Location)) { dragFrom = null; return; }
             dragFrom = e.Location; dragButton = e.Button; fast = true;
@@ -348,6 +349,7 @@ sealed class ModelView : UserControl
         canvas.MouseUp += (_, e) =>
         {
             if (partDrag != null) { partDrag = null; fast = false; Redraw(); PartDropped?.Invoke(); return; }
+            if (PaintMouseUp(e)) return;
             bool moved = dragFrom != null; dragFrom = null; fast = false;
             // a click (no drag) on an axis ball: look along that axis, flat (Kurt, 2026-10-23: as Blender's gizmo; Shift: from
             // the other side)
@@ -358,6 +360,7 @@ sealed class ModelView : UserControl
         canvas.MouseMove += (_, e) =>
         {
             if (partDrag != null) { DragPartTo(e.Location); return; }
+            if (PaintMouseMove(e)) return;
             if (dragFrom == null) canvas.Cursor = DragPart != null && PartUnder(e.Location) != null ? Cursors.SizeAll : Cursors.Default;
             Drag(e);
         };
@@ -571,7 +574,9 @@ sealed class ModelView : UserControl
         if (dragFrom is not Point from) return;
         float dx = e.X - from.X, dy = e.Y - from.Y;
         dragFrom = e.Location;
-        if (dragButton == MouseButtons.Left && (dx != 0 || dy != 0)) { yaw -= dx * 0.01f; pitch = Math.Clamp(pitch + dy * 0.01f, -1.5f, 1.5f); ortho = false; }
+        // (painting weights: the middle button turns, Shift + middle moves, as in Blender)
+        bool turn = dragButton == MouseButtons.Left || PaintMode && dragButton == MouseButtons.Middle && (ModifierKeys & Keys.Shift) == 0;
+        if (turn && (dx != 0 || dy != 0)) { yaw -= dx * 0.01f; pitch = Math.Clamp(pitch + dy * 0.01f, -1.5f, 1.5f); ortho = false; }
         else
         {
             // (in the quad view: the axes and size of the pane dragged in: Top, Front and Side pan as they show; Kurt,
@@ -654,6 +659,7 @@ sealed class ModelView : UserControl
         }
         PaintGuides?.Invoke(g, canvas.ClientRectangle);
         PaintMarkers(g);
+        PaintBrush(g);
         PaintAxes(g);
     }
 

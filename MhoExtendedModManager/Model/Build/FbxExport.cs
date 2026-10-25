@@ -109,15 +109,16 @@ static class FbxExport
 
     public static void Work(MffModel m, IEnumerable<string> picked, bool subdivide, string package, string? mapFile, int hair, AnimEdits? edits,
         string outDir, Action<string> log, IReadOnlyCollection<string>? animFilter = null, bool exact = false, int cape = 0, string? overrides = null,
-        IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, IReadOnlyDictionary<string, MhoAnimRef>? prefer = null)
+        IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, IReadOnlyDictionary<string, MhoAnimRef>? prefer = null, bool jointFit = false, string? paintFile = null)
     {
         var sk = MhoSkeleton.Load(package, null);
         (sk, var rigs) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(cape, hair, rigsMore), m, log);
         var sel = m.Selected(string.Join(",", picked));
         if (subdivide) sel = Subdivision.Apply(sel);
-        var r = Retarget.Run(m, sel, sk, mapFile != null ? BoneMapFile.Load(mapFile) : null);
+        var r = Retarget.Run(m, sel, sk, mapFile != null ? BoneMapFile.Load(mapFile) : null, jointFit ? RetargetOptions.FromEnvironment() with { JointFit = true } : null);
         if (edits?.ModelFbx is string mf && File.Exists(mf)) { log("mesh from the FBX edit: " + Path.GetFileName(mf)); FbxReimport.Apply(r, mf, log); }
         MaterialOverrides.Apply(r, overrides, log);
+        if (WeightPaint.Apply(r, paintFile) is { } paintNote) log(paintNote);
         var bones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
         foreach (var rig in rigs) rig.MeasureBody(bones, r);
         int edited = 0;

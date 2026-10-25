@@ -109,6 +109,9 @@ sealed partial class PreviewPanel : UserControl
         view.Controls[0].MouseDown += (_, e) =>
         {
             if (e.Button != MouseButtons.Left || (ModifierKeys & Keys.Control) == 0) return;
+            // painting: Ctrl alone paints the other way, so a bone is picked with Ctrl+Shift (Kurt, 2026-10-25: Ctrl strokes
+            // picked other bones)
+            if (painting && (ModifierKeys & Keys.Shift) == 0) return;
             // the Materials tab (Kurt, 2026-10-06): Ctrl+click picks the material under the mouse
             if (PickMaterials)
             {
@@ -119,6 +122,7 @@ sealed partial class PreviewPanel : UserControl
             if (PickBone(e.Location, view.Controls[0].ClientSize) is string bone) BonePicked?.Invoke(bone);
         };
         Ui.Tip(view.Controls[0], "Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to frame. Ctrl+click a bone to pick it in the Bone Map tab; on the Materials tab, Ctrl+click the model to pick that material.");
+        WirePaint();
     }
 
     /// <summary>An animation as the Model tab plays it: an FBX in its place (0.16.0, the import's own tracks), and a borrowed

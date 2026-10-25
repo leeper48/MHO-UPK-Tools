@@ -463,6 +463,20 @@ sealed partial class MainForm
         return fails == 0 ? 0 : 1;
     }
 
+    /// <summary>--model-paint-test (scratch library only): the Model tab's weight painting (ModelPage.TestPaint).</summary>
+    public async Task<int> ModelPaintTest(string modName, string mff, string package, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m);
+        pages.Select(1);
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+        if (tab < 0) { say("no Model tab"); return 1; }
+        editor.SelectTab(tab);
+        for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+        if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
+        return await page.TestPaint(mff, package, say) ? 0 : 1;
+    }
+
     /// <summary>--editor-save-test: opens a mod in the Editor, changes nothing, saves (use with MHO_EXTMM_HOME on a scratch library).</summary>
     public async Task EditorSaveTest(string modName)
     {

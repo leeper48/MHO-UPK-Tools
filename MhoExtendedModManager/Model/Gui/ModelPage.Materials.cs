@@ -198,7 +198,7 @@ sealed partial class ModelPage
             string? m = matGrid.Rows[i].Tag switch { ValueTuple<string, string> t => t.Item1, PackageMap pm => pm.Material, _ => null };
             if (m == null || !m.Equals(material, StringComparison.OrdinalIgnoreCase)) continue;
             matGrid.CurrentCell = matGrid.Rows[i].Cells["material"];
-            matGrid.FirstDisplayedScrollingRowIndex = i;
+            if (matGrid.DisplayedRowCount(false) > 0) try { matGrid.FirstDisplayedScrollingRowIndex = i; } catch (InvalidOperationException) { }
             Log($"Materials: {material} (Ctrl+click)");
             return;
         }

@@ -89,14 +89,16 @@ sealed class ImportBuild
             // a prop target (a weapon or shield picked under Model ▾): with no parts named, the part most like it
             if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, sk) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
             if (o.Subdivide) picked = Subdivision.Apply(picked);
-            r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize, Lean = o.Lean });
+            r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize, Lean = o.Lean, JointFit = o.JointFit });
             if (MathF.Abs(o.Lean) >= 0.01f) log($"lean:    the body above the feet turned {o.Lean:+0.#;-0.#} degrees at the ankles (+ forward)");
+            if (o.JointFit && r.Notes.FirstOrDefault(n => n.StartsWith("game joint blend")) is { } jn) log("joints:  " + jn["game joint blend: ".Length..]);
             if (o.KeepSourceSize) log($"size:    the source's own size (scale {r.Scale:0.###}, not fitted to {sk.Name}'s height)");
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.Apply(r, o.ModelFbx, log); }
         if ((o.Hair > 0 || o.Cape > 0 || o.Rigs.Count > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed rigs are left out");
         MaterialOverrides.Apply(r, o.MaterialOverrides, line => log("  " + line));   // the Materials tab's files
+        if (WeightPaint.Apply(r, o.PaintFile) is { } paintNote) log("paint:   " + paintNote["weight paint: ".Length..]);
         builtBones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
         foreach (var rig in rigs)
         {

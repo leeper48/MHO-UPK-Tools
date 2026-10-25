@@ -26,6 +26,9 @@ sealed partial class PreviewPanel
         public List<(string Material, Textures Tex)> MaterialList { get; init; } = [];
         /// <summary>Each section's material name (Ctrl+click in the Materials tab picks its row).</summary>
         public List<string> SectionNames { get; init; } = [];
+        /// <summary>Each section's model part and vertex count (the weight paint finds its vertices by them: WeightPaint.Keys).</summary>
+        public List<string> SectionParts { get; init; } = [];
+        public List<int> SectionCounts { get; init; } = [];
         /// <summary>The MHO skeleton's bone names (the Bone Map tab's choices) and each one's parent (-1 = root).</summary>
         public List<string> MhoBones { get; init; } = [];
         public List<int> MhoParents { get; init; } = [];
@@ -46,7 +49,7 @@ sealed partial class PreviewPanel
     static void StartStages() { Timings.Clear(); stageClock.Restart(); }
 
     public static Prepared Prepare(MffModel model, string? parts, string packagePath, string? materialDonor, bool subdivide = false, string? modelFbx = null, string? mapFile = null,
-        int cape = 0, int hair = 0, string? overrides = null, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, bool keepSourceSize = false, float lean = 0)
+        int cape = 0, int hair = 0, string? overrides = null, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, bool keepSourceSize = false, float lean = 0, bool jointFit = false, string? paintFile = null)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
@@ -56,11 +59,13 @@ sealed partial class PreviewPanel
         var picked = model.Selected(parts);
         if (subdivide) picked = Subdivision.Apply(picked);
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
-        var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() with { KeepSourceSize = keepSourceSize, Lean = lean });
+        var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() is var ro ? ro with { KeepSourceSize = keepSourceSize, Lean = lean, JointFit = jointFit || ro.JointFit } : null);
         if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });
         Stage("retarget");
         MaterialOverrides.Apply(r, overrides);
+        string? paintNote = WeightPaint.Apply(r, paintFile);
         var p = FromRetarget(r, sk, packagePath, materialDonor);
+        if (paintNote != null) p = p with { Note = p.Note + " · " + paintNote };
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;   // the map shown keeps the file's smoothing
         if (notes.Count > 0)
         {
@@ -72,7 +77,7 @@ sealed partial class PreviewPanel
     }
 
     /// <summary>An FBX as the source (0.11.3): its skeleton proportions, meshes (<paramref name="meshes"/>, null = all) and textures.</summary>
-    public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null)
+    public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null, string? paintFile = null)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
@@ -84,8 +89,10 @@ sealed partial class PreviewPanel
         // the Bone Map's smoothing (an FBX source's map holds only that)
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
         if (file is { Smooth.Count: > 0 }) WeightSmooth.Apply(r, file.Smooth);
+        string? paintNote = WeightPaint.Apply(r, paintFile);
         var p = FromRetarget(r, sk, packagePath, materialDonor);
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;
+        if (paintNote != null) p = p with { Note = p.Note + " · " + paintNote };
         return p;
     }
 
@@ -294,6 +301,8 @@ sealed partial class PreviewPanel
             PackagePath = packagePath, PackageMeshes = pkgMeshes, MainRef = mr,
             MaterialList = r.Sections.GroupBy(x => x.Material).Select(g => (g.Key, g.First().Tex)).ToList(),
             SectionNames = r.Sections.Select(x => x.Material).ToList(),
+            SectionParts = r.Sections.Select(x => x.Part).ToList(),
+            SectionCounts = r.Sections.Select(x => x.Pos.Length).ToList(),
         };
     }
 

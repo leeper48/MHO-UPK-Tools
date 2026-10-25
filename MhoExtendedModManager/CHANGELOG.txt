@@ -1,6 +1,29 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.128
+- Model tab → Paint: a dab redraws only the character's skin and weight colours, not its props (the props were rebuilt each dab and flashed ones a power shows: Black Widow's motorcycle).
+- Model tab → Paint: while painting, a bone is picked with Ctrl+Shift+click (Ctrl+click and Ctrl strokes only paint the other way; they picked other bones).
+
+0.60.127
+- Model tab → Bone Map: Ctrl+click on a bone no longer crashes when the bone list has no room to show rows ("No room is available to display rows"); the paint controls take less room: the brush's buttons and sliders show only while Paint is on, the three sliders side by side.
+
+0.60.126
+- Model tab: a saved bone map that pairs nothing with the hero's jaw gets the jaw by place too, and its automatic (not edited) chain pairs of face bones are dropped: a map saved before 0.60.124 had frozen Sharon Carter's Bone500 on g_hair1, so her mouth still opened. A chain you edited still wins.
+
+0.60.125
+- Model tab → Bone Map: Paint: weight painting on the model, as Blender's. Draw / Add / Subtract / Blur brushes with Weight, Strength and Radius; Shift = Blur, Ctrl = the other way, F / Shift+F change the radius / strength in the view; Mirror; Invert Bone and Smooth Bone; Clear Paint. The brush reaches every part it touches and seams paint as one; weights stay normalized (at most 4 bones). Each stroke is one Undo step; the painting is saved with the mod (Model\weights) and used by the preview, Build and Open in Blender.
+- --model-paint-test <mod> <mff model> <package> (scratch library).
+
+0.60.124
+- Model tab: an MFF model's mouth bone without a jaw-like name is found by where its skin is (the lower face, reaching the chin) and goes to the hero's g_jaw (96 of 653 MFF heroes; Sharon Carter's Bone500 was paired with Black Widow's g_bangs, so the bangs' swing opened her mouth). Other bones on the face are never paired with hair or cape bones: they stay on the head (Man-Thing's nose).
+- Model tab: the jaw is found by the teeth in every part of the model, ticked or not.
+- --jaw-sweep <package> [filter]: each MFF model's jaw (read only).
+
+0.60.123
+- Model tab: Game Joint Blend (test feature, off by default): the skin around an MFF model's hips, knees, shoulders and elbows is shared between limb and body as the target's own game model shares it, over a wide band (the MFF handover is narrow: the seat creased and the thighs and shoulders bulged in motion; in idle_combat the hips stretched 9 to 11 times, the game's own models about 3), and the pelvis turns where the game's does.
+- --fit-distort and --fit-heat: how much a fitted model's skin stretches, region by region and as a heat map beside the game's model (read only).
+
 0.60.122
 - What's New: a notice for the changes since 0.60.75.
 

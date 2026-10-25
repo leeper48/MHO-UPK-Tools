@@ -345,6 +345,16 @@ sealed partial class Preview3D : UserControl
         view.ViewState = keep;
     }
 
+    /// <summary>The character's weights changed in place (the Model tab's weight painting): re-skinned at the same frame and its
+    /// weight colours refreshed, without rebuilding the props (a rebuild flashed props a power shows, Kurt 2026-10-25: Black
+    /// Widow's motorcycle between dabs).</summary>
+    public void RefreshSkin()
+    {
+        if (shownLoaded == null || animator == null) return;
+        view.SetCharacterUv(Display(shownLoaded).Uv);
+        Pose(frames > 0 ? frame.Value * frames : 0);
+    }
+
     // --- animations ---------------------------------------------------------------------------------------------------------------
     /// <summary>The animation picked in the drop-down (null = rest pose).</summary>
     public string? CurrentAnimation => anims.SelectedIndex > 0 ? anims.SelectedItem as string : null;

@@ -24,9 +24,10 @@ sealed partial class ModelPage
         string? print = Fingerprint();
         bool ok = false;
         using var busy = Busy.Begin($"Model: building onto {ChosenPackage?.Key}");
-        var options = new ImportOptions { Parts = string.Join(",", picked), FeetShift = feetCustom ?? (feetKnown ? feetAuto : null), FeetMeasured = feetCustom == null && feetKnown, KeepSourceSize = keepSourceSize.Checked, Lean = leanSlider.Value, Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
+        var options = new ImportOptions { Parts = string.Join(",", picked), FeetShift = feetCustom ?? (feetKnown ? feetAuto : null), FeetMeasured = feetCustom == null && feetKnown, KeepSourceSize = keepSourceSize.Checked, Lean = leanSlider.Value, JointFit = jointFit.Checked, Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
             MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
             MaterialOverrides = OverridesFile(),
+            PaintFile = PaintPath() is string paintPath && File.Exists(paintPath) ? paintPath : null,
             Hair = HairChoice, Cape = CapeChoice, Rigs = OtherRigs(),
             ModelFbx = EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
             AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
@@ -206,7 +207,7 @@ sealed partial class ModelPage
     {
         if (ChosenPackage is not CharacterList.Item pkg) return null;
         var sb = new System.Text.StringBuilder();
-        sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked).Append('|').Append(feetCustom?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "auto").Append('|').Append(keepSourceSize.Checked).Append('|').Append(leanSlider.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture));
+        sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked).Append('|').Append(feetCustom?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "auto").Append('|').Append(keepSourceSize.Checked).Append('|').Append(leanSlider.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)).Append(jointFit.Checked ? "|joints" : "").Append(PaintText() is string paintText ? "|paint" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(paintText)))[..10] : "");
         if (HasSource)
         {
             sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))
@@ -393,6 +394,8 @@ sealed partial class ModelPage
         int hairChoice = sfbx == null ? HairChoice : 0, capeChoice = sfbx == null ? CapeChoice : 0;
         var moreRigs = sfbx == null ? OtherRigs() : [];
         var exportEdits = AnimEdits.Parse(EnsureEdits().Serialize());
+        bool joints = jointFit.Checked;
+        string? paintFile = PaintPath() is string pp && File.Exists(pp) ? pp : null;
         var prefer = preview.AnimationsForExport();   // (each animation as the preview plays it: a borrowed power's under its slot name)
         string outDir = UniqueDir(Path.Combine(Settings.Home, "fbx", $"{name} on {Path.GetFileNameWithoutExtension(pkg.Key)}{(onlyAnim != null ? " - " + FbxExport.SafeName(onlyAnim) : "")}"));
         building = true; UpdateStatus(); status.Text = "Exporting FBX…";
@@ -409,9 +412,10 @@ sealed partial class ModelPage
                     // the FBX edits as the preview and Build use them: the mesh from Blender, the replaced animations
                     if (exportEdits.ModelFbx is string emf && File.Exists(emf)) FbxReimport.Apply(r, emf, _ => { });
                     MaterialOverrides.Apply(r, ovr);
+                    WeightPaint.Apply(r, paintFile);
                     FbxExport.Run(r, package, outDir, onlyAnim != null ? [onlyAnim] : [], line => BeginInvoke(() => Log(line)), FbxExport.EditsAdjust(exportEdits), exact: onlyAnim != null, prefer: prefer);
                 }
-                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice, overrides: ovr, rigsMore: moreRigs, prefer: prefer);
+                else FbxExport.Work(m!, picked, sub, package, mapFile, hairChoice, exportEdits, outDir, line => BeginInvoke(() => Log(line)), onlyAnim != null ? [onlyAnim] : null, exact: onlyAnim != null, cape: capeChoice, overrides: ovr, rigsMore: moreRigs, prefer: prefer, jointFit: joints, paintFile: paintFile);
             });
             lastZip = Path.Combine(outDir, "model.fbx");   // Open Folder shows the latest output (a build's .ZIP or this)
             // in a new Blender scene (0.16.2), else the folder

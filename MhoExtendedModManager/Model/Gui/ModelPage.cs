@@ -35,6 +35,7 @@ sealed partial class ModelPage : UserControl
     readonly CheckBox smooth = new() { Text = "Smooth (Subdivide)", AutoSize = true };
     readonly CheckBox matchSteps = new() { Text = "Match Steps to Size", AutoSize = true, Checked = true };
     readonly CheckBox keepSourceSize = new() { Text = "Keep the Source's Size", AutoSize = true };
+    readonly CheckBox jointFit = new() { Text = "Game Joint Blend", AutoSize = true };
     // Feet (Kurt, 2026-10-22: a slider, not a checkbox; Hulk on Black Widow still poked through): the model moved up or down,
     // starting at the automatic amount (ImportBuild.FeetOffset); double-click goes back to it. A value moved off it is kept.
     readonly LightSlider feetSlider = new() { Label = "Feet", Min = -60, Max = 60, Step = 0.5f, Mark = 0, Dock = DockStyle.Top };
@@ -213,7 +214,12 @@ sealed partial class ModelPage : UserControl
         var mapButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         foreach (var b in new[] { mapBones, mapWeights, mapSmooth }) { b.Margin = new Padding(0, 0, 6, 0); mapButtons.Controls.Add(b); }
         mapReset.Margin = new Padding(0); mapButtons.Controls.Add(mapReset);
-        modelTabs.Add("Bone Map", Column("", Row(mapFilter, mapButtons), mapGrid));
+        var mapHead = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0) };
+        mapHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var mapTop = Row(mapFilter, mapButtons); mapTop.Dock = DockStyle.Top;
+        var paintBox = PaintBar(); paintBox.Dock = DockStyle.Top;
+        mapHead.Controls.Add(mapTop); mapHead.Controls.Add(paintBox);
+        modelTabs.Add("Bone Map", Column("", mapHead, mapGrid));
         modelTabs.Add("Materials", MaterialsTab());
         // the manual's screenshots (MHO_EXTMM_SNAP_MODELTAB = Parts / Bone Map / Materials): that sub-tab first
         if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_MODELTAB") is { Length: > 0 } snapTab)
@@ -232,7 +238,8 @@ sealed partial class ModelPage : UserControl
         feetSlider.Format = v => $"{v:+0.0;-0.0;0}" + (feetCustom == null && MathF.Abs(v - feetAuto) < 0.05f ? " Auto" : "");
         var checks = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         keepSourceSize.Margin = new Padding(2, 4, 0, 0);
-        checks.Controls.Add(matchSteps); checks.Controls.Add(keepSourceSize);
+        jointFit.Margin = new Padding(2, 4, 0, 0);
+        checks.Controls.Add(matchSteps); checks.Controls.Add(keepSourceSize); checks.Controls.Add(jointFit);
         sizeBox.RowCount = 4;
         leanSlider.Height = sizeSlider.Height; leanSlider.Dock = DockStyle.Fill; leanSlider.Margin = new Padding(0, 2, 0, 0);
         leanSlider.Home = () => 0;
@@ -302,6 +309,8 @@ sealed partial class ModelPage : UserControl
         feetSlider.ValueChanged += () => { if (!restoringFeet) preview.FeetShift = feetSlider.Value; };
         Ui.Tip(keepSourceSize, "An MFF model is fitted to the target's height by default (Hulk on Black Widow comes out her height). With this on it keeps its own size against the other MFF characters (Hulk stays Hulk-sized on any hero); Size and Feet then start from there.");
         keepSourceSize.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
+        Ui.TipTitled(jointFit, "Game Joint Blend", "Shares the skin around the hips, knees, shoulders and elbows between the limb and the body the way the target's own game model does, over a wide band, instead of the MFF model's narrow handover. It stops the seat creasing and the shoulders and thighs bulging when the hero moves. The pelvis also turns where the game's does. Test feature: compare it in the preview (Look ▾ → Weights shows the result), then in game. The preview shows it after a moment; Build writes it. (MFF models only.)");
+        jointFit.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
         Ui.TipTitled(leanSlider, "Lean", "Turns the model above its feet at the ankles, in degrees: + forward, − back; the soles stay flat. For an MFF model that stands tipped forward or back in the hero's animations. Double-click: back to 0. The preview shows it after a moment; Build writes it. (MFF models only: an FBX keeps its own pose.)");
         leanSlider.Committed += () => { SaveState(); SchedulePreview(); };
         feetSlider.Committed += () => { feetCustom = MathF.Abs(feetSlider.Value - feetAuto) < 0.05f ? null : feetSlider.Value; preview.FeetShift = feetCustom; feetSlider.Invalidate(); SaveState(); };
@@ -997,7 +1006,7 @@ sealed partial class ModelPage : UserControl
         var picked = SelectedParts();
         if (picked.Count == 0) { preview.ShowMessage("Tick at least one part"); return; }
         Remember(pkg.Key);
-        var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx; bool keepSize = keepSourceSize.Checked; float lean = leanSlider.Value;
+        var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx; bool keepSize = keepSourceSize.Checked; float lean = leanSlider.Value; bool joints = jointFit.Checked;
         string? uf = unrigged;
         int capeChoice = CapeChoice, hairChoice = HairChoice;
         var moreRigs = OtherRigs();
@@ -1007,9 +1016,10 @@ sealed partial class ModelPage : UserControl
             string? mapFile = MapPath() is string mp && File.Exists(mp) ? mp : null;
             string? ovr = OverridesFile();
             string? modelFbx = EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
+            string? paintFile = PaintPath() is string pp && File.Exists(pp) ? pp : null;
             var prepared = await Task.Run(() => sfbx != null
-                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx)
-                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs, keepSize, lean));
+                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx, paintFile)
+                : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs, keepSize, lean, joints, paintFile));
             if (id != previewId || IsDisposed) return;   // something changed meanwhile
             preview.Show(prepared);
             shownMap = prepared.Map; mhoBones = prepared.MhoBones; mhoParents = prepared.MhoParents; FillMap();

@@ -63,6 +63,11 @@ sealed record RetargetOptions
     public bool CapeTransfer { get; init; }
     /// <summary>MFF_CAPEFIT=1 (with the transfer): the cape takes the MHO cape's bind shape (0.10.8 test).</summary>
     public bool CapeFit { get; init; }
+    /// <summary>MFF_PELVISPIVOT=1: g_pelvis at MHO's offset from its parent (test, 2026-10-25; on with JointFit).</summary>
+    public bool PelvisPivot { get; init; }
+    /// <summary>Game Joint Blend (the Model tab's checkbox; MFF_JOINTFIT=1): the skin around hips, knees, shoulders and elbows
+    /// shared between limb and body as the target's own model shares it (JointProfile), with the pelvis pivot.</summary>
+    public bool JointFit { get; init; }
 
     public static RetargetOptions FromEnvironment() => new()
     {
@@ -88,6 +93,8 @@ sealed record RetargetOptions
         CapeShape = Environment.GetEnvironmentVariable("MFF_CAPESHAPE") == "1",
         CapeTransfer = Environment.GetEnvironmentVariable("MFF_CAPETRANSFER") == "1",
         CapeFit = Environment.GetEnvironmentVariable("MFF_CAPEFIT") == "1",
+        PelvisPivot = Environment.GetEnvironmentVariable("MFF_PELVISPIVOT") == "1",
+        JointFit = Environment.GetEnvironmentVariable("MFF_JOINTFIT") == "1",
     };
 }
 
@@ -108,6 +115,8 @@ static partial class Retarget
         /// <summary>Chains the map file was edited to leave unpaired ("(not paired)" picked in the Bone Map): no borrowed
         /// strand takes them either (0.14.8).</summary>
         HashSet<string>? keptUnpaired;
+        /// <summary>The head's extra children whose skin lies on the face (MapJaw): never hair or cape chains.</summary>
+        readonly HashSet<string> faceBones = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>MFF Foot bone → ball point (MFF frame), and MFF Foot / Toe0 → side data (step 0).</summary>
         readonly Dictionary<int, Vector3> ballPoint = new();
         readonly Dictionary<int, (int Foot, int Toe, int Ankle, int Ball, float Ratio)> footSide = new();
@@ -189,6 +198,7 @@ static partial class Retarget
             Mesh(hair);
             CapeTransfer();
             if (Environment.GetEnvironmentVariable("MFF_HELPERSHARE") != "0") HelperShare.Apply(r, sk);   // team-up / NPC helper bones (uprarm, uprleg …): the stock mesh's share of the limb
+            if (opt.JointFit) JointProfile.Apply(r, sk);
             hair.RideOnBody();
             FinalNotes();
             return r;
@@ -250,11 +260,18 @@ static partial class Retarget
                     else if (sk.Find(b) < 0) errors.Add($"bones: '{a}' → no MHO bone named '{b}' in {sk.Name}");
                     else r.Map[m.Bones[Mff(a)].Name] = sk.Bones[sk.Find(b)].Name;
                 }
+                // the jaw and the face bones (0.60.126, Kurt: Sharon Carter's mouth still opened: a map saved before 0.60.124 had
+                // frozen her Bone500 on g_hair1). A file that pairs nothing with g_jaw gets the jaw by place, and face bones it
+                // pairs with a chain only automatically (not "edited") are kept off that chain.
+                MapJaw();
                 forcedChains = new();
                 keptUnpaired = new(StringComparer.OrdinalIgnoreCase);
                 foreach (var c in file.Chains)
                 {
                     if (Mff(c.Mff) < 0) { errors.Add($"chains: no MFF bone named '{c.Mff}'"); continue; }
+                    if (c.Fit != "edited" && (faceBones.Contains(c.Mff) || r.Map.TryGetValue(c.Mff, out var jm) && jm.Equals("g_jaw", StringComparison.OrdinalIgnoreCase))) continue;
+                    // (a chain the user edited wins over the jaw found here)
+                    if (c.Fit == "edited" && r.Map.TryGetValue(c.Mff, out var jm2) && jm2.Equals("g_jaw", StringComparison.OrdinalIgnoreCase) && !file.Primary().Any(x => x.Item1.Equals(c.Mff, StringComparison.OrdinalIgnoreCase))) r.Map.Remove(c.Mff);
                     if (c.Mho == null) { if (c.Fit == "edited") keptUnpaired.Add(m.Bones[Mff(c.Mff)].Name); continue; }
                     // a borrowed cape / hair bone the file names while that option is off now: that chain is just left unpaired
                     if (sk.Find(c.Mho) < 0 && BorrowedRig.AnyPattern(c.Mho)) continue;
@@ -292,22 +309,48 @@ static partial class Retarget
         void MapJaw()
         {
             int head = Mff("Bip001 Head"), jaw = sk.Find("g_jaw");
-            if (head < 0 || jaw < 0 || r.Map.ContainsValue(sk.Bones[jaw].Name)) return;
+            if (head < 0) return;
+            // (no g_jaw on the target, or a map file pairs it: the face bones are still kept off hair chains)
+            bool canJaw = jaw >= 0 && !r.Map.ContainsValue(sk.Bones[jaw].Name);
             // the head's own extra children; the Biped's mouth bone "Bip001 M" counts too (0.14.6, Kurt: Scream's jaw distorted
             // with Mega Hair: Bip001 M carries her mouth, was left unmapped, and paired with the borrowed hair root)
             var kids = Enumerable.Range(0, m.Bones.Count).Where(i => m.Bones[i].Parent == head
                 && (!m.Bones[i].Name.StartsWith("Bip001", StringComparison.OrdinalIgnoreCase) || BipedMouth.IsMatch(m.Bones[i].Name))).ToList();
             var teethW = new Dictionary<int, float>();
-            foreach (var p in parts.Where(p => JawPart.IsMatch(p.Name)))
+            // (every part, ticked or not: Sharon Carter's teeth are in a part left off by default)
+            foreach (var p in m.Parts.Where(p => JawPart.IsMatch(p.Name)))
                 foreach (var sec in p.Sections)
                     foreach (var vw in sec.Weights)
                         foreach (var w in vw)
                             if (kids.Contains(w.Bone)) teethW[w.Bone] = teethW.GetValueOrDefault(w.Bone) + w.Weight;
             int pick = teethW.Count > 0 ? teethW.MaxBy(x => x.Value).Key : kids.FirstOrDefault(i => JawName.IsMatch(m.Bones[i].Name), -1);
-            if (pick >= 0)
+            string why = teethW.Count > 0 ? "drives the teeth" : "by name";
+            int jawByPlace = -1;
+            // By place (2026-10-25, Kurt: Sharon Carter's mouth hung open on Black Widow: her Bone500 carries the lower face and
+            // was paired with g_bangs, so the bangs' swing opened her mouth). Every extra child whose skin lies in front of the
+            // head joint (MFF frame: facing +X, up +Z) and not above it is a face bone: never a hair chain, it stays on the head.
+            // The heaviest one whose skin reaches the chin (2 cm or more below the head joint; not named like a nose, eye,
+            // brow, hair or bangs) is the jaw when nothing above found one. Checked on all 653 MFF heroes (--jaw-sweep).
+            {
+                var hp = m.Bones[head].Position; float best = 0;
+                foreach (int k in kids)
+                {
+                    Vector3 c = Vector3.Zero; float cw = 0, low = float.MaxValue;
+                    foreach (var p in m.Parts) foreach (var sec in p.Sections) for (int v = 0; v < sec.Pos.Length; v++) foreach (var w in sec.Weights[v]) if (w.Bone == k) { c += sec.Pos[v] * w.Weight; cw += w.Weight; if (w.Weight > 0.5f) low = MathF.Min(low, sec.Pos[v].Z - hp.Z); }
+                    if (cw < 5) continue;
+                    var d = c / cw - hp;
+                    if (!(d.X > 3 && d.Z < 3 && d.X > MathF.Abs(d.Y) * 2)) continue;
+                    faceBones.Add(m.Bones[k].Name);
+                    if (pick < 0 && low <= -2 && !NotJaw.IsMatch(m.Bones[k].Name) && cw > best) { best = cw; jawByPlace = k; why = $"its skin is the lower face: {d.X:0.#} cm in front of the head joint, down to {-low:0.#} cm below it"; }
+                }
+                if (pick < 0 && jawByPlace >= 0) pick = jawByPlace;
+                if (canJaw && pick >= 0) faceBones.Remove(m.Bones[pick].Name);
+                if (faceBones.Count > 0) r.Notes.Add($"face bones kept on the head (no hair or cape pairing): {string.Join(", ", faceBones)}");
+            }
+            if (canJaw && pick >= 0)
             {
                 r.Map[m.Bones[pick].Name] = sk.Bones[jaw].Name;
-                r.Notes.Add($"jaw: {m.Bones[pick].Name} → {sk.Bones[jaw].Name} ({(teethW.Count > 0 ? "drives the teeth" : "by name")})");
+                r.Notes.Add($"jaw: {m.Bones[pick].Name} → {sk.Bones[jaw].Name} ({why})");
             }
         }
 
@@ -494,7 +537,7 @@ static partial class Retarget
         {
             primary = r.Map.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var mhoMapped = r.Map.Values.Select(sk.Find).Where(i => i >= 0).ToHashSet();
-            foreach (var match in MatchChains(m, newPos, ToMho, sk, mhoMapped, r, forcedChains, keptUnpaired))
+            foreach (var match in MatchChains(m, newPos, ToMho, sk, mhoMapped, r, forcedChains, keptUnpaired, faceBones))
             {
                 matches.Add(match);
                 r.ChainPairs.Add((m.Bones[match.BoneMap[0].Mff].Name, sk.Bones[match.Positions[0].Mho].Name, match.Fit,
@@ -907,6 +950,15 @@ static partial class Retarget
                     for (int k = 0; k < n; k++)
                         if (k == i || IsUnder(i, k)) { pos[k] = pos[k]!.Value + d; jointShift[k] += d; }
                 }
+            }
+            // MFF_PELVISPIVOT=1 (test, 2026-10-25: the hips tore 3-4x the game's in idle_combat): g_pelvis hangs from g_spine01
+            // while the legs hang from the root; MFF's pelvis joint sits on the hip line, MHO's at g_spine01 (0.4 apart on
+            // She-Hulk, ours 4.7), so a spine sway moved the pelvis skin against the legs. The joint alone goes to MHO's offset.
+            if ((opt.PelvisPivot || opt.JointFit) && sk.Find("g_pelvis") is int pv && pv >= 0 && sk.Bones[pv].ParentIndex is int pp && pp >= 0 && pp != pv && pos[pp] != null)
+            {
+                var want = pos[pp]!.Value + (sk.Pos(pv) - sk.Pos(pp));
+                r.Notes.Add($"pelvis pivot: g_pelvis moved {(want - pos[pv]!.Value).Length():0.00} units to MHO's offset from {sk.Bones[pp].Name}");
+                pos[pv] = want;
             }
             for (int i = 0; i < n; i++)
             {

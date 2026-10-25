@@ -11,6 +11,8 @@ static partial class Retarget
     static readonly System.Text.RegularExpressions.Regex JawPart = new(@"(teeth|tooth|tongue|mouth)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     static readonly System.Text.RegularExpressions.Regex JawName = new(@"(jaw|mouth|chin|^bone_?m$|^bip001 m$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     static readonly System.Text.RegularExpressions.Regex BipedMouth = new(@"^bip001 m$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    /// <summary>Face bones that are not a jaw by name (Man-Thing's "nose bone001").</summary>
+    static readonly System.Text.RegularExpressions.Regex NotJaw = new(@"(nose|eye|brow|hair|bang|lash|lid)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     static readonly System.Text.RegularExpressions.Regex HairLike = new(@"(hair|bang|pony|tail|braid)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     sealed record ChainMatch(List<(int Mff, int Mho)> BoneMap, List<(int Mho, Vector3 Pos)> Positions, string Describe, float Fit)
@@ -37,7 +39,7 @@ static partial class Retarget
     /// and the MHO chain's bones move onto the MFF chain (its shape is kept, as the rest of the body's proportions are).
     /// </summary>
     static List<ChainMatch> MatchChains(MffModel m, Vector3[] newPos, Func<Vector3, Vector3> toMho, MhoSkeleton sk, HashSet<int> mhoMapped, Retargeted r,
-                                        List<(string Mff, string Mho)>? forced, HashSet<string>? keptUnpaired = null)
+                                        List<(string Mff, string Mho)>? forced, HashSet<string>? keptUnpaired = null, HashSet<string>? faceBones = null)
     {
         // MFF chains: linear runs of unmapped bones that carry weights or lead to ones that do.
         var weighted = m.Bones.Select(b => b.Deforms).ToArray();
@@ -113,7 +115,9 @@ static partial class Retarget
         // a mouth / jaw bone is never a hair or cape chain (it stays on the head when the hero has no g_jaw): Scream's Bip001 M
         // paired with the borrowed hair root and her jaw swung with the mane (0.14.6). With a map file too, unless the file
         // pairs it itself: Kurt's Scream map leaves Bip001 M unpaired, and the borrowed pass then put it on g_hair1 (0.14.7)
-        mffChains.RemoveAll(c => JawName.IsMatch(m.Bones[c[0]].Name)
+        // Bones on the face by place (Retarget.Job.MapJaw, 2026-10-25: Sharon Carter's Bone500, her lower face, paired with
+        // g_bangs and the bangs' swing opened her mouth) are kept out the same way.
+        mffChains.RemoveAll(c => (JawName.IsMatch(m.Bones[c[0]].Name) || faceBones?.Contains(m.Bones[c[0]].Name) == true)
             && (forced == null || !forced.Any(f => f.Mff.Equals(m.Bones[c[0]].Name, StringComparison.OrdinalIgnoreCase))));
         var cands = new List<(float Score, int A, int B)>();
         if (forced != null)
