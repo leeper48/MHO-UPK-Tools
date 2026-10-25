@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.144
+- Manual: pictures of weight painting, Settings → Keyboard Shortcuts and the Nexus sign-in window.
+
 0.60.143
 - What's New: a notice for the changes since 0.60.122.
 

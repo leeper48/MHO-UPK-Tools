@@ -240,6 +240,16 @@ sealed partial class ModelPage
         paintRadius.Value = 80; preview.BrushRadius = 80;
         var s2 = preview.TestStroke("g_spine02", Keys.Shift);
         Check(s2 is { Touched.Count: > 0 }, $"Shift + stroke blurs ({s2?.Touched.Count ?? 0} vertices changed)");
+        // MHO_TEST_PAINTSHOT2=<png>: the whole window after the strokes (the manual's picture of painting)
+        if (Environment.GetEnvironmentVariable("MHO_TEST_PAINTSHOT2") is { Length: > 0 } shot2 && FindForm() is { } win)
+        {
+            // (the tabs get most of the right column, not saved; the weights over the model at 50 %)
+            layoutRight.RowStyles[0] = new RowStyle(SizeType.Percent, 22); layoutRight.RowStyles[2] = new RowStyle(SizeType.Percent, 78);
+            preview.ShowWeights = false; preview.CycleWeights();
+            modelTabs.Select(1); await Task.Delay(1500);
+            using var bmp = new Bitmap(win.Width, win.Height); win.DrawToBitmap(bmp, new Rectangle(0, 0, win.Width, win.Height)); bmp.Save(shot2);
+            ApplyLayout();
+        }
         // Invert with Mirror: the left upper arm and the right one both change
         paintMirror.Checked = true;
         mapGrid.CurrentCell = null; pickedBone = "g_l_shoulder"; MapSelectionChanged();
