@@ -56,8 +56,8 @@ sealed partial class MainForm
     {
         undoButton.Enabled = !readOnly && undo.Count > 0;
         redoButton.Enabled = !readOnly && redo.Count > 0;
-        tips.SetToolTip(undoButton, Ui.Titled("Undo", undo.Count > 0 ? $"{undo[^1].Label}  (Ctrl+Z)" : "Nothing to undo. Turning mods on or off, moving, locking and tags can be undone."));
-        tips.SetToolTip(redoButton, Ui.Titled("Redo", redo.Count > 0 ? $"{redo[^1].Label}  (Ctrl+Y)" : "Nothing to redo."));
+        Ui.SetTipText(undoButton, Ui.Titled("Undo", undo.Count > 0 ? $"{undo[^1].Label}  (Ctrl+Z)" : "Nothing to undo. Turning mods on or off, moving, locking and tags can be undone."));
+        Ui.SetTipText(redoButton, Ui.Titled("Redo", redo.Count > 0 ? $"{redo[^1].Label}  (Ctrl+Y)" : "Nothing to redo."));
     }
 
     /// <summary>The control with the keyboard focus, inside nested containers (a text box in the editor, the note box …).</summary>

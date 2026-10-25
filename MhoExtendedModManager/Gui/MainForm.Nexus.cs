@@ -63,7 +63,7 @@ sealed partial class MainForm
             tip = "Every linked mod had its newest version at the last check. Click to check again.";
         }
         nexusStatus.Set(s, one, two);
-        if (tips.GetToolTip(nexusStatus) != tip) tips.SetToolTip(nexusStatus, tip);
+        if (tips.GetToolTip(nexusStatus) != tip) Ui.SetTipText(nexusStatus, tip);
     }
 
     bool IsUpdateFilter => filter.Text.Trim().Equals("is:update", StringComparison.OrdinalIgnoreCase);

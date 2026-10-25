@@ -279,7 +279,7 @@ sealed partial class MainForm
             // says it plainly and opens the plan (the Apply window asks before it writes anything).
             reviewable = n + skipped > 0;
             status.Cursor = reviewable ? Cursors.Hand : Cursors.Default;
-            tips.SetToolTip(status, !reviewable ? "" :
+            Ui.SetTipText(status, !reviewable ? "" :
                 (n > 0 ? $"{n} game file(s) don't match your mod list yet. " : "") +
                 (skipped > 0 ? $"{skipped} item(s) are skipped: files that can't be changed stay exactly as they are, and sound-pack lines that can't be added are left out (the rest of the pack still works). " : "") +
                 "Click to see the list: the Apply window shows every file first, and nothing is written until you press Apply there.");

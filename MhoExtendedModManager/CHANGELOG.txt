@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.142
+- Model tab → Bone Map: the Weights button steps through the same views as W (over the model at 50 %, the weights alone, off).
+- The Mods tab's top bar and other main-window buttons show a shortcut given to them by right-click in their tooltips too.
+
 0.60.141
 - Every button with a shortcut shows it in its tooltip: after the title ("Paint (Shift+P)") or on a last line ("Shortcut: W"), the app's own and the ones given by right-click, and it follows a change in Keyboard Shortcuts (the tooltips didn't show the keys).
 

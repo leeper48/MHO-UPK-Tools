@@ -117,7 +117,7 @@ sealed partial class ModelPage : UserControl
         mapSmooth = Ui.FlatButton("Smooth Weights", SmoothSelected, "Smooths the weights of the bone in the selected row (a chain row: all its bones), as Blender's Weight Paint Smooth (0.5, 5 times) per click: its border with the next bones softens. Saved in your bone map; Undo (Ctrl+Z) takes it back.");
         mapSmooth.Enabled = false;
         mapBones = Ui.FlatButton("Bones", () => preview.ShowBones = !preview.ShowBones, "Draw the skeleton over the model; the selected row's bones in orange (as Look ▾ → Bones).");
-        mapWeights = Ui.FlatButton("Weights", () => preview.ShowWeights = !preview.ShowWeights, "Weight paint: colour the model by how much the selected row's bones move it, as Blender does (blue 0 → cyan → green → yellow → red 1). Pick rows to see each bone; Smooth Weights shows its effect at once.");
+        mapWeights = Ui.FlatButton("Weights", () => preview.CycleWeights(), "Weight paint: colour the model by how much the selected row's bones move it, as Blender does (blue 0 → cyan → green → yellow → red 1). Each click: over the model at 50 %, then the weights alone, then off. Pick rows to see each bone; Smooth Weights shows its effect at once.");
         ShortcutsUi.Attach(mapBones, "model.bones"); ShortcutsUi.Attach(mapWeights, "model.weights");   // (right-click: their shortcuts)
         preview.BonePicked += SelectBoneRow;
         preview.MaterialPicked += SelectMaterialRow;

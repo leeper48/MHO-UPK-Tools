@@ -687,6 +687,13 @@ static class Ui
         Tips.SetToolTip(c, Shown(c, text));
     }
 
+    /// <summary>The shared tooltip's text for a control set (empty: none), with its shortcut keys put in as Tip does.</summary>
+    public static void SetTipText(Control c, string? text)
+    {
+        if (string.IsNullOrEmpty(text)) { tipWritten.Remove(c); Tips.SetToolTip(c, ""); return; }
+        LimitTipWidth(Tips); SetTip(c, text); ForgetOnDispose(c);
+    }
+
     /// <summary>A tooltip as written (before the shortcut keys are put in), else what the tooltip shows.</summary>
     public static string WrittenTip(Control c) => tipWritten.TryGetValue(c, out var t) ? t : Tips.GetToolTip(c);
 

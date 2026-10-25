@@ -234,10 +234,10 @@ sealed partial class MainForm : Form
         var spinner = new Spinner { Anchor = AnchorStyles.None, Margin = new Padding(0, 8, 8, 0) };   // anything running in the background (Kurt, 2026-10-06)
         rightButtons.Controls.AddRange([spinner, updateAlert, helpButton, settingsButton]);
         writeControls.AddRange([newMod, install]);
-        tips.SetToolTip(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
-        tips.SetToolTip(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");
-        tips.SetToolTip(settingsButton, "Game folder, library folder, the Model tab's MFF folder and Blender, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
-        tips.SetToolTip(runningLabel, "Changes can only be applied while the game is closed.");
+        Ui.SetTipText(newMod, "Make a new mod from packages, icons, store images, strings or sound packs (opens the Editor tab).");
+        Ui.SetTipText(install, "Add a mod from a .ZIP, .7Z, .RAR or folder. You can also drop it on the window.");
+        Ui.SetTipText(settingsButton, "Game folder, library folder, the Model tab's MFF folder and Blender, capture icon changes, migrate from MHModManager, Nexus, updates, changelog, about.");
+        Ui.SetTipText(runningLabel, "Changes can only be applied while the game is closed.");
         // icons (Kurt, 2026-10-04): the names head the tooltips
         Icons.Make(newMod, "New Mod", Icons.Plus, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(install, "Install Mod", Icons.Install, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
@@ -271,10 +271,10 @@ sealed partial class MainForm : Form
         var first = Ui.FlatButton("▲", () => MoveSelected(-1, toEnd: true)); var up = Ui.FlatButton("▲", () => MoveSelected(-1));
         var down = Ui.FlatButton("▼", () => MoveSelected(1)); var last = Ui.FlatButton("▼", () => MoveSelected(1, toEnd: true));
         Ui.AddEndBar(first, top: true); Ui.AddEndBar(last, top: false);   // ▲ with a bar over it = to the top; ▼ with one under it = to the bottom
-        tips.SetToolTip(first, "To the top (below any mods locked there). Ctrl+Home. Moves all selected mods (Shift / Ctrl+click) together.");
-        tips.SetToolTip(up, "Up one (Ctrl+Up). Higher mods win where two change the same thing. Moves all selected mods together.");
-        tips.SetToolTip(down, "Down one (Ctrl+Down). Moves all selected mods together.");
-        tips.SetToolTip(last, "To the bottom (above any mods locked there). Ctrl+End. Moves all selected mods together.");
+        Ui.SetTipText(first, "To the top (below any mods locked there). Ctrl+Home. Moves all selected mods (Shift / Ctrl+click) together.");
+        Ui.SetTipText(up, "Up one (Ctrl+Up). Higher mods win where two change the same thing. Moves all selected mods together.");
+        Ui.SetTipText(down, "Down one (Ctrl+Down). Moves all selected mods together.");
+        Ui.SetTipText(last, "To the bottom (above any mods locked there). Ctrl+End. Moves all selected mods together.");
         first.Padding = up.Padding = down.Padding = last.Padding = new Padding(2, 0, 2, 0);
         lhead.Controls.Add(first, 5, 0); lhead.Controls.Add(up, 6, 0); lhead.Controls.Add(down, 7, 0); lhead.Controls.Add(last, 8, 0);
         priorityButtons.AddRange([first, up, down, last]);
@@ -290,9 +290,9 @@ sealed partial class MainForm : Form
         groupButton.Click += (_, _) => Ui.ShowUnder(GroupMenu(), groupButton);
         filterRow.Controls.Add(sortButton, 2, 0); filterRow.Controls.Add(groupButton, 3, 0); filterRow.Controls.Add(allVisible, 4, 0);
         allVisible.Click += (_, _) => SetAllVisible();
-        tips.SetToolTip(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   is:overlap   is:crash   (Nexus updates, linked mods, conflicts, OVERLAP and CRASH RISK warnings)");
-        tips.SetToolTip(sortButton, "Order the list by priority, name, author, tag, on first, or Nexus updates first. Priority buttons and padlocks work in the priority order only.");
-        tips.SetToolTip(groupButton, "Group the list by tag or author. Click a group's header to fold it.");
+        Ui.SetTipText(filter, "Search names, authors and tags (every word must match).\ntag:x or #x   tags only (tag:\"two words\")\nis:on   is:off   is:locked   is:untagged\nis:update   is:nexus   is:conflict   is:overlap   is:crash   (Nexus updates, linked mods, conflicts, OVERLAP and CRASH RISK warnings)");
+        Ui.SetTipText(sortButton, "Order the list by priority, name, author, tag, on first, or Nexus updates first. Priority buttons and padlocks work in the priority order only.");
+        Ui.SetTipText(groupButton, "Group the list by tag or author. Click a group's header to fold it.");
         // Nexus strip (Kurt: status and actions by the list, not in Settings): status (click = the next step), Check for Updates, Find My Mods, ▾.
         var nexusRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0, 0, 0, 2) };
         nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); nexusRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -423,7 +423,7 @@ sealed partial class MainForm : Form
             return m.Name.EndsWith(other, StringComparison.Ordinal) ? (other, true) : m.Name.EndsWith(same, StringComparison.Ordinal) ? (same, false) : null;
         };
         header.TagsClicked += pt => { if (Selected is Mod m && !readOnly) Ui.ShowAt(TagsMenu(m), pt); };
-        tips.SetToolTip(header, "Click Enabled / Disabled to turn the mod on or off, and its tags or + Tag to change the tags.");
+        Ui.SetTipText(header, "Click Enabled / Disabled to turn the mod on or off, and its tags or + Tag to change the tags.");
 
         // Middle column: the selected mod's store image (Kurt), between the list and the details.
         var middleAndRight = new Panel { Dock = DockStyle.Fill };
@@ -440,8 +440,8 @@ sealed partial class MainForm : Form
         noteCard.Controls.Add(noteBox);
         notesPanel.Controls.Add(noteCard, 0, 1); notesPanel.SetColumnSpan(noteCard, 2);
         noteBox.Leave += (_, _) => SaveNote();
-        tips.SetToolTip(noteBox, "The mod's note travels with it. What you type here is kept on this PC only (it replaces the mod's note for you); Undo takes it back.");
-        tips.SetToolTip(noteReset, "Throw away your note and show the mod's own note again.");
+        Ui.SetTipText(noteBox, "The mod's note travels with it. What you type here is kept on this PC only (it replaces the mod's note for you); Undo takes it back.");
+        Ui.SetTipText(noteReset, "Throw away your note and show the mod's own note again.");
         // The note under the details (Kurt, 2026-09-30: more room for the preview in the middle).
         middle.Controls.Add(storePreview); right.Controls.Add(notesPanel);
         // the divider between Preview and the details (Kurt, 2026-10-06: it couldn't be moved); dragged = kept, double-click = automatic
@@ -494,15 +494,15 @@ sealed partial class MainForm : Form
         tagsButton.Click += (_, _) => { if (Selected is Mod m) Ui.ShowUnder(TagsMenu(m), tagsButton); };
         leftButtons.Controls.AddRange([remove, edit, export, tagsButton]);
         writeControls.AddRange([remove, edit, applyButton, tagsButton]);
-        tips.SetToolTip(remove, "Send the selected mod to the Recycle Bin: it's turned off and the game gets its files back first. Asks before it does anything (Del).");
-        tips.SetToolTip(edit, "Open the selected mod in the Editor tab (or double-click it).");
-        tips.SetToolTip(export, "Save the selected mod as a .ZIP to share.");
-        tips.SetToolTip(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
+        Ui.SetTipText(remove, "Send the selected mod to the Recycle Bin: it's turned off and the game gets its files back first. Asks before it does anything (Del).");
+        Ui.SetTipText(edit, "Open the selected mod in the Editor tab (or double-click it).");
+        Ui.SetTipText(export, "Save the selected mod as a .ZIP to share.");
+        Ui.SetTipText(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
         Icons.Make(remove, "Remove Mod", Icons.Trash, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(edit, "Edit Mod", Icons.Pencil, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(export, "Export to ZIP", Icons.Export, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(tagsButton, "Tags", Icons.WithMenu(Icons.Tag), MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
-        tips.SetToolTip(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
+        Ui.SetTipText(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
         bottom.Controls.Add(leftButtons, 0, 0);
         bottom.Controls.Add(status, 1, 0);
         status.Click += (_, _) => { if (reviewable && !readOnly) Apply(); };
@@ -894,7 +894,7 @@ sealed partial class MainForm : Form
         int on = shown.Count(m => m.Enabled);
         allVisible.CheckState = on == 0 ? CheckState.Unchecked : on == shown.Count ? CheckState.Checked : CheckState.Indeterminate;
         allVisible.Enabled = !readOnly && shown.Count > 0;
-        tips.SetToolTip(allVisible, shown.Count == 0 ? "No mods in the list." :
+        Ui.SetTipText(allVisible, shown.Count == 0 ? "No mods in the list." :
             (on == shown.Count ? $"All {shown.Count} mods in the list are on: click to turn them all off." : $"{on} of {shown.Count} mods in the list are on: click to turn them all on.") +
             (shown.Count < lib.Mods.Count ? "\nOnly the mods the filter shows (and open groups) change." : ""));
         foreach (var b in priorityButtons) b.Enabled = !readOnly && ReorderView;
