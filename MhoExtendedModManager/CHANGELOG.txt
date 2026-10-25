@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.132
+- Model tab → Paint: two quick dabs no longer frame the model again (a double-click jumped the view while painting).
+
 0.60.131
 - Model tab → Paint: Weights shows only the bone being painted (a hair chain's row showed all its bones, and the part on the chain's other bones didn't change under the brush); a bone list beside the brushes picks which of the row's bones to paint.
 - Model tab: [ and ] step to the bone above (its parent) and below (a child) in the skeleton; while painting, the brush paints it.

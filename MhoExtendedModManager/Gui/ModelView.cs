@@ -395,7 +395,8 @@ sealed partial class ModelView : UserControl
         canvas.DoubleClick += (_, _) =>
         {
             if (DragPart != null && PartUnder(downAt) != null) { PartReset?.Invoke(); return; }   // (the drum: back beside the character)
-            if (!Shortcuts.DoubleClick("view.frame", ModifierKeys)) return;
+            // (painting: two quick dabs are a double-click, and framing jumped the view, Kurt 2026-10-25)
+            if (PaintMode || !Shortcuts.DoubleClick("view.frame", ModifierKeys)) return;
             FrameMesh(); Redraw(); ViewChanged?.Invoke();
         };
         Controls.Add(canvas);
