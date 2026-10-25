@@ -1,6 +1,14 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.137
+- Model tab: when the target's animations place a limb joint at another length (team-ups: Agent 13's ankle 20.1 below the knee, Sharon Carter's shin 25.6), the limb's own skin follows along it, so the limb is evenly shorter or longer instead of creasing at the joint (the ankle band was crushed to half its area: stretch 6.0 at rest, now 1.3).
+
+0.60.136
+- Model tab: Lean is spread over the ankles and the hips (half each; the legs stay straight), so a large lean no longer creases the ankles (Black Widow on Agent 13 at -17°: the feet stretched 3.8 times at rest, now 2.5).
+- Model tab: Lean starts at an automatic amount (Auto), as Feet does: the head over the feet as the hero's own model stands (Captain America S07 and Sharon Carter -2.5°: in idle their heads now sit within 0.2° of the hero's, 1.8° forward before). Double-click: back to automatic. Mods made before keep the Lean they had.
+- Open in Blender / Full Export use the Lean too.
+
 0.60.135
 - Model tab: Undo / Redo / History of weight paint (and Clear Paint) update the model in place, without reloading the preview; other steps reload it as before.
 

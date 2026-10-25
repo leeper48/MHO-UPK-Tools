@@ -18,7 +18,7 @@ sealed partial class ModelPage
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_FEET"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tf))
         { feetCustom = tf; feetSlider.Value = tf; preview.FeetShift = tf; SaveState(); }
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_LEAN"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tl))
-        { leanSlider.Value = tl; SaveState(); }
+        { leanCustom = tl; leanSlider.Value = tl; SaveState(); }
         // MHO_TEST_SIZE=1.2: the Size slider set before the build (its Scale is checked after)
         if (float.TryParse(Environment.GetEnvironmentVariable("MHO_TEST_SIZE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ts))
         { sizeSlider.Value = ts; preview.Size = ts; }

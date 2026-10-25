@@ -21,7 +21,7 @@ sealed record ImportOptions
     /// <summary>Keep the Source's Size (RetargetOptions.KeepSourceSize).</summary>
     public bool KeepSourceSize { get; init; }
     /// <summary>Lean (RetargetOptions.Lean): the body above the feet turned at the ankles, degrees, + forward.</summary>
-    public float Lean { get; init; }
+    public float Lean { get; init; }   // (NaN: the automatic one)
     /// <summary>Game Joint Blend (RetargetOptions.JointFit).</summary>
     public bool JointFit { get; init; }
     /// <summary>The Model tab's weight paint (WeightPaint), applied last; null = none.</summary>

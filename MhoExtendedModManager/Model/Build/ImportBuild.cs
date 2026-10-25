@@ -90,7 +90,7 @@ sealed class ImportBuild
             if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, sk) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
             if (o.Subdivide) picked = Subdivision.Apply(picked);
             r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize, Lean = o.Lean, JointFit = o.JointFit });
-            if (MathF.Abs(o.Lean) >= 0.01f) log($"lean:    the body above the feet turned {o.Lean:+0.#;-0.#} degrees at the ankles (+ forward)");
+            if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
             if (o.JointFit && r.Notes.FirstOrDefault(n => n.StartsWith("game joint blend")) is { } jn) log("joints:  " + jn["game joint blend: ".Length..]);
             if (o.KeepSourceSize) log($"size:    the source's own size (scale {r.Scale:0.###}, not fitted to {sk.Name}'s height)");
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));

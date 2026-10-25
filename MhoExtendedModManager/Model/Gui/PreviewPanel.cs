@@ -208,6 +208,7 @@ sealed partial class PreviewPanel : UserControl
         shown = p;
         mffAnimator = new MeshAnimator(p.Bones, p.Mesh.Positions, p.Mesh.Normals, p.Mesh.Influences, p.Mesh.Tangents) { Shift = new Vector3(0, 0, feetShift ?? p.Feet) };
         FeetAutoChanged?.Invoke(p.Feet);
+        if (!p.TargetOnly) LeanAutoChanged?.Invoke(p.LeanAuto);
         stockAnimator = p.Stock is { } st ? new MeshAnimator(st.Bones.ToList(), st.Positions, st.Normals, st.Influences, st.Tangents) : null;
         if (stockAnimator == null && comparing) { comparing = false; Ui.Lit(compare, false); }
         compare.Enabled = stockAnimator != null;
@@ -281,6 +282,8 @@ sealed partial class PreviewPanel : UserControl
             if (mffAnimator != null && shown != null) { mffAnimator.Shift = new Vector3(0, 0, value ?? shown.Feet); p3.SwapCharacter(comparing ? shown.Stock! : shown.Mesh, comparing ? stockAnimator! : mffAnimator); }
         }
     }
+    /// <summary>A model was shown: its automatic Lean.</summary>
+    public event Action<float>? LeanAutoChanged;
     /// <summary>A model was shown: its automatic Feet amount.</summary>
     public event Action<float>? FeetAutoChanged;
 

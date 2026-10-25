@@ -37,6 +37,8 @@ sealed class Retargeted
     public List<RefSection> Sections { get; } = new();
     public Dictionary<string, string> Map { get; } = new(StringComparer.OrdinalIgnoreCase);   // MFF bone → MHO bone
     public float Scale;                  // MFF cm → MHO units
+    /// <summary>The Lean applied (degrees) and the automatic one (the head over the ankles as the hero's model has it).</summary>
+    public float Lean, LeanAuto;
     public List<string> Notes { get; } = new();
     /// <summary>Hair hanging below the neck and the coat / body vertices it can rest on ((section, vertex)), for the clip check.</summary>
     public List<(int Section, int V)> HairVerts { get; } = new();

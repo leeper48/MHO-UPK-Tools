@@ -106,7 +106,7 @@ static class FitDistort
     public static int Run(IReadOnlyList<string> args)
     {
         if (args.Count < 2) { Console.WriteLine("--fit-distort <mff model> <package> [animation …]   (MHO_LEAN=<degrees>)"); return 1; }
-        float lean = float.TryParse(Environment.GetEnvironmentVariable("MHO_LEAN"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float lv) ? lv : 0;
+        float lean = Environment.GetEnvironmentVariable("MHO_LEAN") == "auto" ? float.NaN : float.TryParse(Environment.GetEnvironmentVariable("MHO_LEAN"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float lv) ? lv : 0;   // (MHO_LEAN=auto: the automatic one)
         Settings.Reset();
         string pkg = BasePackage.Resolve(args[1], true);
         var model = MffModel.Load(Source.ResolveModelFile(args[0]));

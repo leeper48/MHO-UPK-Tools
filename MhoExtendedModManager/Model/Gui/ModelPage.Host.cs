@@ -404,8 +404,11 @@ sealed partial class ModelPage
         public float? FeetCustom { get; set; }
         /// <summary>Keep the Source's Size (ImportOptions.KeepSourceSize).</summary>
         public bool KeepSourceSize { get; set; }
-        /// <summary>Lean (ImportOptions.Lean), degrees.</summary>
+        /// <summary>Lean (ImportOptions.Lean), degrees: the one used before 0.60.136 (always the user's, 0 = none).</summary>
         public float Lean { get; set; }
+        /// <summary>From 0.60.136 (LeanVersion 2): the user's Lean, null = automatic. Older states keep their Lean as the user's.</summary>
+        public float? LeanCustom { get; set; }
+        public int LeanVersion { get; set; }
         /// <summary>Game Joint Blend (ImportOptions.JointFit).</summary>
         public bool JointFit { get; set; }
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
@@ -427,7 +430,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanSlider.Value, JointFit = jointFit.Checked,
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
@@ -488,7 +491,7 @@ sealed partial class ModelPage
         if (smooth.Enabled) smooth.Checked = st.Subdivide;
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
         SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
-        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; keepSourceSize.Checked = st.KeepSourceSize; jointFit.Checked = st.JointFit; leanSlider.Value = st.Lean; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;
+        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; keepSourceSize.Checked = st.KeepSourceSize; jointFit.Checked = st.JointFit; leanCustom = st.LeanVersion >= 2 ? st.LeanCustom : st.Lean; restoringLean = true; leanSlider.Value = leanCustom ?? leanAuto; restoringLean = false; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;
         restoring2 = false;
         AssumeBuilt();
         SchedulePreview();

@@ -44,6 +44,12 @@ sealed partial class ModelPage : UserControl
     float feetAuto;
     bool feetKnown;   // (feetAuto measured for the model shown: Build uses it)
     float? feetCustom;
+    /// <summary>Lean: the automatic amount for the model shown, and the user's when moved off it (null: automatic).</summary>
+    float leanAuto;
+    float? leanCustom;
+    bool restoringLean;
+    /// <summary>The Lean to fit with: the user's, else automatic (NaN: worked out in the fit).</summary>
+    float LeanToUse => leanCustom ?? float.NaN;
     bool restoringFeet;
     readonly LightSlider sizeSlider = new() { Label = "Size", Min = 0.05f, Max = 4f, Step = 0.01f, Mark = 1f, Home = () => 1f, Dock = DockStyle.Top };
     /// <summary>A cape / long hair borrowed from other heroes (preview prototype; Kurt: generic numbers, matched motion).</summary>
@@ -246,8 +252,8 @@ sealed partial class ModelPage : UserControl
         checks.Controls.Add(matchSteps); checks.Controls.Add(keepSourceSize); checks.Controls.Add(jointFit);
         sizeBox.RowCount = 4;
         leanSlider.Height = sizeSlider.Height; leanSlider.Dock = DockStyle.Fill; leanSlider.Margin = new Padding(0, 2, 0, 0);
-        leanSlider.Home = () => 0;
-        leanSlider.Format = v => $"{v:+0.0;-0.0;0}°";
+        leanSlider.Home = () => leanAuto;
+        leanSlider.Format = v => $"{v:+0.0;-0.0;0}°" + (leanCustom == null && MathF.Abs(v - leanAuto) < 0.05f ? " Auto" : "");
         sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(feetSlider, 0, 1); sizeBox.Controls.Add(leanSlider, 0, 2); sizeBox.Controls.Add(checks, 0, 3);
         var sizeColumn = Column("SIZE IN GAME", null, sizeBox, autoHeight: true);
         right.Controls.Add(sizeColumn, 0, 4);
@@ -315,8 +321,19 @@ sealed partial class ModelPage : UserControl
         keepSourceSize.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
         Ui.TipTitled(jointFit, "Game Joint Blend", "Shares the skin around the hips, knees, shoulders and elbows between the limb and the body the way the target's own game model does, over a wide band, instead of the MFF model's narrow handover. It stops the seat creasing and the shoulders and thighs bulging when the hero moves. The pelvis also turns where the game's does. Test feature: compare it in the preview (Look ▾ → Weights shows the result), then in game. The preview shows it after a moment; Build writes it. (MFF models only.)");
         jointFit.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
-        Ui.TipTitled(leanSlider, "Lean", "Turns the model above its feet at the ankles, in degrees: + forward, − back; the soles stay flat. For an MFF model that stands tipped forward or back in the hero's animations. Double-click: back to 0. The preview shows it after a moment; Build writes it. (MFF models only: an FBX keeps its own pose.)");
-        leanSlider.Committed += () => { SaveState(); SchedulePreview(); };
+        Ui.TipTitled(leanSlider, "Lean", "Tips the model forward (+) or back (−), in degrees: half at the ankles (the legs stay straight), half at the hips; the soles stay flat. It starts at the automatic amount (Auto): the head over the feet as the hero's own model stands. Double-click: back to automatic. The preview shows it after a moment; Build writes it. (MFF models only: an FBX keeps its own pose.)");
+        leanSlider.Committed += () =>
+        {
+            if (restoringLean) return;
+            leanCustom = MathF.Abs(leanSlider.Value - leanAuto) < 0.05f ? null : leanSlider.Value;
+            leanSlider.Invalidate(); SaveState(); SchedulePreview();
+        };
+        preview.LeanAutoChanged += auto =>
+        {
+            leanAuto = auto;
+            restoringLean = true; leanSlider.Value = leanCustom ?? auto; restoringLean = false;
+            leanSlider.Invalidate();
+        };
         feetSlider.Committed += () => { feetCustom = MathF.Abs(feetSlider.Value - feetAuto) < 0.05f ? null : feetSlider.Value; preview.FeetShift = feetCustom; feetSlider.Invalidate(); SaveState(); };
         preview.FeetAutoChanged += auto =>
         {
@@ -1010,7 +1027,7 @@ sealed partial class ModelPage : UserControl
         var picked = SelectedParts();
         if (picked.Count == 0) { preview.ShowMessage("Tick at least one part"); return; }
         Remember(pkg.Key);
-        var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx; bool keepSize = keepSourceSize.Checked; float lean = leanSlider.Value; bool joints = jointFit.Checked;
+        var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx; bool keepSize = keepSourceSize.Checked; float lean = LeanToUse; bool joints = jointFit.Checked;
         string? uf = unrigged;
         int capeChoice = CapeChoice, hairChoice = HairChoice;
         var moreRigs = OtherRigs();

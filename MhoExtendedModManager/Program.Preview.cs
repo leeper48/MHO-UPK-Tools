@@ -2748,7 +2748,7 @@ static partial class Program
                 MhoExtendedModManager.Model.Settings.Reset();
                 string lpkg = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
                 var lpm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1]));
-                var prep = MhoExtendedModManager.Model.Gui.PreviewPanel.Prepare(lpm, null, lpkg, null, lean: float.TryParse(Environment.GetEnvironmentVariable("MHO_LEAN"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float lv) ? lv : 0);   // (MHO_LEAN=<degrees>: the Lean slider)
+                var prep = MhoExtendedModManager.Model.Gui.PreviewPanel.Prepare(lpm, null, lpkg, null, lean: Environment.GetEnvironmentVariable("MHO_LEAN") == "auto" ? float.NaN : float.TryParse(Environment.GetEnvironmentVariable("MHO_LEAN"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float lv) ? lv : 0);   // (MHO_LEAN=<degrees>: the Lean slider)
                 if (prep.Stock == null) { Console.WriteLine("no stock model to compare"); return 1; }
                 var want = rest.Count > 3 ? rest.Skip(3).ToList() : ["idle", "run", "idle_combat"];
                 static float Deg(System.Numerics.Vector3 top, System.Numerics.Vector3 foot) => MathF.Atan2(top.X - foot.X, top.Z - foot.Z) * 180 / MathF.PI;

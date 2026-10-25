@@ -68,6 +68,8 @@ sealed record RetargetOptions
     /// <summary>Game Joint Blend (the Model tab's checkbox; MFF_JOINTFIT=1): the skin around hips, knees, shoulders and elbows
     /// shared between limb and body as the target's own model shares it (JointProfile), with the pelvis pivot.</summary>
     public bool JointFit { get; init; }
+    /// <summary>The hips' share of Lean (the rest at the ankles); MFF_LEANHIP overrides (test).</summary>
+    public float LeanHipShare { get; init; } = 0.5f;
 
     public static RetargetOptions FromEnvironment() => new()
     {
@@ -95,6 +97,7 @@ sealed record RetargetOptions
         CapeFit = Environment.GetEnvironmentVariable("MFF_CAPEFIT") == "1",
         PelvisPivot = Environment.GetEnvironmentVariable("MFF_PELVISPIVOT") == "1",
         JointFit = Environment.GetEnvironmentVariable("MFF_JOINTFIT") == "1",
+        LeanHipShare = float.TryParse(Environment.GetEnvironmentVariable("MFF_LEANHIP"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float lh) ? Math.Clamp(lh, 0, 1) : 0.5f,
     };
 }
 
@@ -130,6 +133,11 @@ static partial class Retarget
         static readonly System.Text.RegularExpressions.Regex LimbJoint = new(@"^g_[lr]_(shoulder|elbow|wrist|hip|knee|ankle)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         /// <summary>How far each MHO bone was moved onto the animations' offsets (TranslationBind), MHO space; the mesh follows.</summary>
         Vector3[] jointShift = [];
+        /// <summary>Limb segments a moved joint shortened or lengthened (the parent bone, its joint and the child's joint before the
+        /// move, the move): the parent's skin follows by its place along the segment (2026-10-25, Kurt: Sharon Carter on the
+        /// Agent 13 team-up creased at the ankle: the team-up's animations place the ankle 20.1 below the knee, her shin is 25.6;
+        /// the foot moved up 5.5 and the lower calf skin stayed, crushed to half its area). MFF_SEGSTRETCH=0: as before.</summary>
+        readonly List<(int Parent, Vector3 From, Vector3 To, Vector3 Shift)> segShift = [];
         /// <summary>The MHO bone each MFF bone's weights go to, and helper bones' second MHO bone (step 2).</summary>
         int[] target = [];
         readonly Dictionary<int, int> helperTo = new();
@@ -160,21 +168,52 @@ static partial class Retarget
         /// ankles' line (MFF frame: facing +X, left +Y, up +Z), with the skin it carries (its swing turned too).</summary>
         void Lean()
         {
-            if (MathF.Abs(opt.Lean) < 0.01f) return;
-            int lf = Mff("Bip001 L Foot"), rf = Mff("Bip001 R Foot");
-            if (lf < 0 || rf < 0) return;
-            var q = Quaternion.CreateFromAxisAngle(Vector3.UnitY, opt.Lean * MathF.PI / 180);
-            var pivot = (newPos[lf] + newPos[rf]) / 2;
-            bool InFoot(int i) { for (int j = i, guard = 0; j >= 0 && guard < 512; j = m.Bones[j].Parent, guard++) if (j == lf || j == rf) return true; return false; }
-            int n = 0;
-            for (int i = 0; i < nb; i++)
+            int lf = Mff("Bip001 L Foot"), rf = Mff("Bip001 R Foot"), lt = Mff("Bip001 L Thigh"), rt = Mff("Bip001 R Thigh"), hd = Mff("Bip001 Head");
+            if (lf < 0 || rf < 0) { r.Lean = 0; return; }
+            bool Under(int i, int a) { for (int j = i, guard = 0; j >= 0 && guard < 512; j = m.Bones[j].Parent, guard++) if (j == a) return true; return false; }
+            // Spread over the ankles and the hips (2026-10-25; Darkness Muta's -17 degrees creased the ankles: the whole turn bent
+            // there): the legs turn part of it at the ankles and stay straight, the body above the hips the rest, so it ends
+            // turned by the whole Lean. MFF_LEANHIP = the hips' share (0 = all at the ankles, as before).
+            float hip = lt >= 0 && rt >= 0 ? opt.LeanHipShare : 0;
+            Vector3 ankles = (newPos[lf] + newPos[rf]) / 2;
+            static Vector3 Rot(Vector3 p, Vector3 pivot, float degrees) => pivot + Vector3.Transform(p - pivot, Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180));
+            // Automatic (2026-10-25, Kurt: like Feet): the turn that puts the head over the ankles at the angle the hero's own
+            // model has it (MFF frame: facing +X, up +Z; the bind pose's angle predicts the idle's: Captain America S07 +1.8
+            // both, Sharon Carter +1.8 both, Black Widow on Agent 13 +1.3 / +1.6, Hulk S01 +0.2 / +0.3)
+            float auto = 0;
+            int sh = sk.Find("g_head"), sl = sk.Find("g_l_ankle"), sr = sk.Find("g_r_ankle");
+            if (hd >= 0 && sh >= 0 && sl >= 0 && sr >= 0)
             {
-                if (InFoot(i)) continue;
-                newPos[i] = pivot + Vector3.Transform(newPos[i] - pivot, q);
-                delta[i] = Quaternion.Normalize(q * delta[i]);
-                n++;
+                static float Angle(Vector3 top, Vector3 foot) => MathF.Atan2(top.X - foot.X, top.Z - foot.Z) * 180 / MathF.PI;
+                var sa = (sk.Pos(sl) + sk.Pos(sr)) / 2;
+                float want = Angle(sk.Pos(sh), sa);
+                Vector3 hipPivot = lt >= 0 && rt >= 0 ? (newPos[lt] + newPos[rt]) / 2 : ankles;
+                float Head(float t) { var hp = Rot(hipPivot, ankles, t * (1 - hip)); return Angle(Rot(Rot(newPos[hd], ankles, t * (1 - hip)), hp, t * hip), ankles); }
+                for (int k = 0; k < 4; k++)
+                {
+                    float f = Head(auto) - want, d = (Head(auto + 0.5f) - Head(auto - 0.5f)) / 1f;
+                    if (MathF.Abs(d) < 1e-4f) break;
+                    auto -= f / d;
+                }
+                auto = MathF.Round(Math.Clamp(auto, -20, 20) * 2) / 2;   // (the slider's half-degree steps)
             }
-            r.Notes.Add($"lean: the body above the feet ({n} bones) turned {opt.Lean:+0.#;-0.#} degrees at the ankles");
+            r.LeanAuto = auto;
+            float lean = float.IsNaN(opt.Lean) ? auto : opt.Lean;
+            r.Lean = lean;
+            if (MathF.Abs(lean) < 0.01f) return;
+            void Turn(float degrees, Vector3 pivot, Func<int, bool> moves)
+            {
+                var q = Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180);
+                for (int i = 0; i < nb; i++)
+                {
+                    if (!moves(i)) continue;
+                    newPos[i] = pivot + Vector3.Transform(newPos[i] - pivot, q);
+                    delta[i] = Quaternion.Normalize(q * delta[i]);
+                }
+            }
+            Turn(lean * (1 - hip), ankles, i => !Under(i, lf) && !Under(i, rf));
+            if (hip > 0) Turn(lean * hip, (newPos[lt] + newPos[rt]) / 2, i => !Under(i, lt) && !Under(i, rt));
+            r.Notes.Add($"lean: {lean:+0.#;-0.#} degrees{(float.IsNaN(opt.Lean) ? " (automatic)" : "")}, {lean * (1 - hip):+0.#;-0.#} at the ankles" + (hip > 0 ? $" and {lean * hip:+0.#;-0.#} at the hips" : ""));
         }
         Vector3 ToMho(Vector3 p) => Mirror(p) * r.Scale;
 
@@ -947,6 +986,7 @@ static partial class Retarget
                     // axis doesn't care where along it the joint sits.
                     bool carry = LimbJoint.IsMatch(sk.Bones[i].Name);
                     if (!carry) { pos[i] = want; continue; }   // the joint alone; its children are placed from it in turn
+                    if (Environment.GetEnvironmentVariable("MFF_SEGSTRETCH") != "0" && LimbJoint.IsMatch(sk.Bones[par].Name)) segShift.Add((par, pos[par]!.Value, pos[i]!.Value, d));
                     for (int k = 0; k < n; k++)
                         if (k == i || IsUnder(i, k)) { pos[k] = pos[k]!.Value + d; jointShift[k] += d; }
                 }
@@ -1022,7 +1062,19 @@ static partial class Retarget
                     hair.Fall(acc, pp[v], r.Sections.Count, v, opt.HairByBone && inf.Any(x => x.Weight > 0.2f && IsHairBone(x.Bone)));
                     w[v] = Top4(acc);
                     // joints moved onto the animations' offsets (TranslationBind) carry the skin with them, by its weights
-                    foreach (var (jb, jw) in w[v]) pp[v] += jw * jointShift[jb];
+                    var at = pp[v];
+                    foreach (var (jb, jw) in w[v])
+                    {
+                        pp[v] += jw * jointShift[jb];
+                        // the segment above a moved joint: its skin by its place along it (0 at its own joint, all at the moved one)
+                        foreach (var (sp0, from, to, shift) in segShift)
+                            if (sp0 == jb)
+                            {
+                                var seg = to - from;
+                                float t = Math.Clamp(Vector3.Dot(at - from, seg) / Math.Max(1e-6f, seg.LengthSquared()), 0, 1);
+                                pp[v] += jw * shift * t;
+                            }
+                    }
                 }
                 r.Sections.Add(new RefSection { Material = s.Material, Tex = s.Tex, Pos = pp, Normal = nn, Uv = s.Uv, Tris = (int[])s.Tris.Clone(), Weights = w, Part = parts.First(p => p.Sections.Contains(s)).Name });
             }

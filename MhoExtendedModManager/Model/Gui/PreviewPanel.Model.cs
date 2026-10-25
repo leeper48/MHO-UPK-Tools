@@ -18,6 +18,8 @@ sealed partial class PreviewPanel
     {
         /// <summary>How far Build's Feet on the Floor moves the model (ImportBuild.FeetOffset).</summary>
         public float Feet { get; init; }
+        /// <summary>The automatic Lean (degrees) for this model on this target (Retargeted.LeanAuto).</summary>
+        public float LeanAuto { get; init; }
         /// <summary>No source picked: the target's own model only (shown as Compare, which stays on).</summary>
         public bool TargetOnly { get; init; }
         /// <summary>The bone map the retarget used (MFF sources), for the Bone Map tab.</summary>
@@ -307,6 +309,7 @@ sealed partial class PreviewPanel
         {
             Map = r.Source != null ? BoneMapFile.From(r, sk.Name) : FbxBoneList(r, sk.Name), MhoBones = sk.Bones.Select(b => b.Name).ToList(),
             Feet = PosedFeet(mesh, bones, list) ?? ImportBuild.FeetOffset(r, sk)?.By ?? 0,
+            LeanAuto = r.LeanAuto,
             MhoParents = sk.Bones.Select((b, i) => b.ParentIndex == i ? -1 : b.ParentIndex).ToList(),
             PackagePath = packagePath, PackageMeshes = pkgMeshes, MainRef = mr,
             MaterialList = r.Sections.GroupBy(x => x.Material).Select(g => (g.Key, g.First().Tex)).ToList(),
