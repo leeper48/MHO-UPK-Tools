@@ -1,6 +1,21 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.131
+- Model tab → Paint: Weights shows only the bone being painted (a hair chain's row showed all its bones, and the part on the chain's other bones didn't change under the brush); a bone list beside the brushes picks which of the row's bones to paint.
+- Model tab: [ and ] step to the bone above (its parent) and below (a child) in the skeleton; while painting, the brush paints it.
+- Model tab → Bone Map: the paint controls in two rows, and the bone list right under them (a big gap pushed it down).
+
+0.60.130
+- Settings → Keyboard Shortcuts: every keyboard shortcut and the 3D views' mouse bindings (turn, move, zoom, frame; while painting: paint, turn, move, Blur, the other way, pick a bone) can be changed; conflicts show in red with what they clash with; Default and Reset All.
+- Right-click any button: Assign Shortcut (a key that presses it while it's showing), or change the shortcut of a button that has one; a clash is shown before it's kept.
+- --shortcuts-check <png> (read only).
+
+0.60.129
+- Model tab: W steps through off, the weight colours over the textured model at 50 %, and the weight colours alone; Paint starts at 50 %.
+- Model tab: Shift+P turns Paint on and off.
+- Model tab: the bones overlay draws in every pane of the quad view, and Ctrl+click picks a bone in the pane clicked (it followed only one camera); it follows Size too.
+
 0.60.128
 - Model tab → Paint: a dab redraws only the character's skin and weight colours, not its props (the props were rebuilt each dab and flashed ones a power shows: Black Widow's motorcycle).
 - Model tab → Paint: while painting, a bone is picked with Ctrl+Shift+click (Ctrl+click and Ctrl strokes only paint the other way; they picked other bones).

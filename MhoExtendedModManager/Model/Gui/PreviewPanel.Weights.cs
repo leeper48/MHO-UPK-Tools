@@ -14,14 +14,28 @@ namespace MhoExtendedModManager.Model.Gui;
 sealed partial class PreviewPanel
 {
     bool showWeights;
+    /// <summary>The weights at half strength over the textured model (W's middle step, Kurt 2026-10-25), else the weights alone.</summary>
+    bool weightsHalf;
     static ModelView.Look? weightLook;
 
     /// <summary>Whether the weight paint view is on (Bone Map tab → Weights, Look ▾ → Weights; not remembered: a check tool).</summary>
     public bool ShowWeights
     {
         get => showWeights;
-        set { if (showWeights == value) return; showWeights = value; RefreshDisplay(); TogglesChanged?.Invoke(); }
+        set { if (showWeights == value) return; showWeights = value; weightsHalf = false; RefreshDisplay(); TogglesChanged?.Invoke(); }
     }
+
+    /// <summary>W: off → the weights at 50 % over the model → the weights alone → off.</summary>
+    public void CycleWeights()
+    {
+        if (!showWeights) { showWeights = true; weightsHalf = true; }
+        else if (weightsHalf) weightsHalf = false;
+        else showWeights = false;
+        RefreshDisplay(); TogglesChanged?.Invoke();
+    }
+
+    /// <summary>The weights over the model at half strength (W's middle step).</summary>
+    public bool WeightsHalf => showWeights && weightsHalf;
 
     /// <summary>Bones or Weights changed (the Bone Map tab's buttons follow the Look menu).</summary>
     public event Action? TogglesChanged;
@@ -60,9 +74,12 @@ sealed partial class PreviewPanel
     /// bones and influences, so animation and props work unchanged).</summary>
     ModMeshes.Loaded Display(ModMeshes.Loaded l)
     {
+        view.Tint = null;
         if (!showWeights) return l;
         var hotIdx = new bool[l.Bones.Count];
-        for (int b = 0; b < l.Bones.Count; b++) hotIdx[b] = hot.Contains(l.Bones[b].Name);
+        // painting: only the bone the brush paints (Kurt, 2026-10-25: a hair chain's row showed all its bones, and the red
+        // part, on the chain's other bones, didn't change under the brush)
+        for (int b = 0; b < l.Bones.Count; b++) hotIdx[b] = painting && PaintBone != null ? l.Bones[b].Name.Equals(PaintBone, StringComparison.OrdinalIgnoreCase) : hot.Contains(l.Bones[b].Name);
         var uv = new Vector2[l.Positions.Length];
         for (int v = 0; v < uv.Length && v < l.Influences.Count; v++)
         {
@@ -71,6 +88,13 @@ sealed partial class PreviewPanel
             for (int k = 0; k < inf.Bones.Count; k++) if (inf.Bones[k] >= 0 && inf.Bones[k] < hotIdx.Length && hotIdx[inf.Bones[k]]) w += inf.Weights[k];
             // texel centres: 0 → the first texel, 1 → the last (no blending past the ends)
             uv[v] = new Vector2((0.5f + Math.Clamp(w, 0, 1) * 255f) / 256f, 0.5f);
+        }
+        if (weightsHalf)
+        {
+            // the textured model with the weight colours laid over it at half strength (ModelView.Tint)
+            view.Tint = [.. uv.Select(u => { var c = WeightColor((u.X * 256f - 0.5f) / 255f); return new Vector3(c.R, c.G, c.B) / 255f; })];
+            view.TintOpacity = 0.5f;
+            return l;
         }
         return new ModMeshes.Loaded(l.Name, l.Positions, l.Normals, l.Tangents, uv, l.Indices, new int[l.Indices.Length / 3],
             [WeightLook()], l.Info, l.Bones, l.Influences);

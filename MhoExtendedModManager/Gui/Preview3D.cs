@@ -123,8 +123,9 @@ sealed partial class Preview3D : UserControl
         reset = Ui.FlatButton("Reset View", () => { if (ResetViewAction != null) ResetViewAction(); else view.ResetView(); }, "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Ground on or off, and the Light, Glow and Lens sliders. Remembered.");
         (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);
-        quadButton = PreviewControls.QuadButton(() => ToggleQuad(), S);
-        fullScreen = PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S);
+        quadButton = ShortcutsUi.Attach(PreviewControls.QuadButton(() => ToggleQuad(), S), "view.quad");
+        fullScreen = ShortcutsUi.Attach(PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S), "view.full");
+        ShortcutsUi.Attach(play, "view.play");
         powersButton = Ui.FlatButton("Power FXs", () => { prefs.Powers = !prefs.Powers; prefs.Save(); ApplyLook(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's power packages). Lit when on; remembered.");
         Icons.Make(loop, "Loop", Icons.Loop, S);
         Icons.Make(look, "Look", Icons.Look, S);

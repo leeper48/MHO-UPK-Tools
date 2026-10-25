@@ -29,14 +29,20 @@ sealed partial class PreviewPanel
             if (painting == value) return;
             painting = value;
             view.PaintMode = value;
-            if (value && !showWeights) ShowWeights = true;
+            if (value && !showWeights) CycleWeights();   // (the weights over the model at half strength first; W cycles)
+            else if (showWeights) p3.RefreshSkin();   // (Weights: the painted bone alone while painting, the row's bones otherwise)
             UpdateBrushColor();
             PaintModeChanged?.Invoke();
         }
     }
     public event Action? PaintModeChanged;
-    /// <summary>The bone painted (null: nothing to paint).</summary>
-    public string? PaintBone { get; set; }
+    string? paintBone;
+    /// <summary>The bone painted (null: nothing to paint); while painting, Weights shows it alone.</summary>
+    public string? PaintBone
+    {
+        get => paintBone;
+        set { if (string.Equals(paintBone, value, StringComparison.OrdinalIgnoreCase)) return; paintBone = value; if (painting && showWeights) p3.RefreshSkin(); }
+    }
     Brush brush = Brush.Draw;
     public Brush BrushKind { get => brush; set { brush = value; UpdateBrushColor(); } }
     public float PaintWeight { get; set; } = 1;
@@ -70,6 +76,32 @@ sealed partial class PreviewPanel
         Brush.Subtract => Color.FromArgb(255, 120, 120),
         _ => Color.White,
     };
+
+    /// <summary>The bone above (its parent) or below (its first child carrying skin, else its first child) <paramref name="bone"/>,
+    /// past helper bones that carry no skin (…_offset); null at the top or bottom.</summary>
+    public string? RelativeBone(string bone, bool up)
+    {
+        if (frameBones is not { } bones) return null;
+        int i = -1;
+        for (int k = 0; k < bones.Count; k++) if (bones[k].Name.Equals(bone, StringComparison.OrdinalIgnoreCase)) { i = k; break; }
+        if (i < 0) return null;
+        bool Skin(int k) => k >= 0 && k < frameDrawn.Length && frameDrawn[k] && !bones[k].Name.EndsWith("_offset", StringComparison.OrdinalIgnoreCase);
+        if (up)
+        {
+            for (int p = bones[i].ParentIndex, g = 0; p >= 0 && p < bones.Count && p != i && g < 256; p = bones[p].ParentIndex == p ? -1 : bones[p].ParentIndex, g++)
+                if (Skin(p)) return bones[p].Name;
+            return null;
+        }
+        // down: children first, then their children (past helpers), the first that carries skin
+        var queue = new Queue<int>(Enumerable.Range(0, bones.Count).Where(k => k != i && bones[k].ParentIndex == i));
+        while (queue.Count > 0)
+        {
+            int c = queue.Dequeue();
+            if (Skin(c)) return bones[c].Name;
+            foreach (int k in Enumerable.Range(0, bones.Count).Where(k => k != c && bones[k].ParentIndex == c)) queue.Enqueue(k);
+        }
+        return null;
+    }
 
     /// <summary>F / Shift+F: the radius or strength follows the mouse (the Model tab's keys).</summary>
     public bool BeginBrushAdjust(bool strength) { if (!painting) return false; view.BeginBrushAdjust(strength); return true; }
@@ -183,8 +215,8 @@ sealed partial class PreviewPanel
         float radius = view.BrushRadius * upp;
         var near = view.VerticesNear(hit, radius, m.Positions.Length);
         if (near.Count == 0) return;
-        var kind = (keys & Keys.Shift) != 0 ? Brush.Blur : brush;
-        bool ctrl = (keys & Keys.Control) != 0;
+        var kind = Shortcuts.Held("paint.blur", keys) ? Brush.Blur : brush;
+        bool ctrl = Shortcuts.Held("paint.otherway", keys);
         if (ctrl && kind == Brush.Add) kind = Brush.Subtract; else if (ctrl && kind == Brush.Subtract) kind = Brush.Add;
         float target = ctrl && kind == Brush.Draw ? 1 - PaintWeight : PaintWeight;
         Apply(m, bone, near.Select(x => (x.Vertex, Falloff(x.Distance, radius))).ToList(), kind, target);

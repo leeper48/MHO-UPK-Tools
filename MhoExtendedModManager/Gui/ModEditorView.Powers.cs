@@ -76,14 +76,15 @@ sealed partial class ModEditorView
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         // Ctrl+S: Save and Keep Editing; Ctrl+Enter: Save Changes and back to the Mods tab (Kurt, 2026-10-23); as the buttons
-        if (keyData == (Keys.Control | Keys.S) && saveStayButton is { Enabled: true, Visible: true }) { KeepEditing = true; SaveAsked(); return true; }
-        if (keyData == (Keys.Control | Keys.Enter) && saveButton is { Enabled: true, Visible: true }) { KeepEditing = false; SaveAsked(); return true; }
-        if (keyData == (Keys.Shift | Keys.Q) && !Typing())
+        if (Shortcuts.Is("editor.save", keyData) && saveStayButton is { Enabled: true, Visible: true }) { KeepEditing = true; SaveAsked(); return true; }
+        if (Shortcuts.Is("editor.saveclose", keyData) && saveButton is { Enabled: true, Visible: true }) { KeepEditing = false; SaveAsked(); return true; }
+        if (Shortcuts.Is("view.quad", keyData) && !Typing())
             foreach (var pv in new[] { powerPreview, animPreview })
                 if (pv != null && pv.Visible && pv.ToggleQuad()) return true;
-        if (keyData is Keys.Escape or Keys.P && !Typing())
+        bool pause = Shortcuts.Is("view.pause", keyData);
+        if ((pause || Shortcuts.Is("view.play", keyData)) && !Typing())
             foreach (var pv in new[] { powerPreview, animPreview })
-                if (pv != null && pv.Visible && (keyData == Keys.Escape ? pv.PausePlayback() : pv.TogglePlayback())) return true;
+                if (pv != null && pv.Visible && (pause ? pv.PausePlayback() : pv.TogglePlayback())) return true;
         return base.ProcessCmdKey(ref msg, keyData);
     }
 

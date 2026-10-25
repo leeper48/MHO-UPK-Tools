@@ -141,6 +141,7 @@ sealed partial class ModEditorView : UserControl
         var save = saveButton = Ui.AccentButton(editing == null ? "Create Mod" : "Save Changes", () => { KeepEditing = false; SaveAsked(); }, tip: "Save the mod to the library and go back to the mod list (Ctrl+Enter). Nothing in the game changes until Apply Changes.");
         var saveStay = saveStayButton = Ui.FlatButton(editing == null ? "Create and Keep Editing" : "Save and Keep Editing", () => { KeepEditing = true; SaveAsked(); },
             tip: "Save the mod to the library and stay in the Editor, on the same tab (Ctrl+S). Nothing in the game changes until Apply Changes.");
+        ShortcutsUi.Attach(save, "editor.saveclose"); ShortcutsUi.Attach(saveStay, "editor.save");   // (right-click: their shortcuts)
         // icons (Kurt, 2026-10-04): the names head the tooltips
         float isc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         Icons.Make(cancel, "Cancel", Icons.Cancel, isc);

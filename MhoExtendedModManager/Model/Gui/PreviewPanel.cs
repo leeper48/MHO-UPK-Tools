@@ -90,7 +90,7 @@ sealed partial class PreviewPanel : UserControl
         p3.DisplayMesh = Display;
         p3.MeshShown += MeasureBones;
         p3.ExtraLook.Add(new("Bones", "The skeleton over the model; the Bone Map tab's selected row in orange. Key: B.", () => showBones, () => ShowBones = !showBones));
-        p3.ExtraLook.Add(new("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting. Key: W.", () => showWeights, () => ShowWeights = !showWeights));
+        p3.ExtraLook.Add(new("Weights", "Weight paint: the model coloured by how much the Bone Map tab's selected bones move it (blue 0 → green → red 1), as Blender's weight painting. Key: W (off → over the model at 50 % → the weights alone).", () => showWeights, () => ShowWeights = !showWeights));
         showBones = P.Bones;
         // a narrow window: the menu's caption shortens so the animation drop-down keeps at least 160 px (0.16.5)
         var bar = p3.Bar;
@@ -108,10 +108,9 @@ sealed partial class PreviewPanel : UserControl
         // Ctrl+click picks the bone under the mouse (0.13.3, Kurt): the Bone Map tab selects its row
         view.Controls[0].MouseDown += (_, e) =>
         {
-            if (e.Button != MouseButtons.Left || (ModifierKeys & Keys.Control) == 0) return;
             // painting: Ctrl alone paints the other way, so a bone is picked with Ctrl+Shift (Kurt, 2026-10-25: Ctrl strokes
-            // picked other bones)
-            if (painting && (ModifierKeys & Keys.Shift) == 0) return;
+            // picked other bones); both changeable (Settings → Keyboard Shortcuts)
+            if (!Shortcuts.Click(painting ? "paint.pickbone" : "model.pickbone", e.Button, ModifierKeys)) return;
             // the Materials tab (Kurt, 2026-10-06): Ctrl+click picks the material under the mouse
             if (PickMaterials)
             {
@@ -382,7 +381,7 @@ sealed partial class PreviewPanel : UserControl
     /// </summary>
     string? PickBone(Point at, Size size)
     {
-        if (animator == null || frameBones == null || Project(size) is not { } pt) return null;
+        if (animator == null || frameBones == null || Project(size, at) is not { } pt) return null;
         float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         int n = frameBones.Count, joint = -1, seg = -1;
         float dj = 12 * s, ds = 8 * s;
@@ -412,39 +411,39 @@ sealed partial class PreviewPanel : UserControl
         }
     }
 
-    /// <summary>Where each bone of the pose last made is on the view (null: behind the camera); null without a model.</summary>
-    PointF?[]? Project(Size size)
+    /// <summary>Where each bone of the pose last made is on the view (null: behind the camera); null without a model. In the
+    /// quad view: on the pane under <paramref name="at"/> (else the first).</summary>
+    PointF?[]? Project(Size size, Point? at = null)
     {
         if (animator == null || frameBones == null || size.Width < 8 || size.Height < 8) return null;
-        var vs = view.ViewState;
-        float fov = 2 * MathF.Atan(12f / view.FocalLength);
-        float lensScale = MathF.Tan(ModelView.ReferenceFov / 2) / MathF.Tan(fov / 2);
-        float yaw = vs[0], pitch = vs[1], distance = vs[2] * frameRadius * lensScale;
-        // a flat view (an axis ball clicked): far back with a narrow lens, as the view draws it
-        if (view.Ortho && !view.Quad) { distance *= ModelView.OrthoBack; fov = 2 * MathF.Atan(MathF.Tan(fov / 2) / ModelView.OrthoBack); }
-        var target = frameCenter + new Vector3(vs[3], vs[4], vs[5]) * frameRadius;
-        var eye = target + distance * new Vector3(MathF.Cos(pitch) * MathF.Cos(yaw), MathF.Cos(pitch) * MathF.Sin(yaw), MathF.Sin(pitch));
-        var f = Vector3.Normalize(target - eye);
-        var r = Vector3.Normalize(Vector3.Cross(f, Vector3.UnitZ));
-        var u = Vector3.Cross(r, f);
-        float focal = size.Height / 2f / MathF.Tan(fov / 2), cx = size.Width / 2f, cy = size.Height / 2f, near = distance * 0.01f;
-        int n = frameBones.Count;
+        var panes = view.Panes();
+        if (panes.Count == 0) return null;
+        var pane = at is Point p && panes.FirstOrDefault(x => x.Area.Contains(p)) is { Project: not null } hit ? hit : panes[0];
+        return ProjectWith(pane.Project);
+    }
+
+    PointF?[] ProjectWith(Func<Vector3, PointF?> project)
+    {
+        int n = frameBones!.Count;
         var pt = new PointF?[n];
-        for (int i = 0; i < n; i++)
-        {
-            var e = animator.BonePosition(i);
-            var d = new Vector3(e.X, -e.Y, e.Z) - eye;
-            float z = Vector3.Dot(d, f);
-            if (z < near) continue;
-            pt[i] = new PointF(cx + Vector3.Dot(d, r) * focal / z, cy - Vector3.Dot(d, u) * focal / z);
-        }
+        for (int i = 0; i < n; i++) pt[i] = project(animator!.BonePosition(i));
         return pt;
     }
 
     void PaintBones(Graphics g, Size size)
     {
-        if (!showBones || frameBones == null || Project(size) is not { } pt) return;
-        int n = frameBones.Count;
+        if (!showBones || frameBones == null || animator == null) return;
+        foreach (var (area, project) in view.Panes())
+        {
+            g.SetClip(area);
+            DrawBones(g, ProjectWith(project));
+            g.ResetClip();
+        }
+    }
+
+    void DrawBones(Graphics g, PointF?[] pt)
+    {
+        int n = frameBones!.Count;
         float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         var mode = g.SmoothingMode; g.SmoothingMode = SmoothingMode.AntiAlias;
         using var cold = new Pen(Color.FromArgb(170, 120, 200, 255), 1.2f * s);

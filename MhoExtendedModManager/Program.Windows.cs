@@ -846,6 +846,45 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--shortcuts-check", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test (read only: no settings saved): the shortcut list's defaults have no conflicts, keys and mouse match their
+            // bindings, a changed binding clashes where it should; then Settings → Keyboard Shortcuts rendered off-screen to a PNG.
+            int fails = 0;
+            void Check(bool c, string what) { Console.WriteLine((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+            Shortcuts.Load(null);
+            var clashes = Shortcuts.All.SelectMany(c => Shortcuts.Conflicts(c, Shortcuts.Text).Select(x => $"{c.Name} ({Shortcuts.AreaName(c.Area)}) / {x.Other.Name} ({Shortcuts.AreaName(x.Other.Area)}): {x.Binding}")).ToList();
+            Check(clashes.Count == 0, $"no conflicts among the {Shortcuts.All.Count} defaults" + (clashes.Count > 0 ? ":\n  " + string.Join("\n  ", clashes) : ""));
+            Check(Shortcuts.Is("model.redo", Keys.Control | Keys.Shift | Keys.Z) && Shortcuts.Is("model.redo", Keys.Control | Keys.Y) && !Shortcuts.Is("model.redo", Keys.Z), "Redo: Ctrl+Y and Ctrl+Shift+Z, not Z");
+            Check(Shortcuts.Is("model.paint", Keys.Shift | Keys.P) && !Shortcuts.Is("model.paint", Keys.P) && Shortcuts.Is("view.play", Keys.P), "Shift+P paints, P plays");
+            Check(Shortcuts.Drag("paint.turn", MouseButtons.Middle, Keys.None) && Shortcuts.Drag("paint.move", MouseButtons.Middle, Keys.Shift) && Shortcuts.Drag("view.move", MouseButtons.Right, Keys.None), "middle turns and Shift+middle moves while painting; right moves the view");
+            Check(Shortcuts.Click("paint.pickbone", MouseButtons.Left, Keys.Control | Keys.Shift) && !Shortcuts.Click("paint.pickbone", MouseButtons.Left, Keys.Control) && Shortcuts.Click("model.pickbone", MouseButtons.Left, Keys.Control), "Ctrl+Shift+click picks a bone while painting, Ctrl+click otherwise");
+            Check(Shortcuts.Held("paint.blur", Keys.Shift) && Shortcuts.Held("paint.otherway", Keys.Control) && !Shortcuts.Held("paint.blur", Keys.Control), "Shift blurs, Ctrl paints the other way");
+            Check(Shortcuts.Wheel("view.zoomfine", Keys.Shift) && Shortcuts.Wheel("view.zoom", Keys.None), "wheel zooms, Shift+wheel finely");
+            // a user's change: W for Paint clashes with Weights; a button given Shift+P clashes with Paint
+            Shortcuts.Load(new Dictionary<string, string> { ["model.paint"] = "W", ["button:MainForm/Install Mod"] = "Shift+P" });
+            Check(Shortcuts.Conflicts(Shortcuts.Find("model.paint")!, Shortcuts.Text).Any(x => x.Other.Id == "model.weights"), "Paint changed to W clashes with Weights");
+            Check(Shortcuts.Is("model.paint", Keys.W) && !Shortcuts.Is("model.paint", Keys.Shift | Keys.P), "the changed binding is the one used");
+            Check(Shortcuts.ButtonBindings().Count == 1 && Shortcuts.Everything().Count() == Shortcuts.All.Count + 1, "a button's own shortcut is listed");
+            Shortcuts.Load(new Dictionary<string, string> { ["button:MainForm/Install Mod"] = "Shift+P" });
+            var bc = Shortcuts.Everything().Last();
+            Check(Shortcuts.Conflicts(bc, Shortcuts.Text).Any(x => x.Other.Id == "model.paint"), "a button given Shift+P clashes with Paint");
+            Shortcuts.Load(null);
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            using var sf = new Gui.ShortcutsForm { StartPosition = FormStartPosition.Manual, Location = new System.Drawing.Point(-6000, -6000) };
+            sf.Shown += async (_, _) =>
+            {
+                await Task.Delay(500);
+                using var bmp = new System.Drawing.Bitmap(sf.Width, sf.Height);
+                sf.DrawToBitmap(bmp, new System.Drawing.Rectangle(System.Drawing.Point.Empty, sf.Size));
+                bmp.Save(args[1]);
+                sf.Close();
+            };
+            Application.Run(sf);
+            Console.WriteLine(fails == 0 ? "all checks passed" : "FAILED");
+            return fails == 0 ? 0 : 1;
+        }
         if (args.Length == 2 && args[0].Equals("--downloads-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Test: Settings → Download Counts rendered off-screen to a PNG (use a scratch MHO_EXTMM_HOME: it saves the total seen).

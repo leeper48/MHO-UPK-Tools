@@ -71,11 +71,11 @@ sealed partial class MainForm
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         // F1: the manual, at the section for the tab shown.
-        if (keyData == Keys.F1) { HelpForm.Show(this, settings, pages.SelectedIndex switch { 1 => "editor", 2 => "extract", _ => "contents" }); return true; }
+        if (Shortcuts.Is("app.help", keyData)) { HelpForm.Show(this, settings, pages.SelectedIndex switch { 1 => "editor", 2 => "extract", _ => "contents" }); return true; }
         // F11: the 3D preview full screen (its window handles F11 / Esc to come back).
-        if (keyData == Keys.F11 && pages.SelectedIndex == 0) { storePreview.ToggleFull(); return true; }
+        if (Shortcuts.Is("view.full", keyData) && pages.SelectedIndex == 0) { storePreview.ToggleFull(); return true; }
         // Ctrl+Enter: Apply Changes (Kurt), anywhere on the Mods tab.
-        if (keyData == (Keys.Control | Keys.Enter) && pages.SelectedIndex == 0 && applyButton.Enabled && applyButton.Visible)
+        if (Shortcuts.Is("mods.apply", keyData) && pages.SelectedIndex == 0 && applyButton.Enabled && applyButton.Visible)
         {
             Apply();
             return true;
@@ -83,20 +83,20 @@ sealed partial class MainForm
         if (pages.SelectedIndex == 0 && FocusedLeaf() is not TextBoxBase)
         {
             // Esc: pauses the 3D preview's animation while one plays (Kurt); otherwise Esc does what it did.
-            if (keyData == Keys.Escape && storePreview.PausePlayback()) return true;
+            if (Shortcuts.Is("view.pause", keyData) && storePreview.PausePlayback()) return true;
             // P: play / pause the 3D preview (Kurt, 2026-10-04: one key in every 3D view)
-            if (keyData == Keys.P && storePreview.TogglePlayback()) return true;
+            if (Shortcuts.Is("view.play", keyData) && storePreview.TogglePlayback()) return true;
             // Shift+Q: quad view (Kurt, 2026-10-23, as Blender's Ctrl+Alt+Q)
-            if (keyData == (Keys.Shift | Keys.Q) && storePreview.ToggleQuad()) return true;
+            if (Shortcuts.Is("view.quad", keyData) && storePreview.ToggleQuad()) return true;
             // Del: Remove Mod (Kurt), which asks first as the button does.
-            if (keyData == Keys.Delete && Selected is Mod && !readOnly) { RemoveMod(); return true; }
+            if (Shortcuts.Is("mods.remove", keyData) && Selected is Mod && !readOnly) { RemoveMod(); return true; }
             // Ctrl+Up / Down: priority one step; Ctrl+Home / End: to the top / bottom (a marked group moves together).
-            if (keyData == (Keys.Control | Keys.Up)) { MoveSelected(-1); return true; }
-            if (keyData == (Keys.Control | Keys.Down)) { MoveSelected(1); return true; }
-            if (keyData == (Keys.Control | Keys.Home)) { MoveSelected(-1, toEnd: true); return true; }
-            if (keyData == (Keys.Control | Keys.End)) { MoveSelected(1, toEnd: true); return true; }
-            if (keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
-            if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z)) { Redo(); return true; }
+            if (Shortcuts.Is("mods.up", keyData)) { MoveSelected(-1); return true; }
+            if (Shortcuts.Is("mods.down", keyData)) { MoveSelected(1); return true; }
+            if (Shortcuts.Is("mods.top", keyData)) { MoveSelected(-1, toEnd: true); return true; }
+            if (Shortcuts.Is("mods.bottom", keyData)) { MoveSelected(1, toEnd: true); return true; }
+            if (Shortcuts.Is("mods.undo", keyData)) { Undo(); return true; }
+            if (Shortcuts.Is("mods.redo", keyData)) { Redo(); return true; }
         }
         return base.ProcessCmdKey(ref msg, keyData);
     }

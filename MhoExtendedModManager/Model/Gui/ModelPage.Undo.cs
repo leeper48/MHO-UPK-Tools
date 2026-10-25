@@ -74,17 +74,20 @@ sealed partial class ModelPage
     {
         bool typing = ActiveControl is TextBox || (ActiveControl is ContainerControl c && c.ActiveControl is TextBox)
             || ActiveControl is DataGridView { IsCurrentCellInEditMode: true };   // (a grid cell being typed in: B / W are letters there)
-        if (keyData == Keys.F11) { preview.ToggleFull(); return true; }
-        if (!typing && keyData == Keys.Escape && preview.CancelBrushAdjust()) return true;   // (F / Shift+F: the old brush back)
-        if (!typing && keyData == Keys.Escape && preview.PausePlayback()) return true;
-        if (!typing && keyData == Keys.F && preview.BeginBrushAdjust(false)) return true;   // (painting: Blender's F radius / Shift+F strength)
-        if (!typing && keyData == (Keys.Shift | Keys.F) && preview.BeginBrushAdjust(true)) return true;
-        if (!typing && keyData == Keys.P && preview.TogglePlayback()) return true;   // (P: play / pause in every 3D view)
-        if (!typing && keyData == (Keys.Shift | Keys.Q) && preview.ToggleQuad()) return true;   // (quad view)
-        if (!typing && keyData == Keys.B) { preview.ShowBones = !preview.ShowBones; return true; }   // (Kurt, 2026-10-23)
-        if (!typing && keyData == Keys.W) { preview.ShowWeights = !preview.ShowWeights; return true; }
-        if (!typing && keyData == (Keys.Control | Keys.Z)) { Undo(); return true; }
-        if (!typing && (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z))) { Redo(); return true; }
+        if (Shortcuts.Is("view.full", keyData)) { preview.ToggleFull(); return true; }
+        if (!typing && Shortcuts.Is("view.pause", keyData) && preview.CancelBrushAdjust()) return true;   // (F / Shift+F: the old brush back)
+        if (!typing && Shortcuts.Is("view.pause", keyData) && preview.PausePlayback()) return true;
+        if (!typing && Shortcuts.Is("paint.radius", keyData) && preview.BeginBrushAdjust(false)) return true;   // (painting: Blender's F radius / Shift+F strength)
+        if (!typing && Shortcuts.Is("paint.strength", keyData) && preview.BeginBrushAdjust(true)) return true;
+        if (!typing && Shortcuts.Is("view.play", keyData) && preview.TogglePlayback()) return true;   // (P: play / pause in every 3D view)
+        if (!typing && Shortcuts.Is("view.quad", keyData) && preview.ToggleQuad()) return true;   // (quad view)
+        if (!typing && Shortcuts.Is("model.bones", keyData)) { preview.ShowBones = !preview.ShowBones; return true; }   // (Kurt, 2026-10-23)
+        if (!typing && Shortcuts.Is("model.weights", keyData)) { preview.CycleWeights(); return true; }   // (off → 50 % over the model → weights alone)
+        if (!typing && Shortcuts.Is("model.boneup", keyData) && StepBone(true)) return true;   // ([ / ]: up and down the bones)
+        if (!typing && Shortcuts.Is("model.bonedown", keyData) && StepBone(false)) return true;
+        if (!typing && Shortcuts.Is("model.paint", keyData)) { preview.Painting = !preview.Painting; return true; }   // (Paint on / off)
+        if (!typing && Shortcuts.Is("model.undo", keyData)) { Undo(); return true; }
+        if (!typing && Shortcuts.Is("model.redo", keyData)) { Redo(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);
     }
 

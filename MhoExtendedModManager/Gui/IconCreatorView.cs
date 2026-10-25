@@ -330,7 +330,7 @@ sealed class IconCreatorView : UserControl
     /// <summary>O toggles the original overlay anywhere in the creator, except while typing (the pose search).</summary>
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        if (keyData == Keys.O && FindForm()?.ActiveControl is not TextBoxBase && !(ActiveControlDeep() is TextBoxBase)) { ToggleOverlay(); return true; }
+        if (Shortcuts.Is("icon.overlay", keyData) && FindForm()?.ActiveControl is not TextBoxBase && !(ActiveControlDeep() is TextBoxBase)) { ToggleOverlay(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);
     }
 

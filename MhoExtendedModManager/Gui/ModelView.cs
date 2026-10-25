@@ -272,6 +272,27 @@ sealed partial class ModelView : UserControl
     float yaw = -0.8f, pitch = 0.35f, distance = 10;
     Vector3 target;
     Point? dragFrom; MouseButtons dragButton;
+    /// <summary>What the drag under way does: 1 turns, 2 moves, 0 nothing (from the shortcuts: Settings → Keyboard Shortcuts).</summary>
+    int dragAction;
+
+    /// <summary>What a drag with this button and these keys does (1 turn, 2 move, 0 none): painting's own bindings first while
+    /// painting, then the view's; with no binding for the keys held, the button alone (Ctrl+click picks a bone and still turns a little).</summary>
+    int DragAction(MouseButtons button, Keys mods)
+    {
+        int Of(Keys m)
+        {
+            if (PaintMode)
+            {
+                if (Shortcuts.Drag("paint.turn", button, m)) return 1;
+                if (Shortcuts.Drag("paint.move", button, m)) return 2;
+            }
+            if (Shortcuts.Drag("view.turn", button, m)) return 1;
+            if (Shortcuts.Drag("view.move", button, m)) return 2;
+            return 0;
+        }
+        int a = Of(mods);
+        return a != 0 || mods == Keys.None ? a : Of(Keys.None);
+    }
     bool fast;
     static readonly bool profile = Environment.GetEnvironmentVariable("MHO_RENDERPROF") == "1";
 
@@ -342,7 +363,7 @@ sealed partial class ModelView : UserControl
             if (PaintMouseDown(e)) return;   // (weight painting: ModelView.Paint.cs)
             // the size reference under the pointer: dragged along the floor, not the camera (Kurt, 2026-10-23)
             if (e.Button == MouseButtons.Left && GizmoHit(e.Location) == null && StartPartDrag(e.Location)) { dragFrom = null; return; }
-            dragFrom = e.Location; dragButton = e.Button; fast = true;
+            dragFrom = e.Location; dragButton = e.Button; dragAction = DragAction(e.Button, ModifierKeys); fast = true;
             // the quad view's pane the drag started in (a pan follows that pane's own axes)
             dragPane = quad ? (e.X >= canvas.ClientSize.Width / 2 ? 1 : 0) + (e.Y >= canvas.ClientSize.Height / 2 ? 2 : 0) : -1;
         };
@@ -354,7 +375,7 @@ sealed partial class ModelView : UserControl
             // a click (no drag) on an axis ball: look along that axis, flat (Kurt, 2026-10-23: as Blender's gizmo; Shift: from
             // the other side)
             if (e.Button == MouseButtons.Left && Math.Abs(e.X - downAt.X) + Math.Abs(e.Y - downAt.Y) < 4 && GizmoHit(e.Location) is Vector3 dir)
-                SnapTo((ModifierKeys & Keys.Shift) != 0 ? -dir : dir);
+                SnapTo(Shortcuts.Held("view.gizmoback", ModifierKeys) ? -dir : dir);
             Redraw(); if (moved) ViewChanged?.Invoke();
         };
         canvas.MouseMove += (_, e) =>
@@ -367,12 +388,14 @@ sealed partial class ModelView : UserControl
         // Wheel zoom: 8 % a notch, 2 % with Shift held (Kurt: one notch went too far for framing an icon).
         canvas.MouseWheel += (_, e) =>
         {
-            float step = (ModifierKeys & Keys.Shift) != 0 ? 0.98f : 0.92f;
+            float step = Shortcuts.Wheel("view.zoomfine", ModifierKeys) ? 0.98f : Shortcuts.Wheel("view.zoom", ModifierKeys) ? 0.92f : 1f;
+            if (step == 1f) return;
             distance *= MathF.Pow(step, e.Delta / 120f); distance = Math.Clamp(distance, radius * 0.05f, radius * 50); Redraw(); ViewChanged?.Invoke();
         };
         canvas.DoubleClick += (_, _) =>
         {
             if (DragPart != null && PartUnder(downAt) != null) { PartReset?.Invoke(); return; }   // (the drum: back beside the character)
+            if (!Shortcuts.DoubleClick("view.frame", ModifierKeys)) return;
             FrameMesh(); Redraw(); ViewChanged?.Invoke();
         };
         Controls.Add(canvas);
@@ -574,10 +597,10 @@ sealed partial class ModelView : UserControl
         if (dragFrom is not Point from) return;
         float dx = e.X - from.X, dy = e.Y - from.Y;
         dragFrom = e.Location;
-        // (painting weights: the middle button turns, Shift + middle moves, as in Blender)
-        bool turn = dragButton == MouseButtons.Left || PaintMode && dragButton == MouseButtons.Middle && (ModifierKeys & Keys.Shift) == 0;
-        if (turn && (dx != 0 || dy != 0)) { yaw -= dx * 0.01f; pitch = Math.Clamp(pitch + dy * 0.01f, -1.5f, 1.5f); ortho = false; }
-        else
+        // (what the drag does comes from the shortcuts: painting weights, the middle button turns, Shift + middle moves)
+        if (dragAction == 0) return;
+        if (dragAction == 1 && (dx != 0 || dy != 0)) { yaw -= dx * 0.01f; pitch = Math.Clamp(pitch + dy * 0.01f, -1.5f, 1.5f); ortho = false; }
+        else if (dragAction == 2)
         {
             // (in the quad view: the axes and size of the pane dragged in: Top, Front and Side pan as they show; Kurt,
             // 2026-10-23: a drag in Top moved the other way)
@@ -1482,6 +1505,12 @@ sealed partial class ModelView : UserControl
             outc += new Vector3(ev.X, ev.Y, ev.Z) * (look.EmissiveMult * glowStrength);
         }
 
+        // a colour per vertex over the lit model (the Model tab's weights at half strength), blended like the weights do
+        if (Tint is { } tint && a < tint.Length && b < tint.Length && c < tint.Length && TintOpacity > 0)
+        {
+            var tc = tint[a] * b0 + tint[b] * b1 + tint[c] * b2;
+            outc = Vector3.Clamp(outc, Vector3.Zero, Vector3.One) * (1 - TintOpacity) + tc * TintOpacity;
+        }
         // What goes past white is kept for the bloom (clipped here, as the screen would).
         if (showBloom && p >= 0 && (outc.X > 1 || outc.Y > 1 || outc.Z > 1))
         {

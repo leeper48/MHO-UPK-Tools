@@ -138,6 +138,7 @@ sealed partial class MainForm : Form
     public MainForm()
     {
         MhoExtendedModManager.Model.Settings.App = settings;   // the Model tab's settings are changed on this copy (it's saved again on exit)
+        ShortcutsUi.AppSettings = settings; Shortcuts.Load(settings.Shortcuts); ShortcutsUi.Install();   // (keyboard shortcuts: the user's, right-click on buttons)
         current = this;
         Text = $"MHO Extended Mod Manager v{Program.Version}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -146,7 +147,7 @@ sealed partial class MainForm : Form
         Font = Ui.Regular(9.5f);
         DoubleBuffered = true;
         SetStyle(ControlStyles.ResizeRedraw, true);
-        applyButton = Ui.AccentButton("Apply Changes", Apply);
+        applyButton = ShortcutsUi.Attach(Ui.AccentButton("Apply Changes", Apply), "mods.apply");
 
         // ---- Top bar
         // Kurt's order: New Mod, Extract, Install Mod, the game folder and whether it runs on the left; the update alert and
@@ -217,6 +218,7 @@ sealed partial class MainForm : Form
                 it.Checked = int.TryParse(it.Text!.Split(' ')[0], out int v) && Math.Abs(settings.UiScale * 100 - v) < 0.5f;
         };
         menu.Items.Add(scaleMenu);
+        menu.Items.Add("Keyboard Shortcuts", null, (_, _) => { using var f = new ShortcutsForm(); f.ShowDialog(this); }).ToolTipText = "Every keyboard shortcut and 3D view mouse binding: change them, see conflicts. Right-click any button to give it a shortcut.";
         menu.Items.Add("What's New", null, (_, _) => ShowNotice(0)).ToolTipText = "The notices of new features shown when a version starts the first time, newest first, with a link to the manual.";
         menu.Items.Add("Changelog", null, (_, _) => ShowChangelog());
         menu.Items.Add("Download Counts", null, (_, _) => { using var f = new DownloadsForm(settings); f.ShowDialog(this); }).ToolTipText = "How often each release of the app was downloaded from GitHub (downloads, not people).";
@@ -228,7 +230,7 @@ sealed partial class MainForm : Form
         // Extract: an icon beside Install Mod, its page without a tab (Kurt, 2026-10-17: room for the Edit tab's full name)
         extractButton = Ui.FlatButton("Extract", () => pages.Select(2), tip: "Save the game's original icons, store images and strings as .DDS / .PNG / .JSON files, to edit for a mod.");
         topButtons.Controls.AddRange([newMod, install, extractButton]);
-        var helpButton = Ui.FlatButton("Help", () => HelpForm.Show(this, settings), tip: "The manual: how everything works, shortcuts, troubleshooting (F1).");
+        var helpButton = ShortcutsUi.Attach(Ui.FlatButton("Help", () => HelpForm.Show(this, settings), tip: "The manual: how everything works, shortcuts, troubleshooting (F1)."), "app.help");
         var spinner = new Spinner { Anchor = AnchorStyles.None, Margin = new Padding(0, 8, 8, 0) };   // anything running in the background (Kurt, 2026-10-06)
         rightButtons.Controls.AddRange([spinner, updateAlert, helpButton, settingsButton]);
         writeControls.AddRange([newMod, install]);

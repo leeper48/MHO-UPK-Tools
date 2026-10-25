@@ -91,7 +91,7 @@ sealed partial class ModelPage
         if (mapGrid.CurrentCell != null) pickedBone = null;
         var bones = SelectedBones();
         preview.Highlight(bones);
-        preview.PaintBone = bones.FirstOrDefault();   // (the bone the brush paints)
+        FillPaintBones(bones);   // (the bone the brush paints: the row's first, or one picked in the Bone list)
         mapSmooth.Enabled = bones.Count > 0 && MapPath() != null;
     }
 

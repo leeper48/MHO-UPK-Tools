@@ -95,8 +95,9 @@ static class PreviewControls
             };
             nf.KeyDown += (_, e) =>
             {
-                if (e.KeyCode is Keys.Escape or Keys.F11) { e.Handled = true; if (e.KeyCode == Keys.F11 || !pause()) Toggle(c, title, pause, togglePlay, focus, padding, changed); }
-                else if (e.KeyData == Keys.P) { e.Handled = true; togglePlay(); }
+                bool full = Shortcuts.Is("view.full", e.KeyData);
+                if (full || Shortcuts.Is("view.pause", e.KeyData)) { e.Handled = true; if (full || !pause()) Toggle(c, title, pause, togglePlay, focus, padding, changed); }
+                else if (Shortcuts.Is("view.play", e.KeyData)) { e.Handled = true; togglePlay(); }
             };
             nf.FormClosing += (_, e) => { if (form == nf && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Toggle(c, title, pause, togglePlay, focus, padding, changed); } };
             form = nf;

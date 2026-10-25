@@ -112,6 +112,7 @@ sealed partial class ModelPage : UserControl
         mapSmooth.Enabled = false;
         mapBones = Ui.FlatButton("Bones", () => preview.ShowBones = !preview.ShowBones, "Draw the skeleton over the model; the selected row's bones in orange (as Look ▾ → Bones).");
         mapWeights = Ui.FlatButton("Weights", () => preview.ShowWeights = !preview.ShowWeights, "Weight paint: colour the model by how much the selected row's bones move it, as Blender does (blue 0 → cyan → green → yellow → red 1). Pick rows to see each bone; Smooth Weights shows its effect at once.");
+        ShortcutsUi.Attach(mapBones, "model.bones"); ShortcutsUi.Attach(mapWeights, "model.weights");   // (right-click: their shortcuts)
         preview.BonePicked += SelectBoneRow;
         preview.MaterialPicked += SelectMaterialRow;
         // condition material swaps in the preview (Kurt, 2026-10-12): the target costume and the build's slot order
@@ -214,8 +215,9 @@ sealed partial class ModelPage : UserControl
         var mapButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         foreach (var b in new[] { mapBones, mapWeights, mapSmooth }) { b.Margin = new Padding(0, 0, 6, 0); mapButtons.Controls.Add(b); }
         mapReset.Margin = new Padding(0); mapButtons.Controls.Add(mapReset);
-        var mapHead = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var mapHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0) };
         mapHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        mapHead.RowStyles.Add(new RowStyle(SizeType.AutoSize)); mapHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var mapTop = Row(mapFilter, mapButtons); mapTop.Dock = DockStyle.Top;
         var paintBox = PaintBar(); paintBox.Dock = DockStyle.Top;
         mapHead.Controls.Add(mapTop); mapHead.Controls.Add(paintBox);

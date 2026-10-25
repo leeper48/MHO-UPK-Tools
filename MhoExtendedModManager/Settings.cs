@@ -40,6 +40,9 @@ sealed class Settings
     /// monitor): its normal bounds (x, y, width, height) and whether it was maximized, restored at start while that spot is
     /// on a connected monitor. <see cref="RememberWindow"/> off = the old behavior (maximized on the main monitor).</summary>
     public bool RememberWindow { get; set; } = true;
+    /// <summary>Keyboard shortcuts and 3D mouse bindings changed from their defaults, and buttons' own shortcuts (Shortcuts):
+    /// command id → binding. Null when none is changed.</summary>
+    public Dictionary<string, string>? Shortcuts { get; set; }
     /// <summary>The UI scale (Settings → UI Scale): 0.8 to 1.5, 1 = as Windows sizes it. Applied at start.</summary>
     public float UiScale { get; set; } = 1f;
     public int[]? WindowBounds { get; set; }

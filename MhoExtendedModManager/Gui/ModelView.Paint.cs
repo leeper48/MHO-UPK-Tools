@@ -27,6 +27,16 @@ sealed partial class ModelView
     public event Action? BrushChanged;
 
     bool painting;
+    MouseButtons paintButton = MouseButtons.Left;
+
+    /// <summary>A Paint drag starts with this button and keys: the binding, with the held Blur / Other Way keys allowed on top.</summary>
+    static bool PaintStarts(MouseButtons button, Keys mods)
+    {
+        Keys blur = Shortcuts.HeldKeys("paint.blur"), other = Shortcuts.HeldKeys("paint.otherway");
+        foreach (var m in new[] { mods, mods & ~blur, mods & ~other, mods & ~blur & ~other })
+            if (Shortcuts.Drag("paint.paint", button, m)) return true;
+        return false;
+    }
     Point? mouseAt;
     Point lastDab;
     /// <summary>F / Shift+F under way: which (true: strength), where the mouse started and the value then.</summary>
@@ -41,8 +51,10 @@ sealed partial class ModelView
             canvas.Invalidate();
             return true;
         }
-        if (e.Button != MouseButtons.Left || quad) return false;
-        if ((ModifierKeys & (Keys.Control | Keys.Shift)) == (Keys.Control | Keys.Shift)) return true;   // (Ctrl+Shift+click picks a bone: no paint)
+        if (quad) return false;
+        if (Shortcuts.Click("paint.pickbone", e.Button, ModifierKeys)) return true;   // (Ctrl+Shift+click picks a bone: no paint)
+        if (!PaintStarts(e.Button, ModifierKeys)) return false;
+        paintButton = e.Button;
         painting = true; lastDab = e.Location;
         PaintAt?.Invoke(e.Location, ModifierKeys, true);
         return true;
@@ -73,7 +85,7 @@ sealed partial class ModelView
 
     bool PaintMouseUp(MouseEventArgs e)
     {
-        if (!paintMode || !painting || e.Button != MouseButtons.Left) return false;
+        if (!paintMode || !painting || e.Button != paintButton) return false;
         painting = false;
         PaintEnded?.Invoke();
         return true;
@@ -142,6 +154,17 @@ sealed partial class ModelView
         float perRenderPixel = z / cam.Focal;
         return (hit, perRenderPixel * w / c.Width / Math.Max(1e-6f, ModelScale));
     }
+
+    /// <summary>A colour per shown vertex (the first ones: the character) laid over the lit model at <see cref="TintOpacity"/>
+    /// (the Model tab's weights at half strength, Kurt 2026-10-25); null: none.</summary>
+    public Vector3[]? Tint { get; set; }
+    public float TintOpacity { get; set; } = 0.5f;
+
+    /// <summary>Each view drawn in the last frame (one, or the quad view's four): its part of the canvas and how an engine-space
+    /// point lands on it (null behind its camera), with the Size scale (ModelScale) as the model is drawn. Overlays use these
+    /// (the Model tab's bones, Kurt 2026-10-25: they ignored the quad view).</summary>
+    public List<(Rectangle Area, Func<Vector3, PointF?> Project)> Panes() =>
+        [.. cams.Select(c => { var area = PaneArea(c.Pane); var cam = c.Cam; return (area, (Func<Vector3, PointF?>)(v => OnCanvas(v, cam, area))); })];
 
     /// <summary>New texture coordinates for the first vertices shown (the character; its props follow), then a redraw.</summary>
     public void SetCharacterUv(Vector2[] u)
