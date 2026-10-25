@@ -25,6 +25,9 @@ sealed partial class ModelPage
     void FillMap()
     {
         int keepRow = mapGrid.CurrentCell?.RowIndex ?? -1;
+        // a bone picked without a row (Ctrl+click, [ / ]) and the bone painted stay picked (Kurt, 2026-10-25: Undo jumped
+        // to the first row's bone, showed it, then undid)
+        string? keepPicked = keepRow < 0 ? pickedBone : null, keepPaint = preview.PaintBone;
         fillingMap = true;
         try
         {
@@ -47,9 +50,12 @@ sealed partial class ModelPage
                 else if (b.How.StartsWith("guessed", StringComparison.Ordinal)) mapGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.OverrideAmber;
             }
         if (keepRow >= 0 && keepRow < mapGrid.Rows.Count) mapGrid.CurrentCell = mapGrid.Rows[keepRow].Cells["mff"];
+        else if (keepPicked != null) mapGrid.CurrentCell = null;
         }
         finally { fillingMap = false; }
+        if (keepPicked != null) pickedBone = keepPicked;
         MapSelectionChanged();
+        if (keepPaint != null && SelectedBones().Contains(keepPaint, StringComparer.OrdinalIgnoreCase)) FillPaintBones(SelectedBones(), keepPaint);
     }
 
     /// <summary>The MHO bone a bone row's weights go to: its own target, else the parent its weights fall to.</summary>

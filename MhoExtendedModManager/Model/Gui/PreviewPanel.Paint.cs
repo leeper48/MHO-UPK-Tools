@@ -59,6 +59,8 @@ sealed partial class PreviewPanel
     public event Action<string>? PaintNote;
 
     readonly HashSet<int> strokeTouched = [];
+    /// <summary>The last paint step in words (the Model tab's History): "Paint: Subtract on g_hair2" …</summary>
+    public string? LastPaint { get; set; }
     bool paintWired;
 
     void WirePaint()
@@ -211,7 +213,7 @@ sealed partial class PreviewPanel
         if (!PaintReady(out var m)) { if (first) PaintNote?.Invoke(comparing ? "Painting is off while Compare shows the target's own model." : "Nothing to paint: pick a source model."); return; }
         if (PaintBone == null || BoneIndex(m, PaintBone) is var bone && bone < 0) { if (first) PaintNote?.Invoke("Pick a bone to paint: a row in the Bone Map tab, or Ctrl+click a bone in the view."); return; }
         if (view.SurfaceAt(at) is not var (hit, upp)) return;
-        if (first) StrokeStarted?.Invoke();
+        if (first) { StrokeStarted?.Invoke(); LastPaint = $"Paint: {((keys & Keys.Shift) != 0 && Shortcuts.Held("paint.blur", keys) ? "Blur" : brush.ToString())}{(Shortcuts.Held("paint.otherway", keys) ? " (Other Way)" : "")} on {PaintBone}{(PaintMirror ? " + Mirror" : "")}"; }
         float radius = view.BrushRadius * upp;
         var near = view.VerticesNear(hit, radius, m.Positions.Length);
         if (near.Count == 0) return;
@@ -269,6 +271,7 @@ sealed partial class PreviewPanel
         if (!PaintReady(out var m) || m.Influences is not List<VertexInfluence> infl) { PaintNote?.Invoke("Nothing to paint: pick a source model."); return; }
         if (PaintBone == null || BoneIndex(m, PaintBone) is var bone && bone < 0) { PaintNote?.Invoke("Pick a bone first: a row in the Bone Map tab, or Ctrl+click a bone in the view."); return; }
         StrokeStarted?.Invoke();
+        LastPaint = $"{(invert ? "Invert Bone" : "Smooth Bone")}: {PaintBone}{(PaintMirror ? " + Mirror" : "")}";
         var bones = new List<int> { bone };
         if (PaintMirror && BoneIndex(m, MirrorName(PaintBone)) is int mb && mb >= 0 && mb != bone) bones.Add(mb);
         foreach (int b in bones)
@@ -324,6 +327,37 @@ sealed partial class PreviewPanel
             start += c;
         }
         return null;
+    }
+
+    /// <summary>
+    /// A paint-only Undo / Redo (Kurt, 2026-10-25): the shown model's weights rebuilt in place from its unpainted weights and
+    /// <paramref name="paintText"/> (the paint file's text then; null = no paint), as WeightPaint.Apply does on a rebuild, then
+    /// redrawn. False when it can't be done here (no model, or one prepared without its unpainted weights): the caller rebuilds.
+    /// </summary>
+    public bool ApplyPaintInPlace(string? paintText)
+    {
+        if (shown is not { Unpainted: { } basew } sh || comparing || sh.Mesh.Influences is not List<VertexInfluence> infl || basew.Count != infl.Count) return false;
+        var paint = WeightPaint.FromText(paintText);
+        var byName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < sh.Bones.Count; i++) byName.TryAdd(sh.Bones[i].Name, i);
+        for (int v = 0; v < infl.Count; v++) infl[v] = basew[v];
+        var keys = PaintKeys();
+        int start = 0;
+        for (int si = 0; si < keys.Count && si < sh.SectionCounts.Count; si++)
+        {
+            if (paint.Find(keys[si]) is { } ps)
+                foreach (var (v, ws) in ps.Vertices)
+                {
+                    if (v < 0 || v >= sh.SectionCounts[si]) continue;
+                    var list = ws.Where(x => byName.ContainsKey(x.Key)).Select(x => (Bone: byName[x.Key], W: x.Value)).OrderByDescending(x => x.W).Take(4).ToList();
+                    float sum = list.Sum(x => x.W);
+                    if (sum <= 1e-6f) continue;
+                    infl[start + v] = new VertexInfluence { Bones = list.Select(x => x.Bone).ToArray(), Weights = list.Select(x => x.W / sum).ToArray() };
+                }
+            start += sh.SectionCounts[si];
+        }
+        p3.RefreshSkin();
+        return true;
     }
 
     /// <summary>The shown model's sections as the paint file keys them.</summary>

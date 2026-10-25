@@ -96,9 +96,9 @@ sealed partial class ModelPage
     }
 
     /// <summary>The selected row's bones into the Bone list (the first painted, or the one painted before when it's among them).</summary>
-    void FillPaintBones(List<string> bones)
+    void FillPaintBones(List<string> bones, string? prefer = null)
     {
-        string? keep = preview.PaintBone;
+        string? keep = prefer ?? preview.PaintBone;
         paintBoneList.Items.Clear();
         foreach (var b in bones) paintBoneList.Items.Add(b);
         int at = keep == null ? -1 : bones.FindIndex(b => b.Equals(keep, StringComparison.OrdinalIgnoreCase));
@@ -157,17 +157,18 @@ sealed partial class ModelPage
         if (PaintPath() is not string path || !File.Exists(path)) return;
         Protected.CheckWrite(path);
         File.Delete(path);
+        preview.LastPaint = "Clear Paint";
         PaintStep();
         Log("Weight paint cleared: the fit's own weights are back.");
-        SchedulePreview();
+        if (!preview.ApplyPaintInPlace(null)) SchedulePreview();   // (in place, as a paint-only Undo)
     }
 
     /// <summary>The paint changed: an Undo step (the state before is the one kept), and Build knows the model changed.</summary>
     void PaintStep()
     {
         var now = Capture();
-        if (committed != null && !now.Same(committed)) { undo.Push(committed); redo.Clear(); }
-        committed = now;
+        if (committed != null && !now.Same(committed)) { undo.Push(committed); redo.Clear(); committed = now with { Label = preview.LastPaint ?? Describe(committed, now) }; }
+        else committed = now;
         undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
         UpdatePaintButtons();
         UpdateStatus();
@@ -224,13 +225,17 @@ sealed partial class ModelPage
         Check(saved == touched.Count, $"the stroke is saved ({saved} vertices in {Path.GetFileName(path)})");
         Check(undo.Count > 0, "the stroke is an Undo step");
         int sc = preview.ShowCount;
-        Undo(); await Rebuilt(sc);
+        Undo(); await Task.Delay(800);
         float back = preview.TestWeight(center, "g_spine02");
-        Check(path != null && !File.Exists(path) && back < painted - 0.01f, $"Undo: the paint file is gone and the weight is back ({back:0.000})");
-        sc = preview.ShowCount;
-        Redo(); await Rebuilt(sc);
+        Check(path != null && !File.Exists(path) && back < painted - 0.01f && preview.ShowCount == sc, $"Undo: the paint file is gone and the weight is back ({back:0.000}), in place (no reload)");
+        Redo(); await Task.Delay(800);
         float again = preview.TestWeight(center, "g_spine02");
-        Check(path != null && File.Exists(path) && MathF.Abs(again - painted) < 0.001f, $"Redo: the paint is applied again from the file on the rebuild ({again:0.000})");
+        Check(path != null && File.Exists(path) && MathF.Abs(again - painted) < 0.001f && preview.ShowCount == sc, $"Redo: the paint is back ({again:0.000}), in place");
+        // a full reload gives the same weights as the in-place step
+        SchedulePreview(); await Rebuilt(sc);
+        float reloaded = preview.TestWeight(center, "g_spine02");
+        Check(MathF.Abs(reloaded - again) < 0.001f, $"a reload gives the same weight as the in-place Redo ({reloaded:0.000})");
+        Check(preview.PaintBone == "g_spine02" && pickedBone == "g_spine02", $"Undo / Redo keep the bone being painted ({preview.PaintBone})");
         // Blur (Shift): the weight under the brush evens out toward its neighbours
         paintRadius.Value = 80; preview.BrushRadius = 80;
         var s2 = preview.TestStroke("g_spine02", Keys.Shift);
@@ -244,8 +249,17 @@ sealed partial class ModelPage
         bool rightToo = after.Sections.SelectMany(x => x.Vertices.Values).Any(w => w.ContainsKey("g_r_shoulder"));
         Check(after.VertexCount > count && rightToo, $"Invert Bone with Mirror changed both sides ({after.VertexCount - count} more vertices saved, right side: {rightToo})");
         paintMirror.Checked = false;
+        // History: the steps are named, and a pick two steps back undoes two
+        var (names, at) = HistoryForTest();
+        Check(names.Skip(1).Count(n => n.StartsWith("Paint:")) >= 1 && names.Last().StartsWith("Invert Bone"), "History names the steps: " + string.Join(" | ", names.Skip(Math.Max(0, names.Count - 4))));
         sc = preview.ShowCount;
-        ClearPaint(); await Rebuilt(sc);
+        HistoryJumpForTest(at - 2); await Task.Delay(800);
+        var (names2, at2) = HistoryForTest();
+        Check(at2 == at - 2 && names2.Count == names.Count, $"History: a pick two steps back undid two ({at} → {at2}, {names2.Count - at2 - 1} to redo)");
+        HistoryJumpForTest(at); await Task.Delay(800);
+        Check(HistoryForTest().Now == at, "History: a pick forward redid them");
+        sc = preview.ShowCount;
+        ClearPaint(); await Task.Delay(800);
         Check(path != null && !File.Exists(path), "Clear Paint removes the paint file");
         preview.Painting = false;
         return fails == 0;

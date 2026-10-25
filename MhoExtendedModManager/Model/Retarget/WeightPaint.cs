@@ -32,6 +32,14 @@ sealed class WeightPaint
 
     static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
 
+    /// <summary>A paint file's text (Undo's copy) read; null or bad text = no paint.</summary>
+    public static WeightPaint FromText(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return new();
+        try { return JsonSerializer.Deserialize<WeightPaint>(text, Json) ?? new(); }
+        catch (JsonException) { return new(); }
+    }
+
     public static WeightPaint Load(string? path)
     {
         if (path == null || !File.Exists(path)) return new();

@@ -29,6 +29,9 @@ sealed partial class PreviewPanel
         /// <summary>Each section's model part and vertex count (the weight paint finds its vertices by them: WeightPaint.Keys).</summary>
         public List<string> SectionParts { get; init; } = [];
         public List<int> SectionCounts { get; init; } = [];
+        /// <summary>The model's weights before the weight paint (the same vertex order as Mesh): a paint-only Undo / Redo rebuilds
+        /// the weights from them in place (PreviewPanel.ApplyPaintInPlace).</summary>
+        public List<VertexInfluence>? Unpainted { get; init; }
         /// <summary>The MHO skeleton's bone names (the Bone Map tab's choices) and each one's parent (-1 = root).</summary>
         public List<string> MhoBones { get; init; } = [];
         public List<int> MhoParents { get; init; } = [];
@@ -63,8 +66,10 @@ sealed partial class PreviewPanel
         if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });
         Stage("retarget");
         MaterialOverrides.Apply(r, overrides);
+        var unpainted = Unpainted(r);   // (the fit's own weights: a paint-only Undo rebuilds from them in place)
         string? paintNote = WeightPaint.Apply(r, paintFile);
         var p = FromRetarget(r, sk, packagePath, materialDonor);
+        p = p with { Unpainted = unpainted };
         if (paintNote != null) p = p with { Note = p.Note + " · " + paintNote };
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;   // the map shown keeps the file's smoothing
         if (notes.Count > 0)
@@ -89,9 +94,11 @@ sealed partial class PreviewPanel
         // the Bone Map's smoothing (an FBX source's map holds only that)
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
         if (file is { Smooth.Count: > 0 }) WeightSmooth.Apply(r, file.Smooth);
+        var unpainted = Unpainted(r);   // (the fit's own weights: a paint-only Undo rebuilds from them in place)
         string? paintNote = WeightPaint.Apply(r, paintFile);
         var p = FromRetarget(r, sk, packagePath, materialDonor);
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;
+        p = p with { Unpainted = unpainted };
         if (paintNote != null) p = p with { Note = p.Note + " · " + paintNote };
         return p;
     }
@@ -239,6 +246,9 @@ sealed partial class PreviewPanel
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { return null; }
     }
+
+    static List<VertexInfluence> Unpainted(Retargeted r) =>
+        [.. r.Sections.SelectMany(x => x.Weights).Select(w => new VertexInfluence { Bones = w.Select(y => y.Bone).ToArray(), Weights = w.Select(y => y.Weight).ToArray() })];
 
     static Prepared FromRetarget(Retargeted r, MhoSkeleton sk, string packagePath, string? materialDonor)
     {

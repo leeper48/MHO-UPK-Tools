@@ -51,7 +51,7 @@ sealed partial class ModelPage : UserControl
     readonly DataGridView mapGrid = new() { Dock = DockStyle.Fill };
     readonly TextBox mapFilter = new() { PlaceholderText = "Filter bones" };
     readonly Button mapReset, mapSmooth, mapBones, mapWeights;
-    readonly Button undoButton, redoButton;
+    readonly Button undoButton, redoButton, historyButton;
     List<int> mhoParents = [];
     /// <summary>A bone Ctrl+clicked in the view that no row stands for (no MFF bone drives it); null when a row is selected.</summary>
     string? pickedBone;
@@ -126,6 +126,8 @@ sealed partial class ModelPage : UserControl
         undoButton = Ui.FlatButton("↶ Undo", Undo, "Undo the last change to the parts, Smooth, the material or the bone map (Ctrl+Z).");
         redoButton = Ui.FlatButton("↷ Redo", Redo, "Redo what Undo took back (Ctrl+Y).");
         undoButton.Enabled = redoButton.Enabled = false;
+        historyButton = Ui.FlatButton("History", ShowHistory, "Every Undo step of the Model tab by name (parts, bone map, materials, each paint stroke …), the one now marked; click a step to go back or forward to it.");
+        Icons.Make(historyButton, "History", Icons.History, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(undoButton, "Undo", Icons.Undo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(redoButton, "Redo", Icons.Redo, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         mapReset = Ui.FlatButton("Reset to Automatic", ResetMap, "Forgets your bone map edits for this character on this base hero; the importer's own pairing is used again.");
@@ -158,7 +160,7 @@ sealed partial class ModelPage : UserControl
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var topRight = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        foreach (var b in new[] { undoButton, redoButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
+        foreach (var b in new[] { undoButton, redoButton, historyButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
         top.Controls.Add(foldersLabel, 0, 0); top.Controls.Add(topRight, 1, 0);
         root.Controls.Add(top, 0, 0);
 

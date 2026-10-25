@@ -1,6 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.135
+- Model tab: Undo / Redo / History of weight paint (and Clear Paint) update the model in place, without reloading the preview; other steps reload it as before.
+
+0.60.134
+- Model tab: Undo / Redo keep the bone being painted (they jumped to the Bone Map's first row and showed its weights for a moment); the Bone Map table is refilled only when the bone map itself changed.
+
+0.60.133
+- Model tab: History (beside Undo / Redo): every Undo step by name ("Paint: Subtract on g_hair2", "Invert Bone: g_l_shoulder + Mirror", "Bone Map", "Parts" …), the one now marked; a click goes back or forward to that step.
+
 0.60.132
 - Model tab → Paint: two quick dabs no longer frame the model again (a double-click jumped the view while painting).
 
