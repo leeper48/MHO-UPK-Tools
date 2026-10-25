@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.143
+- What's New: a notice for the changes since 0.60.122.
+
 0.60.142
 - Model tab → Bone Map: the Weights button steps through the same views as W (over the model at 50 %, the weights alone, off).
 - The Mods tab's top bar and other main-window buttons show a shortcut given to them by right-click in their tooltips too.

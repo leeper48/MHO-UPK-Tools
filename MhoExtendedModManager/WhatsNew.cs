@@ -34,9 +34,27 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
+    /// <summary>0.60.143 (Kurt, 2026-10-25): weight painting, keyboard shortcuts, fit fixes, Nexus sign-in.</summary>
+    static Notice PaintAndShortcuts() => new(
+        "0.60.143-paint-shortcuts", "0.60.143",
+        "[!]Model tab → Bone Map → Paint: weight painting, as Blender's." + nl +
+        "  • Draw, Add, Subtract and Blur brushes with Weight, Strength and Radius; Shift blurs, Ctrl paints the other way, F and Shift+F change the radius and strength." + nl +
+        "  • Mirror, Invert Bone and Smooth Bone; the brush reaches every part it touches. [ and ] step up and down the bones." + nl +
+        "  • W (or the Weights button): off, the weights over the model at 50 %, the weights alone." + nl +
+        "  • History (beside Undo / Redo) lists every step by name; undoing paint is instant." + nl + nl +
+        "[!]Settings → Keyboard Shortcuts: change any shortcut or 3D mouse binding (conflicts show in red). Right-click any button to give it a shortcut. Tooltips show the keys." + nl + nl +
+        "Model tab fixes:" + nl +
+        "  • Lean starts at an automatic amount and is spread over the ankles and hips (no more ankle creases)." + nl +
+        "  • A mouth bone that isn't named like a jaw is found by where it sits (Sharon Carter's mouth no longer opens with Black Widow's bangs)." + nl +
+        "  • Team-ups whose animations shorten a limb no longer crease at the joint." + nl +
+        "  • Game Joint Blend (test, off by default): the skin at hips, knees, shoulders and elbows shared as the game's own model does." + nl + nl +
+        "Also: Sign In with Nexus has a window to paste the code when the browser can't reach the app; Group ▾ → Crash Risk." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "model");
+
     /// <summary>0.60.122 (Kurt, 2026-10-24): props from other characters, 3D view tools, Duplicate, Model tab fixes.</summary>
     static Notice PropsAndViews() => new(
         "0.60.122-props-views", "0.60.122",
