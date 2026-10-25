@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.139
+- Sign In with Nexus: a waiting window (Cancel) with a box for when the browser can't reach the app ("127.0.0.1 refused to connect"): paste Nexus's "Having issues?" text or the address, then Use Code. The app now waits 15 minutes for the browser (5 was too short with Nexus's extra Continue page).
+
 0.60.138
 - Game Joint Blend: skin on both thighs (the crotch) is blended at the hips too (it was left out by both sides).
 - --fit-distort compares the same triangles with Game Joint Blend on and off; MHO_FD_DUMP lists a region's vertices; MHO_JOINT_SKIP / MFF_JOINTPIVOT test parts of the blend.

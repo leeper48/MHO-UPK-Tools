@@ -283,9 +283,13 @@ sealed partial class MainForm
                 "  • Your password is never seen by the app.\n  • The sign-in stays on this PC, encrypted for your Windows user.\n\nSign out any time from this menu.",
                 "Sign In with Nexus", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
         nexusBusy = "Waiting for the Nexus Sign-In in Your Browser…"; UpdateNexusStatus();
+        // the waiting window: Cancel, and Paste Code when the browser can't reach the app (Kurt, 2026-10-25)
+        var wait = new NexusSignInForm();
+        wait.Show(this);
         try
         {
-            var login = await NexusAuth.SignIn(Settings.Home, url => { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return Task.CompletedTask; });
+            var login = await NexusAuth.SignIn(Settings.Home, url => { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return Task.CompletedTask; }, wait.Cancelled, wait.Pasted);
+            wait.Close();
             nexusBusy = null; UpdateNexusStatus();
             Activate();
             Dialog.Show(this, login.Premium ? $"Signed in as {login.UserName} (Premium): Update now downloads and installs with one click." :
@@ -293,7 +297,8 @@ sealed partial class MainForm
                 "Signed In", MessageBoxButtons.OK, MessageBoxIcon.None);
         }
         catch (Exception ex) when (ex is Nexus.NexusException or HttpRequestException or IOException or TaskCanceledException or System.Text.Json.JsonException or KeyNotFoundException or System.Security.Cryptography.CryptographicException)
-        { nexusBusy = null; UpdateNexusStatus(); Activate(); Dialog.Show(this, ex.Message, "Not Signed In", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        { wait.Close(); nexusBusy = null; UpdateNexusStatus(); Activate(); if (!wait.Cancelled.IsCancellationRequested) Dialog.Show(this, ex.Message, "Not Signed In", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        catch (OperationCanceledException) { wait.Close(); nexusBusy = null; UpdateNexusStatus(); }
     }
 
     async void SignOutNexus()

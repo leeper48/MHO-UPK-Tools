@@ -237,6 +237,25 @@ static class NexusTest
             Thread.Sleep(1500); refuseRefresh = true;
             C("a refused refresh signs out", NexusAuth.AccessToken(home).GetAwaiter().GetResult() == null && NexusAuth.Load(home) == null);
             refuseRefresh = false;
+            // the browser can't reach the app (Kurt, 2026-10-25): the address it was sent to, pasted; then Nexus's "Having issues?" text
+            using (var noFollow = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }))
+            {
+                string? sent = null;
+                var gotAddress = new TaskCompletionSource<string>();
+                var viaAddress = NexusAuth.SignIn(home, async url => { var resp = await noFollow.GetAsync(url); sent = resp.Headers.Location?.ToString(); }, default, gotAddress.Task);
+                for (int i = 0; i < 50 && sent == null; i++) Thread.Sleep(100);
+                gotAddress.SetResult(sent ?? "");
+                C("sign in by pasting the address the browser couldn't open", viaAddress.GetAwaiter().GetResult().UserName == "Tester");
+                sent = null;
+                var gotIssues = new TaskCompletionSource<string>();
+                var viaIssues = NexusAuth.SignIn(home, async url => { var resp = await noFollow.GetAsync(url); sent = resp.Headers.Location?.ToString(); }, default, gotIssues.Task);
+                for (int i = 0; i < 50 && sent == null; i++) Thread.Sleep(100);
+                var q = NexusAuth.ParsePasted(sent ?? "")!;
+                string issues = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{{\"authorization_code\":\"{q["code"]}\",\"state\":\"{q["state"]}\"}}"));
+                gotIssues.SetResult(issues);
+                C("sign in by pasting Nexus's \"Having issues?\" text", viaIssues.GetAwaiter().GetResult().UserName == "Tester");
+            }
+            C("pasted text that isn't a code is refused", NexusAuth.ParsePasted("hello there") == null && NexusAuth.ParsePasted("") == null);
             NexusAuth.SignIn(home, url => { _ = browser.GetAsync(url); return Task.CompletedTask; }).GetAwaiter().GetResult();
             NexusAuth.SignOut(home).GetAwaiter().GetResult();
             C("sign out: login removed here and revoked at Nexus", NexusAuth.Load(home) == null && revoked);

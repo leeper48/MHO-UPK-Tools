@@ -69,10 +69,13 @@ static class NexusAuth
     // ---- sign in / out
 
     /// <summary>
-    /// Signs in: opens the browser (<paramref name="openBrowser"/>) at Nexus's authorize page and waits (up to 5
-    /// minutes) for Nexus to send the user back to the callback address. Saves and returns the login.
+    /// Signs in: opens the browser (<paramref name="openBrowser"/>) at Nexus's authorize page and waits (up to 15
+    /// minutes) for Nexus to send the user back to the callback address, or for <paramref name="pasted"/>: what the user
+    /// pastes when the browser can't reach the app (Kurt, 2026-10-25: "127.0.0.1 refused to connect"): Nexus's "Having
+    /// issues?" code, the callback address, or the code alone (safe: a code only works with this sign-in's PKCE verifier).
+    /// Saves and returns the login.
     /// </summary>
-    public static async Task<Login> SignIn(string home, Func<string, Task> openBrowser, CancellationToken cancel = default)
+    public static async Task<Login> SignIn(string home, Func<string, Task> openBrowser, CancellationToken cancel = default, Task<string>? pasted = null)
     {
         if (!Available) throw new Nexus.NexusException("Signing in with Nexus isn't available in this version yet.");
         string verifier = NewVerifier(), state = B64Url(RandomNumberGenerator.GetBytes(16));
@@ -87,7 +90,22 @@ static class NexusAuth
                 ["state"] = state, ["code_challenge_method"] = "S256", ["code_challenge"] = Challenge(verifier),
             });
             await openBrowser(url);
-            var query = await WaitForCallback(listener, state, cancel);
+            Dictionary<string, string> query;
+            if (pasted == null) query = await WaitForCallback(listener, state, cancel);
+            else
+            {
+                using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+                var browser = WaitForCallback(listener, state, stop.Token);
+                var first = await Task.WhenAny(browser, pasted);
+                if (first == browser) query = await browser;
+                else
+                {
+                    query = ParsePasted(await pasted) ?? throw new Nexus.NexusException("That doesn't look like Nexus's sign-in code: paste the text under \"Having issues?\" on the Nexus page, or the whole 127.0.0.1 address from the browser.");
+                    query.TryAdd("state", state);   // (the code alone: no state to check; PKCE still ties it to this sign-in)
+                    stop.Cancel();
+                    try { await browser; } catch (Exception) { }
+                }
+            }
             string? code = query.GetValueOrDefault("code");
             if (query.GetValueOrDefault("state") != state || string.IsNullOrEmpty(code))
                 throw new Nexus.NexusException(query.GetValueOrDefault("error_description") ?? query.GetValueOrDefault("error") ?? "Signing in was cancelled.");
@@ -102,16 +120,44 @@ static class NexusAuth
         finally { listener.Stop(); }
     }
 
+    /// <summary>
+    /// What the user pasted, as the callback's query: Nexus's "Having issues?" text (base64 of {"authorization_code", "state"}),
+    /// the callback address (…/callback?code=…&amp;state=…), or the code alone; null when it's none of these.
+    /// </summary>
+    public static Dictionary<string, string>? ParsePasted(string text)
+    {
+        text = text.Trim().Trim('"');
+        if (text.Length == 0) return null;
+        if (text.Contains("code=", StringComparison.Ordinal))
+        {
+            var q = ParseQuery(text.Contains('?') ? text[(text.IndexOf('?') + 1)..] : text);
+            return q.ContainsKey("code") ? q : null;
+        }
+        try
+        {
+            string json = Encoding.UTF8.GetString(text.Contains('-') || text.Contains('_') ? FromB64Url(text) : Convert.FromBase64String(text));
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var d = new Dictionary<string, string>();
+            foreach (var p in doc.RootElement.EnumerateObject())
+                if (p.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                    d[p.Name == "authorization_code" ? "code" : p.Name] = p.Value.GetString()!;
+            return d.ContainsKey("code") ? d : null;
+        }
+        catch (Exception ex) when (ex is FormatException or System.Text.Json.JsonException or ArgumentException) { }
+        // the code alone (letters, digits, - and _)
+        return text.Length >= 16 && text.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') ? new() { ["code"] = text } : null;
+    }
+
     /// <summary>Waits for the browser's request to /callback, answers it with a short page, returns its query.</summary>
     static async Task<Dictionary<string, string>> WaitForCallback(TcpListener listener, string state, CancellationToken cancel)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancel);
-        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+        timeout.CancelAfter(TimeSpan.FromMinutes(15));   // (5 was too short with Nexus's extra Continue page: Kurt, 2026-10-25)
         while (true)
         {
             TcpClient client;
             try { client = await listener.AcceptTcpClientAsync(timeout.Token); }
-            catch (OperationCanceledException) { throw new Nexus.NexusException(cancel.IsCancellationRequested ? "Signing in was cancelled." : "No answer from the browser within 5 minutes; signing in was cancelled."); }
+            catch (OperationCanceledException) { throw new Nexus.NexusException(cancel.IsCancellationRequested ? "Signing in was cancelled." : "No answer from the browser within 15 minutes; signing in was cancelled."); }
             using (client)
             {
                 var stream = client.GetStream();

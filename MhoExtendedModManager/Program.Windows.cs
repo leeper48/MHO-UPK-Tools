@@ -846,6 +846,23 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--nexus-signin-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: the Nexus sign-in waiting window, off-screen, to a PNG
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            using var nf = new Gui.NexusSignInForm { StartPosition = FormStartPosition.Manual, Location = new System.Drawing.Point(-6000, -6000) };
+            nf.Shown += async (_, _) =>
+            {
+                await Task.Delay(400);
+                using var bmp = new System.Drawing.Bitmap(nf.Width, nf.Height);
+                nf.DrawToBitmap(bmp, new System.Drawing.Rectangle(System.Drawing.Point.Empty, nf.Size));
+                bmp.Save(args[1]);
+                nf.Close();
+            };
+            Application.Run(nf);
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--shortcuts-check", StringComparison.OrdinalIgnoreCase))
         {
             // Test (read only: no settings saved): the shortcut list's defaults have no conflicts, keys and mouse match their
