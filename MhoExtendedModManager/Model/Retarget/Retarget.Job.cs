@@ -994,7 +994,7 @@ static partial class Retarget
             // MFF_PELVISPIVOT=1 (test, 2026-10-25: the hips tore 3-4x the game's in idle_combat): g_pelvis hangs from g_spine01
             // while the legs hang from the root; MFF's pelvis joint sits on the hip line, MHO's at g_spine01 (0.4 apart on
             // She-Hulk, ours 4.7), so a spine sway moved the pelvis skin against the legs. The joint alone goes to MHO's offset.
-            if ((opt.PelvisPivot || opt.JointFit) && sk.Find("g_pelvis") is int pv && pv >= 0 && sk.Bones[pv].ParentIndex is int pp && pp >= 0 && pp != pv && pos[pp] != null)
+            if ((opt.PelvisPivot || opt.JointFit && Environment.GetEnvironmentVariable("MFF_JOINTPIVOT") != "0") && sk.Find("g_pelvis") is int pv && pv >= 0 && sk.Bones[pv].ParentIndex is int pp && pp >= 0 && pp != pv && pos[pp] != null)
             {
                 var want = pos[pp]!.Value + (sk.Pos(pv) - sk.Pos(pp));
                 r.Notes.Add($"pelvis pivot: g_pelvis moved {(want - pos[pv]!.Value).Length():0.00} units to MHO's offset from {sk.Bones[pp].Name}");

@@ -28,7 +28,10 @@ static class JointProfile
         foreach (string s in new[] { "l", "r" })
         {
             string S = s.ToUpperInvariant() + " ";
-            yield return new("hip", $"g_{s}_hip", $"g_{s}_knee", [S + "thigh", S + "calf", S + "foot"], ["pelvis", "chest"]);
+            // (the other thigh counts as body: the crotch carries both legs, and skipped by both sides it was never blended,
+            // 2026-10-25: Red She-Hulk's crotch stayed at 9.3 times stretched with the blend on)
+            string O = (s == "l" ? "R" : "L") + " ";
+            yield return new("hip", $"g_{s}_hip", $"g_{s}_knee", [S + "thigh", S + "calf", S + "foot"], ["pelvis", "chest", O + "thigh"]);
             yield return new("knee", $"g_{s}_knee", $"g_{s}_ankle", [S + "calf", S + "foot"], [S + "thigh"]);
             yield return new("shoulder", $"g_{s}_shoulder", $"g_{s}_elbow", [S + "upper arm", S + "forearm", S + "hand"], [S + "clavicle", "chest"]);
             yield return new("elbow", $"g_{s}_elbow", $"g_{s}_wrist", [S + "forearm", S + "hand"], [S + "upper arm"]);
@@ -146,8 +149,11 @@ static class JointProfile
         int lh = names.FindIndex(n => n.Equals("g_l_hip", StringComparison.OrdinalIgnoreCase));
         float sMid = lh >= 0 ? MathF.Abs(sk.Pos(lh).Y) * 0.15f : 0, fMid = lh >= 0 ? MathF.Abs(r.Bones[lh].Position.Y) * 0.15f : 0;
         var done = new List<string>();
+        // MHO_JOINT_SKIP=hip,knee,shoulder,elbow,mid (tests): those parts left out
+        var skip = (Environment.GetEnvironmentVariable("MHO_JOINT_SKIP") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var j in Joints())
         {
+            if (skip.Contains(j.Name)) continue;
             var sf = Frame.Of(j, names, sk.Pos); var ff = Frame.Of(j, names, k => r.Bones[k].Position);
             if (sf == null || ff == null) continue;
             var prof = Profile(sf, lod.Positions, sw, p => sf.OnSide(p, sMid));
@@ -167,7 +173,7 @@ static class JointProfile
         }
         // the middle strip between the legs: both legs together
         var legs = Joints().Where(j => j.Name == "hip").Select(j => (S: Frame.Of(j, names, sk.Pos), F: Frame.Of(j, names, k => r.Bones[k].Position))).ToList();
-        if (legs.All(x => x.S != null && x.F != null) && legs.Count == 2)
+        if (legs.All(x => x.S != null && x.F != null) && legs.Count == 2 && !skip.Contains("mid"))
         {
             Frame Mid(Frame a, Frame b) => new() { At = (a.At + b.At) / 2, Down = Vector3.Normalize(a.Down + b.Down), Len = (a.Len + b.Len) / 2, Ref1 = a.Ref1, Ref2 = a.Ref2, Side = 0, Bone = a.Bone, Limb = [.. a.Limb, .. b.Limb], Body = a.Body };
             var sm = Mid(legs[0].S!, legs[1].S!); var fm = Mid(legs[0].F!, legs[1].F!);

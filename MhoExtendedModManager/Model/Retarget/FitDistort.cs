@@ -165,6 +165,15 @@ static class FitDistort
         var prep = Gui.PreviewPanel.Prepare(model, null, pkg, null, lean: lean);
         var fitted = prep.Mesh with { Bones = prep.Bones };
         fitted = Experiment(prep, fitted);
+        // the regions by the fit without Game Joint Blend (MFF_JOINTFIT=1 moves skin between regions: the same triangles are
+        // compared with it on and off)
+        IReadOnlyList<AnimExportCli.Meshes.VertexInfluence> labelBy = prep.Mesh.Influences;
+        if (Environment.GetEnvironmentVariable("MFF_JOINTFIT") == "1")
+        {
+            Environment.SetEnvironmentVariable("MFF_JOINTFIT", "0");
+            labelBy = Gui.PreviewPanel.Prepare(model, null, pkg, null, lean: lean).Mesh.Influences;
+            Environment.SetEnvironmentVariable("MFF_JOINTFIT", "1");
+        }
         // MHO_FD_HIPPROFILE=1: the share of the left leg's bones (hip, thigh twist, knee …) in the skin around the left hip, by
         // height from the knee to the waist, front and back half, for the fitted and the game's model
         if (Environment.GetEnvironmentVariable("MHO_FD_HIPPROFILE") == "1")
@@ -206,12 +215,27 @@ static class FitDistort
                     Console.WriteLine($"  {(back ? "back " : "front")}: {string.Join(" ", line)}");
                 }
             }
+        // MHO_FD_DUMP=<region label>: the vertices of that region's triangles, where they are (from the left hip joint) and
+        // their weights with the blend (now) and without it (labelBy)
+        if (Environment.GetEnvironmentVariable("MHO_FD_DUMP") is { Length: > 0 } dumpLabel)
+        {
+            var dl = Labels(fitted.Indices, v => labelBy[v].Bones.Zip(labelBy[v].Weights), k => k >= 0 && k < fitted.Bones.Count ? fitted.Bones[k].Name : "");
+            var a0 = new MeshAnimator(fitted.Bones, fitted.Positions, fitted.Normals, fitted.Influences, fitted.Tangents); a0.Pose(null, 0);
+            int lh = -1; for (int k = 0; k < fitted.Bones.Count; k++) if (fitted.Bones[k].Name == "g_l_hip") lh = k;
+            var hipP = lh >= 0 ? a0.BonePosition(lh) : Vector3.Zero;
+            var seen = new HashSet<int>();
+            string W(AnimExportCli.Meshes.VertexInfluence inf) => string.Join(" ", inf.Bones.Zip(inf.Weights).Select(x => $"{fitted.Bones[x.First].Name}:{x.Second:0.00}"));
+            for (int t = 0; t < dl.Length && seen.Count < 14; t++)
+                if (dl[t] == dumpLabel)
+                    foreach (int v in new[] { fitted.Indices[3 * t], fitted.Indices[3 * t + 1], fitted.Indices[3 * t + 2] })
+                        if (seen.Add(v)) Console.WriteLine($"  v{v} at {fitted.Positions[v] - hipP:0.0} | now {W(fitted.Influences[v])} | without {W(labelBy[v])}");
+        }
         var want = args.Count > 2 ? args.Skip(2).ToList() : ["idle", "idle_combat", "run"];
         foreach (string an in want)
         {
             var ar = prep.Animations.FirstOrDefault(x => x.Name.Equals(an, StringComparison.OrdinalIgnoreCase));
             if (ar == null || ModAnimations.Load(ar) is not { } ba) { Console.WriteLine($"{an}: not found"); continue; }
-            var fs = Worst(fitted, ba, prep.Mesh.Influences); var ss = prep.Stock != null ? Worst(prep.Stock, ba) : null;
+            var fs = Worst(fitted, ba, labelBy); var ss = prep.Stock != null ? Worst(prep.Stock, ba) : null;
             Print($"ANIMATED {an} (each mesh against its own bind pose; worst of 8 frames)", fs, ss);
         }
         return 0;
