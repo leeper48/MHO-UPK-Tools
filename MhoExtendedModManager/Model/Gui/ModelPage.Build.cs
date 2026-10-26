@@ -94,6 +94,7 @@ sealed partial class ModelPage
                 if (print != null) builtPrint[pkg.Key] = print;
                 takenOff.Remove(pkg.Key);
                 ok = true;
+                await BuildCopies(pkg.Key, mffSource, runOptions, print, mff);
                 SaveState();
                 Log($"Done: {pkg.Key} is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
                 await LogCrashChecks(pkg.Key, result.Package);
@@ -104,6 +105,42 @@ sealed partial class ModelPage
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
         return ok;
+    }
+
+    /// <summary>
+    /// The same summon model in the hero's other packages (<see cref="SummonCopies"/>; Kurt, 2026-10-25: Squirrelpocalypse's
+    /// squirrel is in its projectile's package and in the power's, and the game shows the copy it loads first): the model is
+    /// built onto each with the same options, and each goes into the mod (added from the game when the mod lacks it).
+    /// </summary>
+    async Task BuildCopies(string pkgKey, string mffSource, ImportOptions runOptions, string? print, string mff)
+    {
+        foreach (string copy in SummonCopies(pkgKey))
+        {
+            string file = copy;
+            if (host.Packages.FirstOrDefault(p => p.File.Equals(copy, StringComparison.OrdinalIgnoreCase)) is { File: not null } have) file = have.File;
+            else
+            {
+                string stock;
+                try { stock = BasePackage.Resolve(copy); }
+                catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException) { Log($"{copy} has the same model, but it couldn't be read: {ex.Message}"); continue; }
+                host.AddPackage(file, stock);
+                added.Add(file);
+            }
+            Log($"{file} holds the same model under the same path (the game shows whichever copy it loads first): building onto it too");
+            string outCopy = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{mff} on {Path.GetFileNameWithoutExtension(file)}"));
+            string start = StartPackage(file);
+            try
+            {
+                var more = await Task.Run(() => ImportBuild.Run(mffSource, start, outCopy, runOptions, line => BeginInvoke(() => Log(line))));
+                if (more == null) { Log($"{file}: the build stopped (see above); its copy of the model is the game's."); continue; }
+                host.SetPackage(file, more.Package);
+                built[file] = more.Package;
+                if (print != null) builtPrint[file] = print;
+                takenOff.Remove(file);
+                Log($"{file} is in the mod too, with the same model.");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { Log($"{file}: {ex.Message}"); }
+        }
     }
 
     /// <summary>The crash checks on a build (CrashCheck: added bones, other copies of the model, the mirror table, sockets) in

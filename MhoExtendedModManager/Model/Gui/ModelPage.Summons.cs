@@ -21,7 +21,7 @@ sealed partial class ModelPage
         summonsTarget = Ui.FlatButton("Summons", () => { summonsOnlyTarget = !summonsOnlyTarget; Ui.Lit(summonsTarget, summonsOnlyTarget); FillPackages(); },
             "Show only summons and power models: the characters and models heroes' powers bring in (Squirrel Girl's squirrels, Magik's demons, Cyclops's Strike Team …), under each hero. Click again for the whole list.");
         summonsSource = Ui.FlatButton("Summons", () => { summonsOnlySource = !summonsOnlySource; Ui.Lit(summonsSource, summonsOnlySource); FillCharacters(); },
-            "Show only summons and power models from the game, under each hero. Click again for the whole list.");
+            "Show only summons and power models from the game, under each hero. Click again for the whole list. Right-click one to make it the target too.");
         summonsTarget.Visible = gameList;
         summonsSource.Visible = GameMode;
         blenderButton = Ui.FlatButton("Edit in Blender", EditInBlender,
@@ -56,6 +56,26 @@ sealed partial class ModelPage
     /// <summary>A summon's row thumbnail: the icon of the power that brings it in (summons have no portrait), else the package's.</summary>
     static Image? PackageThumb(string file) =>
         Summons.TryGetValue(Path.GetFileName(file), out var l) && l.FirstOrDefault(x => x.Icon != null)?.Icon is string icon ? Thumbs.Summon(file, icon) : Thumbs.BaseHero(file);
+
+    /// <summary>A right-click on a summon in the Source list: it's the source, and the target too (added to the mod from the
+    /// game when the mod doesn't hold it yet).</summary>
+    void SummonBoth(int row, string file)
+    {
+        characters.SelectedIndex = row;   // the source (CharacterChosen)
+        if (!host.Packages.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)))
+        {
+            string stock;
+            try { stock = BasePackage.Resolve(file); }
+            catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException) { Log($"{file}: {ex.Message}"); return; }
+            host.AddPackage(file, stock);
+            added.Add(file);
+            Log($"Added {file} to the mod as the target too (the game's stock copy, until it's built).");
+        }
+        gameList = false; packageFilter.Text = "";
+        FillPackages();
+        Reselect(packages, file);
+        SaveState();
+    }
 
     // --- Edit in Blender ----------------------------------------------------------------------------------------------------------
     async void EditInBlender()

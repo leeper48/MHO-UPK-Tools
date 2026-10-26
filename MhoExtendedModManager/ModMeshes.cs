@@ -783,6 +783,21 @@ static class ModMeshes
     /// A material a costume package imports (by name) from the hero's base package UC__MarvelPlayer_&lt;Hero&gt;_SF, as the
     /// game loads it: the copy next to the mesh's package (the mod's), else the game's. Null when it isn't found there.
     /// </summary>
+    /// <summary>An import's whole path, its package first ("uc__marvelagent_squirrelgirlpetsquirrel_sf.squirrel.squirrel_mat").</summary>
+    internal static string ImportPath(Package pkg, int index)
+    {
+        var parts = new List<string>();
+        for (int guard = 0; index < 0 && -index <= pkg.Imports.Length && guard < 32; guard++)
+        {
+            var im = pkg.Imports[-index - 1];
+            parts.Add(im.ObjectName);
+            index = im.OuterIndex;
+        }
+        if (index > 0) parts.Add(pkg.RefName(index));
+        parts.Reverse();
+        return string.Join('.', parts);
+    }
+
     static (Package, int)? ImportedMaterial(MeshRef r, Package pkg, int mat, string? cooked) =>
         ImportedMaterialAt(r, pkg, mat, cooked) is { } at ? (at.Pkg, at.Index) : null;
 
@@ -793,26 +808,36 @@ static class ModMeshes
     {
         const string player = "UC__MarvelPlayer_", audio = "UC__MarvelPlayerAudio_";
         string? prefix = r.Package.StartsWith(audio, StringComparison.OrdinalIgnoreCase) ? audio : r.Package.StartsWith(player, StringComparison.OrdinalIgnoreCase) ? player : null;
-        if (prefix == null) return null;
         string name;
         try { name = pkg.RefName(mat); } catch (Exception ex) when (ex is IndexOutOfRangeException or ArgumentException) { return null; }
         int dot = name.LastIndexOf('.');
         if (dot >= 0) name = name[(dot + 1)..];
-        string hero = Path.GetFileNameWithoutExtension(r.Package)[prefix.Length..].Split('_')[0];
-        string baseFile = $"{player}{hero}_SF.upk";
-        if (baseFile.Equals(r.Package, StringComparison.OrdinalIgnoreCase)) return null;
-        foreach (var path in new[] { Path.Combine(Path.GetDirectoryName(r.File) ?? "", baseFile), cooked == null ? "" : StockFiles.For(cooked, baseFile) })
+        // the hero's base package: a costume's / voice package's hero; a summon's (Squirrel Girl's squirrels import
+        // squirrelgirl.squirrel_mat from UC__MarvelPlayer_SquirrelGirl_SF: the summon list's hero, else the import's top name)
+        var heroes = new List<string>();
+        if (prefix != null) heroes.Add(Path.GetFileNameWithoutExtension(r.Package)[prefix.Length..].Split('_')[0]);
+        else
         {
-            if (path.Length == 0 || !File.Exists(path)) continue;
-            try
-            {
-                var bp = Package.Open(path);
-                for (int i = 0; i < bp.Exports.Length; i++)
-                    if (bp.Exports[i].ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase) && bp.ClassOf(bp.Exports[i]).Contains("Material", StringComparison.OrdinalIgnoreCase))
-                        return (bp, i, baseFile, path);
-            }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+            if (Model.Gui.ModelPage.Summons.TryGetValue(r.Package, out var sums)) heroes.Add(sums[0].Hero);
+            if (ImportPath(pkg, mat).Split('.')[0] is { Length: > 0 } top) heroes.Add(top);
         }
+        foreach (string baseFile in heroes.Select(h => $"{player}{h}_SF.upk").Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (baseFile.Equals(r.Package, StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var path in new[] { Path.Combine(Path.GetDirectoryName(r.File) ?? "", baseFile), cooked == null ? "" : StockFiles.For(cooked, baseFile) })
+            {
+                if (path.Length == 0 || !File.Exists(path)) continue;
+                try
+                {
+                    var bp = Package.Open(path);
+                    for (int i = 0; i < bp.Exports.Length; i++)
+                        if (bp.Exports[i].ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase) && bp.ClassOf(bp.Exports[i]).Contains("Material", StringComparison.OrdinalIgnoreCase))
+                            return (bp, i, baseFile, path);
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+            }
+        }
+        if (prefix == null && heroes.Count == 0) return null;
         // (a transform's character: its materials can come from the hero's own costume, Rocket's pilot in his mech)
         foreach (string path in MoreMaterialPackages ?? [])
         {

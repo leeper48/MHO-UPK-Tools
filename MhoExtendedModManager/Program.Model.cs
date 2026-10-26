@@ -319,6 +319,114 @@ static partial class Program
                 MhoExtendedModManager.Model.Settings.Change(s => { s.MffFolder = keep; s.BlenderPath = keepBlender; });   // back as it was
                 return ok1 && ok2 && lost ? 0 : 1;
             }
+            case "--effect-census":
+            {
+                // --effect-census <out.txt>: read only; every hero's effect models (static meshes in power, hotspot, projectile and
+                // condition packages) with every package holding a copy (Model\StockData\effect_models.txt)
+                if (rest.Count < 2) { Console.WriteLine("--effect-census <out.txt>"); return 1; }
+                if (MhoExtendedModManager.Model.Settings.Current.CookedFolder is not string ecook) { Console.WriteLine("game folder not found"); return 1; }
+                return MhoExtendedModManager.Model.EffectModels.Census(ecook, rest[1], Console.WriteLine);
+            }
+            case "--effect-check":
+            {
+                // --effect-check <scratch folder> [hero ...]: read only on the game; every effect model (of those heroes) exported
+                // as the view does and built straight back into its first package: what can't be (and why), counted by reason.
+                if (rest.Count < 2) { Console.WriteLine("--effect-check <scratch folder> [hero ...]"); return 1; }
+                if (MhoExtendedModManager.Model.Settings.Current.CookedFolder is not string kcook) { Console.WriteLine("game folder not found"); return 1; }
+                var want = rest.Skip(2).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var reasons = new Dictionary<string, int>();
+                int ok = 0, n = 0;
+                foreach (var e in MhoExtendedModManager.Model.EffectModels.All.Where(x => want.Count == 0 || want.Contains(x.Hero)).GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase).Select(g => g.First()))
+                {
+                    n++;
+                    string dir = Path.Combine(rest[1], $"{n:0000}");
+                    try
+                    {
+                        string? pkg = MhoExtendedModManager.Model.EffectModels.StockPackage(e, kcook) ?? throw new InvalidDataException("no stock package");
+                        string fbx = MhoExtendedModManager.Model.EffectModels.Export(pkg, e.Path, dir);
+                        MhoExtendedModManager.Model.EffectModels.Build(pkg, e.Path, fbx, out _, out _);
+                        ok++;
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or Assimp.AssimpException or IndexOutOfRangeException or ArgumentException)
+                    {
+                        string why = System.Text.RegularExpressions.Regex.Replace(ex.Message, @"\d+", "N");
+                        reasons[why] = reasons.GetValueOrDefault(why) + 1;
+                        if (reasons[why] <= 2) Console.WriteLine($"  {e.Hero} {e.Path}: {ex.Message}");
+                    }
+                    try { Directory.Delete(dir, true); } catch (IOException) { }
+                }
+                Console.WriteLine($"{ok} of {n} effect models build back");
+                foreach (var (why, count) in reasons.OrderByDescending(kv => kv.Value)) Console.WriteLine($"  {count} x {why}");
+                return 0;
+            }
+            case "--effect-roundtrip":
+            {
+                // --effect-roundtrip <mesh path> <scratch folder>: read only on the game; an effect model exported as the Effect
+                // Models view does (model.fbx), opened in a headless Blender and saved unchanged (Ctrl+S's sync), then built back
+                // into every package holding it; prints how far each vertex moved and the bounds against the stock mesh.
+                if (rest.Count < 3) { Console.WriteLine("--effect-roundtrip <mesh path> <scratch folder>"); return 1; }
+                if (MhoExtendedModManager.Model.Settings.Current.CookedFolder is not string rcook) { Console.WriteLine("game folder not found"); return 1; }
+                var entry = MhoExtendedModManager.Model.EffectModels.All.FirstOrDefault(e => e.Path.Equals(rest[1], StringComparison.OrdinalIgnoreCase));
+                if (entry == null) { Console.WriteLine("not in the effect model list: " + rest[1]); return 1; }
+                string dir = rest[2];
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                string? stockPkg = MhoExtendedModManager.Model.EffectModels.StockPackage(entry, rcook);
+                if (stockPkg == null) { Console.WriteLine("no stock package"); return 1; }
+                string fbx0 = MhoExtendedModManager.Model.EffectModels.Export(stockPkg, entry.Path, dir);
+                Console.WriteLine($"exported {entry.Path} from {Path.GetFileName(stockPkg)} → {fbx0}");
+                if (MhoExtendedModManager.Model.BlenderLaunch.OpenStatic(dir, background: true) is string why) { Console.WriteLine("Blender: " + why); return 1; }
+                string blend = Path.Combine(dir, "model.blend");
+                Console.WriteLine("scene: " + (File.Exists(blend) ? "model.blend saved" : "NO model.blend"));
+                if (!File.Exists(blend)) return 1;
+                // Ctrl+S, as a reopened scene does it (the reopen script turns the sync on, no auto-run)
+                MhoExtendedModManager.Model.BlenderLaunch.Reopen(dir, scriptOnly: true);
+                string save = Path.Combine(dir, "save.py");
+                File.WriteAllText(save, "import bpy\nbpy.ops.wm.save_mainfile()\n");
+                var psi = new System.Diagnostics.ProcessStartInfo(MhoExtendedModManager.Model.BlenderLaunch.Find()!) { UseShellExecute = false, WorkingDirectory = dir };
+                foreach (var a in new[] { "-b", blend, "--python", Path.Combine(dir, "reopen_in_blender.py"), "--python", save }) psi.ArgumentList.Add(a);
+                System.Diagnostics.Process.Start(psi)!.WaitForExit(300_000);
+                string sent = Path.Combine(dir, "from_blender", "model.fbx");
+                Console.WriteLine("Ctrl+S sent: " + (File.Exists(sent) ? sent : "NOTHING"));
+                if (!File.Exists(sent)) return 1;
+                int bad = 0;
+                foreach (string file in entry.Packages)
+                {
+                    string src = StockFiles.For(rcook, file);
+                    var sp = MhoPackageModifier.Package.Open(src);
+                    var stock = MhoPackageModifier.StaticMesh.Read(sp, sp.Exports[MhoExtendedModManager.Model.EffectModels.Find(sp, entry.Path)]);
+                    try
+                    {
+                        byte[] bytes = MhoExtendedModManager.Model.EffectModels.Build(src, entry.Path, sent, out var built, out var notes);
+                        float worst = 0;
+                        foreach (var v in built.Positions) worst = Math.Max(worst, stock.Positions.Min(q => System.Numerics.Vector3.Distance(q, v)));
+                        Console.WriteLine($"  {file}: {stock.Positions.Length} → {built.Positions.Length} vertices, worst vertex {worst:0.0000} from a stock one, bounds {built.BoundsOrigin} ± {built.BoundsExtent} (stock {stock.BoundsOrigin} ± {stock.BoundsExtent}); package {bytes.Length:N0} bytes, verified{(notes.Count > 0 ? "; " + string.Join("; ", notes) : "")}");
+                        if (worst > 0.05f) bad++;
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException) { Console.WriteLine($"  {file}: {ex.Message}"); bad++; }
+                }
+                Console.WriteLine(bad == 0 ? "round trip PASS" : $"round trip FAIL ({bad})");
+                return bad == 0 ? 0 : 1;
+            }
+            case "--model-effects-test":
+            {
+                // --model-effects-test <mod> <hero> <mesh path> <fbx> (scratch MHO_EXTMM_HOME; the mod isn't saved): the Effect
+                // Models view through its own code (ModelPage.TestEffects); exit 0 when every check passes.
+                if (rest.Count < 5) { Console.WriteLine("--model-effects-test <mod> <hero> <mesh path> <fbx>"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library)"); return 1; }
+                Environment.SetEnvironmentVariable("MFF_GUI_NOASK", "1");
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    try { code = await main.ModelEffectsTest(rest[1], rest[2], rest[3], rest[4], Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
+                return code;
+            }
             case "--model-summon-test":
             {
                 // --model-summon-test <mod> <creature summon package> <person-shaped summon package> (scratch MHO_EXTMM_HOME; the

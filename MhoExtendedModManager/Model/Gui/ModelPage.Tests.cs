@@ -120,7 +120,9 @@ sealed partial class ModelPage
         packages.SelectedIndex = rows.IndexOf(label);
         Check(ChosenPackage == null && host.Packages.All(p => !p.File.StartsWith(LabelKey)), "a heading can't be picked");
         summonsTarget.PerformClick();
-        Check(!summonsOnlyTarget && packages.Items.OfType<CharacterList.Item>().Count(r => r.Header || !r.Key.Contains(':')) > rows.Count(r => r.Header || !r.Key.Contains(':')) / 2 && !packages.Items.OfType<CharacterList.Item>().Any(r => r.Label), "clicked again: the whole list (hero groups shut)");
+        var whole = packages.Items.OfType<CharacterList.Item>().ToList();
+        Check(!summonsOnlyTarget && whole.Count(r => r.Header) >= rows.Count(r => r.Header) && whole.Count(r => r.Header || !r.Key.Contains(':')) > rows.Count(r => r.Header) && !whole.Any(r => r.Label),
+            $"clicked again: the whole list (hero groups shut: {whole.Count(r => r.Header)} groups, {rows.Count(r => r.Header)} with summons)");
         gameList = false;
         // a creature as the target, no source: its own model becomes the source
         sourceKind.SelectedIndex = 0; await Task.Delay(300);   // (another kind: the own-model pick switches to From the Game)
@@ -132,6 +134,8 @@ sealed partial class ModelPage
         string want = GameSrc + creature;
         for (int i = 0; i < 1200 && !(want.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
         Check(want.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource && GameMode, $"a creature target with no source gets its own model ({chosenKey ?? "none"}, From the Game {GameMode})");
+        for (int i = 0; i < 300 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);
+        Check(preview.AnimationNames.Count > 0, $"its preview has animations ({preview.AnimationNames.Count}; a summon without its own plays its hero's other summon's on the same skeleton)");
         // a person-shaped summon: nothing picked by itself; Edit in Blender's step picks its own model
         chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear(); characters.ClearSelected();
         Reselect(packages, person);
@@ -140,6 +144,32 @@ sealed partial class ModelPage
         bool own = await UseOwnModel(person);
         Check(own && (GameSrc + person).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && preview.AnimationNames.Count > 0, $"Edit in Blender's own-model step loads {person} as the source ({preview.AnimationNames.Count} animations)");
         Check(blenderButton.Enabled, "Edit in Blender is on with a target picked");
+        // right-click a summon in the Source list: the source and the target
+        chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear(); characters.ClearSelected();
+        gameList = false; FillPackages(); packages.ClearSelected();
+        expanded.Add("game " + DescribePackage(creature).Title); FillCharacters();
+        int at = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + creature, StringComparison.OrdinalIgnoreCase));
+        if (at >= 0) SummonBoth(at, creature);
+        for (int i = 0; i < 1200 && !((GameSrc + creature).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+        Check(at >= 0 && (GameSrc + creature).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && ChosenPackage?.Key.Equals(creature, StringComparison.OrdinalIgnoreCase) == true,
+            $"right-clicking a summon in the Source list picks it as the source and the target (source {chosenKey ?? "none"}, target {ChosenPackage?.Key ?? "none"})");
+        // MHO_TEST_COPYBUILD=<package>: a summon whose model has copies elsewhere (Squirrelpocalypse's squirrel): one build
+        // writes each of them into the mod
+        if (Environment.GetEnvironmentVariable("MHO_TEST_COPYBUILD") is { Length: > 0 } copyPkg)
+        {
+            var copies = SummonCopies(copyPkg);
+            Check(copies.Count > 0, $"{copyPkg} has copies of its model ({string.Join(", ", copies)})");
+            chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear(); characters.ClearSelected();
+            expanded.Add("game " + DescribePackage(copyPkg).Title); FillCharacters();
+            int row = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + copyPkg, StringComparison.OrdinalIgnoreCase));
+            if (row >= 0) SummonBoth(row, copyPkg);
+            for (int i = 0; i < 1200 && !((GameSrc + copyPkg).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+            for (int i = 0; i < 300 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);
+            bool okBuild = await BuildAsync();
+            Check(okBuild && built.ContainsKey(copyPkg) && copies.All(c => built.Keys.Any(k => k.Equals(c, StringComparison.OrdinalIgnoreCase))),
+                $"one build puts the model into {copyPkg} and its copies (built: {string.Join(", ", built.Keys)})");
+            if (fails > 0) say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
+        }
         return fails;
     }
 

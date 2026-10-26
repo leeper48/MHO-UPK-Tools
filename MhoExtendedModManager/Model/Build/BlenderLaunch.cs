@@ -166,6 +166,112 @@ else:
     print("MHO MFF Importer: no mff_sync.py in", bpy.data.filepath)
 """;
 
+    /// <summary>
+    /// An effect model (a static mesh) in a new Blender scene (Kurt, 2026-10-25: Effect Models): the folder's model.fbx is
+    /// imported into the user's startup scene and saved as model.blend; each Ctrl+S exports the scene's meshes (every mesh but
+    /// those of the startup scene: added ones count, so a model can be swapped for another) to from_blender\model.fbx and
+    /// counts up from_blender\sync.json. The sync is the scene's text block mff_sync.py, so <see cref="Reopen"/> works too.
+    /// Null = started; else why not.
+    /// </summary>
+    public static string? OpenStatic(string folder, bool background = false)
+    {
+        string? exe = Find();
+        if (exe == null) return "Blender isn't installed (no Blender Foundation folder in Program Files): pick blender.exe in Settings ▾ → Model → Choose Blender.";
+        string script = WriteStaticScript(folder);
+        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = folder };
+        foreach (var a in background ? new[] { "-b", "--python", script } : new[] { "--python", script }) psi.ArgumentList.Add(a);
+        var proc = Process.Start(psi);
+        if (background) proc?.WaitForExit(300_000);
+        return null;
+    }
+
+    /// <summary>Writes open_in_blender.py for an effect model's folder and returns its path.</summary>
+    public static string WriteStaticScript(string folder)
+    {
+        Protected.CheckWrite(folder);
+        string path = Path.Combine(folder, "open_in_blender.py");
+        File.WriteAllText(path, StaticScript.Replace("@@SYNC@@", StaticSync).Replace("@@FOLDER@@", folder));
+        return path;
+    }
+
+    const string StaticScript = """
+# Written by the MHO Extended Mod Manager (Effect Models): opens this folder's model.fbx (a static mesh) in a new scene.
+# Run again with:  blender --python open_in_blender.py
+import bpy, os
+
+FOLDER = r"@@FOLDER@@"
+MODEL = os.path.join(FOLDER, "model.fbx")
+BLEND = os.path.join(FOLDER, "model.blend")
+SYNC = r'''@@SYNC@@'''
+
+
+def run():
+    startup = [o.name for o in bpy.data.objects]
+    bpy.ops.import_scene.fbx(filepath=MODEL)
+    bpy.context.scene["mho_startup"] = startup
+    txt = bpy.data.texts.get("mff_sync.py") or bpy.data.texts.new("mff_sync.py")
+    txt.clear()
+    txt.write(SYNC)
+    txt.use_module = True
+    exec(compile(SYNC, "mff_sync.py", "exec"), {"__name__": "mff_sync"})
+    bpy.ops.wm.save_as_mainfile(filepath=BLEND)
+    print(f"MHO MFF Importer: effect model {MODEL} saved as {BLEND}")
+    return None
+
+
+if bpy.app.background:
+    run()
+else:
+    bpy.app.timers.register(run, first_interval=0.5)
+""";
+
+    const string StaticSync = """
+import bpy, os, json, time
+from bpy.app.handlers import persistent
+
+FOLDER = r"@@FOLDER@@"
+OUT = os.path.join(FOLDER, "from_blender")
+
+
+@persistent
+def mff_effect_on_save(*_):
+    startup = set(bpy.context.scene.get("mho_startup", []))
+    meshes = [o for o in bpy.context.view_layer.objects if o.type == "MESH" and o.name not in startup]
+    if not meshes:
+        print("MHO MFF Importer effect sync: no mesh to send")
+        return
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, "model.fbx")
+    was = [o for o in bpy.context.view_layer.objects if o.select_get()]
+    active = bpy.context.view_layer.objects.active
+    for o in bpy.context.view_layer.objects:
+        o.select_set(o in meshes)
+    try:
+        bpy.ops.export_scene.fbx(filepath=path, use_selection=True, object_types={"MESH"}, use_mesh_modifiers=True,
+                                 add_leaf_bones=False, bake_anim=False)
+    finally:
+        for o in bpy.context.view_layer.objects:
+            o.select_set(o in was)
+        bpy.context.view_layer.objects.active = active
+    state_path = os.path.join(OUT, "sync.json")
+    state = json.load(open(state_path, encoding="utf-8")) if os.path.isfile(state_path) else {"version": 0}
+    state["version"] = int(state.get("version", 0)) + 1
+    state["time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    state["model"] = "model.fbx"
+    state["anims"] = {}
+    tmp = state_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=1)
+    os.replace(tmp, state_path)
+    print("MHO MFF Importer effect sync: saved", path)
+
+
+for h in list(bpy.app.handlers.save_post):
+    if getattr(h, "__name__", "") == "mff_effect_on_save":
+        bpy.app.handlers.save_post.remove(h)
+bpy.app.handlers.save_post.append(mff_effect_on_save)
+""";
+
     /// <summary>The script (Blender 4.x / 5.x). @@FOLDER@@ = the export folder.</summary>
     const string Script = """
 # Written by the MHO MFF Importer: opens this Export FBX folder in a new Blender scene.

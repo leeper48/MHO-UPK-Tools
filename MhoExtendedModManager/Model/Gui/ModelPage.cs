@@ -167,7 +167,8 @@ sealed partial class ModelPage : UserControl
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var topRight = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        foreach (var b in new[] { undoButton, redoButton, historyButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
+        InitEffectsButton();
+        foreach (var b in new[] { effectsButton, undoButton, redoButton, historyButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
         top.Controls.Add(foldersLabel, 0, 0); top.Controls.Add(topRight, 1, 0);
         root.Controls.Add(top, 0, 0);
 
@@ -384,6 +385,9 @@ sealed partial class ModelPage : UserControl
         {
             int i = characters.IndexFromPoint(e.Location);
             if (i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Header: true } h) ToggleGroup(h);
+            // right-click a summon or power model: the source and the target at once (Kurt, 2026-10-25)
+            else if (e.Button == MouseButtons.Right && i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Label: false } s
+                     && s.Key.StartsWith(GameSrc) && IsSummon(s.Key[GameSrc.Length..])) SummonBoth(i, s.Key[GameSrc.Length..]);
         };
         characters.KeyDown += (_, e) =>
         {
@@ -605,7 +609,8 @@ sealed partial class ModelPage : UserControl
     /// Squirrel Girl's squirrels and Magik's demons): a summoned character (Kind "summon": its own agent package) or a model the
     /// power's own package plays (Kind "power" / "entity": Cyclops's Strike Team - Beast is a mesh in UC__PowerCyclops_CallBeast_SF),
     /// with the mesh in that package (<see cref="MhoSkeleton.Choose"/> picks it) and its bone count.</summary>
-    internal sealed record Summon(string Hero, string Name, string Power, string Kind, string Mesh, int Bones, string? Icon = null);
+    /// <summary>Kind "copy": the same model under the same path in another of the hero's packages (MeshPath), built together.</summary>
+    internal sealed record Summon(string Hero, string Name, string Power, string Kind, string Mesh, int Bones, string? Icon = null, string? MeshPath = null);
 
     /// <summary>Every hero's summons and power models (Model\StockData\model_summons.txt, from --summon-census with
     /// MHO_CENSUS_OUT on the stock packages; every costume's variant), by package file.</summary>
@@ -623,7 +628,7 @@ sealed partial class ModelPage : UserControl
             var c = line.Split('\t');
             if (c.Length < 7 || !int.TryParse(c[6], out int bones)) continue;
             if (!map.TryGetValue(c[0], out var list)) map[c[0]] = list = new();
-            list.Add(new Summon(c[1], c[2], c[3], c[4], c[5], bones, c.Length > 7 && c[7].Length > 0 ? c[7] : null));
+            list.Add(new Summon(c[1], c[2], c[3], c[4], c[5], bones, c.Length > 7 && c[7].Length > 0 ? c[7] : null, c.Length > 8 && c[8].Length > 0 ? c[8] : null));
         }
         // the package's own hero first (others reach it too: Rogue's stolen powers, Ant-Man's Friends in Low Places bring
         // Squirrel Girl's squirrels): the one with most entries, then the one named in the file
@@ -639,7 +644,7 @@ sealed partial class ModelPage : UserControl
     /// <summary>A summon's readable name: "MarvelAgent_CyclopsUltimateBeast" (Cyclops) → "Ultimate Beast", "beast" → "Beast".</summary>
     static string SummonName(Summon x)
     {
-        string n = System.Text.RegularExpressions.Regex.Replace(x.Name, @"^(MarvelAgent|MarvelNPC|MarvelAttachment\w*?)_", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        string n = System.Text.RegularExpressions.Regex.Replace(x.Name, @"^(MarvelAgent|MarvelNPC|MarvelProjectile|MarvelEntity|MarvelAttachment\w*?)_", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (n.Length > x.Hero.Length && n.StartsWith(x.Hero, StringComparison.OrdinalIgnoreCase)) n = n[x.Hero.Length..];
         n = Spaced(n.TrimStart('_')).Replace("Ao A", "AoA");   // (Age of Apocalypse: CyclopsUltimateJeanAoA)
         return n.Length == 0 ? x.Name : char.ToUpperInvariant(n[0]) + n[1..];
@@ -647,6 +652,18 @@ sealed partial class ModelPage : UserControl
 
     /// <summary>The mesh to use in a summons package (a power package's model among its effects), or null for the automatic pick.</summary>
     internal static string? SummonMesh(string file) => Summons.TryGetValue(Path.GetFileName(file), out var l) ? l[0].Mesh : null;
+
+    /// <summary>The other packages holding the same summon model under the same path (Squirrelpocalypse's squirrel: its
+    /// projectile's package and the power's): the game shows the copy it loads first, so a build goes into each.</summary>
+    internal static List<string> SummonCopies(string file)
+    {
+        if (!Summons.TryGetValue(Path.GetFileName(file), out var mine)) return [];
+        var paths = mine.Select(x => x.MeshPath).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (paths.Count == 0) return [];
+        return Summons.Where(kv => !kv.Key.Equals(Path.GetFileName(file), StringComparison.OrdinalIgnoreCase)
+                && kv.Value.Any(x => x.MeshPath != null && paths.Contains(x.MeshPath) && x.Hero.Equals(mine[0].Hero, StringComparison.OrdinalIgnoreCase)))
+            .Select(kv => kv.Key).ToList();
+    }
 
     /// <summary>"BlackCat_Boss" → "Black Cat Boss".</summary>
     static string Spaced(string s) => System.Text.RegularExpressions.Regex.Replace(s.Replace('_', ' '), @"(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])", " ").Trim();

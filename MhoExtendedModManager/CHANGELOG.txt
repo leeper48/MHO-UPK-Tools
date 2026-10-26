@@ -1,6 +1,27 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.152
+- Effect Models: meshes with vertex colors build (Squirrel Girl's running squirrels stopped with "mesh has per-vertex colors"): each vertex takes its nearest original vertex's color.
+- Effect Models export with their own normals, so big meshes (Venom's symbiote spawner, 100k vertices before) stay under the game's vertex limit; meshes with an empty section build. All 615 effect meshes now go out to Blender and back.
+
+0.60.151
+- Model tab: Effect Models (the button at the top right). The meshes heroes' powers draw as particles or carry on projectiles, listed by hero: Squirrel Girl's falling and flying squirrels (It's Raining Rodents, Squirrelpocalypse, Acorn Meteor …), acorns, Deadpool's, Ultron's and the rest: 929 models, 1,640 hero entries.
+- Pick one to see it in 3D. Edit in Blender (the same scene opens again next time; each Ctrl+S sends it back and the preview shows it as it will be built) or Import FBX (another model in its place: its parts go to the mesh's sections by material name, or all into its one section).
+- Build into Mod writes it into every package holding a copy of the mesh (Squirrel Girl's squirrel pose is in 9), since the game shows whichever it loads first. Models shared by several heroes say so. Build When Blender Saves; Back to the Game's takes the packages it added out again.
+
+0.60.150
+- Model tab: projectile models are in the summons list too, such as Squirrelpocalypse's squirrel (Squirrel Girl → Power Model: For Monkey Joe), Deadpool's Li'l Deadpool and Rocket's gravity mine, as are summons that only a talent brings: 244 packages in all (was 176).
+- A summon model that's also in another of the hero's packages under the same path (Squirrelpocalypse's squirrel is in its projectile's package and in the power's) is built into each copy with one Build into Mod, since the game shows whichever copy it loads first.
+
+0.60.149
+- Model tab: a summon whose materials all come from its hero's package (Squirrel Girl's squirrels) builds: the build stopped with "no material instance of its own to copy"; it now uses the cloth material when the target's own one is asked for.
+- Those summons export with their textures for Blender (the squirrels came out gray), and the preview shows them with their textures.
+- A summon with no animations of its own (the Aviator and Xmas squirrels) plays its hero's other summon's on the same skeleton in the preview, as the game does.
+
+0.60.148
+- Model tab: right-click a summon or power model in the Source list to make it the source and the target at once.
+
 0.60.147
 - Model tab: Edit in Blender, beside Build. With no source picked, the target's own model becomes the source and opens in Blender (pick a summon or a costume as the target, then Edit in Blender). Opened in Blender before: that same scene opens again with your work in it (or comes to the front when it's open), instead of a new export; Full Export ▾ → Open in Blender still makes a fresh one.
 - A line under Build shows the Blender link: "Linked to Blender · Save 3 Taken In at 14:02". Build When Blender Saves (kept with the mod): each Ctrl+S in Blender that sends a change also builds.

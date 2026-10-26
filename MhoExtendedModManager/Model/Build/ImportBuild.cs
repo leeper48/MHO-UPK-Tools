@@ -153,8 +153,10 @@ sealed class ImportBuild
 
         var mp = MpmPackage.FromBytes(basePackage);
         int firstMat = baseN.Materials.FirstOrDefault(x => x > 0 && mp.ClassOf(mp.Exports[x - 1]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase));
-        if (firstMat <= 0) throw new InvalidDataException("the base mesh has no material instance of its own to copy (every one is imported)");
-        string template = mp.Exports[firstMat - 1].ObjectName;
+        // none of its own (Squirrel Girl's squirrels import theirs from another package, Kurt 2026-10-25): the game materials
+        // copied from their heroes' packages still work; "its own material" becomes the cloth one
+        string? template = firstMat > 0 ? mp.Exports[firstMat - 1].ObjectName : null;
+        if (template == null) log("material: the target's materials all come from other packages (none of its own to copy), so \"the base mesh's own material\" is Punisher Modern VU's cloth material here");
         metalShare = MaterialChoice.MetalShare(r.Sections.Select(x => x.Tex.Spec).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase));
         // an MHO packed spec map: Angela's own armor material reads all of it (shine, power, skin mask, reflectivity) and a spec color
         if (r.Sections.Any(x => x.Tex.UsesMhoSpec)) { metalShare = 1; log("material: an MHO spec map is in use: the Metal template (Angela's armor material) reads all four of its channels and the spec color"); }
@@ -175,9 +177,10 @@ sealed class ImportBuild
         // Each material's game material (the Materials tab's Game Material ▾; Kurt, 2026-10-12): automatic = the choice above.
         // One group per game material, each with its own template copy and its own name prefix (their stand-in textures share
         // names otherwise); the package grows group by group (every step only appends, so earlier references stay).
-        string? DonorOf(string name) => r.Sections.First(x => x.Material == name).Tex.Template is string key && MaterialChoice.Templates.FirstOrDefault(t => t.Key == key) is { Key: not null } t
-            ? (t.Key == "base" ? "base" : t.Donor) : donor ?? "base";
-        string baseTemplate = template;
+        string? DonorOf(string name) => OwnOr(r.Sections.First(x => x.Material == name).Tex.Template is string key && MaterialChoice.Templates.FirstOrDefault(t => t.Key == key) is { Key: not null } t
+            ? (t.Key == "base" ? "base" : t.Donor) : donor ?? "base");
+        string? OwnOr(string? d) => d == "base" && template == null ? MaterialChoice.Default : d;
+        string baseTemplate = template ?? "";
         var groups = mats.GroupBy(DonorOf).ToList();
         var refs = new Dictionary<string, int>(StringComparer.Ordinal);
         for (int gi = 0; gi < groups.Count; gi++)

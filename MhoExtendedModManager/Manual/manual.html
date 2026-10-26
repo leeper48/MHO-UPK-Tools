@@ -415,11 +415,11 @@ function mhoNext(dir) {
 <li>Any other package with a character in it (a pet, a vehicle, another mod's package) works too: <b>Browse for a Package</b> at the end of the Target list. It has to be named like a game package, since the mod replaces that file; picked from the game folder, the game's stock copy is used. When a package holds several characters (a hero's base package can hold props or another hero's model), <b>Model ▾</b> under the Target filter picks the one the model is fitted to and replaces; <b>Automatic</b> takes the costume's own model.</li>
 <li><b>Summons and power models</b> are in <b>From the Game</b> too (both Source and Target): in each hero's group, after its costumes, under <b>SUMMONS AND POWER MODELS</b>, with the icon of the power that brings them in: Squirrel Girl's squirrels, Magik's demons and N'astirh, Colossus's Fastball Special Wolverine, Cyclops's Strike Team (Beast, Jean, Iceman) and more, every costume's version. The <b>Summons</b> button beside the filter lists only those, for every hero. A summon has its own package; a power model (Strike Team's Beast) is one of the models in the power's package, picked for you (<b>Model ▾</b> picks another). To change one:
 <ol>
-<li>Pick it as the <b>Target</b> (no source needed).</li>
+<li>Pick it as the <b>Target</b> (no source needed), or right-click it in the <b>Source</b> list: it's the source and the target at once.</li>
 <li><b>Edit in Blender</b>: its own model becomes the source and opens in Blender. Edit it and press <kbd>Ctrl+S</kbd> there to send it back.</li>
 <li><b>Build into Mod</b> (or tick <b>Build When Blender Saves</b> under it, and every Ctrl+S builds), then Save Changes and Apply Changes.</li>
 </ol>
-Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your work in it; the line under Build says which save was taken in last. A squirrel, a small demon or a car isn't shaped like a person, so picking one as the target makes its own model the source by itself. A summon shaped like a person (Beast, Wolverine, Jean Grey, N'astirh) also takes an MFF model or another hero, and an FBX rigged to the summon's own bones works for any of them (<b>Single Model</b>). A power model's animations play from the power's own sets, so for those the model can be changed and animation edits from Blender aren't built in (the build log says so).</li>
+Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your work in it; the line under Build says which save was taken in last. A squirrel, a small demon or a car isn't shaped like a person, so picking one as the target makes its own model the source by itself. A summon shaped like a person (Beast, Wolverine, Jean Grey, N'astirh) also takes an MFF model or another hero, and an FBX rigged to the summon's own bones works for any of them (<b>Single Model</b>). Some models are in two packages under the same path (Squirrelpocalypse's squirrel is in its projectile's package and in the power's): the game shows whichever it loads first, so one Build into Mod builds into both, and both go into the mod. A power model's animations play from the power's own sets, so for those the model can be changed and animation edits from Blender aren't built in (the build log says so).</li>
 <li><b>Build into Mod</b>, Save Changes, Apply Changes. The new model shows wherever the game uses that character, with its own powers.</li>
 <li>To take a target off the list again, right-click it → <b>Remove</b> (or select it and press <kbd>Delete</kbd>). One the Model tab added leaves the mod, with its build. For one of the mod's own packages you choose: <b>Restore the Mod's Copy</b> takes the model off, <b>Remove From the Mod</b> takes the package out. <b>Cancel</b> in the editor brings it all back.</li>
 </ol>
@@ -478,6 +478,16 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <li>Back in the app: <b>Build into Mod</b>, Save Changes, Apply Changes. With <b>Build When Blender Saves</b> ticked (under Build, while the work is linked to Blender), each Ctrl+S that sends a change also builds.</li>
 </ol>
 <p>For a model that came without bones, its rig is in <b>Full Export ▾ → Open the Rig in Blender</b>: fix its weights there, and each Ctrl+S re-rigs the model.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-effects">Change a Power's Effect Models (Squirrel Girl's Falling Squirrels)</h3>
+<ol class="steps">
+<li>On the Model tab, click <b>Effect Models</b> at the top right. The list shows each hero's effect models: the meshes their powers draw as particles or carry on a projectile (It's Raining Rodents' falling squirrels, Squirrelpocalypse's squirrels, acorns, mines …). Filter by name or hero.</li>
+<li>Pick one: the preview shows it, and <b>Packages</b> lists every package that holds a copy of it under the same path (the game shows whichever it loads first, so all of them are built). A model shared by several heroes says so: a change shows on all of them.</li>
+<li><b>Edit in Blender</b>: it opens with its textures in a new scene (the next time, the same scene opens again). Change it, or delete it and put another model in its place, and press <kbd>Ctrl+S</kbd>: the preview shows it as it will be built. Or <b>Import FBX</b> to use a model file as it is. Its parts go to the mesh's sections by material name, or all into its one section (most effect models have one); the mesh keeps its material.</li>
+<li><b>Build into Mod</b> (or tick <b>Build When Blender Saves</b>), then Save Changes and Apply Changes. <b>Back to the Game's</b> forgets the edit and takes the packages it added out of the mod. Click <b>Effect Models</b> again for the characters.</li>
+</ol>
 </div>
 
 <div class="walk">

@@ -211,8 +211,26 @@ sealed partial class PreviewPanel
         var mods = ModsNow;
         string key = Stamp(packagePath) + "|" + mesh + "|" + string.Join(",", bones.Select(b => b.Name)) + "|" + ModsStamp(mods);   // (added cape / hair bones change the list)
         lock (cacheLock) if (animCache.TryGetValue(key, out var hit)) return hit;
-        var list = ModAnimations.For(new MeshRef(file, AnimsFrom(file, packagePath), mesh, 0), bones, mods, Settings.Current.CookedFolder ?? Settings.Current.StockFolder)
+        string? cooked = Settings.Current.CookedFolder ?? Settings.Current.StockFolder;
+        var list = ModAnimations.For(new MeshRef(file, AnimsFrom(file, packagePath), mesh, 0), bones, mods, cooked)
             .Select(ImportBuild.AsBuilt).ToList();
+        // a summon with no animations of its own (Squirrel Girl's Aviator and Xmas squirrels): its hero's other summons on the
+        // same skeleton, the one whose name it extends first (UC__MarvelAgent_SquirrelGirlPetSquirrel_SF holds the squirrels' set)
+        if (list.Count == 0 && cooked != null && ModelPage.Summons.TryGetValue(file, out var mine))
+        {
+            string stem = Path.GetFileNameWithoutExtension(file);
+            static string Bare(string f) { string n = Path.GetFileNameWithoutExtension(f); return n.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? n[..^3] : n; }
+            foreach (string other in ModelPage.Summons.Where(kv => !kv.Key.Equals(file, StringComparison.OrdinalIgnoreCase) && kv.Value.Any(x => x.Hero.Equals(mine[0].Hero, StringComparison.OrdinalIgnoreCase)))
+                         .Select(kv => kv.Key).OrderByDescending(f => stem.StartsWith(Bare(f), StringComparison.OrdinalIgnoreCase)).ThenBy(f => f, StringComparer.OrdinalIgnoreCase))
+            {
+                string path = StockFiles.For(cooked, other);
+                if (!File.Exists(path)) continue;
+                var borrowed = ModAnimations.For(new MeshRef(other, path, mesh, 0), bones, mods, cooked);
+                if (borrowed.Count == 0) continue;
+                list = borrowed.Select(ImportBuild.AsBuilt).ToList();
+                break;
+            }
+        }
         lock (cacheLock) { if (animCache.Count > 32) animCache.Clear(); animCache[key] = list; }
         return list;
     }

@@ -300,7 +300,9 @@ sealed class PowerEffects
                 if (used != null && l.Contains("EntityHasTalent", StringComparison.OrdinalIgnoreCase)) { gated.Add(used); used = null; }
             }
         }
-        if (gated.Count == 0) return;
+        // (the census lists every summon: a talent-only power can fire the same missile as the power itself, Squirrelpocalypse's
+        // MeleeSquirrelConeExtraSquirrels, and would take the power's own squirrel projectile with it)
+        if (gated.Count == 0 || AllCostumeSummons) return;
         var behind = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string g in gated)
         {
@@ -363,6 +365,15 @@ sealed class PowerEffects
                 if (l.Type == 'R' && l.Values.Any(v => v.Struct != null && Contains(db, v.Struct, field))) return true;
         }
         return false;
+    }
+
+    /// <summary>A character's mesh component's properties: from byte 16 (owner, template name, NetIndex first), else wherever
+    /// they read (Squirrelpocalypse's projectile component read as junk from an earlier start and lost its model).</summary>
+    static List<FxProps.Prop> ComponentProps(FxPkg q, int index)
+    {
+        var e = q.T.Exports[index];
+        if (e.SerialSize > 16 && FxProps.TryRead(q.Bytes, q.T, e.SerialOffset + 16, e.SerialOffset + e.SerialSize) is { Count: > 0 } at16) return at16;
+        return FxProps.Find(q.Bytes, q.T, e)?.Props ?? [];
     }
 
     static (FxPkg P, int Export)? Resolve(FxPkg p, int r, List<FxPkg> pkgs, FxGame g)
@@ -515,7 +526,16 @@ sealed class PowerEffects
             foreach (string c in g.ClassChain(cls))
             {
                 (FxPkg Q, List<FxProps.Prop> Props)? comp = null;
-                if (c.Equals(cls, StringComparison.OrdinalIgnoreCase)) comp = (p, props);
+                // the class's own default component in this package first (a power's projectile: Squirrelpocalypse's
+                // MarvelProjectile_ForMonkeyJoe names its squirrel model there, and the component seen here can be its parent
+                // class's, marvelprojectileanimated, with no model)
+                // (in this package, else the power's own packages: the projectile's component is in the power's package while
+                // the one seen is in uc__marvelprojectileanimated_sf)
+                string compPath = "marvelgamecontent.default__" + c + ".initialskeletalmesh";
+                foreach (var q in pkgs.Prepend(p))
+                    if (q.Find(compPath) is int own && own >= 0) { comp = (q, ComponentProps(q, own)); break; }
+                if (comp != null) { }
+                else if (c.Equals(cls, StringComparison.OrdinalIgnoreCase)) comp = (p, props);
                 else
                     foreach (var pkgName in g.PackagesOf(c).Append("uc__" + c + "_sf"))
                     {
@@ -524,7 +544,7 @@ sealed class PowerEffects
                         if (q == null) continue;
                         int ci = q.Find("marvelgamecontent.default__" + c + ".initialskeletalmesh");
                         if (ci < 0) continue;
-                        comp = (q, FxProps.Find(q.Bytes, q.T, q.T.Exports[ci])?.Props ?? []);
+                        comp = (q, ComponentProps(q, ci));
                         break;
                     }
                 if (comp is not { } cp) continue;
@@ -536,7 +556,12 @@ sealed class PowerEffects
                 if (meshAt != null && setsProp != null && matsProp != null && summonScale != null) break;
             }
             var look2 = pkgs.ToList();
-            if (meshAt is not { } ma || Resolve(ma.P, ma.Ref, look2, g) is not { } mesh || g.FileFor(mesh.P.Name) is not string meshFile) { fx.Notes.Add($"{cls}: a summoned character whose model isn't found"); return true; }
+            if (meshAt is not { } ma || Resolve(ma.P, ma.Ref, look2, g) is not { } mesh || g.FileFor(mesh.P.Name) is not string meshFile)
+            {
+                if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1")
+                    Console.WriteLine($"summon {cls}: mesh ref {(meshAt is { } m0 ? $"{m0.Ref} in {m0.P.Name} = {m0.P.T.PathOf(m0.Ref)}" : "none")}; resolved {(meshAt is { } m1 && Resolve(m1.P, m1.Ref, look2, g) is { } r1 ? r1.P.Name + " → file " + (g.FileFor(r1.P.Name) ?? "none") : "no")}; chain {string.Join(" > ", g.ClassChain(cls))}; seen in {p.Name} at {epath}");
+                fx.Notes.Add($"{cls}: a summoned character whose model isn't found"); return true;
+            }
             // (a placeholder of a few vertices: a wall, a decoy, a trap or a marker the game draws with effects alone)
             if (mesh.P.T.Exports[mesh.Export].SerialSize < 2000) { fx.Notes.Add($"{cls}: a summoned marker with no model to show"); return true; }
             int meshExport = mesh.Export;

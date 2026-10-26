@@ -420,6 +420,22 @@ sealed partial class MainForm
     /// --model-blender-test (scratch library only): the Model tab's Blender round trip (see ModelPage.TestBlender), then Save
     /// Changes: the edit must be in the mod's Model folder with a relative path.
     /// </summary>
+    /// <summary>--model-effects-test: the Model tab's Effect Models view (ModelPage.TestEffects).</summary>
+    public async Task<int> ModelEffectsTest(string modName, string hero, string path, string fbx, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m);
+        pages.Select(1);
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+        if (tab < 0) { say("no Model tab"); return 1; }
+        editor.SelectTab(tab);
+        for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+        if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
+        int fails = await page.TestEffects(hero, path, fbx, say);
+        CloseEditor();
+        return fails == 0 ? 0 : 1;
+    }
+
     /// <summary>--model-summon-test: the Model tab's summon steps (ModelPage.TestSummons).</summary>
     public async Task<int> ModelSummonTest(string modName, string creature, string person, Action<string> say)
     {
