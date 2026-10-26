@@ -468,6 +468,96 @@ static partial class Program
                 foreach (string l in pdb.Dump(pdb.Prototype(pe.Id).Data, 200)) Console.WriteLine(l);
                 return 0;
             }
+            case "--material-variations":
+            {
+                // Read-only: every class default with a materialvariations list (the random colors: Squirrel Girl's brown, gray
+                // and red squirrels), the class it extends and its materials. --material-variations [package.upk ...]
+                // (no packages: every UC__ package of the stock game copy whose names include materialvariations)
+                string? vgr = settings.ResolvedGameRoot(data);
+                if (vgr == null || !Settings.IsGameRoot(vgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string vcook = Settings.Cooked(vgr);
+                var files = rest.Count > 1 ? rest.Skip(1).ToList()
+                    : Directory.GetFiles(vcook, "UC__*.upk").Select(f => StockFiles.For(vcook, Path.GetFileName(f))).Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase))
+                        .Where(f => { try { return MhoPackageModifier.Package.Open(f).Names.Any(n => n.Equals("materialvariations", StringComparison.OrdinalIgnoreCase)); } catch (Exception ex) when (ex is IOException or MhoPackageModifier.PackageFormatException) { return false; } }).ToList();
+                foreach (string f in files)
+                {
+                    if (MaterialVariations.Read(f) is not { } v) { Console.WriteLine($"{Path.GetFileName(f)}: none"); continue; }
+                    Console.WriteLine($"{v.Package}: {v.Class} (extends {v.Super ?? "?"}) · {v.Materials.Count} variations");
+                    foreach (string m in v.Materials) Console.WriteLine($"    {m}");
+                }
+                return 0;
+            }
+            case "--variation-test":
+            {
+                // --variation-test <scratch folder>: writes only there. The three Variations-tab edits on copies of the stock
+                // squirrel packages: Pet Squirrel Modern's list cut to its first material; a hue-turned copy of the pet
+                // squirrel's material added to its package; Triple Squirrel (no list of its own) given one. Each written
+                // package read back. Exit 0 when every check passes.
+                if (rest.Count < 2) { Console.WriteLine("--variation-test <scratch folder>"); return 1; }
+                string? tgr = settings.ResolvedGameRoot(data);
+                if (tgr == null || !Settings.IsGameRoot(tgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string tcook = Settings.Cooked(tgr), dir = Path.GetFullPath(rest[1]);
+                Directory.CreateDirectory(dir);
+                int fails = 0;
+                void Check(bool ok, string what) { Console.WriteLine((ok ? "PASS " : "FAIL ") + what); if (!ok) fails++; }
+                string Copy(string f) { string to = Path.Combine(dir, f); File.Copy(StockFiles.For(tcook, f), to, true); return to; }
+                string modern = Copy("UC__MarvelAgent_SquirrelGirlPetSquirrelModern_SF.upk"), pet = Copy("UC__MarvelAgent_SquirrelGirlPetSquirrel_SF.upk"),
+                    triple = Copy("UC__MarvelAgent_SquirrelGirlTripleSquirrel_SF.upk");
+                string? PathOf(string f) => File.Exists(Path.Combine(dir, f)) ? Path.Combine(dir, f) : StockFiles.For(tcook, f) is var s && File.Exists(s) ? s : null;
+                var classes = MaterialVariations.ClassesFor("UC__MarvelAgent_SquirrelGirlPetSquirrel_SF.upk", tcook, PathOf,
+                    [("marvelagent_squirrelgirlpetsquirrelmodern", "Pet Squirrel Modern"), ("marvelagent_squirrelgirltriplesquirrel", "Triple Squirrel")]);
+                foreach (var c in classes) Console.WriteLine($"  {c.Label} ({c.Class}, {c.File}): {(c.Materials.Count == 0 ? "none" : string.Join(", ", c.Materials))}{(c.Inherited ? " · from " + c.From : "")}");
+                Check(classes.Count == 3 && classes.First(c => c.Class.EndsWith("modern")).Materials.Count == 3 && classes.First(c => c.Class.EndsWith("triplesquirrel")).Materials.Count == 0,
+                    "the pet squirrel's model is used by 3 classes; Modern has 3 variations, Triple none");
+                // 1. Modern's list: only the brown one
+                File.WriteAllBytes(modern, MaterialVariations.SetList(modern, ["squirrelgirl.squirrel_mat"]));
+                Check(MaterialVariations.ReadClass(modern)?.Materials is ["squirrelgirl.squirrel_mat"], "Modern's list cut to the brown squirrel, read back");
+                // 2. a hue-turned copy of the pet squirrel's first material, in its package
+                var first = MaterialVariations.FirstMaterial(pet, null);
+                Check(first is { Export: >= 0 }, $"the pet squirrel's first material: {first?.Path}");
+                if (first is { Export: >= 0 } fm)
+                {
+                    using var map = MaterialVariations.ColorMap(pet, fm.Path, tcook);
+                    Check(map != null, $"its color map decodes ({map?.Width}x{map?.Height})");
+                    string png = Path.Combine(dir, "hue120.png");
+                    if (map != null) MaterialVariations.HueShift(map, 120, png);
+                    var (bytes, newPath) = MaterialVariations.AddMaterial(File.ReadAllBytes(pet), fm.Export, png, "squirrel_var1_mat");
+                    File.WriteAllBytes(pet, bytes);
+                    using var back = MaterialVariations.ColorMap(pet, newPath, tcook);
+                    Check(back != null && back.Width == map!.Width, $"the new material {newPath} is in the package with its own color map");
+                    var mesh = ModMeshes.Load(new MeshRef(Path.GetFileName(pet), pet, "squirrel", Array.FindIndex(MhoPackageModifier.Package.Open(pet).Exports, e => e.ObjectName == "squirrel")), tcook, out _);
+                    Check(mesh != null && mesh.Positions.Length > 0, $"the squirrel model still reads ({mesh?.Positions.Length} vertices)");
+                    // 3. Modern gets it back with the new one; Triple gets a list of its own
+                    File.WriteAllBytes(modern, MaterialVariations.SetList(modern, ["squirrelgirl.squirrel_mat", newPath]));
+                    Check(MaterialVariations.ReadClass(modern)?.Materials?.SequenceEqual(["squirrelgirl.squirrel_mat", newPath], StringComparer.OrdinalIgnoreCase) == true, "Modern's list takes the new material (an import of the pet squirrel's package)");
+                    File.WriteAllBytes(triple, MaterialVariations.SetList(triple, ["squirrelgirl.squirrel_mat", newPath]));
+                    Check(MaterialVariations.ReadClass(triple)?.Materials?.Count == 2, "Triple Squirrel, which had no list, has one now");
+                    var after = MaterialVariations.ClassesFor("UC__MarvelAgent_SquirrelGirlPetSquirrel_SF.upk", tcook, PathOf,
+                        [("marvelagent_squirrelgirlpetsquirrelmodern", "Pet Squirrel Modern"), ("marvelagent_squirrelgirltriplesquirrel", "Triple Squirrel")]);
+                    Check(after.First(c => c.Class.EndsWith("triplesquirrel")).Materials.Count == 2 && !after.First(c => c.Class.EndsWith("triplesquirrel")).Inherited, "and the tab's reading shows it");
+                    // 3b. a variation from an image of another size (1024 x 1024, with alpha), as Add from Image takes it
+                    string img = Path.Combine(dir, "image1024.png");
+                    using (var b = new System.Drawing.Bitmap(1024, 1024, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                    {
+                        using (var g = System.Drawing.Graphics.FromImage(b)) { g.Clear(System.Drawing.Color.FromArgb(255, 40, 90, 200)); g.FillEllipse(System.Drawing.Brushes.Gold, 200, 200, 600, 600); }
+                        b.Save(img, System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                    try
+                    {
+                        var (ib, ipath) = MaterialVariations.AddMaterial(File.ReadAllBytes(pet), fm.Export, img, "squirrel_var2_mat");
+                        File.WriteAllBytes(pet, ib);
+                        using var iback = MaterialVariations.ColorMap(pet, ipath, tcook);
+                        Check(iback != null, $"a variation from a 1024 x 1024 image: {ipath} ({iback?.Width}x{iback?.Height})");
+                    }
+                    catch (Exception ex) { Check(false, "a variation from a 1024 x 1024 image: " + ex.Message); }
+                    // 4. off: an empty list
+                    File.WriteAllBytes(triple, MaterialVariations.SetList(triple, []));
+                    Check(MaterialVariations.ReadClass(triple)?.Materials is { Count: 0 }, "an empty list (no variations) writes and reads back");
+                }
+                Console.WriteLine(fails == 0 ? "all checks passed" : $"{fails} check(s) failed");
+                return fails == 0 ? 0 : 1;
+            }
             case "--proto-find":
             {
                 // Read-only: the prototype paths whose path contains every given part. --proto-find <part> [part ...]

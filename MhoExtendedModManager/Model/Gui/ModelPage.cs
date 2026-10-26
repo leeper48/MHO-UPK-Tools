@@ -129,6 +129,7 @@ sealed partial class ModelPage : UserControl
         preview.TargetClass = () => ChosenPackage is CharacterList.Item it ? ConditionSwaps.ClassOf(it.Key) : null;
         preview.SlotOrder = names => MaterialOverrides.Ordered(names, OverridesFile());
         modelTabs.SelectedChanged += i => preview.PickMaterials = modelTabs.TitleAt(i) == "Materials";
+        modelTabs.SelectedChanged += i => { if (i == varTab) FillVariations(); };
         preview.Override = (ar, orig) => EnsureEdits().Anims.TryGetValue(ar.Name, out var f) && File.Exists(f) ? AnimEdits.ForGame(f, ar, orig) : null;
         preview.IsOverridden = n => edits.Anims.ContainsKey(n);
         preview.FillEditsMenu = FillEditsMenu;
@@ -252,6 +253,10 @@ sealed partial class ModelPage : UserControl
         mapHead.Controls.Add(mapTop); mapHead.Controls.Add(paintBox);
         modelTabs.Add("Bone Map", Column("", mapHead, mapGrid));
         modelTabs.Add("Materials", MaterialsTab());
+        // the random materials a game class picks from (Kurt, 2026-10-26: the squirrels' brown, gray and red)
+        modelTabs.Add("Variations", VariationsTab());
+        varTab = modelTabs.Count - 1;
+        modelTabs.SetTabVisible(varTab, false);
         // the manual's screenshots (MHO_EXTMM_SNAP_MODELTAB = Parts / Bone Map / Materials): that sub-tab first
         if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_MODELTAB") is { Length: > 0 } snapTab)
             for (int k = 0; k < modelTabs.Count; k++) if (modelTabs.TitleAt(k).Equals(snapTab, StringComparison.OrdinalIgnoreCase)) modelTabs.Select(k);
@@ -451,6 +456,7 @@ sealed partial class ModelPage : UserControl
         log.BackColor = Color.FromArgb(22, 22, 26); log.ForeColor = Ui.Subtle; log.Font = new Font("Consolas", 9f * Ui.UiScale);
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); RefreshPreview(); };
         packages.SelectedIndexChanged += (_, _) => SchedulePreview();
+        packages.SelectedIndexChanged += (_, _) => ShowVariationsTab();
         material.SelectedIndexChanged += (_, _) => SchedulePreview();
         parts.CellMouseDown += (_, e) =>
         {

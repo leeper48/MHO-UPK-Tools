@@ -149,7 +149,7 @@ static class MaterialOut
     /// from (the template's, for format details), the image, and DXT5 (alpha) or DXT1.</summary>
     /// <param name="AlphaIsData">The alpha is a value, not transparency (a packed spec map's reflectivity): encoded plain, since
     /// refine fits DXT5 colors only where the alpha isn't 0 (measured on Angela's map: color error 1.3 refined, 0.2 plain).</param>
-    sealed record PlannedTexture(string Slot, string? Material, string NewName, int Template, string Image, bool Dxt5, bool AlphaIsData = false);
+    internal sealed record PlannedTexture(string Slot, string? Material, string NewName, int Template, string Image, bool Dxt5, bool AlphaIsData = false);
 
     /// <summary>Builds the materials into <paramref name="packageBytes"/> (a stock base package). Returns the new package
     /// and each MFF material's instance reference (export index + 1). <paramref name="spec"/> / <paramref name="reflect"/>:
@@ -239,7 +239,7 @@ static class MaterialOut
 
     /// <summary>Every planned texture encoded (MPM's encoder, refine) and added in one PackageRebuilder rebuild, each built from
     /// its template texture by MPM's TextureImport builder; the rebuild and every new texture verified.</summary>
-    static byte[] AddTextures(Package pkg, List<PlannedTexture> plan)
+    internal static byte[] AddTextures(Package pkg, List<PlannedTexture> plan)
     {
         var addNames = new List<string>();
         void Need(string n) { if (!pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase)) && !addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n); }

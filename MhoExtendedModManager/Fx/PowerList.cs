@@ -356,9 +356,21 @@ static class PowerList
     static readonly Dictionary<string, Bitmap?> icons = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A power icon ("MarvelUIIcons.Power_Thor_X" → ICO__MarvelUIIcons_SF.upk's texture power_thor_x), decoded once; null if not found.</summary>
+    /// <remarks>The bitmap is cached and shared: callers draw or copy it, never dispose it.</remarks>
     public static Bitmap? Icon(string iconPath, string cooked)
     {
         lock (icons) if (icons.TryGetValue(iconPath, out var hit)) return hit;
+        var bmp = Decode(iconPath, cooked);
+        lock (icons) icons[iconPath] = bmp;
+        return bmp;
+    }
+
+    /// <summary>A power icon decoded afresh (not cached): the caller's own bitmap, to use on another thread and dispose (the
+    /// Model tab's summon thumbnails, written while the 3D view may be drawing the cached one).</summary>
+    public static Bitmap? IconCopy(string iconPath, string cooked) => Decode(iconPath, cooked);
+
+    static Bitmap? Decode(string iconPath, string cooked)
+    {
         Bitmap? bmp = null;
         // A path without its package (Hulk's Ultimate Destruction: "Power_Hulk_Clap") is in the main icon package.
         if (!iconPath.Contains('.')) iconPath = "MarvelUIIcons." + iconPath;
@@ -383,7 +395,6 @@ static class PowerList
                 }
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException) { bmp = null; }
-        lock (icons) icons[iconPath] = bmp;
         return bmp;
     }
 }

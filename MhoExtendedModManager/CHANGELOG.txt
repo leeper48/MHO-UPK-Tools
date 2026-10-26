@@ -1,6 +1,25 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.172
+- Model tab → Variations: right-click a tile → Edit in Image Editor: its color map opens in your image editor, and each save goes into the mod (the material keeps its name, so every list naming it shows the edit). An added variation is then made again from your edit after a build; an edited game variation (the gray squirrel) is put back after a build of its package. Your Model's own color map is edited in the Materials tab.
+
+0.60.171
+- Model tab → Variations: an error (Add from Image, Add Hue Shift, a list that can't be written) shows in a popup too, saying what happened and what to try.
+
+0.60.170
+- Model tab → Variations: right-click a tile → Remove This Variation (one you added: out of every class's list, not made again after builds; the game's own can be unticked). Every error of Add from Image and the other actions goes to the log (some were dropped silently).
+
+0.60.169
+- Model tab → Variations: the model's own material is ticked whether the list names it as Your Model or by its name (it showed off while it was on); a material whose group a save renamed (Make Unique) shows the game's picture instead of a question mark.
+
+0.60.168
+- Model tab → Variations: the materials a character picks from at random each time it spawns (Squirrel Girl's brown, gray and red pet squirrels; thugs' and punks' shirts; raptors; Magik's small demons; Venom's symbiotes). Every class that uses the target's model is listed with a tile per material: untick to take one out, tick only Your Model to turn the random colors off. Add Hue Shift and Add from Image make new materials from your model (a class with no list gets one); hue shifts are made again from the model after every Build into Mod. The build's log says when a character has random materials over the new model.
+- --material-variations lists every class with random materials; --variation-test and --model-variations-test test the tab.
+
+0.60.167
+- Fixed: "Parameter is not valid" crash painting the 3D view's power buttons after the Model tab had shown a summon's thumbnail (the thumbnail freed the power icon the button draws). Summon thumbnails now decode their own copy.
+
 0.60.166
 - Model tab summons (still a preview feature): talents' summons are found (Squirrel Special Forces' camo squirrel, Iceman's Follow My Lead clones), and uniques' summons are under their hero, named after the item (Tippy Toe's Itty Bitty Bow, Hawkguy's Shades' Kate Bishop, the Future Foundation Bodysuit's Invisible Woman). Artifacts' summons (Latverian Regalia's Doombot, Wundagore Clay's raptor, the A.I.M. Robot Dispenser's spiders …) are under Artifacts, a row of its own in Source → From the Game → Heroes whose summons the panel lists. 176 more entries, 71 more packages.
 - --proto-find: the game data's prototype paths containing given parts.

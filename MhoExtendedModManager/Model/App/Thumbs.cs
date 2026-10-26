@@ -49,8 +49,10 @@ static class Thumbs
     {
         lock (iconGate)
         {
+            // (its own copy: PowerList.Icon's cached bitmap is the one the 3D view's power buttons draw, and disposing that here
+            // crashed their next paint with "Parameter is not valid", Kurt 2026-10-26)
             if (Settings.Current.CookedFolder is string cooked)
-                using (var icon = MhoExtendedModManager.Fx.PowerList.Icon(iconPath, cooked))
+                using (var icon = MhoExtendedModManager.Fx.PowerList.IconCopy(iconPath, cooked))
                     if (icon != null) { ImagePixels.SavePng(icon, png); return true; }
         }
         return MakePortrait(file, png);

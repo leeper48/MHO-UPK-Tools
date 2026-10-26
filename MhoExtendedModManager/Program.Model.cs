@@ -427,6 +427,26 @@ static partial class Program
                 Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
                 return code;
             }
+            case "--model-variations-test":
+            {
+                // --model-variations-test <mod> <target package> (scratch MHO_EXTMM_HOME; the mod isn't saved): the Model tab's
+                // Variations tab (ModelPage.TestVariations); exit 0 when every check passes.
+                if (rest.Count < 3) { Console.WriteLine("--model-variations-test <mod> <target package>"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library)"); return 1; }
+                Environment.SetEnvironmentVariable("MFF_GUI_NOASK", "1");
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    try { code = await main.ModelVariationsTest(rest[1], rest[2], Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
+                return code;
+            }
             case "--model-summon-test":
             {
                 // --model-summon-test <mod> <creature summon package> <person-shaped summon package> (scratch MHO_EXTMM_HOME; the

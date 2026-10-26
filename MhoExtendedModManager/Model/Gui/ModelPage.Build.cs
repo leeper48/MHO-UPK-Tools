@@ -94,6 +94,7 @@ sealed partial class ModelPage
                 if (print != null) builtPrint[pkg.Key] = print;
                 takenOff.Remove(pkg.Key);
                 ok = true;
+                await VariationsAfterBuild(pkg.Key);   // (added random materials made again from the new model)
                 var copiesBuilt = await BuildCopies(pkg.Key, mffSource, runOptions, print, mff);
                 SaveState();
                 Log($"Done: {pkg.Key} is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
