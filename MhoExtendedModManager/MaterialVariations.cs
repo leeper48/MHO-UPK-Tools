@@ -289,7 +289,10 @@ static class MaterialVariations
         string texName = newName + "_diff";
         if (pkg.Exports.Any(e => e.ObjectName.Equals(newName, StringComparison.OrdinalIgnoreCase) || e.ObjectName.Equals(texName, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException($"{newName} is in the package already");
-        byte[] withTex = MaterialOut.AddTextures(pkg, [new MaterialOut.PlannedTexture("diffusetex", null, texName, tex, image, dxt5)]);
+        string fitted = Fitted(image, mip);
+        byte[] withTex;
+        try { withTex = MaterialOut.AddTextures(pkg, [new MaterialOut.PlannedTexture("diffusetex", null, texName, tex, fitted, dxt5)]); }
+        finally { if (fitted != image) try { File.Delete(fitted); } catch (IOException) { } }
         var cur = Package.FromBytes(withTex);
         string oldTex = pkg.PathOf(pkg.Exports[tex]);
         string newTex = cur.PathOf(cur.Exports.First(e => e.ObjectName.Equals(texName, StringComparison.OrdinalIgnoreCase) && cur.ClassOf(e).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)));
@@ -315,13 +318,38 @@ static class MaterialVariations
         if (!MaterialOut.TextureSlots(pkg, mic).TryGetValue("diffusetex", out int tex) || tex < 0) throw new InvalidDataException($"{materialPath}'s color map isn't in its package");
         var mip = TextureExport.ReadBestMip(pkg, tex, out _, Model.Settings.Current.CookedFolder);
         bool dxt5 = mip?.Format.Contains("DXT5", StringComparison.OrdinalIgnoreCase) == true;
-        var enc = TextureEncode.FromImage(image, dxt5 ? "dxt5" : "dxt1", 85, 1f, false, 0, refine: true);
+        string fitted = Fitted(image, mip);
+        TextureEncode.Result enc;
+        try { enc = TextureEncode.FromImage(fitted, dxt5 ? "dxt5" : "dxt1", 85, 1f, false, 0, refine: true); }
+        finally { if (fitted != image) try { File.Delete(fitted); } catch (IOException) { } }
         byte[] dds = TextureImport.WriteDds(enc);
         var output = TextureImport.ReplaceMany(pkg, [new TextureImport.Replacement(pkg.PathOf(pkg.Exports[tex]), dds, Path.GetFileName(image))], out var problems, out var verify)
             ?? throw new InvalidDataException(string.Join("; ", problems.Take(5)));
         var check = verify(output);
         if (check.Count > 0) throw new InvalidDataException("the new color map didn't check out: " + string.Join("; ", check.Take(5)));
         return output;
+    }
+
+    /// <summary>The image at the size of the color map it replaces (Kurt's 712 x 842 image failed: DXT needs sizes divisible
+    /// by 4): a scaled copy in the temp folder, or the image itself when it's that size already (or the size isn't known).</summary>
+    static string Fitted(string image, TextureExport.MipData? mip)
+    {
+        int w = mip?.FullWidth > 0 ? mip.FullWidth : mip?.Width ?? 0, h = mip?.FullHeight > 0 ? mip.FullHeight : mip?.Height ?? 0;
+        using var src = new Bitmap(image);
+        if (w <= 0 || h <= 0) { w = Math.Max(4, src.Width / 4 * 4); h = Math.Max(4, src.Height / 4 * 4); }
+        if (src.Width == w && src.Height == h) return image;
+        string tmp = Path.Combine(Path.GetTempPath(), $"mho_var_fit_{Guid.NewGuid():N}.png");
+        using var dst = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(dst))
+        {
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            using var ia = new ImageAttributes();
+            ia.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY);   // (no dark rim at the edges)
+            g.DrawImage(src, new Rectangle(0, 0, w, h), 0, 0, src.Width, src.Height, GraphicsUnit.Pixel, ia);
+        }
+        dst.Save(tmp, ImageFormat.Png);
+        return tmp;
     }
 
     /// <summary>A color map with its hue turned by <paramref name="degrees"/> (saturation and brightness kept), as a PNG.</summary>

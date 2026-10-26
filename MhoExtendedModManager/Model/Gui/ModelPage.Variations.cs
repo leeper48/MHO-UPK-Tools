@@ -56,6 +56,10 @@ sealed partial class ModelPage
         public string Image { get; set; } = "";
     }
 
+    /// <summary>Preview This: the material shown on the model's first slot in the preview (its holder package), until another
+    /// target, Show the Model's Own, or a source is picked.</summary>
+    (string Target, string Holder, string Material)? varPreview;
+
     readonly Dictionary<string, (FileSystemWatcher Watcher, System.Windows.Forms.Timer Delay)> varWatches = new(StringComparer.OrdinalIgnoreCase);
 
     readonly FlowLayoutPanel varBody = new() { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Color.Transparent };
@@ -198,6 +202,11 @@ sealed partial class ModelPage
                 // right-click (Kurt, 2026-10-26): remove one this tab added; the game's own can only be unticked
                 var added = varState.Added.FirstOrDefault(x => x.Path.Equals(mat, StringComparison.OrdinalIgnoreCase));
                 var menu = new ContextMenuStrip();
+                bool previewing = varPreview is { } vp && vp.Target.Equals(target, StringComparison.OrdinalIgnoreCase) && vp.Material.Equals(mat, StringComparison.OrdinalIgnoreCase);
+                menu.Items.Add(new ToolStripMenuItem(previewing ? "Show the Model's Own" : "Preview This", null, (_, _) => PreviewVariation(c, target, previewing ? null : mat))
+                {
+                    ToolTipText = previewing ? "The preview shows the model with its own material again." : "The preview shows the model with this material, as the game does when it picks this one at spawn (only in the preview: nothing in the mod changes).",
+                });
                 menu.Items.Add(new ToolStripMenuItem(on ? "Untick" : "Tick", null, (_, _) => _ = ToggleVariation(c, target, own, mat)) { ToolTipText = on ? "Take it out of this class's list." : "Put it in this class's list." });
                 bool isOwnTile = mat == OwnMaterial || (own is { } ow && mat.Equals(ow.Path, StringComparison.OrdinalIgnoreCase));
                 menu.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditVariationImage(c, target, mat))
@@ -414,6 +423,27 @@ sealed partial class ModelPage
         string? made = await AddVariation(ClassOf("modern"), target, Own(), image: false, presetHue: 120);
         Check(made != null && MaterialVariations.ReadClass(VarPath(modernFile)!)?.Materials?.Contains(made, StringComparer.OrdinalIgnoreCase) == true
             && MaterialVariations.ColorMap(VarPath(target)!, made, cooked) != null, $"Add Hue Shift (120 degrees): {made} is in the squirrel's package and ticked for Pet Squirrel Modern");
+        // Preview This: the preview's first material shows the green one; Show the Model's Own puts its own back
+        for (int i = 0; i < 100 && !preview.LooksForTest.Any(); i++) await Task.Delay(100);
+        var before = preview.LooksForTest.FirstOrDefault()?.Diffuse;
+        PreviewVariation(ClassOf("modern"), target, made!);
+        for (int i = 0; i < 100 && (preview.LooksForTest.FirstOrDefault()?.Diffuse is not { } d1 || ReferenceEquals(d1, before)); i++) await Task.Delay(100);
+        var during = preview.LooksForTest.FirstOrDefault()?.Diffuse;
+        Check(during != null && !ReferenceEquals(during, before) && varPreview != null, "Preview This: the preview draws the model with the green variation");
+        PreviewVariation(ClassOf("modern"), target, null);
+        for (int i = 0; i < 100 && ReferenceEquals(preview.LooksForTest.FirstOrDefault()?.Diffuse, during); i++) await Task.Delay(100);
+        Check(varPreview == null && !ReferenceEquals(preview.LooksForTest.FirstOrDefault()?.Diffuse, during), "Show the Model's Own: its own material again");
+        // with a source picked (Kurt's case: the squirrel itself, its own model fitted to the target)
+        if (!GameMode) { sourceKind.SelectedIndex = 2; await Task.Delay(300); }
+        GameChosen(GameSrc + target);
+        for (int i = 0; i < 300 && !(HasSource && preview.LooksForTest.Any() && !refreshing); i++) await Task.Delay(100);
+        await Task.Delay(500);
+        var srcBefore = preview.LooksForTest.Select(l => l?.Diffuse).ToList();
+        PreviewVariation(ClassOf("modern"), target, made!);
+        for (int i = 0; i < 200 && preview.LooksForTest.Select(l => l?.Diffuse).SequenceEqual(srcBefore); i++) await Task.Delay(100);
+        Check(HasSource && !preview.LooksForTest.Select(l => l?.Diffuse).SequenceEqual(srcBefore), "Preview This with a source picked (the squirrel itself, fitted): the preview draws the green variation");
+        PreviewVariation(ClassOf("modern"), target, null);
+
         // Edit in Image Editor, as a save there arrives: the added one's color map, and the game's gray squirrel's
         string edited = Path.Combine(Path.GetTempPath(), "mho_var_edit.png");
         using (var eb = new Bitmap(512, 512)) { using (var g = Graphics.FromImage(eb)) g.Clear(Color.Orange); eb.Save(edited, System.Drawing.Imaging.ImageFormat.Png); }
@@ -464,6 +494,57 @@ sealed partial class ModelPage
         await WriteVariationList(ClassOf("modern"), target, ["squirrelgirl.squirrel_mat", "squirrelgirl.squirrel_grey_mat", "squirrelgirl.squirrel_red_mat"]);
         Check(!host.Packages.Any(p => p.File.Equals(modernFile, StringComparison.OrdinalIgnoreCase)), "back to the game's list: Pet Squirrel Modern's package leaves the mod");
         return fails;
+    }
+
+    /// <summary>Preview This: the preview draws the model with <paramref name="material"/> on its first material slot (null:
+    /// its own again). Only the preview changes.</summary>
+    void PreviewVariation(MaterialVariations.ClassList c, string target, string? material)
+    {
+        if (material == null || material == OwnMaterial) { varPreview = null; RefreshPreview(); Log("Preview: the model's own material."); return; }
+        string? holder = VarHolder(c.File, target, material);
+        if (holder == null) holder = c.File;
+        varPreview = (target, holder, material);
+        RefreshPreview();   // (it applies varPreview once the model is shown)
+        Log($"Preview: {material.Split('.').Last()} on the model's first material (only in the preview; the game picks one of the ticked at random).");
+    }
+
+    /// <summary>After the preview shows a model: Preview This's material on the sections of the game's first material slot.
+    /// The target's own model: its sections on material slot 0. A source fitted to the target (Kurt's case, 2026-10-26: the
+    /// source is the squirrel itself, linked to Blender): the parts of the material the build puts in slot 0 (the Materials
+    /// tab's slot order).</summary>
+    async Task ApplyVariationPreview(PreviewPanel.Prepared tp)
+    {
+        if (varPreview is not { } vp || !vp.Target.Equals(VarTarget ?? "", StringComparison.OrdinalIgnoreCase)) return;
+        List<int>? fitted = null;
+        if (HasSource)
+        {
+            var mats = tp.MaterialList.Select(x => x.Material).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            string? first = MaterialOverrides.Ordered(mats, OverridesFile()).FirstOrDefault();
+            fitted = first == null ? [] : tp.SectionNames.Select((n, i) => (n, i)).Where(x => x.n.Equals(first, StringComparison.OrdinalIgnoreCase)).Select(x => x.i).ToList();
+            if (fitted.Count == 0) fitted = Enumerable.Range(0, tp.Mesh.Looks.Length).ToList();
+        }
+        else if (tp.MainRef == null) return;
+        var mr = tp.MainRef;
+        string? cooked = Settings.Current.CookedFolder;
+        // the game's copy too: a save can rename a material's group in the mod's copy (Make Unique)
+        string?[] places = [VarPath(vp.Holder), cooked != null ? StockFiles.For(cooked, vp.Holder) : null];
+        var result = await Task.Run(() =>
+        {
+            System.Drawing.Bitmap? bmp = null;
+            foreach (string? f in places) if (f != null && File.Exists(f) && (bmp = MaterialVariations.ColorMap(f, vp.Material, cooked)) != null) break;
+            if (bmp == null) return ((byte[] Px, int W, int H, List<int> Sections)?)null;
+            var sections = fitted ?? ModMeshes.SectionSlots(mr!).Select((slot, i) => (slot, i)).Where(x => x.slot == 0).Select(x => x.i).ToList();
+            var r = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+            var bd = bmp.LockBits(r, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var px = new byte[bmp.Width * bmp.Height * 4];
+            for (int y = 0; y < bmp.Height; y++) System.Runtime.InteropServices.Marshal.Copy(bd.Scan0 + y * bd.Stride, px, y * bmp.Width * 4, bmp.Width * 4);
+            bmp.UnlockBits(bd);
+            (byte[], int, int, List<int>) res = (px, bmp.Width, bmp.Height, sections);
+            bmp.Dispose();
+            return res;
+        });
+        if (result is not { } rs || IsDisposed) { Log($"Preview: {vp.Material.Split('.').Last()}'s color map wasn't found."); return; }
+        preview.SetSectionDiffuse(rs.Sections, rs.Px, rs.W, rs.H);
     }
 
     /// <summary>The package of the mod that holds a material: the class's, else the model's (their current copies).</summary>

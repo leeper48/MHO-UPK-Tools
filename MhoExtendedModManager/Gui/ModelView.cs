@@ -657,6 +657,9 @@ sealed partial class ModelView : UserControl
 
     void Redraw() { Render(); canvas.Invalidate(); }
 
+    /// <summary>Draws again now (a look's maps were changed in place: the Model tab's Variations preview).</summary>
+    public void RedrawNow() => Redraw();
+
     /// <summary>Drawn over the view after the overlay (Create from 3D's framing guides); never in a snapshot.</summary>
     public Action<Graphics, Rectangle>? PaintGuides { get; set; }
 

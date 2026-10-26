@@ -537,8 +537,8 @@ static partial class Program
                         [("marvelagent_squirrelgirlpetsquirrelmodern", "Pet Squirrel Modern"), ("marvelagent_squirrelgirltriplesquirrel", "Triple Squirrel")]);
                     Check(after.First(c => c.Class.EndsWith("triplesquirrel")).Materials.Count == 2 && !after.First(c => c.Class.EndsWith("triplesquirrel")).Inherited, "and the tab's reading shows it");
                     // 3b. a variation from an image of another size (1024 x 1024, with alpha), as Add from Image takes it
-                    string img = Path.Combine(dir, "image1024.png");
-                    using (var b = new System.Drawing.Bitmap(1024, 1024, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                    string img = Path.Combine(dir, "image712x842.png");   // (Kurt's: not divisible by 4)
+                    using (var b = new System.Drawing.Bitmap(712, 842, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
                     {
                         using (var g = System.Drawing.Graphics.FromImage(b)) { g.Clear(System.Drawing.Color.FromArgb(255, 40, 90, 200)); g.FillEllipse(System.Drawing.Brushes.Gold, 200, 200, 600, 600); }
                         b.Save(img, System.Drawing.Imaging.ImageFormat.Png);
@@ -548,9 +548,9 @@ static partial class Program
                         var (ib, ipath) = MaterialVariations.AddMaterial(File.ReadAllBytes(pet), fm.Export, img, "squirrel_var2_mat");
                         File.WriteAllBytes(pet, ib);
                         using var iback = MaterialVariations.ColorMap(pet, ipath, tcook);
-                        Check(iback != null, $"a variation from a 1024 x 1024 image: {ipath} ({iback?.Width}x{iback?.Height})");
+                        Check(iback != null && iback.Width == 512 && iback.Height == 512, $"a variation from a 712 x 842 image: {ipath}, scaled to the color map's {iback?.Width}x{iback?.Height}");
                     }
-                    catch (Exception ex) { Check(false, "a variation from a 1024 x 1024 image: " + ex.Message); }
+                    catch (Exception ex) { Check(false, "a variation from a 712 x 842 image: " + ex.Message); }
                     // 4. off: an empty list
                     File.WriteAllBytes(triple, MaterialVariations.SetList(triple, []));
                     Check(MaterialVariations.ReadClass(triple)?.Materials is { Count: 0 }, "an empty list (no variations) writes and reads back");

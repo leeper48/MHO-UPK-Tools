@@ -1,6 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.175
+- Model tab → Variations: Preview This works with a source picked too (a model fitted to the target, or the summon's own model linked to Blender): the material goes on the parts the build puts in the game's first material slot (the Materials tab's slot order). It only worked with no source picked.
+
+0.60.174
+- Model tab → Variations: right-click a tile → Preview This shows the model with that material in the preview, as the game does when it picks it at spawn (only in the preview); Show the Model's Own goes back. The preview otherwise always draws the model's own material, whatever is ticked.
+
+0.60.173
+- Model tab → Variations: Add from Image and Edit in Image Editor scale the image to the size of the color map it replaces (a 712 x 842 image failed: the game's texture compression needs sizes divisible by 4).
+
 0.60.172
 - Model tab → Variations: right-click a tile → Edit in Image Editor: its color map opens in your image editor, and each save goes into the mod (the material keeps its name, so every list naming it shows the edit). An added variation is then made again from your edit after a build; an edited game variation (the gray squirrel) is put back after a build of its package. Your Model's own color map is edited in the Materials tab.
 

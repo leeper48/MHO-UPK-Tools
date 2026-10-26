@@ -175,6 +175,23 @@ sealed partial class PreviewPanel : UserControl
 
     /// <summary>Test: Compare lit and locked (the target alone).</summary>
     internal (bool Lit, bool Enabled, bool TargetOnly) CompareForTest => (comparing, compare.Enabled, targetOnly);
+    /// <summary>The Variations tab's Preview This (Kurt, 2026-10-26): the shown model drawn with another color map on these
+    /// sections, in this view only (the next Show draws the package's own again).</summary>
+    internal void SetSectionDiffuse(IReadOnlyCollection<int> sections, byte[] bgra, int w, int h)
+    {
+        if (shown == null) return;
+        var map = new ModelView.Map(bgra, w, h);
+        var looks = shown.Mesh.Looks;
+        for (int i = 0; i < looks.Length; i++)
+            if (sections.Contains(i) && looks[i] is { } lk)
+            {
+                bool specFollows = ReferenceEquals(lk.SpecColor, lk.Diffuse);
+                lk.Diffuse = map;
+                if (specFollows) lk.SpecColor = map;
+            }
+        view.RedrawNow();
+    }
+
     /// <summary>Test: the shown model's section looks.</summary>
     internal IEnumerable<ModelView.Look?> LooksForTest => shown?.Mesh.Looks ?? [];
 

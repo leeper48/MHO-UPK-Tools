@@ -456,7 +456,7 @@ sealed partial class ModelPage : UserControl
         log.BackColor = Color.FromArgb(22, 22, 26); log.ForeColor = Ui.Subtle; log.Font = new Font("Consolas", 9f * Ui.UiScale);
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); RefreshPreview(); };
         packages.SelectedIndexChanged += (_, _) => SchedulePreview();
-        packages.SelectedIndexChanged += (_, _) => ShowVariationsTab();
+        packages.SelectedIndexChanged += (_, _) => { if (varPreview is { } vp && !vp.Target.Equals(VarTarget ?? "", StringComparison.OrdinalIgnoreCase)) varPreview = null; ShowVariationsTab(); };
         material.SelectedIndexChanged += (_, _) => SchedulePreview();
         parts.CellMouseDown += (_, e) =>
         {
@@ -1173,6 +1173,7 @@ sealed partial class ModelPage : UserControl
                 if (id != previewId || IsDisposed) return;
                 preview.Show(tp);
                 shownMap = null; mhoBones = tp.MhoBones; mhoParents = tp.MhoParents; FillMap();
+                if (varPreview != null) await ApplyVariationPreview(tp);   // (Variations → Preview This)
                 // its textures, to edit in place (Kurt, 2026-10-06): only when the model is the package's own
                 List<PackageMap>? maps = null;
                 if (tp.MainRef is { } mainRef && Path.GetFullPath(mainRef.File).Equals(Path.GetFullPath(shownPath), StringComparison.OrdinalIgnoreCase))
@@ -1213,6 +1214,7 @@ sealed partial class ModelPage : UserControl
             preview.Show(prepared);
             shownMap = prepared.Map; mhoBones = prepared.MhoBones; mhoParents = prepared.MhoParents; FillMap();
             shownMaterials = prepared.MaterialList; FillMaterials();
+            if (varPreview != null) await ApplyVariationPreview(prepared);   // (Variations → Preview This, on a source fitted to the target)
             if (BlenderLink().Folder is string paintFolder && Directory.Exists(paintFolder)) ApplyPaintedTextures(paintFolder);   // painted while the tab was closed
             _ = ShowOwnRigs(StartPackage(pkg.Key));
             WatchBlender();   // this work's Blender folder (a sync that came meanwhile is applied)
