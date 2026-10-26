@@ -94,10 +94,10 @@ sealed partial class ModelPage
                 if (print != null) builtPrint[pkg.Key] = print;
                 takenOff.Remove(pkg.Key);
                 ok = true;
-                await BuildCopies(pkg.Key, mffSource, runOptions, print, mff);
+                var copiesBuilt = await BuildCopies(pkg.Key, mffSource, runOptions, print, mff);
                 SaveState();
                 Log($"Done: {pkg.Key} is in the mod now (Save Changes keeps it; Apply Changes puts it into the game).");
-                await LogCrashChecks(pkg.Key, result.Package);
+                await LogCrashChecks([(pkg.Key, result.Package), .. copiesBuilt]);
             }
             else Log("The build stopped: see the package problems above.");
         }
@@ -112,9 +112,29 @@ sealed partial class ModelPage
     /// squirrel is in its projectile's package and in the power's, and the game shows the copy it loads first): the model is
     /// built onto each with the same options, and each goes into the mod (added from the game when the mod lacks it).
     /// </summary>
-    async Task BuildCopies(string pkgKey, string mffSource, ImportOptions runOptions, string? print, string mff)
+    async Task<List<(string File, string Path)>> BuildCopies(string pkgKey, string mffSource, ImportOptions runOptions, string? print, string mff)
     {
-        foreach (string copy in SummonCopies(pkgKey))
+        var done = new List<(string File, string Path)>();
+        var copies = SummonCopies(pkgKey);
+        // the summon's copies in characters' packages (Kurt, 2026-10-26): the summoning hero's own ones go too; other
+        // characters' (Strike Team's Beast is Beast's Astonishing costume) only when the user says so, remembered per target
+        var (ownChars, otherChars) = SummonCharacterCopies(pkgKey);
+        copies.AddRange(ownChars);
+        if (otherChars.Count > 0)
+        {
+            if (!copyOthers.TryGetValue(pkgKey, out bool yes))
+            {
+                yes = Environment.GetEnvironmentVariable("MFF_GUI_NOASK") != "1" && Dialog.Choose(this,
+                    $"The same model is also in other characters' packages:\n\n{string.Join("\n", otherChars.Take(8).Select(f => "  • " + f))}{(otherChars.Count > 8 ? "\n  • …" : "")}\n\nThe game shows whichever copy it loads first: near those characters (another player's hero, an NPC), theirs can show instead of yours, and yours can show on them.\n\n  • Change Them Too: Your model goes into those packages as well (those characters look like it).\n  • Leave Them: They keep the game's look.",
+                    "Same Model in Other Characters", "Change Them Too", "Leave Them") == 0;
+                copyOthers[pkgKey] = yes;
+                SaveState();
+            }
+            if (yes) copies.AddRange(otherChars);
+            else Log($"Left as the game's: the same model in {string.Join(", ", otherChars)} (other characters).");
+        }
+        string? meshName = Summons.TryGetValue(pkgKey, out var sums) ? sums[0].Mesh : null;
+        foreach (string copy in copies.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             string file = copy;
             if (host.Packages.FirstOrDefault(p => p.File.Equals(copy, StringComparison.OrdinalIgnoreCase)) is { File: not null } have) file = have.File;
@@ -129,28 +149,44 @@ sealed partial class ModelPage
             Log($"{file} holds the same model under the same path (the game shows whichever copy it loads first): building onto it too");
             string outCopy = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{mff} on {Path.GetFileNameWithoutExtension(file)}"));
             string start = StartPackage(file);
+            // (the copy of this model in that package, not its own character: a hero's costume package holds both)
+            string? pickWas = MhoSkeleton.ChosenFor(file);
+            if (meshName != null) MhoSkeleton.Choose(file, meshName);
             try
             {
                 var more = await Task.Run(() => ImportBuild.Run(mffSource, start, outCopy, runOptions, line => BeginInvoke(() => Log(line))));
                 if (more == null) { Log($"{file}: the build stopped (see above); its copy of the model is the game's."); continue; }
+                // the mirror table, as for the first package (added bones need entries: the Array.h:575 crash)
+                if (await Task.Run(() => MhoExtendedModManager.MirrorTables.Fix(more.Package)) is { } mf)
+                {
+                    File.WriteAllBytes(more.Package, mf.Bytes);
+                    foreach (string c in mf.Changes) Log($"Mirror table ({file}): " + c);
+                }
                 host.SetPackage(file, more.Package);
                 built[file] = more.Package;
                 if (print != null) builtPrint[file] = print;
                 takenOff.Remove(file);
+                done.Add((file, more.Package));
                 Log($"{file} is in the mod too, with the same model.");
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { Log($"{file}: {ex.Message}"); }
+            finally { MhoSkeleton.Choose(file, pickWas); }
         }
+        return done;
     }
+
+    /// <summary>Per summon target: build its copies in other characters' packages too (asked once, kept with the mod).</summary>
+    readonly Dictionary<string, bool> copyOthers = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The crash checks on a build (CrashCheck: added bones, other copies of the model, the mirror table, sockets) in
     /// the log (Kurt, 2026-10-12: a loincloth's added bones crashed on one hero, not another). Save's Make Unique gives the
     /// model a path of its own, which takes care of the shared copies.</summary>
-    async Task LogCrashChecks(string file, string package)
+    async Task LogCrashChecks(List<(string File, string Path)> packages)
     {
         if (Settings.Current.CookedFolder is not string cooked) return;
         List<MhoExtendedModManager.CrashCheck.Issue> issues;
-        try { issues = await Task.Run(() => MhoExtendedModManager.CrashCheck.For([(file, package)], cooked)); }
+        // (the copies built with it are checked together: each counts the others as the mod's own)
+        try { issues = await Task.Run(() => MhoExtendedModManager.CrashCheck.For(packages, cooked)); }
         catch (Exception ex) when (ex is IOException or InvalidDataException) { return; }
         foreach (var i in issues.OrderByDescending(i => i.Crash))
             Log($"{(i.Crash ? "CRASH RISK" : "Note")}: {i.Mesh}: {i.Text}" + (i.Crash && i.Text.Contains("Make Unique") ? " Save Changes does that for this mod." : ""));
@@ -445,6 +481,7 @@ sealed partial class ModelPage
                 if (sfbx != null)
                 {
                     var r = FbxReimport.Load(uf != null ? RigFor(uf, pkg.Key) : sfbx, MhoSkeleton.Load(package, null), uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), _ => { });
+                    FbxLean.Apply(r, leanUse);
                     if (mapFile != null) WeightSmooth.Apply(r, BoneMapFile.Load(mapFile).Smooth);
                     // the FBX edits as the preview and Build use them: the mesh from Blender, the replaced animations
                     if (exportEdits.ModelFbx is string emf && File.Exists(emf)) FbxReimport.Apply(r, emf, _ => { });

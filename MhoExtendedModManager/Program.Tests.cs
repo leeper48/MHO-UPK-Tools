@@ -12,6 +12,22 @@ static partial class Program
     {
         switch (cmd)
         {
+            case "--snapshot-take":
+            {
+                // --snapshot-take [name]: a snapshot of the library now (Settings → Snapshots), kept until deleted. Only reads the mods.
+                var sgame = settings.ResolvedGameRoot(data) is string sr && Settings.IsGameRoot(sr) ? new GameState(sr, data) : null;
+                string? file = Snapshots.Take(lib, sgame, "manual", rest.Count > 1 ? string.Join(" ", rest.Skip(1)) : "");
+                Console.WriteLine(file != null ? $"snapshot: {file} ({new FileInfo(file).Length:N0} bytes, {lib.Mods.Count} mods)" : "the snapshot couldn't be saved");
+                return file != null ? 0 : 1;
+            }
+            case "--snapshot-test":
+            {
+                // --snapshot-test <scratch folder> [mod ...]: Snapshots and bundles on a throwaway library made in the scratch folder
+                // from copies of the library's smallest mods (or those named): take, change, compare, restore, bundle, restore the
+                // bundle. Nothing outside the scratch folder changes. Exit 0 when every check passes.
+                if (rest.Count < 2) { Console.WriteLine("--snapshot-test <scratch folder> [mod ...]"); return 1; }
+                return SnapshotTest(lib, rest[1], rest.Skip(2).ToList());
+            }
             case "--history-test":
             {
                 // Test (scratch folder only): a recorded write keeps no copy, the app still knows its own write, and
@@ -771,6 +787,119 @@ static partial class Program
             }
         }
         return null;
+    }
+
+    /// <summary>--snapshot-test: snapshots and bundles on a throwaway library (copies of a few small mods in the scratch folder).</summary>
+    static int SnapshotTest(ModLibrary real, string scratch, List<string> named)
+    {
+        int fails = 0;
+        void Check(bool ok, string what) { Console.WriteLine((ok ? "PASS " : "FAIL ") + what); if (!ok) fails++; }
+        string dir = Path.GetFullPath(scratch), data = Path.Combine(dir, "library"), mods = Path.Combine(data, "mods");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        Directory.CreateDirectory(mods);
+        var pick = (named.Count > 0 ? real.Mods.Where(m => named.Contains(m.Name, StringComparer.OrdinalIgnoreCase)) : real.Mods.OrderBy(m => Snapshots.Fingerprint(m.Folder).Bytes).Take(3)).ToList();
+        if (pick.Count < 3) { Console.WriteLine("needs 3 mods"); return 1; }
+        static void CopyDir(string from, string to)
+        {
+            foreach (string f in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+            {
+                string d = Path.Combine(to, Path.GetRelativePath(from, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(d)!);
+                File.Copy(f, d, true);
+            }
+        }
+        foreach (var m in pick) CopyDir(m.Folder, Path.Combine(mods, m.FolderName));
+        var (a, bm, c) = (pick[0].FolderName, pick[1].FolderName, pick[2].FolderName);
+        File.WriteAllText(Path.Combine(data, "state.json"), System.Text.Json.JsonSerializer.Serialize(new ModState { ModOrder = [a, bm, c], EnabledMods = [a] }));
+        var lib = ModLibrary.Load(data);
+        Console.WriteLine($"library: {string.Join(", ", lib.Mods.OrderBy(m => m.Priority).Select(m => m.Name))}");
+
+        // 1. a snapshot, a change, another snapshot, the report
+        var snapA = Snapshots.Now(lib, null, "manual", "A");
+        Snapshots.Save(snapA, Path.Combine(dir, "a.json.gz"));
+        var back = Snapshots.Load(Path.Combine(dir, "a.json.gz"));
+        long size = new FileInfo(Path.Combine(dir, "a.json.gz")).Length;
+        Check(back != null && back.Mods.Count == 3 && back.Mods.Count(m => m.Enabled) == 1 && size < 50_000, $"a snapshot saves and reads back ({size:N0} bytes for 3 mods)");
+        Thread.Sleep(50);
+        ModHistory.Add(data, a, "Fix Mirror Tables (Crash Risk)", "test");
+        foreach (var m in lib.Mods) { if (m.FolderName == bm) m.Enabled = true; m.Priority = m.FolderName == c ? -1 : m.Priority; }
+        lib.SaveState();
+        lib = ModLibrary.Load(data);
+        var snapB = Snapshots.Now(lib, null, "manual", "B");
+        string report = Snapshots.Compare(snapA, snapB);
+        Console.WriteLine("  report:\n    " + report.Replace("\n", "\n    "));
+        Check(report.Contains("Turned on") && report.Contains(pick[1].Name), "the report lists the mod turned on");
+        Check(report.Contains("Moved in the priority order") && report.Contains(pick[2].Name), "the report lists the mod moved");
+        Check(report.Contains("Fix Mirror Tables (Crash Risk)"), "the report lists the Crash Risk fix done in between");
+        Check(Snapshots.Compare(snapB, Snapshots.Now(lib, null)).Contains("Nothing changed"), "nothing changed from the last snapshot to now");
+
+        // 2. restore the first
+        Snapshots.Restore(lib, snapA);
+        lib.SaveState();
+        lib = ModLibrary.Load(data);
+        var order = lib.Mods.OrderBy(m => m.Priority).Select(m => m.FolderName).ToList();
+        Check(order.SequenceEqual([a, bm, c]) && lib.Mods.Where(m => m.Enabled).Select(m => m.FolderName).SequenceEqual([a]), $"restoring the first puts its order and on/off back ({string.Join(", ", order)})");
+
+        // 3. a bundle: made, one mod deleted, restored
+        string zip = Path.Combine(dir, "bundle.zip");
+        int files = Snapshots.MakeBundle(lib, null, lib.Mods, zip);
+        Check(File.Exists(zip) && files > 0 && Snapshots.BundleInfo(zip)?.Mods.Count == 3, $"a bundle is made ({files} files, {new FileInfo(zip).Length:N0} bytes)");
+        string gone = Path.Combine(mods, bm);
+        var hashes = Directory.EnumerateFiles(gone, "*", SearchOption.AllDirectories).ToDictionary(f => Path.GetRelativePath(gone, f), f => Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(f))));
+        Directory.Delete(gone, true);
+        foreach (var m in ModLibrary.Load(data).Mods) m.Enabled = false;
+        var lib2 = ModLibrary.Load(data);
+        var log = Snapshots.RestoreBundle(lib2, zip, replace: false);
+        Console.WriteLine("  " + string.Join("\n  ", log));
+        var lib3 = ModLibrary.Load(data);
+        bool same = Directory.Exists(gone) && hashes.All(kv => File.Exists(Path.Combine(gone, kv.Key)) && Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(Path.Combine(gone, kv.Key)))) == kv.Value);
+        Check(same && lib3.Mods.Count == 3, "restoring the bundle brings the deleted mod back, every file identical");
+        Check(log.Count(l => l.Contains("already the same")) == 2, "the mods still there count as the same (no needless replace)");
+        Snapshots.Restore(lib3, Snapshots.BundleInfo(zip)!);
+        lib3.SaveState();
+        var lib4 = ModLibrary.Load(data);
+        Check(lib4.Mods.OrderBy(m => m.Priority).Select(m => m.FolderName).SequenceEqual([a, bm, c]) && lib4.Mods.Where(m => m.Enabled).Select(m => m.FolderName).SequenceEqual([a]), "the bundle's state goes back too");
+
+        // 4. discarded copies: an edit (Keep Shared Paths changed, as a fix would) and a removal, then a restore puts both back
+        var snapC = Snapshots.Now(lib4, null, "manual", "C");
+        Thread.Sleep(2100);   // (fingerprint times are to 2 seconds)
+        var ma = lib4.Mods.First(m => m.FolderName == a);
+        var draft = ModDraft.From(ma);
+        draft.KeepShared = !draft.KeepShared;
+        Check(ModWriter.Save(lib4, draft, ma, out string? err, "test edit") != null, $"an edit saves ({err})");
+        var lib5 = ModLibrary.Load(data);
+        Check(ModInstaller.Remove(lib5.Mods.First(m => m.FolderName == c), lib5, null) == null, "a turned-off mod is removed");
+        lib5 = ModLibrary.Load(data);
+        var kept = Discarded.List(data);
+        Check(kept.Count == 2 && kept.Any(e => e.Folder == a && e.Reason == "test edit") && kept.Any(e => e.Folder == c && e.Reason == "Removed"), $"both old folders are kept as discarded copies ({kept.Count})");
+        var fplan = Snapshots.PlanFiles(lib5, snapC);
+        Check(fplan.Back.Count == 2 && fplan.Cant.Count == 0, $"the restore plan puts both back ({fplan.Back.Count} back, {fplan.Cant.Count} can't)");
+        Console.WriteLine("  " + string.Join("\n  ", Snapshots.RestoreFiles(lib5, fplan)));
+        var lib6 = ModLibrary.Load(data);
+        bool fpSame(ModLibrary l, string folder) => l.Mods.FirstOrDefault(m => m.FolderName == folder) is { } x && Snapshots.Fingerprint(x.Folder).Hash == snapC.Mods.First(i => i.Folder == folder).Fingerprint;
+        Check(fpSame(lib6, a) && fpSame(lib6, c), "both mods have their files from then again (same fingerprints)");
+        Check(Discarded.List(data).Count(e => e.Folder == a) == 1 && Discarded.List(data).Count(e => e.Folder == c) == 0, "the edited copy is now the discarded one; the removed one left the discarded copies");
+        Snapshots.Restore(lib6, snapC); lib6.SaveState();
+        Check(ModLibrary.Load(data).Mods.OrderBy(m => m.Priority).Select(m => m.FolderName).SequenceEqual([a, bm, c]), "the state goes back with the files");
+
+        // 5. the cleanup's warning, and Keep Shared Paths without a copy
+        Discarded.Delete(Discarded.List(data));
+        Thread.Sleep(2100);
+        var lib7 = ModLibrary.Load(data);
+        var ma7 = lib7.Mods.First(m => m.FolderName == a);
+        var d7 = ModDraft.From(ma7); d7.KeepShared = !d7.KeepShared;
+        ModWriter.Save(lib7, d7, ma7, out _, "test edit 2");
+        lib7 = ModLibrary.Load(data);
+        var needed = Discarded.Needed(lib7, Discarded.List(data), [snapC]);
+        Check(needed.Count == 1 && Discarded.Warning(needed).Contains("test edit 2"), "the cleanup warns: a snapshot needs that copy");
+        Check(Discarded.Due(data, 30).Count == 0 && Discarded.Due(data, 0).Count == 0, "a new copy isn't due (30 days), nor with Until Cleaned Up");
+        Discarded.Delete(Discarded.List(data));
+        var splan = Snapshots.PlanFiles(lib7, snapC);
+        Check(splan.Shared.Count == 1 && splan.Back.Count == 0, "without its copy, only Keep Shared Paths goes back");
+        Snapshots.RestoreFiles(lib7, splan);
+        Check(ModLibrary.Load(data).Mods.First(m => m.FolderName == a).Manifest.KeepShared == true == snapC.Mods.First(i => i.Folder == a).KeepShared, "Keep Shared Paths is as it was then");
+        Console.WriteLine(fails == 0 ? "all checks passed" : $"{fails} check(s) failed");
+        return fails == 0 ? 0 : 1;
     }
 }
 

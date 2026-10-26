@@ -36,11 +36,30 @@ static class EffectModels
     }
 
     /// <summary>The package kinds whose static meshes are effects (powers, their hotspots, projectiles and conditions).</summary>
+    public static bool EffectPackage(string file) => Kinds.Any(k => file.StartsWith(k, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A character's package (hero, team-up, enemy / summon, NPC, pet): a copy there changes that character's look too.</summary>
+    public static bool CharacterPackage(string file) => !EffectPackage(file);
+
+    /// <summary>Whether a package belongs to <paramref name="hero"/> (its name carries the hero's: UC__MarvelPlayer_Hulk_…,
+    /// UC__PowerHulk_…): a copy in the hero's own character package is built by default (it loads whenever the hero is
+    /// played, so it would win), other characters' copies only when asked.</summary>
+    public static bool HeroOwns(string file, string hero)
+    {
+        string stem = System.IO.Path.GetFileNameWithoutExtension(file);
+        foreach (string k in new[] { "UC__MarvelPlayer_", "UC__MarvelTeamUp_", "UC__Power" })
+            if (stem.StartsWith(k, StringComparison.OrdinalIgnoreCase))
+            {
+                string rest = stem[k.Length..];
+                return rest.StartsWith(hero, StringComparison.OrdinalIgnoreCase) && (rest.Length == hero.Length || !char.IsLetter(rest[hero.Length]) || char.IsUpper(rest[hero.Length]));
+            }
+        return EffectPackage(file);
+    }
     static readonly string[] Kinds = ["UC__Power", "UC__MarvelEntity_", "UC__MarvelProjectile_", "UC__MarvelConditionEffect_"];
 
     /// <summary>
-    /// Read-only (--effect-census): every StaticMesh export in the game's effect packages, by path, with the packages holding
-    /// a copy; a mesh belongs to each hero whose name its packages carry (UC__Power&lt;Hero&gt;_…, a hotspot / projectile /
+    /// Read-only (--effect-census): every StaticMesh export in the game's effect packages, by path, with every package holding
+    /// a copy (characters' too); a mesh belongs to each hero whose name its packages carry (UC__Power&lt;Hero&gt;_…, a hotspot / projectile /
     /// condition named after the hero). Writes "hero, path, (unused), vertices, sections, packages" lines.
     /// </summary>
     public static int Census(string cooked, string outFile, Action<string> log)
@@ -48,13 +67,13 @@ static class EffectModels
         var heroes = Directory.EnumerateFiles(cooked, "UC__MarvelPlayer_*_SF.upk").Select(f => System.IO.Path.GetFileNameWithoutExtension(f).Split('_', StringSplitOptions.RemoveEmptyEntries))
             .Where(q => q.Length == 4).Select(q => q[2]).Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(h => h.Length).ToList();
         var byPath = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var firstAt = new Dictionary<string, (string File, int Index)>(StringComparer.OrdinalIgnoreCase);
         int seen = 0;
         foreach (string f in Directory.EnumerateFiles(cooked, "UC__*.upk").OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
         {
             string name = System.IO.Path.GetFileName(f);
             if (name.Contains("bak", StringComparison.OrdinalIgnoreCase) || name.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!Kinds.Any(k => name.StartsWith(k, StringComparison.OrdinalIgnoreCase))) continue;
+            // (every package is read for copies: a hero's own package, an enemy's or an NPC's can carry the same mesh, Hulk's
+            // asteroid is in UC__MarvelPlayer_Hulk_SF too; only the effect kinds make a mesh a hero's effect model)
             Package p;
             try { p = Package.Open(StockFiles.For(cooked, name)); }
             catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { continue; }
@@ -63,7 +82,7 @@ static class EffectModels
             {
                 if (!p.ClassOf(p.Exports[i]).Equals("StaticMesh", StringComparison.OrdinalIgnoreCase)) continue;
                 string path = p.PathOf(p.Exports[i]);
-                if (!byPath.TryGetValue(path, out var files)) { byPath[path] = files = []; firstAt[path] = (name, i); }
+                if (!byPath.TryGetValue(path, out var files)) byPath[path] = files = [];
                 files.Add(name);
             }
         }
@@ -85,14 +104,17 @@ static class EffectModels
         int rows = 0;
         foreach (var (path, files) in byPath.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
         {
-            var owners = files.Select(HeroOf).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var owners = files.Where(EffectPackage).Select(HeroOf).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (owners.Count == 0) continue;
             int verts = 0, secs = 0;
             try
             {
-                var (f0, i0) = firstAt[path];
-                var p0 = Package.Open(StockFiles.For(cooked, f0));
-                var sm = StaticMesh.Read(p0, p0.Exports[i0]);
+                // (sized from an effect package's copy)
+                if (files.FirstOrDefault(EffectPackage) is not string f0) continue;
+                var p0f = Package.Open(StockFiles.For(cooked, f0));
+                int i0 = Find(p0f, path);
+                if (i0 < 0) continue;
+                var sm = StaticMesh.Read(p0f, p0f.Exports[i0]);
                 verts = sm.Positions.Length; secs = sm.Sections.Length;
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { continue; }
@@ -104,13 +126,13 @@ static class EffectModels
             }
         }
         File.WriteAllLines(outFile, lines);
-        log($"{seen:N0} effect packages, {byPath.Count:N0} static meshes, {rows:N0} hero effect models → {outFile}");
+        log($"{seen:N0} packages, {byPath.Count:N0} static meshes, {rows:N0} hero effect models → {outFile}");
         return 0;
     }
 
     /// <summary>The stock copy of an effect model's first package, for the export and the preview.</summary>
     public static string? StockPackage(Entry e, string cooked) =>
-        e.Packages.Select(f => StockFiles.For(cooked, f)).FirstOrDefault(File.Exists);
+        e.Packages.Where(EffectPackage).Concat(e.Packages).Select(f => StockFiles.For(cooked, f)).FirstOrDefault(File.Exists);
 
     /// <summary>The mesh as an FBX for Blender (MHO Package Modifier's static mesh export, with its textures and its own
     /// normals: without them the import's flat normals split every corner, and Venom's 100k-vertex spawner went past the

@@ -68,6 +68,10 @@ sealed partial class ModelPage : UserControl
     readonly Button buildButton, openButton, fbxButton;
     /// <summary>Where models come from (0.11.3, Kurt: "MFF or FBX as the source"; MSF / MCoC may follow).</summary>
     readonly DropDown sourceKind = new() { Width = 220 };
+    /// <summary>Where the target comes from (Kurt, 2026-10-26: as Source's): the mod's packages, From the Game, or Browse for a
+    /// Package (a file picker, then back to the mod's packages).</summary>
+    readonly DropDown targetKind = new() { Width = 220 };
+    bool settingTargetKind;
     bool FbxMode => sourceKind.SelectedIndex == 1;
     /// <summary>From the Game (Kurt, 2026-10-23): a player costume, team-up or NPC as the source (GameSource).</summary>
     bool GameMode => sourceKind.SelectedIndex == 2;
@@ -163,13 +167,14 @@ sealed partial class ModelPage : UserControl
         Controls.Add(root);
 
         // the tab's bar: the folders it reads, Undo / Redo, its settings
-        var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, BackColor = Color.Transparent, Padding = new Padding(4, 2, 4, 0) };
+        var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, BackColor = Color.Transparent, Padding = new Padding(4, 2, 4, 0) };
+        top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var topRight = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
-        InitEffectsButton();
-        foreach (var b in new[] { effectsButton, undoButton, redoButton, historyButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
-        top.Controls.Add(foldersLabel, 0, 0); top.Controls.Add(topRight, 1, 0);
+        foreach (var b in new[] { undoButton, redoButton, historyButton }) { b.Margin = new Padding(6, 0, 0, 0); topRight.Controls.Add(b); }
+        foldersLabel.Margin = new Padding(12, 6, 0, 0);   // (still docked to fill its cell: it paints itself)
+        top.Controls.Add(ViewTabs(), 0, 0); top.Controls.Add(foldersLabel, 1, 0); top.Controls.Add(topRight, 2, 0);
         root.Controls.Add(top, 0, 0);
 
         // body: characters | 3D | target
@@ -186,7 +191,7 @@ sealed partial class ModelPage : UserControl
         barPreview = Divider(body, true, 2, 4, "col1", "col2");
         body.Controls.Add(barSource, 1, 0); body.Controls.Add(barPreview, 3, 0);
 
-        var sourceHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var sourceHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 3, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         sourceHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         sourceKind.Margin = new Padding(0, 0, 0, 6); sourceKind.Anchor = AnchorStyles.Left;
         sourceHead.Controls.Add(sourceKind, 0, 0);
@@ -195,8 +200,10 @@ sealed partial class ModelPage : UserControl
         heroesOnly.Margin = new Padding(0, 4, 0, 0); summonsSource.Margin = new Padding(0);
         sourceToggles.Controls.AddRange([heroesOnly, summonsSource]);
         var filterRow = Row(characterFilter, sourceToggles); filterRow.Dock = DockStyle.Fill;
-        sourceHead.Controls.Add(filterRow, 0, 1);
-        var sourceColumn = Column("SOURCE", sourceHead, characters);
+        InitKindTabs();
+        sourceHead.Controls.Add(sourceKindStrip, 0, 1);
+        sourceHead.Controls.Add(filterRow, 0, 2);
+        var sourceColumn = Column("SOURCE", sourceHead, SourceLists());
         body.Controls.Add(sourceColumn, 0, 0);
         body.Controls.Add(Column("PREVIEW", null, preview), 2, 0);
 
@@ -211,16 +218,20 @@ sealed partial class ModelPage : UserControl
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));            // the Blender link's line
         layoutRight = right;
         // the filter and Build From, then Model ▾ on its own line (shown for a package with several models)
-        var targetHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var targetHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 4, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         targetHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize)); targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int r = 0; r < 4; r++) targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        InitTargetKind();
+        targetKind.Margin = new Padding(0, 0, 0, 6); targetKind.Anchor = AnchorStyles.Left;
+        targetHead.Controls.Add(targetKind, 0, 0);
         var targetToggles = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         summonsTarget.Margin = new Padding(0, 0, 6, 0); buildFrom.Margin = new Padding(0);
         targetToggles.Controls.AddRange([summonsTarget, buildFrom]);
         var targetRow = Row(packageFilter, targetToggles); targetRow.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-        targetHead.Controls.Add(targetRow, 0, 0);
+        targetHead.Controls.Add(targetKindStrip, 0, 1);
+        targetHead.Controls.Add(targetRow, 0, 2);
         meshPick.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; meshPick.Margin = new Padding(0, 4, 0, 0);
-        targetHead.Controls.Add(meshPick, 0, 1);
+        targetHead.Controls.Add(meshPick, 0, 3);
         var targetColumn = Column("TARGET", targetHead, packages);
         right.Controls.Add(targetColumn, 0, 0);   // (Kurt: Source and Target)
         barTarget = Divider(right, false, 0, 2, "target", "tabs");
@@ -334,7 +345,7 @@ sealed partial class ModelPage : UserControl
         keepSourceSize.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
         Ui.TipTitled(jointFit, "Game Joint Blend", "Shares the skin around the hips, knees, shoulders and elbows between the limb and the body the way the target's own game model does, over a wide band, instead of the MFF model's narrow handover. It stops the seat creasing and the shoulders and thighs bulging when the hero moves. The pelvis also turns where the game's does. Test feature: compare it in the preview (Look ▾ → Weights shows the result), then in game. The preview shows it after a moment; Build writes it. (MFF models only.)");
         jointFit.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
-        Ui.TipTitled(leanSlider, "Lean", "Tips the model forward (+) or back (−), in degrees: half at the ankles (the legs stay straight), half at the hips; the soles stay flat. It starts at the automatic amount (Auto): the head over the feet as the hero's own model stands. Double-click: back to automatic. The preview shows it after a moment; Build writes it. (MFF models only: an FBX keeps its own pose.)");
+        Ui.TipTitled(leanSlider, "Lean", "Tips the model forward (+) or back (−), in degrees: half at the ankles (the legs stay straight), half at the hips; the soles stay flat. It starts at the automatic amount (Auto): the head over the feet as the hero's own model stands. Double-click: back to automatic. The preview shows it after a moment; Build writes it.");
         leanSlider.Committed += () =>
         {
             if (restoringLean) return;
@@ -373,11 +384,12 @@ sealed partial class ModelPage : UserControl
             if (!kindByState && Settings.Current.SourceKind != sourceKind.SelectedIndex) { Settings.Current.SourceKind = sourceKind.SelectedIndex; Settings.Current.Save(); }
             bool mff = sourceKind.SelectedIndex == 0;
             heroesOnly.Visible = mff; smooth.Enabled = mff; if (!mff) smooth.Checked = false;
-            summonsSource.Visible = sourceKind.SelectedIndex == 2;
+            sourceKindStrip.Visible = sourceKind.SelectedIndex == 2;
+            summonsSource.Visible = false;
             characterFilter.Text = "";
             FillCharacters(); UpdateStatus(); SchedulePreview();
         };
-        { bool mff0 = sourceKind.SelectedIndex == 0; heroesOnly.Visible = mff0; smooth.Enabled = mff0; }
+        { bool mff0 = sourceKind.SelectedIndex == 0; heroesOnly.Visible = mff0; smooth.Enabled = mff0; sourceKindStrip.Visible = sourceKind.SelectedIndex == 2; summonsSource.Visible = false; }
         packageFilter.TextChanged += (_, _) => FillPackages();
         packages.SelectedIndexChanged += (_, _) => PackagePicked();   // first: "From the Game" and the game list's picks
         characters.SelectedIndexChanged += (_, _) => CharacterChosen();
@@ -385,9 +397,10 @@ sealed partial class ModelPage : UserControl
         {
             int i = characters.IndexFromPoint(e.Location);
             if (i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Header: true } h) ToggleGroup(h);
-            // right-click a summon or power model: the source and the target at once (Kurt, 2026-10-25)
-            else if (e.Button == MouseButtons.Right && i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Label: false } s
-                     && s.Key.StartsWith(GameSrc) && IsSummon(s.Key[GameSrc.Length..])) SummonBoth(i, s.Key[GameSrc.Length..]);
+            // right-click a game source: the source, and the same package in the Target's From the Game list (Kurt, 2026-10-25:
+            // summons; 2026-10-26: any of them, the same tree shown on the right)
+            else if (e.Button == MouseButtons.Right && i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Header: false, Label: false } s
+                     && s.Key.StartsWith(GameSrc)) SourceBoth(i, s.Key[GameSrc.Length..]);
         };
         characters.KeyDown += (_, e) =>
         {
@@ -610,15 +623,25 @@ sealed partial class ModelPage : UserControl
     /// power's own package plays (Kind "power" / "entity": Cyclops's Strike Team - Beast is a mesh in UC__PowerCyclops_CallBeast_SF),
     /// with the mesh in that package (<see cref="MhoSkeleton.Choose"/> picks it) and its bone count.</summary>
     /// <summary>Kind "copy": the same model under the same path in another of the hero's packages (MeshPath), built together.</summary>
-    internal sealed record Summon(string Hero, string Name, string Power, string Kind, string Mesh, int Bones, string? Icon = null, string? MeshPath = null);
+    internal sealed record Summon(string Hero, string Name, string Power, string Kind, string Mesh, int Bones, string? Icon = null, string? MeshPath = null)
+    {
+        /// <summary>The costume classes (lower case) whose summon override picks it; "*" = the power's own summon, for the
+        /// costumes without one; empty = every costume's (costume-agnostic).</summary>
+        public HashSet<string> Costumes { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>Every hero's summons and power models (Model\StockData\model_summons.txt, from --summon-census with
     /// MHO_CENSUS_OUT on the stock packages; every costume's variant), by package file.</summary>
+    /// <summary>Summon models' copies in characters' packages (mesh path → packages): heroes' costumes, team-ups, NPCs. (Before
+    /// <see cref="Summons"/>: its loader fills it, and static fields start in this order.)</summary>
+    internal static readonly Dictionary<string, List<string>> CharacterCopies = new(StringComparer.OrdinalIgnoreCase);
+
     internal static readonly Dictionary<string, List<Summon>> Summons = LoadSummons();
 
     static Dictionary<string, List<Summon>> LoadSummons()
     {
         var map = new Dictionary<string, List<Summon>>(StringComparer.OrdinalIgnoreCase);
+        if (!MhoExtendedModManager.WhatsNew.Summons) return map;   // (parked: no summons anywhere on the tab)
         using var s = typeof(ModelPage).Assembly.GetManifestResourceStream("MhoMffImporter.StockData.model_summons.txt");
         if (s == null) return map;
         using var r = new StreamReader(s);
@@ -627,8 +650,22 @@ sealed partial class ModelPage : UserControl
             if (line.Length == 0 || line[0] == '#') continue;
             var c = line.Split('\t');
             if (c.Length < 7 || !int.TryParse(c[6], out int bones)) continue;
+            // a copy in a character's package (a hero's costume, a team-up, an NPC: Strike Team's Beast is Beast's Astonishing
+            // costume model too): built with the summon, not listed as one
+            if (c[4] == "copy" && EffectModels.CharacterPackage(c[0]))
+            {
+                if (c.Length > 8 && c[8].Length > 0)
+                {
+                    if (!CharacterCopies.TryGetValue(c[8], out var cl)) CharacterCopies[c[8]] = cl = [];
+                    if (!cl.Contains(c[0], StringComparer.OrdinalIgnoreCase)) cl.Add(c[0]);
+                }
+                continue;
+            }
+            // (team-ups and heroes' own packages have their own rows: a power that can call any team-up listed them all)
+            if (c[0].StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || c[0].StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) continue;
             if (!map.TryGetValue(c[0], out var list)) map[c[0]] = list = new();
-            list.Add(new Summon(c[1], c[2], c[3], c[4], c[5], bones, c.Length > 7 && c[7].Length > 0 ? c[7] : null, c.Length > 8 && c[8].Length > 0 ? c[8] : null));
+            list.Add(new Summon(c[1], c[2], c[3], c[4], c[5], bones, c.Length > 7 && c[7].Length > 0 ? c[7] : null, c.Length > 8 && c[8].Length > 0 ? c[8] : null)
+                { Costumes = new(c.Length > 9 ? c[9].Split(',', StringSplitOptions.RemoveEmptyEntries) : [], StringComparer.OrdinalIgnoreCase) });
         }
         // the package's own hero first (others reach it too: Rogue's stolen powers, Ant-Man's Friends in Low Places bring
         // Squirrel Girl's squirrels): the one with most entries, then the one named in the file
@@ -652,6 +689,19 @@ sealed partial class ModelPage : UserControl
 
     /// <summary>The mesh to use in a summons package (a power package's model among its effects), or null for the automatic pick.</summary>
     internal static string? SummonMesh(string file) => Summons.TryGetValue(Path.GetFileName(file), out var l) ? l[0].Mesh : null;
+
+    /// <summary>The summon model's copies in characters' packages (<see cref="CharacterCopies"/>): the summoning hero's own ones
+    /// (Own: built with it, they load whenever the hero is played) and other characters' (built only when the user says so:
+    /// changing them changes that character's look too).</summary>
+    internal static (List<string> Own, List<string> Others) SummonCharacterCopies(string file)
+    {
+        if (!Summons.TryGetValue(Path.GetFileName(file), out var mine)) return ([], []);
+        var all = mine.Select(x => x.MeshPath).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(p => CharacterCopies.GetValueOrDefault(p, [])).Where(f => !f.Equals(Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        string hero = mine[0].Hero;
+        return (all.Where(f => EffectModels.HeroOwns(f, hero)).ToList(), all.Where(f => !EffectModels.HeroOwns(f, hero)).ToList());
+    }
 
     /// <summary>The other packages holding the same summon model under the same path (Squirrelpocalypse's squirrel: its
     /// projectile's package and the power's): the game shows the copy it loads first, so a build goes into each.</summary>
@@ -706,6 +756,7 @@ sealed partial class ModelPage : UserControl
     /// when open, in wiki order); a character with one model is a plain row. While a filter is typed, matching groups open.</summary>
     void FillCharacters()
     {
+        if (sourceSplit != null) ShowSummonsPanel();
         if (FbxMode) { FillFbx(); return; }
         if (GameMode) { FillGameSources(); return; }
         string f = characterFilter.Text.Trim();
@@ -771,7 +822,10 @@ sealed partial class ModelPage : UserControl
         string f = new string(characterFilter.Text.Where(char.IsLetterOrDigit).ToArray());
         int top = characters.TopIndex;
         characters.BeginUpdate(); characters.Items.Clear();
-        var shown = allPackages.Where(p => (!summonsOnlySource || IsSummon(p.File)) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase)));
+        // (summons and power models are in the panel below: the hero picked here decides them)
+        var matching = allPackages.Where(p => !IsSummon(p.File) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
+        ShowKindTabs(sourceKindTabs, sourceKindTab, matching);
+        var shown = matching.Where(p => KindOf(p.File) == sourceKindTab);
         var groups = shown.GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase);
         if (f.Length > 0) groups = groups.OrderBy(g => g.Min(p => TargetKind(p.File)));
         foreach (var g in groups)
@@ -849,7 +903,10 @@ sealed partial class ModelPage : UserControl
         string? keep = ChosenPackage?.Key;
         int top = packages.TopIndex;
         packages.BeginUpdate(); packages.Items.Clear();
-        var shown = allPackages.Where(p => (!summonsOnlyTarget || IsSummon(p.File)) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase)));
+        var matching = allPackages.Where(p => (!summonsOnlyTarget || IsSummon(p.File)) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (summonsOnlyTarget) targetKindTab = 0;   // (summons are under their heroes)
+        ShowKindTabs(targetKindTabs, targetKindTab, matching);
+        var shown = matching.Where(p => KindOf(p.File) == targetKindTab);
         // while filtering (Kurt, 2026-10-19): heroes first, then team-ups, then NPCs and the rest; each kind in its own order
         var groups = shown.GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase);
         if (f.Length > 0) groups = groups.OrderBy(g => g.Min(p => TargetKind(p.File)));
@@ -1129,7 +1186,7 @@ sealed partial class ModelPage : UserControl
             string? modelFbx = EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
             string? paintFile = PaintPath() is string pp && File.Exists(pp) ? pp : null;
             var prepared = await Task.Run(() => sfbx != null
-                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx, paintFile)
+                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx, paintFile, lean)
                 : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs, keepSize, lean, joints, paintFile));
             if (id != previewId || IsDisposed) return;   // something changed meanwhile
             preview.Show(prepared);

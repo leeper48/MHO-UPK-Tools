@@ -28,7 +28,7 @@ static partial class Program
         ("--migrate", "--migrate <old folder> [--to <lib>]", "Copy MHModManager's mods, order, verified stock backups and settings into a new library (default %LOCALAPPDATA%\\MhoExtendedModManager\\library). The old folder is left as it is."),
         ("--install", "--install <archive.zip|.7z|folder> [--replace]", "Add the mod(s) in an archive or folder to the library (top of the list, disabled). --replace updates a mod of the same name in place (keeps its place, on/off, lock, tags and note)."),
         ("--export", "--export <mod> <out.zip> [--legacy]", "Save a mod from the library as a .zip (installable here and in MHModManager; --legacy also leaves out the other-icon-package extension)."),
-        ("--remove", "--remove <mod> [--dry-run]", "Remove a disabled mod from the library (to the Recycle Bin). Refused while its own files are still modded in the game (Apply first). --dry-run only says whether it could be removed."),
+        ("--remove", "--remove <mod> [--dry-run]", "Remove a disabled mod from the library (to the discarded copies). Refused while its own files are still modded in the game (Apply first). --dry-run only says whether it could be removed."),
         ("--enable", "--enable <mod>", "Enable a mod (library state only; run --apply to change the game)."),
         ("--disable", "--disable <mod>", "Disable a mod (library state only; run --apply to change the game)."),
         ("--apply", "--apply [--dry-run [--out <dir>]]", "Make the game match the library: winners' packages in, icon packages rebuilt from stock with the winning textures, verified stock originals back for the rest. Writes through MPM's verified path with undo. --out saves what a dry run would write."),
@@ -79,6 +79,8 @@ static partial class Program
         ("--restore-original", "--restore-original <file.upk> ... [--dry-run]", "Puts the game's original back for changed game files (see --changed-files), as Apply would: .bak made from the original if missing, verified, undo history."),
         ("--fix-bak-dates", "--fix-bak-dates [--dry-run]", "Gives .bak files that are the game's original (checked against the stock checksums) but dated later the game's date, 2024-03-14. Only the date changes. A .bak that isn't the original is left alone."),
         ("--backup-check", "--backup-check [--clean <folder>] [--all]", "Which game packages aren't stock now, whether their .bak is truly stock, and where a stock copy is (kept originals, the clean folder). Changes nothing."),
+        ("--snapshot-take", "--snapshot-take [name]", "Take a snapshot of the library now (Settings → Snapshots), kept until deleted. Only reads the mods."),
+        ("--snapshot-test", "--snapshot-test <scratch folder> [mod ...]", "Self-test of snapshots and bundles on a throwaway library made in the scratch folder from copies of a few small mods. Nothing else changes."),
         ("--hero-powers", "--hero-powers <hero>", "A hero's powers as the 3D preview's power buttons list them: name, icon, animations. Changes nothing."),
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
@@ -443,7 +445,7 @@ static partial class Program
                 string? gr = settings.ResolvedGameRoot(data);
                 bool dry = rest.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase));
                 string? why = ModInstaller.Remove(m, lib, gr != null && Settings.IsGameRoot(gr) ? new GameState(gr, data) : null, dry);
-                Console.WriteLine(why ?? (dry ? $"{m.Name} can be removed (dry run: nothing changed)." : $"Removed {m.Name} (its folder is in the Recycle Bin)."));
+                Console.WriteLine(why ?? (dry ? $"{m.Name} can be removed (dry run: nothing changed)." : $"Removed {m.Name} (its folder is with the discarded copies)."));
                 return why == null ? 0 : 1;
             }
             case "--duplicate":

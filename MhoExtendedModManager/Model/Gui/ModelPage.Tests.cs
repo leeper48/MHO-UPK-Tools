@@ -85,6 +85,38 @@ sealed partial class ModelPage
 
     internal bool TestHasRig => unrigged != null;
 
+    /// <summary>Test: a right-click on a summon in the Source's summons panel (its hero's panel shown first); its row, or -1.</summary>
+    int TestRightClickSummon(string file)
+    {
+        if (!GameMode) sourceKind.SelectedIndex = 2;
+        sourceKindTab = 0; FillCharacters();
+        ShowSummonSource(file);
+        int i = sourceSummons.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + file, StringComparison.OrdinalIgnoreCase));
+        if (i < 0) return -1;
+        sourceSummons.SelectedIndex = -1;
+        sourceSummons.SelectedIndex = i;   // the source
+        MirrorTarget(file);
+        return i;
+    }
+
+    /// <summary>Test (--model-summon-test): the summons panel for a costume: Cable Original shows the Original illusion, not
+    /// the other costumes'; the hero's group row shows them all.</summary>
+    internal async Task<bool> TestSummonsPanel(Action<string> say)
+    {
+        await Task.Yield();
+        if (!GameMode) sourceKind.SelectedIndex = 2;
+        sourceKindTab = 0; FillCharacters();
+        summonsFor = ("Cable", "marvelplayer_cable_original"); FillSourceSummons();
+        var orig = sourceSummons.Items.OfType<CharacterList.Item>().Where(r => r.Key.StartsWith(GameSrc)).Select(r => r.Key[GameSrc.Length..]).ToList();
+        summonsFor = ("Cable", null); FillSourceSummons();
+        var all = sourceSummons.Items.OfType<CharacterList.Item>().Where(r => r.Key.StartsWith(GameSrc)).Select(r => r.Key[GameSrc.Length..]).ToList();
+        bool ok = sourceSummonsPanel.Visible && orig.Any(f => f.Contains("TelepathicIllusion_Original", StringComparison.OrdinalIgnoreCase))
+            && !orig.Any(f => f.Contains("TelepathicIllusion_Xmen", StringComparison.OrdinalIgnoreCase)) && all.Count > orig.Count
+            && !characters.Items.OfType<CharacterList.Item>().Any(r => r.Key.StartsWith(GameSrc) && IsSummon(r.Key[GameSrc.Length..]));
+        say($"{(ok ? "PASS" : "FAIL")} the Source's summons panel follows the costume: Cable Original shows {orig.Count} ({string.Join(", ", orig.Select(f => f[4..^7]))}); his group row {all.Count}; the list above has no summons");
+        return ok;
+    }
+
     /// <summary>
     /// Test (--model-summon-test): a summon as the target with no source picked. A creature (no humanoid skeleton) gets its own
     /// model as the source by itself; the Summons toggle lists only summons (with their headings), and Edit in Blender's
@@ -96,6 +128,33 @@ sealed partial class ModelPage
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
         for (int i = 0; i < 300 && pendingState != null; i++) await Task.Delay(100);
+        if (!await TestSummonsPanel(say)) fails++;
+        // the Heroes / Team-Ups / NPCs tabs over both game lists
+        gameList = true; FillPackages();
+        bool tabsOk = targetKindStrip.Visible;
+        for (int k = 0; k < 3; k++)
+        {
+            targetKindTab = k; FillPackages();
+            var keys = packages.Items.OfType<CharacterList.Item>().Where(r => !r.Header && !r.Label && !r.Key.Contains(':')).Select(r => r.Key).ToList();
+            expandedHeroes.UnionWith(packages.Items.OfType<CharacterList.Item>().Where(r => r.Header).Select(r => r.Key["hero:".Length..])); FillPackages();
+            keys = packages.Items.OfType<CharacterList.Item>().Where(r => !r.Header && !r.Label && !r.Key.Contains(':')).Select(r => r.Key).ToList();
+            tabsOk &= keys.Count > 0 && keys.All(x => KindOf(x) == k) && targetKindTabs[k].Text.Contains('(');
+            say($"  target tab {targetKindTabs[k].Text}: {keys.Count} packages shown, all of the kind {keys.All(x => KindOf(x) == k)}, strip shown {targetKindStrip.Visible}");
+        }
+        expandedHeroes.Clear(); targetKindTab = 0;
+        sourceKind.SelectedIndex = 2; await Task.Delay(300);
+        for (int k = 0; k < 3; k++)
+        {
+            sourceKindTab = k; FillCharacters();
+            var groupsShown = characters.Items.OfType<CharacterList.Item>().Where(r => r.Header).Select(r => r.Key["group:".Length..]).ToList();
+            foreach (var gk in groupsShown) expanded.Add(gk);
+            FillCharacters();
+            var keys = characters.Items.OfType<CharacterList.Item>().Where(r => !r.Header && !r.Label && r.Key.StartsWith(GameSrc)).Select(r => r.Key[GameSrc.Length..]).ToList();
+            tabsOk &= sourceKindStrip.Visible && keys.Count > 0 && keys.All(x => KindOf(x) == k);
+            say($"  source tab {sourceKindTabs[k].Text}: {keys.Count} packages shown, all of the kind {keys.All(x => KindOf(x) == k)}, strip shown {sourceKindStrip.Visible}");
+        }
+        sourceKindTab = 0; FillCharacters();
+        Check(tabsOk, "Heroes / Team-Ups / NPCs: each tab shows only its kind, on both sides, with its count");
         // the Summons toggle over the target's game list
         gameList = true; FillPackages();
         Check(summonsTarget.Visible, "the target's Summons toggle shows with From the Game");
@@ -147,27 +206,42 @@ sealed partial class ModelPage
         // right-click a summon in the Source list: the source and the target
         chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear(); characters.ClearSelected();
         gameList = false; FillPackages(); packages.ClearSelected();
-        expanded.Add("game " + DescribePackage(creature).Title); FillCharacters();
-        int at = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + creature, StringComparison.OrdinalIgnoreCase));
-        if (at >= 0) SummonBoth(at, creature);
+        int at = TestRightClickSummon(creature);
         for (int i = 0; i < 1200 && !((GameSrc + creature).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
         Check(at >= 0 && (GameSrc + creature).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && ChosenPackage?.Key.Equals(creature, StringComparison.OrdinalIgnoreCase) == true,
             $"right-clicking a summon in the Source list picks it as the source and the target (source {chosenKey ?? "none"}, target {ChosenPackage?.Key ?? "none"})");
+        // right-click an NPC in the Source list (NPCs › Enemies and Bosses › one): the Target shows the same tab and group and
+        // picks it (the add question answered OK)
+        var npc = allPackages.Where(p => KindOf(p.File) == 2 && !host.Packages.Any(x => x.File.Equals(p.File, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(p => p.Detail.Contains("Abigail", StringComparison.OrdinalIgnoreCase) ? 0 : 1).First();
+        chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear(); characters.ClearSelected();
+        characterFilter.Text = ""; sourceKindTab = 2; expanded.Add("game " + npc.Title); FillCharacters();
+        int nrow = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + npc.File, StringComparison.OrdinalIgnoreCase));
+        if (nrow >= 0) SourceBoth(nrow, npc.File);
+        for (int i = 0; i < 1200 && !((GameSrc + npc.File).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+        Check(nrow >= 0 && targetKindTab == 2 && expandedHeroes.Contains(npc.Title) && ChosenPackage?.Key.Equals(npc.File, StringComparison.OrdinalIgnoreCase) == true,
+            $"right-clicking an NPC source ({npc.Title} › {npc.Detail.Split(" · ")[0]}) shows the same tab and group on the right and picks it (target tab {KindTitles[targetKindTab]}, target {ChosenPackage?.Key ?? "none"})");
         // MHO_TEST_COPYBUILD=<package>: a summon whose model has copies elsewhere (Squirrelpocalypse's squirrel): one build
         // writes each of them into the mod
         if (Environment.GetEnvironmentVariable("MHO_TEST_COPYBUILD") is { Length: > 0 } copyPkg)
         {
             var copies = SummonCopies(copyPkg);
-            Check(copies.Count > 0, $"{copyPkg} has copies of its model ({string.Join(", ", copies)})");
+            var chars0 = SummonCharacterCopies(copyPkg);
+            Check(copies.Count + chars0.Own.Count + chars0.Others.Count > 0, $"{copyPkg} has copies of its model ({string.Join(", ", copies.Concat(chars0.Own).Concat(chars0.Others))})");
             chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear(); characters.ClearSelected();
-            expanded.Add("game " + DescribePackage(copyPkg).Title); FillCharacters();
-            int row = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + copyPkg, StringComparison.OrdinalIgnoreCase));
-            if (row >= 0) SummonBoth(row, copyPkg);
+            int row = TestRightClickSummon(copyPkg);
             for (int i = 0; i < 1200 && !((GameSrc + copyPkg).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
             for (int i = 0; i < 300 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);
+            // MHO_TEST_COPYOTHERS=1: "Change Them Too" answered for the copies in other characters' packages
+            var (ownChars, otherChars) = SummonCharacterCopies(copyPkg);
+            if (Environment.GetEnvironmentVariable("MHO_TEST_COPYOTHERS") == "1") copyOthers[copyPkg] = true;
+            bool others = copyOthers.GetValueOrDefault(copyPkg);
             bool okBuild = await BuildAsync();
-            Check(okBuild && built.ContainsKey(copyPkg) && copies.All(c => built.Keys.Any(k => k.Equals(c, StringComparison.OrdinalIgnoreCase))),
-                $"one build puts the model into {copyPkg} and its copies (built: {string.Join(", ", built.Keys)})");
+            var expect = copies.Concat(ownChars).Concat(others ? otherChars : []).ToList();
+            Check(okBuild && built.ContainsKey(copyPkg) && expect.All(c => built.Keys.Any(k => k.Equals(c, StringComparison.OrdinalIgnoreCase)))
+                && (others || otherChars.All(c => !built.Keys.Any(k => k.Equals(c, StringComparison.OrdinalIgnoreCase)))),
+                $"one build puts the model into {copyPkg} and its copies{(otherChars.Count > 0 ? $" ({(others ? "other characters' too" : "not other characters'")}: {string.Join(", ", otherChars)})" : "")} (built: {string.Join(", ", built.Keys)})");
+            Check(!log.Text.Contains("CRASH RISK"), "no crash risk among the built copies (checked together)");
             if (fails > 0) say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
         }
         return fails;
@@ -420,8 +494,10 @@ sealed partial class ModelPage
             {
                 if (!GameMode) { sourceKind.SelectedIndex = 2; await Task.Delay(300); }
                 expanded.Add("game " + DescribePackage(mff[GameSrc.Length..]).Title);
+                SourceTabFor(mff[GameSrc.Length..]);
                 FillCharacters();
                 Reselect(characters, mff);
+                if (IsSummon(mff[GameSrc.Length..])) { ShowSummonSource(mff[GameSrc.Length..]); GameChosen(mff); }
                 for (int i = 0; i < 1200 && !(mff.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
             }
             if (!HasSource) { say($"the game source didn't load: {mff} ({characters.Items.Count} rows in the list)\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }

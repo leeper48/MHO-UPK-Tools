@@ -113,7 +113,7 @@ static class MirrorTables
     }
 
     /// <summary>
-    /// The mod's packages with their mirror tables fixed, saved like an editor save (the old folder to the Recycle Bin; place,
+    /// The mod's packages with their mirror tables fixed, saved like an editor save (the old folder to the discarded copies; place,
     /// on/off, tags kept). Returns the packages changed, or null with <paramref name="error"/>.
     /// </summary>
     public static List<string>? Apply(ModLibrary lib, Mod m, List<string> log, out string? error)
@@ -137,7 +137,7 @@ static class MirrorTables
                 done.Add(f);
             }
             if (done.Count == 0) { error = "No mirror table needed fixing."; return null; }
-            if (ModWriter.Save(lib, d, m, out error) == null) return null;
+            if (ModWriter.Save(lib, d, m, out error, "Fix Mirror Tables (Crash Risk)") == null) return null;
             return done;
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException) { error = ex.Message; return null; }

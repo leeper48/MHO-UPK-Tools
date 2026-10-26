@@ -56,6 +56,10 @@ sealed class Settings
     /// <summary>Features not released yet (Kurt, 2026-10-01: the editor's Powers tab). Off by default; set to true in
     /// settings.json by hand to see them. No menu item on purpose.</summary>
     public bool PreviewFeatures { get; set; }
+    /// <summary>What Make Bundle puts in a bundle: "ask" each time, "all" installed mods, or the turned-"on" ones (Snapshots).</summary>
+    public string BundleScope { get; set; } = "ask";
+    /// <summary>Days a replaced or removed mod's discarded copy is kept (Discarded; 0: until cleaned up by hand).</summary>
+    public int DiscardDays { get; set; } = 30;
     /// <summary>The user's name as a mod author: filled in on every new mod (Settings → Your Author Name; Kurt, 2026-10-03).
     /// Before, a new mod took the author of the most recently changed mod folder, often someone else's.</summary>
     public string? AuthorName { get; set; }

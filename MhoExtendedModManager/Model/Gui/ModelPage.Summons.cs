@@ -21,8 +21,8 @@ sealed partial class ModelPage
         summonsTarget = Ui.FlatButton("Summons", () => { summonsOnlyTarget = !summonsOnlyTarget; Ui.Lit(summonsTarget, summonsOnlyTarget); FillPackages(); },
             "Show only summons and power models: the characters and models heroes' powers bring in (Squirrel Girl's squirrels, Magik's demons, Cyclops's Strike Team …), under each hero. Click again for the whole list.");
         summonsSource = Ui.FlatButton("Summons", () => { summonsOnlySource = !summonsOnlySource; Ui.Lit(summonsSource, summonsOnlySource); FillCharacters(); },
-            "Show only summons and power models from the game, under each hero. Click again for the whole list. Right-click one to make it the target too.");
-        summonsTarget.Visible = gameList;
+            "Show only summons and power models from the game, under each hero. Click again for the whole list. Right-click any one to make it the target too.");
+        summonsTarget.Visible = gameList && Summons.Count > 0;
         summonsSource.Visible = GameMode;
         blenderButton = Ui.FlatButton("Edit in Blender", EditInBlender,
             "Opens this work in Blender: Ctrl+S there sends your changes back here. With no source picked, the target's own model becomes the source (a summon, a costume: change the game's model itself). Opened in Blender before: that same scene opens again, with your earlier work in it (Full Export ▾ → Open in Blender makes a fresh one).");
@@ -59,19 +59,22 @@ sealed partial class ModelPage
 
     /// <summary>A right-click on a summon in the Source list: it's the source, and the target too (added to the mod from the
     /// game when the mod doesn't hold it yet).</summary>
-    void SummonBoth(int row, string file)
+    void SourceBoth(int row, string file)
     {
         characters.SelectedIndex = row;   // the source (CharacterChosen)
-        if (!host.Packages.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)))
-        {
-            string stock;
-            try { stock = BasePackage.Resolve(file); }
-            catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException) { Log($"{file}: {ex.Message}"); return; }
-            host.AddPackage(file, stock);
-            added.Add(file);
-            Log($"Added {file} to the mod as the target too (the game's stock copy, until it's built).");
-        }
-        gameList = false; packageFilter.Text = "";
+        MirrorTarget(file);
+    }
+
+    void MirrorTarget(string file)
+    {
+        // the Target's From the Game list as the Source's (Kurt, 2026-10-26: NPCs › Enemies and Bosses › Abigail Brand on the
+        // left shows the same on the right): its tab, filter, Summons toggle and open group, the same package picked, which
+        // asks to add it to the mod as From the Game does (the mod's own copy is picked when it has one)
+        gameList = true;
+        targetKindTab = sourceKindTab;
+        summonsOnlyTarget = summonsOnlySource; Ui.Lit(summonsTarget, summonsOnlyTarget);
+        packageFilter.Text = characterFilter.Text;
+        expandedHeroes.Add(DescribePackage(file).Title);
         FillPackages();
         Reselect(packages, file);
         SaveState();
@@ -103,8 +106,10 @@ sealed partial class ModelPage
         summonsOnlySource = false; Ui.Lit(summonsSource, false);
         characterFilter.Text = "";
         expanded.Add("game " + DescribePackage(file).Title);
+        SourceTabFor(file);
         FillCharacters();
         Reselect(characters, key);
+        ShowSummonSource(file);   // (a summon: in the panel below)
         if (!key.Equals(chosenKey, StringComparison.OrdinalIgnoreCase)) GameChosen(key);   // (a package the list doesn't hold)
         for (int i = 0; i < 1200 && !(key.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
         if (!HasSource) { Log($"{file}: its own model couldn't be read as the source."); return false; }

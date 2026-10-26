@@ -1,6 +1,45 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.163
+- Discarded copies instead of the Recycle Bin: when a mod's folder is replaced (an edit, Make Unique, Fix Mirror Tables, an update, a bundle) or removed, the old folder is kept in data\library\discarded (moved: instant). Kept 30 days by default (Settings → Snapshots: 7, 30, 90 days or until cleaned up), deleted at a start after that; copies a saved snapshot still needs are only deleted after a warning (Keep Them / Delete Them). Clean Up Discarded deletes them by hand, keeping the ones snapshots need if you like.
+- Restoring a snapshot now puts the mods' files back too: removed mods come back, edits, updates, Make Unique and Fix Mirror Tables are undone, Keep Shared Paths goes back. Without a kept copy, Make Unique is undone from the mod's own copy, or only Keep Shared Paths is set back. The preview lists every mod whose files change.
+- The Snapshots window's buttons are icons (names in the tooltips); Restore sits beside Take Snapshot; the discarded copies' count and size show at the bottom.
+
+0.60.161
+- Settings → Snapshots: the library's state at points in time, taken at every start (kept), before every Apply (the last 30 kept) and by hand (Take Snapshot, kept). A few KB each: mods on/off, order, locks, tags, notes, each mod's version, install date and files, Make Unique / Keep Shared Paths, the OVERLAP and CRASH RISK warnings, what was done to each mod (installs, updates, Fix Mirror Tables, Make Unique for Overlap or Crash Risk …), and the game files Apply wrote.
+- Compare with Now / Compare Two: what changed (mods installed, removed, turned on or off, moved, updated, made unique, warnings, fixes done in between, game files written). Restore puts a snapshot's state back after a preview (Undo takes it back).
+- Bundles: Make Bundle saves the mods themselves with their state in one .zip (ask each time, every mod, or the turned-on ones: a setting in the window); Restore Bundle installs what's missing, replaces what differs if you say so, and puts its state back.
+
+0.60.160
+- Model tab: summons and power models are parked as a preview feature for now (settings.json "PreviewFeatures": true shows them): the From the Game lists, the Source's summons panel and the Target's Summons toggle are as before summons.
+
+0.60.159
+- Model tab, Source → From the Game → Heroes: the summons and power models are in a panel under the list (its bottom third), for the hero and costume picked above: a power that summons per costume shows that costume's own (Cable Original: his Original Telepathic Illusion, not the other costumes'), or the power's own when the costume has none; costume-agnostic ones always show. A hero's group row shows them all, with their costumes. Click one for the source; right-click shows it on the Target side too.
+
+0.60.158
+- Model tab: the Target has a dropdown like the Source's: The Mod's Packages, From the Game, Browse for a Package (they were rows in the list).
+
+0.60.157
+- Model tab: right-click any From the Game source (not only summons): it's the source, and the Target side shows the same tab, filter and group with that package picked (NPCs › Enemies and Bosses › Abigail Brand on both sides), asking to add it to the mod as From the Game does.
+
+0.60.156
+- Model tab: From the Game's lists (Source and Target) have three tabs: Heroes (each hero's costumes, with its summons and power models under it), Team-Ups and NPCs (NPCs, enemies and bosses), each with its count; the filter searches the tab shown. A saved or right-clicked source opens on its tab.
+
+0.60.155
+- Model tab: Characters and Effects are tabs at the top left of the tab (Effects was a button, Effect Models, at the top right).
+
+0.60.154
+- Effect Models: every package holding a copy of a mesh is found, characters' too (48 effect meshes are also in a hero's, enemy's or NPC's package: Hulk's asteroid is in his own). Packages is a checklist: powers, hotspots, projectiles, conditions and the hero's own packages are ticked; another character's package is unticked (tick it to change that character's copy too).
+- Summons: their copies in characters' packages are found too (Strike Team's Beast is also Beast's Astonishing costume and the Beast NPC). The hero's own are built with the summon; for other characters' the build asks once (Change Them Too / Leave Them, kept with the mod).
+- Every copy a summon build writes gets its mirror table fixed, and the copies are crash-checked together.
+- Make Unique and the crash checks also cover powers' hotspots, projectiles and condition effects (Squirrelpocalypse's projectile was never compared). What counts as a shared library is unchanged, so mods made unique before keep what they kept.
+- Manual: OVERLAP and CRASH RISK explain how effect models and summon copies share on purpose, and shared effect libraries.
+
+0.60.153
+- Model tab: Lean works on FBX and From the Game sources too (it did nothing there: only MFF models had it): the model tips about the ankles, half of it at the hips, with the automatic amount as for MFF models; the skeleton stays, so the lean holds in every animation.
+- Team-ups are listed as team-ups again in From the Game (0.60.150 listed them as a hero's summons, since a power can call any team-up).
+
 0.60.152
 - Effect Models: meshes with vertex colors build (Squirrel Girl's running squirrels stopped with "mesh has per-vertex colors"): each vertex takes its nearest original vertex's color.
 - Effect Models export with their own normals, so big meshes (Venom's symbiote spawner, 100k vertices before) stay under the game's vertex limit; meshes with an empty section build. All 615 effect meshes now go out to Blender and back.

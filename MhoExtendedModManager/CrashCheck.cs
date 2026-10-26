@@ -32,6 +32,9 @@ static class CrashCheck
     static readonly Dictionary<string, (string Stamp, List<Issue> Issues)> cache = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, int?> stockBones = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The mod's issues as last checked (null: not checked yet); nothing is read.</summary>
+    public static List<Issue>? Cached(Mod m) { lock (cache) return cache.TryGetValue(m.Folder, out var hit) ? hit.Issues : null; }
+
     /// <summary>The mod's issues (read from its packages and the game's; cached per mod by its files' sizes and times: call
     /// off the UI thread).</summary>
     public static List<Issue> Check(Mod m, string cooked)

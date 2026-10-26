@@ -247,29 +247,7 @@ sealed class PowerEffects
         // power naming them: Nick Fury's Fireteam talents → SummonShotgun, whose Ultron costumes summon drones instead)
         foreach (string proto in closure.Prepend(powerPath).Concat(SummonOverridePowers(db, hero)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            if (db.Find(proto) is not { } pe) continue;
-            List<string> lines;
-            try { lines = db.Dump(db.Prototype(pe.Id).Data, 40).ToList(); }
-            catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { continue; }
-            // Each override is a struct (<parent …SummonPowerOverride…>, its fields indented under it, in any order: Nick Fury's
-            // list SummonEntity before EntityArt); a SummonEntity outside one is the power's own (in its SummonEntityContexts).
-            var overrides = new List<(string Art, string Entity)>();
-            string? plain = null;
-            int blockIndent = -1; string? bArt = null, bEntity = null;
-            void Close() { if (bArt != null && bEntity != null) overrides.Add((bArt, bEntity)); else if (bEntity != null) plain ??= bEntity; blockIndent = -1; bArt = bEntity = null; }
-            foreach (string l in lines)
-            {
-                int indent = l.Length - l.TrimStart().Length;
-                // (its group headers, [..], sit at its own depth: still inside it)
-                if (blockIndent >= 0 && (indent < blockIndent || indent == blockIndent && !l.TrimStart().StartsWith('['))) Close();
-                if (l.TrimStart().StartsWith("<parent", StringComparison.Ordinal) && l.Contains("Override", StringComparison.OrdinalIgnoreCase)) { Close(); blockIndent = indent; continue; }
-                var m = SummonLine.Match(l);
-                if (!m.Success) continue;
-                if (blockIndent >= 0) { if (m.Groups[2].Value == "EntityArt") bArt ??= m.Groups[4].Value; else bEntity ??= m.Groups[4].Value; }
-                else if (m.Groups[2].Value == "SummonEntity") plain ??= m.Groups[4].Value;
-            }
-            Close();
-            if (overrides.Count == 0) continue;
+            if (Overrides(db, proto) is not var (overrides, plain) || overrides.Count == 0) continue;
             string? mine = overrides.FirstOrDefault(o => entityNow != null && o.Art.Equals(entityNow, StringComparison.OrdinalIgnoreCase)).Entity ?? plain;
             // (by the summon entry each came from, else by its class: an entry's class can turn into a costume's own in turn)
             foreach (var (_, entity) in overrides.Append((Art: "", Entity: plain ?? "")))
@@ -311,6 +289,64 @@ sealed class PowerEffects
         }
         fx.Actors.RemoveAll(a => a.Kind == "summon" && a.TriggeredBy != null && behind.Contains(a.TriggeredBy));
         fx.Effects.RemoveAll(e => e.TriggeredBy != null && behind.Contains(e.TriggeredBy));   // (and their own effects)
+    }
+
+    /// <summary>A power's summon overrides per costume (SummonPowerOverride: EntityArt = the costume's class, SummonEntity = its
+    /// own summon) and its own summon (used by the other costumes); null when it can't be read.</summary>
+    static (List<(string Art, string Entity)> Overrides, string? Plain)? Overrides(GameData db, string proto)
+    {
+        if (db.Find(proto) is not { } pe) return null;
+        List<string> lines;
+        try { lines = db.Dump(db.Prototype(pe.Id).Data, 40).ToList(); }
+        catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { return null; }
+        // Each override is a struct (<parent …SummonPowerOverride…>, its fields indented under it, in any order: Nick Fury's
+        // list SummonEntity before EntityArt); a SummonEntity outside one is the power's own (in its SummonEntityContexts).
+        var overrides = new List<(string Art, string Entity)>();
+        string? plain = null;
+        int blockIndent = -1; string? bArt = null, bEntity = null;
+        void Close() { if (bArt != null && bEntity != null) overrides.Add((bArt, bEntity)); else if (bEntity != null) plain ??= bEntity; blockIndent = -1; bArt = bEntity = null; }
+        foreach (string l in lines)
+        {
+            int indent = l.Length - l.TrimStart().Length;
+            // (its group headers, [..], sit at its own depth: still inside it)
+            if (blockIndent >= 0 && (indent < blockIndent || indent == blockIndent && !l.TrimStart().StartsWith('['))) Close();
+            if (l.TrimStart().StartsWith("<parent", StringComparison.Ordinal) && l.Contains("Override", StringComparison.OrdinalIgnoreCase)) { Close(); blockIndent = indent; continue; }
+            var m = SummonLine.Match(l);
+            if (!m.Success) continue;
+            if (blockIndent >= 0) { if (m.Groups[2].Value == "EntityArt") bArt ??= m.Groups[4].Value; else bEntity ??= m.Groups[4].Value; }
+            else if (m.Groups[2].Value == "SummonEntity") plain ??= m.Groups[4].Value;
+        }
+        Close();
+        return (overrides, plain);
+    }
+
+    /// <summary>
+    /// Which costumes summon what (Kurt, 2026-10-26: Cable Original summons his Original telepathic illusion, the other
+    /// illusions are other costumes'): the summoned classes and entities of a power (and the hero's other override powers) →
+    /// the costume classes whose override picks them, lower case; "*" = the power's own summon, for costumes without an
+    /// override. A summon in none of them is every costume's.
+    /// </summary>
+    public static Dictionary<string, HashSet<string>> CostumeChoices(GameData db, string powerPath, string? hero)
+    {
+        var map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        void Add(string entity, string art)
+        {
+            foreach (string key in new[] { Path.GetFileNameWithoutExtension(entity), UnrealClassOfEntity(db, entity) }.OfType<string>())
+            {
+                if (!map.TryGetValue(key, out var set)) map[key] = set = new(StringComparer.OrdinalIgnoreCase);
+                set.Add(art);
+            }
+        }
+        IEnumerable<string> protos;
+        try { protos = PowerClosure.Of(db, powerPath).Select(x => x.Prototype); }
+        catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or KeyNotFoundException) { protos = []; }
+        foreach (string proto in protos.Prepend(powerPath).Concat(SummonOverridePowers(db, hero)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (Overrides(db, proto) is not var (overrides, plain) || overrides.Count == 0) continue;
+            foreach (var (art, entity) in overrides) Add(entity, Path.GetFileNameWithoutExtension(art).ToLowerInvariant());
+            if (plain != null) Add(plain, "*");
+        }
+        return map;
     }
 
     static readonly System.Text.RegularExpressions.Regex TriggerLine = new(@"^\s*Power \(P\) = (\S+\.prototype)");

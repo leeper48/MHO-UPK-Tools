@@ -218,6 +218,7 @@ sealed partial class MainForm : Form
                 it.Checked = int.TryParse(it.Text!.Split(' ')[0], out int v) && Math.Abs(settings.UiScale * 100 - v) < 0.5f;
         };
         menu.Items.Add(scaleMenu);
+        menu.Items.Add("Snapshots", null, (_, _) => ShowSnapshots()).ToolTipText = "The library's state at points in time (taken at every launch, before every Apply and by hand): compare one with now or two with each other, put one back, and make or restore a bundle of the mods themselves.";
         menu.Items.Add("Keyboard Shortcuts", null, (_, _) => { using var f = new ShortcutsForm(); f.ShowDialog(this); }).ToolTipText = "Every keyboard shortcut and 3D view mouse binding: change them, see conflicts. Right-click any button to give it a shortcut.";
         menu.Items.Add("What's New", null, (_, _) => ShowNotice(0)).ToolTipText = "The notices of new features shown when a version starts the first time, newest first, with a link to the manual.";
         menu.Items.Add("Changelog", null, (_, _) => ShowChangelog());
@@ -494,7 +495,7 @@ sealed partial class MainForm : Form
         tagsButton.Click += (_, _) => { if (Selected is Mod m) Ui.ShowUnder(TagsMenu(m), tagsButton); };
         leftButtons.Controls.AddRange([remove, edit, export, tagsButton]);
         writeControls.AddRange([remove, edit, applyButton, tagsButton]);
-        Ui.SetTipText(remove, "Send the selected mod to the Recycle Bin: it's turned off and the game gets its files back first. Asks before it does anything (Del).");
+        Ui.SetTipText(remove, "Remove the selected mod (its folder is kept with the discarded copies for a while): it's turned off and the game gets its files back first. Asks before it does anything (Del).");
         Ui.SetTipText(edit, "Open the selected mod in the Editor tab (or double-click it).");
         Ui.SetTipText(export, "Save the selected mod as a .ZIP to share.");
         Ui.SetTipText(tagsButton, "Add or remove the selected mod's tags, tag every mod in the list, rename or delete tags.");
@@ -1106,6 +1107,13 @@ sealed partial class MainForm : Form
 
     // ---- Actions
 
+    /// <summary>Settings → Snapshots (the window restores through Change: one undo step).</summary>
+    void ShowSnapshots()
+    {
+        using var f = new SnapshotsForm(settings, () => (lib, game), (snap, label) => Change(label, () => { if (lib == null) return false; Snapshots.Restore(lib, snap); return true; }), Reload);
+        f.ShowDialog(this);
+    }
+
     async void Apply()
     {
         if (readOnly || lib == null || game == null) return;
@@ -1121,6 +1129,7 @@ sealed partial class MainForm : Form
         // One window (Kurt): the plan and the question, then "Success" or what went wrong.
         using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : () => Task.Run(() =>
         {
+            Snapshots.Take(l, g, "apply", $"{plan.Steps.Count} file(s) to write");   // (Settings → Snapshots: what the library was before)
             bool ok = false;
             string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
             return (ok, ok ? log : log + "\n\n" + ApplyCheck.Text(check, g).Replace("\nPLAN", "").TrimEnd());
@@ -1151,7 +1160,7 @@ sealed partial class MainForm : Form
     /// <summary>Asked (on the UI thread) when an installed mod would be replaced.</summary>
     bool AskReplace(Mod existing, ModManifest incoming) => (bool)Invoke(() =>
         Dialog.Show(this, $"\"{existing.Name}\" is installed already (version {existing.Manifest.Version ?? "?"} by {existing.Manifest.Author ?? "?"}).\n\n" +
-            $"Replace it with version {incoming.Version ?? "?"} by {incoming.Author ?? "?"}?\n\nIt keeps its place in the list, on/off, lock, tags and note. The old files go to the Recycle Bin." +
+            $"Replace it with version {incoming.Version ?? "?"} by {incoming.Author ?? "?"}?\n\nIt keeps its place in the list, on/off, lock, tags and note. The old files are kept with the discarded copies (Settings → Snapshots)." +
             (existing.Enabled ? "\n\nIt's on: Apply Changes afterwards puts the new version in the game." : ""),
             "Update Mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes);
 
@@ -1190,6 +1199,7 @@ sealed partial class MainForm : Form
             return (log, all);
         });
         UseWaitCursor = false;
+        foreach (string f in installed) ModHistory.Add(l.DataFolder, f, into != null ? "Updated" : "Installed", string.Join(", ", sources.Select(Path.GetFileName)));
         lastInstallLog = log;
         filter.Text = "";
         Reload();
@@ -1221,6 +1231,7 @@ sealed partial class MainForm : Form
         var ed = new ModEditorView(lib!, game, m);
         ed.Saved += name =>
         {
+            if (lib != null) ModHistory.Add(lib.DataFolder, name, "Saved in the Editor", ed.Editing == null ? "a new mod" : null);
             bool stay = ed.KeepEditing;
             var at = ed.TabPosition;
             var powersState = ed.CapturePowersState();   // (the power, its tab and pose: shown again after the save)
@@ -1373,7 +1384,7 @@ sealed partial class MainForm : Form
 
     /// <summary>
     /// Remove (Kurt: say what will happen, ask once, then do it): turn the mod off, Apply Changes so the game gets its
-    /// original files back (with everything else waiting in the list), then move its folder to the Recycle Bin. If Apply
+    /// original files back (with everything else waiting in the list), then move its folder to the discarded copies. If Apply
     /// stops, nothing is removed: the mod stays in the list, turned off, and the log says where it stopped.
     /// </summary>
     async void RemoveMod()
@@ -1386,8 +1397,8 @@ sealed partial class MainForm : Form
             + m.Manifest.AchievementReplacements.Count + m.Manifest.Extra.Count() + m.Strings.Count + m.Manifest.AudioPacks.Count > 0);
         string nl = Environment.NewLine;
         string steps = inGame
-            ? $"This will:{nl}  1. Turn it off{(m.Enabled ? "" : " (it's off already)")}.{nl}  2. Apply Changes, so the game gets its original files back (other changes waiting in your list are applied too).{nl}  3. Move its folder to the Recycle Bin.{nl}{nl}The game must be closed."
-            : "Its folder goes to the Recycle Bin.";
+            ? $"This will:{nl}  1. Turn it off{(m.Enabled ? "" : " (it's off already)")}.{nl}  2. Apply Changes, so the game gets its original files back (other changes waiting in your list are applied too).{nl}  3. Move its folder to the discarded copies (Settings → Snapshots), so a snapshot restore can bring it back.{nl}{nl}The game must be closed."
+            : "Its folder goes to the discarded copies (Settings → Snapshots), so a snapshot restore can bring it back.";
         if (Dialog.Show(this, $"Remove \"{m.Name}\" from the library?{nl}{nl}{steps}", "Remove Mod", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         if (inGame && Process.GetProcessesByName("MarvelHeroesOmega").Length > 0)
         { Dialog.Show(this, "Close the game first: The game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
@@ -1419,12 +1430,13 @@ sealed partial class MainForm : Form
         Reload();
         if (!r.Ok) { Dialog.ShowLog(this, "Not Removed", $"Apply Changes stopped, so \"{name}\" wasn't removed (it's turned off).{nl}{nl}" + r.Log, Dialog.Tone.Bad); return; }
         if (r.Why != null) { Dialog.Show(this, r.Why, "Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-        status.Text = Ui.TitleCase($"Removed \"{name}\"  ·  its folder is in the Recycle Bin");
+        status.Text = Ui.TitleCase($"Removed \"{name}\"  ·  its folder is with the discarded copies");
+        if (lib != null) ModHistory.Add(lib.DataFolder, m.FolderName, "Removed", "its folder went to the discarded copies", m.Name, m.Manifest.Version);
     }
 
     /// <summary>
     /// Remove several mods at once (Kurt, 2026-10-15: with a very visible warning that it removes several): the same steps as
-    /// one (turn them off, one Apply Changes, their folders to the Recycle Bin), after a warning that names every mod, in the
+    /// one (turn them off, one Apply Changes, their folders to the discarded copies), after a warning that names every mod, in the
     /// warning color, with Cancel as the default button. If Apply stops, nothing is removed.
     /// </summary>
     async void RemoveMods(List<Mod> mods)
@@ -1447,7 +1459,7 @@ sealed partial class MainForm : Form
         return $"⚠ You're about to remove {mods.Count} mods at once, not just one.{nl}{nl}"
             + $"THESE {mods.Count} MODS WILL BE REMOVED{nl}" + string.Join(nl, mods.Take(25).Select(m => $"  • {m.Name}{(m.Enabled ? "  (on)" : "")}")) + (mods.Count > 25 ? $"{nl}  • And {mods.Count - 25} more" : "") + nl + nl
             + "WHAT HAPPENS" + nl
-            + (inGame ? $"  1. They're turned off{(on > 0 ? $" ({on} of them are on now)" : "")}.{nl}  2. Apply Changes runs once, so the game gets its original files back (other changes waiting in your list are applied too).{nl}  3. Their folders go to the Recycle Bin.{nl}{nl}The game must be closed." : "  • Their folders go to the Recycle Bin.")
+            + (inGame ? $"  1. They're turned off{(on > 0 ? $" ({on} of them are on now)" : "")}.{nl}  2. Apply Changes runs once, so the game gets its original files back (other changes waiting in your list are applied too).{nl}  3. Their folders go to the discarded copies (Settings → Snapshots).{nl}{nl}The game must be closed." : "  • Their folders go to the discarded copies (Settings → Snapshots).")
             + $"{nl}{nl}To keep any of them: Cancel, then click only the mods you want to remove (Ctrl + click takes a card out of the selection).";
     }
 
@@ -1485,7 +1497,7 @@ sealed partial class MainForm : Form
         Reload();
         if (!r.Ok) { Dialog.ShowLog(this, "Not Removed", $"Apply Changes stopped, so none of the {mods.Count} mods were removed (they're turned off).{nl}{nl}" + r.Log, Dialog.Tone.Bad); return; }
         if (r.Failed.Count > 0) Dialog.Show(this, $"{mods.Count - r.Failed.Count} of {mods.Count} mods removed. These weren't:{nl}{nl}{string.Join(nl, r.Failed)}", "Not All Removed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        status.Text = Ui.TitleCase($"Removed {mods.Count - r.Failed.Count} Mods  ·  their folders are in the Recycle Bin");
+        status.Text = Ui.TitleCase($"Removed {mods.Count - r.Failed.Count} Mods  ·  their folders are with the discarded copies");
     }
 
     async void MoveLibrary()

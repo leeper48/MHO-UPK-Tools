@@ -96,7 +96,7 @@ static class Dialog
         Directory.CreateDirectory(dir);
         var samples = new (string Name, Func<DialogForm> Make)[]
         {
-            ("dialog_question", () => new DialogForm("\"Storm Classic Costume Visual Update\" is installed already (version 4 by Wlzzer).\n\nReplace it with version 5 by Wlzzer?\n\nIt keeps its place in the list, on/off, lock, tags and note. The old files go to the Recycle Bin.",
+            ("dialog_question", () => new DialogForm("\"Storm Classic Costume Visual Update\" is installed already (version 4 by Wlzzer).\n\nReplace it with version 5 by Wlzzer?\n\nIt keeps its place in the list, on/off, lock, tags and note. The old files are kept with the discarded copies (Settings → Snapshots).",
                 "Update Mod", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1, Tone.Normal, false)),
             ("dialog_log", () => new DialogForm("Storm Classic.zip:\nInstalled 'Storm Classic Costume Visual Update' by Wlzzer, version 5 (disabled, top of the list).\n\nNew mods are added at the top of the list, turned off: tick one, then Apply Changes.",
                 "Installed", MessageBoxButtons.OK, MessageBoxIcon.None, MessageBoxDefaultButton.Button1, Tone.Good, true)),

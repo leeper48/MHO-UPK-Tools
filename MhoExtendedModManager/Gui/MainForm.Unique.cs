@@ -9,6 +9,8 @@ namespace MhoExtendedModManager.Gui;
 sealed partial class MainForm
 {
     int sharedCheck;
+    /// <summary>The snapshot taken once per start (Settings → Snapshots), after the first check of the mods.</summary>
+    bool launchSnapshot;
 
     /// <summary>Works out which mods are exposed (the mods' and the stock character packages are read once; cached per mod).</summary>
     void CheckShared()
@@ -31,10 +33,41 @@ sealed partial class MainForm
             }
         }).ContinueWith(_ =>
         {
+            if (!launchSnapshot && !readOnly && lib != null && run == sharedCheck)
+            {
+                launchSnapshot = true;
+                try { Snapshots.Take(lib, game, "launch"); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                CleanDiscarded(lib);
+            }
             if (IsDisposed || run != sharedCheck) return;
             // grouped or filtered by overlap: the list is made again now that it's known
             BeginInvoke(() => { if (settings.ListGroup is "overlap" or "crash" || filter.Text.Contains("is:overlap", StringComparison.OrdinalIgnoreCase) || filter.Text.Contains("is:crash", StringComparison.OrdinalIgnoreCase)) FillList(Selected?.FolderName); else list.Invalidate(); });
         });
+    }
+
+    /// <summary>Once per start (Kurt, 2026-10-26): the discarded mod copies past Settings.DiscardDays are deleted; the ones a
+    /// saved snapshot would bring back only after asking (kept: asked again after as many days).</summary>
+    void CleanDiscarded(ModLibrary l)
+    {
+        try
+        {
+            int days = settings.DiscardDays;
+            var due = Discarded.Due(l.DataFolder, days);
+            if (due.Count == 0) return;
+            var needed = Discarded.Needed(l, due, Snapshots.List());
+            Discarded.Delete(due.Where(e => !needed.ContainsKey(e)));
+            if (needed.Count == 0 || IsDisposed) return;
+            BeginInvoke(() =>
+            {
+                if (IsDisposed) return;
+                string text = $"{needed.Count} discarded mod copies are older than {days} days and would be deleted now, but saved snapshots still need them to put those mods' files back.\n\n"
+                    + Discarded.Warning(needed)
+                    + $"\n\nWHAT YOU CAN DO\n  • Keep Them: They're asked about again in {days} days.\n  • Delete Them: They're gone for good.\n  • Settings → Snapshots: How long copies are kept, and Clean Up Discarded.";
+                if (Dialog.Choose(this, text, "Discarded Copies", "Keep Them", "Delete Them") == 1) Discarded.Delete(needed.Keys);
+                else Discarded.Postpone(needed.Keys, days);
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>The OVERLAP pill's reasons: a shared model (Make Unique) and / or enemy-only power packages.</summary>
@@ -57,7 +90,7 @@ sealed partial class MainForm
         int pick = Dialog.Choose(this, text, "Crash Risk", [.. labels]);
         string? chosen = pick >= 0 && pick < labels.Count ? labels[pick] : null;
         if (chosen == "Fix Mirror Tables") FixMirrorTables(m);
-        else if (chosen == "Make Unique") await MakeUnique(m);
+        else if (chosen == "Make Unique") await MakeUnique(m, "Crash Risk");
     }
 
     /// <summary>The CRASH RISK window's text and buttons (the findings, then what can be done), or null with no findings.</summary>
@@ -71,7 +104,7 @@ sealed partial class MainForm
         if (unique) advice.Add("  • Make Unique: Gives this mod's models paths of their own, so no other copy shares their animation table."
             + (m.Manifest.KeepShared == true ? " Its author keeps its paths shared on purpose (Keep Shared Paths): After Make Unique, characters that shared them (a summoner's copy of an agent, a team-up) show the game's look instead of this mod's." : ""));
         if (advice.Count == 0) advice.Add("Let the mod's creator know: Fewer added bones, or a model path of its own, avoids it.");
-        else advice.Add("\nOnly this mod's own package files change (saved like an edit; the old folder goes to the Recycle Bin). It's a good idea to let the mod's creator know too, so they can update it officially.");
+        else advice.Add("\nOnly this mod's own package files change (saved like an edit; the old folder is kept with the discarded copies). It's a good idea to let the mod's creator know too, so they can update it officially.");
         var labels = new List<string>();
         if (mirror) labels.Add("Fix Mirror Tables");
         if (unique) labels.Add("Make Unique");
@@ -92,6 +125,7 @@ sealed partial class MainForm
         UseWaitCursor = false;
         if (done == null) { Dialog.Show(this, error ?? "The mirror tables couldn't be fixed.", "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         note = $"Mirror tables fixed in \"{m.Name}\" ({string.Join(", ", done)}){(m.Enabled ? ": Apply Changes puts them in the game" : "")}";
+        ModHistory.Add(l, m, "Fix Mirror Tables (Crash Risk)", string.Join(", ", done));
         Reload();
         SelectMod(m.FolderName);
     }
@@ -142,6 +176,8 @@ sealed partial class MainForm
         UseWaitCursor = false;
         if (saved == null) { Dialog.Show(this, error ?? "The packages couldn't be taken out.", "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         note = copy != null ? $"\"{copy}\" made without {string.Join(", ", files)} (turn it on and \"{m.Name}\" off, then Apply)" : $"{string.Join(", ", files)} taken out of \"{m.Name}\"{(m.Enabled ? ": Apply Changes puts the game's own back" : "")}";
+        if (copy != null) ModHistory.Add(l.DataFolder, saved, "Made without enemy-only packages", $"a copy of \"{m.Name}\" without {string.Join(", ", files)}", copy, m.Manifest.Version);
+        else ModHistory.Add(l, m, "Enemy-only packages taken out", string.Join(", ", files));
         Reload();
         SelectMod(saved);
     }
@@ -170,6 +206,7 @@ sealed partial class MainForm
         var done = UniqueNames.Undo(lib, m, out string? error);
         if (done == null) { Dialog.Show(this, error ?? "It couldn't be undone.", "Not Undone", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         note = $"\"{m.Name}\": Make Unique undone ({done.Count} package(s)){(m.Enabled ? ": Apply Changes puts it in the game" : "")}";
+        ModHistory.Add(lib, m, "Undo Make Unique", $"{done.Count} package(s); Keep Shared Paths on");
         string folder = m.FolderName;
         Reload();
         SelectMod(folder);
@@ -199,7 +236,7 @@ sealed partial class MainForm
         sb.AppendLine("WHAT IT CHANGES");
         if (lose.Count > 0) sb.AppendLine($"  • These show the game's look afterwards: {List(lose, 6)}");
         if (keep.Count > 0) sb.AppendLine($"  • These stay shared and keep this mod's look (the hero's own illusions, afterimages and summons): {List(keep, 6)}");
-        sb.AppendLine("  • Only this mod's own package files change. The folder is saved like an edit (the old one goes to the Recycle Bin), and streamed textures keep their path. The mod still installs in MHModManager.");
+        sb.AppendLine("  • Only this mod's own package files change. The folder is saved like an edit (the old one is kept with the discarded copies), and streamed textures keep their path. The mod still installs in MHModManager.");
         sb.AppendLine("  • Right-click → Undo Make Unique puts it back.");
         sb.AppendLine();
         sb.AppendLine("WHICH TO CHOOSE");
@@ -210,7 +247,7 @@ sealed partial class MainForm
         return sb.ToString().TrimEnd();
     }
 
-    async Task<bool> MakeUnique(Mod m)
+    async Task<bool> MakeUnique(Mod m, string because = "Overlap")
     {
         if (readOnly || lib == null || game == null) return false;
         string? why = UniqueNames.Reason(m, evenKept: true);
@@ -225,6 +262,7 @@ sealed partial class MainForm
         UseWaitCursor = false;
         if (done == null) { Dialog.Show(this, error ?? "It couldn't be made unique.", "Not Made Unique", MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
         note = $"\"{m.Name}\" made unique ({done.Count} package(s)){(m.Enabled ? ": Apply Changes puts it in the game" : "")}";
+        ModHistory.Add(l, m, $"Make Unique ({because})", $"{done.Count} package(s)");
         string folder = m.FolderName;
         Reload();
         SelectMod(folder);

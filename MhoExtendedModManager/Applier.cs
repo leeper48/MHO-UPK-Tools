@@ -429,6 +429,9 @@ sealed class Ledger
 
     public uint? Get(string file) => files.TryGetValue(file, out uint c) ? c : null;
 
+    /// <summary>Every recorded file (a snapshot keeps them).</summary>
+    public Dictionary<string, uint> Files() => new(files, StringComparer.OrdinalIgnoreCase);
+
     public void Set(string file, uint crc)
     {
         if (files.TryGetValue(file, out uint c) && c == crc) return;

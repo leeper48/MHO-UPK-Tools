@@ -186,6 +186,7 @@ sealed partial class MainForm
         if (lib != null && game != null) using (var gf = new GameFilesForm(lib, game)) Check("Changed Game Files", gf);
         using (var u = new UpdateForm(new Updater.Release(new Version(9, 9, 9), "extmm-v9.9.9", "", "", Updater.ReleasesPage, "", "", 0))) Check("Update", u);
         using (var fr = new FirstRunForm(settings)) Check("First-run setup", fr);
+        using (var sn = new SnapshotsForm(settings, () => (lib, game), (_, _) => { }, () => { })) Check("Snapshots", sn);
         File.WriteAllLines(outFile, found.Count == 0 ? ["Every button has a tooltip."] : found);
         return found.Count == 0 ? 0 : 1;
     }

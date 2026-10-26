@@ -84,12 +84,13 @@ sealed partial class PreviewPanel
     }
 
     /// <summary>An FBX as the source (0.11.3): its skeleton proportions, meshes (<paramref name="meshes"/>, null = all) and textures.</summary>
-    public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null, string? paintFile = null)
+    public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null, string? paintFile = null, float lean = float.NaN)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
         Stage("skeleton");
         var r = FbxReimport.Load(fbx, sk, meshes, _ => { });
+        FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
         if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });   // the mesh edited in Blender (Ctrl+S)
         Stage("fbx load");
         MaterialOverrides.Apply(r, overrides);

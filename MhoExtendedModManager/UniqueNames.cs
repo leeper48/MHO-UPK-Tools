@@ -31,9 +31,13 @@ static class UniqueNames
 
     /// <summary>The packages Make Unique looks at: characters (Kinds) and powers (UC__Power…: Kurt, 2026-10-11, a Captain Carter
     /// mod changed vfx_taskmaster.textures.tex_taskmaster_shield in Taskmaster's Shield Bounce packages, and the boss's stock
-    /// Shield Toss, which carries the same path, threw her shield).</summary>
+    /// Shield Toss, which carries the same path, threw her shield).
+    /// Also a power's hotspots, projectiles and condition effects (2026-10-26: Squirrelpocalypse's squirrel projectile and the
+    /// effect models' copies live there, and were never compared).</summary>
     public static bool Covers(string file) => file.EndsWith("_SF.upk", StringComparison.OrdinalIgnoreCase)
-        && (file.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase) || Kinds.Any(k => file.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase)));
+        && (file.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase) || Kinds.Concat(EffectKinds).Any(k => file.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase)));
+
+    static readonly string[] EffectKinds = ["MarvelEntity", "MarvelProjectile", "MarvelConditionEffect"];
 
     static readonly string[] FixedLibraries = ["chbasematerial", "engine", "biped_lib", "marvelgamecontent", "vfx_shared"];
     /// <summary>Top-level groups carried by more packages than this are libraries (vfx_shared_textures, vfx_ubervfx: in
@@ -69,7 +73,7 @@ static class UniqueNames
             if (index is { } ix && ix.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)) return ix.Paths;
             var infos = new DirectoryInfo(folder).EnumerateFiles("UC__*_SF.upk")
                 .Where(f => !f.Name.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Name.Contains("copy", StringComparison.OrdinalIgnoreCase) && Covers(f.Name)).ToList();
-            string stamp = $"{Path.GetFullPath(folder).ToLowerInvariant()}|{infos.Count}|{infos.Sum(f => f.Length)}|{(infos.Count == 0 ? 0 : infos.Max(f => f.LastWriteTimeUtc.Ticks))}|v4";
+            string stamp = $"{Path.GetFullPath(folder).ToLowerInvariant()}|{infos.Count}|{infos.Sum(f => f.Length)}|{(infos.Count == 0 ? 0 : infos.Max(f => f.LastWriteTimeUtc.Ticks))}|v6";
             string cache = Path.Combine(Settings.Home, "shared_paths.json");
             try
             {
@@ -97,7 +101,10 @@ static class UniqueNames
                         if (!Classes.Contains(c)) continue;
                         string path = p.PathOf(e);
                         seen.GetOrAdd($"{path}|{c}", _ => []).Add(fi.Name);
-                        groupFiles.GetOrAdd(path.Split('.')[0], _ => new(StringComparer.OrdinalIgnoreCase)).TryAdd(fi.Name, 0);
+                        // (libraries are counted over the character and power packages only, as before the effect kinds were
+                        // added: counting those too made chvfxmaterials a library and changed what made-unique mods keep)
+                        if (!EffectKinds.Any(k => fi.Name.StartsWith($"UC__{k}_", StringComparison.OrdinalIgnoreCase)))
+                            groupFiles.GetOrAdd(path.Split('.')[0], _ => new(StringComparer.OrdinalIgnoreCase)).TryAdd(fi.Name, 0);
                     }
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
@@ -356,6 +363,9 @@ static class UniqueNames
     /// <summary>The pill's reason, or null when nothing is exposed. From the cache only (null until <see cref="Plans"/> ran).</summary>
     /// <param name="evenKept">Also for a mod whose author keeps its paths shared (Keep Shared Paths: no OVERLAP warning,
     /// no Make Unique offered; the CRASH RISK window still offers it, as a crash outweighs the choice).</param>
+    /// <summary>Whether the background check has looked at this mod yet (a snapshot records the pill only then).</summary>
+    public static bool Checked(Mod m) { lock (plansCache) return plansCache.ContainsKey(m.Folder); }
+
     public static string? Reason(Mod m, bool evenKept = false)
     {
         if (!evenKept && m.Manifest.KeepShared == true) return null;
@@ -412,7 +422,8 @@ static class UniqueNames
     /// Undo Make Unique: the packages back to their copies from before the rename, the mod marked Keep Shared Paths (so the
     /// next Save doesn't rename them again), saved like an edit. Returns the packages put back, or null with the error.
     /// </summary>
-    public static List<string>? Undo(ModLibrary lib, Mod m, out string? error)
+    /// <param name="keepShared">Keep Shared Paths afterwards (a snapshot restore passes the snapshot's own).</param>
+    public static List<string>? Undo(ModLibrary lib, Mod m, out string? error, bool keepShared = true)
     {
         error = null;
         var files = Undoable(m, out _);
@@ -424,15 +435,15 @@ static class UniqueNames
             if (k >= 0) d.Packages[k] = (file, src);
             d.BeforeUnique.Remove(file);
         }
-        d.KeepShared = true;
-        if (ModWriter.Save(lib, d, m, out error) == null) return null;
+        d.KeepShared = keepShared;
+        if (ModWriter.Save(lib, d, m, out error, "Undo Make Unique") == null) return null;
         lock (plansCache) plansCache.Remove(m.Folder);
         return [.. files.Select(f => f.File)];
     }
 
     /// <summary>
     /// Make Unique on a library mod: its exposed packages rebuilt with their own paths, saved through the editor's save (the
-    /// old folder to the Recycle Bin, place, on/off, tags kept). The mod's packages then differ from what's in the game: Apply
+    /// old folder to the discarded copies, place, on/off, tags kept). The mod's packages then differ from what's in the game: Apply
     /// puts them in. Returns the packages changed, or null with <paramref name="error"/>.
     /// </summary>
     public static List<string>? Apply(ModLibrary lib, Mod m, string cooked, List<string> log, out string? error, string? copyName = null)
@@ -459,7 +470,7 @@ static class UniqueNames
             }
             if (copyName != null) d.Name = copyName;   // a new mod; the original kept as it is
             d.KeepShared = false;   // (made unique on purpose: Save may rename again later)
-            if (ModWriter.Save(lib, d, copyName != null ? null : m, out error) == null) return null;
+            if (ModWriter.Save(lib, d, copyName != null ? null : m, out error, "Make Unique") == null) return null;
             lock (plansCache) plansCache.Remove(m.Folder);
             return done;
         }

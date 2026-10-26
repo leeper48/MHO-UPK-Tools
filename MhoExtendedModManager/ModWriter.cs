@@ -141,14 +141,15 @@ sealed class ModDraft
 
 /// <summary>
 /// Writes a draft as a mod folder in MHModManager's format (manifest.json, &lt;lang&gt;.json, the files), new or in place of
-/// an existing mod: built in a temporary folder, then swapped in; the replaced folder goes to the Recycle Bin.
+/// an existing mod: built in a temporary folder, then swapped in; the replaced folder goes to the discarded copies (Discarded).
 /// </summary>
 static class ModWriter
 {
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
+    /// <param name="why">What replaced the old folder (kept with its discarded copy: Discarded).</param>
     /// <returns>The mod's folder name, or null with the reason.</returns>
-    public static string? Save(ModLibrary lib, ModDraft d, Mod? editing, out string? error)
+    public static string? Save(ModLibrary lib, ModDraft d, Mod? editing, out string? error, string why = "Saved (an edit or a build)")
     {
         error = null;
         var problems = d.Problems();
@@ -265,14 +266,14 @@ static class ModWriter
             var missing = probe.MissingFiles().ToList();
             if (missing.Count > 0) throw new IOException("files missing after writing: " + string.Join(", ", missing));
 
-            // Swap in: the old folder (when editing) goes to the Recycle Bin.
+            // Swap in: the old folder (when editing) goes to the discarded copies (a snapshot restore can bring it back).
             string? old = editing?.Folder;
             if (old != null && Directory.Exists(old))
             {
                 string aside = old + ".replaced-" + Guid.NewGuid().ToString("N")[..6];
                 Directory.Move(old, aside);
                 Directory.Move(temp, target);
-                Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(aside, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+                Discarded.Keep(lib.DataFolder, aside, editing!.FolderName, why);
             }
             else Directory.Move(temp, target);
         }

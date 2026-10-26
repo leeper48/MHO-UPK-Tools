@@ -75,6 +75,8 @@ sealed class ImportBuild
             var only = o.Parts is { Length: > 0 } ps && ps != "default" && ps != "all" ? ps.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
             if (PropFit.IsProp(sk)) throw new InvalidOperationException($"{sk.Name} is a prop (a weapon or shield): for now a prop can only be built from an MFF character's part");
             r = FbxReimport.Load(o.SourceFbx, sk, only, log);
+            FbxLean.Apply(r, o.Lean);
+            if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
             // an FBX source's map holds only its weight smoothing (the Bone Map's Smooth Weights)
             if (o.MapFile != null) foreach (var n in WeightSmooth.Apply(r, BoneMapFile.Load(o.MapFile).Smooth)) log("  " + n);
         }

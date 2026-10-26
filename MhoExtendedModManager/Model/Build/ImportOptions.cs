@@ -90,6 +90,8 @@ sealed record ImportOptions
             Reflect = Env("MFF_REFLECT"),
             PlaceholderMaterials = Env("MFF_PLACEHOLDER_MATERIALS") == "1",
             Subdivide = Env("MFF_SUBDIVIDE") == "1",
+            // MHO_LEAN=<degrees> or auto (the Lean slider; unset: none, as before)
+            Lean = Env("MHO_LEAN") == "auto" ? float.NaN : float.TryParse(Env("MHO_LEAN"), NumberStyles.Float, CultureInfo.InvariantCulture, out float ln) ? ln : 0,
             ModelFbx = Env("MFF_MODEL_FBX") is { Length: > 0 } mf ? mf : null,
             SourceFbx = Env("MFF_SOURCE_FBX") is { Length: > 0 } sf ? sf : null,
             Hair = int.TryParse(Env("MFF_HAIR"), out int hn) ? hn : 0,

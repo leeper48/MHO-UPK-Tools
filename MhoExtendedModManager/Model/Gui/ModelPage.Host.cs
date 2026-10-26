@@ -49,7 +49,7 @@ sealed partial class ModelPage
     {
         float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         // the declared widths (layout may have changed Width already), held as a minimum: the auto-sized source head shrank it to its arrow
-        foreach (var (d, w) in new[] { (sourceKind, 220), (buildFrom, 210) }) { d.MinimumSize = new Size((int)(w * s), 0); d.Width = (int)(w * s); }
+        foreach (var (d, w) in new[] { (sourceKind, 220), (targetKind, 220), (buildFrom, 210) }) { d.MinimumSize = new Size((int)(w * s), 0); d.Width = (int)(w * s); }
         foreach (var g in new[] { parts, mapGrid })
             foreach (DataGridViewColumn c in g.Columns) if (c.AutoSizeMode != DataGridViewAutoSizeColumnMode.Fill) c.Width = (int)(c.Width * s);
     }
@@ -63,13 +63,10 @@ sealed partial class ModelPage
     /// Game" to add one; or, after that, the game's base heroes with "Back to the Mod's Packages" on top.</summary>
     void FillPackages()
     {
-        summonsTarget.Visible = gameList;
-        if (gameList)
-        {
-            FillGamePackages();
-            packages.Items.Insert(0, new CharacterList.Item("back:", "← The Mod's Packages", "back to the packages this mod holds"));
-            return;
-        }
+        targetKindStrip.Visible = gameList;
+        summonsTarget.Visible = gameList && Summons.Count > 0;   // (summons parked: WhatsNew.Summons)
+        if (targetKind.SelectedIndex != (gameList ? 1 : 0)) { settingTargetKind = true; targetKind.SelectedIndex = gameList ? 1 : 0; settingTargetKind = false; }
+        if (gameList) { FillGamePackages(); return; }
         string? keep = ChosenPackage?.Key;
         packages.BeginUpdate(); packages.Items.Clear();
         foreach (var (file, _) in host.Packages.Where(p => CharacterPackage(p.File) || added.Contains(p.File) || built.ContainsKey(p.File) || HasCharacter(p.File, p.Path))
@@ -78,12 +75,31 @@ sealed partial class ModelPage
             var (title, detail) = DescribePackage(file);
             packages.Items.Add(new CharacterList.Item(file, Dot(file, title), detail + (built.ContainsKey(file) ? " · built by the Model tab" : "")));
         }
-        packages.Items.Add(new CharacterList.Item("game:", "From the Game", "add another base hero's package to the mod"));
-        packages.Items.Add(new CharacterList.Item("browse:", "Browse for a Package", "any .upk with a character in it (a pet, a vehicle, a prop …)"));
         packages.EndUpdate();
         if (keep != null) Reselect(packages, keep);
-        else if (packages.Items.Count >= 3) packages.SelectedIndex = 0;   // the mod's character (Kurt, 2026-10-19: several = the first by name)
+        else if (packages.Items.Count >= 1) packages.SelectedIndex = 0;   // the mod's character (Kurt, 2026-10-19: several = the first by name)
         UpdateStatus();
+    }
+
+    void InitTargetKind()
+    {
+        targetKind.Items.AddRange(["The Mod's Packages", "From the Game", "Browse for a Package"]);
+        targetKind.SelectedIndex = 0;
+        Ui.Tip(targetKind, "What to build onto: The Mod's Packages (the characters this mod holds); From the Game (add another hero, team-up, NPC, enemy or summon package from the game to the mod); Browse for a Package (any .upk with a character in it, named like a game package: a pet, a vehicle, another mod's package).");
+        targetKind.SelectedIndexChanged += (_, _) =>
+        {
+            if (settingTargetKind) return;
+            int k = targetKind.SelectedIndex;
+            if (k == 2)
+            {
+                // a file picker; the list goes back to the mod's packages (the picked one is added there)
+                gameList = false; packageFilter.Text = ""; FillPackages();
+                BeginInvoke(BrowsePackage);
+                return;
+            }
+            if ((k == 1) == gameList) return;
+            gameList = k == 1; RememberTargetList(); packageFilter.Text = ""; FillPackages();
+        };
     }
 
     /// <summary>The Target list the user switched to (From the Game or the mod's packages), for the next time.</summary>
@@ -432,6 +448,8 @@ sealed partial class ModelPage
         public bool JointFit { get; set; }
         /// <summary>Build When Blender Saves.</summary>
         public bool BuildOnBlenderSave { get; set; }
+        /// <summary>Per summon target: whether its copies in other characters' packages are built too (asked once).</summary>
+        public Dictionary<string, bool>? CopyOthers { get; set; }
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
@@ -451,7 +469,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked,
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
@@ -472,7 +490,8 @@ sealed partial class ModelPage
         foreach (var f in st.Built) built.TryAdd(f, "");
         foreach (var f in st.Added ?? []) added.Add(f);
         foreach (var (f, mesh) in st.Meshes ?? []) MhoSkeleton.Choose(f, mesh);
-        foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;   // built in an earlier session: its bytes are the mod's package
+        foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;
+        foreach (var (k, v) in st.CopyOthers ?? []) copyOthers[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;
         buildFrom.SelectedIndex = st.FromStock ? 1 : 0;
         if (st.Package != null) gameList = false;   // (the mod's saved target is one of its packages)
@@ -484,7 +503,7 @@ sealed partial class ModelPage
         kindByState = true;
         // (already on From the Game: the list was filled before the saved source was known, with its hero's group shut, so it's
         // filled again to open that group: Kurt 2026-10-25, a summon source wasn't picked again)
-        if (st.Source.StartsWith(GameSrc)) { if (!GameMode) sourceKind.SelectedIndex = 2; else FillCharacters(); }
+        if (st.Source.StartsWith(GameSrc)) { SourceTabFor(st.Source[GameSrc.Length..]); if (!GameMode) sourceKind.SelectedIndex = 2; else FillCharacters(); }
         else if (st.Source.StartsWith("fbx:") || st.Source.StartsWith(MffDir)) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
         else
         {
@@ -493,6 +512,8 @@ sealed partial class ModelPage
         }
         kindByState = false;
         Reselect(characters, st.Source);
+        // a summon: picked in the summons panel below the list
+        if (st.Source.StartsWith(GameSrc) && IsSummon(st.Source[GameSrc.Length..])) { ShowSummonSource(st.Source[GameSrc.Length..]); GameChosen(st.Source); }
     }
 
     /// <summary>The rest of the saved choices, once the source has loaded (parts, Smooth, material, Cape / Hair).</summary>

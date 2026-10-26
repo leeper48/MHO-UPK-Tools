@@ -21,17 +21,29 @@ sealed partial class ModelPage
         public int Applied { get; set; }
         public bool Built { get; set; }
         public List<string> Added { get; set; } = [];
+        /// <summary>The packages to build into, as ticked under Packages (null: the default, <see cref="DefaultPackages"/>).</summary>
+        public List<string>? Packages { get; set; }
     }
 
+    /// <summary>The packages a build goes into by default: every effect package (powers, hotspots, projectiles, conditions) and
+    /// the hero's own character packages (they load whenever the hero is played, so their copy would win); another character's
+    /// package (an enemy, an NPC, another hero) only when ticked, since a copy there changes that character's look too.</summary>
+    static List<string> DefaultPackages(EffectModels.Entry e) =>
+        e.Packages.Where(p => EffectModels.EffectPackage(p) || EffectModels.HeroOwns(p, e.Hero)).ToList();
+
+    List<string> ChosenPackages(EffectModels.Entry e) =>
+        effectEdits.TryGetValue(e.Path, out var ed) && ed.Packages is { } list ? e.Packages.Where(p => list.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList() : DefaultPackages(e);
+
     Control? effectsView;
-    Button effectsButton = null!;
+    readonly List<Label> viewTabs = [];
     readonly CharacterList effectList = new() { Dock = DockStyle.Fill };
     readonly TextBox effectFilter = new();
     MeshViewer effectViewer = null!;
     readonly Label effectTitle = new() { AutoSize = true, Font = Ui.Bold(11f), ForeColor = Ui.Text, Margin = new Padding(2, 0, 0, 2) };
     readonly Label effectInfo = new() { AutoSize = true, ForeColor = Ui.Subtle, Margin = new Padding(2, 0, 0, 6) };
     readonly Label effectStatus = new() { AutoSize = true, ForeColor = Ui.Subtle, Margin = new Padding(2, 6, 0, 0) };
-    readonly ListBox effectCopies = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, SelectionMode = SelectionMode.None };
+    readonly CheckedListBox effectCopies = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, CheckOnClick = true };
+    bool fillingCopies;
     Button effectEdit = null!, effectImport = null!, effectBuild = null!, effectForget = null!;
     readonly CheckBox effectBuildOnSave = new() { Text = "Build When Blender Saves", AutoSize = true, Margin = new Padding(2, 6, 0, 0) };
     readonly HashSet<string> effectOpen = new(StringComparer.OrdinalIgnoreCase);
@@ -45,15 +57,40 @@ sealed partial class ModelPage
     string EffectsFolder => Path.Combine(host.WorkFolder, "effects");
     string EffectsFile => Path.Combine(EffectsFolder, "effects.json");
 
-    void InitEffectsButton()
+    /// <summary>The Model tab's two views, as flat tabs at the left of its top bar (Kurt, 2026-10-26: a tab, not a button):
+    /// Characters (models fitted onto a character) and Effects (power effects' models).</summary>
+    Control ViewTabs()
     {
-        effectsButton = Ui.FlatButton("Effect Models", ToggleEffects,
-            "Power effects' models: the meshes a hero's powers draw as particles or carry on a projectile (Squirrel Girl's falling squirrels, acorns …). Pick one, change it in Blender or with an FBX, and Build into Mod puts it into every package that holds it. Click again for the characters.");
+        var strip = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
+        foreach (var (title, tip) in new[]
+        {
+            ("Characters", "Models fitted onto a character: an MFF model, an FBX or a model from the game, built onto a hero, team-up, NPC, summon or prop."),
+            ("Effects", "Power effects' models: the meshes a hero's powers draw as particles or carry on a projectile (Squirrel Girl's falling squirrels, acorns …). Pick one, change it in Blender or with an FBX, and Build into Mod puts it into every package that holds it."),
+        })
+        {
+            var tab = new Label { Text = title, AutoSize = true, Padding = new Padding(8, 4, 8, 6), Cursor = Cursors.Hand, Font = Ui.Bold(9.75f), ForeColor = viewTabs.Count == 0 ? Ui.Text : Ui.Subtle, BackColor = Color.Transparent, Margin = new Padding(0) };
+            int index = viewTabs.Count;
+            tab.Click += (_, _) => ShowView(index == 1);
+            tab.Paint += (_, e) =>
+            {
+                bool on = (index == 1) == (effectsView?.Visible == true);
+                if (!on) return;
+                using var b = new SolidBrush(Ui.Accent);
+                float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
+                e.Graphics.FillRectangle(b, 6 * s, tab.Height - 3 * s, tab.Width - 12 * s, 2.5f * s);
+            };
+            Ui.Tip(tab, tip);
+            viewTabs.Add(tab);
+            strip.Controls.Add(tab);
+        }
+        return strip;
     }
 
-    void ToggleEffects()
+    void ToggleEffects() => ShowView(effectsView == null || !effectsView.Visible);
+
+    void ShowView(bool on)
     {
-        bool on = effectsView == null || !effectsView.Visible;
+        if (on == (effectsView?.Visible == true)) return;
         if (on && effectsView == null)
         {
             effectsView = BuildEffectsView();
@@ -68,7 +105,7 @@ sealed partial class ModelPage
         layoutRoot.Controls.Add(on ? effectsView! : layoutBody, 0, 1);
         effectsView!.Visible = on;
         layoutRoot.ResumeLayout();
-        Ui.Lit(effectsButton, on);
+        for (int k = 0; k < viewTabs.Count; k++) { viewTabs[k].ForeColor = (k == 1) == on ? Ui.Text : Ui.Subtle; viewTabs[k].Invalidate(); }
     }
 
     Control BuildEffectsView()
@@ -101,7 +138,19 @@ sealed partial class ModelPage
         right.Controls.Add(effectInfo, 0, 1);
         right.Controls.Add(new Label { Text = "PACKAGES", AutoSize = true, ForeColor = Ui.Subtle, Font = Ui.Bold(8.5f), Margin = new Padding(2, 2, 0, 4) }, 0, 2);
         effectCopies.BackColor = Color.FromArgb(28, 30, 38); effectCopies.ForeColor = Ui.Text;
-        Ui.Tip(effectCopies, "Every package with a copy of this model under the same path: the game shows whichever it loads first, so a build goes into all of them.");
+        Ui.Tip(effectCopies, "Every package with a copy of this model under the same path: the game shows whichever it loads first, so a build goes into each ticked one. Effect packages and the hero's own packages are ticked; another character's (an enemy, an NPC, another hero) only if you tick it, since its copy changes that character's look too.");
+        effectCopies.ItemCheck += (_, ev) =>
+        {
+            if (fillingCopies || effectCurrent is not { } cur) return;
+            var ed = EditFor(cur);
+            var now = ChosenPackages(cur).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            string file = cur.Packages[ev.Index];
+            if (ev.NewValue == CheckState.Checked) now.Add(file); else now.Remove(file);
+            ed.Packages = cur.Packages.Where(now.Contains).ToList();
+            ed.Built = false;
+            SaveEffectEdits();
+            BeginInvoke(UpdateEffectButtons);
+        };
         right.Controls.Add(effectCopies, 0, 3);
         right.Controls.Add(buttons, 0, 4);
         right.Controls.Add(effectBuildOnSave, 0, 5);
@@ -157,8 +206,15 @@ sealed partial class ModelPage
         effectTitle.Text = e.Name;
         effectInfo.Text = $"{e.Path} · {e.Vertices:N0} vertices, {e.Sections} section{(e.Sections == 1 ? "" : "s")}" + (sharers.Count > 1 ? $"\nShared by {sharers.Count} heroes ({string.Join(", ", sharers.Take(6))}{(sharers.Count > 6 ? " …" : "")}): a change shows on all of them." : "");
         effectInfo.ForeColor = sharers.Count > 1 ? Color.FromArgb(240, 190, 90) : Ui.Subtle;
+        fillingCopies = true;
         effectCopies.Items.Clear();
-        foreach (string p in e.Packages) effectCopies.Items.Add(p + (host.Packages.Any(x => x.File.Equals(p, StringComparison.OrdinalIgnoreCase)) ? "   (in the mod)" : ""));
+        var chosen = ChosenPackages(e).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (string p in e.Packages)
+        {
+            string tag = EffectModels.EffectPackage(p) ? "" : EffectModels.HeroOwns(p, e.Hero) ? "   · the hero's own" : "   · another character";
+            effectCopies.Items.Add(p + tag + (host.Packages.Any(x => x.File.Equals(p, StringComparison.OrdinalIgnoreCase)) ? "   (in the mod)" : ""), chosen.Contains(p));
+        }
+        fillingCopies = false;
         WatchEffect();
         PreviewEffect();
         UpdateEffectButtons();
@@ -303,11 +359,13 @@ sealed partial class ModelPage
     {
         if (effectCurrent is not { } e || !effectEdits.TryGetValue(e.Path, out var ed) || ed.Fbx == null || effectBusy || Settings.Current.CookedFolder is not string cooked) return false;
         string fbx = Path.Combine(EffectsFolder, ed.Fbx);
+        var chosen = ChosenPackages(e);
+        if (chosen.Count == 0) { Log($"{e.Name}: no package is ticked under Packages."); return false; }
         effectBusy = true; UpdateEffectButtons();
-        Log($"Building {e.Name} into {e.Packages.Count} package{(e.Packages.Count == 1 ? "" : "s")}:");
+        Log($"Building {e.Name} into {chosen.Count} package{(chosen.Count == 1 ? "" : "s")}{(chosen.Count < e.Packages.Count ? $" ({e.Packages.Count - chosen.Count} other character copies left as the game's: tick them under Packages to change them too)" : "")}:");
         int done = 0;
         using (Busy.Begin($"Model: building {e.Name}"))
-            foreach (string file in e.Packages)
+            foreach (string file in chosen)
             {
                 var have = host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
                 string stock = StockFiles.For(cooked, file);
@@ -333,10 +391,10 @@ sealed partial class ModelPage
                 catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or UnauthorizedAccessException or Assimp.AssimpException)
                 { Log($"  {file}: {ex.Message}"); }
             }
-        ed.Built = done == e.Packages.Count;
+        ed.Built = done == chosen.Count;
         SaveEffectEdits();
         effectBusy = false;
-        Log(ed.Built ? $"Done: {e.Name} is in the mod ({done} packages). Save Changes keeps it; Apply Changes puts it into the game." : $"{e.Name}: {done} of {e.Packages.Count} packages built (see above).");
+        Log(ed.Built ? $"Done: {e.Name} is in the mod ({done} packages). Save Changes keeps it; Apply Changes puts it into the game." : $"{e.Name}: {done} of {chosen.Count} packages built (see above).");
         ShowEffect(e); FillEffects();
         return ed.Built;
     }
@@ -372,12 +430,13 @@ sealed partial class ModelPage
         Check(row >= 0, "the filter shows it under its hero");
         effectList.SelectedIndex = row;
         for (int i = 0; i < 100 && !effectViewer.HasMesh; i++) await Task.Delay(100);
-        Check(effectViewer.HasMesh && effectCopies.Items.Count == e.Packages.Count, $"the preview shows it and its {e.Packages.Count} packages are listed");
+        Check(effectViewer.HasMesh && effectCopies.Items.Count == e.Packages.Count && effectCopies.CheckedItems.Count == DefaultPackages(e).Count, $"the preview shows it and its {e.Packages.Count} packages are listed ({effectCopies.CheckedItems.Count} ticked)");
         TakeEffectFbx(e, fbx, "test FBX");
         for (int i = 0; i < 100 && !effectBuild.Enabled; i++) await Task.Delay(100);
         bool ok = await EffectBuildAsync();
-        var inMod = e.Packages.Where(p => host.Packages.Any(x => x.File.Equals(p, StringComparison.OrdinalIgnoreCase))).ToList();
-        Check(ok && inMod.Count == e.Packages.Count, $"Build into Mod puts it into every package ({inMod.Count} of {e.Packages.Count} in the mod)");
+        var want = DefaultPackages(e);
+        var inMod = want.Where(p => host.Packages.Any(x => x.File.Equals(p, StringComparison.OrdinalIgnoreCase))).ToList();
+        Check(ok && inMod.Count == want.Count, $"Build into Mod puts it into every ticked package ({inMod.Count} of {want.Count} in the mod)");
         if (inMod.Count > 0)
         {
             string built0 = host.Packages.First(x => x.File.Equals(inMod[0], StringComparison.OrdinalIgnoreCase)).Path;

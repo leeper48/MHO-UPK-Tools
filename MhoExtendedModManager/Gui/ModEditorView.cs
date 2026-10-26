@@ -134,7 +134,7 @@ sealed partial class ModEditorView : UserControl
         // ---- Bottom bar
         var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, ColumnCount = 2, Padding = new Padding(12, 8, 12, 8) };
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        bottom.Controls.Add(new Label { Text = editing == null ? "New mods are added at the top of the list, turned off. Nothing in the game changes until Apply Changes." : "Saving replaces the mod's folder (the old one goes to the Recycle Bin). Nothing in the game changes until Apply Changes.", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle" }, 0, 0);
+        bottom.Controls.Add(new Label { Text = editing == null ? "New mods are added at the top of the list, turned off. Nothing in the game changes until Apply Changes." : "Saving replaces the mod's folder (the old one is kept with the discarded copies). Nothing in the game changes until Apply Changes.", AutoSize = true, Anchor = AnchorStyles.Left, Tag = "subtle" }, 0, 0);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right };
         var cancel = Ui.FlatButton("Cancel", () => Cancelled?.Invoke(), tip: "Close the editor without saving (the mod stays as it was).");
         var post = Ui.FlatButton("Create Post", CreatePost, tip: "Make the Nexus and Discord posts for this mod (text and pictures); they are kept with the mod.");

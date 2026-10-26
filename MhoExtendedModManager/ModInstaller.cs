@@ -8,7 +8,7 @@ namespace MhoExtendedModManager;
 /// <summary>
 /// Library housekeeping: a new empty library, installing mods (.zip / .7z / .rar or a folder, the formats MHModManager
 /// exports and mod authors share: manifest.json plus its files, at the top or one folder down; an archive may hold
-/// several mods), exporting a mod as .zip, removing one (to the Recycle Bin), and moving the library. None of this
+/// several mods), exporting a mod as .zip, removing one (to the discarded copies), and moving the library. None of this
 /// touches the game folder: Apply does that.
 /// </summary>
 static class ModInstaller
@@ -85,7 +85,7 @@ static class ModInstaller
                 if (existing != null)
                 {
                     if (replace == null || !replace(existing, m)) { log.Add($"{name}: already installed, left as it was."); continue; }
-                    // Update in place: the new files next to the old, checked, then the old folder to the Recycle Bin and the
+                    // Update in place: the new files next to the old, checked, then the old folder to the discarded copies and the
                     // new one in its place. Same folder name, so state.json (order, on/off, lock, tags, note) still applies.
                     string fresh = existing.Folder + ".new";
                     if (Directory.Exists(fresh)) Directory.Delete(fresh, true);
@@ -95,11 +95,11 @@ static class ModInstaller
                     if (!want.SequenceEqual(got)) { Directory.Delete(fresh, true); log.Add($"{name}: the copy didn't check out, nothing changed."); continue; }
                     string oldPost = Path.Combine(existing.Folder, ModPost.Folder), newPost = Path.Combine(fresh, ModPost.Folder);
                     if (Directory.Exists(oldPost) && !Directory.Exists(newPost)) CopyDirectory(oldPost, newPost);   // keep the saved post
-                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(existing.Folder, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+                    Discarded.Keep(lib.DataFolder, existing.Folder, existing.FolderName, $"Updated to v{(m.Version ?? "?").TrimStart('v', 'V')}");
                     Directory.Move(fresh, existing.Folder);
                     updated.Add(existing.FolderName);
                     installed.Add(existing.FolderName);
-                    log.Add($"Updated '{existing.Name}' ({existing.Manifest.Version ?? "?"} → {m.Version ?? "?"}): kept its place, on/off, lock, tags and note; the old files are in the Recycle Bin." +
+                    log.Add($"Updated '{existing.Name}' ({existing.Manifest.Version ?? "?"} → {m.Version ?? "?"}): kept its place, on/off, lock, tags and note; the old files are kept with the discarded copies (Settings → Snapshots)." +
                             (existing.Enabled ? " It's on: Apply Changes puts the new version in the game." : ""));
                     continue;
                 }
@@ -241,7 +241,7 @@ static class ModInstaller
     }
 
     /// <summary>
-    /// Removes a mod from the library (its folder goes to the Recycle Bin). Only when it's disabled and Apply has taken
+    /// Removes a mod from the library (its folder goes to the discarded copies). Only when it's disabled and Apply has taken
     /// it out of the game, so nothing of it is left live that the library no longer knows about.
     /// </summary>
     /// <summary>
@@ -286,7 +286,7 @@ static class ModInstaller
                 return "Some of its files can't be checked, so it may still be in the game:\n" + string.Join("\n", stuck.Take(8).Select(p => "  " + p));
         }
         if (dryRun) return null;
-        Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(mod.Folder, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+        Discarded.Keep(lib.DataFolder, mod.Folder, mod.FolderName, "Removed");
         lib.State.ModOrder.RemoveAll(n => n.Equals(mod.FolderName, StringComparison.OrdinalIgnoreCase));
         lib.State.EnabledMods.RemoveAll(n => n.Equals(mod.FolderName, StringComparison.OrdinalIgnoreCase));
         lib.State.ForgetMod(mod.FolderName);

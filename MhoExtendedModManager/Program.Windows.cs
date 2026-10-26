@@ -921,6 +921,25 @@ static partial class Program
             Console.WriteLine(fails == 0 ? "all checks passed" : "FAILED");
             return fails == 0 ? 0 : 1;
         }
+        if (args.Length == 2 && args[0].Equals("--snapshots-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: Settings → Snapshots rendered off-screen to a PNG (a scratch MHO_EXTMM_HOME: it lists that home's snapshots).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            var settings = Settings.Load();
+            var lib = ModLibrary.Load(Settings.LibraryData(settings.LibraryPath) ?? settings.LibraryPath);
+            using var f = new Gui.SnapshotsForm(settings, () => (lib, null), (_, _) => { }, () => { }) { StartPosition = FormStartPosition.Manual, Location = new System.Drawing.Point(-6000, -6000) };
+            f.Shown += async (_, _) =>
+            {
+                await Task.Delay(800);
+                using var bmp = new System.Drawing.Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(bmp, new System.Drawing.Rectangle(System.Drawing.Point.Empty, f.Size));
+                bmp.Save(args[1]);
+                f.Close();
+            };
+            Application.Run(f);
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--downloads-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Test: Settings → Download Counts rendered off-screen to a PNG (use a scratch MHO_EXTMM_HOME: it saves the total seen).

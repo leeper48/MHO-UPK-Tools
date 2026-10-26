@@ -26,6 +26,13 @@ static class WhatsNew
     public static bool PowerBorrow => PowerBorrowReleased || Settings.Load().PreviewFeatures;
     public const bool PowerBorrowReleased = false;
 
+    /// <summary>The Model tab's summons and power models (From the Game lists, the Source's summons panel, the Target's Summons
+    /// toggle, building a summon into its copies): parked 2026-10-26 (Kurt: another feature first), only with
+    /// "PreviewFeatures": true. Off, the summon list is empty and the tab is as before summons. Releasing it: set this,
+    /// uncomment the manual's summons parts (marked SUMMONS), and add a notice.</summary>
+    public static bool Summons => SummonsReleased || Settings.Load().PreviewFeatures;
+    public const bool SummonsReleased = false;
+
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
 
     static readonly string nl = Environment.NewLine;
