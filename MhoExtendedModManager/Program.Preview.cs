@@ -558,6 +558,32 @@ static partial class Program
                 Console.WriteLine(fails == 0 ? "all checks passed" : $"{fails} check(s) failed");
                 return fails == 0 ? 0 : 1;
             }
+            case "--summon-partners":
+            {
+                // Read-only: every summon or power model package with its partners (the same power's other model: Strike Team
+                // - Beast's tumble and the Beast who stays), as the Model tab offers them after a build.
+                foreach (string f in Model.Gui.ModelPage.Summons.Keys.Order())
+                    if (Model.Gui.ModelPage.SummonPartners(f) is { Count: > 0 } ps)
+                        Console.WriteLine($"{f} → {string.Join("; ", ps.Select(p => $"{p.Name} ({p.File}, {p.Power})"))}");
+                return 0;
+            }
+            case "--mesh-info":
+            {
+                // Read-only: each skeletal mesh in the packages with its vertex and triangle counts and materials.
+                // --mesh-info <package.upk> [...]
+                foreach (string f in rest.Skip(1))
+                {
+                    var pk = MhoPackageModifier.Package.Open(f);
+                    for (int i = 0; i < pk.Exports.Length; i++)
+                    {
+                        if (!pk.ClassOf(pk.Exports[i]).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) continue;
+                        var lm = ModMeshes.Load(new MeshRef(Path.GetFileName(f), f, pk.Exports[i].ObjectName, i), null, out string why);
+                        var mats = ModMeshes.MaterialRefs(AnimExportCli.Packages.Package.Open(f), i).Select(r => new Fx.FxTables(pk).PathOf(r));
+                        Console.WriteLine($"{Path.GetFileName(f)} | {pk.PathOf(pk.Exports[i])}: {(lm != null ? $"{lm.Positions.Length:N0} vertices, {lm.Bones.Count} bones" : "not read: " + why)} · materials {string.Join(", ", mats)}");
+                    }
+                }
+                return 0;
+            }
             case "--proto-find":
             {
                 // Read-only: the prototype paths whose path contains every given part. --proto-find <part> [part ...]

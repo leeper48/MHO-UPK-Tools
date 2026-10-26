@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.176
+- Model tab summons: when a power shows one model and summons another (Strike Team - Beast tumbles in as the power's own Beast, then stays as the summoned Ultimate Beast; Strike Team - Jean, Call Kurt, Fastball Special, Wrath of Bast), a Build into Mod onto one offers the other: Build onto It Too builds the same source onto it (added to the mod when needed). A power that summons several characters (To Me, My X-Men!) isn't paired.
+- --summon-partners lists the pairs; --mesh-info lists a package's skeletal meshes with vertex and bone counts; --model-partner-test tests the offer.
+
 0.60.175
 - Model tab → Variations: Preview This works with a source picked too (a model fitted to the target, or the summon's own model linked to Blender): the material goes on the parts the build puts in the game's first material slot (the Materials tab's slot order). It only worked with no source picked.
 

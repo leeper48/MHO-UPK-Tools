@@ -33,6 +33,107 @@ sealed partial class ModelPage
 
     static bool IsSummon(string file) => Summons.ContainsKey(file);
 
+    /// <summary>A partner build is running (its own partners aren't offered again).</summary>
+    bool buildingPartners;
+
+    /// <summary>
+    /// The other models the same power of the same hero brings in (Kurt, 2026-10-26: Strike Team - Beast arrives as the
+    /// power's own tumbling model, beast.beast in UC__PowerCyclops_CallBeast_SF, then stays as the summoned Ultimate Beast,
+    /// beast_astonishing in UC__MarvelAgent_CyclopsUltimateBeast_SF: building one left the other Beast). Summons and power
+    /// models only (not copies), with another model path than this package's.
+    /// </summary>
+    internal static List<(string File, string Name, string Power)> SummonPartners(string file)
+    {
+        if (!Summons.TryGetValue(Path.GetFileName(file), out var mine)) return [];
+        var own = mine.Where(x => x.Kind is "summon" or "power").ToList();
+        if (own.Count == 0) return [];
+        string hero = own[0].Hero;
+        var powers = own.Select(x => x.Power).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var paths = mine.Select(x => x.MeshPath).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // one power model and one summon for the same power, one of each (Strike Team - Beast: the tumble and the Beast who
+        // stays). A power that summons several characters (To Me, My X-Men!: Beast, Jean, Iceman …) pairs nothing: those are
+        // other characters, not this one's other model.
+        var list = new List<(string, string, string)>();
+        foreach (string power in powers)
+        {
+            var users = Summons.Where(kv => kv.Value.Any(x => x.Kind is "summon" or "power" && x.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase) && x.Power.Equals(power, StringComparison.OrdinalIgnoreCase)))
+                .Select(kv => (File: kv.Key, Row: kv.Value.First(x => x.Kind is "summon" or "power" && x.Power.Equals(power, StringComparison.OrdinalIgnoreCase)))).ToList();
+            if (users.Count(u => u.Row.Kind == "summon") != 1 || users.Count(u => u.Row.Kind == "power") != 1) continue;
+            foreach (var (f, row) in users)
+                if (!f.Equals(Path.GetFileName(file), StringComparison.OrdinalIgnoreCase) && row.MeshPath != null && !paths.Contains(row.MeshPath)
+                    && !list.Any(l => l.Item1.Equals(f, StringComparison.OrdinalIgnoreCase)))
+                    list.Add((f, SummonName(row), power));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Test (--model-partner-test; a scratch MHO_EXTMM_HOME with MHO_EXTMM_TEST_DIALOGS, which answers with the first button;
+    /// the mod isn't saved): a game source built onto a power model (Strike Team's tumbling Beast), the offer answered Build
+    /// onto It Too: the summoned Beast is built as well, with the same source.
+    /// </summary>
+    internal async Task<int> TestPartners(string target, string source, Action<string> say)
+    {
+        int fails = 0;
+        void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+        for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
+        if (Settings.Current.CookedFolder is not string cooked) { say("no game folder"); return 1; }
+        var partners = SummonPartners(target);
+        Check(partners.Count == 1, $"{target}'s partner: {string.Join(", ", partners.Select(p => p.File))}");
+        if (partners.Count == 0) return fails;
+        if (!host.Packages.Any(p => p.File.Equals(target, StringComparison.OrdinalIgnoreCase))) { host.AddPackage(target, StockFiles.For(cooked, target)); added.Add(target); }
+        gameList = false; FillPackages(); Reselect(packages, target);
+        if (!GameMode) { sourceKind.SelectedIndex = 2; await Task.Delay(300); }
+        GameChosen(GameSrc + source);
+        for (int i = 0; i < 600 && !(HasSource && !refreshing && preview.LooksForTest.Any()); i++) await Task.Delay(100);
+        bool ok = await BuildAsync();
+        Check(ok && built.ContainsKey(target), $"the source is built onto {target}");
+        string pf = partners[0].File;
+        Check(built.ContainsKey(pf) && host.Packages.Any(p => p.File.Equals(pf, StringComparison.OrdinalIgnoreCase)), $"Build onto It Too: {pf} is built as well and in the mod");
+        if (built.TryGetValue(pf, out var bp))
+        {
+            var lm = ModMeshes.Load(new MeshRef(pf, bp, "", Array.FindIndex(MhoPackageModifier.Package.Open(bp).Exports, e => MhoPackageModifier.Package.Open(bp).ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase))), cooked, out _);
+            say($"  {pf}: {lm?.Positions.Length:N0} vertices after the build");
+        }
+        Check(ChosenPackage?.Key.Equals(target, StringComparison.OrdinalIgnoreCase) == true, "and the tab is back on the first target");
+        return fails;
+    }
+
+    /// <summary>After a build: the power's other models (<see cref="SummonPartners"/>) not built yet, offered with the same
+    /// source; a yes adds each to the mod (when it isn't in it) and builds it, then comes back to this target.</summary>
+    async Task OfferSummonPartners(string file)
+    {
+        var partners = SummonPartners(file).Where(p => !built.ContainsKey(p.File)).ToList();
+        if (partners.Count == 0 || Settings.Current.CookedFolder is not string cooked) return;
+        string text = $"{string.Join(" and ", partners.Select(p => p.Power).Distinct(StringComparer.OrdinalIgnoreCase))} also brings in {(partners.Count == 1 ? "a character" : "characters")} with a model of {(partners.Count == 1 ? "its" : "their")} own:\n\n"
+            + string.Join("\n", partners.Select(p => $"  • {p.Name} ({p.File})"))
+            + $"\n\nWHAT IT MEANS\n  • Your build changed {file} only. In game, {(partners.Count == 1 ? "that one" : "those")} still {(partners.Count == 1 ? "shows its" : "show their")} own model (Strike Team: Beast tumbles in as yours, then stays as the game's Beast)."
+            + "\n  • Build onto It Too builds the same source onto " + (partners.Count == 1 ? "it" : "each") + " (added to the mod when needed); its copies in other characters' packages are asked about as usual.";
+        if (Dialog.Choose(this, text, "Build the Summon Too", "Build onto It Too", "Not Now") != 0) return;
+        buildingPartners = true;
+        try
+        {
+            foreach (var (pf, name, _) in partners)
+            {
+                if (!host.Packages.Any(p => p.File.Equals(pf, StringComparison.OrdinalIgnoreCase)))
+                {
+                    try { host.AddPackage(pf, BasePackage.Resolve(pf)); added.Add(pf); }
+                    catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException) { Log($"{pf}: {ex.Message}"); continue; }
+                }
+                gameList = false; packageFilter.Text = ""; FillPackages(); Reselect(packages, pf);
+                await Task.Delay(200);
+                Log($"Building onto {name} ({pf}) too:");
+                await BuildAsync();
+            }
+        }
+        finally
+        {
+            buildingPartners = false;
+            gameList = false; FillPackages(); Reselect(packages, file);
+            SaveState();
+        }
+    }
+
     /// <summary>One hero group's packages as rows: the costumes first, then its summons and power models under a heading
     /// (a label row: nothing to pick).</summary>
     static IEnumerable<CharacterList.Item> GroupRows(string group, List<(string File, string Title, string Detail)> list, Func<(string File, string Title, string Detail), CharacterList.Item> row)

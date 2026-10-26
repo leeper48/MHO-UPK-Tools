@@ -105,6 +105,7 @@ sealed partial class ModelPage
         catch (Exception ex) { Log("ERROR: " + ex.Message); }
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
+        if (ok && !buildingPartners) await OfferSummonPartners(pkg.Key);   // (Strike Team: the tumble's model and the summoned Beast's)
         return ok;
     }
 
