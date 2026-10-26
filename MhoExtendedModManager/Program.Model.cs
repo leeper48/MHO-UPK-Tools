@@ -319,6 +319,26 @@ static partial class Program
                 MhoExtendedModManager.Model.Settings.Change(s => { s.MffFolder = keep; s.BlenderPath = keepBlender; });   // back as it was
                 return ok1 && ok2 && lost ? 0 : 1;
             }
+            case "--model-summon-test":
+            {
+                // --model-summon-test <mod> <creature summon package> <person-shaped summon package> (scratch MHO_EXTMM_HOME; the
+                // mod isn't saved): the Model tab's summon steps (ModelPage.TestSummons); exit 0 when every check passes.
+                if (rest.Count < 4) { Console.WriteLine("--model-summon-test <mod> <creature package> <person package>"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library)"); return 1; }
+                Environment.SetEnvironmentVariable("MFF_GUI_NOASK", "1");
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    try { code = await main.ModelSummonTest(rest[1], rest[2], rest[3], Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
+                return code;
+            }
             case "--model-blender-test":
             {
                 // --model-blender-test <mod> <mff model> <package file> <animation> (scratch MHO_EXTMM_HOME only; Blender runs

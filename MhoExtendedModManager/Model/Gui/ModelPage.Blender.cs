@@ -39,6 +39,7 @@ sealed partial class ModelPage
         SaveBlenderLink(folder, 0);
         blenderWatchKey = null;
         WatchBlender();
+        UpdateBlenderStatus();
     }
 
     /// <summary>Watches the shown work's Blender folder (call when the work may have changed); applies a sync that came while
@@ -50,7 +51,7 @@ sealed partial class ModelPage
         blenderWatchKey = key;
         blenderWatch?.Dispose(); blenderWatch = null;
         paintWatch?.Dispose(); paintWatch = null;
-        if (!blenderDelayHooked) { blenderDelay.Tick += (_, _) => { blenderDelay.Stop(); ApplyBlenderSync(); }; blenderDelayHooked = true; }
+        if (!blenderDelayHooked) { blenderDelay.Tick += (_, _) => { blenderDelay.Stop(); ApplyBlenderSync(live: true); }; blenderDelayHooked = true; }
         var (folder, _) = BlenderLink();
         if (folder == null) return;
         // the link travels with the mod (Model\edits): on another PC, or after the export folder was deleted, there's nothing to watch
@@ -105,11 +106,11 @@ sealed partial class ModelPage
     /// in yet becomes that material's map override (the Materials tab's Replace File: copied into the mod's Model folder,
     /// Back to Automatic undoes it). What was taken in is kept in the edits folder (painted.txt: file, SHA-1).
     /// </summary>
-    void ApplyPaintedTextures(string folder)
+    bool ApplyPaintedTextures(string folder)
     {
-        if (EditsFolder() is not string editsFolder || OverridesPath() is not string ovPath) return;
+        if (EditsFolder() is not string editsFolder || OverridesPath() is not string ovPath) return false;
         string modelFbx = Path.Combine(folder, "model.fbx");
-        if (!File.Exists(modelFbx)) return;
+        if (!File.Exists(modelFbx)) return false;
         DateTime exported = File.GetLastWriteTimeUtc(modelFbx).AddSeconds(5);
         string record = Path.Combine(editsFolder, "painted.txt");
         var taken = File.Exists(record) ? File.ReadAllLines(record).Select(l => l.Split('	')).Where(p => p.Length == 2).ToDictionary(p => p[0], p => p[1], StringComparer.OrdinalIgnoreCase)
@@ -139,31 +140,33 @@ sealed partial class ModelPage
                 taken[key] = hash;
                 changed = true;
             }
-        if (!changed) return;
+        if (!changed) return false;
         Protected.CheckWrite(editsFolder);
         Directory.CreateDirectory(editsFolder);
         File.WriteAllLines(record, taken.Select(kv => kv.Key + "	" + kv.Value));
         FillMaterials();
+        return true;
     }
 
     sealed record SyncFile(int Version, string? Model, Dictionary<string, string> Anims, List<string>? Last, string? Time);
 
-    /// <summary>A new sync from Blender (a higher version than the last applied) into the FBX edits.</summary>
-    void ApplyBlenderSync()
+    /// <summary>A new sync from Blender (a higher version than the last applied) into the FBX edits; <paramref name="live"/>:
+    /// Blender just saved (not one taken in when the work opened), so Build When Blender Saves builds.</summary>
+    void ApplyBlenderSync(bool live = false)
     {
         if (!HasSource || ChosenPackage == null || EditsFolder() is not string editsFolder) return;
         var (folder, applied) = BlenderLink();
         if (folder == null) return;
-        ApplyPaintedTextures(folder);
+        bool painted = ApplyPaintedTextures(folder);
         string from = Path.Combine(folder, "from_blender"), file = Path.Combine(from, "sync.json");
-        if (!File.Exists(file)) return;
+        if (!File.Exists(file)) { if (painted && live && buildOnSave.Checked) BuildAfterBlender(); return; }
         SyncFile? sync = null;
         for (int i = 0; i < 5 && sync == null; i++)
         {
             try { sync = JsonSerializer.Deserialize<SyncFile>(File.ReadAllText(file), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
             catch (Exception ex) when (ex is IOException or JsonException) { Thread.Sleep(150); }
         }
-        if (sync == null || sync.Version <= applied) return;
+        if (sync == null || sync.Version <= applied) { if (painted && live && buildOnSave.Checked) BuildAfterBlender(); return; }
         EnsureEdits();
         var notes = new List<string>(); var problems = new List<string>();
         var names = preview.AnimationNames;
@@ -192,5 +195,7 @@ sealed partial class ModelPage
         foreach (var p in problems) Log("Blender: " + p);
         if (notes.Count > 0) EditsChanged($"Blender sent {string.Join(", ", notes)} (save {sync.Version}{(sync.Time != null ? ", " + sync.Time : "")})");
         else if (problems.Count == 0) Log($"Blender: save {sync.Version} had nothing new.");
+        UpdateBlenderStatus();
+        if (live && buildOnSave.Checked && (notes.Count > 0 || painted)) BuildAfterBlender();
     }
 }

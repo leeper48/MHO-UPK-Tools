@@ -189,13 +189,17 @@ sealed partial class ModelPage : UserControl
         sourceHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         sourceKind.Margin = new Padding(0, 0, 0, 6); sourceKind.Anchor = AnchorStyles.Left;
         sourceHead.Controls.Add(sourceKind, 0, 0);
-        var filterRow = Row(characterFilter, heroesOnly); filterRow.Dock = DockStyle.Fill;
+        InitSummons();
+        var sourceToggles = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
+        heroesOnly.Margin = new Padding(0, 4, 0, 0); summonsSource.Margin = new Padding(0);
+        sourceToggles.Controls.AddRange([heroesOnly, summonsSource]);
+        var filterRow = Row(characterFilter, sourceToggles); filterRow.Dock = DockStyle.Fill;
         sourceHead.Controls.Add(filterRow, 0, 1);
         var sourceColumn = Column("SOURCE", sourceHead, characters);
         body.Controls.Add(sourceColumn, 0, 0);
         body.Controls.Add(Column("PREVIEW", null, preview), 2, 0);
 
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, BackColor = Color.Transparent, Margin = new Padding(0) };
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
         right.RowStyles.Add(new RowStyle(SizeType.Absolute, 7));             // the divider between the list and the tabs
@@ -203,12 +207,16 @@ sealed partial class ModelPage : UserControl
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        right.RowStyles.Add(new RowStyle(SizeType.AutoSize));            // the Blender link's line
         layoutRight = right;
         // the filter and Build From, then Model ▾ on its own line (shown for a package with several models)
         var targetHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         targetHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize)); targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var targetRow = Row(packageFilter, buildFrom); targetRow.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+        var targetToggles = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
+        summonsTarget.Margin = new Padding(0, 0, 6, 0); buildFrom.Margin = new Padding(0);
+        targetToggles.Controls.AddRange([summonsTarget, buildFrom]);
+        var targetRow = Row(packageFilter, targetToggles); targetRow.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
         targetHead.Controls.Add(targetRow, 0, 0);
         meshPick.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; meshPick.Margin = new Padding(0, 4, 0, 0);
         targetHead.Controls.Add(meshPick, 0, 1);
@@ -259,9 +267,12 @@ sealed partial class ModelPage : UserControl
         var sizeColumn = Column("SIZE IN GAME", null, sizeBox, autoHeight: true);
         right.Controls.Add(sizeColumn, 0, 4);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
-        actions.Controls.AddRange([buildButton, fbxButton, openButton, modelSpinner, status]);
+        actions.Controls.AddRange([buildButton, blenderButton, fbxButton, openButton, modelSpinner, status]);
         modelSpinner.Margin = new Padding(8, 6, 0, 0);
         right.Controls.Add(actions, 0, 5);
+        var blenderLine = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0, 2, 0, 0) };
+        blenderLine.Controls.AddRange([blenderStatus, buildOnSave]);
+        right.Controls.Add(blenderLine, 0, 6);
         body.Controls.Add(right, 4, 0);
 
         // ⛶ inside the log's top right corner (Kurt: inline with the text field); it travels with the log to full screen
@@ -361,6 +372,7 @@ sealed partial class ModelPage : UserControl
             if (!kindByState && Settings.Current.SourceKind != sourceKind.SelectedIndex) { Settings.Current.SourceKind = sourceKind.SelectedIndex; Settings.Current.Save(); }
             bool mff = sourceKind.SelectedIndex == 0;
             heroesOnly.Visible = mff; smooth.Enabled = mff; if (!mff) smooth.Checked = false;
+            summonsSource.Visible = sourceKind.SelectedIndex == 2;
             characterFilter.Text = "";
             FillCharacters(); UpdateStatus(); SchedulePreview();
         };
@@ -378,11 +390,12 @@ sealed partial class ModelPage : UserControl
             if (e.KeyCode is Keys.Enter or Keys.Space && characters.SelectedItem is CharacterList.Item { Header: true } h) { ToggleGroup(h); e.Handled = true; }
         };
         characters.Thumb = it => it.Key.StartsWith("browse") ? null
-            : GameMode ? Thumbs.BaseHero(it.ThumbKey ?? it.Key)
+            : it.Label ? null
+            : GameMode ? PackageThumb(it.ThumbKey ?? it.Key)
             : it.Key.StartsWith("fbx:") ? (File.Exists(it.Key[4..]) ? Thumbs.Fbx(it.Key[4..]) : null)   // (its color map: Kurt, 2026-10-04)
             : it.Key.StartsWith(MffDir) ? (Directory.Exists(it.Key[MffDir.Length..]) ? Thumbs.Model(it.Key[MffDir.Length..]) : null)
             : Thumbs.Model(it.ThumbKey ?? it.Key);
-        packages.Thumb = it => Thumbs.BaseHero(it.ThumbKey ?? it.Key);
+        packages.Thumb = it => it.Label ? null : PackageThumb(it.ThumbKey ?? it.Key);
         packages.MouseUp += (_, e) =>
         {
             int i = packages.IndexFromPoint(e.Location);
@@ -535,11 +548,11 @@ sealed partial class ModelPage : UserControl
         var dirs = new[] { s.StockFolder, s.CookedFolder }.Where(d => d != null && Directory.Exists(d)).Select(d => d!).ToList();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var d in dirs)
-            foreach (var f in Directory.EnumerateFiles(d, "UC__Marvel*_SF.upk"))
+            foreach (var f in Directory.EnumerateFiles(d, "UC__*_SF.upk"))
             {
                 string n = Path.GetFileName(f);
                 if (n.Contains("bak", StringComparison.OrdinalIgnoreCase) || n.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
-                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(n))) continue;
+                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(n) || Summons.ContainsKey(n))) continue;
                 if (n.StartsWith("UC__MarvelPlayerAudio", StringComparison.OrdinalIgnoreCase) || !seen.Add(n)) continue;
                 var (t, det) = DescribePackage(n);
                 allPackages.Add((n, t, det));
@@ -550,9 +563,9 @@ sealed partial class ModelPage : UserControl
         FillPackages();
         UpdateStatus();
         LoadDefaultCostumes();
-        int others = allPackages.Count(p => OtherTargets.Contains(p.File));
+        int others = allPackages.Count(p => OtherTargets.Contains(p.File) && !Summons.ContainsKey(p.File)), summons = allPackages.Count(p => Summons.ContainsKey(p.File));
         // (Kurt, 2026-10-06: a user found the old wording unclear)
-        Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others:N0} hero and team-up packages and {others:N0} NPCs, enemies and bosses.");
+        Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others - summons:N0} hero and team-up packages, {others:N0} NPCs, enemies and bosses, and {summons:N0} summons and power models (under their hero).");
         if (!stateLoaded) { stateLoaded = true; LoadState(); }
     }
 
@@ -588,6 +601,53 @@ sealed partial class ModelPage : UserControl
         return set;
     }
 
+    /// <summary>A model a hero's power brings in, by package (Kurt, 2026-10-25: users asked to export and replace summons, such as
+    /// Squirrel Girl's squirrels and Magik's demons): a summoned character (Kind "summon": its own agent package) or a model the
+    /// power's own package plays (Kind "power" / "entity": Cyclops's Strike Team - Beast is a mesh in UC__PowerCyclops_CallBeast_SF),
+    /// with the mesh in that package (<see cref="MhoSkeleton.Choose"/> picks it) and its bone count.</summary>
+    internal sealed record Summon(string Hero, string Name, string Power, string Kind, string Mesh, int Bones, string? Icon = null);
+
+    /// <summary>Every hero's summons and power models (Model\StockData\model_summons.txt, from --summon-census with
+    /// MHO_CENSUS_OUT on the stock packages; every costume's variant), by package file.</summary>
+    internal static readonly Dictionary<string, List<Summon>> Summons = LoadSummons();
+
+    static Dictionary<string, List<Summon>> LoadSummons()
+    {
+        var map = new Dictionary<string, List<Summon>>(StringComparer.OrdinalIgnoreCase);
+        using var s = typeof(ModelPage).Assembly.GetManifestResourceStream("MhoMffImporter.StockData.model_summons.txt");
+        if (s == null) return map;
+        using var r = new StreamReader(s);
+        for (string? line; (line = r.ReadLine()) != null;)
+        {
+            if (line.Length == 0 || line[0] == '#') continue;
+            var c = line.Split('\t');
+            if (c.Length < 7 || !int.TryParse(c[6], out int bones)) continue;
+            if (!map.TryGetValue(c[0], out var list)) map[c[0]] = list = new();
+            list.Add(new Summon(c[1], c[2], c[3], c[4], c[5], bones, c.Length > 7 && c[7].Length > 0 ? c[7] : null));
+        }
+        // the package's own hero first (others reach it too: Rogue's stolen powers, Ant-Man's Friends in Low Places bring
+        // Squirrel Girl's squirrels): the one with most entries, then the one named in the file
+        foreach (var (file, list) in map)
+        {
+            var main = list.GroupBy(x => x.Hero, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(g => g.Count()).ThenByDescending(g => file.Contains(g.Key, StringComparison.OrdinalIgnoreCase)).First().Key;
+            map[file] = list.Where(x => x.Hero.Equals(main, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        return map;
+    }
+
+    /// <summary>A summon's readable name: "MarvelAgent_CyclopsUltimateBeast" (Cyclops) → "Ultimate Beast", "beast" → "Beast".</summary>
+    static string SummonName(Summon x)
+    {
+        string n = System.Text.RegularExpressions.Regex.Replace(x.Name, @"^(MarvelAgent|MarvelNPC|MarvelAttachment\w*?)_", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (n.Length > x.Hero.Length && n.StartsWith(x.Hero, StringComparison.OrdinalIgnoreCase)) n = n[x.Hero.Length..];
+        n = Spaced(n.TrimStart('_')).Replace("Ao A", "AoA");   // (Age of Apocalypse: CyclopsUltimateJeanAoA)
+        return n.Length == 0 ? x.Name : char.ToUpperInvariant(n[0]) + n[1..];
+    }
+
+    /// <summary>The mesh to use in a summons package (a power package's model among its effects), or null for the automatic pick.</summary>
+    internal static string? SummonMesh(string file) => Summons.TryGetValue(Path.GetFileName(file), out var l) ? l[0].Mesh : null;
+
     /// <summary>"BlackCat_Boss" → "Black Cat Boss".</summary>
     static string Spaced(string s) => System.Text.RegularExpressions.Regex.Replace(s.Replace('_', ' '), @"(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])", " ").Trim();
 
@@ -596,6 +656,14 @@ sealed partial class ModelPage : UserControl
     static (string Title, string Detail) DescribePackage(string file)
     {
         string stem = Path.GetFileNameWithoutExtension(file);
+        // a hero's summon or power model: under the hero, with what brings it in
+        if (Summons.TryGetValue(Path.GetFileName(file), out var sums))
+        {
+            var x = sums[0];
+            string powers = string.Join(", ", sums.Select(y => y.Power).Distinct(StringComparer.OrdinalIgnoreCase));
+            string names = string.Join(", ", sums.Select(SummonName).Distinct(StringComparer.OrdinalIgnoreCase));
+            return (x.Hero, $"{(x.Kind == "summon" ? "Summon" : "Power Model")}: {names} ({powers}) · {stem}");
+        }
         foreach (var (prefix, group) in new[] { ("UC__MarvelNPC_", "NPCs"), ("UC__MarvelAgent_", "Enemies and Bosses") })
             if (stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
@@ -686,22 +754,23 @@ sealed partial class ModelPage : UserControl
         string f = new string(characterFilter.Text.Where(char.IsLetterOrDigit).ToArray());
         int top = characters.TopIndex;
         characters.BeginUpdate(); characters.Items.Clear();
-        var shown = allPackages.Where(p => f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase));
+        var shown = allPackages.Where(p => (!summonsOnlySource || IsSummon(p.File)) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase)));
         var groups = shown.GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase);
         if (f.Length > 0) groups = groups.OrderBy(g => g.Min(p => TargetKind(p.File)));
         foreach (var g in groups)
         {
             var list = g.ToList();
             if (list.Count == 1) { var p = list[0]; characters.Items.Add(new CharacterList.Item(GameSrc + p.File, Dot(p.File, p.Title), p.Detail, ThumbKey: p.File)); continue; }
-            bool open = f.Length > 0 || expanded.Contains("game " + g.Key) || list.Any(p => (GameSrc + p.File).Equals(chosenKey ?? pendingState?.Source, StringComparison.OrdinalIgnoreCase));
+            bool open = f.Length > 0 || summonsOnlySource || expanded.Contains("game " + g.Key) || list.Any(p => (GameSrc + p.File).Equals(chosenKey ?? pendingState?.Source, StringComparison.OrdinalIgnoreCase));
             var first = list.FirstOrDefault(p => p.Detail.StartsWith("Base Package", StringComparison.OrdinalIgnoreCase));
-            characters.Items.Add(new CharacterList.Item("group:game " + g.Key, list[0].Title, $"{list.Count} packages", Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
+            characters.Items.Add(new CharacterList.Item("group:game " + g.Key, list[0].Title, GroupDetail(list), Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
             if (open)
-                foreach (var p in list)
+                foreach (var row in GroupRows("game " + g.Key, list, p =>
                 {
                     int dot = p.Detail.IndexOf(" · ", StringComparison.Ordinal);
-                    characters.Items.Add(new CharacterList.Item(GameSrc + p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1, ThumbKey: p.File));
-                }
+                    return new CharacterList.Item(GameSrc + p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1, ThumbKey: p.File);
+                }))
+                    characters.Items.Add(row);
         }
         characters.EndUpdate();
         if (chosenKey != null) Reselect(characters, chosenKey);
@@ -763,7 +832,7 @@ sealed partial class ModelPage : UserControl
         string? keep = ChosenPackage?.Key;
         int top = packages.TopIndex;
         packages.BeginUpdate(); packages.Items.Clear();
-        var shown = allPackages.Where(p => f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase));
+        var shown = allPackages.Where(p => (!summonsOnlyTarget || IsSummon(p.File)) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase)));
         // while filtering (Kurt, 2026-10-19): heroes first, then team-ups, then NPCs and the rest; each kind in its own order
         var groups = shown.GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase);
         if (f.Length > 0) groups = groups.OrderBy(g => g.Min(p => TargetKind(p.File)));
@@ -771,15 +840,16 @@ sealed partial class ModelPage : UserControl
         {
             var list = g.ToList();
             if (list.Count == 1) { var p = list[0]; packages.Items.Add(new CharacterList.Item(p.File, Dot(p.File, p.Title), p.Detail)); continue; }
-            bool open = f.Length > 0 || expandedHeroes.Contains(g.Key) || list.Any(p => p.File.Equals(keep, StringComparison.OrdinalIgnoreCase));
+            bool open = f.Length > 0 || summonsOnlyTarget || expandedHeroes.Contains(g.Key) || list.Any(p => p.File.Equals(keep, StringComparison.OrdinalIgnoreCase));
             var first = list.FirstOrDefault(p => p.Detail.StartsWith("Base Package", StringComparison.OrdinalIgnoreCase));
-            packages.Items.Add(new CharacterList.Item("hero:" + g.Key, list[0].Title, $"{list.Count} packages", Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
+            packages.Items.Add(new CharacterList.Item("hero:" + g.Key, list[0].Title, GroupDetail(list), Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
             if (open)
-                foreach (var p in list)
+                foreach (var row in GroupRows("hero " + g.Key, list, p =>
                 {
                     int dot = p.Detail.IndexOf(" · ", StringComparison.Ordinal);
-                    packages.Items.Add(new CharacterList.Item(p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1));
-                }
+                    return new CharacterList.Item(p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1);
+                }))
+                    packages.Items.Add(row);
         }
         packages.EndUpdate();
         if (keep != null) Reselect(packages, keep);
@@ -807,7 +877,7 @@ sealed partial class ModelPage : UserControl
 
     async void CharacterChosen()
     {
-        if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Key == chosenKey) return;
+        if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Label || it.Key == chosenKey) return;
         if (it.Key == "browse:") { BrowseFbx(); return; }
         if (it.Key.StartsWith("fbx:")) { FbxChosen(it.Key); return; }
         if (it.Key.StartsWith(GameSrc)) { GameChosen(it.Key); return; }
@@ -966,6 +1036,8 @@ sealed partial class ModelPage : UserControl
         bool ready = HasSource && ChosenPackage != null && !building;
         buildButton.Enabled = ready || (ChosenPackage != null && !building);   // no source: the size only
         fbxButton.Enabled = ready;
+        blenderButton.Enabled = ChosenPackage != null && !building;
+        UpdateBlenderStatus();
         status.Text = building ? "Building…" : !HasSource ? (ChosenPackage != null ? "No source: Build into Mod writes only the size." : FbxMode ? "Pick an FBX or an MFF folder." : GameMode ? "Pick a character from the game." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
         status.ForeColor = Ui.Subtle;
     }

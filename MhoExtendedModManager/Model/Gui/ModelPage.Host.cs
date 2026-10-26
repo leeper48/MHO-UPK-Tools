@@ -63,6 +63,7 @@ sealed partial class ModelPage
     /// Game" to add one; or, after that, the game's base heroes with "Back to the Mod's Packages" on top.</summary>
     void FillPackages()
     {
+        summonsTarget.Visible = gameList;
         if (gameList)
         {
             FillGamePackages();
@@ -95,7 +96,7 @@ sealed partial class ModelPage
     /// <summary>The list's special rows, and a game package picked: added to the mod (asked first).</summary>
     void PackagePicked()
     {
-        if (packages.SelectedItem is not CharacterList.Item { Header: false } it) return;
+        if (packages.SelectedItem is not CharacterList.Item { Header: false, Label: false } it) return;
         if (it.Key == "game:") { gameList = true; RememberTargetList(); packageFilter.Text = ""; FillPackages(); return; }
         if (it.Key == "back:") { gameList = false; RememberTargetList(); packageFilter.Text = ""; FillPackages(); return; }
         if (it.Key == "browse:") { BeginInvoke(BrowsePackage); return; }
@@ -228,6 +229,9 @@ sealed partial class ModelPage
         packages.SelectedIndexChanged += (_, _) => FillMeshPick();
     }
 
+    /// <summary>The summons whose "not shaped like a person" note was logged (once each).</summary>
+    readonly HashSet<string> creatureHinted = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The Character drop-down for the chosen package: shown when it holds more than one skeletal mesh.</summary>
     async void FillMeshPick()
     {
@@ -235,6 +239,7 @@ sealed partial class ModelPage
         string key = pkg.Key, path = StartPackage(key);
         List<string> names;
         var props = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool creature = false;
         try
         {
             names = await Task.Run(() =>
@@ -245,11 +250,25 @@ sealed partial class ModelPage
                     foreach (var n in list)
                         try { if (PropFit.IsProp(MhoSkeleton.Load(path, n))) props.Add(n); }
                         catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                // a summon or power model without the humanoid skeleton (arms with elbows and wrists, legs with knees: a squirrel's and
+                // Magik's small demon's arms are g_l_arm, g_l_hand; a car): models from MFF or another
+                // hero can't be fitted to it
+                if (Summons.ContainsKey(key))
+                    try { var bn = MhoSkeleton.Load(path).Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase); creature = !new[] { "g_pelvis", "g_head", "g_l_hip", "g_r_hip", "g_l_knee", "g_r_knee", "g_l_elbow", "g_r_elbow", "g_l_wrist", "g_r_wrist" }.All(bn.Contains); }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
                 return list;
             });
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { names = []; }
         if (IsDisposed || ChosenPackage?.Key != key) return;
+        if (creature && !HasSource && chosenKey == null && pendingState == null)
+        {
+            Log($"{key} isn't shaped like a person, so an MFF model or another hero can't be fitted to it: its own model is the source. Edit in Blender opens it there (Ctrl+S sends your changes back); or Single Model → an FBX rigged to its own bones.");
+            creatureHinted.Add(key);
+            _ = UseOwnModel(key);
+        }
+        else if (creature && creatureHinted.Add(key))
+            Log($"{key} isn't shaped like a person, so an MFF model or another hero can't be fitted to it. To change it: Edit in Blender with no source picked (its own model), or Single Model → an FBX rigged to its own bones.");
         fillingMesh = true;
         try
         {
@@ -411,6 +430,8 @@ sealed partial class ModelPage
         public int LeanVersion { get; set; }
         /// <summary>Game Joint Blend (ImportOptions.JointFit).</summary>
         public bool JointFit { get; set; }
+        /// <summary>Build When Blender Saves.</summary>
+        public bool BuildOnBlenderSave { get; set; }
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
@@ -430,7 +451,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked,
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
@@ -461,7 +482,9 @@ sealed partial class ModelPage
         if (st.Source == null) { if (st.Package != null) AssumeBuilt(); return; }
         pendingState = st;
         kindByState = true;
-        if (st.Source.StartsWith(GameSrc)) { if (!GameMode) sourceKind.SelectedIndex = 2; }
+        // (already on From the Game: the list was filled before the saved source was known, with its hero's group shut, so it's
+        // filled again to open that group: Kurt 2026-10-25, a summon source wasn't picked again)
+        if (st.Source.StartsWith(GameSrc)) { if (!GameMode) sourceKind.SelectedIndex = 2; else FillCharacters(); }
         else if (st.Source.StartsWith("fbx:") || st.Source.StartsWith(MffDir)) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
         else
         {
@@ -491,6 +514,7 @@ sealed partial class ModelPage
         if (smooth.Enabled) smooth.Checked = st.Subdivide;
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
         SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
+        buildOnSave.Checked = st.BuildOnBlenderSave;
         sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; keepSourceSize.Checked = st.KeepSourceSize; jointFit.Checked = st.JointFit; leanCustom = st.LeanVersion >= 2 ? st.LeanCustom : st.Lean; restoringLean = true; leanSlider.Value = leanCustom ?? leanAuto; restoringLean = false; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;
         restoring2 = false;
         AssumeBuilt();

@@ -43,7 +43,7 @@ static class SkelEncoder
     public static SkelNative Build(SkelNative baseMesh, IReadOnlyList<(Quaternion Rot, Vector3 Pos)> boneLocals, IReadOnlyList<EncSection> sections, IReadOnlyList<int> materials,
         IReadOnlyList<(long Name, int Parent)>? extraBones = null)
     {
-        if (baseMesh.Lods.Count != 1) throw new InvalidDataException("the base mesh has more than one LOD");
+        if (baseMesh.Lods.Count < 1) throw new InvalidDataException("the base mesh has no LOD");
         int extra = extraBones?.Count ?? 0;
         if (boneLocals.Count != baseMesh.Bones.Count + extra) throw new InvalidDataException($"{boneLocals.Count} bones for a base mesh with {baseMesh.Bones.Count} and {extra} added");
         var bl = baseMesh.Lods[0];
@@ -149,6 +149,9 @@ static class SkelEncoder
         lod.RequiredBones = Enumerable.Range(0, n.Bones.Count).Select(i => (byte)i).ToList();
         lod.VbCount = vertexBase; lod.VbData = vb.ToArray();
         n.Lods.Add(lod);
+        // a mesh with more LODs (pets, summons: Squirrel Girl's squirrel has several, Kurt 2026-10-25): the new model in each, so
+        // their number stays what the mesh's LODInfo list says (the game draws the same model at every distance)
+        for (int i = 1; i < baseMesh.Lods.Count; i++) n.Lods.Add(lod);
         n.Bounds = BoundsOf(all);
         return n;
     }

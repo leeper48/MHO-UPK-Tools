@@ -232,6 +232,9 @@ sealed class PowerEffects
     /// costume, EntityArt = the costume's class → its own illusion; the power's own SummonEntity otherwise): the others it
     /// names are left out.
     /// </summary>
+    /// <summary>True: every costume's summons are kept (--summon-census lists them all for the Model tab).</summary>
+    internal static bool AllCostumeSummons;
+
     static void KeepCostumeSummons(GameData db, string powerPath, IEnumerable<string> closure, string? hero, PowerEffects fx)
     {
         if (!fx.Actors.Any(a => a.Kind == "summon")) return;
@@ -278,6 +281,7 @@ sealed class PowerEffects
             if (mine != null) { kept.Add(Path.GetFileNameWithoutExtension(mine)); if (UnrealClassOfEntity(db, mine) is string keep) kept.Add(keep); }
         }
         drop.ExceptWith(kept);   // (one power's pick for this costume isn't dropped by another's list)
+        if (AllCostumeSummons) drop.Clear();
         if (drop.Count > 0) fx.Actors.RemoveAll(a => a.Kind == "summon" && (drop.Contains(a.Name) || a.TriggeredBy != null && drop.Contains(a.TriggeredBy)));
         // Summons only a talent brings (Jean Grey's X-Men illusions: Telepathic Illusion uses TelepathicIllusionJeanXmenSummon
         // only with the talent IllusionBonus, an EntityHasTalent check on the trigger's chance): left out, the preview has no talents.

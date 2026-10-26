@@ -420,6 +420,22 @@ sealed partial class MainForm
     /// --model-blender-test (scratch library only): the Model tab's Blender round trip (see ModelPage.TestBlender), then Save
     /// Changes: the edit must be in the mod's Model folder with a relative path.
     /// </summary>
+    /// <summary>--model-summon-test: the Model tab's summon steps (ModelPage.TestSummons).</summary>
+    public async Task<int> ModelSummonTest(string modName, string creature, string person, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m);
+        pages.Select(1);
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+        if (tab < 0) { say("no Model tab"); return 1; }
+        editor.SelectTab(tab);
+        for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+        if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
+        int fails = await page.TestSummons(creature, person, say);
+        CloseEditor();
+        return fails == 0 ? 0 : 1;
+    }
+
     public async Task<int> ModelBlenderTest(string modName, string mff, string package, string anim, Action<string> say)
     {
         if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
@@ -431,6 +447,7 @@ sealed partial class MainForm
         for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
         if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
         string? rel = await page.TestBlender(mff, package, anim, say);
+        var linked = page.TestRestored(anim);   // (the source and Blender folder now, before Save Changes)
         int fails = 0;
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         Check(rel != null, "the save in Blender came back as an FBX edit of " + anim);
@@ -448,7 +465,7 @@ sealed partial class MainForm
         await Task.Delay(500);
         var saved = lib?.Find(modName);
         // this source's edits (a library used by other tests holds other sources' edits too)
-        string source = Path.GetFileNameWithoutExtension(mff);
+        string source = Path.GetFileNameWithoutExtension(mff.StartsWith("gamesrc:", StringComparison.OrdinalIgnoreCase) ? mff["gamesrc:".Length..] : mff);
         string? editsTxt = saved == null ? null : Directory.EnumerateFiles(Path.Combine(saved.Folder, ModelWork.Folder, "edits"), "edits.txt", SearchOption.AllDirectories)
             .FirstOrDefault(f => Path.GetFileName(Path.GetDirectoryName(f)!).StartsWith(source + " on ", StringComparison.OrdinalIgnoreCase));
         Check(editsTxt != null, "the mod's Model folder has the edits");
@@ -459,6 +476,32 @@ sealed partial class MainForm
             Check(text.Contains($"anim:{anim}=", StringComparison.OrdinalIgnoreCase) && !text.Contains(':' + "\\"), "the edit names its FBX relative to the edits folder");
             Check(File.Exists(Path.Combine(Path.GetDirectoryName(editsTxt)!, rel)), "the edited FBX is in the mod");
             Check(File.Exists(Path.Combine(Path.GetDirectoryName(editsTxt)!, "blender.txt")), "the Blender link is kept (blender.txt)");
+        }
+        // MHO_TEST_REOPEN=1 (Kurt, 2026-10-25: leave the mod and come back, and Blender's saves are still picked up): the editor
+        // closed, Blender saves the scene again meanwhile, the mod opened again: the same source and target, the edit, the link
+        // watched and the new save taken in
+        if (Environment.GetEnvironmentVariable("MHO_TEST_REOPEN") == "1" && fails == 0)
+        {
+            var (src0, _, _, folder, _) = linked;
+            CloseEditor();
+            await Task.Delay(500);
+            say("Blender saves again while the mod is closed: " + (folder != null ? await Model.Gui.ModelPage.TestBlenderEditAgain(folder) : "no linked folder"));
+            if (lib?.Find(modName) is not Mod again) { say("the mod isn't in the library after the save"); return 1; }
+            OpenEditor(again);
+            pages.Select(1);
+            int tab2 = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+            editor.SelectTab(tab2);
+            for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+            if (editor.ModelPageForTest is not { } page2) { say("the Model tab didn't open again"); return 1; }
+            for (int i = 0; i < 1800 && !page2.TestSourceShown; i++) await Task.Delay(100);
+            for (int i = 0; i < 150 && !page2.TestLog.Contains("Blender sent"); i++) await Task.Delay(100);
+            var r = page2.TestRestored(anim);
+            Check(string.Equals(r.Source, src0, StringComparison.OrdinalIgnoreCase), $"the source is picked again ({r.Source})");
+            Check(string.Equals(r.Target, package, StringComparison.OrdinalIgnoreCase), $"the target is picked again ({r.Target})");
+            Check(r.Edited, $"the FBX edit of {anim} is still on");
+            Check(r.BlenderFolder != null && r.Watching, $"the Blender folder is linked and watched ({r.BlenderFolder})");
+            Check(page2.TestLog.Contains("Blender sent"), "Blender's save made while the mod was closed is taken in");
+            if (fails > 0) say("log:\n  " + page2.TestLog.Replace("\n", "\n  ").TrimEnd());
         }
         return fails == 0 ? 0 : 1;
     }

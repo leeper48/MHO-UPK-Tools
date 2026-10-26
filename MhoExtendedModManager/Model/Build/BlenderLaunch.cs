@@ -110,6 +110,62 @@ static class BlenderLaunch
         return null;
     }
 
+    /// <summary>
+    /// Opens the folder's model.blend again (Kurt, 2026-10-25: Edit in Blender goes back to the scene made before, with the
+    /// work in it, instead of a new export). The file is given to Blender, then a small script runs the scene's own sync text
+    /// (mff_sync.py): Blender doesn't run a file's scripts unless that's allowed, and without it Ctrl+S wouldn't send. A Blender
+    /// that has that file open already is brought to the front instead. Null = done; else why not.
+    /// </summary>
+    public static string? Reopen(string folder, bool scriptOnly = false)
+    {
+        string blend = Path.Combine(folder, "model.blend");
+        if (!File.Exists(blend)) return $"there's no model.blend in {folder}";
+        if (scriptOnly) { File.WriteAllText(Path.Combine(folder, "reopen_in_blender.py"), ReopenScript); return null; }   // (tests: Blender run by them)
+        if (Showing(blend)) return null;
+        string? exe = Find();
+        if (exe == null) return "Blender isn't installed (no Blender Foundation folder in Program Files): pick blender.exe in Settings ▾ → Model → Choose Blender.";
+        Protected.CheckWrite(folder);
+        string script = Path.Combine(folder, "reopen_in_blender.py");
+        File.WriteAllText(script, ReopenScript);
+        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = folder };
+        foreach (var a in new[] { blend, "--python", script }) psi.ArgumentList.Add(a);
+        Process.Start(psi);
+        return null;
+    }
+
+    /// <summary>A Blender window showing <paramref name="blend"/> (its title names the file) is brought to the front: true.</summary>
+    static bool Showing(string blend)
+    {
+        foreach (var p in Process.GetProcessesByName("blender"))
+            try
+            {
+                if (p.MainWindowHandle == IntPtr.Zero || !p.MainWindowTitle.Contains(blend, StringComparison.OrdinalIgnoreCase)) continue;
+                if (IsIconic(p.MainWindowHandle)) ShowWindow(p.MainWindowHandle, 9);   // SW_RESTORE
+                SetForegroundWindow(p.MainWindowHandle);
+                return true;
+            }
+            catch (InvalidOperationException) { }
+            finally { p.Dispose(); }
+        return false;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+
+    const string ReopenScript = """
+# Written by the MHO Extended Mod Manager (Edit in Blender): turns this scene's Ctrl+S sync on again. Blender opened
+# model.blend first; the sync code is the scene's own text block, mff_sync.py (it removes an earlier copy of its handler).
+import bpy
+
+txt = bpy.data.texts.get("mff_sync.py")
+if txt is not None:
+    exec(compile(txt.as_string(), "mff_sync.py", "exec"), {"__name__": "mff_sync"})
+    print("MHO MFF Importer: Ctrl+S sync on for", bpy.data.filepath)
+else:
+    print("MHO MFF Importer: no mff_sync.py in", bpy.data.filepath)
+""";
+
     /// <summary>The script (Blender 4.x / 5.x). @@FOLDER@@ = the export folder.</summary>
     const string Script = """
 # Written by the MHO MFF Importer: opens this Export FBX folder in a new Blender scene.

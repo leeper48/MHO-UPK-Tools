@@ -1368,6 +1368,10 @@ static partial class Program
                     : Directory.GetFiles(ccook, "UC__MarvelPlayer_*_SF.upk").Select(f => Path.GetFileNameWithoutExtension(f)["UC__MarvelPlayer_".Length..^3])
                         .Where(h => !h.Contains('_') && !h.Contains("Mech", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
                 int found = 0;
+                // MHO_CENSUS_OUT=<file>: also a table of the summons' packages (package, hero, summon, power): the Model tab's
+                // Summons list (Model\StockData\model_summons.txt)
+                var table = Environment.GetEnvironmentVariable("MHO_CENSUS_OUT") is string cto ? new SortedSet<string>(StringComparer.OrdinalIgnoreCase) : null;
+                Fx.PowerEffects.AllCostumeSummons = table != null;
                 foreach (string hero in heroes)
                 {
                     List<Fx.PowerList.Power> powers;
@@ -1376,7 +1380,8 @@ static partial class Program
                     {
                         Fx.PowerEffects fx;
                         try { fx = Fx.PowerEffects.For(new Fx.FxGame(ccook, []), cdb, pw.Prototype, hero); } catch (Exception ex) { Console.WriteLine($"{hero} · {pw.Name}: {ex.Message}"); continue; }
-                        var sums = fx.Actors.Where(x => x.Kind == "summon").ToList();
+                        // (with MHO_CENSUS_OUT, the animated actors too: models a power plays with no summon, Cyclops' Strike Force)
+                        var sums = fx.Actors.Where(x => x.Kind == "summon" || table != null && x.SetFile != null).GroupBy(x => $"{x.MeshFile}|{x.MeshExport}").Select(g => g.First()).ToList();
                         var missing = fx.Notes.Where(n => n.Contains("summoned character")).ToList();
                         if (sums.Count == 0 && missing.Count == 0) continue;
                         found++;
@@ -1388,7 +1393,8 @@ static partial class Program
                             static bool Real(AnimRef a) => !a.Name.StartsWith("temp", StringComparison.OrdinalIgnoreCase) && !a.Name.Contains("placeholder", StringComparison.OrdinalIgnoreCase);
                             var anims = sm.SetFile != null ? ModAnimations.FromSet(sm.SetFile, sm.SetExport).Where(Real).ToList() : [];
                             if (anims.Count == 0 && lm != null) anims = ModAnimations.For(mref, lm.Bones, [], ccook).Where(Real).ToList();
-                            Console.WriteLine($"    {sm.Name}: model {(lm != null ? $"{lm.Positions.Length} vertices" : "NOT LOADED")}, {anims.Count} animations{(anims.Count > 0 ? " (" + string.Join(" ", anims.Take(4).Select(x => x.Name)) + ")" : "")}{(sm.Materials is { Count: > 0 } m ? $", {m.Count} own material(s)" : "")}{(sm.TriggeredBy != null ? " · by " + sm.TriggeredBy : "")}");
+                            if (lm != null) table?.Add($"{Path.GetFileName(sm.MeshFile)}\t{hero}\t{sm.Name}\t{pw.Name}\t{sm.Kind}\t{AnimExportCli.Packages.Package.Open(sm.MeshFile).GetExportName(sm.MeshExport)}\t{lm.Bones.Count}\t{pw.Icon}");
+                            Console.WriteLine($"    {(sm.Kind != "summon" ? "(" + sm.Kind + " actor) " : "")}{sm.Name}: model {(lm != null ? $"{lm.Positions.Length} vertices" : "NOT LOADED")}, {anims.Count} animations{(anims.Count > 0 ? " (" + string.Join(" ", anims.Take(4).Select(x => x.Name)) + ")" : "")}{(sm.Materials is { Count: > 0 } m ? $", {m.Count} own material(s)" : "")}{(sm.TriggeredBy != null ? " · by " + sm.TriggeredBy : "")}");
                             if (Environment.GetEnvironmentVariable("MHO_CENSUS_DETAIL") == "1")
                             {
                                 Console.WriteLine($"      mesh {Path.GetFileName(sm.MeshFile)}#{sm.MeshExport}, {lm?.Looks.Length ?? 0} section look(s)");
@@ -1398,6 +1404,7 @@ static partial class Program
                         foreach (var n in missing) Console.WriteLine("    " + n);
                     }
                 }
+                if (table != null) File.WriteAllLines(Environment.GetEnvironmentVariable("MHO_CENSUS_OUT")!, table.Prepend("# Summoned characters' packages (--summon-census with MHO_CENSUS_OUT, on the stock packages): file, hero, summon or actor, power, kind (summon, power, entity), mesh, bones, power icon"));
                 Console.WriteLine($"{found} power(s) with summons");
                 return 0;
             }

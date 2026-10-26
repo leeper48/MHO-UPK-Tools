@@ -1,6 +1,21 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.147
+- Model tab: Edit in Blender, beside Build. With no source picked, the target's own model becomes the source and opens in Blender (pick a summon or a costume as the target, then Edit in Blender). Opened in Blender before: that same scene opens again with your work in it (or comes to the front when it's open), instead of a new export; Full Export ▾ → Open in Blender still makes a fresh one.
+- A line under Build shows the Blender link: "Linked to Blender · Save 3 Taken In at 14:02". Build When Blender Saves (kept with the mod): each Ctrl+S in Blender that sends a change also builds.
+- Summons in both From the Game lists sit after each hero's costumes under SUMMONS AND POWER MODELS, with the power's icon; the Summons button lists only summons and power models, for every hero. A squirrel, demon or car picked as the target gets its own model as the source by itself.
+- A power model's animation edits from Blender no longer stop the build: the model is built and the log says the animations play from the power's own sets.
+
+0.60.146
+- Model tab: a From the Game source (a summon, or a costume inside a hero's group) is picked again when you come back to the mod, so its Blender link keeps working: saves made in Blender meanwhile are taken in.
+
+0.60.145
+- Model tab: summons and power models are in From the Game (Source and Target), under the hero whose power brings them: Squirrel Girl's squirrels, Magik's demons and N'astirh, Colossus's Fastball Special Wolverine, Cyclops's Strike Team (Beast, Jean, Iceman) and the rest, 46 heroes in all, every costume's version.
+- Change one by picking the same summon as Source and Target, then Full Export ▾ → Open in Blender (Ctrl+S sends your edit back) and Build into Mod; or put an FBX rigged to its bones on it (Single Model). One shaped like a person (Beast, Wolverine, Jean) also takes an MFF model or another hero.
+- A power model inside a power package (Strike Team's Beast in UC__PowerCyclops_CallBeast_SF) is picked by itself among the package's models; Model ▾ picks another.
+- Models with several levels of detail (the squirrels) build: the new model is used at every distance.
+
 0.60.144
 - Manual: pictures of weight painting, Settings → Keyboard Shortcuts and the Nexus sign-in window.
 

@@ -336,6 +336,13 @@ sealed class ImportBuild
             log($"anims:   {res.Sets} animation set(s), {res.Sequences} animations written{(rigs.Count > 0 ? $" with {string.Join(" and ", rigs.Select(x => x.Label))}'s motion" : "")}{(o.AnimFbx is { Count: > 0 } af ? $", {af.Count} replaced from FBX edits" : "")}{(res.Static > 0 ? $" ({res.Static} with the hair at rest: not decodable or a packed format)" : "")}; package {new FileInfo(pkgOut).Length:N0} bytes");
             return true;
         }
+        catch (InvalidDataException ex) when (rigs.Count == 0 && ex.Data.Contains(HairAnims.NoAnimationListKey))
+        {
+            // only FBX animation edits, on a package whose model has no animation list (a power's model, Kurt 2026-10-25): the
+            // mesh is built; the edited animations can't go in yet
+            log($"anims:   {Path.GetFileName(package)}'s model has no animation list of its own (a power's model plays the power's animations), so the {o.AnimFbx?.Count ?? 0} animation edit(s) from Blender aren't built in: the model is.");
+            return true;
+        }
         catch (InvalidDataException ex) { log("PACKAGE PROBLEM: animations: " + ex.Message); return false; }
     }
 

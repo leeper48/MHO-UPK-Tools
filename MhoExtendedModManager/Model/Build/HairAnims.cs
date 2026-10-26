@@ -30,6 +30,17 @@ static class HairAnims
 {
     public sealed record Result(byte[] Package, int Sets, int Sequences, int Static, List<string> Log);
 
+    /// <summary>The package's character has no animation list of its own to put animations into (a power's model: Cyclops's
+    /// Strike Team Beast plays the power's own animation sets).</summary>
+    public const string NoAnimationListKey = "no animation list";
+
+    static InvalidDataException NoAnimationList(string message)
+    {
+        var ex = new InvalidDataException(message);
+        ex.Data[NoAnimationListKey] = true;
+        return ex;
+    }
+
     /// <summary>
     /// The built package (<paramref name="builtPath"/>) with the hair animation added. <paramref name="bones"/> = the built
     /// mesh's skeleton (the retarget's, with the grafted bones: the preview poses the same one), <paramref name="borrowed"/>
@@ -62,7 +73,7 @@ static class HairAnims
             try { string p = BasePackage.Resolve(f, true); return File.Exists(p) ? (p, false) : null; }
             catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or IOException) { return null; }   // a group, not a file
         };
-        var ca = CostumeAnims.Read(builtPath, packageFile, fileFor) ?? throw new InvalidDataException("the costume's animation list doesn't read");
+        var ca = CostumeAnims.Read(builtPath, packageFile, fileFor) ?? throw NoAnimationList("the costume's animation list doesn't read");
         // a replaced animation goes into the set the game plays it from (the last set holding its name)
         var winners = overrides.Keys.Select(n => ca.Anims.FirstOrDefault(a => a.Name.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
         foreach (var (n, w) in overrides.Keys.Zip(winners)) if (w == null) throw new InvalidDataException($"the costume plays no animation named \"{n}\"");

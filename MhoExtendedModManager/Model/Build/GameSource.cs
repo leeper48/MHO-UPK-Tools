@@ -22,7 +22,11 @@ static class GameSource
         string outDir = Path.Combine(Folder, Path.GetFileNameWithoutExtension(packageFile));
         string fbx = Path.Combine(outDir, "model.fbx"), stampFile = Path.Combine(outDir, "source.txt");
         var fi = new FileInfo(meshPath);
-        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|1";
+        // the character the Model tab fits to (MhoSkeleton.Load: the chosen one, a summon's or power model's mesh, the costume's
+        // own), else the package's first
+        string? pickName = null;
+        try { pickName = MhoSkeleton.Load(meshPath).Mesh.Name; } catch (InvalidDataException) { }
+        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|2";
         if (File.Exists(fbx) && File.Exists(stampFile) && File.ReadAllText(stampFile) == stamp) return fbx;
 
         Protected.CheckWrite(outDir);
@@ -30,7 +34,7 @@ static class GameSource
         Directory.CreateDirectory(outDir);
         var refs = ModMeshes.List([(Path.GetFileName(meshPath), meshPath)], anyPackage: true);
         if (refs.Count == 0) throw new InvalidDataException($"{packageFile} has no character model.");
-        var main = refs[0];
+        var main = refs.FirstOrDefault(x => x.Name.Equals(pickName, StringComparison.OrdinalIgnoreCase)) ?? refs[0];
         var apkg = AnimPackage.Open(meshPath);
         string why = "";
         var mesh = SkeletalMeshReader.TryRead(apkg, main.Export, e => why = e);

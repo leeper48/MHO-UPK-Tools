@@ -84,6 +84,86 @@ sealed partial class ModelPage
     string? lastStart;
 
     internal bool TestHasRig => unrigged != null;
+
+    /// <summary>
+    /// Test (--model-summon-test): a summon as the target with no source picked. A creature (no humanoid skeleton) gets its own
+    /// model as the source by itself; the Summons toggle lists only summons (with their headings), and Edit in Blender's
+    /// own-model step works for a summon shaped like a person too.
+    /// </summary>
+    internal async Task<int> TestSummons(string creature, string person, Action<string> say)
+    {
+        int fails = 0;
+        void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+        for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && pendingState != null; i++) await Task.Delay(100);
+        // the Summons toggle over the target's game list
+        gameList = true; FillPackages();
+        Check(summonsTarget.Visible, "the target's Summons toggle shows with From the Game");
+        summonsTarget.PerformClick();
+        var rows = packages.Items.OfType<CharacterList.Item>().ToList();
+        var picks = rows.Where(r => !r.Header && !r.Label && !r.Key.Contains(':')).ToList();
+        Check(picks.Count > 50 && picks.All(r => IsSummon(r.Key)), $"Summons lists only summons and power models ({picks.Count})");
+        Check(rows.Any(r => r.Label) && rows.Any(r => r.Header && r.Detail.Contains("summon")), "with SUMMONS AND POWER MODELS headings and summon counts on the hero rows");
+        // MHO_TEST_SUMMONSHOT=<png>: the tab with the Summons list, Cyclops's group in view
+        if (Environment.GetEnvironmentVariable("MHO_TEST_SUMMONSHOT") is { Length: > 0 } shot)
+        {
+            int cyc = rows.FindIndex(r => r.Header && r.Title.Equals("Cyclops", StringComparison.OrdinalIgnoreCase));
+            if (cyc >= 0) packages.TopIndex = cyc;
+            for (int i = 0; i < 50 && Thumbs.Pending > 0; i++) await Task.Delay(200);
+            await Task.Delay(800);
+            using var bmp = new Bitmap(Width, Height);
+            DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height));
+            bmp.Save(shot);
+            say("snapshot: " + shot);
+        }
+        var label = rows.First(r => r.Label);
+        packages.SelectedIndex = rows.IndexOf(label);
+        Check(ChosenPackage == null && host.Packages.All(p => !p.File.StartsWith(LabelKey)), "a heading can't be picked");
+        summonsTarget.PerformClick();
+        Check(!summonsOnlyTarget && packages.Items.OfType<CharacterList.Item>().Count(r => r.Header || !r.Key.Contains(':')) > rows.Count(r => r.Header || !r.Key.Contains(':')) / 2 && !packages.Items.OfType<CharacterList.Item>().Any(r => r.Label), "clicked again: the whole list (hero groups shut)");
+        gameList = false;
+        // a creature as the target, no source: its own model becomes the source
+        sourceKind.SelectedIndex = 0; await Task.Delay(300);   // (another kind: the own-model pick switches to From the Game)
+        chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear();
+        foreach (var file in new[] { creature, person })
+            if (!host.Packages.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase))) { host.AddPackage(file, BasePackage.Resolve(file)); added.Add(file); }
+        FillPackages();
+        Reselect(packages, creature);
+        string want = GameSrc + creature;
+        for (int i = 0; i < 1200 && !(want.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+        Check(want.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource && GameMode, $"a creature target with no source gets its own model ({chosenKey ?? "none"}, From the Game {GameMode})");
+        // a person-shaped summon: nothing picked by itself; Edit in Blender's step picks its own model
+        chosenKey = null; model = null; sourceFbx = null; parts.Rows.Clear(); characters.ClearSelected();
+        Reselect(packages, person);
+        await Task.Delay(3000);
+        Check(chosenKey == null, $"a person-shaped summon keeps no source until asked ({chosenKey ?? "none"})");
+        bool own = await UseOwnModel(person);
+        Check(own && (GameSrc + person).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && preview.AnimationNames.Count > 0, $"Edit in Blender's own-model step loads {person} as the source ({preview.AnimationNames.Count} animations)");
+        Check(blenderButton.Enabled, "Edit in Blender is on with a target picked");
+        return fails;
+    }
+
+    /// <summary>Test (--model-blender-test with MHO_TEST_REOPEN): what the tab shows after the mod was opened again: the source
+    /// and target picked, whether the animation has an FBX edit, the linked Blender folder and whether it's watched.</summary>
+    internal (string? Source, string? Target, bool Edited, string? BlenderFolder, bool Watching) TestRestored(string anim) =>
+        (chosenKey, ChosenPackage?.Key, EnsureEdits().Anims.Keys.Any(k => k.Equals(anim, StringComparison.OrdinalIgnoreCase)), BlenderLink().Folder, blenderWatch != null);
+
+    /// <summary>Test: the source has loaded and the preview shows it (after a reopen restored the saved choices).</summary>
+    internal bool TestSourceShown => HasSource && preview.AnimationNames.Count > 0 && pendingState == null;
+
+    internal string TestLog => log.Text;
+
+    /// <summary>Test: Blender opens the linked scene again, makes the same edit and saves (Ctrl+S) while the mod isn't open.</summary>
+    internal static async Task<string> TestBlenderEditAgain(string folder)
+    {
+        string? exe = BlenderLaunch.Find();
+        if (exe == null) return "no Blender";
+        // as Edit in Blender opens it again (BlenderLaunch.Reopen: the file, then reopen_in_blender.py), without -y: the
+        // scene's own scripts don't run by themselves, the reopen script turns the sync on
+        BlenderLaunch.Reopen(folder, scriptOnly: true);
+        var (code, output) = await RunBlender(exe, $"-b \"{Path.Combine(folder, "model.blend")}\" --python \"{Path.Combine(folder, "reopen_in_blender.py")}\" --python \"{Path.Combine(folder, "test_edit.py")}\"", folder);
+        return $"exit {code}; " + string.Join(" | ", output.Split('\n').Where(l => l.Contains("TEST EDIT") || l.Contains("MHO MFF") || l.Contains("Error") || l.Contains("Traceback")).Take(6));
+    }
     /// <summary>Test: the unbuilt-changes check behaved (before Build yes, after no, a size change yes, put back no).</summary>
     internal bool TestUnbuilt { get; private set; }
 
@@ -303,7 +383,21 @@ sealed partial class ModelPage
             if (!ok) { say($"  (picked: {ChosenPackage?.Key ?? "no package"}, source {chosenKey ?? "none"}; the mod's packages: {string.Join(", ", host.Packages.Select(p => p.File))})\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
         }
         if (mff == "-") return ChosenPackage != null && !HasSource;   // no source: a size-only build (MHO_TEST_SIZE)
-        if (File.Exists(mff) && ModelConvert.NeedsBlender(mff))
+        if (mff.StartsWith(GameSrc, StringComparison.OrdinalIgnoreCase))
+        {
+            // a game package as the source (Source → From the Game: a hero, NPC or summon), picked from its list
+            if (chosenKey == null || !chosenKey.Equals(mff, StringComparison.OrdinalIgnoreCase) || sourceFbx == null)
+            {
+                if (!GameMode) { sourceKind.SelectedIndex = 2; await Task.Delay(300); }
+                expanded.Add("game " + DescribePackage(mff[GameSrc.Length..]).Title);
+                FillCharacters();
+                Reselect(characters, mff);
+                for (int i = 0; i < 1200 && !(mff.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+            }
+            if (!HasSource) { say($"the game source didn't load: {mff} ({characters.Items.Count} rows in the list)\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
+            say($"source from the game {mff}: {parts.Rows.Count} parts");
+        }
+        else if (File.Exists(mff) && ModelConvert.NeedsBlender(mff))
         {
             // a .blend / XPS model: Browse makes its FBX with Blender first (the same call), then it's read as that FBX
             mff = ModelConvert.ToFbx(mff, say);
@@ -340,7 +434,7 @@ sealed partial class ModelPage
             if (model == null) { say("the MFF folder didn't load: " + dir + "\n  " + log.Text.Replace("\n", "\n  ").TrimEnd()); return false; }
             say($"MFF folder {Path.GetFileName(dir)} (Single Model): {parts.Rows.Count} parts");
         }
-        else if (chosenKey != mff || model == null)
+        else if (!mff.StartsWith(GameSrc, StringComparison.OrdinalIgnoreCase) && (chosenKey != mff || model == null))
         {
             if (sourceKind.SelectedIndex != 0) { sourceKind.SelectedIndex = 0; await Task.Delay(300); }   // back to the MFF repository (an FBX test left it on Single Model)
             characterFilter.Text = mff;
@@ -459,6 +553,9 @@ if img is not None:
     print("TEST EDIT: painted", img.name, img.is_dirty)
 bpy.ops.wm.save_mainfile()
 """);
+        // MHO_TEST_BUILDONSAVE=1: Build When Blender Saves on, so this save also builds
+        bool buildOnSaveTest = Environment.GetEnvironmentVariable("MHO_TEST_BUILDONSAVE") == "1";
+        if (buildOnSaveTest) { buildOnSave.Checked = true; built.Remove(package); }
         var (code2, out2) = await RunBlender(exe, $"-b \"{blend}\" -y --python \"{edit}\"", outDir);
         say($"edit + save: exit {code2}; " + string.Join(" | ", out2.Split('\n').Where(l => l.Contains("TEST EDIT") || l.Contains("MHO") || l.Contains("Error") || l.Contains("Traceback")).Take(8)));
         string sync = Path.Combine(outDir, "from_blender", "sync.json");
@@ -467,6 +564,15 @@ bpy.ops.wm.save_mainfile()
         // the watcher (0.7 s after the file settles)
         // (this save's sync: an edit left from an earlier run doesn't count)
         for (int i = 0; i < 150 && !log.Text.Contains("Blender sent"); i++) await Task.Delay(100);
+        if (buildOnSaveTest)
+        {
+            // (the build waits for the preview first): its Done line after the one saying why it builds
+            bool Finished() => log.Text.Contains("Build When Blender Saves", StringComparison.Ordinal);
+            for (int i = 0; i < 6000 && !Finished(); i++) await Task.Delay(100);
+            bool ok = Finished() && built.ContainsKey(package);
+            say($"{(ok ? "PASS" : "FAIL")} Build When Blender Saves built {package} after the save");
+            buildOnSave.Checked = false;
+        }
         say("log:\n  " + log.Text.Replace("\n", "\n  ").TrimEnd());
         if (!EnsureEdits().Anims.TryGetValue(name, out var kept) || !File.Exists(kept)) return null;
         // the moved bone came along in the model (and only it)

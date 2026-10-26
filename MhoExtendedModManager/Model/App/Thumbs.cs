@@ -43,6 +43,19 @@ static class Thumbs
     public static Image? Model(string folder) => Get(ModelKey(folder), png => MakeModel(folder, png));
     public static Image? BaseHero(string file) => Get(PackageKey(file), png => MakePortrait(file, png));
 
+    /// <summary>A summon's or power model's row (Kurt, 2026-10-25): the icon of the power that brings it in (summons have no
+    /// portrait of their own); else the package's portrait as for a base hero.</summary>
+    public static Image? Summon(string file, string iconPath) => Get("summon_" + Path.GetFileNameWithoutExtension(file), png =>
+    {
+        lock (iconGate)
+        {
+            if (Settings.Current.CookedFolder is string cooked)
+                using (var icon = MhoExtendedModManager.Fx.PowerList.Icon(iconPath, cooked))
+                    if (icon != null) { ImagePixels.SavePng(icon, png); return true; }
+        }
+        return MakePortrait(file, png);
+    });
+
     /// <summary>An FBX source's thumbnail: its first material's color map (Kurt, 2026-10-04), made again when the FBX or its folder changes.</summary>
     public static Image? Fbx(string file)
     {

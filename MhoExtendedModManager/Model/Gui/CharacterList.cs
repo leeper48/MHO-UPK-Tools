@@ -11,7 +11,8 @@ namespace MhoExtendedModManager.Model.Gui;
 sealed class CharacterList : ListBox
 {
     /// <summary>A row; a group header (accordion) has a chevron and its first model's thumbnail; Indent 1 = under a header.</summary>
-    public sealed record Item(string Key, string Title, string Detail, bool Header = false, int Indent = 0, bool Expanded = false, string? ThumbKey = null)
+    /// <summary>Label: a heading inside a group (nothing to pick: "SUMMONS AND POWER MODELS").</summary>
+    public sealed record Item(string Key, string Title, string Detail, bool Header = false, int Indent = 0, bool Expanded = false, string? ThumbKey = null, bool Label = false)
     { public override string ToString() => Title; }
 
     /// <summary>The row's thumbnail (null while it's being made: a dark tile).</summary>
@@ -80,6 +81,18 @@ sealed class CharacterList : ListBox
         else Ui.PaintGradient(e.Graphics, this, e.Bounds);
         float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         int x = e.Bounds.X + (int)(8 * s) + (int)(22 * s * it.Indent);
+        if (it.Label)
+        {
+            // a heading: small capitals near the row's foot, a thin line after it
+            using var lf = Ui.Bold(8f);
+            var lr = new Rectangle(x, e.Bounds.Y, e.Bounds.Right - x - (int)(4 * s), e.Bounds.Height - (int)(6 * s));
+            TextRenderer.DrawText(e.Graphics, it.Title, lf, lr, Ui.Subtle, TextFormatFlags.Left | TextFormatFlags.Bottom | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+            int tw = TextRenderer.MeasureText(it.Title, lf).Width;
+            using var line = new Pen(Color.FromArgb(70, Ui.Subtle));
+            int ly = lr.Bottom - (int)(7 * s);
+            if (x + tw + (int)(8 * s) < lr.Right) e.Graphics.DrawLine(line, x + tw + (int)(6 * s), ly, lr.Right, ly);
+            return;
+        }
         if (it.Header)
         {
             // chevron: pointing right when shut, down when open

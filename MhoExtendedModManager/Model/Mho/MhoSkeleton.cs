@@ -145,6 +145,9 @@ sealed class MhoSkeleton
         if (found.Count == 0) throw new InvalidDataException($"{Path.GetFileName(package)} has no skeletal mesh.");
         // the character picked on the Model tab (Choose), when this package has it
         if (meshName == null && ChosenFor(package) is string pick && found.Any(i => pkg.GetExportName(i).Equals(pick, StringComparison.OrdinalIgnoreCase))) meshName = pick;
+        // a hero's summon or power model (Gui.ModelPage.Summons): the mesh the power shows (Cyclops's Strike Team Beast among the
+        // power package's effects)
+        if (meshName == null && Gui.ModelPage.SummonMesh(package) is string summon && found.Any(i => pkg.GetExportName(i).Equals(summon, StringComparison.OrdinalIgnoreCase))) meshName = summon;
         // the mesh the character's own mesh component shows, when it's in this package (2026-10-05, enemies and NPCs as targets:
         // Cable's boss package lists a gun first); else the guess below
         if (meshName == null && ComponentMesh(package) is string own && found.Any(i => pkg.GetExportName(i).Equals(own, StringComparison.OrdinalIgnoreCase))) meshName = own;
