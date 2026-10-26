@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.166
+- Model tab summons (still a preview feature): talents' summons are found (Squirrel Special Forces' camo squirrel, Iceman's Follow My Lead clones), and uniques' summons are under their hero, named after the item (Tippy Toe's Itty Bitty Bow, Hawkguy's Shades' Kate Bishop, the Future Foundation Bodysuit's Invisible Woman). Artifacts' summons (Latverian Regalia's Doombot, Wundagore Clay's raptor, the A.I.M. Robot Dispenser's spiders …) are under Artifacts, a row of its own in Source → From the Game → Heroes whose summons the panel lists. 176 more entries, 71 more packages.
+- --proto-find: the game data's prototype paths containing given parts.
+
+0.60.165
+- Tests: --model-summon-test also checks the Source's summons panel (costume-agnostic summons for every costume, a power's own summon only for costumes without their own, a click picks it, shown only for From the Game → Heroes) and, with summons hidden, that nothing about them shows.
+
 0.60.164
 - What's New notice for the changes since 0.60.144 (Snapshots and bundles, Effect Models, the Model tab's lists); the manual has pictures of the Snapshots window and the Effects view.
 - Model tab: the log no longer counts summons while they're hidden.

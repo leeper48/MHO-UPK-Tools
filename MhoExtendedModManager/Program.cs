@@ -67,6 +67,7 @@ static partial class Program
         ("--power-anims", "--power-anims <hero> [animation name part]", "A hero's animations and the powers that play them (from the hero's power packages). Changes nothing."),
         ("--mesh-sockets", "--mesh-sockets <package.upk>", "Each skeletal mesh in a package with its sockets (where powers attach their effects). Changes nothing."),
         ("--export-diff", "--export-diff <a.upk> <b.upk>", "The exports whose data or path differ between two packages (same export order), with where. Changes nothing."),
+        ("--proto-find", "--proto-find <path part> [part ...]", "The game data's prototype paths that contain every given part. Changes nothing."),
         ("--proto", "--proto <prototype path>", "A prototype's own fields as the game data has them (parents not merged). Changes nothing."),
         ("--power-fx", "--power-fx <power class> [hero] [mod]", "What the 3D preview plays for a power class: its particle effects, beams, decals, weapon slots, mesh emitters. Changes nothing."),
         ("--anim-power", "--anim-power <hero> <animation>", "The power a hero's animation belongs to, and what the 3D preview would play for it. Changes nothing."),

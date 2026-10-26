@@ -851,6 +851,13 @@ sealed partial class ModelPage : UserControl
                 }))
                     characters.Items.Add(row);
         }
+        // summons of no hero's own (Artifacts: the items any hero can carry, Kurt 2026-10-26): a group row of their own, whose
+        // summons the panel below lists
+        if (sourceKindTab == 0)
+            foreach (var g in allPackages.Where(p => IsSummon(p.File)).GroupBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
+                .Where(g => !allPackages.Any(p => !IsSummon(p.File) && p.Title.Equals(g.Key, StringComparison.OrdinalIgnoreCase)))
+                .Where(g => f.Length == 0 || g.Key.Contains(f, StringComparison.OrdinalIgnoreCase)).OrderBy(g => g.Key))
+                characters.Items.Add(new CharacterList.Item("group:game " + g.Key, g.Key, $"{g.Count()} summon{(g.Count() == 1 ? "" : "s")} · in the panel below", Header: true, ThumbKey: g.First().File));
         characters.EndUpdate();
         if (chosenKey != null) Reselect(characters, chosenKey);
         if (top < characters.Items.Count && f.Length == 0) characters.TopIndex = top;

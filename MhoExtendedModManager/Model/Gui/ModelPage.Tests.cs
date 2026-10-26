@@ -103,18 +103,114 @@ sealed partial class ModelPage
     /// the other costumes'; the hero's group row shows them all.</summary>
     internal async Task<bool> TestSummonsPanel(Action<string> say)
     {
+        bool all_ok = true;
+        void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); all_ok &= c; }
+        List<string> Shown() => sourceSummons.Items.OfType<CharacterList.Item>().Where(r => r.Key.StartsWith(GameSrc)).Select(r => r.Key[GameSrc.Length..]).ToList();
         await Task.Yield();
         if (!GameMode) sourceKind.SelectedIndex = 2;
         sourceKindTab = 0; FillCharacters();
         summonsFor = ("Cable", "marvelplayer_cable_original"); FillSourceSummons();
-        var orig = sourceSummons.Items.OfType<CharacterList.Item>().Where(r => r.Key.StartsWith(GameSrc)).Select(r => r.Key[GameSrc.Length..]).ToList();
+        var orig = Shown();
         summonsFor = ("Cable", null); FillSourceSummons();
-        var all = sourceSummons.Items.OfType<CharacterList.Item>().Where(r => r.Key.StartsWith(GameSrc)).Select(r => r.Key[GameSrc.Length..]).ToList();
+        var all = Shown();
         bool ok = sourceSummonsPanel.Visible && orig.Any(f => f.Contains("TelepathicIllusion_Original", StringComparison.OrdinalIgnoreCase))
             && !orig.Any(f => f.Contains("TelepathicIllusion_Xmen", StringComparison.OrdinalIgnoreCase)) && all.Count > orig.Count
             && !characters.Items.OfType<CharacterList.Item>().Any(r => r.Key.StartsWith(GameSrc) && IsSummon(r.Key[GameSrc.Length..]));
-        say($"{(ok ? "PASS" : "FAIL")} the Source's summons panel follows the costume: Cable Original shows {orig.Count} ({string.Join(", ", orig.Select(f => f[4..^7]))}); his group row {all.Count}; the list above has no summons");
-        return ok;
+        Check(ok, $"the Source's summons panel follows the costume: Cable Original shows {orig.Count} ({string.Join(", ", orig.Select(f => f[4..^7]))}); his group row {all.Count}; the list above has no summons");
+
+        // costume-agnostic summons (no override anywhere) show for every costume of their hero
+        var costumes = allPackages.Where(p => KindOf(p.File) == 0 && !IsSummon(p.File)).GroupBy(p => DescribePackage(p.File).Title, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(p => ConditionSwaps.ClassOf(p.File)).Where(c => c != null).Select(c => c!).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+        var agnostic = Summons.Where(kv => kv.Value.All(x => x.Costumes.Count == 0)).Select(kv => (File: kv.Key, kv.Value[0].Hero)).ToList();
+        int checkedAg = 0, missingAg = 0;
+        foreach (var hero in agnostic.Select(x => x.Hero).Distinct(StringComparer.OrdinalIgnoreCase).Take(12))
+            foreach (var cls in costumes.GetValueOrDefault(hero) ?? [])
+            {
+                summonsFor = (hero, cls); FillSourceSummons();
+                var shown = Shown().Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var x in agnostic.Where(x => x.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase))) { checkedAg++; if (!shown.Contains(x.File)) { missingAg++; say($"  missing: {x.File} for {cls}"); } }
+            }
+        Check(checkedAg > 20 && missingAg == 0, $"costume-agnostic summons show for every costume of their hero ({checkedAg - missingAg} of {checkedAg} hero-costume pairs)");
+
+        // the power's own summon (*) shows for a costume with no override of its own in that power, and not for one that has one
+        int fallbackOk = 0, fallbackBad = 0;
+        // (packages another of the hero's powers summons for every costume are left out: they show for all costumes, rightly)
+        foreach (var (file, rowsOf) in Summons.Where(kv => kv.Value.Any(x => x.Costumes.Contains("*")) && !kv.Value.Any(x => x.Costumes.Count == 0)).Take(30))
+        {
+            var row = rowsOf.First(x => x.Costumes.Contains("*"));
+            var own = Summons.Values.SelectMany(l => l).Where(y => y.Power == row.Power && y.Hero.Equals(row.Hero, StringComparison.OrdinalIgnoreCase)).SelectMany(y => y.Costumes).Where(c => c != "*").ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var without = (costumes.GetValueOrDefault(row.Hero) ?? []).FirstOrDefault(c => !own.Contains(c));
+            // (a costume with its own version in every power that summons this package: Aviator Squirrel Girl has her own squirrel
+            // in some powers only, and the default one rightly shows for the others)
+            HashSet<string> OwnIn(string power) => Summons.Values.SelectMany(l => l).Where(y => y.Power == power && y.Hero.Equals(row.Hero, StringComparison.OrdinalIgnoreCase)).SelectMany(y => y.Costumes).Where(c => c != "*").ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var with = (costumes.GetValueOrDefault(row.Hero) ?? []).FirstOrDefault(c => !rowsOf.Any(x => x.Costumes.Contains(c)) && rowsOf.All(x => OwnIn(x.Power).Contains(c)));
+            if (without != null) { summonsFor = (row.Hero, without); FillSourceSummons(); if (Shown().Any(f => Path.GetFileName(f).Equals(file, StringComparison.OrdinalIgnoreCase))) fallbackOk++; else { fallbackBad++; say($"  missing fallback {file} for {without}"); } }
+            if (with != null) { summonsFor = (row.Hero, with); FillSourceSummons(); if (!Shown().Any(f => Path.GetFileName(f).Equals(file, StringComparison.OrdinalIgnoreCase))) fallbackOk++; else { fallbackBad++; say($"  fallback {file} shown for {with}, which has its own"); } }
+        }
+        Check(fallbackOk > 5 && fallbackBad == 0, $"a power's own summon shows for costumes without their own version, and not for those with one ({fallbackOk} right, {fallbackBad} wrong)");
+
+        // talents' and uniques' summons are the hero's (Squirrel Special Forces' camo squirrel, Tippy Toe's Itty Bitty Bow's
+        // Tippy Toe), for every costume; artifacts have a group row of their own whose summons the panel lists
+        summonsFor = ("SquirrelGirl", "marvelplayer_squirrelgirl_modernvu"); FillSourceSummons();
+        var sg = Shown();
+        Check(sg.Any(f => f.Contains("PetSquirrelCammo", StringComparison.OrdinalIgnoreCase)) && sg.Any(f => f.Contains("Unique206", StringComparison.OrdinalIgnoreCase)),
+            $"Squirrel Girl's panel has the Special Forces talent's squirrel and Tippy Toe's Itty Bitty Bow's ({sg.Count} in all)");
+        sourceKindTab = 0; characterFilter.Text = ""; FillCharacters();
+        int art = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Header && r.Key.Equals("group:game Artifacts", StringComparison.OrdinalIgnoreCase));
+        if (art >= 0) { characters.SelectedIndex = art; await Task.Delay(200); }
+        var arts = Shown();
+        Check(art >= 0 && arts.Count > 5 && arts.Any(f => f.Contains("Art051", StringComparison.OrdinalIgnoreCase)), $"Heroes has an Artifacts row; picked, the panel lists the artifacts' summons ({arts.Count}, e.g. Latverian Regalia's Doombot)");
+
+        // a click in the panel picks the summon as the source
+        summonsFor = ("Cable", "marvelplayer_cable_original"); FillSourceSummons();
+        int pick = sourceSummons.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.StartsWith(GameSrc));
+        if (pick >= 0) { sourceSummons.SelectedIndex = pick; await Task.Delay(300); }
+        string? want = pick >= 0 ? ((CharacterList.Item)sourceSummons.Items[pick]).Key : null;
+        Check(want != null && want.Equals(chosenKey, StringComparison.OrdinalIgnoreCase), $"a click in the panel makes the summon the source ({chosenKey ?? "none"})");
+
+        // the panel only shows for From the Game → Heroes
+        sourceKindTab = 1; FillCharacters(); bool teamUps = sourceSummonsPanel.Visible;
+        sourceKindTab = 2; FillCharacters(); bool npcs = sourceSummonsPanel.Visible;
+        sourceKindTab = 0; FillCharacters(); bool heroes = sourceSummonsPanel.Visible;
+        Check(heroes && !teamUps && !npcs, $"the panel shows only on the Heroes tab (Heroes {heroes}, Team-Ups {teamUps}, NPCs {npcs})");
+        sourceKind.SelectedIndex = 0; await Task.Delay(300);
+        bool mff = sourceSummonsPanel.Visible;
+        sourceKind.SelectedIndex = 2; await Task.Delay(300);
+        Check(!mff, "and not for MFF models");
+        summonsFor = null; FillSourceSummons();
+        return all_ok;
+    }
+
+    /// <summary>
+    /// Test (--model-summon-test with summons hidden: WhatsNew.Summons off): nothing about summons shows anywhere on the tab.
+    /// </summary>
+    internal async Task<int> TestSummonsHidden(Action<string> say)
+    {
+        int fails = 0;
+        void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+        for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
+        for (int i = 0; i < 300 && pendingState != null; i++) await Task.Delay(100);
+        Check(Summons.Count == 0 && CharacterCopies.Count == 0, "summons are hidden: none loaded");
+        if (!GameMode) sourceKind.SelectedIndex = 2;
+        await Task.Delay(300);
+        sourceKindTab = 0; FillCharacters();
+        foreach (var gk in characters.Items.OfType<CharacterList.Item>().Where(r => r.Header).Select(r => r.Key["group:".Length..]).ToList()) expanded.Add(gk);
+        FillCharacters();
+        var src = characters.Items.OfType<CharacterList.Item>().ToList();
+        Check(!sourceSummonsPanel.Visible, "the Source's summons panel is hidden on the Heroes tab");
+        Check(!src.Any(r => r.Label && r.Title.Contains("SUMMON", StringComparison.OrdinalIgnoreCase)) && !src.Any(r => r.Header && r.Detail.Contains("summon", StringComparison.OrdinalIgnoreCase)),
+            "the Source list has no summons heading and no summon counts on hero rows");
+        gameList = true; targetKindTab = 0; FillPackages();
+        expandedHeroes.UnionWith(packages.Items.OfType<CharacterList.Item>().Where(r => r.Header).Select(r => r.Key["hero:".Length..])); FillPackages();
+        var tgt = packages.Items.OfType<CharacterList.Item>().ToList();
+        Check(!summonsTarget.Visible, "the Target has no Summons button");
+        Check(!tgt.Any(r => r.Label && r.Title.Contains("SUMMON", StringComparison.OrdinalIgnoreCase)) && !tgt.Any(r => r.Header && r.Detail.Contains("summon", StringComparison.OrdinalIgnoreCase)),
+            "the Target list has no summons heading and no summon counts on hero rows");
+        var powerModels = tgt.Concat(src).Where(r => !r.Header && !r.Label).Select(r => Path.GetFileName(r.Key.StartsWith(GameSrc) ? r.Key[GameSrc.Length..] : r.Key))
+            .Where(f => f.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase) || f.StartsWith("UC__MarvelProjectile", StringComparison.OrdinalIgnoreCase)).ToList();
+        Check(powerModels.Count == 0, $"no power or projectile packages in either list ({powerModels.Count})");
+        Check(!log.Text.Contains("summon", StringComparison.OrdinalIgnoreCase), "the log doesn't mention summons");
+        return fails;
     }
 
     /// <summary>
@@ -128,6 +224,7 @@ sealed partial class ModelPage
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
         for (int i = 0; i < 300 && pendingState != null; i++) await Task.Delay(100);
+        if (Summons.Count == 0) { say("summons are hidden (WhatsNew.Summons off): checking that nothing about them shows"); return await TestSummonsHidden(say); }
         if (!await TestSummonsPanel(say)) fails++;
         // the Heroes / Team-Ups / NPCs tabs over both game lists
         gameList = true; FillPackages();

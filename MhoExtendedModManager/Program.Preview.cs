@@ -468,6 +468,18 @@ static partial class Program
                 foreach (string l in pdb.Dump(pdb.Prototype(pe.Id).Data, 200)) Console.WriteLine(l);
                 return 0;
             }
+            case "--proto-find":
+            {
+                // Read-only: the prototype paths whose path contains every given part. --proto-find <part> [part ...]
+                if (rest.Count < 2) { Console.WriteLine("--proto-find <path part> [part ...]"); return 1; }
+                string? fgr2 = settings.ResolvedGameRoot(data);
+                if (fgr2 == null || !Settings.IsGameRoot(fgr2)) { Console.WriteLine("game folder not found"); return 1; }
+                var fdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(fgr2, "Data", "Game", "Calligraphy.sip")));
+                var parts = rest.Skip(1).ToList();
+                foreach (var e in fdb.PrototypeDirectory.Entries.Where(e => parts.All(p => e.Path.Contains(p, StringComparison.OrdinalIgnoreCase))).OrderBy(e => e.Path).Take(200))
+                    Console.WriteLine(e.Path);
+                return 0;
+            }
             case "--fx-component":
             {
                 // --fx-component <package> <component path part> (read only): a power / projectile effect component's properties
@@ -1397,55 +1409,97 @@ static partial class Program
                 var table = Environment.GetEnvironmentVariable("MHO_CENSUS_OUT") is string cto ? new SortedSet<string>(StringComparer.OrdinalIgnoreCase) : null;
                 Dictionary<string, List<string>>? skelIndex = null;
                 Fx.PowerEffects.AllCostumeSummons = table != null;
+                // one power: its summons (and with MHO_CENSUS_OUT, the table's rows) under <hero>; items (uniques, artifacts)
+                // pass their own name and icon, and summon for every costume
+                void Record(string hero, Fx.PowerList.Power pw, string? fxHero, bool item)
+                {
+                    Fx.PowerEffects fx;
+                    try { fx = Fx.PowerEffects.For(new Fx.FxGame(ccook, []), cdb, pw.Prototype, fxHero); } catch (Exception ex) { Console.WriteLine($"{hero} · {pw.Name}: {ex.Message}"); return; }
+                    // (with MHO_CENSUS_OUT, the animated actors too: models a power plays with no summon, Cyclops' Strike Force)
+                    Dictionary<string, HashSet<string>>? choices = null;
+                    var sums = fx.Actors.Where(x => x.Kind == "summon" || table != null && x.SetFile != null).GroupBy(x => $"{x.MeshFile}|{x.MeshExport}").Select(g => g.First()).ToList();
+                    var missing = fx.Notes.Where(n => n.Contains("summoned character")).ToList();
+                    if (sums.Count == 0 && missing.Count == 0) return;
+                    found++;
+                    Console.WriteLine($"{hero} · {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}):");
+                    foreach (var sm in sums)
+                    {
+                        var mref = new MeshRef(Path.GetFileName(sm.MeshFile), sm.MeshFile, sm.Name, sm.MeshExport);
+                        var lm = ModMeshes.Load(mref, ccook, out _);
+                        static bool Real(AnimRef a) => !a.Name.StartsWith("temp", StringComparison.OrdinalIgnoreCase) && !a.Name.Contains("placeholder", StringComparison.OrdinalIgnoreCase);
+                        var anims = sm.SetFile != null ? ModAnimations.FromSet(sm.SetFile, sm.SetExport).Where(Real).ToList() : [];
+                        if (anims.Count == 0 && lm != null) anims = ModAnimations.For(mref, lm.Bones, [], ccook).Where(Real).ToList();
+                        if (lm != null && table != null)
+                        {
+                            // the model's path, and every other package with a copy under that
+                            // path (Squirrelpocalypse's squirrel is in its projectile's package and in the power's: the game
+                            // shows the copy it loads first, so the Model tab builds them together)
+                            var mpk = MhoPackageModifier.Package.Open(sm.MeshFile);
+                            string meshPath = mpk.PathOf(mpk.Exports[sm.MeshExport]);
+                            string meshName = mpk.Exports[sm.MeshExport].ObjectName;
+                            // which costumes summon it (a costume's override picks its own: Cable Original's Original
+                            // illusion); empty: every costume's
+                            choices ??= item ? new() : Fx.PowerEffects.CostumeChoices(cdb, pw.Prototype, hero);
+                            string costumes = string.Join(",", new[] { sm.Name, sm.TriggeredBy }.OfType<string>().SelectMany(k => choices.GetValueOrDefault(k) ?? []).Distinct(StringComparer.OrdinalIgnoreCase).Order());
+                            table.Add($"{Path.GetFileName(sm.MeshFile)}\t{hero}\t{sm.Name}\t{pw.Name}\t{sm.Kind}\t{meshName}\t{lm.Bones.Count}\t{pw.Icon}\t{meshPath}\t{costumes}");
+                            // (every package with the model under that path, any kind: Cyclops's Strike Team Beast is
+                            // Beast's Astonishing costume model too; one index of every package's skeletal meshes)
+                            skelIndex ??= SkeletalIndex(ccook);
+                            foreach (string other in skelIndex.GetValueOrDefault(meshPath.ToLowerInvariant(), []).Where(f => !f.Equals(Path.GetFileName(sm.MeshFile), StringComparison.OrdinalIgnoreCase)))
+                                table.Add($"{other}\t{hero}\t{sm.Name}\t{pw.Name}\tcopy\t{meshName}\t{lm.Bones.Count}\t{pw.Icon}\t{meshPath}\t{costumes}");
+                        }
+                        Console.WriteLine($"    {(sm.Kind != "summon" ? "(" + sm.Kind + " actor) " : "")}{sm.Name}: model {(lm != null ? $"{lm.Positions.Length} vertices" : "NOT LOADED")}, {anims.Count} animations{(anims.Count > 0 ? " (" + string.Join(" ", anims.Take(4).Select(x => x.Name)) + ")" : "")}{(sm.Materials is { Count: > 0 } m ? $", {m.Count} own material(s)" : "")}{(sm.TriggeredBy != null ? " · by " + sm.TriggeredBy : "")}");
+                        if (Environment.GetEnvironmentVariable("MHO_CENSUS_DETAIL") == "1")
+                        {
+                            Console.WriteLine($"      mesh {Path.GetFileName(sm.MeshFile)}#{sm.MeshExport}, {lm?.Looks.Length ?? 0} section look(s)");
+                            foreach (var mt in sm.Materials ?? []) Console.WriteLine($"      material {(mt is { } x ? Path.GetFileName(x.File) + "#" + x.Export + " " + MhoPackageModifier.Package.Open(x.File) switch { var pk => new Fx.FxTables(pk).PathOf(x.Export + 1) } : "none")}");
+                        }
+                    }
+                    foreach (var n in missing) Console.WriteLine("    " + n);
+                }
                 foreach (string hero in heroes)
                 {
                     List<Fx.PowerList.Power> powers;
                     try { powers = Fx.PowerList.For(cdb, hero, ccook, [], effectOnly: true); } catch (Exception ex) { Console.WriteLine($"{hero}: {ex.Message}"); continue; }
-                    foreach (var pw in powers)
+                    foreach (var pw in powers) Record(hero, pw, hero, false);
+                }
+                // items that summon (Kurt, 2026-10-26: Tippy Toe's Itty Bitty Bow): a hero's uniques under that hero (their item is
+                // under Entity\Items\...\UniquePrototypes\Avatars\<Hero>), artifacts under "Artifacts"; named after the item
+                if (rest.Count <= 1 || rest.Any(r => r.Equals("Artifacts", StringComparison.OrdinalIgnoreCase)) || heroes.Count > 0)
+                {
+                    var english = Fx.PowerList.English(cgr);
+                    string? Text(ulong id, string name) => Fx.PowerList.Field(cdb, id, name, 'S', true) is { Found: true } f && english.TryGetValue(f.Raw, out var t) && t.Length > 0 ? t : null;
+                    string? Icon(ulong id) => Fx.PowerList.Field(cdb, id, "IconPath", 'A', true) is { Found: true } ip && cdb.Assets.TryGetValue(ip.Raw, out var a) ? a.Asset.Name : null;
+                    var items = cdb.PrototypeDirectory.Entries.Where(e => e.Path.StartsWith(@"Entity\Items\", StringComparison.OrdinalIgnoreCase)).ToList();
+                    // Unique206 → (hero, item); Art054 → item
+                    var uniques = new Dictionary<string, (string Hero, Fx.Calligraphy.DirEntry Item)>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var e in items)
                     {
-                        Fx.PowerEffects fx;
-                        try { fx = Fx.PowerEffects.For(new Fx.FxGame(ccook, []), cdb, pw.Prototype, hero); } catch (Exception ex) { Console.WriteLine($"{hero} · {pw.Name}: {ex.Message}"); continue; }
-                        // (with MHO_CENSUS_OUT, the animated actors too: models a power plays with no summon, Cyclops' Strike Force)
-                        Dictionary<string, HashSet<string>>? choices = null;
-                        var sums = fx.Actors.Where(x => x.Kind == "summon" || table != null && x.SetFile != null).GroupBy(x => $"{x.MeshFile}|{x.MeshExport}").Select(g => g.First()).ToList();
-                        var missing = fx.Notes.Where(n => n.Contains("summoned character")).ToList();
-                        if (sums.Count == 0 && missing.Count == 0) continue;
-                        found++;
-                        Console.WriteLine($"{hero} · {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}):");
-                        foreach (var sm in sums)
+                        var m = System.Text.RegularExpressions.Regex.Match(e.Path, @"UniquePrototypes\\Avatars\\([^\\]+)\\(Unique\d+)\.prototype$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (!m.Success) continue;
+                        string h = heroes.FirstOrDefault(x => x.Equals(m.Groups[1].Value, StringComparison.OrdinalIgnoreCase)) ?? m.Groups[1].Value;
+                        uniques.TryAdd(m.Groups[2].Value, (h, e));
+                    }
+                    var artifacts = new Dictionary<string, Fx.Calligraphy.DirEntry>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var e in items.Where(e => e.Path.StartsWith(@"Entity\Items\Artifacts\", StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.Path.Length))
+                        if (System.Text.RegularExpressions.Regex.Match(Path.GetFileNameWithoutExtension(e.Path), @"^(Art\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } am && Text(e.Id, "DisplayName") != null)
+                            artifacts.TryAdd(am.Groups[1].Value, e);
+                    bool wantAll = rest.Count <= 1;
+                    foreach (var e in cdb.PrototypeDirectory.Entries.Where(e => e.Path.StartsWith(@"Powers\ItemPowers\UniquesPowers\", StringComparison.OrdinalIgnoreCase) || e.Path.StartsWith(@"Powers\ItemPowers\ArtifactPowers\", StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.Path))
+                    {
+                        string stem = Path.GetFileNameWithoutExtension(e.Path);
+                        bool unique = e.Path.Contains("UniquesPowers", StringComparison.OrdinalIgnoreCase);
+                        var key = System.Text.RegularExpressions.Regex.Match(stem, unique ? @"^(Unique\d+)" : @"^(Art\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        string owner; Fx.Calligraphy.DirEntry? item = null;
+                        if (unique)
                         {
-                            var mref = new MeshRef(Path.GetFileName(sm.MeshFile), sm.MeshFile, sm.Name, sm.MeshExport);
-                            var lm = ModMeshes.Load(mref, ccook, out _);
-                            static bool Real(AnimRef a) => !a.Name.StartsWith("temp", StringComparison.OrdinalIgnoreCase) && !a.Name.Contains("placeholder", StringComparison.OrdinalIgnoreCase);
-                            var anims = sm.SetFile != null ? ModAnimations.FromSet(sm.SetFile, sm.SetExport).Where(Real).ToList() : [];
-                            if (anims.Count == 0 && lm != null) anims = ModAnimations.For(mref, lm.Bones, [], ccook).Where(Real).ToList();
-                            if (lm != null && table != null)
-                            {
-                                // the model's path, and every other package with a copy under that
-                                // path (Squirrelpocalypse's squirrel is in its projectile's package and in the power's: the game
-                                // shows the copy it loads first, so the Model tab builds them together)
-                                var mpk = MhoPackageModifier.Package.Open(sm.MeshFile);
-                                string meshPath = mpk.PathOf(mpk.Exports[sm.MeshExport]);
-                                string meshName = mpk.Exports[sm.MeshExport].ObjectName;
-                                // which costumes summon it (a costume's override picks its own: Cable Original's Original
-                                // illusion); empty: every costume's
-                                choices ??= Fx.PowerEffects.CostumeChoices(cdb, pw.Prototype, hero);
-                                string costumes = string.Join(",", new[] { sm.Name, sm.TriggeredBy }.OfType<string>().SelectMany(k => choices.GetValueOrDefault(k) ?? []).Distinct(StringComparer.OrdinalIgnoreCase).Order());
-                                table.Add($"{Path.GetFileName(sm.MeshFile)}\t{hero}\t{sm.Name}\t{pw.Name}\t{sm.Kind}\t{meshName}\t{lm.Bones.Count}\t{pw.Icon}\t{meshPath}\t{costumes}");
-                                // (every package with the model under that path, any kind: Cyclops's Strike Team Beast is
-                                // Beast's Astonishing costume model too; one index of every package's skeletal meshes)
-                                skelIndex ??= SkeletalIndex(ccook);
-                                foreach (string other in skelIndex.GetValueOrDefault(meshPath.ToLowerInvariant(), []).Where(f => !f.Equals(Path.GetFileName(sm.MeshFile), StringComparison.OrdinalIgnoreCase)))
-                                    table.Add($"{other}\t{hero}\t{sm.Name}\t{pw.Name}\tcopy\t{meshName}\t{lm.Bones.Count}\t{pw.Icon}\t{meshPath}\t{costumes}");
-                            }
-                            Console.WriteLine($"    {(sm.Kind != "summon" ? "(" + sm.Kind + " actor) " : "")}{sm.Name}: model {(lm != null ? $"{lm.Positions.Length} vertices" : "NOT LOADED")}, {anims.Count} animations{(anims.Count > 0 ? " (" + string.Join(" ", anims.Take(4).Select(x => x.Name)) + ")" : "")}{(sm.Materials is { Count: > 0 } m ? $", {m.Count} own material(s)" : "")}{(sm.TriggeredBy != null ? " · by " + sm.TriggeredBy : "")}");
-                            if (Environment.GetEnvironmentVariable("MHO_CENSUS_DETAIL") == "1")
-                            {
-                                Console.WriteLine($"      mesh {Path.GetFileName(sm.MeshFile)}#{sm.MeshExport}, {lm?.Looks.Length ?? 0} section look(s)");
-                                foreach (var mt in sm.Materials ?? []) Console.WriteLine($"      material {(mt is { } x ? Path.GetFileName(x.File) + "#" + x.Export + " " + MhoPackageModifier.Package.Open(x.File) switch { var pk => new Fx.FxTables(pk).PathOf(x.Export + 1) } : "none")}");
-                            }
+                            if (!key.Success || !uniques.TryGetValue(key.Groups[1].Value, out var u)) continue;
+                            (owner, item) = (u.Hero, u.Item);
                         }
-                        foreach (var n in missing) Console.WriteLine("    " + n);
+                        else { owner = "Artifacts"; if (key.Success) artifacts.TryGetValue(key.Groups[1].Value, out item); }
+                        if (!wantAll && !rest.Skip(1).Any(r => r.Equals(owner, StringComparison.OrdinalIgnoreCase))) continue;
+                        string name = (item != null ? Text(item.Id, "DisplayName") : null) ?? Text(e.Id, "DisplayName") ?? stem;
+                        Record(owner, new Fx.PowerList.Power(e.Path, name, (item != null ? Icon(item.Id) : null) ?? Icon(e.Id), []), unique ? owner : null, true);
                     }
                 }
                 if (table != null) File.WriteAllLines(Environment.GetEnvironmentVariable("MHO_CENSUS_OUT")!, table.Prepend("# Summoned characters' packages (--summon-census with MHO_CENSUS_OUT, on the stock packages): file, hero, summon or actor, power, kind (summon, power, entity), mesh, bones, power icon, mesh path, costumes (the costume classes whose override summons it, * = the costumes without one; empty = every costume); kind copy = the same model under the same path in another package"));

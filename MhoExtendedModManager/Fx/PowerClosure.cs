@@ -114,6 +114,10 @@ static class PowerClosure
         if (start != null)
         {
             var seen = new HashSet<ulong> { start.Id };
+            // a talent reaches its own sub-powers, which live beside it under Talents\ and share its name's start (Squirrel
+            // Girl's SpecialForcesSquirrels → SpecialForcesSummonCombo, which summons the camo squirrels; Kurt, 2026-10-26),
+            // not other talents a check names (SquirrelAttackBonus)
+            string? talent = start.Path.Contains(@"\Talents\", StringComparison.OrdinalIgnoreCase) ? Path.GetFileNameWithoutExtension(start.Path) : null;
             bool rootSelf = TargetsSelf(db, start.Id);
             var queue = new Queue<(ulong Id, int Depth, bool Via, bool AtCaster)>();
             queue.Enqueue((start.Id, 0, false, false));
@@ -141,7 +145,7 @@ static class PowerClosure
                 // power stays at the target)
                 bool self = rootSelf && !via && e.Path.StartsWith(@"Powers\", StringComparison.OrdinalIgnoreCase) && TargetsSelf(db, id);
                 foreach (ulong r in Refs(db, d))
-                    if (r != 0 && seen.Add(r) && db.Prototypes.TryGetValue(r, out var re) && Follow(re.Path))
+                    if (r != 0 && seen.Add(r) && db.Prototypes.TryGetValue(r, out var re) && (Follow(re.Path) || SameTalent(re.Path, talent)))
                     {
                         bool entity = re.Path.StartsWith(@"Entity\", StringComparison.OrdinalIgnoreCase) || EntityLike(re.Path);
                         queue.Enqueue((r, depth + 1, via || entity, via ? atCaster : entity && self));
@@ -155,6 +159,17 @@ static class PowerClosure
     /// <summary>A prototype that makes something out in the world, by its name (Hawkeye's HawkeyeShriekingArrowEntity lives under
     /// Powers\ and sets off the arrow's explosion): an entity, hotspot, missile, projectile or summon.</summary>
     static bool EntityLike(string path) => System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(path), "(Entity|Hotspot|Missile|Projectile|Summon)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>A sub-power of the talent <paramref name="talent"/>: under Talents\ too, its name starting with the same word
+    /// run (at least 8 letters in common: SpecialForcesSquirrels / SpecialForcesSummonCombo share "SpecialForcesS").</summary>
+    static bool SameTalent(string path, string? talent)
+    {
+        if (talent == null || !path.StartsWith(@"Powers\", StringComparison.OrdinalIgnoreCase) || !path.Contains(@"\Talents\", StringComparison.OrdinalIgnoreCase)) return false;
+        string n = Path.GetFileNameWithoutExtension(path);
+        int k = 0;
+        while (k < n.Length && k < talent.Length && char.ToLowerInvariant(n[k]) == char.ToLowerInvariant(talent[k])) k++;
+        return k >= 8;
+    }
 
     static bool Follow(string path) =>
         (path.StartsWith(@"Powers\", StringComparison.OrdinalIgnoreCase) || path.StartsWith(@"Entity\", StringComparison.OrdinalIgnoreCase))
