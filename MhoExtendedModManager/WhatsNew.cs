@@ -41,10 +41,29 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
     /// <summary>0.60.143 (Kurt, 2026-10-25): weight painting, keyboard shortcuts, fit fixes, Nexus sign-in.</summary>
+    /// <summary>0.60.164 (Kurt, 2026-10-26): Snapshots, bundles and discarded copies; Effect Models; Model tab lists.</summary>
+    static Notice SnapshotsAndEffects() => new(
+        "0.60.164-snapshots-effects", "0.60.164",
+        "[!]Settings → Snapshots: what changed, and a way back." + nl +
+        "  • A snapshot is taken at every start, before every Apply, and when you click the camera: which mods are on, their order, versions, Make Unique, Crash Risk fixes, OVERLAP and CRASH RISK warnings, and the game files Apply wrote." + nl +
+        "  • Compare with Now lists everything that changed since: the first place to look when the game crashes now and didn't before." + nl +
+        "  • Restore puts it all back, mods' files too: removed mods return; edits, updates, Make Unique and Fix Mirror Tables are undone." + nl +
+        "  • Bundles: every mod (or the turned-on ones) and its state in one .zip, to keep a set that works or move it to another PC." + nl +
+        "  • Replaced and removed mods now go to a discarded folder (kept 30 days) instead of the Recycle Bin, so Restore can bring them back." + nl + nl +
+        "[!]Model tab → Effects: the models powers throw around (Squirrel Girl's squirrels, acorns, Hulk's asteroid …). Edit in Blender or Import FBX, then Build into Mod puts it in every package that carries it." + nl + nl +
+        "Model tab:" + nl +
+        "  • From the Game has Heroes, Team-Ups and NPCs tabs; the Target has a dropdown like the Source's." + nl +
+        "  • Right-click a source: the Target jumps to the same character." + nl +
+        "  • Edit in Blender beside Build: the same scene opens again; Build When Blender Saves builds on each Ctrl+S." + nl +
+        "  • Lean works on FBX and game models too." + nl + nl +
+        "Also: Make Unique and the crash checks now cover powers' projectiles, hotspots and conditions." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-snapshots");
+
     static Notice PaintAndShortcuts() => new(
         "0.60.143-paint-shortcuts", "0.60.143",
         "[!]Model tab → Bone Map → Paint: weight painting, as Blender's." + nl +

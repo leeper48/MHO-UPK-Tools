@@ -255,6 +255,14 @@ sealed partial class ModelPage : UserControl
         // the manual's screenshots (MHO_EXTMM_SNAP_MODELTAB = Parts / Bone Map / Materials): that sub-tab first
         if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_MODELTAB") is { Length: > 0 } snapTab)
             for (int k = 0; k < modelTabs.Count; k++) if (modelTabs.TitleAt(k).Equals(snapTab, StringComparison.OrdinalIgnoreCase)) modelTabs.Select(k);
+        // (MHO_EXTMM_SNAP_EFFECTS = a filter, e.g. "squirrel": the Effects view with its first match picked)
+        if (Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_EFFECTS") is { Length: > 0 } snapEffects)
+            HandleCreated += (_, _) => BeginInvoke(() =>
+            {
+                ShowView(true);
+                effectFilter.Text = snapEffects;
+                for (int k = 0; k < effectList.Items.Count; k++) if (effectList.Items[k] is CharacterList.Item { Header: false }) { effectList.SelectedIndex = k; break; }
+            });
         right.Controls.Add(modelTabs, 0, 2);
         var materialColumn = Column("MATERIAL", null, material, autoHeight: true);
         right.Controls.Add(materialColumn, 0, 3);
@@ -582,7 +590,7 @@ sealed partial class ModelPage : UserControl
         LoadDefaultCostumes();
         int others = allPackages.Count(p => OtherTargets.Contains(p.File) && !Summons.ContainsKey(p.File)), summons = allPackages.Count(p => Summons.ContainsKey(p.File));
         // (Kurt, 2026-10-06: a user found the old wording unclear)
-        Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others - summons:N0} hero and team-up packages, {others:N0} NPCs, enemies and bosses, and {summons:N0} summons and power models (under their hero).");
+        Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others - summons:N0} hero and team-up packages, {others:N0} NPCs, enemies and bosses{(summons > 0 ? $", and {summons:N0} summons and power models (under their hero)" : "")}.");
         if (!stateLoaded) { stateLoaded = true; LoadState(); }
     }
 

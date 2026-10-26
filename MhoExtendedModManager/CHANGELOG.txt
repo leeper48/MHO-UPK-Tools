@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.164
+- What's New notice for the changes since 0.60.144 (Snapshots and bundles, Effect Models, the Model tab's lists); the manual has pictures of the Snapshots window and the Effects view.
+- Model tab: the log no longer counts summons while they're hidden.
+
 0.60.163
 - Discarded copies instead of the Recycle Bin: when a mod's folder is replaced (an edit, Make Unique, Fix Mirror Tables, an update, a bundle) or removed, the old folder is kept in data\library\discarded (moved: instant). Kept 30 days by default (Settings → Snapshots: 7, 30, 90 days or until cleaned up), deleted at a start after that; copies a saved snapshot still needs are only deleted after a warning (Keep Them / Delete Them). Clean Up Discarded deletes them by hand, keeping the ones snapshots need if you like.
 - Restoring a snapshot now puts the mods' files back too: removed mods come back, edits, updates, Make Unique and Fix Mirror Tables are undone, Keep Shared Paths goes back. Without a kept copy, Make Unique is undone from the mod's own copy, or only Keep Shared Paths is set back. The preview lists every mod whose files change.
