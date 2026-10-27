@@ -135,8 +135,16 @@ sealed class MhoSkeleton
     /// <summary>Every package back to the automatic pick (a mod's own picks are loaded with its Model settings).</summary>
     public static void ClearChoices() => chosen.Clear();
 
-    /// <summary>The character chosen for this package (by file name), or null for the automatic pick.</summary>
-    public static string? ChosenFor(string package) => chosen.TryGetValue(Path.GetFileName(package), out var m) ? m : null;
+    /// <summary>The character chosen for this package (by file name), or null for the automatic pick. The editor's work copy
+    /// of a package (&lt;6 hex&gt;_&lt;package&gt;: an added prop or a prop's bone put in) counts as that package (Kurt, 2026-10-27: a
+    /// build of the hammer from such a copy went onto Thor's body, and the hammer target's preview showed nothing).</summary>
+    public static string? ChosenFor(string package)
+    {
+        string f = Path.GetFileName(package);
+        if (chosen.TryGetValue(f, out var m)) return m;
+        var w = System.Text.RegularExpressions.Regex.Match(f, "^[0-9a-f]{6}_(.+)$");
+        return w.Success && chosen.TryGetValue(w.Groups[1].Value, out m) ? m : null;
+    }
 
     /// <summary><paramref name="body"/>: the character's own body, whatever the Model tab picked in the package (a prop
     /// target's holder in the preview).</summary>

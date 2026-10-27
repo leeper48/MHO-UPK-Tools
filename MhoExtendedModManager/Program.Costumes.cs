@@ -840,7 +840,7 @@ static partial class Program
                         int bi = Array.FindIndex(spk.Exports, e => e.ObjectName.Equals(donorBank, StringComparison.OrdinalIgnoreCase) && spk.ClassOf(e).Equals("AkBank", StringComparison.OrdinalIgnoreCase));
                         var dst = MhoPackageModifier.Package.Open(cur);
                         var bc = CrossMove.Quiet(() => MhoPackageModifier.ExportCopy.Copy(spk, bi, dst, []), out string bsaid) ?? throw new InvalidDataException("AkBank copy: " + bsaid);
-                        cur = Path.Combine(work, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+                        cur = Path.Combine(Directory.CreateDirectory(Path.Combine(work, Guid.NewGuid().ToString("N")[..6])).FullName, file);
                         File.WriteAllBytes(cur, bc.Output);
                         bankRef = bc.RootRef;
                         Console.WriteLine($"AkBank {spk.PathOf(spk.Exports[bi])} copied in (#{bankRef})");
@@ -866,7 +866,7 @@ static partial class Program
                                 System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(ed.AsSpan(rb.ValueAt), bankRef);
                                 outBytes = MhoPackageModifier.PackageRebuilder.Rebuild(np, new Dictionary<int, Func<long, byte[]>> { [cp.RootRef - 1] = _ => ed }, [], out _);
                             }
-                            cur = Path.Combine(work, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+                            cur = Path.Combine(Directory.CreateDirectory(Path.Combine(work, Guid.NewGuid().ToString("N")[..6])).FullName, file);
                             File.WriteAllBytes(cur, outBytes);
                         }
                         changes.Add((l.Offset, group + "." + nleaf));

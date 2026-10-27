@@ -427,7 +427,11 @@ sealed partial class ModEditorView
     {
         animWork ??= Path.Combine(lib.DataFolder, "anim-work-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(animWork);
-        string path = Path.Combine(animWork, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+        // (in a folder of its own, under the package's own name: the Model tab finds its chosen model, and a build its costume
+        // class, by file name; Kurt, 2026-10-27: a prefixed name lost the size and built a prop onto the body)
+        string dir = Path.Combine(animWork, Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, file);
         File.WriteAllBytes(path, bytes);
         int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
         if (k >= 0) draft.Packages[k] = (file, path);

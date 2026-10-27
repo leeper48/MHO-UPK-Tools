@@ -95,6 +95,18 @@ sealed partial class ModelPage
                     }
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException) { Log("Mirror table: " + ex.Message); }
+                // started from the mod's copy (another model built there stays): the earlier builds' textures nothing uses any
+                // more made tiny (Kurt, 2026-10-27: 6.5 → 30 MB over a few builds)
+                if (keepOther != null)
+                    try
+                    {
+                        string built0 = result.Package;
+                        var said = new List<string>();
+                        byte[]? clean = await Task.Run(() => BuildLeftovers.Shrink(File.ReadAllBytes(built0), said.Add));
+                        if (clean != null) File.WriteAllBytes(built0, clean);
+                        foreach (string line in said) Log(line);
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { Log("cleanup: " + ex.Message); }
                 await TimeSteps(result.Package, pkg.Key);
                 if (uf != null) KeepRig(uf, pkg.Key);   // the mod keeps the rig of a hero it's built onto
                 host.SetPackage(pkg.Key, result.Package);

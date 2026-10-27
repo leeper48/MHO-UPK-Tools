@@ -264,6 +264,8 @@ sealed partial class ModelPage
         string? builtProp = PropData(ModCopy(file)), stockProp = PropData(StartPackageCore(file));
         bool okBody = await BuildAsync();
         string? afterBody = PropData(ModCopy(file));
+        Check(!log.Text.Contains("_uc__marvelplayer", StringComparison.Ordinal) && Path.GetFileName(ModCopy(file) ?? "").Equals(file, StringComparison.OrdinalIgnoreCase),
+            $"after a prop's bone went in, the build reads the package under its own name ({Path.GetFileName(ModCopy(file) ?? "")}; {string.Join(" | ", log.Lines.Where(l => l.StartsWith("size:")))})");
         Check(okBody && builtProp != null && builtProp != stockProp && afterBody == builtProp, $"the body built after it: {mesh} as built stays ({(afterBody == builtProp ? "the build" : afterBody == stockProp ? "the game's" : "changed")})");
         if (heldCls != null)
         {
@@ -278,6 +280,42 @@ sealed partial class ModelPage
             meshPick.SelectedIndex = 0;
             for (int i = 0; i < 900 && !(own.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource && !refreshing); i++) await Task.Delay(100);
         }
+        // the prop built again after the body (the build starts from the mod's copy, whose prop is the earlier build): the same
+        // source comes out the same size, laid over the game's prop (Kurt, 2026-10-27: Cap's shield 3× too big)
+        float Extent(string? path)
+        {
+            // (read from the file itself: no cache)
+            if (path == null || !File.Exists(path)) return 0;
+            var pk = AnimExportCli.Packages.Package.Open(path);
+            int i = pk.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).FirstOrDefault(k => pk.GetExportName(k).Equals(mesh, StringComparison.OrdinalIgnoreCase), -1);
+            var pos = i < 0 ? null : AnimExportCli.Meshes.SkeletalMeshReader.TryRead(pk, i, _ => { })?.HighestDetail?.Positions;
+            return pos is not { Count: > 0 } ? 0 : (pos.Aggregate(System.Numerics.Vector3.Max) - pos.Aggregate(System.Numerics.Vector3.Min)).Length();
+        }
+        float firstSize = Extent(ModCopy(file));
+        long bytesBefore = ModCopy(file) is string mb && File.Exists(mb) ? new FileInfo(mb).Length : 0;
+        meshPick.SelectedIndex = propAt;
+        for (int i = 0; i < 900 && !(HasSource && !refreshing && TargetIsProp()); i++) await Task.Delay(100);
+        if (!(GameSrc + otherSource).Equals(chosenKey, StringComparison.OrdinalIgnoreCase))
+        {
+            GameChosen(GameSrc + otherSource);
+            for (int i = 0; i < 600 && !(HasSource && (GameSrc + otherSource).Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && !refreshing); i++) await Task.Delay(100);
+        }
+        await Task.Delay(500);
+        SetPropFit(new PropAdjust(Scale: 1.5f), save: true);
+        bool big = await BuildAsync();
+        float bigSize = Extent(ModCopy(file));
+        SetPropFit(new PropAdjust(), save: true);
+        bool again = await BuildAsync();
+        float secondSize = Extent(ModCopy(file));
+        Check(big && again && firstSize > 0 && MathF.Abs(bigSize / firstSize - 1.5f) < 0.08f && MathF.Abs(secondSize / firstSize - 1) < 0.05f && log.Text.Contains("laid over the game's"),
+            $"{otherSource} built onto {mesh} again after the body, at 150 % then 100 %: {firstSize:0.#} → {bigSize:0.#} → {secondSize:0.#} units (laid over the game's, not the last build)");
+        long bytesAfter = ModCopy(file) is string ma && File.Exists(ma) ? new FileInfo(ma).Length : 0;
+        int tiny = ModCopy(file) is string mt && File.Exists(mt) && MhoPackageModifier.Package.Open(mt) is var pt
+            ? pt.Exports.Count(x => x.ObjectName.StartsWith("mff", StringComparison.OrdinalIgnoreCase) && pt.ClassOf(x).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) && x.SerialSize < 512) : 0;
+        Check(log.Text.Contains("made 4×4") && tiny > 0 && bytesAfter < bytesBefore * 1.15, $"two more builds of it: the earlier builds' textures cleaned up ({bytesBefore / 1048576.0:0.0} → {bytesAfter / 1048576.0:0.0} MB; {string.Join(" | ", log.Lines.Where(l => l.StartsWith("cleanup")))})");
+        say($"  (built {big}/{again}; target {MhoSkeleton.ChosenFor(file)}, source {chosenKey}) the tab's log: " + string.Join(" | ", log.Lines.Where(l => l.StartsWith("prop:") || l.StartsWith("Building") || l.Contains("ERROR")).TakeLast(14)));
+        meshPick.SelectedIndex = 0;
+        for (int i = 0; i < 900 && !(own.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource && !refreshing); i++) await Task.Delay(100);
         // MHO_TEST_ADD_PROP=<from package>|<class>|<name>: a prop added, picked, fitted and removed on this tab (Kurt, 2026-10-27)
         if (Environment.GetEnvironmentVariable("MHO_TEST_ADD_PROP")?.Split('|') is [var from, var cls, var name]) await TestAddedProp(file, from, cls, name, Check);
         return fails;
@@ -355,10 +393,11 @@ sealed partial class ModelPage
             for (int i = 0; i < 300 && (chosenKey == null || refreshing); i++) await Task.Delay(100);
             string? hammerSource = chosenKey;
             // (as a session that had it there saved it: the hammer's own model kept as the axe's source)
-            if (hammerSource != null && addedBases.TryGetValue(file, out var ab)) targetSources[file + "|" + ab.Mesh] = hammerSource;
+            if (hammerSource != null && hammerSource.Equals(GameSrc + file + "|" + meshNames[hammerAt], StringComparison.OrdinalIgnoreCase) && addedBases.TryGetValue(file, out var ab)) targetSources[file + "|" + ab.Mesh] = hammerSource;
             PickAdded(e);
             for (int i = 0; i < 300 && (AddedTarget != e || refreshing); i++) await Task.Delay(100);
-            Check(hammerSource == null || chosenKey == null || !chosenKey.Equals(hammerSource, StringComparison.OrdinalIgnoreCase), $"from {meshNames[hammerAt]} (source {hammerSource ?? "none"}) to it: not that source ({chosenKey ?? "none"})");
+            // (the hammer's own model as its source; another package's model could be the axe's too)
+            Check(hammerSource == null || !hammerSource.Equals(GameSrc + file + "|" + meshNames[hammerAt], StringComparison.OrdinalIgnoreCase) || chosenKey == null || !chosenKey.Equals(hammerSource, StringComparison.OrdinalIgnoreCase), $"from {meshNames[hammerAt]} (source {hammerSource ?? "none"}) to it: not the hammer's own model ({chosenKey ?? "none"})");
         }
         // a new model: another game model as the source, built onto it; kept with the mod and put into the package
         string? Mesh() => host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Path is string dp

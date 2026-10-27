@@ -166,7 +166,7 @@ sealed partial class ModEditorView
             if (IsDisposed) return;
             voiceWork ??= Path.Combine(lib.DataFolder, "voice-work-" + Guid.NewGuid().ToString("N")[..8]);
             Directory.CreateDirectory(voiceWork);
-            string path = Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+            string path = Path.Combine(Directory.CreateDirectory(Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6])).FullName, file);   // (its own name: see UseWorkCopy)
             File.WriteAllBytes(path, bytes);
             voiceBefore.TryAdd(file, from);
             draft.Packages[k] = (file, path);
@@ -378,7 +378,7 @@ sealed partial class ModEditorView
             {
                 voiceWork ??= Path.Combine(lib.DataFolder, "voice-work-" + Guid.NewGuid().ToString("N")[..8]);
                 Directory.CreateDirectory(voiceWork);
-                string path = Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6] + "_" + file);
+                string path = Path.Combine(Directory.CreateDirectory(Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6])).FullName, file);   // (its own name: see UseWorkCopy)
                 File.WriteAllBytes(path, undone);
                 int k = draft.Packages.FindIndex(x => x.File.Equals(file, StringComparison.OrdinalIgnoreCase));
                 draft.Packages[k] = (file, path);

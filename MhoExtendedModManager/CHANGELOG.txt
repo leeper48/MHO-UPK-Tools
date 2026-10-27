@@ -1,6 +1,16 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.194
+- Editor: its working copies of a package keep the package's own file name (in a folder each). After an added prop, a prop's bone, an animation or voice change, a Model tab build read a renamed copy: the costume's Size in Game was left as the game's ("no …initialskeletalmesh in 037aa2_UC__…") and the built file took the odd name.
+
+0.60.193
+- Model tab: a build that keeps another model built in the package (it starts from the mod's copy) cleans up after the earlier builds: their textures nothing uses any more are made 4×4, so the package stops growing (Thor Age of Ultron's had gone from 6.5 to 30 MB; cleaned, 8.8 MB). Every texture a model uses stays as it is. Build the package once more to clean one that has grown.
+
+0.60.192
+- Model tab: a prop built again after the character's body is laid over the game's prop, as the preview shows it, not over the last build of it (Captain America's shield came out 3× too big and turned, laid over an earlier 176 % hammer).
+- After an added prop or a prop's bone went into a package, a build or the no-source preview of one of its props read the character's body instead (a build of the hammer went onto Thor's body; the hammer's preview showed nothing). The editor's working copy now counts as the package.
+
 0.60.191
 - Model tab: a prop's Held On ▾ and fit show in the preview at once while that prop is the target (the hammer moved to the left hand only after stepping to another model).
 

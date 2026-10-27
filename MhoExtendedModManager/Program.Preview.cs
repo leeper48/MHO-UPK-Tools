@@ -646,6 +646,26 @@ static partial class Program
                 if (lm != null) Console.WriteLine($"  game mesh bounds {lm.Positions.Aggregate(new System.Numerics.Vector3(float.MaxValue), System.Numerics.Vector3.Min):0.0} .. {lm.Positions.Aggregate(new System.Numerics.Vector3(float.MinValue), System.Numerics.Vector3.Max):0.0}");
                 return 0;
             }
+            case "--build-leftovers":
+            {
+                if (rest.Count < 2) { Console.WriteLine("--build-leftovers <package.upk> [out.upk]"); return 1; }
+                var pk = MhoPackageModifier.Package.Open(rest[1]);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var unused = MhoExtendedModManager.Model.BuildLeftovers.Unused(pk, out string why);
+                if (unused == null) { Console.WriteLine("can't tell: " + why); return 1; }
+                if (why.Length > 0) Console.WriteLine("  " + why);
+                Console.WriteLine($"{Path.GetFileName(rest[1])}: {unused.Count} unused build texture(s), {unused.Sum(i => (long)pk.Exports[i].SerialSize) / 1048576.0:0.0} MB of {new FileInfo(rest[1]).Length / 1048576.0:0.0} MB ({sw.ElapsedMilliseconds} ms)");
+                foreach (int i in unused.Take(40)) Console.WriteLine($"  {pk.PathOf(pk.Exports[i])}  {pk.Exports[i].SerialSize:N0} B");
+                if (rest.Count > 2)
+                {
+                    MhoExtendedModManager.Model.Protected.CheckWrite(rest[2]);   // (never the game, stock or MFF folders)
+                    var shrunk = MhoExtendedModManager.Model.BuildLeftovers.Shrink(File.ReadAllBytes(rest[1]), Console.WriteLine);
+                    if (shrunk == null) { Console.WriteLine("nothing written"); return 1; }
+                    File.WriteAllBytes(rest[2], shrunk);
+                    Console.WriteLine("written: " + rest[2]);
+                }
+                return 0;
+            }
             case "--mesh-info":
             {
                 // Read-only: each skeletal mesh in the packages with its vertex and triangle counts and materials.

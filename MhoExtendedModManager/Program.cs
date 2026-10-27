@@ -74,6 +74,7 @@ static partial class Program
         ("--prop-fbx-probe", "--prop-fbx-probe <package file> <mesh>", "A prop exported as Edit in Blender would, read back: its joints and bounds against the game's (the export's axes). Writes only the game-model cache."),
         ("--model-props-test", "--model-props-test <mod> <costume package> <prop mesh> <other source package>", "Scratch libraries only (MHO_EXTMM_HOME): props in the Model tab's Source panel: picked as the source, right-clicked to the target, its own model built back, another game model fitted onto it. The mod isn't saved."),
         ("--model-partner-test", "--model-partner-test <mod> <target package> <source package>", "Scratch libraries only (MHO_EXTMM_HOME): a build onto a power model offers its summon; answered Build onto It Too. The mod isn't saved."),
+        ("--build-leftovers", "--build-leftovers <package.upk> [out.upk]", "The textures earlier Model tab builds left in a package that nothing uses any more; with out.upk, a copy with them made 4×4 (never the game folder)."),
         ("--mesh-info", "--mesh-info <package.upk> ...", "Each skeletal mesh in the packages with its vertex and bone counts and materials. Changes nothing."),
         ("--model-variations-test", "--model-variations-test <mod> <target package>", "Scratch libraries only (MHO_EXTMM_HOME): the Model tab's Variations tab through its own code; the mod isn't saved."),
         ("--proto-find", "--proto-find <path part> [part ...]", "The game data's prototype paths that contain every given part. Changes nothing."),

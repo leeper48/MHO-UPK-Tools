@@ -68,6 +68,17 @@ sealed class ImportBuild
     {
         sk = MhoSkeleton.Load(package, null);
         baseBones = sk.Bones.Count;
+        // a prop in a package holding an earlier build of it (the build starts from the mod's copy, so another model built there
+        // stays): laid over the game's prop (SizeFrom), as the preview does, not over that build (Kurt, 2026-10-27: Captain
+        // America's shield came out 3× too big and turned, laid over his earlier 176 % Blender-edited hammer)
+        var fitTo = sk;
+        if (PropFit.IsProp(sk) && o.SizeFrom is string sf && File.Exists(sf))
+            try
+            {
+                var game = MhoSkeleton.Load(sf, sk.Name);
+                if (game.Bones.Select(b => b.Name).SequenceEqual(sk.Bones.Select(b => b.Name), StringComparer.OrdinalIgnoreCase)) { fitTo = game; log($"prop:    laid over the game's {sk.Name} (this package's is an earlier build)"); }
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException) { }
         if (o.SourceFbx != null)
         {
             sourceName = SourceName(o.SourceFbx);
@@ -75,7 +86,7 @@ sealed class ImportBuild
             var only = o.Parts is { Length: > 0 } ps && ps != "default" && ps != "all" ? ps.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
             // (a prop, Kurt 2026-10-26, the Props view: its own model comes back as it is, any other is laid over it)
             bool isProp = PropFit.IsProp(sk);
-            r = FbxReimport.LoadAny(o.SourceFbx, sk, only, log);
+            r = FbxReimport.LoadAny(o.SourceFbx, fitTo, only, log);
             if (!isProp) FbxLean.Apply(r, o.Lean);
             if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
             // an FBX source's map holds only its weight smoothing (the Bone Map's Smooth Weights)
@@ -90,9 +101,9 @@ sealed class ImportBuild
             hairRig = grafted.FirstOrDefault(x => x.Part == BorrowedRig.Kind.Hair);
             var picked = m.Selected(o.Parts);
             // a prop target (a weapon or shield picked under Model ▾): with no parts named, the part most like it
-            if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, sk) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
+            if (PropFit.IsProp(sk) && o.Parts is null or "default" && PropFit.BestPart(m, fitTo) is { } best) { picked = [best]; log($"prop:    {sk.Name} is a prop: built from the MFF part most like it, {best.Name}"); }
             if (o.Subdivide) picked = Subdivision.Apply(picked);
-            r = Retarget.Run(m, picked, sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize, Lean = o.Lean, JointFit = o.JointFit });
+            r = Retarget.Run(m, picked, PropFit.IsProp(sk) ? fitTo : sk, o.MapFile != null ? BoneMapFile.Load(o.MapFile) : null, RetargetOptions.FromEnvironment() with { KeepSourceSize = o.KeepSourceSize, Lean = o.Lean, JointFit = o.JointFit });
             if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
             if (o.JointFit && r.Notes.FirstOrDefault(n => n.StartsWith("game joint blend")) is { } jn) log("joints:  " + jn["game joint blend: ".Length..]);
             if (o.KeepSourceSize) log($"size:    the source's own size (scale {r.Scale:0.###}, not fitted to {sk.Name}'s height)");
