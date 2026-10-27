@@ -70,10 +70,10 @@ sealed partial class ModelPage
         {
             var tab = new Label { Text = title, AutoSize = true, Padding = new Padding(8, 4, 8, 6), Cursor = Cursors.Hand, Font = Ui.Bold(9.75f), ForeColor = viewTabs.Count == 0 ? Ui.Text : Ui.Subtle, BackColor = Color.Transparent, Margin = new Padding(0) };
             int index = viewTabs.Count;
-            tab.Click += (_, _) => ShowView(index == 1);
+            tab.Click += (_, _) => SetView(index);
             tab.Paint += (_, e) =>
             {
-                bool on = (index == 1) == (effectsView?.Visible == true);
+                bool on = index == CurrentView;
                 if (!on) return;
                 using var b = new SolidBrush(Ui.Accent);
                 float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
@@ -87,6 +87,15 @@ sealed partial class ModelPage
     }
 
     void ToggleEffects() => ShowView(effectsView == null || !effectsView.Visible);
+
+    /// <summary>The view shown: 0 Characters, 1 Effects.</summary>
+    int CurrentView => effectsView?.Visible == true ? 1 : 0;
+
+    void SetView(int view)
+    {
+        ShowView(view == 1);
+        for (int k = 0; k < viewTabs.Count; k++) { viewTabs[k].ForeColor = k == CurrentView ? Ui.Text : Ui.Subtle; viewTabs[k].Invalidate(); }
+    }
 
     void ShowView(bool on)
     {
@@ -105,7 +114,7 @@ sealed partial class ModelPage
         layoutRoot.Controls.Add(on ? effectsView! : layoutBody, 0, 1);
         effectsView!.Visible = on;
         layoutRoot.ResumeLayout();
-        for (int k = 0; k < viewTabs.Count; k++) { viewTabs[k].ForeColor = (k == 1) == on ? Ui.Text : Ui.Subtle; viewTabs[k].Invalidate(); }
+        for (int k = 0; k < viewTabs.Count; k++) { viewTabs[k].ForeColor = k == CurrentView ? Ui.Text : Ui.Subtle; viewTabs[k].Invalidate(); }
     }
 
     Control BuildEffectsView()

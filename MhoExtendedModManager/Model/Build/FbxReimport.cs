@@ -29,6 +29,72 @@ static class FbxReimport
         public Vector3? Joint(string bone) => bind.TryGetValue(bone, out var b) ? b : ByName.TryGetValue(bone, out var n) ? Globals[n].Translation : null;
     }
 
+    /// <summary>An FBX as the source for any target: a prop's (<see cref="LoadProp"/>, laid over it unless it's the prop's own
+    /// model), else a body's (<see cref="Load"/>). The preview, Export FBX and the build all read sources through this.</summary>
+    public static Retargeted LoadAny(string fbx, MhoSkeleton sk, IReadOnlyCollection<string>? meshes, Action<string> log)
+    {
+        if (!PropFit.IsProp(sk)) return Load(fbx, sk, meshes, log);
+        var r = LoadProp(fbx, sk, meshes, log, out bool own);
+        if (!own) { PropFit.FitLoaded(r, sk, Path.GetFileNameWithoutExtension(fbx)); foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    ")); }
+        return r;
+    }
+
+    /// <summary>The mesh edited in Blender put into <paramref name="r"/>, for any target: a prop's read as the prop's model (its
+    /// few bones can't line the file up as a body's do), else <see cref="Apply"/>.</summary>
+    public static void ApplyAny(Retargeted r, string fbx, MhoSkeleton sk, Action<string> log)
+    {
+        if (!PropFit.IsProp(sk)) { Apply(r, fbx, log); return; }
+        var edited = LoadProp(fbx, sk, null, log, out bool own);
+        if (!own) PropFit.FitLoaded(edited, sk, Path.GetFileNameWithoutExtension(fbx));
+        r.Sections.Clear(); r.Sections.AddRange(edited.Sections);
+    }
+
+    /// <summary>
+    /// An FBX as the model of a prop (Kurt, 2026-10-26: the Props view; the bone line-up of <see cref="Load"/> needs 4 MHO bones,
+    /// a prop has 1–6). The file is read with the axes the app's own FBX export writes (game Y ↔ file Z, measured on Thor's
+    /// hammer: g_muzzle at game (0, 23.99, 0) is file (0, 0, 23.99); the mesh bounds swap the same way): the prop's own model,
+    /// exported for Blender and edited there, comes back where it was (<paramref name="own"/>: its bones lie on the game's,
+    /// within a quarter unit). Any other model is read the same way and laid over the game's prop by PropFit.
+    /// </summary>
+    public static Retargeted LoadProp(string fbx, MhoSkeleton sk, IReadOnlyCollection<string>? meshes, Action<string> log, out bool own)
+    {
+        var o = Open(fbx);
+        var notes = new List<string>();
+        var swap = new Matrix4x4(1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1);   // (x, y, z) → (x, z, y)
+        var map = new Mapping(swap, 1, Vector3.Zero);
+        var r = new Retargeted { Source = null, Target = sk, Scale = 1 };
+        int on = 0, named = 0;
+        for (int i = 0; i < sk.Bones.Count; i++)
+        {
+            int parent = sk.Bones[i].ParentIndex == i ? -1 : sk.Bones[i].ParentIndex;
+            r.Bones.Add(new RefBone { Name = sk.Bones[i].Name, Parent = parent, Global = sk.BoneToModel[i], Mapped = o.Joint(sk.Bones[i].Name) != null });
+            if (o.Joint(sk.Bones[i].Name) is Vector3 j) { named++; if ((map.Pos(j) - sk.Pos(i)).Length() < 0.25f) on++; }
+        }
+        own = named > 0 && on == named;
+        notes.Add(own ? $"the prop's own model ({on} of its {sk.Bones.Count} bones where the game has them): kept as it is"
+            : named > 0 ? $"{named} of the prop's bones are in the file, {on} where the game has them: laid over the game's prop by its shape"
+            : "no bones of the prop in the file: laid over the game's prop by its shape");
+        var sections = ReadSections(o, map, r.Bones.Select(b => b.Name).ToList(), meshes,
+            (name, m) => FileTextures(fbx, name, m) ?? new Textures(), notes);
+        r.Sections.AddRange(sections);
+        r.Notes.Add("source: " + fbx);
+        foreach (var n in notes) { log("  " + n); r.Notes.Add(n); }
+        return r;
+    }
+
+    /// <summary>Test (--prop-fbx-probe): the file's joints as read (no lining up), and its mesh's bounds in file space.</summary>
+    internal static (List<(string Bone, Vector3 Joint)> Joints, Vector3 Min, Vector3 Max) Raw(string fbx)
+    {
+        var o = Open(fbx);
+        var names = o.Scene.Meshes.SelectMany(m => m.Bones).Select(x => x.Name).Concat(o.ByName.Keys).Distinct(StringComparer.OrdinalIgnoreCase);
+        var joints = names.Where(n => n.StartsWith("g_", StringComparison.OrdinalIgnoreCase) && o.Joint(n) != null).Select(n => (n, o.Joint(n)!.Value)).ToList();
+        Vector3 mn = new(float.MaxValue), mx = new(float.MinValue);
+        foreach (var (node, g) in o.Globals)
+            foreach (int mi in node.MeshIndices)
+                foreach (var v in o.Scene.Meshes[mi].Vertices) { var w = Vector3.Transform(new Vector3(v.X, v.Y, v.Z), g); mn = Vector3.Min(mn, w); mx = Vector3.Max(mx, w); }
+        return (joints, mn, mx);
+    }
+
     static Opened Open(string fbx)
     {
         if (!File.Exists(fbx)) throw new FileNotFoundException("no such FBX", fbx);

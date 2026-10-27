@@ -15,17 +15,20 @@ static class GameSource
     public static string Folder => Path.Combine(Settings.Home, "game");
 
     /// <summary>The FBX for <paramref name="packageFile"/> (a game package name), written if it isn't there yet or is stale.</summary>
-    public static string Export(string packageFile, Action<string> log)
+    /// <param name="meshName">A model of the package by name (a prop: Kurt, 2026-10-26, props in the Source's panel), kept apart from
+    /// the package's character in its own folder; null: the character the Model tab picks for the package.</param>
+    public static string Export(string packageFile, Action<string> log, string? meshName = null)
     {
         string stock = BasePackage.Resolve(packageFile, true);
         string meshPath = Gui.PreviewPanel.MeshPackage(stock);
-        string outDir = Path.Combine(Folder, Path.GetFileNameWithoutExtension(packageFile));
+        string outDir = Path.Combine(Folder, Path.GetFileNameWithoutExtension(packageFile) + (meshName != null ? "__" + meshName : ""));
         string fbx = Path.Combine(outDir, "model.fbx"), stampFile = Path.Combine(outDir, "source.txt");
         var fi = new FileInfo(meshPath);
         // the character the Model tab fits to (MhoSkeleton.Load: the chosen one, a summon's or power model's mesh, the costume's
         // own), else the package's first
         string? pickName = null;
-        try { pickName = MhoSkeleton.Load(meshPath).Mesh.Name; } catch (InvalidDataException) { }
+        if (meshName != null) pickName = meshName;
+        else try { pickName = MhoSkeleton.Load(meshPath).Mesh.Name; } catch (InvalidDataException) { }
         string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|2";
         if (File.Exists(fbx) && File.Exists(stampFile) && File.ReadAllText(stampFile) == stamp) return fbx;
 

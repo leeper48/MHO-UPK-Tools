@@ -73,9 +73,10 @@ sealed class ImportBuild
             sourceName = SourceName(o.SourceFbx);
             log("source: " + o.SourceFbx);
             var only = o.Parts is { Length: > 0 } ps && ps != "default" && ps != "all" ? ps.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
-            if (PropFit.IsProp(sk)) throw new InvalidOperationException($"{sk.Name} is a prop (a weapon or shield): for now a prop can only be built from an MFF character's part");
-            r = FbxReimport.Load(o.SourceFbx, sk, only, log);
-            FbxLean.Apply(r, o.Lean);
+            // (a prop, Kurt 2026-10-26, the Props view: its own model comes back as it is, any other is laid over it)
+            bool isProp = PropFit.IsProp(sk);
+            r = FbxReimport.LoadAny(o.SourceFbx, sk, only, log);
+            if (!isProp) FbxLean.Apply(r, o.Lean);
             if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
             // an FBX source's map holds only its weight smoothing (the Bone Map's Smooth Weights)
             if (o.MapFile != null) foreach (var n in WeightSmooth.Apply(r, BoneMapFile.Load(o.MapFile).Smooth)) log("  " + n);
@@ -97,7 +98,7 @@ sealed class ImportBuild
             if (o.KeepSourceSize) log($"size:    the source's own size (scale {r.Scale:0.###}, not fitted to {sk.Name}'s height)");
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }
-        if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.Apply(r, o.ModelFbx, log); }
+        if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.ApplyAny(r, o.ModelFbx, sk, log); }
         if ((o.Hair > 0 || o.Cape > 0 || o.Rigs.Count > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed rigs are left out");
         MaterialOverrides.Apply(r, o.MaterialOverrides, line => log("  " + line));   // the Materials tab's files
         if (WeightPaint.Apply(r, o.PaintFile) is { } paintNote) log("paint:   " + paintNote["weight paint: ".Length..]);

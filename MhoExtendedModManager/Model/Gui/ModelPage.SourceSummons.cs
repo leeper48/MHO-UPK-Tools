@@ -38,8 +38,8 @@ sealed partial class ModelPage
         panel.Controls.Add(sourceSummons, 0, 1);
         sourceSummonsPanel = panel;
         sourceSplit.Controls.Add(panel, 0, 1);
-        sourceSummons.Thumb = it => it.Header || it.Label ? null : PackageThumb(it.Key[GameSrc.Length..]);
-        Ui.Tip(sourceSummons, "The summons and power models of the hero picked above, for that costume (a costume can summon its own version: Cable's Original costume summons his Original illusion). Click one to use it as the source; right-click to show it on the Target side too.");
+        sourceSummons.Thumb = it => it.Header || it.Label ? null : PackageThumb(it.ThumbKey ?? SplitGameKey(it.Key).File);
+        Ui.Tip(sourceSummons, "The props of the costume picked above (Thor's hammer, Cap's shield), and its summons and power models (a costume can summon its own version: Cable's Original costume summons his Original illusion). Click one to use it as the source; right-click to make it the target too (a prop: then Edit in Blender, or pick another model as the source to put on it).");
         sourceSummons.SelectedIndexChanged += (_, _) =>
         {
             if (fillingSummons || sourceSummons.SelectedItem is not CharacterList.Item { Header: false, Label: false } it || it.Key == chosenKey) return;
@@ -51,7 +51,8 @@ sealed partial class ModelPage
             int i = sourceSummons.IndexFromPoint(e.Location);
             if (e.Button != MouseButtons.Right || i < 0 || i >= sourceSummons.Items.Count || sourceSummons.Items[i] is not CharacterList.Item { Header: false, Label: false } it) return;
             sourceSummons.SelectedIndex = i;
-            MirrorTarget(it.Key[GameSrc.Length..]);
+            if (SplitGameKey(it.Key) is (var pf, string pm)) PropToTarget(pf, pm);   // a prop: the source and the target (to edit it, or put another model on it)
+            else MirrorTarget(it.Key[GameSrc.Length..]);
         };
         characters.SelectedIndexChanged += (_, _) => SummonsForSelection();
         ShowSummonsPanel();
@@ -61,7 +62,7 @@ sealed partial class ModelPage
     /// <summary>The panel shows only for From the Game → Heroes (the list above takes the whole column otherwise).</summary>
     void ShowSummonsPanel()
     {
-        bool on = GameMode && sourceKindTab == 0 && Summons.Count > 0;   // (summons parked: WhatsNew.Summons)
+        bool on = GameMode && sourceKindTab == 0;   // (props always; summons while they're shown: WhatsNew.Summons)
         if (sourceSummonsPanel.Visible == on && sourceSplit.RowStyles[1].Height == (on ? 33 : 0)) return;
         sourceSummonsPanel.Visible = on;
         sourceSplit.RowStyles[0] = new RowStyle(SizeType.Percent, on ? 67 : 100);
@@ -105,7 +106,7 @@ sealed partial class ModelPage
         sourceSummons.BeginUpdate(); sourceSummons.Items.Clear();
         if (summonsFor is not var (hero, costume))
         {
-            sourceSummonsTitle.Text = "SUMMONS AND POWER MODELS";
+            sourceSummonsTitle.Text = Summons.Count > 0 ? "SUMMONS AND PROPS" : "PROPS";
             sourceSummons.Items.Add(new CharacterList.Item("label:pick", "Pick a hero or a costume above", "", Label: true));
         }
         else
@@ -113,7 +114,7 @@ sealed partial class ModelPage
             var rows = allPackages.Where(p => IsSummon(p.File) && Summons[Path.GetFileName(p.File)][0].Hero.Equals(hero, StringComparison.OrdinalIgnoreCase)
                 && ForCostume(Summons[Path.GetFileName(p.File)], costume, hero)).ToList();
             string costumeName = costume == null ? "" : costume.Split('_').Length > 2 ? " · " + CostumeLabel(costume) : " · Base Package";
-            sourceSummonsTitle.Text = $"SUMMONS AND POWER MODELS · {Spaced(hero).ToUpperInvariant()}{costumeName.ToUpperInvariant()}";
+            sourceSummonsTitle.Text = $"{(Summons.Count > 0 ? "SUMMONS AND PROPS" : "PROPS")} · {Spaced(hero).ToUpperInvariant()}{costumeName.ToUpperInvariant()}";
             foreach (var p in rows)
             {
                 int dot = p.Detail.IndexOf(" · ", StringComparison.Ordinal);
@@ -122,7 +123,14 @@ sealed partial class ModelPage
                 if (costume == null && costumes.Count > 0) detail += " · " + string.Join(", ", costumes.Select(CostumeLabel));
                 sourceSummons.Items.Add(new CharacterList.Item(GameSrc + p.File, dot > 0 ? p.Detail[..dot] : p.Detail, detail));
             }
-            if (rows.Count == 0) sourceSummons.Items.Add(new CharacterList.Item("label:none", "No summons or power models", "", Label: true));
+            // the costume's props (Kurt, 2026-10-26: as the summons; Thor Marvel NOW's hammer): a click makes one the source, a
+            // right-click the source and the target
+            var props = PropsFor(hero, costume);
+            if (props.Count > 0 && rows.Count > 0) sourceSummons.Items.Add(new CharacterList.Item("label:props", "PROPS", "", Label: true));
+            foreach (var p in props)
+                sourceSummons.Items.Add(new CharacterList.Item($"{GameSrc}{p.MeshPackage}|{p.Mesh}", $"Prop: {PropLabel(p.Mesh)}",
+                    $"{(costume == null ? string.Join(", ", Props.Where(x => x.MeshPath.Equals(p.MeshPath, StringComparison.OrdinalIgnoreCase)).Select(x => Spaced(x.Costume)).Distinct().Take(4)) + " · " : "")}{p.MeshPackage}", ThumbKey: p.CostumeFile));
+            if (rows.Count == 0 && props.Count == 0) sourceSummons.Items.Add(new CharacterList.Item("label:none", Summons.Count > 0 ? "No summons, power models or props" : "No props", "", Label: true));
         }
         sourceSummons.EndUpdate();
         if (chosenKey != null) Reselect(sourceSummons, chosenKey);

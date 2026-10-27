@@ -211,6 +211,22 @@ sealed partial class PreviewPanel : UserControl
 
     // --- showing a model -----------------------------------------------------------------------------------------------------
     /// <summary>Shows a prepared model (UI thread), keeping the animation picked before when the new list has it.</summary>
+    float shownExtent;
+    /// <summary>Test: the shown model's largest side and its bounds' center.</summary>
+    internal float ExtentValueForTest => shown == null ? 0 : shownExtent;
+    internal string ExtentForTest => shown == null ? "none" : $"{shownExtent:0.##} units, center {Center(shown.Mesh.Positions)}";
+    static Vector3 Center(IReadOnlyList<Vector3> pos) { Vector3 lo = new(float.MaxValue), hi = new(float.MinValue); foreach (var v in pos) { lo = Vector3.Min(lo, v); hi = Vector3.Max(hi, v); } return (lo + hi) / 2; }
+
+    /// <summary>A model's largest bounding-box side.</summary>
+    static float Extent(IReadOnlyList<Vector3> pos)
+    {
+        if (pos.Count == 0) return 0;
+        Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
+        foreach (var v in pos) { lo = Vector3.Min(lo, v); hi = Vector3.Max(hi, v); }
+        var d = hi - lo;
+        return MathF.Max(d.X, MathF.Max(d.Y, d.Z));
+    }
+
     public void Show(Prepared p)
     {
         // What the reload keeps (0.10.17, Kurt): the animation by name, where in it (a share of its length), playing or
@@ -221,6 +237,10 @@ sealed partial class PreviewPanel : UserControl
         bool wasPlaying = live ? p3.IsPlaying : heldPlaying;
         float[]? keepView = live ? view.ViewState : heldView;
         heldView = null; heldPlaying = false; heldAt = 0;
+        // a model of quite another size (a 46-unit hammer after a body: Kurt's prop showed as a dot) is framed afresh
+        float extent = Extent(p.Mesh.Positions);
+        if (shownExtent > 0 && extent > 0 && (extent / shownExtent > 3 || shownExtent / extent > 3)) keepView = null;
+        shownExtent = extent;
         bool samePackage = shown != null && shown.PackagePath.Equals(p.PackagePath, StringComparison.OrdinalIgnoreCase);
         shown = p;
         mffAnimator = new MeshAnimator(p.Bones, p.Mesh.Positions, p.Mesh.Normals, p.Mesh.Influences, p.Mesh.Tangents) { Shift = new Vector3(0, 0, feetShift ?? p.Feet) };

@@ -65,7 +65,7 @@ sealed partial class PreviewPanel
         if (subdivide) picked = Subdivision.Apply(picked);
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
         var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() is var ro ? ro with { KeepSourceSize = keepSourceSize, Lean = lean, JointFit = jointFit || ro.JointFit } : null);
-        if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });
+        if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });
         Stage("retarget");
         MaterialOverrides.Apply(r, overrides);
         var unpainted = Unpainted(r);   // (the fit's own weights: a paint-only Undo rebuilds from them in place)
@@ -89,9 +89,9 @@ sealed partial class PreviewPanel
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
         Stage("skeleton");
-        var r = FbxReimport.Load(fbx, sk, meshes, _ => { });
-        FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
-        if (modelFbx != null) FbxReimport.Apply(r, modelFbx, _ => { });   // the mesh edited in Blender (Ctrl+S)
+        var r = FbxReimport.LoadAny(fbx, sk, meshes, _ => { });   // (a prop target: laid over the prop, or its own model as it is)
+        if (!PropFit.IsProp(sk)) FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
+        if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });   // the mesh edited in Blender (Ctrl+S)
         Stage("fbx load");
         MaterialOverrides.Apply(r, overrides);
         // the Bone Map's smoothing (an FBX source's map holds only that)

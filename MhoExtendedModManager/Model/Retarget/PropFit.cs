@@ -160,6 +160,60 @@ static class PropFit
         return Array.IndexOf(sum, sum.Max());
     }
 
+    /// <summary>
+    /// An FBX source's sections (already in MHO space: FbxReimport.LoadProp) laid over the game's prop as one rigid object, as
+    /// <see cref="Run"/> does for MFF parts: centered, turned onto its axes, scaled to its length, every vertex on the bone the
+    /// game's prop hangs on. The sections' materials and textures stay.
+    /// </summary>
+    public static void FitLoaded(Retargeted r, MhoSkeleton sk, string label)
+    {
+        var srcPos = new List<Vector3>(); var srcTris = new List<int>();
+        foreach (var s in r.Sections) { srcTris.AddRange(s.Tris.Select(i => i + srcPos.Count)); srcPos.AddRange(s.Pos); }
+        var (place, scale, bone) = Placement(srcPos, srcTris, sk, r.Notes, label);
+        var turn = place; turn.Translation = Vector3.Zero;
+        foreach (var s in r.Sections)
+        {
+            for (int v = 0; v < s.Pos.Length; v++)
+            {
+                s.Pos[v] = Vector3.Transform(s.Pos[v], place);
+                var n = Vector3.TransformNormal(s.Normal[v], turn);
+                s.Normal[v] = n.LengthSquared() > 0 ? Vector3.Normalize(n) : n;
+            }
+            s.Weights = Enumerable.Range(0, s.Pos.Length).Select(_ => new (int, float)[] { (bone, 1f) }).ToArray();
+        }
+        r.Scale = scale;
+    }
+
+    /// <summary>The placement that lays a source shape over the game's prop: the transform, its scale and the bone to hold it on
+    /// (a note added; with nothing to measure, identity).</summary>
+    static (Matrix4x4 Place, float Scale, int Bone) Placement(List<Vector3> srcPos, List<int> srcTris, MhoSkeleton sk, List<string> notes, string label)
+    {
+        var src = Measure(srcPos, srcTris);
+        var dst = TargetShape(sk);
+        int bone = HoldBone(sk);
+        Matrix4x4 place = Matrix4x4.Identity;
+        float scale = 1;
+        if (src == null || dst == null) { notes.Add("prop: nothing to fit (no triangles): the part is left where it is"); return (place, scale, bone); }
+        var sa = (Vector3[])src.Axes.Clone();
+        var da = dst.Axes;
+        var sure = new float[3];
+        for (int i = 0; i < 3; i++)
+        {
+            if (src.Skew[i] * dst.Skew[i] < 0) sa[i] = -sa[i];
+            sure[i] = MathF.Min(MathF.Abs(src.Skew[i]), MathF.Abs(dst.Skew[i]));
+        }
+        float Det(Vector3[] a) => Vector3.Dot(a[0], Vector3.Cross(a[1], a[2]));
+        if (Det(sa) * Det(da) < 0) { int weak = Array.IndexOf(sure, sure.Min()); sa[weak] = -sa[weak]; }
+        var S = new Matrix4x4(sa[0].X, sa[0].Y, sa[0].Z, 0, sa[1].X, sa[1].Y, sa[1].Z, 0, sa[2].X, sa[2].Y, sa[2].Z, 0, 0, 0, 0, 1);
+        var D = new Matrix4x4(da[0].X, da[0].Y, da[0].Z, 0, da[1].X, da[1].Y, da[1].Z, 0, da[2].X, da[2].Y, da[2].Z, 0, 0, 0, 0, 1);
+        Matrix4x4.Invert(S, out var Si);
+        var rot = Si * D;
+        scale = src.Extent[0] > 1e-6f ? dst.Extent[0] / src.Extent[0] : 1;
+        place = Matrix4x4.CreateTranslation(-src.Center) * Matrix4x4.CreateScale(scale) * rot * Matrix4x4.CreateTranslation(dst.Center);
+        notes.Add($"prop: {label} laid over {sk.Name}: centered, turned onto its axes, scaled ×{scale:0.###} to its length ({dst.Extent[0]:0.#} units), held on {sk.Bones[bone].Name}; proportions {src.Spread[1] / Math.Max(1e-6f, src.Spread[0]):0.00} / {src.Spread[2] / Math.Max(1e-6f, src.Spread[0]):0.00} against the game's {dst.Spread[1] / Math.Max(1e-6f, dst.Spread[0]):0.00} / {dst.Spread[2] / Math.Max(1e-6f, dst.Spread[0]):0.00}");
+        return (place, scale, bone);
+    }
+
     /// <summary>The picked parts as one rigid prop laid over the game's prop (see the class summary).</summary>
     public static Retargeted Run(MffModel m, IEnumerable<Part> parts, MhoSkeleton sk)
     {

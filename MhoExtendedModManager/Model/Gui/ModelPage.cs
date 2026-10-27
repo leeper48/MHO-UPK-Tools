@@ -872,12 +872,12 @@ sealed partial class ModelPage : UserControl
     /// <summary>A game package picked as the source: its character written as an FBX once (GameSource), then read as one.</summary>
     async void GameChosen(string key)
     {
-        string file = key[GameSrc.Length..];
+        var (file, mesh) = SplitGameKey(key);
         chosenKey = key; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); UpdateStatus();
         status.Text = "Loading…";
         string fbx;
         using (Busy.Begin($"Model: reading {file} from the game"))
-            try { fbx = await Task.Run(() => GameSource.Export(file, line => BeginInvoke(() => Log(line)))); }
+            try { fbx = await Task.Run(() => GameSource.Export(file, line => BeginInvoke(() => Log(line)), mesh)); }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
             { Log($"{file}: {ex.Message}"); UpdateStatus(); return; }
         if (chosenKey != key) return;
@@ -1067,6 +1067,20 @@ sealed partial class ModelPage : UserControl
         using var busy = Busy.Begin("Model: loading the model");
         try
         {
+            // prop work (Kurt, 2026-10-26: a prop as the source, or a prop as the target): the file is read as it is, never
+            // guessed as a body or rigged in Blender: a prop's own model keeps its place, any other is laid over the prop
+            if (SplitGameKey(key).Mesh != null || TargetIsProp())
+            {
+                var pm = await Task.Run(() => FbxReimport.Meshes(file));
+                if (chosenKey != key) return;
+                sourceFbx = file;
+                foreach (var (name, verts) in pm) parts.Rows.Add(true, name, "Mesh", verts.ToString("N0"));
+                SchedulePreview();
+                Log($"FBX source: {file} ({pm.Count} mesh(es)), read as a prop model");
+                RestoreState();
+                UpdateStatus();
+                return;
+            }
             // another skeleton family (Mixamo …): read like an MFF model, so its bones are paired with the hero's by the
             // retarget (Bone Map, proportions, scale) instead of needing MHO bone names
             string? whyNot = null;

@@ -117,10 +117,12 @@ sealed partial class ModelPage
     async Task<List<(string File, string Path)>> BuildCopies(string pkgKey, string mffSource, ImportOptions runOptions, string? print, string mff)
     {
         var done = new List<(string File, string Path)>();
-        var copies = SummonCopies(pkgKey);
+        var propCopies = PropCopies(pkgKey);
+        var copies = propCopies is { } pc0 ? [] : SummonCopies(pkgKey);
         // the summon's copies in characters' packages (Kurt, 2026-10-26): the summoning hero's own ones go too; other
         // characters' (Strike Team's Beast is Beast's Astonishing costume) only when the user says so, remembered per target
-        var (ownChars, otherChars) = SummonCharacterCopies(pkgKey);
+        // (a prop picked in the Props view: its copies, the same way: Thor's hammer is also in the Skrull Thor enemy and the team-ups)
+        var (ownChars, otherChars) = propCopies is { } pc ? (pc.Own, pc.Others) : SummonCharacterCopies(pkgKey);
         copies.AddRange(ownChars);
         if (otherChars.Count > 0)
         {
@@ -135,7 +137,7 @@ sealed partial class ModelPage
             if (yes) copies.AddRange(otherChars);
             else Log($"Left as the game's: the same model in {string.Join(", ", otherChars)} (other characters).");
         }
-        string? meshName = Summons.TryGetValue(pkgKey, out var sums) ? sums[0].Mesh : null;
+        string? meshName = propCopies?.Mesh ?? (Summons.TryGetValue(pkgKey, out var sums) ? sums[0].Mesh : null);
         foreach (string copy in copies.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             string file = copy;
@@ -482,11 +484,12 @@ sealed partial class ModelPage
                 string package = StartPackage(pkg.Key);
                 if (sfbx != null)
                 {
-                    var r = FbxReimport.Load(uf != null ? RigFor(uf, pkg.Key) : sfbx, MhoSkeleton.Load(package, null), uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), _ => { });
-                    FbxLean.Apply(r, leanUse);
+                    var tsk = MhoSkeleton.Load(package, null);
+                    var r = FbxReimport.LoadAny(uf != null ? RigFor(uf, pkg.Key) : sfbx, tsk, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), _ => { });
+                    if (!PropFit.IsProp(tsk)) FbxLean.Apply(r, leanUse);
                     if (mapFile != null) WeightSmooth.Apply(r, BoneMapFile.Load(mapFile).Smooth);
                     // the FBX edits as the preview and Build use them: the mesh from Blender, the replaced animations
-                    if (exportEdits.ModelFbx is string emf && File.Exists(emf)) FbxReimport.Apply(r, emf, _ => { });
+                    if (exportEdits.ModelFbx is string emf && File.Exists(emf)) FbxReimport.ApplyAny(r, emf, tsk, _ => { });
                     MaterialOverrides.Apply(r, ovr);
                     WeightPaint.Apply(r, paintFile);
                     FbxExport.Run(r, package, outDir, onlyAnim != null ? [onlyAnim] : [], line => BeginInvoke(() => Log(line)), FbxExport.EditsAdjust(exportEdits), exact: onlyAnim != null, prefer: prefer);

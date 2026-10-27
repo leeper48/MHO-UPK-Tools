@@ -503,7 +503,7 @@ sealed partial class ModelPage
         kindByState = true;
         // (already on From the Game: the list was filled before the saved source was known, with its hero's group shut, so it's
         // filled again to open that group: Kurt 2026-10-25, a summon source wasn't picked again)
-        if (st.Source.StartsWith(GameSrc)) { SourceTabFor(st.Source[GameSrc.Length..]); if (!GameMode) sourceKind.SelectedIndex = 2; else FillCharacters(); }
+        if (st.Source.StartsWith(GameSrc)) { SourceTabFor(SplitGameKey(st.Source).File); if (!GameMode) sourceKind.SelectedIndex = 2; else FillCharacters(); }
         else if (st.Source.StartsWith("fbx:") || st.Source.StartsWith(MffDir)) { if (!FbxMode) sourceKind.SelectedIndex = 1; }
         else
         {
@@ -514,6 +514,7 @@ sealed partial class ModelPage
         Reselect(characters, st.Source);
         // a summon: picked in the summons panel below the list
         if (st.Source.StartsWith(GameSrc) && IsSummon(st.Source[GameSrc.Length..])) { ShowSummonSource(st.Source[GameSrc.Length..]); GameChosen(st.Source); }
+        else if (st.Source.StartsWith(GameSrc) && SplitGameKey(st.Source).Mesh is not null) { ShowPropSource(st.Source); GameChosen(st.Source); }   // (a prop, from the panel)
     }
 
     /// <summary>The rest of the saved choices, once the source has loaded (parts, Smooth, material, Cape / Hair).</summary>

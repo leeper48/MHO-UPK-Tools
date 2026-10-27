@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.178
+- Model tab: props in the Source's panel under From the Game → Heroes (with the summons): the picked costume's props (Thor Marvel NOW: Prop: Hammer; a hero's row: all of the hero's), 227 prop models. A click makes a prop the source; a right-click the source and the target (its package added to the mod, the build pointed at it), to change it in Blender or to put another model on it.
+- A prop can be built from an FBX or a game model now (it was MFF parts only): laid over the game's prop by its shape. Its own model, edited in Blender, comes back exactly as edited. A prop's model is never guessed as a body or rigged in Blender.
+- Build into Mod puts a prop into every package of the hero with the same model; other characters' copies (Skrull Thor, the team-ups) are asked about.
+- The preview frames a model afresh when it's of quite another size (a hammer after a body showed as a dot).
+- --prop-census, --prop-fbx-probe, --model-props-test.
+
 0.60.176
 - Model tab summons: when a power shows one model and summons another (Strike Team - Beast tumbles in as the power's own Beast, then stays as the summoned Ultimate Beast; Strike Team - Jean, Call Kurt, Fastball Special, Wrath of Bast), a Build into Mod onto one offers the other: Build onto It Too builds the same source onto it (added to the mod when needed). A power that summons several characters (To Me, My X-Men!) isn't paired.
 - --summon-partners lists the pairs; --mesh-info lists a package's skeletal meshes with vertex and bone counts; --model-partner-test tests the offer.

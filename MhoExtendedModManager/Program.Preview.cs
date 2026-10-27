@@ -558,6 +558,55 @@ static partial class Program
                 Console.WriteLine(fails == 0 ? "all checks passed" : $"{fails} check(s) failed");
                 return fails == 0 ? 0 : 1;
             }
+            case "--prop-census":
+            {
+                // Read-only: every hero costume's props (PropRig.Attached: its attachment classes, else its hero's), with the
+                // package holding each prop's model, its path, bone, slots and every package holding a copy (the Model tab's
+                // Props list, Model\StockData\model_props.txt with MHO_CENSUS_OUT). --prop-census [hero ...]
+                string? pgr = settings.ResolvedGameRoot(data);
+                if (pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string pcook = Settings.Cooked(pgr);
+                var want = rest.Skip(1).ToList();
+                var files = Directory.GetFiles(pcook, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileName).OfType<string>()
+                    .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .Where(f => want.Count == 0 || want.Any(h => f.StartsWith($"UC__MarvelPlayer_{h}_", StringComparison.OrdinalIgnoreCase))).Order().ToList();
+                var index = SkeletalIndex(pcook);
+                var rows = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                int costumes = 0;
+                foreach (string f in files)
+                {
+                    try
+                    {
+                        string path = StockFiles.For(pcook, f);
+                        var list = ModMeshes.List([(f, path)]);
+                        // the costume's character: the mesh with the most bones (props have 1–12)
+                        var main = list.OrderByDescending(m => { try { return Model.MhoSkeleton.Load(m.File, m.Name).Bones.Count; } catch (InvalidDataException) { return 0; } }).FirstOrDefault();
+                        if (main == null) continue;
+                        var props = PropRig.Attached(main, list, pcook);
+                        if (props.Count == 0) continue;
+                        costumes++;
+                        string stem = Path.GetFileNameWithoutExtension(f)["UC__MarvelPlayer_".Length..^3];
+                        int us = stem.IndexOf('_');
+                        string hero = us < 0 ? stem : stem[..us], costume = us < 0 ? "Base Package" : stem[(us + 1)..];
+                        foreach (var p in props)
+                        {
+                            var pk = MhoPackageModifier.Package.Open(p.Ref.File);
+                            string meshPath = pk.PathOf(pk.Exports[p.Ref.Export]);
+                            int bones = 0;
+                            try { bones = Model.MhoSkeleton.Load(p.Ref.File, p.Ref.Name).Bones.Count; } catch (InvalidDataException) { }
+                            string kind = p.UseParentAnim ? "rigged" : bones is > 0 and <= 12 ? "prop" : "other";
+                            var copies = index.GetValueOrDefault(meshPath.ToLowerInvariant(), []).Where(c => !c.Equals(p.Ref.Package, StringComparison.OrdinalIgnoreCase));
+                            rows.Add(string.Join('\t', f, hero, costume, p.Class, p.Ref.Name, p.Ref.Package, meshPath, p.Bone ?? "", string.Join(",", p.Slots), p.OnDemand ? "1" : "0", kind, bones, string.Join(",", copies)));
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { Console.WriteLine($"{f}: {ex.Message}"); }
+                }
+                foreach (var r in rows) Console.WriteLine(r);
+                Console.WriteLine($"{rows.Count} props on {costumes} costumes");
+                if (Environment.GetEnvironmentVariable("MHO_CENSUS_OUT") is { Length: > 0 } outFile)
+                    File.WriteAllLines(outFile, rows.Prepend("# Heroes' props (--prop-census with MHO_CENSUS_OUT, on the stock packages): costume package, hero, costume, attachment class, mesh, package holding the mesh, mesh path, bone, weapon slots, on demand (1: only while a power shows it), kind (prop / rigged: moved by the character's animation / other), bones, other packages with a copy"));
+                return 0;
+            }
             case "--summon-partners":
             {
                 // Read-only: every summon or power model package with its partners (the same power's other model: Strike Team
@@ -565,6 +614,36 @@ static partial class Program
                 foreach (string f in Model.Gui.ModelPage.Summons.Keys.Order())
                     if (Model.Gui.ModelPage.SummonPartners(f) is { Count: > 0 } ps)
                         Console.WriteLine($"{f} → {string.Join("; ", ps.Select(p => $"{p.Name} ({p.File}, {p.Power})"))}");
+                return 0;
+            }
+            case "--prop-fbx-probe":
+            {
+                // Read-only on the game (writes the game-source FBX cache): a prop exported as Edit in Blender would, read back
+                // raw; its joints against the game's, to learn the export's axes. --prop-fbx-probe <package file> <mesh name>
+                if (rest.Count < 3) { Console.WriteLine("--prop-fbx-probe <package file> <mesh name>"); return 1; }
+                Model.MhoSkeleton.Choose(rest[1], rest[2]);
+                string fbx = Model.GameSource.Export(rest[1], Console.WriteLine);
+                var sk = Model.MhoSkeleton.Load(Model.BasePackage.Resolve(rest[1], true), rest[2]);
+                Console.WriteLine($"fbx: {fbx}");
+                var (joints, mn, mx) = Model.FbxReimport.Raw(fbx);
+                for (int i = 0; i < sk.Bones.Count; i++)
+                {
+                    var f = joints.FirstOrDefault(j => j.Bone.Equals(sk.Bones[i].Name, StringComparison.OrdinalIgnoreCase));
+                    Console.WriteLine($"  {sk.Bones[i].Name}: game {sk.Pos(i):0.00}  file {(f.Bone != null ? f.Joint.ToString("0.00") : "-")}");
+                }
+                Console.WriteLine($"  file mesh bounds {mn:0.0} .. {mx:0.0}");
+                string mp = Model.BasePackage.Resolve(rest[1], true);
+                var lm = ModMeshes.Load(new MeshRef(rest[1], mp, rest[2], Array.FindIndex(MhoPackageModifier.Package.Open(mp).Exports, e => e.ObjectName.Equals(rest[2], StringComparison.OrdinalIgnoreCase) && MhoPackageModifier.Package.Open(mp).ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase))), null, out _);
+                try
+                {
+                    string pf2 = Model.GameSource.Export(rest[1], _ => { }, rest[2]);
+                    var prep = Model.Gui.PreviewPanel.PrepareFbx(pf2, Environment.GetEnvironmentVariable("MHO_PROBE_PARTS") is { Length: > 0 } pp0 ? pp0.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null, mp, null);
+                    Console.WriteLine($"  mesh names in the file: {string.Join(", ", Model.FbxReimport.Meshes(pf2).Select(x => x.Name))}");
+                    var pp = prep.Mesh.Positions;
+                    Console.WriteLine($"  preview of {pf2}: {pp.Length} vertices, bounds {pp.Aggregate(new System.Numerics.Vector3(float.MaxValue), System.Numerics.Vector3.Min):0.0} .. {pp.Aggregate(new System.Numerics.Vector3(float.MinValue), System.Numerics.Vector3.Max):0.0}");
+                }
+                catch (Exception ex) { Console.WriteLine("  preview: " + ex.Message); }
+                if (lm != null) Console.WriteLine($"  game mesh bounds {lm.Positions.Aggregate(new System.Numerics.Vector3(float.MaxValue), System.Numerics.Vector3.Min):0.0} .. {lm.Positions.Aggregate(new System.Numerics.Vector3(float.MinValue), System.Numerics.Vector3.Max):0.0}");
                 return 0;
             }
             case "--mesh-info":
