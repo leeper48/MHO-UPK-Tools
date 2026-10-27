@@ -86,7 +86,7 @@ sealed class ImportBuild
             var only = o.Parts is { Length: > 0 } ps && ps != "default" && ps != "all" ? ps.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
             // (a prop, Kurt 2026-10-26, the Props view: its own model comes back as it is, any other is laid over it)
             bool isProp = PropFit.IsProp(sk);
-            r = FbxReimport.LoadAny(o.SourceFbx, fitTo, only, log);
+            r = FbxReimport.LoadAny(o.SourceFbx, fitTo, only, log, o.PropAsIs);
             if (!isProp) FbxLean.Apply(r, o.Lean);
             if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
             // an FBX source's map holds only its weight smoothing (the Bone Map's Smooth Weights)

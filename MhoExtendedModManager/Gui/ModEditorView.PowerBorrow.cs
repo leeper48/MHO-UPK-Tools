@@ -63,7 +63,7 @@ sealed partial class ModEditorView
     }
 
     /// <summary>The added prop (Animations tab) a borrowed power's prop of <paramref name="cls"/> is, else null.</summary>
-    AddedPropEntry? HeldAs(string cls) => draft.AddedProps.FirstOrDefault(a => a.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
+    AddedPropEntry? HeldAs(string cls) => draft.AddedProps.FirstOrDefault(a => !a.Off && a.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The Powers tab's In This Animation: the held prop, the power's animation playing, and what's missing.</summary>
     (AddedPropEntry? Entry, string? Slot, string Why) PowerAnimTarget()

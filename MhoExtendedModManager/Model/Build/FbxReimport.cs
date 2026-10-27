@@ -31,11 +31,13 @@ static class FbxReimport
 
     /// <summary>An FBX as the source for any target: a prop's (<see cref="LoadProp"/>, laid over it unless it's the prop's own
     /// model), else a body's (<see cref="Load"/>). The preview, Export FBX and the build all read sources through this.</summary>
-    public static Retargeted LoadAny(string fbx, MhoSkeleton sk, IReadOnlyCollection<string>? meshes, Action<string> log)
+    /// <param name="asIs">A prop's model kept as made (a prop of the user's own: Add a Prop → From an FBX), not laid over.</param>
+    public static Retargeted LoadAny(string fbx, MhoSkeleton sk, IReadOnlyCollection<string>? meshes, Action<string> log, bool asIs = false)
     {
         if (!PropFit.IsProp(sk)) return Load(fbx, sk, meshes, log);
         var r = LoadProp(fbx, sk, meshes, log, out bool own);
-        if (!own) { PropFit.FitLoaded(r, sk, Path.GetFileNameWithoutExtension(fbx)); foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    ")); }
+        if (asIs && !own) { r.Notes.Add("prop: kept as made (its own size and shape, its origin on the bone)"); log("prop:    kept as made (its own size and shape, its origin on the bone)"); }
+        else if (!own) { PropFit.FitLoaded(r, sk, Path.GetFileNameWithoutExtension(fbx)); foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    ")); }
         return r;
     }
 

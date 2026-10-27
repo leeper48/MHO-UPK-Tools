@@ -248,7 +248,7 @@ sealed partial class ModelPage : UserControl
         InitRigs();
         smooth.Margin = new Padding(0, 6, 10, 0); rigsButton.Margin = new Padding(0, 0, 6, 0); defaultParts.Margin = new Padding(0);
         partsHead.Controls.AddRange([smooth, rigsButton, defaultParts]);
-        modelTabs.Add("Parts", PartsTab(Column("", partsHead, parts)));
+        modelTabs.Add("Parts", PartsTab(partsHead));
         var mapButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         foreach (var b in new[] { mapBones, mapWeights, mapSmooth }) { b.Margin = new Padding(0, 0, 6, 0); mapButtons.Controls.Add(b); }
         mapReset.Margin = new Padding(0); mapButtons.Controls.Add(mapReset);
@@ -276,8 +276,7 @@ sealed partial class ModelPage : UserControl
                 for (int k = 0; k < effectList.Items.Count; k++) if (effectList.Items[k] is CharacterList.Item { Header: false }) { effectList.SelectedIndex = k; break; }
             });
         right.Controls.Add(modelTabs, 0, 2);
-        var materialColumn = Column("MATERIAL", null, material, autoHeight: true);
-        right.Controls.Add(materialColumn, 0, 3);
+        // (the build's game material, Material ▾, is on the Materials tab: Kurt, 2026-10-27, the column was cramped)
         // the size in game (Kurt, 2026-10-05): the costume's mesh component Scale, relative to the game's (ImportBuild.ApplySize)
         sizeSlider.Height = (int)(30 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         var sizeBox = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0) };
@@ -328,7 +327,7 @@ sealed partial class ModelPage : UserControl
         root.Controls.Add(barLog, 0, 2);
         root.Controls.Add(logHome, 0, 3);
         // folding and the remembered sizes (Kurt, 2026-10-06)
-        Foldable(sourceColumn, "source"); Foldable(targetColumn, "target"); Foldable(materialColumn, "material"); Foldable(sizeColumn, "size"); Foldable(logHome, "log");
+        Foldable(sourceColumn, "source"); Foldable(targetColumn, "target"); Foldable(sizeColumn, "size"); Foldable(logHome, "log");
         HandleCreated += (_, _) => ApplyLayout();
 
         // parts table: a check per part, its kind, size
@@ -1203,6 +1202,7 @@ sealed partial class ModelPage : UserControl
         PreviewPanel.PropAdjustNow = PropFitForTarget();   // (a prop target: the Prop Fit sliders)
         PreviewPanel.HeldNow = ChosenPackage is CharacterList.Item hp ? (ModCopy(hp.Key), WorkedModels(hp.Key)) : null;   // (the body and its prop together)
         PreviewPanel.AddedFitNow = AddedTarget is { } at ? PowerBorrow.FitMatrix(at.Fit, at.Class) : null;   // (an added prop: shown with its fit)
+        PreviewPanel.PropAsIsNow = AddedTarget?.KeepShape == true;   // (a prop of the user's own: as made)
         if (HasSource) packageMaps = null;
         using var busy = Busy.Begin("Model: preview");
         if (!HasSource && ChosenPackage is CharacterList.Item tpkg)

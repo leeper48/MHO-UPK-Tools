@@ -19,6 +19,43 @@ sealed partial class ModelPage
         public bool Same(UiState o) => Parts.SequenceEqual(o.Parts) && Subdivide == o.Subdivide && Material == o.Material && Map == o.Map && Rigs == o.Rigs && Edits == o.Edits && Overrides == o.Overrides && Math.Abs(Size - o.Size) < 1e-4 && Paint == o.Paint;
     }
     readonly Stack<UiState> undo = new(), redo = new();
+    /// <summary>
+    /// Prop steps (Kurt, 2026-10-27: a removed prop didn't come back with Ctrl+Z): the props before each add, remove, tick,
+    /// fit, bone or model change (the editor's, IModelHost.PropState). Kept apart from the steps above, whose history starts over
+    /// with another source; Undo / Redo take whichever step is the most recent.
+    /// </summary>
+    readonly Stack<(DateTime At, string Label, string State)> propUndo = new(), propRedo = new();
+    /// <summary>When each step above was made (Undo takes the newer of the two kinds).</summary>
+    readonly Stack<DateTime> undoAt = new(), redoAt = new();
+
+    /// <summary>The props before a change (<see cref="PropDone"/> keeps it as a step when the change happened).</summary>
+    string PropBefore() => host.PropState();
+
+    void PropDone(string before, string label)
+    {
+        if (host.PropState() == before) return;
+        propUndo.Push((DateTime.UtcNow, label, before));
+        propRedo.Clear();
+        undoButton.Enabled = true; redoButton.Enabled = redo.Count > 0;
+    }
+
+    /// <summary>A prop step undone or redone: the props back to that state, the lists and the target read again.</summary>
+    async Task PropRestore(Stack<(DateTime At, string Label, string State)> from, Stack<(DateTime At, string Label, string State)> to, string what)
+    {
+        var step = from.Pop();
+        string now = host.PropState();
+        to.Push((DateTime.UtcNow, step.Label, now));
+        string? pickedClass = addedPick?.Class;
+        if (!await host.SetPropState(step.State) || IsDisposed) { Log($"{what}: the props couldn't be put back."); return; }
+        Log($"{what}: {step.Label}.");
+        if (ChosenPackage is CharacterList.Item pkg)
+        {
+            var again = pickedClass == null ? null : host.AddedProps(pkg.Key).FirstOrDefault(a => a.Class.Equals(pickedClass, StringComparison.OrdinalIgnoreCase));
+            if (again == null && addedPick != null) { addedPick = null; MhoSkeleton.Choose(pkg.Key, null); PropTicks(changed: true); SourceForTarget(); SaveState(); }
+            await AddedPropsChanged(pkg.Key, again);
+        }
+        undoButton.Enabled = undo.Count > 0 || propUndo.Count > 0; redoButton.Enabled = redo.Count > 0 || propRedo.Count > 0;
+    }
     UiState? committed;
     string? historyKey;
     bool restoring;
@@ -33,16 +70,25 @@ sealed partial class ModelPage
     {
         string key = (chosenKey ?? "") + "|" + package;
         var now = Capture();
-        if (key != historyKey) { historyKey = key; undo.Clear(); redo.Clear(); committed = now; }
-        else if (committed != null && !now.Same(committed) && !restoring) { undo.Push(committed); redo.Clear(); committed = now with { Label = Describe(committed, now) }; }
+        if (key != historyKey) { historyKey = key; undo.Clear(); redo.Clear(); undoAt.Clear(); redoAt.Clear(); committed = now; }
+        else if (committed != null && !now.Same(committed) && !restoring) { undo.Push(committed); undoAt.Push(DateTime.UtcNow); redo.Clear(); redoAt.Clear(); committed = now with { Label = Describe(committed, now) }; }
         else if (committed == null || !committed.Same(now)) committed = now;   // (the same state keeps its History name)
         restoring = false;
-        undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
+        undoButton.Enabled = undo.Count > 0 || propUndo.Count > 0; redoButton.Enabled = redo.Count > 0 || propRedo.Count > 0;
         SaveState();
     }
 
-    void Undo() { if (undo.Count > 0) { redo.Push(Current()); Restore(undo.Pop(), "Undo"); } }
-    void Redo() { if (redo.Count > 0) { undo.Push(Current()); Restore(redo.Pop(), "Redo"); } }
+    void Undo()
+    {
+        // (the newer of a prop step and a step of the tab's own)
+        if (propUndo.Count > 0 && (undo.Count == 0 || undoAt.Count == 0 || propUndo.Peek().At >= undoAt.Peek())) { _ = PropRestore(propUndo, propRedo, "Undo"); return; }
+        if (undo.Count > 0) { if (undoAt.Count > 0) undoAt.Pop(); redoAt.Push(DateTime.UtcNow); redo.Push(Current()); Restore(undo.Pop(), "Undo"); }
+    }
+    void Redo()
+    {
+        if (propRedo.Count > 0 && (redo.Count == 0 || redoAt.Count == 0 || propRedo.Peek().At >= redoAt.Peek())) { _ = PropRestore(propRedo, propUndo, "Redo"); return; }
+        if (redo.Count > 0) { if (redoAt.Count > 0) redoAt.Pop(); undoAt.Push(DateTime.UtcNow); undo.Push(Current()); Restore(redo.Pop(), "Redo"); }
+    }
 
     /// <summary>The state now, with the name of the step that reached it (the History list keeps it).</summary>
     UiState Current() { var now = Capture(); return committed != null && committed.Same(now) ? committed : now with { Label = committed != null ? Describe(committed, now) : "" }; }
@@ -112,7 +158,7 @@ sealed partial class ModelPage
             else { Protected.CheckWrite(op); Directory.CreateDirectory(Path.GetDirectoryName(op)!); File.WriteAllText(op, s.Overrides); }
         }
         if (PaintText() != s.Paint) RestorePaint(s.Paint);
-        undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
+        undoButton.Enabled = undo.Count > 0 || propUndo.Count > 0; redoButton.Enabled = redo.Count > 0 || propRedo.Count > 0;
         Log(what + ": back to the earlier parts / Smooth / material / size / bone map / FBX edits / weight paint.");
         // a paint-only step: the model's weights rebuilt in place (no "Loading…", Kurt 2026-10-25); anything else rebuilds
         if (paintOnly && preview.ApplyPaintInPlace(s.Paint)) { restoring = false; UpdateStatus(); return; }

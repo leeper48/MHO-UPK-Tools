@@ -88,6 +88,13 @@ sealed class AddedPropEntry
     /// character holds it.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? Bone { get; set; }
+    /// <summary>A prop of the user's own (Kurt, 2026-10-27: Add a Prop → From an FBX): its class only carries it, its model is
+    /// built as made (its size and shape kept, not laid over the carrier's model).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool KeepShape { get; set; }
+    /// <summary>Left off the costume for now (unticked in the Model tab's list), its settings kept; ticked, it goes back on.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Off { get; set; }
     /// <summary>Per animation, a further move and turn (Kurt, 2026-10-23: a pose that wants the prop elsewhere), baked into
     /// that animation only (PropHold, with Pivot on the Hand); null when none.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]

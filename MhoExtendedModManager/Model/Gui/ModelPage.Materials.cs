@@ -106,6 +106,11 @@ sealed partial class ModelPage
         var showRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 6) };
         showRow.Controls.Add(new Label { Text = "Preview Shows", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
         showRow.Controls.Add(showMap);
+        // the build's game material for every material (Kurt, 2026-10-27: moved here from under the tabs); Game Material ▾ sets
+        // one material's own
+        showRow.Controls.Add(new Label { Text = "Game Material", AutoSize = true, Margin = new Padding(18, 6, 8, 0) });
+        material.Width = (int)(230 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)); material.Margin = new Padding(0);
+        showRow.Controls.Add(material);
         var head = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, RowCount = 3, BackColor = Color.Transparent, Margin = new Padding(0) };
         head.Controls.Add(showRow, 0, 0); head.Controls.Add(buttons, 0, 1); head.Controls.Add(matSlotsNote, 0, 2);
         MatSelectionChanged();

@@ -125,6 +125,62 @@ sealed partial class ModEditorView : IModelHost
     Task<AddedPropEntry?> IModelHost.AddPropTo(string file, AddPropForm.Pick? pick) => AddPropTo(file, pick);
     Task<bool> IModelHost.RemoveAddedProp(AddedPropEntry e) => RemoveAddedProp(e);
     Task<bool> IModelHost.SetAddedModel(AddedPropEntry e, string? relPath) => SetAddedModel(e, relPath);
+    sealed record PropSnapshot(List<AddedPropEntry> Added, List<PropBoneEntry> Bones);
+    static readonly System.Text.Json.JsonSerializerOptions PropJson = new() { IncludeFields = true };
+
+    string IModelHost.PropState() => System.Text.Json.JsonSerializer.Serialize(new PropSnapshot(draft.AddedProps, draft.PropBones), PropJson);
+
+    /// <summary>
+    /// The props back to an earlier state (the Model tab's Undo / Redo, Kurt 2026-10-27: a removed prop didn't come back with
+    /// Ctrl+Z): the lists replaced, then each package they touch put right: props that aren't in the state any more taken off,
+    /// bones that aren't set any more back to their own, and the state's props put in (ApplyPropsTo).
+    /// </summary>
+    async Task<bool> IModelHost.SetPropState(string state)
+    {
+        if (System.Text.Json.JsonSerializer.Deserialize<PropSnapshot>(state, PropJson) is not { } to) return false;
+        var fromAdded = draft.AddedProps.ToList(); var fromBones = draft.PropBones.ToList();
+        var files = fromAdded.Select(p => p.Package).Concat(fromBones.Select(p => p.Package)).Concat(to.Added.Select(p => p.Package)).Concat(to.Bones.Select(p => p.Package))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (string file in files)
+        {
+            if (DraftPath(file) is not string src) continue;
+            var gone = fromAdded.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && !to.Added.Any(q => q.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && q.Class.Equals(p.Class, StringComparison.OrdinalIgnoreCase))).Select(p => p.Class).ToList();
+            var unset = fromBones.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && !to.Bones.Any(q => q.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && q.Class.Equals(p.Class, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (gone.Count == 0 && unset.Count == 0) continue;
+            var log = new List<string>();
+            try
+            {
+                byte[] b = await Task.Run(() =>
+                {
+                    byte[] x = File.ReadAllBytes(src);
+                    foreach (string c in gone) x = PowerBorrow.RemoveProp(x, c, log);
+                    foreach (var u in unset) x = PowerBorrow.SetHeldBones(x, u.Class, u.Original, log);
+                    return x;
+                });
+                if (IsDisposed) return false;
+                UseWorkCopy(file, b);
+                propTouched.Add(file);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException) { Dialog.Show(this, "The props couldn't be put back: " + ex.Message, "Not Undone", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+        }
+        draft.AddedProps.Clear(); draft.AddedProps.AddRange(to.Added);
+        draft.PropBones.Clear(); draft.PropBones.AddRange(to.Bones);
+        bool ok = true;
+        foreach (string file in files) ok &= await ApplyPropsTo(file);
+        FillPropList();
+        ReloadPropPreviews();
+        foreach (string file in files) modelPage?.PackageReplaced(file);
+        return ok;
+    }
+
+    async Task<bool> IModelHost.SetAddedPropOn(AddedPropEntry e, bool on)
+    {
+        bool was = e.Off;
+        e.Off = !on;
+        if (await ApplyPropsTo(e.Package)) return true;
+        e.Off = was;
+        return false;
+    }
     IReadOnlyList<PropBoneEntry> IModelHost.PropBones(string file) => [.. draft.PropBones.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase))];
     Task<bool> IModelHost.SetPropBone(string file, string cls, string? bone) => SetPropBone(file, cls, bone);
     async Task<bool> IModelHost.RefitAddedProp(AddedPropEntry e)

@@ -198,6 +198,35 @@ sealed partial class MainForm : Form
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
+        // File Pickers (a user, 2026-10-27: image pickers kept going back to Details): a view for package pickers, one for image pickers
+        var pickers = new ToolStripMenuItem("File Pickers") { ToolTipText = "The view the app's Open and Save windows start in: one for packages and other files, one for images (icon and texture replacements)." };
+        foreach (bool images in new[] { false, true })
+        {
+            bool img = images;
+            var sub = new ToolStripMenuItem(img ? "Image Pickers" : "Package and Other Pickers")
+            {
+                ToolTipText = img ? "Pickers for .DDS, .PNG and other images (icon, store image and texture replacements, image exports)." : "Pickers for .UPK packages, mods, models and folders: everything that isn't an image.",
+            };
+            var names = FileDialogView.Views.Select(v => v.Name).Append(FileDialogView.LastUsed).ToList();
+            foreach (string n in names)
+            {
+                string name = n;
+                var it = new ToolStripMenuItem(name == "Details" ? "Details (Name, Folder, Date, Type, Size)" : name, null, (_, _) =>
+                {
+                    if (img) settings.FileViewImages = name; else settings.FileViewPackages = name;
+                    settings.Save();
+                });
+                if (name == FileDialogView.LastUsed) it.ToolTipText = "Opens in the view you left the last one of these in.";
+                sub.DropDownItems.Add(it);
+            }
+            sub.DropDownOpening += (_, _) =>
+            {
+                string cur = img ? settings.FileViewImages : settings.FileViewPackages;
+                for (int i = 0; i < names.Count; i++) ((ToolStripMenuItem)sub.DropDownItems[i]).Checked = names[i] == cur;
+            };
+            pickers.DropDownItems.Add(sub);
+        }
+        menu.Items.Add(pickers);
         // UI Scale (Kurt, 2026-10-06: a user's screen was too small): text and the app's sizes, from the next start
         var scaleMenu = new ToolStripMenuItem("UI Scale") { ToolTipText = "Makes the app's text, buttons and lists smaller or larger (80–150 %), on top of Windows' own display scaling. Takes effect when the app starts again." };
         foreach (int pct in new[] { 80, 90, 100, 110, 125, 150 })

@@ -62,7 +62,9 @@ sealed partial class ModelPage
             if (settingHeld || heldClass is not string cls || ChosenPackage is not CharacterList.Item pkg) return;
             string? bone = heldOn.SelectedIndex <= 0 ? null : heldBones[heldOn.SelectedIndex - 1];
             status.Text = "Putting the prop on its bone…";
+            string before = PropBefore();
             bool ok = addedPick is { } e ? await SetAddedBone(e, bone) : await host.SetPropBone(pkg.Key, cls, bone);
+            if (ok) PropDone(before, $"Held On {bone ?? "its own bone"}");
             if (IsDisposed) return;
             Log(ok ? $"{cls}: held on {bone ?? "its own bone"} (in {pkg.Key} now; Save Changes keeps it)." : $"{cls}: the bone wasn't changed (see the message).");
             UpdateStatus();
@@ -187,12 +189,14 @@ sealed partial class ModelPage
     async void AddedFitCommitted()
     {
         if (settingPropFit || addedPick is not { } e) return;
+        string before = PropBefore();
         var f = e.Fit;
         f.Scale = Math.Abs(propScale.Value - 1) > 0.005f ? MathF.Round(propScale.Value, 2) : null;
         (f.X, f.Y, f.Z) = (MathF.Round(propMoveX.Value, 2), MathF.Round(propMoveY.Value, 2), MathF.Round(propMoveZ.Value, 2));
         (f.TurnX, f.TurnY, f.TurnZ) = (propTurnX.Value, propTurnY.Value, propTurnZ.Value);
         status.Text = "Putting the prop's fit in…";
         bool ok = await host.RefitAddedProp(e);
+        if (ok) PropDone(before, $"Prop Fit of {e.Name}");
         if (IsDisposed) return;
         if (!ok) Log($"{e.Name}: the fit couldn't be put in (see the message).");
         UpdateStatus();

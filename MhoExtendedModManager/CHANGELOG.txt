@@ -1,6 +1,27 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.201
+- Settings → File Pickers: choose the view the Open and Save windows start in, one for package (and other) pickers, one for image pickers: Details, List, Small / Medium / Large / Extra Large Icons, Tiles, Content, or Last Used. Image pickers start in the view you last left one in (they always went back to Details).
+
+0.60.200
+- Model tab: right-click → Remove (first in the menu) also on the costume's own props: it leaves the game's prop off this costume (Put Back brings it back); Del does the same. Leave Off for Now (an added prop, its settings kept) is further down.
+
+0.60.199
+- Model tab: The Target's Props has a right-click menu (an added prop: Pick as Target, Leave Off / Put Back, Remove; the costume's own: Leave Off / Keep), and Del removes the selected added prop (Ctrl+Z brings it back).
+
+0.60.198
+- Model tab: Undo / Redo (Ctrl+Z / Ctrl+Y) take back prop changes too: adding, removing, ticking an added prop, its Prop Fit, and Held On (the costume's own props' too). A removed prop comes back with its fit, bone and model.
+
+0.60.197
+- Model tab: unticking an added prop in The Target's Props leaves it off the costume (its fit, bone and model kept); ticking it puts it back as it was. Remove still takes it away.
+
+0.60.196
+- Model tab: more room in the right column. The build's game material (Material ▾) moved to the Materials tab, beside Preview Shows, as Game Material. The Parts tab is one list: SOURCE PARTS, then THE TARGET'S PROPS, each as tall as its rows (the list scrolls), with Add a Prop ▾ and Remove in its toolbar.
+
+0.60.195
+- Model tab: Add a Prop ▾ → From an FBX gives a costume a prop of your own. Pick the FBX: a plain prop class from the game (one the costume doesn't have) carries it, and its model is built as made (its size and shape kept, its origin on the bone; an FBX without bones is held rigidly). Then Held On ▾ puts it on the bone you want and Prop Fit fits it. Add a Prop ▾ → From a Character is the earlier Add a Prop.
+
 0.60.194
 - Editor: its working copies of a package keep the package's own file name (in a folder each). After an added prop, a prop's bone, an animation or voice change, a Model tab build read a renamed copy: the costume's Size in Game was left as the game's ("no …initialskeletalmesh in 037aa2_UC__…") and the built file took the odd name.
 

@@ -87,6 +87,8 @@ sealed partial class PreviewPanel
     /// <summary>An added prop as the target: its fit (PowerBorrow.FitMatrix), on the model shown in the hand, as its package
     /// will draw it; else null.</summary>
     public static System.Numerics.Matrix4x4? AddedFitNow { get; set; }
+    /// <summary>An added prop of the user's own as the target: its model shown as made, not laid over the carrier's.</summary>
+    public static bool PropAsIsNow { get; set; }
 
     /// <summary>A prop target: the character holding it (from the mod's copy when it has one); a body: the props built into
     /// the mod's copy.</summary>
@@ -159,7 +161,7 @@ sealed partial class PreviewPanel
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
         Stage("skeleton");
-        var r = FbxReimport.LoadAny(fbx, sk, meshes, _ => { });   // (a prop target: laid over the prop, or its own model as it is)
+        var r = FbxReimport.LoadAny(fbx, sk, meshes, _ => { }, PropAsIsNow);   // (a prop target: laid over the prop, or its own model as it is)
         if (!PropFit.IsProp(sk)) FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
         if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });   // the mesh edited in Blender (Ctrl+S)
         if (PropFit.IsProp(sk)) PropFit.Adjust(r, sk, PropAdjustNow);   // (the Prop Fit sliders)

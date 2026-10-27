@@ -72,6 +72,8 @@ sealed record ImportOptions
     public float Size { get; init; } = 1;
     /// <summary>A prop target's Prop Fit sliders (move, turn, size after the fit); null: none.</summary>
     public PropAdjust? PropFit { get; init; }
+    /// <summary>A prop's model kept as made (its size and shape: a prop of the user's own), not laid over the target's.</summary>
+    public bool PropAsIs { get; init; }
     /// <summary>The package the game's size is read from when the build starts from a copy that already holds another build
     /// (a shield built onto a package whose body was built: its size is set already, and must not be multiplied); null = the
     /// start package.</summary>

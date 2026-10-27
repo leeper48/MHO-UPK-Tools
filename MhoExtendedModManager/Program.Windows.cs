@@ -777,6 +777,58 @@ static partial class Program
             File.WriteAllText(args[2], said);
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--filedialog-views-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // On screen (~2 s per picker; scratch MHO_EXTMM_HOME): Settings → File Pickers. A package picker in Details, an
+            // image picker in Large Icons, then Last Used: the view picked in one image picker is the next one's start.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            var st = Settings.Load();
+            MhoExtendedModManager.Model.Settings.App = st;
+            var log = new List<string>();
+            int fails = 0;
+            void Check(bool ok, string what) { log.Add($"{(ok ? "ok  " : "FAIL")} {what}"); if (!ok) fails++; }
+            string Run(string filter, string? setTo = null)
+            {
+                string first = "", after = "";
+                var t = new System.Windows.Forms.Timer { Interval = 1200 };
+                int step = 0;
+                t.Tick += (_, _) =>
+                {
+                    step++;
+                    if (step == 1) { first = Gui.FileDialogView.ProbeView(setTo, close: setTo == null); if (setTo == null) t.Stop(); }
+                    else { after = Gui.FileDialogView.ProbeView(null, close: true); t.Stop(); }
+                };
+                t.Start();
+                using (var d = new OpenFileDialog { InitialDirectory = args[1], Filter = filter }) d.ShowDialog();
+                t.Dispose();
+                // (the pickers' timer saves once they're closed)
+                var end = DateTime.Now.AddMilliseconds(600); while (DateTime.Now < end) { Application.DoEvents(); Thread.Sleep(20); }
+                return setTo == null ? first : $"{first} -> {after}";
+            }
+            const string Pkg = "Packages (*.upk)|*.upk", Img = "Textures and images (*.dds;*.png)|*.dds;*.png";
+            // (the pickers' timer starts on the app's first idle: run inside a message loop, as in the app)
+            var ctx = new ApplicationContext();
+            var go = new System.Windows.Forms.Timer { Interval = 300 };
+            go.Tick += (_, _) => { go.Stop(); Body(); ctx.ExitThread(); };
+            go.Start();
+            Application.Run(ctx);
+            log.Add(fails == 0 ? "ALL PASSED" : $"{fails} FAILED");
+            File.WriteAllLines(args[2], log);
+            return fails == 0 ? 0 : 1;
+            void Body()
+            {
+            st.FileViewPackages = "Details"; st.FileViewImages = "Large Icons";
+            string r = Run(Pkg); Check(r.StartsWith("4:") && r.EndsWith("files"), $"package picker in Details: {r}");
+            r = Run(Img); Check(r == "1:96 images", $"image picker in Large Icons: {r}");
+            st.FileViewImages = "Last Used"; st.FileViewLastImages = null;
+            r = Run(Img, setTo: "1:256"); Check(r.EndsWith("-> 1:256 images"), $"a user picks Extra Large Icons: {r}");
+            Check(st.FileViewLastImages == "1:256", $"remembered: {st.FileViewLastImages}");
+            r = Run(Img); Check(r == "1:256 images", $"the next image picker starts there: {r}");
+            r = Run(Pkg); Check(r.StartsWith("4:"), $"package pickers still Details: {r}");
+            Check(Settings.Load().FileViewLastImages == "1:256", "saved to settings.json");
+            }
+        }
         if (args.Length == 2 && args[0].Equals("--tooltip-audit", StringComparison.OrdinalIgnoreCase))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);

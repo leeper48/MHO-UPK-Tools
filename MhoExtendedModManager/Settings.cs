@@ -40,6 +40,13 @@ sealed class Settings
     /// monitor): its normal bounds (x, y, width, height) and whether it was maximized, restored at start while that spot is
     /// on a connected monitor. <see cref="RememberWindow"/> off = the old behavior (maximized on the main monitor).</summary>
     public bool RememberWindow { get; set; } = true;
+    /// <summary>Settings → File Pickers (a user, 2026-10-27: image pickers kept going back to Details): the view of pickers
+    /// for packages and other files, and of pickers for images (<see cref="Gui.FileDialogView.Views"/>, or "Last Used").</summary>
+    public string FileViewPackages { get; set; } = "Details";
+    public string FileViewImages { get; set; } = "Last Used";
+    /// <summary>"Last Used": the view each kind of picker was left in (mode:icon size), null until one was used.</summary>
+    public string? FileViewLastPackages { get; set; }
+    public string? FileViewLastImages { get; set; }
     /// <summary>Keyboard shortcuts and 3D mouse bindings changed from their defaults, and buttons' own shortcuts (Shortcuts):
     /// command id → binding. Null when none is changed.</summary>
     public Dictionary<string, string>? Shortcuts { get; set; }

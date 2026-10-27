@@ -32,7 +32,7 @@ sealed partial class ModelPage
             Hair = HairChoice, Cape = CapeChoice, Rigs = OtherRigs(),
             ModelFbx = EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
             AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
-            Size = sizeSlider.Value, NoMod = true, PropFit = PropFitForTarget() };
+            Size = sizeSlider.Value, NoMod = true, PropFit = PropFitForTarget(), PropAsIs = AddedTarget?.KeepShape == true };
         string mff = model?.Folder ?? ImportBuild.SourceName(sourceFbx!);
         // a Mixamo … FBX, or an MFF folder picked on its own (Single Model): its file (not a repository folder name)
         string mffSource = model != null && (model.Profile != null || chosenKey?.StartsWith(MffDir) == true) ? model.File : mff;
@@ -534,7 +534,7 @@ sealed partial class ModelPage
                 if (sfbx != null)
                 {
                     var tsk = MhoSkeleton.Load(package, null);
-                    var r = FbxReimport.LoadAny(uf != null ? RigFor(uf, pkg.Key) : sfbx, tsk, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), _ => { });
+                    var r = FbxReimport.LoadAny(uf != null ? RigFor(uf, pkg.Key) : sfbx, tsk, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), _ => { }, AddedTarget?.KeepShape == true);
                     if (!PropFit.IsProp(tsk)) FbxLean.Apply(r, leanUse);
                     if (mapFile != null) WeightSmooth.Apply(r, BoneMapFile.Load(mapFile).Smooth);
                     // the FBX edits as the preview and Build use them: the mesh from Blender, the replaced animations

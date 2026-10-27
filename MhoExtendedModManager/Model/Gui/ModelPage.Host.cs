@@ -37,6 +37,12 @@ interface IModelHost
     /// <summary>An added prop given the model built at <paramref name="relPath"/> (under <see cref="WorkFolder"/>), or its
     /// character's own again (null), put into its package.</summary>
     Task<bool> SetAddedModel(AddedPropEntry e, string? relPath);
+    /// <summary>The props as they are (added props, the costume's props on other bones), for Undo.</summary>
+    string PropState();
+    /// <summary>The props back to <paramref name="state"/> (from <see cref="PropState"/>), put into their packages (Undo / Redo).</summary>
+    Task<bool> SetPropState(string state);
+    /// <summary>An added prop left off the costume (its settings kept) or put back on.</summary>
+    Task<bool> SetAddedPropOn(AddedPropEntry e, bool on);
     /// <summary>The package's own props held on other bones (manifest PropBones).</summary>
     IReadOnlyList<PropBoneEntry> PropBones(string file);
     /// <summary>One of the package's own props held on <paramref name="bone"/>, or on its own again (null).</summary>

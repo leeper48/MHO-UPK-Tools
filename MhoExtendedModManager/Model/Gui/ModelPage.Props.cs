@@ -321,6 +321,9 @@ sealed partial class ModelPage
         return fails;
     }
 
+    /// <summary>Test: a key pressed on <paramref name="c"/> (WM_KEYDOWN, as Windows sends it).</summary>
+    static void SendKeyDown(Control c, Keys key) => SendMessage(c.Handle, 0x0100, (IntPtr)(int)key, IntPtr.Zero);
+
     /// <summary>Test: the bone the package's attachment <paramref name="cls"/> names of its own (null: none, its parent's).</summary>
     string? BoneIn(string file, string cls) => ModCopy(file) is string mc && File.Exists(mc) && PowerBorrow.HeldBones(File.ReadAllBytes(mc), cls) is { Count: > 0 } b ? b[0] : null;
 
@@ -364,6 +367,13 @@ sealed partial class ModelPage
         Check(propFitBox?.Visible == true && sizeCaption?.Text.Contains("ADDED") == true, $"the Prop Fit sliders show its fit ({sizeCaption?.Text})");
         Check(HasProp(), $"the preview holds it ({preview.PropClassesForTest})");
         if (!HasProp()) Check(false, "  the tab's log: " + string.Join(" | ", log.Lines.TakeLast(10)));
+        // unticked: off the costume (out of the preview), its settings kept; ticked: back
+        await TestSetAdded(e, false);
+        for (int i = 0; i < 200 && (HasProp() || preview.PropClassesForTest.Length == 0); i++) await Task.Delay(100);
+        Check(e.Off && !HasProp() && host.AddedProps(file).Contains(e), $"unticked: off the costume, still in the list ({preview.PropClassesForTest})");
+        await TestSetAdded(e, true);
+        for (int i = 0; i < 200 && !HasProp(); i++) await Task.Delay(100);
+        Check(!e.Off && HasProp(), $"ticked again: back on ({preview.PropClassesForTest})");
         // a slider let go: the fit into the package
         string? afterAdd = host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Path;
         propMoveZ.Value = 15;
@@ -425,11 +435,52 @@ sealed partial class ModelPage
         bool off = addedPick == null;
         StepMesh(-1);
         Check(off && ReferenceEquals(addedPick, e), "▶ steps off it, ◀ back onto it");
-        // Remove
-        RemovePropClicked();
+        // Remove, with the Del key on its row (the key itself, as Windows sends it)
+        var delRow = targetProps.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => ReferenceEquals(r.Tag, e));
+        Check(delRow != null, $"{name} is a row of the target's props");
+        if (delRow != null)
+        {
+            targetProps.ClearSelection(); delRow.Selected = true;
+            SendKeyDown(targetProps, Keys.Delete);
+        }
+        else RemovePropClicked();
         for (int i = 0; i < 300 && (meshAdded.Contains(e) || HasProp() || refreshing); i++) await Task.Delay(100);
         Check(!meshAdded.Contains(e) && addedPick == null && !addedRows.Contains(e), "Remove: gone from the selector and the list");
         for (int i = 0; i < 150 && preview.PropClassesForTest.Length == 0; i++) await Task.Delay(100);   // (the props read again)
         Check(!HasProp() && preview.PropClassesForTest.Length > 0, $"Remove: gone from the preview, the costume's own props still held ({preview.PropClassesForTest})");
+        // Ctrl+Z: the removed prop back (Kurt, 2026-10-27), Ctrl+Y: gone again
+        bool Listed() => host.AddedProps(file).Any(a => a.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
+        Undo();
+        for (int i = 0; i < 300 && !(Listed() && HasProp()); i++) await Task.Delay(100);
+        Check(Listed() && HasProp() && meshAdded.Any(a => a.Class.Equals(cls, StringComparison.OrdinalIgnoreCase)), $"Ctrl+Z after Remove: {name} back in the list, the selector and the preview ({preview.PropClassesForTest})");
+        Redo();
+        for (int i = 0; i < 300 && (Listed() || HasProp()); i++) await Task.Delay(100);
+        Check(!Listed() && !HasProp(), $"Ctrl+Y: removed again ({preview.PropClassesForTest})");
+
+        // Add a Prop → From an FBX (step 4): a model of the user's own, carried by a free prop class, built as made
+        if (Environment.GetEnvironmentVariable("MHO_TEST_ADD_FBX") is { Length: > 0 } fbxProp && File.Exists(fbxProp))
+        {
+            var raw = FbxReimport.Raw(fbxProp);
+            float want = (raw.Max - raw.Min).Length();
+            var f = await AddFbxProp(file, fbxProp);
+            string? FbxMesh() => f != null && ModCopy(file) is string dp ? MhoExtendedModManager.ModMeshes.Attachments(dp).FirstOrDefault(x => x.Class.Equals(f.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last() : null;
+            float Size(string? meshName)
+            {
+                if (meshName == null || ModCopy(file) is not string path) return 0;
+                var pk = AnimExportCli.Packages.Package.Open(path);
+                int k = pk.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).FirstOrDefault(x => pk.GetExportName(x).Equals(meshName, StringComparison.OrdinalIgnoreCase), -1);
+                var pos = k < 0 ? null : AnimExportCli.Meshes.SkeletalMeshReader.TryRead(pk, k, _ => { })?.HighestDetail?.Positions;
+                return pos is not { Count: > 0 } ? 0 : (pos.Aggregate(System.Numerics.Vector3.Max) - pos.Aggregate(System.Numerics.Vector3.Min)).Length();
+            }
+            for (int i = 0; i < 300 && FbxMesh()?.Contains("_m") != true; i++) await Task.Delay(100);
+            string? fm = FbxMesh();
+            float got = Size(fm);
+            Check(f != null && f.KeepShape && f.ModelFrom != null && fm?.Contains("_m") == true, $"From an FBX: {f?.Name ?? "-"} on {f?.Class ?? "-"}, its model built and in the package ({fm})");
+            // (its fitted copy: the carrier's default turn may apply; the size is the model's own)
+            Check(got > 0 && MathF.Abs(got / want - 1) < 0.05f && log.Text.Contains("kept as made"), $"From an FBX: kept as made ({got:0.#} units, the file's {want:0.#})");
+            for (int i = 0; i < 200 && !preview.PropClassesForTest.Contains(f?.Class ?? "?", StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+            Check(f != null && preview.PropClassesForTest.Contains(f.Class, StringComparison.OrdinalIgnoreCase), $"From an FBX: in the preview ({preview.PropClassesForTest})");
+            if (f != null) { addedPick = f; RemovePropClicked(); for (int i = 0; i < 300 && meshAdded.Contains(f); i++) await Task.Delay(100); }
+        }
     }
 }

@@ -503,7 +503,9 @@ sealed partial class ModEditorView
     {
         if (game == null || DraftPath(file) is not string src) return false;
         int v = ++propVersion;
-        var props = draft.AddedProps.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
+        var all = draft.AddedProps.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
+        var props = all.Where(p => !p.Off).ToList();
+        var off = all.Where(p => p.Off).Select(p => p.Class).ToList();   // (unticked: taken off the costume's list, settings kept)
         string cooked = game.Cooked;
         var log = new List<string>();
         var hold = Hold(file, src);
@@ -518,6 +520,7 @@ sealed partial class ModEditorView
             bytes = await Task.Run(() =>
             {
                 byte[] b = File.ReadAllBytes(src);
+                foreach (string c in off) b = PowerBorrow.RemoveProp(b, c, log);
                 foreach (var p in props) b = PowerBorrow.AddProp(b, p, StockFiles.For(cooked, p.From), log, hold, models[p]);
                 foreach (var pb in bones) b = PowerBorrow.SetHeldBones(b, pb.Class, [pb.Bone], log);   // (the costume's own props on other bones)
                 baseBytes = HoldInBorrows(file, b, props, log, borrows, out baseFile);
@@ -564,7 +567,7 @@ sealed partial class ModEditorView
         {
             if (DraftPath(g.Key) is not string src) throw new InvalidDataException($"{g.Key} isn't in the mod");
             byte[] b = File.ReadAllBytes(src);
-            foreach (var p in g) b = PowerBorrow.AddProp(b, p, StockFiles.For(game.Cooked, p.From), log, Hold(g.Key, src), PropModel(p));
+            foreach (var p in g) b = p.Off ? PowerBorrow.RemoveProp(b, p.Class, log) : PowerBorrow.AddProp(b, p, StockFiles.For(game.Cooked, p.From), log, Hold(g.Key, src), PropModel(p));
             foreach (var pb in draft.PropBones.Where(x => x.Package.Equals(g.Key, StringComparison.OrdinalIgnoreCase))) b = PowerBorrow.SetHeldBones(b, pb.Class, [pb.Bone], log);
             string path = Path.Combine(work, g.Key);
             File.WriteAllBytes(path, b);
