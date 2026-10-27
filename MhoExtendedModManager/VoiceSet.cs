@@ -80,10 +80,32 @@ sealed class AddedPropEntry
     public string? Slot { get; set; }
     /// <summary>Its fit (size, move, turn; Class unused).</summary>
     public PropFit Fit { get; set; } = new();
+    /// <summary>A model of its own in place of its character's (Kurt, 2026-10-27: built on the Model tab): the package the
+    /// Model tab built it into, relative to the mod's Model folder (added_models\…); null: its character's own.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ModelFrom { get; set; }
+    /// <summary>The character bone it's held on in place of its own (Kurt, 2026-10-27: the Model tab's Held On); null: as its
+    /// character holds it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Bone { get; set; }
     /// <summary>Per animation, a further move and turn (Kurt, 2026-10-23: a pose that wants the prop elsewhere), baked into
     /// that animation only (PropHold, with Pivot on the Hand); null when none.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public List<PropAnimFit>? Anims { get; set; }
+}
+
+/// <summary>
+/// One of a costume's own props held on another bone (Kurt, 2026-10-27: the Model tab's Held On): its attachment class
+/// default's AttachmentBones set in the package. Manifest PropBones (an extension; the package keeps it).
+/// </summary>
+sealed class PropBoneEntry
+{
+    public string Package { get; set; } = "";
+    /// <summary>Its attachment class (marvelattachment_thorhammer_ageofultron).</summary>
+    public string Class { get; set; } = "";
+    public string Bone { get; set; } = "";
+    /// <summary>The class default's own AttachmentBones before (empty: none of its own, its parent class's).</summary>
+    public List<string> Original { get; set; } = [];
 }
 
 /// <summary>An added prop's adjustment in one animation (its slot), on top of its fit: moved along the character's axes

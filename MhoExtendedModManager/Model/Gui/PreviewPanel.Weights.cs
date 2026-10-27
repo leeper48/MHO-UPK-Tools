@@ -74,6 +74,8 @@ sealed partial class PreviewPanel
     /// bones and influences, so animation and props work unchanged).</summary>
     ModMeshes.Loaded Display(ModMeshes.Loaded l)
     {
+        // a prop target held by its character: the weights are the prop's (HeldProp), the character is drawn as it is
+        if (holderAnimator != null && !ReferenceEquals(l, shown?.Mesh)) return l;
         view.Tint = null;
         if (!showWeights) return l;
         var hotIdx = new bool[l.Bones.Count];

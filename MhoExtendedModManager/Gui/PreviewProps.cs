@@ -26,6 +26,15 @@ sealed class PreviewProps
     public Func<string, bool>? Hidden { get; set; }
     /// <summary>The character class shown (a power's components can exclude it: EntityExcluded).</summary>
     public Func<string?>? Entity { get; set; }
+    /// <summary>A prop's mesh shown in place of the game's (the Model tab's prop target: the model being fitted), by mesh; null
+    /// keeps the game's. A replaced prop always shows (not only while a power shows it).</summary>
+    public Func<MeshRef, ModMeshes.Loaded?>? Replace { get; set; }
+    /// <summary>The replaced prop is the model being edited (the Model tab's prop target): it shows with Props off and when its
+    /// power doesn't show it, and the weight colours (ModelView.Tint) are its. Else (the body target holding its prop as last
+    /// fitted) the prop shows as the game's would.</summary>
+    public bool ReplacedIsTarget { get; set; }
+    /// <summary>The replacement as last put in the rig (its sections' place in the combined mesh: PropRig.SectionStart).</summary>
+    public ModMeshes.Loaded? Replaced { get; private set; }
     /// <summary>More meshes for the rig after the props (the Mods tab's power actors).</summary>
     public Action<PropRig>? AddMore { get; init; }
 
@@ -47,10 +56,12 @@ sealed class PreviewProps
     {
         if (Shown() is not { } now) return;
         int req = ++loadRequest;
-        if (!on && rig.Count == 0 && baseProps.Count == 0) return;
+        var replace = ReplacedIsTarget ? Replace : null;   // (a replaced prop shows with Props off too: the model being fitted, alone in the hand)
+        if (!on && replace == null && rig.Count == 0 && baseProps.Count == 0) return;
         var meshes = all.ToList();
         var pkgs = modPackages.ToList();
-        Task.Run(() => on ? PowerPreview.BaseProps(main, meshes, cooked, pkgs) : [])
+        Task.Run(() => on ? PowerPreview.BaseProps(main, meshes, cooked, pkgs)
+                : replace != null ? [.. PowerPreview.BaseProps(main, meshes, cooked, pkgs).Where(b => replace(b.W.Ref) != null)] : [])
             .ContinueWith(t =>
             {
                 if (owner.IsDisposed || req != loadRequest || t.Status != TaskStatus.RanToCompletion) return;
@@ -69,12 +80,20 @@ sealed class PreviewProps
         rig.Clear();
         // (a prop rigged to the character's skeleton is held at the root: its bind pose is already in place)
         rig.SetParentAnimation(Playing());
-        PowerPreview.AddProps(rig, s.Animator, Hidden == null ? baseProps : [.. baseProps.Where(b => !Hidden(b.W.Class))], powerProps);
+        Replaced = null;
+        var shownProps = (Hidden == null ? baseProps : [.. baseProps.Where(b => !Hidden(b.W.Class))]).Select(b =>
+        {
+            if (Replace?.Invoke(b.W.Ref) is not { } rep) return b;
+            Replaced = rep with { MeshTransform = b.Mesh.MeshTransform };
+            return ReplacedIsTarget ? b with { W = b.W with { OnDemand = false }, Mesh = Replaced } : b with { Mesh = Replaced };
+        }).ToList();
+        PowerPreview.AddProps(rig, s.Animator, shownProps, powerProps);
         AddMore?.Invoke(rig);
         rig.SetRules(rules, contact, Seconds());
         rig.SetMotions(seqs);
         var keep = s.View.ViewState;
         s.View.ShowMesh(rig.Combine(Display?.Invoke(s.Mesh) ?? s.Mesh), s.Mesh.Positions.Length);
+        s.View.TintStart = ReplacedIsTarget && Replaced != null ? Math.Max(0, rig.VertexStart(Replaced, s.Mesh.Positions.Length)) : 0;
         s.View.ViewState = keep;
         ShowPose();
     }

@@ -17,6 +17,7 @@ sealed partial class ModelPage
     public async Task<bool> BuildAsync()
     {
         await propTicks;   // (a Character just picked: a prop ticks its own part first)
+        if (AddedTarget is { } back && !HasSource && !building) return await AddedOwnModel(back);
         if (ChosenPackage is CharacterList.Item only && !HasSource && !building) return await BuildSizeOnly(only);
         if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return false;
         var picked = SelectedParts();
@@ -31,7 +32,7 @@ sealed partial class ModelPage
             Hair = HairChoice, Cape = CapeChoice, Rigs = OtherRigs(),
             ModelFbx = EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
             AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
-            Size = sizeSlider.Value, NoMod = true };
+            Size = sizeSlider.Value, NoMod = true, PropFit = PropFitForTarget() };
         string mff = model?.Folder ?? ImportBuild.SourceName(sourceFbx!);
         // a Mixamo … FBX, or an MFF folder picked on its own (Single Model): its file (not a repository folder name)
         string mffSource = model != null && (model.Profile != null || chosenKey?.StartsWith(MffDir) == true) ? model.File : mff;
@@ -39,8 +40,9 @@ sealed partial class ModelPage
         building = true; UpdateStatus();
         log.Clear();
         string baseStart = StartPackage(pkg.Key);
+        var addedTarget = AddedTarget;   // (an added prop: built in its copy, kept as its own model)
         // another model of this package built already (the body, then its shield): this build starts from that build, so both stay
-        string? keepOther = await Task.Run(() => OtherModelBuilt(pkg.Key, baseStart));
+        string? keepOther = addedTarget != null ? null : await Task.Run(() => OtherModelBuilt(pkg.Key, baseStart));
         if (keepOther != null) options = options with { SizeFrom = baseStart };
         string start = keepOther != null ? ModCopy(pkg.Key)! : baseStart;
         lastStart = start;
@@ -50,6 +52,12 @@ sealed partial class ModelPage
         {
             var runOptions = uf != null ? options with { SourceFbx = RigFor(uf, pkg.Key), Parts = "all" } : options;
             var result = await Task.Run(() => ImportBuild.Run(mffSource, start, outDir, runOptions, line => BeginInvoke(() => Log(line))));
+            if (addedTarget != null)
+            {
+                ok = result != null && await KeepAddedModel(addedTarget, pkg.Key, result.Package);
+                building = false; UpdateStatus();
+                return ok;
+            }
             // the other models the character swaps to (Ant-Man shrunk: his "smallmesh" alias, the same skeleton at 0.4 scale):
             // the same model is built onto each, fitted to its own skeleton (a user's Cassie Lang stayed Ant-Man when shrunk)
             if (result != null)
@@ -211,15 +219,15 @@ sealed partial class ModelPage
             string target = MhoSkeleton.Load(baseStart, null).Name;
             var a = AnimExportCli.Packages.Package.Open(baseStart);
             var b = AnimExportCli.Packages.Package.Open(current);
-            // props' models aren't a model built here (an added prop's, its fitted copies, a borrowed power's: Kurt, 2026-10-24,
-            // Thor's hammer on Captain America made every build start from the last one, so its textures piled up and Feet
-            // seemed to do nothing)
-            var props = MhoExtendedModManager.ModMeshes.Attachments(current).Select(x => x.Mesh.Split('.').Last()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // props' models the start doesn't have aren't a model built here (an added prop's, its fitted copies, a borrowed
+            // power's: Kurt, 2026-10-24, Thor's hammer on Captain America made every build start from the last one, so its
+            // textures piled up and Feet seemed to do nothing). The costume's own props are (Kurt, 2026-10-27: Thor Age of
+            // Ultron's hammer, built here, went back to the game's when his body was built after it).
             foreach (int i in b.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName))
             {
                 string name = b.GetExportName(i);
                 if (name.Equals(target, StringComparison.OrdinalIgnoreCase)) continue;
-                if (props.Contains(name) || System.Text.RegularExpressions.Regex.IsMatch(name, @"_x\d+(_fit\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;   // (a prop's fitted copy: …_x85_fit49176)
+                if (System.Text.RegularExpressions.Regex.IsMatch(name, @"_x\d+(_fit\d+)?$|_m\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;   // (a prop's fitted copy: …_x85_fit49176; an added prop's own model)
                 int j = a.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).FirstOrDefault(k => a.GetExportName(k).Equals(name, StringComparison.OrdinalIgnoreCase), -1);
                 // (only a model the game's package has, changed: the tab builds onto those; one it doesn't have is a prop's)
                 if (j >= 0 && !a.GetExportData(j).SequenceEqual(b.GetExportData(i))) return name;
@@ -234,6 +242,34 @@ sealed partial class ModelPage
     /// the package as the mod has it now (a model built earlier stays), relative to the game's size (the package before the
     /// Model tab changed it), so building again replaces the size instead of multiplying it; 100 % puts the game's back.
     /// </summary>
+    /// <summary>
+    /// An added prop's build kept as its own model (Model\added_models\&lt;package&gt;\&lt;class&gt;.upk, saved with the mod) and
+    /// put into the costume's package with its fit (the editor: PowerBorrow.AddProp copies the model in).
+    /// </summary>
+    async Task<bool> KeepAddedModel(AddedPropEntry e, string key, string builtPackage)
+    {
+        string rel = Path.Combine("added_models", Path.GetFileNameWithoutExtension(key), e.Class + ".upk");
+        string keep = Path.Combine(host.WorkFolder, rel);
+        try { Directory.CreateDirectory(Path.GetDirectoryName(keep)!); File.Copy(builtPackage, keep, true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log("ERROR: the added prop's model couldn't be kept: " + ex.Message); return false; }
+        if (!await host.SetAddedModel(e, rel)) { Log($"{e.Name}: its new model couldn't be put into {key} (see the message)."); return false; }
+        Log($"Done: {e.Name} has its new model in {key}, with its fit (Save Changes keeps it; Apply Changes puts it into the game).");
+        if (!IsDisposed) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
+        return true;
+    }
+
+    /// <summary>No source on an added prop with a model of its own: its character's model back (asked first).</summary>
+    async Task<bool> AddedOwnModel(AddedPropEntry e)
+    {
+        if (e.ModelFrom == null) { Log($"{e.Name}: pick a source to give it a new model (its fit is on the sliders, no build needed)."); return false; }
+        if (Dialog.Choose(this, $"Put the character's own model back on {e.Name}? The model built here is dropped from it.", "Added Prop", "Put It Back", "Cancel") != 0) return false;
+        building = true; UpdateStatus();
+        bool ok = await host.SetAddedModel(e, null);
+        building = false; UpdateStatus();
+        if (ok) Log($"{e.Name}: its character's own model is back in {e.Package}.");
+        return ok;
+    }
+
     async Task<bool> BuildSizeOnly(CharacterList.Item pkg)
     {
         float size = sizeSlider.Value;
@@ -285,6 +321,7 @@ sealed partial class ModelPage
         if (ChosenPackage is not CharacterList.Item pkg) return null;
         var sb = new System.Text.StringBuilder();
         sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked).Append('|').Append(feetCustom?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "auto").Append('|').Append(keepSourceSize.Checked).Append('|').Append(leanSlider.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)).Append(jointFit.Checked ? "|joints" : "").Append(PaintText() is string paintText ? "|paint" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(paintText)))[..10] : "");
+        if (PropFitForTarget() is { IsNone: false } pfp) sb.Append("|propfit").Append(pfp);   // (only then: builds from before keep their print)
         if (HasSource)
         {
             sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))

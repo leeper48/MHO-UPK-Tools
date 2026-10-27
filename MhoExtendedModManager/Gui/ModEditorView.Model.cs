@@ -121,6 +121,19 @@ sealed partial class ModEditorView : IModelHost
 
     IReadOnlyList<(string File, string Path)> IModelHost.Packages => draft.Packages;
 
+    IReadOnlyList<AddedPropEntry> IModelHost.AddedProps(string file) => [.. draft.AddedProps.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase))];
+    Task<AddedPropEntry?> IModelHost.AddPropTo(string file, AddPropForm.Pick? pick) => AddPropTo(file, pick);
+    Task<bool> IModelHost.RemoveAddedProp(AddedPropEntry e) => RemoveAddedProp(e);
+    Task<bool> IModelHost.SetAddedModel(AddedPropEntry e, string? relPath) => SetAddedModel(e, relPath);
+    IReadOnlyList<PropBoneEntry> IModelHost.PropBones(string file) => [.. draft.PropBones.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase))];
+    Task<bool> IModelHost.SetPropBone(string file, string cls, string? bone) => SetPropBone(file, cls, bone);
+    async Task<bool> IModelHost.RefitAddedProp(AddedPropEntry e)
+    {
+        bool ok = await ApplyPropsTo(e.Package);
+        if (ok && ReferenceEquals(propList.SelectedItem, e)) ShowPropFit();   // (the Animations tab's list shows it as it is now)
+        return ok;
+    }
+
     public string? SavedPath(string file) =>
         editing != null && editing.Manifest.UpkReplacements.FirstOrDefault(f => f.Equals(file, StringComparison.OrdinalIgnoreCase)) is string f
             ? Path.Combine(editing.Folder, f) : null;
@@ -153,7 +166,13 @@ sealed partial class ModEditorView : IModelHost
         var swaps = draft.AnimSwaps.Where(s => s.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
         string kept = Path.Combine(WorkFolder, "borrow_base", file);
         bool borrowed = File.Exists(kept);
-        if (swaps.Count == 0 && !borrowed) return;
+        bool props = draft.AddedProps.Any(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase)) || draft.PropBones.Any(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
+        if (swaps.Count == 0 && !borrowed)
+        {
+            // only added props (Kurt, 2026-10-27: Angela's axe vanished from the built package until Save)
+            if (props) await ApplyPropsTo(file);
+            return;
+        }
         var log = new List<string>();
         byte[]? bytes;
         string cooked = game.Cooked;
@@ -173,7 +192,7 @@ sealed partial class ModEditorView : IModelHost
             File.Copy(withSwaps, kept, true);   // (the package before the borrows: the model as built, the animation changes on it)
             RebuildBorrows();                   // (then the added props: ReapplyProps)
         }
-        else if (draft.AddedProps.Any(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase))) await ApplyPropsTo(file);
+        else if (props) await ApplyPropsTo(file);
     }
 
     /// <summary>What the last Model tab build's sync did (tests).</summary>

@@ -1871,7 +1871,9 @@ static class PowerBorrow
     /// </summary>
     /// <param name="hold">Pivot on the Hand: the package, the prop, its bones, the log → the package
     /// holding them (PropHold, baked into the copied animations); null: the copied sets stop moving the bones (PinPropBones).</param>
-    public static byte[] AddProp(byte[] package, AddedPropEntry e, string fromPath, List<string> log, Func<byte[], AddedPropEntry, IReadOnlyList<string>, List<string>, byte[]>? hold = null)
+    /// <param name="modelFrom">A package holding a model of the prop's own (the Model tab's build: the same class, its ModelMesh
+    /// the new model), put in its place; null: its character's own model.</param>
+    public static byte[] AddProp(byte[] package, AddedPropEntry e, string fromPath, List<string> log, Func<byte[], AddedPropEntry, IReadOnlyList<string>, List<string>, byte[]>? hold = null, string? modelFrom = null)
     {
         hold ??= (b, _, bones, l) => PinPropBones(b, bones, true, l);
         MeshCopy.Register();   // (the prop's skeletal mesh copies with the class)
@@ -1896,12 +1898,19 @@ static class PowerBorrow
         int d = Find(dst, def);
         if (d < 0) throw new InvalidDataException($"{def} isn't in the package");
         dst = WithOriginalModel(dst, def, log);
+        dst = WithModel(dst, def, modelFrom, log);   // (a model of its own: then the fit is made from that)
         var f = e.Fit;
         float scale = f.Scale is float fs && fs > 0 ? fs : 1;
         var move = new System.Numerics.Vector3(f.X, f.Y, f.Z);
         var turn = new System.Numerics.Vector3(f.TurnX, f.TurnY, f.TurnZ == 0 && f.IsIdentity ? DefaultTurnZ(cls) : f.TurnZ);
         if (Math.Abs(scale - 1) > 0.005f || move != default || turn != default)
             if (FitModel(dst, def, scale, move, turn, log) is { } fitted) dst = fitted;
+        dst = AlwaysHeld(dst, def, log);
+        // the bone it's held on: the Model tab's Held On, else its character's (put back when one was set before)
+        {
+            var want = e.Bone is string eb ? [eb] : AttachBones(Package.Open(fromPath), def);
+            if (!AttachBones(dst, def).SequenceEqual(want, StringComparer.OrdinalIgnoreCase)) dst = WithAttachBones(dst, Find(dst, def), want, log);
+        }
         // listed in the costume's own props
         int classRef = ClassExport(dst) + 1;
         if (classRef <= 0) throw new InvalidDataException($"{e.Class} isn't in the package after copying");
@@ -1922,6 +1931,30 @@ static class PowerBorrow
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{e.Class} added to {dst.Exports[pd].ObjectName}'s props ({n + 1} now)");
         return e.Fit.PinPivot ? hold(output, e, pinBones, log) : output;
+    }
+
+    /// <summary>
+    /// An added prop is held all the time (Kurt, 2026-10-26: Angela's axe added to Thor never showed): a prop its own hero shows
+    /// only while a power calls for it (VisibilityPoint visible_on_demand: Angela's axes, her powers switch their slots in) has
+    /// that setting dropped in the copy, so it shows as Thor's hammer does (it has none). The copy only; Angela's are unchanged.
+    /// </summary>
+    static Package AlwaysHeld(Package dst, string def, List<string> log)
+    {
+        int d = Find(dst, def);
+        if (d < 0) return dst;
+        byte[] b = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        if (TagWalker.Walk(dst, b, 4)?.FirstOrDefault(t => t.Name.Equals("VisibilityPoint", StringComparison.OrdinalIgnoreCase)) is not { } vp
+            || !TagWalker.NameAt(dst, b, vp.ValueAt).Contains("on_demand", StringComparison.OrdinalIgnoreCase)) return dst;
+        byte[] nd = [.. b.AsSpan(0, vp.Start), .. b.AsSpan(vp.End)];
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => nd };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) throw new InvalidDataException("the prop couldn't be set to show all the time: " + string.Join("; ", problems.Take(2)));
+        var back = Package.FromBytes(output);
+        if (TagWalker.Walk(back, back.ReadExportBytes(back.Exports[d]).ToArray(), 4)?.Any(t => t.Name.Equals("VisibilityPoint", StringComparison.OrdinalIgnoreCase)) != false)
+            throw new InvalidDataException("the prop couldn't be set to show all the time (it didn't read back)");
+        log.Add($"{dst.Exports[d].ObjectName}: held all the time (its own hero shows it only for some powers)");
+        return back;
     }
 
     /// <summary>
@@ -2057,6 +2090,74 @@ static class PowerBorrow
         return PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written).Count == 0 ? Package.FromBytes(output) : dst;
     }
 
+    /// <summary>
+    /// The model an added prop is drawn with (Kurt, 2026-10-27: an added prop given a new model on the Model tab): the model in
+    /// <paramref name="modelFrom"/> (the build's package: the same class default, its ModelMesh the new model) copied in under
+    /// a name of its own (&lt;its character's model&gt;_m&lt;number from that model's bytes&gt;: the same model, the same copy), or with
+    /// none, its character's own model again. The attachment's ModelMesh points at it; the fit is made from it after.
+    /// </summary>
+    static Package WithModel(Package dst, string classDefault, string? modelFrom, List<string> log)
+    {
+        int d = Find(dst, classDefault);
+        if (d < 0) return dst;
+        byte[] db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        if (TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase)) is not { } mt || BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt)) < 1)
+        {
+            if (modelFrom != null) log.Add("  the attachment names no model of its own (ModelMesh): its new model isn't used");
+            return dst;
+        }
+        int mesh = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt + 4));
+        if (mesh <= 0) return dst;
+        string name = dst.Exports[mesh - 1].ObjectName, own = System.Text.RegularExpressions.Regex.Replace(name, @"_m\d+$", "");
+        static bool IsMesh(Package p, int i) => p.ClassOf(p.Exports[i]).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase);
+        Package? src = null; int srcMesh = -1;
+        string want = own;
+        if (modelFrom != null)
+        {
+            src = Package.Open(modelFrom);
+            int sd = Find(src, classDefault);
+            byte[] sb = sd >= 0 ? src.ReadExportBytes(src.Exports[sd]).ToArray() : [];
+            if (sd < 0 || TagWalker.Walk(src, sb, 4)?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase)) is not { } smt
+                || BinaryPrimitives.ReadInt32LittleEndian(sb.AsSpan(smt.ValueAt)) < 1 || (srcMesh = BinaryPrimitives.ReadInt32LittleEndian(sb.AsSpan(smt.ValueAt + 4)) - 1) < 0 || !IsMesh(src, srcMesh))
+                throw new InvalidDataException($"its new model isn't in {Path.GetFileName(modelFrom)}");
+            uint h = 2166136261;
+            foreach (byte c in src.ReadExportBytes(src.Exports[srcMesh])) h = (h ^ c) * 16777619;
+            want = $"{own}_m{h % 100000}";
+        }
+        if (name.Equals(want, StringComparison.OrdinalIgnoreCase)) return dst;
+        int target = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(want, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase));
+        if (target < 0)
+        {
+            if (src == null) { log.Add($"  its character's model {want} isn't in the package any more: the model stays {name}"); return dst; }
+            var s = src;
+            var cc = CrossMove.Quiet(() => ExportCopy.Copy(s, srcMesh, dst, [], want), out string said)
+                ?? throw new InvalidDataException("its new model couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
+            dst = Package.FromBytes(cc.Output);
+            target = cc.RootRef - 1;
+            db = dst.ReadExportBytes(dst.Exports[d]).ToArray();   // (the copy went to the end: the default's index is unchanged)
+        }
+        BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(mt.ValueAt + 4), target + 1);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => db };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) throw new InvalidDataException("the prop's model couldn't be changed: " + string.Join("; ", problems.Take(2)));
+        log.Add(modelFrom != null ? $"  {dst.Exports[d].ObjectName}: its own model {want}" : $"  {dst.Exports[d].ObjectName}: its character's model {want} again");
+        return Package.FromBytes(output);
+    }
+
+    /// <summary>
+    /// An added prop's fit as its model gets it (FitModel: the size, then the turn and move baked into a plain prop's
+    /// vertices), for the preview to show a model that isn't built in yet as it will be.
+    /// </summary>
+    public static System.Numerics.Matrix4x4 FitMatrix(PropFit f, string cls)
+    {
+        static int Units(float deg) => (int)MathF.Round(deg / 360f * 65536f);
+        float scale = f.Scale is float fs && fs > 0 ? fs : 1;
+        var turn = new System.Numerics.Vector3(f.TurnX, f.TurnY, f.TurnZ == 0 && f.IsIdentity ? DefaultTurnZ(cls) : f.TurnZ);
+        return System.Numerics.Matrix4x4.CreateScale(scale) * ModMeshes.Rotator(Units(turn.Y), Units(turn.Z), Units(turn.X))
+            * System.Numerics.Matrix4x4.CreateTranslation(f.X, f.Y, f.Z);
+    }
+
     /// <summary>The weapon slot a prop class is held in (its class default's WeaponSlot), or null.</summary>
     public static string? PropSlot(string package, string cls)
     {
@@ -2066,6 +2167,82 @@ static class PowerBorrow
         byte[] b = p.ReadExportBytes(p.Exports[d]).ToArray();
         return TagWalker.Walk(p, b, 4)?.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase)) is { } t && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt)) > 0
             ? TagWalker.NameAt(p, b, t.ValueAt + 4) : null;
+    }
+
+    /// <summary>The class default of attachment <paramref name="cls"/> in the package (renamed by Make Unique too), or -1.</summary>
+    static int AttachDefault(Package p, string cls)
+    {
+        string c = cls.ToLowerInvariant();
+        if (HeldClass(p, c) is int had && had >= 0) c = p.Exports[had].ObjectName;
+        return Array.FindIndex(p.Exports, x => x.ObjectName.Equals("default__" + c, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The bones attachment <paramref name="cls"/>'s own class default names (empty: none of its own: its parent
+    /// class's), or null when its class default isn't in the package.</summary>
+    public static List<string>? HeldBones(byte[] package, string cls)
+    {
+        var p = Package.FromBytes(package);
+        int d = AttachDefault(p, cls);
+        return d < 0 ? null : AttachBones(p, p.PathOf(p.Exports[d]));
+    }
+
+    /// <summary>
+    /// A prop held on other bones (Kurt, 2026-10-27: the Model tab's Held On): its class default's AttachmentBones set to
+    /// <paramref name="bones"/> (empty: the property taken out, so its parent class's apply again). Only this package changes.
+    /// </summary>
+    public static byte[] SetHeldBones(byte[] package, string cls, IReadOnlyList<string> bones, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        int d = AttachDefault(p, cls);
+        if (d < 0) throw new InvalidDataException($"{cls}'s settings (its class default) aren't in this package: it's another package's prop");
+        if (AttachBones(p, p.PathOf(p.Exports[d])).SequenceEqual(bones, StringComparer.OrdinalIgnoreCase)) return package;
+        return WithAttachBones(p, d, bones, log).RawFile;
+    }
+
+    static Package WithAttachBones(Package dst, int d, IReadOnlyList<string> bones, List<string> log)
+    {
+        byte[] b = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var tags = TagWalker.Walk(dst, b, 4) ?? throw new InvalidDataException($"{dst.Exports[d].ObjectName} doesn't read");
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+            return dst.Names.Length + j;
+        }
+        // the value: count, then each bone's name (index, number)
+        var value = new byte[4 + 8 * bones.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(value, bones.Count);
+        for (int k = 0; k < bones.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 8 * k), NameIdx(bones[k]));
+        byte[] nb;
+        if (tags.FirstOrDefault(t => t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase)) is { } at)
+        {
+            if (bones.Count == 0) nb = [.. b.AsSpan(0, at.Start), .. b.AsSpan(at.End)];
+            else
+            {
+                nb = [.. b.AsSpan(0, at.ValueAt), .. value, .. b.AsSpan(at.End)];
+                BinaryPrimitives.WriteInt32LittleEndian(nb.AsSpan(at.Start + 16), value.Length);
+            }
+        }
+        else if (bones.Count == 0) return dst;
+        else
+        {
+            var tag = new byte[24 + value.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx("AttachmentBones"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("ArrayProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), value.Length);
+            value.CopyTo(tag.AsSpan(24));
+            int none = tags.NoneAt;   // (new tags go before None)
+            nb = [.. b.AsSpan(0, none), .. tag, .. b.AsSpan(none)];
+        }
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => nb };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the prop's bone couldn't be changed: " + string.Join("; ", problems.Take(2)));
+        log.Add($"  {dst.Exports[d].ObjectName}: held on {(bones.Count > 0 ? string.Join(", ", bones) : "its parent class's bone")}");
+        return Package.FromBytes(output);
     }
 
     /// <summary>The bones a class default names in AttachmentBones (none: empty).</summary>

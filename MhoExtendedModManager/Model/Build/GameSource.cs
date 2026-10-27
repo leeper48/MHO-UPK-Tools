@@ -29,7 +29,7 @@ static class GameSource
         string? pickName = null;
         if (meshName != null) pickName = meshName;
         else try { pickName = MhoSkeleton.Load(meshPath).Mesh.Name; } catch (InvalidDataException) { }
-        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|2";
+        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|3";   // (3: no glow from a DXT1 map's missing alpha)
         if (File.Exists(fbx) && File.Exists(stampFile) && File.ReadAllText(stampFile) == stamp) return fbx;
 
         Protected.CheckWrite(outDir);

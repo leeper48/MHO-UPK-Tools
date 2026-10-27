@@ -206,7 +206,16 @@ sealed partial class ModelPage : UserControl
         sourceHead.Controls.Add(filterRow, 0, 2);
         var sourceColumn = Column("SOURCE", sourceHead, SourceLists());
         body.Controls.Add(sourceColumn, 0, 0);
-        body.Controls.Add(Column("PREVIEW", null, preview), 2, 0);
+        // the preview, and under it the model selector (◀ ▶, as the Mods tab's 3D view)
+        var previewBox = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, BackColor = Color.Transparent, Margin = new Padding(0) };
+        previewBox.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        previewBox.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        previewBox.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        preview.Dock = DockStyle.Fill; preview.Margin = new Padding(0);
+        previewBox.Controls.Add(preview, 0, 0);
+        var mr = MeshRow(); mr.Dock = DockStyle.Fill;
+        previewBox.Controls.Add(mr, 0, 1);
+        body.Controls.Add(Column("PREVIEW", null, previewBox), 2, 0);
 
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, BackColor = Color.Transparent, Margin = new Padding(0) };
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -218,10 +227,10 @@ sealed partial class ModelPage : UserControl
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         right.RowStyles.Add(new RowStyle(SizeType.AutoSize));            // the Blender link's line
         layoutRight = right;
-        // the filter and Build From, then Model ▾ on its own line (shown for a package with several models)
-        var targetHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 4, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
+        // the filter and Build From (the model selector is under the preview)
+        var targetHead = new TableLayoutPanel { ColumnCount = 1, RowCount = 3, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         targetHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int r = 0; r < 4; r++) targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int r = 0; r < 3; r++) targetHead.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         InitTargetKind();
         targetKind.Margin = new Padding(0, 0, 0, 6); targetKind.Anchor = AnchorStyles.Left;
         targetHead.Controls.Add(targetKind, 0, 0);
@@ -231,8 +240,6 @@ sealed partial class ModelPage : UserControl
         var targetRow = Row(packageFilter, targetToggles); targetRow.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
         targetHead.Controls.Add(targetKindStrip, 0, 1);
         targetHead.Controls.Add(targetRow, 0, 2);
-        meshPick.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; meshPick.Margin = new Padding(0, 4, 0, 0);
-        targetHead.Controls.Add(meshPick, 0, 3);
         var targetColumn = Column("TARGET", targetHead, packages);
         right.Controls.Add(targetColumn, 0, 0);   // (Kurt: Source and Target)
         barTarget = Divider(right, false, 0, 2, "target", "tabs");
@@ -289,7 +296,15 @@ sealed partial class ModelPage : UserControl
         leanSlider.Home = () => leanAuto;
         leanSlider.Format = v => $"{v:+0.0;-0.0;0}°" + (leanCustom == null && MathF.Abs(v - leanAuto) < 0.05f ? " Auto" : "");
         sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(feetSlider, 0, 1); sizeBox.Controls.Add(leanSlider, 0, 2); sizeBox.Controls.Add(checks, 0, 3);
-        var sizeColumn = Column("SIZE IN GAME", null, sizeBox, autoHeight: true);
+        // (a prop target: the Prop Fit sliders in its place, Kurt 2026-10-26)
+        var sizeHolder = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0), Dock = DockStyle.Fill };
+        sizeHolder.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        sizeBox.Dock = DockStyle.Fill;
+        sizeHolder.Controls.Add(sizeBox, 0, 0);
+        sizeHolder.Controls.Add(PropFitBox(sizeSlider.Height), 0, 1);
+        sizeBoxRef = sizeBox;
+        var sizeColumn = Column("SIZE IN GAME", null, sizeHolder, autoHeight: true);
+        sizeCaption = FindCaption(sizeColumn, "SIZE IN GAME");
         right.Controls.Add(sizeColumn, 0, 4);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
         actions.Controls.AddRange([buildButton, blenderButton, fbxButton, openButton, modelSpinner, status]);
@@ -1148,10 +1163,21 @@ sealed partial class ModelPage : UserControl
         blenderButton.Enabled = ChosenPackage != null && !building;
         UpdateBlenderStatus();
         status.Text = building ? "Building…" : !HasSource ? (ChosenPackage != null ? "No source: Build into Mod writes only the size." : FbxMode ? "Pick an FBX or an MFF folder." : GameMode ? "Pick a character from the game." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
+        // an added prop picked: its fit goes in as the sliders are let go; a build is the character's
+        if (addedPick != null && !building)
+            status.Text = !HasSource ? (addedPick.ModelFrom != null ? "Added prop with a model of its own: no source puts its character's back." : "Added prop: pick a source to give it a new model. The sliders fit it.")
+                : "Ready to build the added prop's model. The sliders fit it.";
         status.ForeColor = Ui.Subtle;
     }
 
     // --- preview ------------------------------------------------------------------------------------------------------------------
+    /// <summary>The editor put a new copy of <paramref name="file"/> in the mod (the Animations tab's added props, also after a
+    /// build): shown again when it's the target, so it holds them.</summary>
+    internal void PackageReplaced(string file)
+    {
+        if (!IsDisposed && ChosenPackage is CharacterList.Item p && p.Key.Equals(file, StringComparison.OrdinalIgnoreCase)) SchedulePreview();
+    }
+
     /// <summary>Restarts the short delay before the preview is rebuilt (on the UI thread: the timer only ticks there).</summary>
     void SchedulePreview()
     {
@@ -1173,6 +1199,10 @@ sealed partial class ModelPage : UserControl
     {
         int id = ++previewId;
         PreviewPanel.ModsNow = [.. host.Packages];   // (the mod's packages: its borrowed powers' animations and power packages)
+        UpdatePropFitUi();
+        PreviewPanel.PropAdjustNow = PropFitForTarget();   // (a prop target: the Prop Fit sliders)
+        PreviewPanel.HeldNow = ChosenPackage is CharacterList.Item hp ? (ModCopy(hp.Key), WorkedModels(hp.Key)) : null;   // (the body and its prop together)
+        PreviewPanel.AddedFitNow = AddedTarget is { } at ? PowerBorrow.FitMatrix(at.Fit, at.Class) : null;   // (an added prop: shown with its fit)
         if (HasSource) packageMaps = null;
         using var busy = Busy.Begin("Model: preview");
         if (!HasSource && ChosenPackage is CharacterList.Item tpkg)

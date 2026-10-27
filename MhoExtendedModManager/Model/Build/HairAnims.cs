@@ -538,13 +538,7 @@ static class HairAnims
         return 2 * MathF.Atan2(new Vector3(d.X, d.Y, d.Z).Length(), MathF.Abs(d.W)) * 180 / MathF.PI;
     }
 
-    static T? Quiet<T>(Func<T?> f, out string said) where T : class
-    {
-        var old = Console.Out; var sw = new StringWriter();
-        Console.SetOut(sw);
-        try { return f(); }
-        finally { Console.SetOut(old); said = sw.ToString(); }
-    }
+    static T? Quiet<T>(Func<T?> f, out string said) where T : class => ConsoleCapture.Run(f, out said);
 
     static string Reason(string said) => string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not ")).Select(l => l.Trim())).Trim() is { Length: > 0 } r ? r : said.Trim();
 }

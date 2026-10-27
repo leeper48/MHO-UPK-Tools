@@ -10,8 +10,37 @@ namespace MhoExtendedModManager.Model;
 /// lie along the game prop's and scaled to its length, every vertex on the bone the game's prop hangs on. The game moves the
 /// same prop mesh in every animation and power (Cap's throw), so the new one goes wherever the old one went.
 /// </summary>
+/// <summary>The Prop Fit sliders (Kurt, 2026-10-26, props phase 2): a move (game units), a turn (degrees about X, Y, Z, around
+/// the bone the prop is held on) and a size, applied after the fit, so any source can be lined up in the app.</summary>
+sealed record PropAdjust(float MoveX = 0, float MoveY = 0, float MoveZ = 0, float TurnX = 0, float TurnY = 0, float TurnZ = 0, float Scale = 1)
+{
+    public bool IsNone => MoveX == 0 && MoveY == 0 && MoveZ == 0 && TurnX == 0 && TurnY == 0 && TurnZ == 0 && Scale == 1;
+    public override string ToString() => FormattableString.Invariant($"{MoveX:0.#},{MoveY:0.#},{MoveZ:0.#}|{TurnX:0},{TurnY:0},{TurnZ:0}|{Scale:0.###}");
+}
+
 static class PropFit
 {
+    /// <summary>
+    /// The Prop Fit sliders on a prop's sections: sized and turned around the bone it's held on (the game's grip: g_handle on
+    /// Thor's hammer), then moved. The turn is X, then Y, then Z, in the prop's own axes.
+    /// </summary>
+    public static void Adjust(Retargeted r, MhoSkeleton sk, PropAdjust? a)
+    {
+        if (a == null || a.IsNone) return;
+        var pivot = sk.Pos(HoldBone(sk));
+        const float deg = MathF.PI / 180;
+        var turn = Matrix4x4.CreateRotationX(a.TurnX * deg) * Matrix4x4.CreateRotationY(a.TurnY * deg) * Matrix4x4.CreateRotationZ(a.TurnZ * deg);
+        var m = Matrix4x4.CreateTranslation(-pivot) * Matrix4x4.CreateScale(a.Scale) * turn * Matrix4x4.CreateTranslation(pivot + new Vector3(a.MoveX, a.MoveY, a.MoveZ));
+        foreach (var s in r.Sections)
+            for (int v = 0; v < s.Pos.Length; v++)
+            {
+                s.Pos[v] = Vector3.Transform(s.Pos[v], m);
+                var n = Vector3.TransformNormal(s.Normal[v], turn);
+                s.Normal[v] = n.LengthSquared() > 0 ? Vector3.Normalize(n) : n;
+            }
+        r.Notes.Add($"prop fit: moved {a.MoveX:0.#}, {a.MoveY:0.#}, {a.MoveZ:0.#}; turned {a.TurnX:0}°, {a.TurnY:0}°, {a.TurnZ:0}°; size ×{a.Scale:0.##}, around {sk.Bones[HoldBone(sk)].Name}");
+    }
+
     /// <summary>A prop skeleton: no pelvis and only a few bones (the game's props have 1–6: g_handle, g_muzzle …).</summary>
     public static bool IsProp(MhoSkeleton sk) => sk.Find("g_pelvis") < 0 && sk.Bones.Count <= 12;
 

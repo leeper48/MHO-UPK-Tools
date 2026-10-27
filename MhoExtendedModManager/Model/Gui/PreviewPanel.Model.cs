@@ -44,6 +44,72 @@ sealed partial class PreviewPanel
         public MeshRef? MainRef { get; init; }
         /// <summary>A cape and / or long hair borrowed from other heroes (preview prototype): put into each animation as it loads.</summary>
         public List<BorrowedRig> Rigs { get; init; } = [];
+        /// <summary>A prop target: the character holding it (its body, animations and props, the prop in its hand), else null.</summary>
+        public HeldBy? Holder { get; init; }
+        /// <summary>A body target: the props the Model tab has built into the mod's copy of the package, by mesh (held in place of
+        /// the game's until this session shows one of them fitted).</summary>
+        public Dictionary<string, ModMeshes.Loaded>? BuiltProps { get; init; }
+        /// <summary>A body target: the mod's copy of the package, whose props it holds (Kurt, 2026-10-27: a prop added on the
+        /// Animations tab vanished with the body as the target: the build starts from the game's copy, which hasn't got it).</summary>
+        public (MeshRef Main, List<MeshRef> Meshes)? PropsFrom { get; init; }
+        /// <summary>An added prop target: its fit (AddedFitNow when prepared), on the model in the hand.</summary>
+        public System.Numerics.Matrix4x4? AddedFit { get; init; }
+    }
+
+    /// <summary>The character a prop target is shown in the hand of (Kurt, 2026-10-26: "to see the character with the prop"):
+    /// the package's own body, its animations, its meshes (props are read from them), and the prop's mesh name, which the
+    /// model in the preview stands in for.</summary>
+    public sealed record HeldBy(ModMeshes.Loaded Body, List<AnimRef> Animations, MeshRef Main, List<MeshRef> Meshes, string PropMesh);
+
+    /// <summary>A prop target's holder: the package's body (its mesh component's, else the automatic pick) with its
+    /// animations; null when the package has no body (a base package holding only props) or it can't be read.</summary>
+    static HeldBy? HolderFor(string packagePath, string propMesh)
+    {
+        try
+        {
+            var body = MhoSkeleton.Load(packagePath, null, body: true);
+            if (PropFit.IsProp(body) || body.Name.Equals(propMesh, StringComparison.OrdinalIgnoreCase)) return null;
+            string file = Path.GetFileName(packagePath);
+            var (meshes, mr, loaded) = StockCached(file, packagePath, body.Name);
+            if (mr == null || loaded == null) return null;
+            var anims = AnimationsCached(file, packagePath, body.Name, loaded.Bones.ToList());
+            return new HeldBy(loaded, anims, mr, meshes, propMesh);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException or MhoPackageModifier.PackageFormatException) { return null; }
+    }
+
+    /// <summary>
+    /// What the Model tab gives the next preview to show the body and its prop together (Kurt, 2026-10-27: "keep character and
+    /// prop in relative position and switch between which ever one I want to paint"): the mod's copy of the package (the body
+    /// as built, holding a prop target, when this session hasn't shown it fitted) and the props in it the tab has worked on.
+    /// </summary>
+    public static (string? ModCopy, IReadOnlyList<string> Props)? HeldNow { get; set; }
+    /// <summary>An added prop as the target: its fit (PowerBorrow.FitMatrix), on the model shown in the hand, as its package
+    /// will draw it; else null.</summary>
+    public static System.Numerics.Matrix4x4? AddedFitNow { get; set; }
+
+    /// <summary>A prop target: the character holding it (from the mod's copy when it has one); a body: the props built into
+    /// the mod's copy.</summary>
+    static Prepared WithHeld(Prepared p, MhoSkeleton sk, string packagePath)
+    {
+        var now = HeldNow;
+        string? copy = now?.ModCopy is string mc && File.Exists(mc) ? mc : null;
+        if (PropFit.IsProp(sk)) return p with { Holder = HolderFor(copy ?? packagePath, sk.Name) ?? (copy != null ? HolderFor(packagePath, sk.Name) : null), AddedFit = AddedFitNow };
+        if (copy == null) return p;
+        string file = Path.GetFileName(copy);
+        // the props the mod's copy holds (added on the Animations tab, built in after the model)
+        if (!Path.GetFullPath(copy).Equals(Path.GetFullPath(packagePath), StringComparison.OrdinalIgnoreCase))
+            try { if (StockCached(file, copy, sk.Name) is { Main: { } cm } c) p = p with { PropsFrom = (cm, c.Meshes) }; }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException or MhoPackageModifier.PackageFormatException) { }
+        if (now is not { Props.Count: > 0 } n) return p;
+        var built = new Dictionary<string, ModMeshes.Loaded>(StringComparer.OrdinalIgnoreCase);
+        foreach (string m in n.Props)
+        {
+            if (m.Equals(sk.Name, StringComparison.OrdinalIgnoreCase)) continue;
+            try { if (StockCached(file, copy, m).Stock is { } l) built[m] = l; }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException or MhoPackageModifier.PackageFormatException) { }
+        }
+        return built.Count > 0 ? p with { BuiltProps = built } : p;
     }
 
     /// <summary>Retargets <paramref name="model"/>'s parts onto the base package's skeleton and prepares the preview (worker thread).</summary>
@@ -66,12 +132,13 @@ sealed partial class PreviewPanel
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
         var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() is var ro ? ro with { KeepSourceSize = keepSourceSize, Lean = lean, JointFit = jointFit || ro.JointFit } : null);
         if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });
+        if (PropFit.IsProp(sk)) PropFit.Adjust(r, sk, PropAdjustNow);   // (the Prop Fit sliders)
         Stage("retarget");
         MaterialOverrides.Apply(r, overrides);
         var unpainted = Unpainted(r);   // (the fit's own weights: a paint-only Undo rebuilds from them in place)
         string? paintNote = WeightPaint.Apply(r, paintFile);
         var p = FromRetarget(r, sk, packagePath, materialDonor);
-        p = p with { Unpainted = unpainted };
+        p = WithHeld(p with { Unpainted = unpainted }, sk, packagePath);   // (a prop in the hero's hand; a body with its props as built)
         if (paintNote != null) p = p with { Note = p.Note + " · " + paintNote };
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;   // the map shown keeps the file's smoothing
         if (notes.Count > 0)
@@ -83,6 +150,9 @@ sealed partial class PreviewPanel
         return p;
     }
 
+    /// <summary>The Prop Fit sliders the next preview of a prop target uses (set by the Model tab before it prepares one).</summary>
+    public static PropAdjust? PropAdjustNow { get; set; }
+
     /// <summary>An FBX as the source (0.11.3): its skeleton proportions, meshes (<paramref name="meshes"/>, null = all) and textures.</summary>
     public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null, string? paintFile = null, float lean = float.NaN)
     {
@@ -92,6 +162,7 @@ sealed partial class PreviewPanel
         var r = FbxReimport.LoadAny(fbx, sk, meshes, _ => { });   // (a prop target: laid over the prop, or its own model as it is)
         if (!PropFit.IsProp(sk)) FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
         if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });   // the mesh edited in Blender (Ctrl+S)
+        if (PropFit.IsProp(sk)) PropFit.Adjust(r, sk, PropAdjustNow);   // (the Prop Fit sliders)
         Stage("fbx load");
         MaterialOverrides.Apply(r, overrides);
         // the Bone Map's smoothing (an FBX source's map holds only that)
@@ -101,7 +172,7 @@ sealed partial class PreviewPanel
         string? paintNote = WeightPaint.Apply(r, paintFile);
         var p = FromRetarget(r, sk, packagePath, materialDonor);
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;
-        p = p with { Unpainted = unpainted };
+        p = WithHeld(p with { Unpainted = unpainted }, sk, packagePath);   // (a prop in the hero's hand; a body with its props as built)
         if (paintNote != null) p = p with { Note = p.Note + " · " + paintNote };
         return p;
     }
@@ -159,13 +230,14 @@ sealed partial class PreviewPanel
         var stock = ModMeshes.Load(mr, cooked, out _) ?? throw new InvalidDataException($"{sk.Name} couldn't be read");
         var bones = stock.Bones.ToList();
         var list = ModAnimations.For(new MeshRef(file, AnimsFrom(file, packagePath), sk.Name, 0), bones, ModsNow, cooked);
-        return new Prepared(stock, bones, list, $"{sk.Name}: the target's own model (pick a source on the left to put a model on it) · {list.Count} animations", stock, "")
+        var own = new Prepared(stock, bones, list, $"{sk.Name}: the target's own model (pick a source on the left to put a model on it) · {list.Count} animations", stock, "")
         {
             TargetOnly = true, MhoBones = sk.Bones.Select(b => b.Name).ToList(),
             MhoParents = sk.Bones.Select((b, i) => b.ParentIndex == i ? -1 : b.ParentIndex).ToList(),
             PackagePath = packagePath, PackageMeshes = pkgMeshes, MainRef = mr,
             SectionNames = TargetSectionNames(packagePath, mr),
         };
+        return WithHeld(own, sk, packagePath);   // (a prop: in its hero's hand; a body: with the mod's added props)
     }
 
     /// <summary>The target model's sections' material names (its own materials; an imported one by name).</summary>

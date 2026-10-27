@@ -1510,9 +1510,10 @@ sealed partial class ModelView : UserControl
         }
 
         // a colour per vertex over the lit model (the Model tab's weights at half strength), blended like the weights do
-        if (Tint is { } tint && a < tint.Length && b < tint.Length && c < tint.Length && TintOpacity > 0)
+        int tint0 = TintStart;
+        if (Tint is { } tint && a >= tint0 && b >= tint0 && c >= tint0 && a - tint0 < tint.Length && b - tint0 < tint.Length && c - tint0 < tint.Length && TintOpacity > 0)
         {
-            var tc = tint[a] * b0 + tint[b] * b1 + tint[c] * b2;
+            var tc = tint[a - tint0] * b0 + tint[b - tint0] * b1 + tint[c - tint0] * b2;
             outc = Vector3.Clamp(outc, Vector3.Zero, Vector3.One) * (1 - TintOpacity) + tc * TintOpacity;
         }
         // What goes past white is kept for the bloom (clipped here, as the screen would).

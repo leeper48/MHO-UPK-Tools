@@ -25,11 +25,23 @@ sealed partial class ModelPage
         : sourceFbx != null ? WeightPaint.PathFor(host.WorkFolder, ImportBuild.SourceName(sourceFbx), pkg.Key)
         : null;
 
+    /// <summary>Paint on or off. With no source (the target's own model shown), its own model from the game becomes the source
+    /// first (Kurt, 2026-10-26: Paint lit but painted nothing on Thor): paint is kept as a change to a source's fit.</summary>
+    async void TogglePaint()
+    {
+        if (!preview.Painting && (!HasSource || PropSourceOnBody) && ChosenPackage is CharacterList.Item pkg && !TargetIsProp())
+        {
+            Log($"Paint: {(HasSource ? "the source is a prop, not a body" : "no source is picked")}, so {pkg.Key}'s own model (From the Game) becomes the source to paint; Build into Mod writes it with your paint.");
+            if (!await UseOwnModel(pkg.Key)) return;
+        }
+        preview.Painting = !preview.Painting;
+    }
+
     /// <summary>The paint controls (under the Bone Map's filter row).</summary>
     Control PaintBar()
     {
-        paintToggle = Ui.FlatButton("Paint", () => preview.Painting = !preview.Painting,
-            "Weight painting, as Blender's (Shift+P): Weights turns on over the model at 50 % (W: the weights alone, then off); the left button paints the selected row's bone (Weights shows it), the middle button turns the view (Shift + middle moves it). Shift held: Blur. Ctrl held: the other way (Draw toward 1 − Weight, Add ⇄ Subtract). Ctrl+Shift+click: pick the bone under the mouse. F: radius, Shift+F: strength (move the mouse, click to keep, Esc to put it back). Each stroke is one Undo step (Ctrl+Z). The brush reaches every part it touches; seams paint as one.");
+        paintToggle = Ui.FlatButton("Paint", TogglePaint,
+            "Weight painting, as Blender's (Shift+P): Weights turns on over the model at 50 % (W: the weights alone, then off); the left button paints the selected row's bone (Weights shows it), the middle button turns the view (Shift + middle moves it). Shift held: Blur. Ctrl held: the other way (Draw toward 1 − Weight, Add ⇄ Subtract). Ctrl+Shift+click: pick the bone under the mouse. F: radius, Shift+F: strength (move the mouse, click to keep, Esc to put it back). Each stroke is one Undo step (Ctrl+Z). The brush reaches every part it touches; seams paint as one. A prop target paints the prop in the character's hand; to paint the character, pick its body with ◀ ▶ under the preview.");
         ShortcutsUi.Attach(paintToggle, "model.paint");
         // one row (a wrapping row inside a self-sizing panel measures itself as if every button wrapped, and the bone list
         // was pushed far down, Kurt 2026-10-25)

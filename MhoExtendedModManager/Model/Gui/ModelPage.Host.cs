@@ -24,6 +24,23 @@ interface IModelHost
     /// <summary>The draft's parts switched off (Powers tab → Parts, and the target's props here): written into the packages on
     /// Save (PowerParts.Build).</summary>
     List<PartOffEntry> PartsOff { get; }
+    /// <summary>The props added to a costume package from other characters (manifest AddedProps; Kurt, 2026-10-27: set up on
+    /// the Model tab, the Animations tab keeps how they move).</summary>
+    IReadOnlyList<AddedPropEntry> AddedProps(string file);
+    /// <summary>Adds another character's prop to <paramref name="file"/> (<paramref name="pick"/>: that one, else the Add a Prop
+    /// window asks) and puts it into the package; null when nothing was added.</summary>
+    Task<AddedPropEntry?> AddPropTo(string file, AddPropForm.Pick? pick = null);
+    /// <summary>Takes an added prop off its package.</summary>
+    Task<bool> RemoveAddedProp(AddedPropEntry e);
+    /// <summary>An added prop's fit (changed in <see cref="AddedPropEntry.Fit"/>) put into its package again.</summary>
+    Task<bool> RefitAddedProp(AddedPropEntry e);
+    /// <summary>An added prop given the model built at <paramref name="relPath"/> (under <see cref="WorkFolder"/>), or its
+    /// character's own again (null), put into its package.</summary>
+    Task<bool> SetAddedModel(AddedPropEntry e, string? relPath);
+    /// <summary>The package's own props held on other bones (manifest PropBones).</summary>
+    IReadOnlyList<PropBoneEntry> PropBones(string file);
+    /// <summary>One of the package's own props held on <paramref name="bone"/>, or on its own again (null).</summary>
+    Task<bool> SetPropBone(string file, string cls, string? bone);
 }
 
 sealed partial class ModelPage
@@ -33,8 +50,20 @@ sealed partial class ModelPage
     bool gameList;
     readonly DropDown buildFrom = new() { Width = 210 };
     /// <summary>The character in the chosen package to fit models to, when it has several skeletal meshes (Kurt, 2026-10-07).</summary>
-    readonly DropDown meshPick = new() { Width = 210, Visible = false };
+    readonly DropDown meshPick = new() { Width = 210 };
+    /// <summary>The model selector under the preview (Kurt, 2026-10-27: ◀ name ▶ as the Mods tab's 3D view): ◀, the list
+    /// (meshPick), ▶; shown for a package with several models.</summary>
+    Control meshRow = null!;
+    /// <summary>The model Automatic picks in the chosen package (the selector counts from it).</summary>
+    string? autoMesh;
+    readonly HashSet<string> meshProps = new(StringComparer.OrdinalIgnoreCase);
     List<string> meshNames = [];
+    /// <summary>The chosen package's added props (the Animations tab's, now set up here: Kurt, 2026-10-27), after its own
+    /// models in the selector.</summary>
+    List<AddedPropEntry> meshAdded = [];
+    /// <summary>The added prop picked in the selector (its fit on the Prop Fit sliders; the character stays the build's
+    /// target), else null.</summary>
+    AddedPropEntry? addedPick;
     bool fillingMesh;
     /// <summary>Package file → has a skeletal mesh (by size and date), for the mod's own packages in the list.</summary>
     readonly Dictionary<string, (long Len, DateTime At, bool Has)> hasCharacter = new(StringComparer.OrdinalIgnoreCase);
@@ -234,15 +263,139 @@ sealed partial class ModelPage
 
     void InitMeshPick()
     {
-        Ui.Tip(meshPick, "The model in this package that the build replaces, when the package holds several: the character (a hero's base package can hold other characters too) or one of its props, marked Prop (a shield, hammer, gun or blade: then an MFF part, such as a weapon, takes its place). Automatic picks the costume's own character, else the biggest.");
+        Ui.Tip(meshPick, "The target: the model in this package that the build replaces, when the package holds several: the character (a hero's base package can hold other characters too) or one of its props, marked Prop (a shield, hammer, gun or blade: then an MFF part, such as a weapon, takes its place). Click for the list; Automatic picks the costume's own character, else the biggest. Changing it brings back that model's own source and Prop Fit, and Paint works on it.");
+        meshPick.ClosedText = MeshCaption;
         meshPick.SelectedIndexChanged += (_, _) =>
         {
             if (fillingMesh || ChosenPackage is not CharacterList.Item pkg) return;
-            MhoSkeleton.Choose(pkg.Key, meshPick.SelectedIndex <= 0 ? null : meshNames[meshPick.SelectedIndex - 1]);
+            int i = meshPick.SelectedIndex;
+            if (i > meshNames.Count && i - meshNames.Count - 1 < meshAdded.Count)
+            {
+                // an added prop: the target (a new model, paint), its fit on the sliders
+                _ = PickAddedTarget(pkg.Key, meshAdded[i - meshNames.Count - 1]);
+                return;
+            }
+            RememberTargetSource();   // (the target left: its source kept for when it's picked again)
+            addedPick = null;
+            MhoSkeleton.Choose(pkg.Key, i <= 0 ? null : meshNames[i - 1]);
             PropTicks(changed: true);
-            SaveState(); SchedulePreview(); UpdateStatus();
+            SourceForTarget();   // (first: the save below would note the old target's source as the new one's)
+            SaveState(); SchedulePreview(); UpdateStatus(); UpdatePropFitUi();
         };
         packages.SelectedIndexChanged += (_, _) => FillMeshPick();
+    }
+
+    /// <summary>Package file → the copy an added prop target builds from: the package as the build would start it, with that
+    /// prop added unfitted (its own model, else its character's), and the prop's model in it.</summary>
+    readonly Dictionary<string, (string Class, string Path, string Mesh)> addedBases = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The added prop picked as the target, while its copy (<see cref="addedBases"/>) is the start: else null.</summary>
+    AddedPropEntry? AddedTarget => addedPick is { } a && ChosenPackage is CharacterList.Item p && a.Package.Equals(p.Key, StringComparison.OrdinalIgnoreCase)
+        && addedBases.TryGetValue(p.Key, out var b) && b.Class.Equals(a.Class, StringComparison.OrdinalIgnoreCase)
+        && b.Mesh.Equals(MhoSkeleton.ChosenFor(p.Key), StringComparison.OrdinalIgnoreCase) ? a : null;
+
+    string? AddedStart(string file) => addedPick is { } a && a.Package.Equals(file, StringComparison.OrdinalIgnoreCase)
+        && addedBases.TryGetValue(file, out var b) && b.Class.Equals(a.Class, StringComparison.OrdinalIgnoreCase) && File.Exists(b.Path) ? b.Path : null;
+
+    /// <summary>The added prop's own model (built here before), else null.</summary>
+    string? AddedModel(AddedPropEntry e) => e.ModelFrom is string r && Path.Combine(host.WorkFolder, r) is var f && File.Exists(f) ? f : null;
+
+    /// <summary>
+    /// An added prop as the build's target (Kurt, 2026-10-27: a new model or paint for Angela's axe on Thor): a copy of the
+    /// package with only that prop added, unfitted, with its model (its own if it was built here, else its character's), made
+    /// once per state (worker thread). The build lays a source over that model, as over a game prop; its fit goes on after.
+    /// </summary>
+    (string Path, string Mesh) AddedBase(string key, AddedPropEntry e)
+    {
+        string core = StartPackageCore(key), cooked = Settings.Current.CookedFolder ?? throw new InvalidDataException("the game folder isn't set");
+        string donor = StockFiles.For(cooked, e.From);
+        string? own = AddedModel(e);
+        uint h = 2166136261;
+        foreach (char c in $"{Stamp(core)}|{Stamp(donor)}|{(own != null ? Stamp(own) : "-")}|{e.Class}") h = (h ^ c) * 16777619;
+        // (under the package's own name: the model picked in it is kept by file name, MhoSkeleton.Choose)
+        string dir = Path.Combine(host.WorkFolder, "builds", "added_base", $"{e.Class}_{h:x8}");
+        string path = Path.Combine(dir, key);
+        if (!File.Exists(path))
+        {
+            var clean = new AddedPropEntry { Package = key, From = e.From, Class = e.Class, Name = e.Name, Slot = e.Slot, Fit = new MhoExtendedModManager.PropFit { Class = e.Class, Scale = 1 } };
+            byte[] b = PowerBorrow.AddProp(File.ReadAllBytes(core), clean, donor, [], modelFrom: own);
+            Directory.CreateDirectory(dir);
+            File.WriteAllBytes(path, b);
+        }
+        string mesh = MhoExtendedModManager.ModMeshes.Attachments(path).FirstOrDefault(x => x.Class.Equals(e.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last()
+            ?? throw new InvalidDataException($"{e.Name} names no model of its own in {key}");
+        return (path, mesh);
+        static string Stamp(string f) { var i = new FileInfo(f); return $"{i.Length}:{i.LastWriteTimeUtc.Ticks}"; }
+    }
+
+    /// <summary>An added prop picked in the selector: the build's target (its copy made first), its fit on the sliders.</summary>
+    async Task PickAddedTarget(string key, AddedPropEntry e)
+    {
+        addedPick = e;
+        UpdatePropFitUi(); meshPick.Invalidate();
+        status.Text = "Reading the added prop…";
+        (string Path, string Mesh) b;
+        try { b = await Task.Run(() => AddedBase(key, e)); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or UnauthorizedAccessException)
+        {
+            Log($"{e.Name}: it can't be the target ({ex.Message}). Its fit still works here.");
+            UpdateStatus();
+            return;
+        }
+        if (IsDisposed || !ReferenceEquals(addedPick, e) || ChosenPackage?.Key.Equals(key, StringComparison.OrdinalIgnoreCase) != true) return;
+        RememberTargetSource();   // (the target left: its source kept for when it's picked again)
+        addedBases[key] = (e.Class, b.Path, b.Mesh);
+        MhoSkeleton.Choose(key, b.Mesh);
+        PropTicks(changed: true);
+        SourceForTarget();
+        SaveState(); SchedulePreview(); UpdateStatus(); UpdatePropFitUi(); meshPick.Invalidate();
+    }
+
+    /// <summary>◀ [model (n of N) ▾] ▶ under the preview.</summary>
+    Control MeshRow()
+    {
+        const string tip = " model in this package as the target (what the build replaces and Paint works on; its own source and Prop Fit come back).";
+        var prev = Ui.FlatButton("◀", () => StepMesh(-1), "The previous" + tip);
+        var next = Ui.FlatButton("▶", () => StepMesh(1), "The next" + tip);
+        var t = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0), Visible = false };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        prev.Margin = new Padding(0, 0, 6, 0); next.Margin = new Padding(6, 0, 0, 0);
+        meshPick.Dock = DockStyle.Fill; meshPick.Margin = new Padding(0);
+        t.Controls.Add(prev, 0, 0); t.Controls.Add(meshPick, 1, 0); t.Controls.Add(next, 2, 0);
+        return meshRow = t;
+    }
+
+    /// <summary>The selector's text: the model, Prop for a prop, and where it is in the package's list.</summary>
+    string? MeshCaption()
+    {
+        int at = MeshAt(), total = meshNames.Count + meshAdded.Count;
+        if (at < 0) return null;
+        if (at >= meshNames.Count) return $"{meshAdded[at - meshNames.Count].Name} · Added Prop ({at + 1} of {total})";
+        string n = meshNames[at];
+        return $"{n}{(meshProps.Contains(n) ? " · Prop" : "")}{(meshPick.SelectedIndex <= 0 ? " · Automatic" : "")} ({at + 1} of {total})";
+    }
+
+    /// <summary>The shown model's place in the selector's list (the package's models, then its added props; Automatic: the
+    /// model it picks), or -1.</summary>
+    int MeshAt() => meshPick.SelectedIndex > 0 ? meshPick.SelectedIndex - 1
+        : autoMesh == null ? -1 : meshNames.FindIndex(n => n.Equals(autoMesh, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>◀ / ▶: the previous or next model or added prop (round the list).</summary>
+    void StepMesh(int by)
+    {
+        int total = meshNames.Count + meshAdded.Count;
+        if (total < 2) return;
+        int at = MeshAt();
+        meshPick.SelectedIndex = (Math.Max(0, at) + by + total) % total + 1;
+    }
+
+    /// <summary>The selector's entry for <paramref name="e"/> picked.</summary>
+    void PickAdded(AddedPropEntry e)
+    {
+        int k = meshAdded.IndexOf(e);
+        if (k >= 0) meshPick.SelectedIndex = meshNames.Count + k + 1;
     }
 
     /// <summary>The summons whose "not shaped like a person" note was logged (once each).</summary>
@@ -251,16 +404,24 @@ sealed partial class ModelPage
     /// <summary>The Character drop-down for the chosen package: shown when it holds more than one skeletal mesh.</summary>
     async void FillMeshPick()
     {
-        if (ChosenPackage is not CharacterList.Item pkg) { meshPick.Visible = false; return; }
-        string key = pkg.Key, path = StartPackage(key);
+        if (ChosenPackage is not CharacterList.Item pkg) { meshRow.Visible = false; return; }
+        string key = pkg.Key, path = StartPackageCore(key);   // (the package's own models; added props come after)
+        var adds = host.AddedProps(key).ToList();
+        string? cookedNow = Settings.Current.CookedFolder;
+        AddedPropEntry? addedWas = null;   // (an added prop the saved state has as the target: picked again)
         List<string> names;
         var props = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool creature = false;
+        string? auto = null;
         try
         {
             names = await Task.Run(() =>
             {
                 var list = MhoSkeleton.List(path).Select(m => m.Name).ToList();
+                // the one Automatic picks (the selector says which)
+                if (list.Count > 1)
+                    try { auto = MhoSkeleton.Load(path, body: true).Name; }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
                 // which of them are props (a weapon or shield: PropFit), marked in the list
                 if (list.Count > 1)
                     foreach (var n in list)
@@ -272,6 +433,15 @@ sealed partial class ModelPage
                 if (Summons.ContainsKey(key))
                     try { var bn = MhoSkeleton.Load(path).Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase); creature = !new[] { "g_pelvis", "g_head", "g_l_hip", "g_r_hip", "g_l_knee", "g_r_knee", "g_l_elbow", "g_r_elbow", "g_l_wrist", "g_r_wrist" }.All(bn.Contains); }
                     catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                // the saved target an added prop's model (its character's, or one of its own: <model>_m12345)
+                if (addedPick == null && MhoSkeleton.ChosenFor(key) is string was && !list.Contains(was, StringComparer.OrdinalIgnoreCase) && cookedNow != null)
+                    foreach (var a in adds)
+                        try
+                        {
+                            if (MhoExtendedModManager.ModMeshes.Attachments(StockFiles.For(cookedNow, a.From)).FirstOrDefault(x => x.Class.Equals(a.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last() is string dm
+                                && System.Text.RegularExpressions.Regex.IsMatch(was, "^" + System.Text.RegularExpressions.Regex.Escape(dm) + @"(_m\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) { addedWas = a; break; }
+                        }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
                 return list;
             });
         }
@@ -288,21 +458,37 @@ sealed partial class ModelPage
         fillingMesh = true;
         try
         {
-            meshNames = names;
+            meshNames = names; autoMesh = auto;
+            meshProps.Clear(); meshProps.UnionWith(props);
             meshPick.Items.Clear();
-            meshPick.Items.Add("Model: Automatic");
-            foreach (var n in names) meshPick.Items.Add("Model: " + n + (props.Contains(n) ? " · Prop" : ""));
+            meshPick.Items.Add("Automatic" + (auto != null ? $" ({auto})" : ""));
+            foreach (var n in names) meshPick.Items.Add(n + (props.Contains(n) ? " · Prop" : ""));
+            meshAdded = [.. host.AddedProps(key)];
+            foreach (var a in meshAdded) meshPick.Items.Add(a.Name + " · Added Prop");
             string? pick = MhoSkeleton.ChosenFor(key);
             int at = pick == null ? -1 : names.FindIndex(n => n.Equals(pick, StringComparison.OrdinalIgnoreCase));
-            meshPick.SelectedIndex = at + 1;
-            meshPick.Visible = names.Count > 1 || at >= 0;
+            // (an added prop stays picked while it's there)
+            int added = addedPick == null ? -1 : meshAdded.FindIndex(a => a.Class.Equals(addedPick.Class, StringComparison.OrdinalIgnoreCase));
+            addedPick = added >= 0 ? meshAdded[added] : null;
+            meshPick.SelectedIndex = added >= 0 ? names.Count + added + 1 : at + 1;
+            meshRow.Visible = names.Count + meshAdded.Count > 1 || at >= 0;
+            UpdatePropFitUi();
+            if (addedWas != null && addedPick == null) _ = PickAddedTarget(key, addedWas);
+            // a saved target that isn't in the package any more (a removed added prop): automatic again, before anything is
+            // kept under its name
+            else if (addedPick == null && pick != null && at < 0) { MhoSkeleton.Choose(key, null); SaveState(); }
+            meshPick.Invalidate();
             PropTicks(changed: false);
         }
         finally { fillingMesh = false; }
     }
 
     /// <summary>The file a build of <paramref name="file"/> starts from (also what the preview shows the model on).</summary>
-    string StartPackage(string file)
+    /// <summary>The package a build or preview of <paramref name="file"/> starts from: an added prop picked as the target, a
+    /// copy with that prop in it (<see cref="AddedStart"/>); else the mod's package before the model, or the game's.</summary>
+    string StartPackage(string file) => AddedStart(file) ?? StartPackageCore(file);
+
+    string StartPackageCore(string file)
     {
         // a costume that shows its hero's model (no model of its own): a copy with that model in it, under the costume's name
         string start = StartPackageAsIs(file);
@@ -450,6 +636,11 @@ sealed partial class ModelPage
         public bool BuildOnBlenderSave { get; set; }
         /// <summary>Per summon target: whether its copies in other characters' packages are built too (asked once).</summary>
         public Dictionary<string, bool>? CopyOthers { get; set; }
+        /// <summary>Each prop's Prop Fit sliders ("package|model" → the fit; Kurt, 2026-10-26).</summary>
+        public Dictionary<string, PropAdjust>? PropFits { get; set; }
+        /// <summary>Each target's last source ("package|model" → source key; Kurt, 2026-10-26): Model ▾ back to the body puts its
+        /// source back, not the prop's.</summary>
+        public Dictionary<string, string>? TargetSources { get; set; }
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
@@ -469,7 +660,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null,
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, TargetSources = RememberTargetSource(),
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
@@ -491,7 +682,9 @@ sealed partial class ModelPage
         foreach (var f in st.Added ?? []) added.Add(f);
         foreach (var (f, mesh) in st.Meshes ?? []) MhoSkeleton.Choose(f, mesh);
         foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;
-        foreach (var (k, v) in st.CopyOthers ?? []) copyOthers[k] = v;   // built in an earlier session: its bytes are the mod's package
+        foreach (var (k, v) in st.CopyOthers ?? []) copyOthers[k] = v;
+        foreach (var (k, v) in st.PropFits ?? []) propFits[k] = v;
+        foreach (var (k, v) in st.TargetSources ?? []) targetSources[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;
         buildFrom.SelectedIndex = st.FromStock ? 1 : 0;
         if (st.Package != null) gameList = false;   // (the mod's saved target is one of its packages)
@@ -500,6 +693,14 @@ sealed partial class ModelPage
         restoring2 = false;
         if (st.Source == null) { if (st.Package != null) AssumeBuilt(); return; }
         pendingState = st;
+        SelectSourceKey(st.Source);
+    }
+
+    /// <summary>A source picked again by its key (the saved state's, or a target's own when Model ▾ changes): its kind and
+    /// list, then the row (a summon or prop: in the panel below), which loads it.</summary>
+    void SelectSourceKey(string source)
+    {
+        var st = new { Source = source };
         kindByState = true;
         // (already on From the Game: the list was filled before the saved source was known, with its hero's group shut, so it's
         // filled again to open that group: Kurt 2026-10-25, a summon source wasn't picked again)
@@ -515,7 +716,62 @@ sealed partial class ModelPage
         // a summon: picked in the summons panel below the list
         if (st.Source.StartsWith(GameSrc) && IsSummon(st.Source[GameSrc.Length..])) { ShowSummonSource(st.Source[GameSrc.Length..]); GameChosen(st.Source); }
         else if (st.Source.StartsWith(GameSrc) && SplitGameKey(st.Source).Mesh is not null) { ShowPropSource(st.Source); GameChosen(st.Source); }   // (a prop, from the panel)
+        else if (st.Source.StartsWith(GameSrc) && pendingState == null && !st.Source.Equals(chosenKey, StringComparison.OrdinalIgnoreCase)) GameChosen(st.Source);   // (its group was shut: not in the list)
     }
+
+    /// <summary>Each target's last source (TargetSources).</summary>
+    readonly Dictionary<string, string> targetSources = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The target as a key: its package and the model picked in it ("*": automatic).</summary>
+    string? TargetSourceKey() => ChosenPackage is CharacterList.Item t ? $"{t.Key}|{MhoSkeleton.ChosenFor(t.Key) ?? "*"}" : null;
+
+    /// <summary>The models in a package the tab has worked on (a source or a Prop Fit kept for them): a body target holds its
+    /// props among them as built into the mod.</summary>
+    List<string> WorkedModels(string file) => [.. targetSources.Keys.Concat(propFits.Keys)
+        .Where(k => k.StartsWith(file + "|", StringComparison.OrdinalIgnoreCase)).Select(k => k[(file.Length + 1)..])
+        .Where(m => m != "*").Distinct(StringComparer.OrdinalIgnoreCase)];
+
+    Dictionary<string, string>? RememberTargetSource()
+    {
+        if (chosenKey != null && HasSource && !PropSourceOnBody && TargetSourceKey() is string tk) targetSources[tk] = chosenKey;   // (a prop on a body: nothing fitted)
+        return targetSources.Count > 0 ? new(targetSources) : null;
+    }
+
+    /// <summary>
+    /// Model ▾ changed (Kurt, 2026-10-26: back on Thor's body after the hammer, the hammer stayed the source and there was
+    /// nothing to paint): the target's own last source comes back; a body with none while the source is a prop from the panel
+    /// takes its own model from the game.
+    /// </summary>
+    async void SourceForTarget()
+    {
+        if (ChosenPackage is not CharacterList.Item pkg || TargetSourceKey() is not string tk) return;
+        // (not a prop's model on a body, nor a body's own model on a prop)
+        // another model of this very package as a source (its body, the hammer's own model) belongs to that model
+        bool OtherOwn(string k) => k.Equals(GameSrc + pkg.Key, StringComparison.OrdinalIgnoreCase)
+            || IsPropKey(k) && SplitGameKey(k) is var (kf, km) && kf.Equals(pkg.Key, StringComparison.OrdinalIgnoreCase) && km != null && !km.Equals(MhoSkeleton.ChosenFor(pkg.Key), StringComparison.OrdinalIgnoreCase);
+        if (targetSources.TryGetValue(tk, out var src) && !(IsPropKey(src) && !TargetIsProp()) && !(TargetIsProp() && OtherOwn(src)))
+        {
+            if (!src.Equals(chosenKey, StringComparison.OrdinalIgnoreCase)) { Log($"Source: back to this target's own ({SourceTitle(src)})."); SelectSourceKey(src); }
+            return;
+        }
+        if (PropSourceOnBody) await UseOwnModel(pkg.Key);
+        // a prop target with no source of its own yet, and the source is another model's in this package (Kurt, 2026-10-27: the
+        // character's body fitted onto Angela's axe; the hammer's new model swapped in for the axe): no source, the prop's own
+        // model shows
+        else if (chosenKey is string ck && TargetIsProp() && (OtherOwn(ck)
+                 || targetSources.Any(kv => kv.Key.StartsWith(pkg.Key + "|", StringComparison.OrdinalIgnoreCase) && !kv.Key.Equals(tk, StringComparison.OrdinalIgnoreCase) && kv.Value.Equals(ck, StringComparison.OrdinalIgnoreCase))))
+        {
+            chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); characters.ClearSelected();
+            Log("Source: none (that source is another model's in this package): the prop's own model shows; pick a source to give it a new one.");
+            UpdateStatus(); SchedulePreview();
+        }
+    }
+
+    /// <summary>A prop from the panel is the source while the target is a body (nothing to fit: no preview, nothing to paint).</summary>
+    bool PropSourceOnBody => !TargetIsProp() && chosenKey is string k && IsPropKey(k);
+    static bool IsPropKey(string k) => k.StartsWith(GameSrc) && SplitGameKey(k).Mesh != null;
+
+    string SourceTitle(string key) => key.StartsWith(GameSrc) ? (SplitGameKey(key) is var (f, m) && m != null ? $"{m} in {f}" : key[GameSrc.Length..]) : Path.GetFileName(key.Replace("fbx:", ""));
 
     /// <summary>The rest of the saved choices, once the source has loaded (parts, Smooth, material, Cape / Hair).</summary>
     /// <summary>A package built before the tab kept build settings (no BuiltPrints entry): its restored settings are taken as

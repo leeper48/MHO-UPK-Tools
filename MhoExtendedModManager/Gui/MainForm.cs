@@ -1533,18 +1533,10 @@ sealed partial class MainForm : Form
     }
 
     /// <summary>Runs an action with Console output captured (the write path reports through Console, as in the CLI).</summary>
-    static readonly object consoleLock = new();
-    internal static string CaptureOutput(Action a)
+    internal static string CaptureOutput(Action a) => ConsoleCapture.Run(() =>
     {
-        lock (consoleLock)
-        {
-            var old = Console.Out; var sw = new StringWriter();
-            Console.SetOut(sw);
-            try { a(); } catch (Exception ex) { sw.WriteLine("ERROR: " + ex.Message); }
-            finally { Console.SetOut(old); }
-            return sw.ToString();
-        }
-    }
+        try { a(); } catch (Exception ex) { Console.WriteLine("ERROR: " + ex.Message); }
+    });
 
     void ShowLog(string title, string text, Dialog.Tone tone = Dialog.Tone.Normal) => Dialog.ShowLog(this, title, text, tone);
 

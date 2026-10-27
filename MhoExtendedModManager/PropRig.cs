@@ -22,6 +22,8 @@ sealed class PropRig
     public int Count => props.Count;
     /// <summary>The props' classes (tests).</summary>
     public IEnumerable<string> Classes => props.Select(p => p.Class + "=" + p.Mesh.Name);
+    /// <summary>Tests: each prop's class and the character bone (index) it's held on.</summary>
+    public IEnumerable<(string Class, int Bone)> BonesForTest => props.Select(p => (p.Class, p.Bone));
 
     /// <summary>The character and its props as last posed (Update): the box around them, or null before the first pose.</summary>
     public (Vector3 Lo, Vector3 Hi)? Bounds()
@@ -335,6 +337,23 @@ sealed class PropRig
     }
 
     /// <summary>The character and the props as one mesh (props' sections after the character's); sizes the pose buffers.</summary>
+    /// <summary>Where <paramref name="mesh"/>'s sections start in the combined mesh (after <paramref name="characterSections"/>
+    /// of the character's and the props before it), or -1 when it isn't one of the props.</summary>
+    public int SectionStart(ModMeshes.Loaded mesh, int characterSections)
+    {
+        int at = characterSections;
+        foreach (var p in props) { if (ReferenceEquals(p.Mesh, mesh)) return at; at += p.Mesh.Looks.Length; }
+        return -1;
+    }
+
+    /// <summary>Where <paramref name="mesh"/>'s vertices start in the combined mesh, or -1 when it isn't one of the props.</summary>
+    public int VertexStart(ModMeshes.Loaded mesh, int characterVertices)
+    {
+        int at = characterVertices;
+        foreach (var p in props) { if (ReferenceEquals(p.Mesh, mesh)) return at; at += p.Mesh.Positions.Length; }
+        return -1;
+    }
+
     public ModMeshes.Loaded Combine(ModMeshes.Loaded l)
     {
         int total = l.Positions.Length + props.Sum(p => p.Mesh.Positions.Length) + actors.Sum(a => a.Mesh.Positions.Length);

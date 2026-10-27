@@ -33,7 +33,7 @@ sealed partial class ModEditorView
     {
         var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0, 6, 0, 0) };
         var head = new Label { Text = "PROPS", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 4, 0, 2) };
-        Ui.Tip(head, "Props this costume holds as well as its own (Thor's hammer in Captain America's hand): they show in every animation, in a slot of their own, and a borrowed power that shows that slot uses them.");
+        Ui.Tip(head, "Props this costume holds as well as its own (Thor's hammer in Captain America's hand): they show in every animation, in a slot of their own, and a borrowed power that shows that slot uses them. They're added, removed and fitted on the Model tab; here, how they move in the animations.");
         var add = Ui.FlatButton("Add a Prop", AddPropAsked, "Give this costume another character's prop (a hero's hammer, sword, shield …): it holds it in every animation, on the bone the prop's own character holds it on. Save puts it into the mod.");
         propRemove = Ui.FlatButton("Remove", RemovePropAsked, "Take the selected prop off this costume.");
         propList.Width = (int)(320 * S);
@@ -68,7 +68,11 @@ sealed partial class ModEditorView
         animCol.Controls.Add(animBlock.Root);
         var cols = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0) };
         cols.Controls.AddRange([fitCol, animCol]);
-        box.Controls.AddRange([head, Toolbar(add, propRemove), propList, cols, propNote]);
+        // added, removed and fitted on the Model tab (Kurt, 2026-10-27: what the character holds there, how it moves here);
+        // the buttons and sliders stay for the tests and the Powers tab's held props, hidden
+        add.Visible = false; propRemove.Visible = false;
+        var toModel = Ui.FlatButton("Set Up Props on the Model Tab", OpenModelTab, "Props are added, removed and fitted on the Model tab (Target's Props, and ◀ ▶ under its preview). Here: Pivot on the Hand and In This Animation.");
+        box.Controls.AddRange([head, Toolbar(add, propRemove, toModel), propList, cols, propNote]);
         FillPropList();
         return box;
     }
@@ -95,11 +99,11 @@ sealed partial class ModEditorView
         var e = propList.SelectedItem as AddedPropEntry;
         bool on = e != null;
         propList.Visible = on;
-        foreach (var sl in new[] { apSize, apX, apY, apZ, apTX, apTY, apTZ }) if (sl != null) sl.Visible = on;
+        foreach (var sl in new[] { apSize, apX, apY, apZ, apTX, apTY, apTZ }) if (sl != null) sl.Visible = false;   // (fitted on the Model tab)
         propPin.Visible = on;
         if (propRemove != null) propRemove.Enabled = on;
         ShowAnimFit();
-        propNote.Text = on ? "" : "No props added to this costume.";
+        propNote.Text = on ? "" : "No props added to this costume (Add a Prop is on the Model tab).";
         if (e == null || apSize == null || apX == null || apY == null || apZ == null || apTX == null || apTY == null || apTZ == null) return;
         propShowing = true;
         try
@@ -383,13 +387,31 @@ sealed partial class ModEditorView
     }
 
     /// <summary>Add a Prop: a hero, then one of their props; added to the selected costume package.</summary>
+    void OpenModelTab()
+    {
+        int t = Enumerable.Range(0, TabCount).FirstOrDefault(i => TabTitle(i) == "Model", -1);
+        if (t >= 0) SelectTab(t);
+    }
+
     async void AddPropAsked()
     {
-        if (game == null || AnimFile is not string file) return;
-        using var f = new AddPropForm(game.Cooked);
-        if (f.ShowDialog(this) != DialogResult.OK || f.Chosen is not { } pick) return;
+        if (AnimFile is not string file || await AddPropTo(file) is not { } e) return;
+        propList.SelectedIndex = propList.Items.IndexOf(e);
+    }
+
+    /// <summary>Another character's prop added to <paramref name="file"/> (<paramref name="pick"/>, else the Add a Prop window
+    /// asks) and put into the package; null when nothing was added. The Animations tab's button and the Model tab's.</summary>
+    async Task<AddedPropEntry?> AddPropTo(string file, AddPropForm.Pick? pick = null)
+    {
+        if (game == null) return null;
+        if (pick == null)
+        {
+            using var f = new AddPropForm(game.Cooked);
+            if (f.ShowDialog(this) != DialogResult.OK || f.Chosen is not { } chosen) return null;
+            pick = chosen;
+        }
         if (draft.AddedProps.Any(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && p.Class.Equals(pick.Class, StringComparison.OrdinalIgnoreCase)))
-        { Dialog.Show(this, $"{pick.Name} is on this costume already.", "Prop Not Added"); return; }
+        { Dialog.Show(this, $"{pick.Name} is on this costume already.", "Prop Not Added"); return null; }
         var e = new AddedPropEntry
         {
             Package = file, From = pick.File, Class = pick.Class, Name = pick.Name,
@@ -397,21 +419,73 @@ sealed partial class ModEditorView
             Fit = new PropFit { Class = pick.Class, TurnZ = PowerBorrow.DefaultTurnZ(pick.Class) },
         };
         draft.AddedProps.Add(e);
-        if (!await ApplyPropsTo(file)) { draft.AddedProps.Remove(e); return; }
+        if (!await ApplyPropsTo(file)) { draft.AddedProps.Remove(e); return null; }
         FillPropList();
-        propList.SelectedIndex = propList.Items.IndexOf(e);
+        return e;
     }
 
     async void RemovePropAsked()
     {
-        if (propList.SelectedItem is not AddedPropEntry e || DraftPath(e.Package) is not string src) return;
+        if (propList.SelectedItem is AddedPropEntry e) await RemoveAddedProp(e);
+    }
+
+    /// <summary>
+    /// One of the costume's own props held on another bone (<paramref name="bone"/>), or on its own again (null): kept in the
+    /// draft (manifest PropBones) and put into the package; builds and Save put it in again.
+    /// </summary>
+    async Task<bool> SetPropBone(string file, string cls, string? bone)
+    {
+        if (DraftPath(file) is not string src) return false;
+        var had = draft.PropBones.FirstOrDefault(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && p.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
+        List<string> original;
+        try { original = had?.Original ?? PowerBorrow.HeldBones(File.ReadAllBytes(src), cls) ?? throw new InvalidDataException($"{cls}'s settings (its class default) aren't in {file}: it's another package's prop"); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, "The prop's bone can't be changed: " + ex.Message, "Bone Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+        if (had != null) draft.PropBones.Remove(had);
+        if (bone != null) draft.PropBones.Add(new PropBoneEntry { Package = file, Class = cls, Bone = bone, Original = original });
+        int v = ++propVersion;
+        var log = new List<string>();
+        byte[] bytes;
+        try { bytes = await Task.Run(() => PowerBorrow.SetHeldBones(File.ReadAllBytes(src), cls, bone != null ? [bone] : original, log)); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException)
+        {
+            draft.PropBones.RemoveAll(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && p.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
+            if (had != null) draft.PropBones.Add(had);
+            Dialog.Show(this, "The prop's bone can't be changed: " + ex.Message, "Bone Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+        if (IsDisposed || v != propVersion) return false;
+        UseWorkCopy(file, bytes);
+        propTouched.Add(file);
+        ReloadPropPreviews();
+        modelPage?.PackageReplaced(file);
+        return true;
+    }
+
+    /// <summary>An added prop's own model (the Model tab's build, kept in the mod's Model folder), else null: its character's.</summary>
+    string? PropModel(AddedPropEntry p) => p.ModelFrom is string r && Path.Combine(WorkFolder, r) is var f && File.Exists(f) ? f : null;
+
+    /// <summary>An added prop given a model of its own (the Model tab's build, kept under the mod's Model folder at
+    /// <paramref name="relPath"/>), or its character's again (null), put into its package.</summary>
+    async Task<bool> SetAddedModel(AddedPropEntry e, string? relPath)
+    {
+        string? was = e.ModelFrom;
+        e.ModelFrom = relPath;
+        if (await ApplyPropsTo(e.Package)) return true;
+        e.ModelFrom = was;
+        return false;
+    }
+
+    /// <summary>An added prop taken off its package (the Animations tab's Remove and the Model tab's).</summary>
+    async Task<bool> RemoveAddedProp(AddedPropEntry e)
+    {
+        if (DraftPath(e.Package) is not string src) return false;
         int v = ++propVersion;
         draft.AddedProps.Remove(e);
         var log = new List<string>();
         byte[] bytes;
         try { bytes = await Task.Run(() => PowerBorrow.RemoveProp(File.ReadAllBytes(src), e.Class, log)); }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { draft.AddedProps.Add(e); Dialog.Show(this, "The prop couldn't be taken off: " + ex.Message, "Prop Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        if (IsDisposed || v != propVersion) return;
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { draft.AddedProps.Add(e); Dialog.Show(this, "The prop couldn't be taken off: " + ex.Message, "Prop Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+        if (IsDisposed || v != propVersion) return false;
         UseWorkCopy(e.Package, bytes);
         propTouched.Add(e.Package);
         // checked: the package's props without it
@@ -419,6 +493,8 @@ sealed partial class ModEditorView
         FillPropList();
         propNote.Text = still ? $"{e.Name} Is Still in the Package (Please Report This)" : $"{e.Name} Taken Off";
         ReloadPropPreviews();
+        modelPage?.PackageReplaced(e.Package);
+        return !still;
     }
 
     /// <summary>The package's added props applied to its current copy (again: AddProp keeps what's there), into a work copy;
@@ -432,6 +508,8 @@ sealed partial class ModEditorView
         var log = new List<string>();
         var hold = Hold(file, src);
         var borrows = Borrows(file);
+        var models = props.ToDictionary(p => p, p => PropModel(p));
+        var bones = draft.PropBones.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
         propNote.Text = "Putting the Prop In…";
         byte[] bytes;
         byte[]? baseBytes = null; string? baseFile = null;
@@ -440,7 +518,8 @@ sealed partial class ModEditorView
             bytes = await Task.Run(() =>
             {
                 byte[] b = File.ReadAllBytes(src);
-                foreach (var p in props) b = PowerBorrow.AddProp(b, p, StockFiles.For(cooked, p.From), log, hold);
+                foreach (var p in props) b = PowerBorrow.AddProp(b, p, StockFiles.For(cooked, p.From), log, hold, models[p]);
+                foreach (var pb in bones) b = PowerBorrow.SetHeldBones(b, pb.Class, [pb.Bone], log);   // (the costume's own props on other bones)
                 baseBytes = HoldInBorrows(file, b, props, log, borrows, out baseFile);
                 return b;
             });
@@ -459,6 +538,7 @@ sealed partial class ModEditorView
         propLastLog = log;
         propNote.Text = "";
         ReloadPropPreviews();
+        modelPage?.PackageReplaced(file);   // (the Model tab's preview holds them too)
         return true;
     }
 
@@ -471,7 +551,7 @@ sealed partial class ModEditorView
     /// <summary>After a borrowed look's rebuild (which starts from the packages before it): the added props put in again.</summary>
     async void ReapplyProps()
     {
-        foreach (string f in draft.AddedProps.Select(p => p.Package).Distinct(StringComparer.OrdinalIgnoreCase).ToList()) await ApplyPropsTo(f);
+        foreach (string f in draft.AddedProps.Select(p => p.Package).Concat(draft.PropBones.Select(p => p.Package)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()) await ApplyPropsTo(f);
     }
 
     /// <summary>Save: every added prop applied again to its package as it is now (after the borrowed looks). The work folder.</summary>
@@ -484,7 +564,8 @@ sealed partial class ModEditorView
         {
             if (DraftPath(g.Key) is not string src) throw new InvalidDataException($"{g.Key} isn't in the mod");
             byte[] b = File.ReadAllBytes(src);
-            foreach (var p in g) b = PowerBorrow.AddProp(b, p, StockFiles.For(game.Cooked, p.From), log, Hold(g.Key, src));
+            foreach (var p in g) b = PowerBorrow.AddProp(b, p, StockFiles.For(game.Cooked, p.From), log, Hold(g.Key, src), PropModel(p));
+            foreach (var pb in draft.PropBones.Where(x => x.Package.Equals(g.Key, StringComparison.OrdinalIgnoreCase))) b = PowerBorrow.SetHeldBones(b, pb.Class, [pb.Bone], log);
             string path = Path.Combine(work, g.Key);
             File.WriteAllBytes(path, b);
             int k = draft.Packages.FindIndex(x => x.File.Equals(g.Key, StringComparison.OrdinalIgnoreCase));

@@ -54,7 +54,7 @@ static class SpecLayouts
     public static string? GlowMap(string specFile, Layout layout, string colour)
     {
         if (layout.GlowChannel < 0) return null;
-        string key = specFile + "|" + File.GetLastWriteTimeUtc(specFile).Ticks + "|" + colour + "|" + File.GetLastWriteTimeUtc(colour).Ticks + "|" + layout.Id;
+        string key = specFile + "|" + File.GetLastWriteTimeUtc(specFile).Ticks + "|" + colour + "|" + File.GetLastWriteTimeUtc(colour).Ticks + "|" + layout.Id + "|2";
         string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..16];
         string outFile = Path.Combine(Path.GetTempPath(), "MHO_ExtMM_spec", hash + "_glow.png");
         string none = outFile + ".none";
@@ -73,7 +73,10 @@ static class SpecLayouts
             o[4 * i + 3] = 255;
         }
         Directory.CreateDirectory(Path.GetDirectoryName(outFile)!);
-        if (lit == 0) { File.WriteAllText(none, ""); return null; }
+        // a glow in the alpha channel that's 255 everywhere is a DXT1 map's missing alpha, not a mask (Kurt, 2026-10-27: Thor Age
+        // of Ultron's specmult_specpow_reflectivity_emissive is DXT1: his body, rebuilt from the game, glowed all over)
+        bool noAlpha = off[layout.GlowChannel] == 3 && lit == w * h && Enumerable.Range(0, w * h).All(i => spec[4 * i + 3] == 255);
+        if (lit == 0 || noAlpha) { File.WriteAllText(none, ""); return null; }
         ImagePixels.Save(w, h, o, outFile);
         return outFile;
     }

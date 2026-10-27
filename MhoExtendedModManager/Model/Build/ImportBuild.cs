@@ -100,6 +100,7 @@ sealed class ImportBuild
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.ApplyAny(r, o.ModelFbx, sk, log); }
         if ((o.Hair > 0 || o.Cape > 0 || o.Rigs.Count > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed rigs are left out");
+        if (PropFit.IsProp(sk) && o.PropFit is { IsNone: false } pfit) { PropFit.Adjust(r, sk, pfit); log("prop:    " + r.Notes[^1]["prop fit: ".Length..].Insert(0, "fit ")); }   // the Prop Fit sliders
         MaterialOverrides.Apply(r, o.MaterialOverrides, line => log("  " + line));   // the Materials tab's files
         if (WeightPaint.Apply(r, o.PaintFile) is { } paintNote) log("paint:   " + paintNote["weight paint: ".Length..]);
         builtBones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());

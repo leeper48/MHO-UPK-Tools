@@ -30,7 +30,7 @@ sealed partial class PreviewPanel
             painting = value;
             view.PaintMode = value;
             if (value && !showWeights) CycleWeights();   // (the weights over the model at half strength first; W cycles)
-            else if (showWeights) p3.RefreshSkin();   // (Weights: the painted bone alone while painting, the row's bones otherwise)
+            else if (showWeights) RefreshSkin();   // (Weights: the painted bone alone while painting, the row's bones otherwise)
             UpdateBrushColor();
             PaintModeChanged?.Invoke();
         }
@@ -41,7 +41,7 @@ sealed partial class PreviewPanel
     public string? PaintBone
     {
         get => paintBone;
-        set { if (string.Equals(paintBone, value, StringComparison.OrdinalIgnoreCase)) return; paintBone = value; if (painting && showWeights) p3.RefreshSkin(); }
+        set { if (string.Equals(paintBone, value, StringComparison.OrdinalIgnoreCase)) return; paintBone = value; if (painting && showWeights) RefreshSkin(); }
     }
     Brush brush = Brush.Draw;
     public Brush BrushKind { get => brush; set { brush = value; UpdateBrushColor(); } }
@@ -116,10 +116,13 @@ sealed partial class PreviewPanel
     int[][] weldNeighbours = [];
     int[] mirror = [];
 
-    bool PaintReady(out ModMeshes.Loaded mesh)
+    /// <summary>The model painted and where its vertices start in the view (a prop target: held in its character's hand, after
+    /// the character's and the props before it).</summary>
+    bool PaintReady(out ModMeshes.Loaded mesh, out int start)
     {
-        mesh = null!;
+        mesh = null!; start = 0;
         if (shown == null || comparing || shown.TargetOnly) return false;
+        if (holderAnimator != null && (start = p3.ReplacedVertexStart) < 0) return false;
         mesh = shown.Mesh;
         if (!ReferenceEquals(paintMesh, mesh)) BuildPaintTopology(mesh);
         return true;
@@ -210,12 +213,12 @@ sealed partial class PreviewPanel
 
     void Dab(Point at, Keys keys, bool first)
     {
-        if (!PaintReady(out var m)) { if (first) PaintNote?.Invoke(comparing ? "Painting is off while Compare shows the target's own model." : "Nothing to paint: pick a source model."); return; }
+        if (!PaintReady(out var m, out int start)) { if (first) PaintNote?.Invoke(comparing ? "Painting is off while Compare shows the target's own model." : "Nothing to paint: pick a source model."); return; }
         if (PaintBone == null || BoneIndex(m, PaintBone) is var bone && bone < 0) { if (first) PaintNote?.Invoke("Pick a bone to paint: a row in the Bone Map tab, or Ctrl+click a bone in the view."); return; }
         if (view.SurfaceAt(at) is not var (hit, upp)) return;
         if (first) { StrokeStarted?.Invoke(); LastPaint = $"Paint: {((keys & Keys.Shift) != 0 && Shortcuts.Held("paint.blur", keys) ? "Blur" : brush.ToString())}{(Shortcuts.Held("paint.otherway", keys) ? " (Other Way)" : "")} on {PaintBone}{(PaintMirror ? " + Mirror" : "")}"; }
         float radius = view.BrushRadius * upp;
-        var near = view.VerticesNear(hit, radius, m.Positions.Length);
+        var near = view.VerticesNear(hit, radius, start, m.Positions.Length);
         if (near.Count == 0) return;
         var kind = Shortcuts.Held("paint.blur", keys) ? Brush.Blur : brush;
         bool ctrl = Shortcuts.Held("paint.otherway", keys);
@@ -224,7 +227,7 @@ sealed partial class PreviewPanel
         Apply(m, bone, near.Select(x => (x.Vertex, Falloff(x.Distance, radius))).ToList(), kind, target);
         if (PaintMirror && BoneIndex(m, MirrorName(PaintBone)) is int mb && mb >= 0)
             Apply(m, mb, near.Where(x => mirror[x.Vertex] >= 0).Select(x => (mirror[x.Vertex], Falloff(x.Distance, radius))).ToList(), kind, target);
-        p3.RefreshSkin();
+        RefreshSkin();
     }
 
     /// <summary>One dab of <paramref name="kind"/> on <paramref name="bone"/> over the vertices with their falloff.</summary>
@@ -268,7 +271,7 @@ sealed partial class PreviewPanel
     /// → Smooth) the painted bone; Mirror does the other side too.</summary>
     public void WholeBone(bool invert)
     {
-        if (!PaintReady(out var m) || m.Influences is not List<VertexInfluence> infl) { PaintNote?.Invoke("Nothing to paint: pick a source model."); return; }
+        if (!PaintReady(out var m, out _) || m.Influences is not List<VertexInfluence> infl) { PaintNote?.Invoke("Nothing to paint: pick a source model."); return; }
         if (PaintBone == null || BoneIndex(m, PaintBone) is var bone && bone < 0) { PaintNote?.Invoke("Pick a bone first: a row in the Bone Map tab, or Ctrl+click a bone in the view."); return; }
         StrokeStarted?.Invoke();
         LastPaint = $"{(invert ? "Invert Bone" : "Smooth Bone")}: {PaintBone}{(PaintMirror ? " + Mirror" : "")}";
@@ -302,7 +305,7 @@ sealed partial class PreviewPanel
                     }
                 }
         }
-        p3.RefreshSkin();
+        RefreshSkin();
         if (strokeTouched.Count > 0) Painted?.Invoke(strokeTouched.ToList());
         strokeTouched.Clear();
     }
@@ -356,7 +359,7 @@ sealed partial class PreviewPanel
                 }
             start += sh.SectionCounts[si];
         }
-        p3.RefreshSkin();
+        RefreshSkin();
         return true;
     }
 
@@ -380,7 +383,8 @@ sealed partial class PreviewPanel
                 if (view.SurfaceAt(p) is not null) at = p;
             }
         if (at is not Point hitAt || view.SurfaceAt(hitAt) is not var (hit, _)) return null;
-        int center = view.VerticesNear(hit, float.MaxValue, shown?.Mesh.Positions.Length ?? 0).OrderBy(x => x.Distance).First().Vertex;
+        int start = holderAnimator != null ? Math.Max(0, p3.ReplacedVertexStart) : 0;
+        int center = view.VerticesNear(hit, float.MaxValue, start, shown?.Mesh.Positions.Length ?? 0).OrderBy(x => x.Distance).First().Vertex;
         Dab(hitAt, keys, true);
         var touched = strokeTouched.ToList();
         if (strokeTouched.Count > 0) Painted?.Invoke(touched);

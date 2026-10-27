@@ -249,6 +249,8 @@ sealed class DropDown : Control
     public Func<int, Color?>? ItemColor { get; set; }
     /// <summary>Shown when nothing is chosen.</summary>
     public string Placeholder { get; set; } = "";
+    /// <summary>The closed box's text in place of the chosen item's (null: the item's).</summary>
+    public Func<string?>? ClosedText { get; set; }
     public int MaxDropDownItems { get; set; } = 18;
     /// <summary>False: a menu of choices that always shows <see cref="Placeholder"/> (e.g. "Found ▾" beside a text field).</summary>
     public bool ShowsSelection { get => showsSelection; set { showsSelection = value; FitHeight(); } }
@@ -362,7 +364,7 @@ sealed class DropDown : Control
         g.SmoothingMode = SmoothingMode.None;
         int pad = (int)(10 * s), arrow = (int)(18 * s);
         var textRect = new Rectangle(pad, 0, Math.Max(1, Width - pad - arrow - (int)(4 * s)), Height);
-        string text = ShowsSelection && SelectedItem is { } o ? TextOf(o) : Placeholder;
+        string text = ShowsSelection && SelectedItem is { } o ? ClosedText?.Invoke() ?? TextOf(o) : Placeholder;
         var color = !Enabled ? Ui.DisabledText : !ShowsSelection ? ForeColor : SelectedItem == null ? Ui.Subtle : ItemColor?.Invoke(sel) ?? ForeColor;
         TextRenderer.DrawText(g, text, Font, textRect, color, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
         TextRenderer.DrawText(g, "▾", Font, new Rectangle(Width - arrow - (int)(4 * s), 0, arrow, Height), Enabled ? Ui.Text : Ui.DisabledText,

@@ -34,10 +34,19 @@ sealed partial class ModelPage
         {
             for (int i = 0; i < 100 && !meshNames.Any(); i++) await Task.Delay(100);
             int at = meshNames.FindIndex(n => n.Equals(testMesh, StringComparison.OrdinalIgnoreCase));
-            bool shown = meshPick.Visible && at >= 0;
+            bool shown = meshRow.Visible && at >= 0;
             if (at >= 0) meshPick.SelectedIndex = at + 1;
             bool picked = MhoSkeleton.ChosenFor(package)?.Equals(testMesh, StringComparison.OrdinalIgnoreCase) == true;
-            say($"{(shown && picked ? "PASS" : "FAIL")} Model ▾ lists the package's characters ({string.Join(", ", meshNames)}), {testMesh} picked");
+            say($"{(shown && picked ? "PASS" : "FAIL")} the model selector lists the package's characters ({string.Join(", ", meshNames)}), {testMesh} picked: \"{MeshCaption()}\"");
+            // ◀ ▶ step round the list and back
+            if (meshNames.Count > 1)
+            {
+                StepMesh(1);
+                string? other = MhoSkeleton.ChosenFor(package);
+                StepMesh(-1);
+                bool stepBack = MhoSkeleton.ChosenFor(package)?.Equals(testMesh, StringComparison.OrdinalIgnoreCase) == true;
+                say($"{(other != null && !other.Equals(testMesh, StringComparison.OrdinalIgnoreCase) && stepBack ? "PASS" : "FAIL")} ▶ steps to {other}, ◀ back to {testMesh}");
+            }
         }
         await propTicks;
         bool before = HasUnbuiltChanges;

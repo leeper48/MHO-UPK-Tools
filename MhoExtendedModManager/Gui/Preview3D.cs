@@ -29,6 +29,9 @@ sealed record PreviewContext(string? Hero, string? Cooked, MeshRef? MainRef, IRe
     /// <summary>The packages the props are read from (null: ModPackages; the Powers tab leaves its rebuilt power packages
     /// out of ModPackages, not out of the props).</summary>
     public IReadOnlyList<(string File, string Path)>? PropPackages { get; init; }
+    /// <summary>The character whose attachment classes name the props (null: MainRef and PackageMeshes; the Model tab: the
+    /// mod's copy of the package while the body shown is a build of it).</summary>
+    public (MeshRef Main, IReadOnlyList<MeshRef> Meshes)? PropsFrom { get; init; }
 }
 
 /// <summary>

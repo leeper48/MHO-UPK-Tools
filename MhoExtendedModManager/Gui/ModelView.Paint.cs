@@ -159,6 +159,9 @@ sealed partial class ModelView
     /// (the Model tab's weights at half strength, Kurt 2026-10-25); null: none.</summary>
     public Vector3[]? Tint { get; set; }
     public float TintOpacity { get; set; } = 0.5f;
+    /// <summary>The shown vertex <see cref="Tint"/>'s first colour belongs to (0: the character; a held prop being painted:
+    /// its first vertex).</summary>
+    public int TintStart { get; set; }
 
     /// <summary>Each view drawn in the last frame (one, or the quad view's four): its part of the canvas and how an engine-space
     /// point lands on it (null behind its camera), with the Size scale (ModelScale) as the model is drawn. Overlays use these
@@ -167,23 +170,30 @@ sealed partial class ModelView
         [.. cams.Select(c => { var area = PaneArea(c.Pane); var cam = c.Cam; return (area, (Func<Vector3, PointF?>)(v => OnCanvas(v, cam, area))); })];
 
     /// <summary>New texture coordinates for the first vertices shown (the character; its props follow), then a redraw.</summary>
-    public void SetCharacterUv(Vector2[] u)
+    public void SetCharacterUv(Vector2[] u) => SetUv(0, u, redraw: true);
+
+    /// <summary>New texture coordinates for the shown vertices from <paramref name="start"/> on (a held prop's).</summary>
+    public void SetUv(int start, Vector2[] u, bool redraw)
     {
-        if (u.Length > uv.Length) return;
-        Array.Copy(u, uv, u.Length);
-        Redraw();
+        if (start < 0 || start + u.Length > uv.Length) return;
+        Array.Copy(u, 0, uv, start, u.Length);
+        if (redraw) Redraw();
     }
 
     /// <summary>The shown vertices (below <paramref name="count"/>: the character, not its props) within <paramref name="radius"/>
     /// of a display-space point, with their distance.</summary>
-    public List<(int Vertex, float Distance)> VerticesNear(Vector3 point, float radius, int count)
+    public List<(int Vertex, float Distance)> VerticesNear(Vector3 point, float radius, int count) => VerticesNear(point, radius, 0, count);
+
+    /// <summary>The same for the <paramref name="count"/> shown vertices from <paramref name="start"/> on (a held prop's), by their
+    /// index from there.</summary>
+    public List<(int Vertex, float Distance)> VerticesNear(Vector3 point, float radius, int start, int count)
     {
         var list = new List<(int, float)>();
         float r2 = radius * radius;
-        for (int i = 0; i < Math.Min(count, pos.Length); i++)
+        for (int i = Math.Max(0, start); i < Math.Min(start + count, pos.Length); i++)
         {
             float d2 = Vector3.DistanceSquared(pos[i], point);
-            if (d2 <= r2) list.Add((i, MathF.Sqrt(d2)));
+            if (d2 <= r2) list.Add((i - start, MathF.Sqrt(d2)));
         }
         return list;
     }

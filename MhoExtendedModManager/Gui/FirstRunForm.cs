@@ -105,17 +105,16 @@ sealed class FirstRunForm : Form
         var s = settings;
         string output = await Task.Run(() =>
         {
-            var sw = new StringWriter();
-            var prev = Console.Out; Console.SetOut(sw);
-            try
+            return ConsoleCapture.Run(() =>
             {
-                if (doMigrate) Migration.Run(old, library, s);
-                else { ModInstaller.CreateEmptyLibrary(library); Console.WriteLine($"Created an empty mod library in {library}."); }
-                s.Save();
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Console.WriteLine("Stopped: " + ex.Message); }
-            finally { Console.SetOut(prev); }
-            return sw.ToString();
+                try
+                {
+                    if (doMigrate) Migration.Run(old, library, s);
+                    else { ModInstaller.CreateEmptyLibrary(library); Console.WriteLine($"Created an empty mod library in {library}."); }
+                    s.Save();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Console.WriteLine("Stopped: " + ex.Message); }
+            });
         });
         UseWaitCursor = false;
         log.Text = output.Replace("\r\n", "\n").Replace("\n", "\r\n");

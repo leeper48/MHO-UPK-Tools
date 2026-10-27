@@ -11,6 +11,9 @@ sealed partial class Preview3D
     readonly PropRig rig = new();
     /// <summary>Tests: the classes of the props the rig holds.</summary>
     internal IEnumerable<string> PropClassesForTest => rig.Classes;
+    /// <summary>Tests: the bone the prop of class <paramref name="cls"/> is held on in the view, or null.</summary>
+    internal string? PropBoneForTest(string cls) => rig.BonesForTest.Where(b => b.Class.Equals(cls, StringComparison.OrdinalIgnoreCase))
+        .Select(b => shownLoaded != null && b.Bone >= 0 && b.Bone < shownLoaded.Bones.Count ? shownLoaded.Bones[b.Bone].Name : null).FirstOrDefault();
     /// <summary>A prop's frame as shown (PropRig.Frame), or null.</summary>
     public System.Numerics.Matrix4x4? PropFrame(string cls) => animator == null ? null : rig.Frame(cls, animator);
     PreviewEffects? effects;
@@ -311,11 +314,20 @@ sealed partial class Preview3D
     void LoadProps()
     {
         if (animator == null || shownLoaded == null || ctx?.MainRef is not MeshRef main) return;
-        Props.Load(main, ctx.PackageMeshes, ctx.Cooked, ctx.PropPackages ?? ctx.ModPackages, prefs.Props, LoadPropSwitches);
+        Props.Load(ctx.PropsFrom?.Main ?? main, ctx.PropsFrom?.Meshes ?? ctx.PackageMeshes, ctx.Cooked, ctx.PropPackages ?? ctx.ModPackages, prefs.Props, LoadPropSwitches);
     }
 
     /// <summary>The character with its props and the power's, as one mesh; the view and the pose kept (framed by the character alone).</summary>
     public void RebuildRig() => Props.Rebuild();
+
+    /// <summary>A prop's mesh shown in place of the game's (PreviewProps.Replace); set before ShowCharacter or followed by RebuildRig.</summary>
+    public Func<MeshRef, ModMeshes.Loaded?>? ReplaceProp { get => Props.Replace; set => Props.Replace = value; }
+    /// <summary>Where the replacing prop's sections start in the shown mesh, or -1.</summary>
+    /// <summary>The replaced prop is the model being edited (PreviewProps.ReplacedIsTarget).</summary>
+    public bool ReplacedIsTarget { get => Props.ReplacedIsTarget; set => Props.ReplacedIsTarget = value; }
+    /// <summary>Where the replacing prop's vertices start in the shown mesh, or -1.</summary>
+    public int ReplacedVertexStart => Props.Replaced is { } rv && shownLoaded != null ? rig.VertexStart(rv, shownLoaded.Positions.Length) : -1;
+    public int ReplacedSectionStart => Props.Replaced is { } r && shownLoaded != null ? rig.SectionStart(r, shownLoaded.Looks.Length) : -1;
 
     /// <summary>Props left out by attachment class (the Model tab's target props switched off); shown again at once.</summary>
     public Func<string, bool>? HiddenProps { get => Props.Hidden; set { Props.Hidden = value; Props.Rebuild(); } }

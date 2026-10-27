@@ -115,7 +115,7 @@ sealed partial class PreviewPanel : UserControl
             if (PickMaterials)
             {
                 int sec = view.SectionAt(e.Location);
-                if (shown != null && sec >= 0 && sec < shown.SectionNames.Count && shown.SectionNames[sec].Length > 0) MaterialPicked?.Invoke(shown.SectionNames[sec]);
+                if (SectionName(sec) is { Length: > 0 } picked) MaterialPicked?.Invoke(picked);
                 return;
             }
             if (PickBone(e.Location, view.Controls[0].ClientSize) is string bone) BonePicked?.Invoke(bone);
@@ -213,7 +213,7 @@ sealed partial class PreviewPanel : UserControl
     /// <summary>Shows a prepared model (UI thread), keeping the animation picked before when the new list has it.</summary>
     float shownExtent;
     /// <summary>Test: the shown model's largest side and its bounds' center.</summary>
-    internal float ExtentValueForTest => shown == null ? 0 : shownExtent;
+    internal float ExtentValueForTest => shown == null ? 0 : Extent(shown.Mesh.Positions);   // (the model: a held prop's own size)
     internal string ExtentForTest => shown == null ? "none" : $"{shownExtent:0.##} units, center {Center(shown.Mesh.Positions)}";
     static Vector3 Center(IReadOnlyList<Vector3> pos) { Vector3 lo = new(float.MaxValue), hi = new(float.MinValue); foreach (var v in pos) { lo = Vector3.Min(lo, v); hi = Vector3.Max(hi, v); } return (lo + hi) / 2; }
 
@@ -238,7 +238,7 @@ sealed partial class PreviewPanel : UserControl
         float[]? keepView = live ? view.ViewState : heldView;
         heldView = null; heldPlaying = false; heldAt = 0;
         // a model of quite another size (a 46-unit hammer after a body: Kurt's prop showed as a dot) is framed afresh
-        float extent = Extent(p.Mesh.Positions);
+        float extent = Extent((p.Holder?.Body ?? p.Mesh).Positions);
         if (shownExtent > 0 && extent > 0 && (extent / shownExtent > 3 || shownExtent / extent > 3)) keepView = null;
         shownExtent = extent;
         bool samePackage = shown != null && shown.PackagePath.Equals(p.PackagePath, StringComparison.OrdinalIgnoreCase);
@@ -256,7 +256,37 @@ sealed partial class PreviewPanel : UserControl
         view.ModelScale = ShownScale;
         Ui.Tip(compare, p.TargetOnly ? "No source is picked: this is the target's own model. Pick a source on the left to put a model on it; Compare then switches between the two."
             : "Show the target's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the source's model).");
-        var ctx = new PreviewContext(Hero(), Cooked, p.MainRef, p.PackageMeshes, PreviewPanel.ModsNow, () => TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(p.PackagePath), SwapsFor);
+        // each target's model as last fitted, so the body and its prop show together whichever is the target (Kurt, 2026-10-27)
+        string pkgFile = Path.GetFileName(p.PackagePath);
+        if (p.TargetOnly) { if (p.Holder is { } th) propShown.Remove(pkgFile + "|" + th.PropMesh); else bodyShown.Remove(pkgFile); }
+        else if (p.Holder is { } sh) propShown[pkgFile + "|" + sh.PropMesh] = p.Mesh;
+        else bodyShown[pkgFile] = (p, feetShift ?? p.Feet);
+        // a prop target (Kurt, 2026-10-26): shown in its character's hand, posed by the character's animations (the body as
+        // last fitted this session, else the mod's copy's or the game's); Compare shows the game's prop there instead. Paint and
+        // Weights work on the prop in the hand.
+        if (p.Holder is { } h0)
+        {
+            var h = h0; var hBones = h0.Body.Bones.ToList(); float hFeet = 0;
+            if (bodyShown.TryGetValue(pkgFile, out var fitted) && fitted.P.MainRef is { } fm)
+            // (its props from the package as it is now, h0: the body was shown before a prop's bone or fit changed; Kurt,
+            // 2026-10-27: the hammer moved to the left hand only after stepping to the axe)
+            { h = new HeldBy(fitted.P.Mesh, fitted.P.Animations, h0.Main, h0.Meshes, h0.PropMesh); hBones = fitted.P.Bones; hFeet = fitted.Feet; _ = fm; }
+            holderAnimator = new MeshAnimator(hBones, h.Body.Positions, h.Body.Normals, h.Body.Influences, h.Body.Tangents) { Shift = new Vector3(0, 0, hFeet) };
+            view.ModelScale = 1;
+            p3.ReplaceProp = HeldProp;
+            p3.ReplacedIsTarget = true;
+            var hctx = new PreviewContext(Hero(), Cooked, h.Main, h.Meshes, PreviewPanel.ModsNow, () => TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(p.PackagePath), SwapsFor);
+            p3.ShowCharacter(h.Body, holderAnimator, h.Animations, hctx, keep, keepAt, wasPlaying, keepView, samePackage);
+            p3.RebuildRig();   // (the props already read: the new model in the hand at once; a fresh read follows)
+            Ui.Tip(view, p.Note + $" · held by {h.Main.Name}");
+            ShowCount++;
+            return;
+        }
+        holderAnimator = null;
+        p3.ReplaceProp = BodyProp;   // (a body target: its props as last fitted)
+        p3.ReplacedIsTarget = false;
+        var ctx = new PreviewContext(Hero(), Cooked, p.MainRef, p.PackageMeshes, PreviewPanel.ModsNow, () => TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(p.PackagePath), SwapsFor)
+        { PropsFrom = comparing || p.PropsFrom is not { } pf ? null : (pf.Main, pf.Meshes) };   // (the mod's added props too)
         p3.ShowCharacter(comparing ? p.Stock! : p.Mesh, (comparing ? stockAnimator : mffAnimator)!, p.Animations, ctx, keep, keepAt, wasPlaying, keepView, samePackage);
         Ui.Tip(view, p.Note);
         ShowCount++;
@@ -316,7 +346,8 @@ sealed partial class PreviewPanel : UserControl
         set
         {
             feetShift = value;
-            if (mffAnimator != null && shown != null) { mffAnimator.Shift = new Vector3(0, 0, value ?? shown.Feet); p3.SwapCharacter(comparing ? shown.Stock! : shown.Mesh, comparing ? stockAnimator! : mffAnimator); }
+            if (holderAnimator == null && shown is { TargetOnly: false } fs) bodyShown[Path.GetFileName(fs.PackagePath)] = (fs, value ?? fs.Feet);
+            if (mffAnimator != null && shown != null && holderAnimator == null) { mffAnimator.Shift = new Vector3(0, 0, value ?? shown.Feet); p3.SwapCharacter(comparing ? shown.Stock! : shown.Mesh, comparing ? stockAnimator! : mffAnimator); }
         }
     }
     /// <summary>A model was shown: its automatic Lean.</summary>
@@ -330,8 +361,71 @@ sealed partial class PreviewPanel : UserControl
     /// <summary>The model at Size; Compare's hero at the game's size, except with no source (the target alone is what's sized).</summary>
     float ShownScale => comparing && !targetOnly ? 1 : size;
 
+    /// <summary>Each package's body and each prop (package | mesh) as last shown fitted to a source this session, with the body's
+    /// Feet: the other one's target shows it (the body holding the fitted prop, the prop held by the fitted body).</summary>
+    readonly Dictionary<string, (Prepared P, float Feet)> bodyShown = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, ModMeshes.Loaded> propShown = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The model shown in the holder's hand in place of the game's prop (none while comparing), with the weight colours
+    /// when Weights is on (it's what's painted).</summary>
+    ModMeshes.Loaded? HeldProp(MeshRef r)
+    {
+        // (an added prop's model is drawn from its fitted copy: <model>_x100_fit12345)
+        if (shown?.Holder is not { } h || !(r.Name.Equals(h.PropMesh, StringComparison.OrdinalIgnoreCase)
+            || System.Text.RegularExpressions.Regex.IsMatch(r.Name, "^" + System.Text.RegularExpressions.Regex.Escape(h.PropMesh) + @"_x\d+(_fit\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))) return null;
+        if (comparing) { view.Tint = null; return null; }
+        var d = Display(shown.Mesh);
+        return shown.AddedFit is { } m ? Fitted(d, m) : d;
+    }
+
+    /// <summary>A model moved, turned and sized by <paramref name="m"/> (an added prop's fit), as its package draws it.</summary>
+    static ModMeshes.Loaded Fitted(ModMeshes.Loaded l, System.Numerics.Matrix4x4 m)
+    {
+        var rot = m; rot.Translation = default;
+        var n = l.Normals.Select(v => { var t = System.Numerics.Vector3.TransformNormal(v, rot); return t.LengthSquared() > 0 ? System.Numerics.Vector3.Normalize(t) : t; }).ToArray();
+        var tg = l.Tangents.Select(v => { var t = System.Numerics.Vector3.TransformNormal(new(v.X, v.Y, v.Z), rot); if (t.LengthSquared() > 0) t = System.Numerics.Vector3.Normalize(t); return new System.Numerics.Vector4(t, v.W); }).ToArray();
+        return l with { Positions = [.. l.Positions.Select(v => System.Numerics.Vector3.Transform(v, m))], Normals = n, Tangents = tg };
+    }
+
+    /// <summary>A body target's prop as last fitted this session, else as the Model tab built it into the mod (none while
+    /// comparing, or with no source: the package's own as it is).</summary>
+    ModMeshes.Loaded? BodyProp(MeshRef r)
+    {
+        if (shown == null || comparing || shown.TargetOnly) return null;
+        return propShown.GetValueOrDefault(Path.GetFileName(shown.PackagePath) + "|" + r.Name) ?? shown.BuiltProps?.GetValueOrDefault(r.Name);
+    }
+
+    /// <summary>The weights changed in place: re-skinned, the colours refreshed (a held prop target's too).</summary>
+    void RefreshSkin()
+    {
+        if (holderAnimator != null && shown != null && !comparing && p3.ReplacedVertexStart is int at && at >= 0)
+            view.SetUv(at, Display(shown.Mesh).Uv, redraw: false);
+        p3.RefreshSkin();
+    }
+    /// <summary>The character holding a prop target (null: the model is shown on its own).</summary>
+    MeshAnimator? holderAnimator;
+    /// <summary>Test: the character a prop target is shown held by, and whether the model is in its hand now.</summary>
+    internal (string? Holder, bool InHand) HeldForTest => (holderAnimator != null ? shown?.Holder?.Main.Name : null, p3.ReplacedSectionStart >= 0);
+
+    /// <summary>Test: where the painted model's vertices start in the view (-1: nothing to paint).</summary>
+    internal int PaintStartForTest => PaintReady(out _, out int s) ? s : -1;
+    /// <summary>Test: a body target holds a prop as last fitted (or built).</summary>
+    /// <summary>Test: the props the preview holds (their attachment classes).</summary>
+    internal string PropClassesForTest => string.Join(", ", p3.PropClassesForTest);
+    internal string? PropBoneForTest(string cls) => p3.PropBoneForTest(cls);
+    internal bool HoldsFittedPropForTest => holderAnimator == null && p3.ReplacedVertexStart >= 0;
+
+    /// <summary>Test: Compare clicked.</summary>
+    internal void CompareForTestClick() => ToggleCompare();
+
     void ToggleCompare()
     {
+        if (shown?.Holder != null && holderAnimator != null)
+        {
+            comparing = !comparing; Ui.Lit(compare, comparing);
+            p3.RebuildRig();   // (the game's prop in the hand, or the model)
+            return;
+        }
         if (shown == null || stockAnimator == null || mffAnimator == null) return;
         comparing = !comparing; Ui.Lit(compare, comparing);
         view.ModelScale = ShownScale;
@@ -409,7 +503,22 @@ sealed partial class PreviewPanel : UserControl
     {
         var c = view.Controls[0].ClientSize;
         int sec = view.SectionAt(new Point(c.Width / 2, c.Height / 2));
-        return shown != null && sec >= 0 && sec < shown.SectionNames.Count ? shown.SectionNames[sec] : null;
+        return SectionName(sec);
+    }
+
+    /// <summary>The material of a section of the shown mesh (a prop held by its character: the prop's own sections, after the
+    /// character's and the props before it), else null.</summary>
+    string? SectionName(int sec)
+    {
+        if (shown == null || sec < 0) return null;
+        if (holderAnimator != null)
+        {
+            if (comparing) return null;
+            int start = p3.ReplacedSectionStart;
+            if (start < 0) return null;
+            sec -= start;
+        }
+        return sec < shown.SectionNames.Count ? shown.SectionNames[sec] : null;
     }
 
     /// <summary>A bone was Ctrl+clicked in the view (its MHO name).</summary>

@@ -82,6 +82,8 @@ sealed class ModManifest
     /// <summary>Extension: props added to a costume from other characters (the packages are ordinary package replacements).
     /// Null when none.</summary>
     public List<AddedPropEntry>? AddedProps { get; set; }
+    /// <summary>Extension: a costume's own props held on another bone (the packages have it). Null when none.</summary>
+    public List<PropBoneEntry>? PropBones { get; set; }
     /// <summary>Extension: animations swapped in the editor (the swaps are in the packages; this says where they came from). Null when none.</summary>
     public List<AnimSwapEntry>? AnimSwaps { get; set; }
     /// <summary>Extension: for a costume moved to another costume or hero, the prototype it came from ("TeamUps/Rescue",

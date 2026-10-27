@@ -20,17 +20,8 @@ static class CrossMove
 {
     static readonly HashSet<string> Content = new(StringComparer.OrdinalIgnoreCase) { "Material", "MaterialInstanceConstant", "Texture2D" };
 
-    static readonly object consoleGate = new();
     /// <summary>Runs the copier with its console output captured (the GUI has no console; the refusal reason goes in the error).</summary>
-    internal static T Quiet<T>(Func<T> f, out string said)
-    {
-        lock (consoleGate)
-        {
-            var old = Console.Out; var sw = new StringWriter();
-            Console.SetOut(sw);
-            try { return f(); } finally { Console.SetOut(old); said = sw.ToString(); }
-        }
-    }
+    internal static T Quiet<T>(Func<T> f, out string said) => ConsoleCapture.Run(f, out said);
 
     /// <summary>An import's path (outer chain; an outer can be an export).</summary>
     static string ImportPath(Package p, int i)

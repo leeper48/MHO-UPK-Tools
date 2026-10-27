@@ -1,6 +1,53 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.191
+- Model tab: a prop's Held On ▾ and fit show in the preview at once while that prop is the target (the hammer moved to the left hand only after stepping to another model).
+
+0.60.190
+- Model tab: Held On ▾ under Prop Fit puts a prop on another of the character's bones (Thor's hammer in his left hand, a weapon on the back or hip), for the costume's own props and the added ones. The hands come first in the list; Held On: Its Own puts it back. It goes into the package at once (only this costume's), building the character again keeps it, and the Prop Fit sliders then fit it on that bone.
+
+0.60.189
+- Model tab: building a character's body after one of its props (Thor Age of Ultron's hammer) keeps the prop as built. The body's build started from the game's package, so the hammer went back to the game's.
+- A character's own model as the source (From the Game) no longer glows all over. A packed spec map stored without alpha (DXT1, Thor Age of Ultron's) read its missing alpha as glow everywhere, so the rebuilt body was its colors at glow strength (too bright in the preview and in the game). Build the body again for the fix.
+
+0.60.188
+- Model tab: stepping from a prop to an added prop no longer carries the prop's source over (the hammer's model showed in place of Angela's axe). A model of the same package (the character's body, another prop's own model) is never another target's source, saved or not; a target with no source of its own shows its own model.
+
+0.60.187
+- Model tab: an added prop can get a new model. Picked with ◀ ▶, it's the build's target: pick a source (an MFF part, an FBX, or a model from the game) and Build into Mod lays it over the prop, as for the game's own props, and puts it into the costume with the prop's fit. The preview shows it in the hand with that fit, and Paint works on it. With no source, Build into Mod puts its character's own model back (it asks first). The new model is kept in the mod's Model folder, so rebuilding the character keeps it.
+- A prop picked as the target no longer takes the character's own body as its source (the body was fitted onto the prop).
+- A removed added prop no longer stays the target.
+
+0.60.186
+- Model tab: props from other characters are added, removed and fitted here. Add a Prop and Remove are beside The Target's Props (under Parts), which lists the added props too. An added prop is in the ◀ ▶ selector under the preview ("Angela: Angelaaxe left · Added Prop"); picked, its fit is on the Prop Fit sliders and goes into the package when you let go of a slider. The character stays the build's target.
+- Animations tab: the Props section keeps how added props move (Pivot on the Hand, In This Animation), with a button to the Model tab for the rest.
+- Fixed: a build and an added prop going back in at the same time could mix up their messages, so a refusal could lose its reason.
+
+0.60.185
+- Model tab: a prop added on the Animations tab (Angela's axe on Thor) stays in the preview with the character as the target, not only with a prop as the target. The preview reads the props from the mod's own copy of the package.
+- A Model tab build now puts the Animations tab's added props back into the package right away, also when the package has no animation changes or borrowed powers. Before, they came back only on Save.
+
+0.60.184
+- Model tab: the model a package's build replaces (its character or one of its props) is picked under the preview with ◀ ▶, as in the Mods tab's 3D view, in place of Model ▾ above the Target list. It reads like "hammer · Prop (2 of 2)"; click the name for the whole list (with Automatic).
+
+0.60.183
+- Model tab: the character and its prop show together whichever one is the target. A prop target is held by the character as you last fitted it (else as built into the mod), and Paint and Weights work on the prop right there in the hand, no longer on its own. The character as the target holds the prop as you last fitted it (else as built into the mod), so switching Model ▾ between them keeps both in place.
+
+0.60.182
+- Model tab: each model in a package keeps its own source. Model ▾ back from a prop to the character puts the character's source back (the prop stayed the source before: no preview and nothing to paint); a character with no source of its own takes its own model from the game.
+- Paint with no source picked (the target's own model shown) makes that model the source first, so the game's own character can be repainted; Build into Mod writes it with the paint.
+
+0.60.181
+- Animations tab, Add a Prop: a prop its own hero shows only while a power calls for it (Angela's axes) is now held all the time by the costume it's added to; it never showed before. A prop added earlier is fixed the next time it's refit or saved.
+- Model tab: Paint and Weights on a prop target show the prop on its own (the model being painted); off, it's back in the character's hand. To paint the character, pick its body in Model ▾.
+
+0.60.180
+- Model tab: a prop is previewed in its character's hand (Thor holding the hammer), posed by the character's animations and powers, so Prop Fit can be judged where it matters. Compare shows the game's prop in the hand instead. The prop shows even with Props off in Look ▾.
+
+0.60.179
+- Model tab: Prop Fit. While the target is a prop (Thor's hammer), the Size in Game sliders become Move X / Y / Z, Turn X / Y / Z and Size, so another model can be lined up with the game's grip in the app: turned and sized around the bone the prop is held on, then moved. The preview follows at once, Build into Mod applies it, and each prop keeps its own fit. Reset Fit puts them all back; double-click a slider for one.
+
 0.60.178
 - Model tab: props in the Source's panel under From the Game → Heroes (with the summons): the picked costume's props (Thor Marvel NOW: Prop: Hammer; a hero's row: all of the hero's), 227 prop models. A click makes a prop the source; a right-click the source and the target (its package added to the mod, the build pointed at it), to change it in Blender or to put another model on it.
 - A prop can be built from an FBX or a game model now (it was MFF parts only): laid over the game's prop by its shape. Its own model, edited in Blender, comes back exactly as edited. A prop's model is never guessed as a body or rigged in Blender.
