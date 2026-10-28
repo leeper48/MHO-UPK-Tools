@@ -44,9 +44,12 @@ sealed class Settings
     /// for packages and other files, and of pickers for images (<see cref="Gui.FileDialogView.Views"/>, or "Last Used").</summary>
     public string FileViewPackages { get; set; } = "Details";
     public string FileViewImages { get; set; } = "Last Used";
+    /// <summary>Pickers for 3D models (.fbx, .obj, .blend …; Kurt, 2026-10-27).</summary>
+    public string FileViewModels { get; set; } = "Last Used";
     /// <summary>"Last Used": the view each kind of picker was left in (mode:icon size), null until one was used.</summary>
     public string? FileViewLastPackages { get; set; }
     public string? FileViewLastImages { get; set; }
+    public string? FileViewLastModels { get; set; }
     /// <summary>Keyboard shortcuts and 3D mouse bindings changed from their defaults, and buttons' own shortcuts (Shortcuts):
     /// command id → binding. Null when none is changed.</summary>
     public Dictionary<string, string>? Shortcuts { get; set; }

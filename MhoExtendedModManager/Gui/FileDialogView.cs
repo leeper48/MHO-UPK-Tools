@@ -1,11 +1,11 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace MhoExtendedModManager.Gui;
 
 /// <summary>
 /// Every file and folder picker opens in the view set in Settings → File Pickers (a user, 2026-10-27: image pickers kept going
-/// back to Details): one for packages and other files (default Details), one for pickers whose file types are images (default
-/// Last Used: the view the user left the last image picker in). Details, as before: every picker opened in Details view with useful columns (Kurt, 2026-10-17: the packages picker opened in
+/// back to Details): one for packages and other files (default Details), one for pickers whose file types are images, one for
+/// pickers whose file types are 3D models (both default Last Used: the view the user left the last one of that kind in). Details, as before: every picker opened in Details view with useful columns (Kurt, 2026-10-17: the packages picker opened in
 /// Large Icons): Name and Folder (the file's location) wide, Date Modified, Type and Size; no Tags or Rating. Windows' dialogs
 /// have no setting for it, so a timer on the UI thread (it runs while a dialog is open: the dialog's own loop dispatches its
 /// messages) looks for an open file dialog of this thread and, each time its folder view is new (a dialog opening, or
@@ -16,8 +16,10 @@ static class FileDialogView
 {
     static System.Windows.Forms.Timer? timer;
     static readonly HashSet<IntPtr> done = [];
-    /// <summary>Open folder views: whether the picker lists images, and the view last read from it (for Last Used).</summary>
-    static readonly Dictionary<IntPtr, (bool Images, string? Seen)> open = [];
+    /// <summary>What a picker lists, from its file types.</summary>
+    public enum Kind { Files, Images, Models }
+    /// <summary>Open folder views: what the picker lists, and the view last read from it (for Last Used).</summary>
+    static readonly Dictionary<IntPtr, (Kind Kind, string? Seen)> open = [];
     static bool dirty;
 
     /// <summary>The views offered in Settings → File Pickers: name → (mode, icon size; 0 = the mode's own).</summary>
@@ -54,17 +56,16 @@ static class FileDialogView
                 if (view != IntPtr.Zero)
                 {
                     seen.Add(view);
-                    if (done.Add(view)) { bool images = ListsImages(w); Apply(w, images); open[view] = (images, null); }
+                    if (done.Add(view)) { var kind = KindOf(w); Apply(w, kind); open[view] = (kind, null); }
                     else if (open.TryGetValue(view, out var o) && ReadView(w) is { } now && now != o.Seen)
                     {
                         // the user changed the view (or it was just set): remembered for Last Used
-                        open[view] = (o.Images, now);
-                        Trace($"seen {now} images={o.Images}");
+                        open[view] = (o.Kind, now);
+                        Trace($"seen {now} {o.Kind}");
                         var st = MhoExtendedModManager.Model.Settings.App;
                         if (st != null)
                         {
-                            if (o.Images && st.FileViewLastImages != now) { st.FileViewLastImages = now; dirty = true; }
-                            if (!o.Images && st.FileViewLastPackages != now) { st.FileViewLastPackages = now; dirty = true; }
+                            if (Chosen(st, o.Kind) == LastUsed && Last(st, o.Kind) != now) { SetLast(st, o.Kind, now); dirty = true; }   // (only a Last Used kind: a set view isn't a pick)
                         }
                     }
                 }
@@ -76,13 +77,13 @@ static class FileDialogView
         if (dirty && open.Count == 0) { dirty = false; MhoExtendedModManager.Model.Settings.Change(_ => { }); }   // (saved once the pickers close)
     }
 
-    /// <summary>Whether a picker's file types are images (its file-type box names *.png, *.dds …; a folder picker has none).</summary>
+    /// <summary>What a picker lists, from its file-type box (*.png, *.fbx …; a folder picker has none: Files).</summary>
     static readonly string? trace = Environment.GetEnvironmentVariable("MHO_FDV_TRACE");
     static void Trace(string t) { if (trace != null) File.AppendAllText(trace, $"{DateTime.Now:HH:mm:ss.fff} {t}" + Environment.NewLine); }
 
-    static bool ListsImages(IntPtr dialog)
+    static Kind KindOf(IntPtr dialog)
     {
-        bool images = false;
+        var kind = Kind.Files;
         EnumChildWindows(dialog, (w, _) =>
         {
             if (ClassOf(w) != "ComboBox") return true;
@@ -90,22 +91,35 @@ static class FileDialogView
             GetWindowText(w, sb, sb.Capacity);
             string t = sb.ToString().ToLowerInvariant();
             if (!t.Contains("*.")) return true;   // (the file name box)
-            images = new[] { "*.png", "*.dds", "*.jpg", "*.jpeg", "*.bmp", "*.tga", "*.gif" }.Any(t.Contains);
+            if (new[] { "*.png", "*.dds", "*.jpg", "*.jpeg", "*.bmp", "*.tga", "*.gif" }.Any(t.Contains)) kind = Kind.Images;
+            else if (new[] { "*.fbx", "*.obj", "*.dae", "*.stl", "*.blend", "*.xps", "*.mesh", "*.ascii", "*.glb", "*.gltf", "*.psk", "*.mff" }.Any(t.Contains)) kind = Kind.Models;
             return false;
         }, IntPtr.Zero);
-        return images;
+        return kind;
+    }
+
+    static string? Last(MhoExtendedModManager.Settings? st, Kind k) => k switch { Kind.Images => st?.FileViewLastImages, Kind.Models => st?.FileViewLastModels, _ => st?.FileViewLastPackages };
+    static void SetLast(MhoExtendedModManager.Settings st, Kind k, string v)
+    {
+        if (k == Kind.Images) st.FileViewLastImages = v; else if (k == Kind.Models) st.FileViewLastModels = v; else st.FileViewLastPackages = v;
+    }
+    /// <summary>The view chosen in Settings → File Pickers for a kind of picker.</summary>
+    public static string Chosen(MhoExtendedModManager.Settings st, Kind k) => k switch { Kind.Images => st.FileViewImages, Kind.Models => st.FileViewModels, _ => st.FileViewPackages };
+    public static void Choose(MhoExtendedModManager.Settings st, Kind k, string v)
+    {
+        if (k == Kind.Images) st.FileViewImages = v; else if (k == Kind.Models) st.FileViewModels = v; else st.FileViewPackages = v;
     }
 
     /// <summary>The view a picker of this kind should open in: (mode, icon size), or null = as Windows shows it.</summary>
-    static (uint Mode, int Size)? Wanted(bool images)
+    static (uint Mode, int Size)? Wanted(Kind kind)
     {
         var st = MhoExtendedModManager.Model.Settings.App;
-        string pick = (images ? st?.FileViewImages : st?.FileViewPackages) ?? (images ? LastUsed : "Details");
+        string pick = st != null ? Chosen(st, kind) : kind == Kind.Files ? "Details" : LastUsed;
         if (pick == LastUsed)
         {
-            string? last = images ? st?.FileViewLastImages : st?.FileViewLastPackages;
+            string? last = Last(st, kind);
             if (last?.Split(':') is [var m, var z] && uint.TryParse(m, out uint mode) && int.TryParse(z, out int size)) return (mode, size);
-            return images ? null : (FVM_DETAILS, 0);
+            return kind == Kind.Files ? (FVM_DETAILS, 0) : null;
         }
         foreach (var v in Views) if (v.Name == pick) return (v.Mode, v.Size);
         return (FVM_DETAILS, 0);
@@ -125,10 +139,10 @@ static class FileDialogView
         finally { Marshal.Release(view); }
     }
 
-    static void Apply(IntPtr dialog, bool images)
+    static void Apply(IntPtr dialog, Kind kind)
     {
-        Trace($"apply images={images} want={Wanted(images)}");
-        if (Wanted(images) is not { } want) return;
+        Trace($"apply {kind} want={Wanted(kind)}");
+        if (Wanted(kind) is not { } want) return;
         // (raw COM calls: .NET's wrappers for these shell interfaces fail with "type library is not registered")
         IntPtr view = ActiveView(dialog);
         if (view == IntPtr.Zero) return;
@@ -225,7 +239,7 @@ static class FileDialogView
         EnumThreadWindows(GetCurrentThreadId(), (w, _) =>
         {
             if (ClassOf(w) != "#32770" || FindChild(w, "SHELLDLL_DefView") == IntPtr.Zero) return true;
-            said = $"{ReadView(w)} {(ListsImages(w) ? "images" : "files")}";
+            said = $"{ReadView(w)} {KindOf(w).ToString().ToLowerInvariant()}";
             if (setTo?.Split(':') is [var m, var z] && ActiveView(w) is var view && view != IntPtr.Zero)
                 try { if (Query(view, IID_IFolderView2) is { } fv2) { Call<SetModeSizeFn>(fv2, 35)(fv2, uint.Parse(m), int.Parse(z)); Marshal.Release(fv2); } }
                 finally { Marshal.Release(view); }

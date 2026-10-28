@@ -826,7 +826,15 @@ static partial class Program
             Check(st.FileViewLastImages == "1:256", $"remembered: {st.FileViewLastImages}");
             r = Run(Img); Check(r == "1:256 images", $"the next image picker starts there: {r}");
             r = Run(Pkg); Check(r.StartsWith("4:"), $"package pickers still Details: {r}");
-            Check(Settings.Load().FileViewLastImages == "1:256", "saved to settings.json");
+            const string Mdl = "Models (*.fbx;*.obj;*.blend)|*.fbx;*.obj;*.blend";
+            st.FileViewModels = "Last Used"; st.FileViewLastModels = null;
+            r = Run(Mdl, setTo: "1:48"); Check(r.EndsWith("-> 1:48 models"), $"a model picker, the user picks Medium Icons: {r}");
+            Check(st.FileViewLastModels == "1:48" && st.FileViewLastImages == "1:256", $"remembered apart from images: {st.FileViewLastModels} / {st.FileViewLastImages}");
+            r = Run(Img); Check(r == "1:256 images", $"image pickers keep their own: {r}");
+            r = Run(Mdl); Check(r == "1:48 models", $"the next model picker starts in Medium Icons: {r}");
+            st.FileViewModels = "Details";
+            r = Run(Mdl); Check(r.StartsWith("4:") && r.EndsWith("models"), $"model pickers set to Details: {r}");
+            Check(Settings.Load() is { FileViewLastImages: "1:256", FileViewLastModels: "1:48" }, "saved to settings.json");
             }
         }
         if (args.Length == 2 && args[0].Equals("--tooltip-audit", StringComparison.OrdinalIgnoreCase))

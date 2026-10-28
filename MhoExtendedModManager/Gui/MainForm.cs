@@ -199,13 +199,18 @@ sealed partial class MainForm : Form
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
         // File Pickers (a user, 2026-10-27: image pickers kept going back to Details): a view for package pickers, one for image pickers
-        var pickers = new ToolStripMenuItem("File Pickers") { ToolTipText = "The view the app's Open and Save windows start in: one for packages and other files, one for images (icon and texture replacements)." };
-        foreach (bool images in new[] { false, true })
+        var pickers = new ToolStripMenuItem("File Pickers") { ToolTipText = "The view the app's Open and Save windows start in: one for packages and other files, one for images (icon and texture replacements), one for 3D models." };
+        foreach (var kind in new[] { FileDialogView.Kind.Files, FileDialogView.Kind.Images, FileDialogView.Kind.Models })
         {
-            bool img = images;
-            var sub = new ToolStripMenuItem(img ? "Image Pickers" : "Package and Other Pickers")
+            var k = kind;
+            var sub = new ToolStripMenuItem(k switch { FileDialogView.Kind.Images => "Image Pickers", FileDialogView.Kind.Models => "Model Pickers", _ => "Package and Other Pickers" })
             {
-                ToolTipText = img ? "Pickers for .DDS, .PNG and other images (icon, store image and texture replacements, image exports)." : "Pickers for .UPK packages, mods, models and folders: everything that isn't an image.",
+                ToolTipText = k switch
+                {
+                    FileDialogView.Kind.Images => "Pickers for .DDS, .PNG and other images (icon, store image and texture replacements, image exports).",
+                    FileDialogView.Kind.Models => "Pickers for 3D models: .FBX, .OBJ, .DAE, .BLEND and the like (Browse for a Model, Effect Models, Add a Prop From an FBX).",
+                    _ => "Pickers for .UPK packages, mods and folders: everything that isn't an image or a 3D model.",
+                },
             };
             var names = FileDialogView.Views.Select(v => v.Name).Append(FileDialogView.LastUsed).ToList();
             foreach (string n in names)
@@ -213,7 +218,7 @@ sealed partial class MainForm : Form
                 string name = n;
                 var it = new ToolStripMenuItem(name == "Details" ? "Details (Name, Folder, Date, Type, Size)" : name, null, (_, _) =>
                 {
-                    if (img) settings.FileViewImages = name; else settings.FileViewPackages = name;
+                    FileDialogView.Choose(settings, k, name);
                     settings.Save();
                 });
                 if (name == FileDialogView.LastUsed) it.ToolTipText = "Opens in the view you left the last one of these in.";
@@ -221,7 +226,7 @@ sealed partial class MainForm : Form
             }
             sub.DropDownOpening += (_, _) =>
             {
-                string cur = img ? settings.FileViewImages : settings.FileViewPackages;
+                string cur = FileDialogView.Chosen(settings, k);
                 for (int i = 0; i < names.Count; i++) ((ToolStripMenuItem)sub.DropDownItems[i]).Checked = names[i] == cur;
             };
             pickers.DropDownItems.Add(sub);

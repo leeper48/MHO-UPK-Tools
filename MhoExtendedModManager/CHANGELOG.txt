@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.202
+- Settings → File Pickers → Model Pickers: a view of its own for pickers of 3D models (.FBX, .OBJ, .BLEND …), Last Used by default, so models can be browsed by their thumbnails while packages stay in Details.
+
 0.60.201
 - Settings → File Pickers: choose the view the Open and Save windows start in, one for package (and other) pickers, one for image pickers: Details, List, Small / Medium / Large / Extra Large Icons, Tiles, Content, or Last Used. Image pickers start in the view you last left one in (they always went back to Details).
 
