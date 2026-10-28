@@ -125,6 +125,32 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--mff-part-prop":
+            {
+                // --mff-part-prop <model> <part> <package.upk> <out dir> (reads the model and package; writes only <out dir>):
+                // the part as the Parts list's Add as a Prop makes it: the FBX, the bone it's held on, and where it lies on that bone
+                if (rest.Count < 5) { Console.WriteLine("--mff-part-prop <model> <part> <package.upk> <out dir>"); return 1; }
+                MhoExtendedModManager.Model.Protected.CheckWrite(Path.Combine(rest[4], "x"));
+                var mm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1]));
+                var part = mm.Parts.FirstOrDefault(x => x.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (part == null) { Console.WriteLine("no such part; the parts: " + string.Join(", ", mm.Parts.Select(x => x.Name))); return 1; }
+                // the part's own bones in MFF's rest pose: where each weight bone and its parents are, and the part's middle
+                var pw = new Dictionary<int, float>();
+                foreach (var sec in part.Sections) foreach (var vw in sec.Weights) foreach (var x in vw) pw[x.Bone] = pw.GetValueOrDefault(x.Bone) + x.Weight;
+                var mid = part.Sections.SelectMany(x => x.Pos).Aggregate(System.Numerics.Vector3.Zero, (a2, v) => a2 + v) / part.Verts;
+                Console.WriteLine($"part middle (MFF rest, cm): {mid.X:0.#} {mid.Y:0.#} {mid.Z:0.#}");
+                foreach (var bi in pw.OrderByDescending(kv => kv.Value).Take(3).Select(kv => kv.Key))
+                    for (int c = bi, g = 0; c >= 0 && g < 4; c = mm.Bones[c].Parent, g++)
+                    {
+                        var bp = mm.Bones[c].Position;
+                        Console.WriteLine($"  {mm.Bones[c].Name}: {bp.X:0.#} {bp.Y:0.#} {bp.Z:0.#} ({(bp - mid).Length():0.#} from the part's middle)");
+                    }
+                var body = MhoExtendedModManager.Model.MhoSkeleton.Load(rest[3], null, body: true);
+                var res = MhoExtendedModManager.Model.MffPropExport.Write(mm, part, body, null, rest[4], Console.WriteLine);
+                var raw = MhoExtendedModManager.Model.FbxReimport.Raw(res.Fbx);
+                Console.WriteLine($"{res.Fbx}: {res.Vertices:N0} vertices on {res.Bone}; in the bone's frame (file axes) {raw.Min.X:0.#} {raw.Min.Y:0.#} {raw.Min.Z:0.#} .. {raw.Max.X:0.#} {raw.Max.Y:0.#} {raw.Max.Z:0.#} (size {(raw.Max - raw.Min).Length():0.#})");
+                return 0;
+            }
             case "--mff-parts":
             {
                 // --mff-parts <model file or MFF folder name> (read only): each part as the importer sorts it (kind, ticked by

@@ -50,9 +50,9 @@ sealed partial class ModelPage
 
     /// <summary>The props of a costume (by its class, as the panel's selection names it), or with no costume the hero's, one per
     /// model (props moved by the character's animation and vehicles are left out for now).</summary>
-    internal static List<PropRow> PropsFor(string hero, string? costumeClass)
+    internal static List<PropRow> PropsFor(string hero, string? costumeClass, bool allKinds = false)
     {
-        var mine = Props.Where(p => p.Kind == "prop" && p.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase));
+        var mine = Props.Where(p => (allKinds || p.Kind == "prop") && p.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase));
         if (costumeClass != null) mine = mine.Where(p => ConditionSwaps.ClassOf(p.CostumeFile)?.Equals(costumeClass, StringComparison.OrdinalIgnoreCase) == true);
         return mine.GroupBy(p => p.MeshPath, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).OrderBy(p => p.Mesh, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -456,6 +456,101 @@ sealed partial class ModelPage
         Redo();
         for (int i = 0; i < 300 && (Listed() || HasProp()); i++) await Task.Delay(100);
         Check(!Listed() && !HasProp(), $"Ctrl+Y: removed again ({preview.PropClassesForTest})");
+
+        // Add as a Prop: an MFF part (a weapon) as a prop of its own, on the bone that holds it (MHO_TEST_ADD_PART = the part's name;
+        // the source must be an MFF character with that part)
+        if (Environment.GetEnvironmentVariable("MHO_TEST_ADD_PART") is { Length: > 0 } partSpec && partSpec.Split('|') is [var mffChar, var partName])
+        {
+            // the MFF character (MHO_TEST_ADD_PART = "<MFF folder>|<part>") as the source
+            sourceKind.SelectedIndex = 0; await Task.Delay(300);
+            characterFilter.Text = mffChar; FillCharacters();
+            int ci = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(mffChar, StringComparison.OrdinalIgnoreCase));
+            if (ci >= 0) characters.SelectedIndex = ci;
+            for (int i = 0; i < 600 && model?.Folder.Equals(mffChar, StringComparison.OrdinalIgnoreCase) != true; i++) await Task.Delay(100);
+            Check(model?.Parts.Any(p => p.Name.Equals(partName, StringComparison.OrdinalIgnoreCase)) == true, $"Add as a Prop: the source has {partName} ({model?.Folder ?? "no MFF source"})");
+            var ap = await AddPartProp(partName);
+            string? PartMesh() => ap != null && ModCopy(file) is string dp ? MhoExtendedModManager.ModMeshes.Attachments(dp).FirstOrDefault(x => x.Class.Equals(ap.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last() : null;
+            for (int i = 0; i < 300 && PartMesh()?.Contains("_m") != true; i++) await Task.Delay(100);
+            Check(ap != null && ap.KeepShape && ap.Bone != null && ap.Name.EndsWith("(MFF)") && PartMesh()?.Contains("_m") == true,
+                $"Add as a Prop: {ap?.Name ?? "-"} on {ap?.Bone ?? "-"}, its model built ({PartMesh()})");
+            for (int i = 0; i < 200 && !preview.PropClassesForTest.Contains(ap?.Class ?? "?", StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+            Check(ap != null && preview.PropClassesForTest.Contains(ap.Class, StringComparison.OrdinalIgnoreCase), $"Add as a Prop: in the preview ({preview.PropClassesForTest})");
+            if (ap != null) { addedPick = ap; RemovePropClicked(); for (int i = 0; i < 300 && meshAdded.Contains(ap); i++) await Task.Delay(100); }
+        }
+
+        // the Props view (MHO_TEST_PROPMODE = "<costume package>|<mesh>", another hero's prop): a click on the character lists its
+        // props without changing the source or the target; a click on the prop adds it to the target
+        if (Environment.GetEnvironmentVariable("MHO_TEST_PROPMODE") is { Length: > 0 } pmSpec && pmSpec.Split('|') is [var pmFile, var pmMesh])
+        {
+            string? targetBefore = ChosenPackage?.Key, sourceBefore = chosenKey;
+            SetView(1);
+            Check(propMode && CurrentView == 1 && sourceSummonsPanel.Visible, "Props view: on, the props list under the characters");
+            if (!GameMode) { sourceKind.SelectedIndex = 2; await Task.Delay(300); }
+            sourceKindTab = 0; characterFilter.Text = ""; expanded.Add("game " + DescribePackage(pmFile).Title); FillCharacters();
+            int ci = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + pmFile, StringComparison.OrdinalIgnoreCase));
+            if (ci >= 0) characters.SelectedIndex = ci;
+            await Task.Delay(500);
+            Check(ci >= 0 && ChosenPackage?.Key == targetBefore && chosenKey == sourceBefore, $"Props view: a click on {pmFile} keeps the target ({ChosenPackage?.Key}) and the source ({chosenKey ?? "none"})");
+            var pr = sourceSummons.Items.OfType<CharacterList.Item>().FirstOrDefault(r => r.Key.StartsWith(PropGame) && Props[int.Parse(r.Key[PropGame.Length..])].Mesh.Equals(pmMesh, StringComparison.OrdinalIgnoreCase));
+            Check(true, $"(info) props list: {sourceSummonsTitle.Text}: {string.Join(", ", sourceSummons.Items.OfType<CharacterList.Item>().Select(r => r.Title))}");
+            Check(pr != null, $"Props view: {pmMesh} listed");
+            if (pr != null && targetBefore != null)
+            {
+                string pmCls = Props[int.Parse(pr.Key[PropGame.Length..])].Class;
+                // a left click: the prop on its own over the preview
+                ShowPropModel(pr);
+                for (int i = 0; i < 300 && !PropShowForTest.HasMesh; i++) await Task.Delay(100);
+                Check(PropShowForTest is { Shown: true, HasMesh: true } && ChosenPackage?.Key == targetBefore, $"Props view: a left click shows it ({PropShowForTest.Caption}), the target stays");
+                PropPicked(pr);
+                for (int i = 0; i < 300 && !host.AddedProps(targetBefore).Any(a => a.Class.Equals(pmCls, StringComparison.OrdinalIgnoreCase)); i++) await Task.Delay(100);
+                var added = host.AddedProps(targetBefore).FirstOrDefault(a => a.Class.Equals(pmCls, StringComparison.OrdinalIgnoreCase));
+                Check(added != null && ChosenPackage?.Key == targetBefore, $"Props view: a click adds {pmCls} to {targetBefore} ({added?.Name ?? "not added"}, from {added?.From ?? "-"})");
+                for (int i = 0; i < 200 && !preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+                Check(preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase), $"Props view: in the preview ({preview.PropClassesForTest})");
+                Check(!PropShowForTest.Shown, "Props view: adding it shows the target again");
+                // Revert to Last Build: the package as built, the props as they were then (the one just added gone)
+                if (added != null && LastBuildOf(targetBefore) is { } lb)
+                {
+                    bool reverted = await RevertToLastBuild(targetBefore, ask: false);
+                    for (int i = 0; i < 100 && preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+                    for (int i = 0; i < 150 && !preview.PropClassesForTest.Contains("thorhammer", StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+                    Check(preview.PropClassesForTest.Contains("thorhammer", StringComparison.OrdinalIgnoreCase), $"Revert to Last Build: the costume's own prop still held ({preview.PropClassesForTest})");
+                    Check(reverted && !host.AddedProps(targetBefore).Any(a => a.Class.Equals(pmCls, StringComparison.OrdinalIgnoreCase)) && !preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase),
+                        $"Revert to Last Build: back to the build of {lb.At:HH:mm:ss}, {pmCls} gone ({preview.PropClassesForTest})");
+                }
+                else if (added != null) { Check(false, "Revert to Last Build: no last build of the target was kept"); addedPick = added; RemovePropClicked(); for (int i = 0; i < 300 && meshAdded.Contains(added); i++) await Task.Delay(100); }
+            }
+            // Revert to Original: the costume as before the Model tab, no added props, no source
+            if (targetBefore != null)
+            {
+                bool orig = await RevertToOriginal(targetBefore, ask: false);
+                string? now = host.Packages.FirstOrDefault(x => x.File.Equals(targetBefore, StringComparison.OrdinalIgnoreCase)).Path;
+                for (int i = 0; i < 150 && !preview.PropClassesForTest.Contains("thorhammer", StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+                Check(orig && host.AddedProps(targetBefore).Count == 0 && chosenKey == null && !HasSource && now?.Contains("original ") == true && !built.ContainsKey(targetBefore),
+                    $"Revert to Original: {targetBefore} back to its original ({now}), no added props, no source");
+                Check(preview.PropClassesForTest.Contains("thorhammer", StringComparison.OrdinalIgnoreCase), $"Revert to Original: the preview shows the costume with its own prop ({preview.PropClassesForTest})");
+            }
+            // a summon listed with the costume's props (MHO_TEST_PROPMODE_SUMMON = its package): added as a model of its own
+            if (Environment.GetEnvironmentVariable("MHO_TEST_PROPMODE_SUMMON") is { Length: > 0 } sumFile && targetBefore != null)
+            {
+                var sr = sourceSummons.Items.OfType<CharacterList.Item>().FirstOrDefault(r => r.Key.Equals(PropSummon + sumFile, StringComparison.OrdinalIgnoreCase));
+                Check(sr != null, $"Props view: the summon {sumFile} listed");
+                if (sr != null)
+                {
+                    int had = host.AddedProps(targetBefore).Count;
+                    PropPicked(sr);
+                    for (int i = 0; i < 900 && (host.AddedProps(targetBefore).Count == had || addingProp); i++) await Task.Delay(100);
+                    var sa = host.AddedProps(targetBefore).FirstOrDefault(a => a.Name.EndsWith("(Summon)") || a.Name.EndsWith("(Power Model)"));
+                    Check(sa != null && sa.KeepShape, $"Props view: the summon added as a model of its own ({sa?.Name ?? "not added"}, carried by {sa?.Class ?? "-"})");
+                    for (int i = 0; i < 200 && sa != null && !preview.PropClassesForTest.Contains(sa.Class, StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+                    Check(sa != null && preview.PropClassesForTest.Contains(sa.Class, StringComparison.OrdinalIgnoreCase), $"Props view: the summon in the preview ({preview.PropClassesForTest})");
+                    Check(GameMode && propMode, $"Props view: still From the Game in the Props view after the build (source kind {sourceKind.SelectedIndex})");
+                    if (sa != null) { addedPick = sa; RemovePropClicked(); for (int i = 0; i < 300 && meshAdded.Contains(sa); i++) await Task.Delay(100); }
+                }
+            }
+            SetView(0);
+            Check(!propMode && CurrentView == 0, "Props view: back to Characters");
+        }
 
         // Add a Prop → From an FBX (step 4): a model of the user's own, carried by a free prop class, built as made
         if (Environment.GetEnvironmentVariable("MHO_TEST_ADD_FBX") is { Length: > 0 } fbxProp && File.Exists(fbxProp))

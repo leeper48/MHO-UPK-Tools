@@ -122,6 +122,32 @@ static class FbxReimport
         return new Opened(scene, globals, byName, bind);
     }
 
+    /// <summary>A model to look at (the Props view's left click, Kurt 2026-10-27): every mesh of the FBX in game space (the
+    /// export's axes: file Y and Z swapped), one section per mesh, with its color map's file when it has one.</summary>
+    internal static (Vector3[] Pos, Vector3[] Normal, Vector2[] Uv, int[] Tris, int[] TriSection, string?[] ColorMaps, int Meshes) Display(string fbx)
+    {
+        var o = Open(fbx);
+        var pos = new List<Vector3>(); var nrm = new List<Vector3>(); var uv = new List<Vector2>(); var tris = new List<int>(); var triSec = new List<int>();
+        var maps = new List<string?>();
+        static Vector3 Swap(Vector3 v) => new(v.X, v.Z, v.Y);
+        foreach (var (mesh, node) in MeshNodes(o.Scene))
+        {
+            var g = o.Globals[node];
+            int baseV = pos.Count, sec = maps.Count;
+            var mat = mesh.MaterialIndex >= 0 && mesh.MaterialIndex < o.Scene.MaterialCount ? o.Scene.Materials[mesh.MaterialIndex] : null;
+            maps.Add(FileTextures(fbx, mat?.Name ?? mesh.Name, mat)?.Diffuse);
+            for (int v = 0; v < mesh.VertexCount; v++)
+            {
+                pos.Add(Swap(Vector3.Transform(new Vector3(mesh.Vertices[v].X, mesh.Vertices[v].Y, mesh.Vertices[v].Z), g)));
+                nrm.Add(mesh.HasNormals ? Swap(Vector3.Normalize(Vector3.TransformNormal(new Vector3(mesh.Normals[v].X, mesh.Normals[v].Y, mesh.Normals[v].Z), g))) : Vector3.UnitZ);
+                uv.Add(mesh.HasTextureCoords(0) ? new Vector2(mesh.TextureCoordinateChannels[0][v].X, 1 - mesh.TextureCoordinateChannels[0][v].Y) : Vector2.Zero);
+            }
+            foreach (var f in mesh.Faces)
+                if (f.IndexCount == 3) { tris.Add(baseV + f.Indices[0]); tris.Add(baseV + f.Indices[1]); tris.Add(baseV + f.Indices[2]); triSec.Add(sec); }
+        }
+        return ([.. pos], [.. nrm], [.. uv], [.. tris], [.. triSec], [.. maps], maps.Count);
+    }
+
     /// <summary>The file's meshes (for the parts list).</summary>
     public static List<(string Name, int Vertices)> Meshes(string fbx)
     {

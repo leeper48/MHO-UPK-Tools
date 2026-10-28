@@ -64,7 +64,8 @@ sealed partial class ModelPage
         var strip = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         foreach (var (title, tip) in new[]
         {
-            ("Characters", "Models fitted onto a character: an MFF model, an FBX or a model from the game, built onto a hero, team-up, NPC, summon or prop."),
+            ("Characters", "Models fitted onto a character: an MFF model, an FBX or a model from the game, built onto a hero, team-up, NPC, summon or prop. The only view where a click on a source character makes it the source."),
+            ("Props", "Props for the costume picked under Target: pick a character on the left (a game costume, an MFF character, an FBX) and click one of its props in the list under it to add it. The target never changes here."),
             ("Effects", "Power effects' models: the meshes a hero's powers draw as particles or carry on a projectile (Squirrel Girl's falling squirrels, acorns …). Pick one, change it in Blender or with an FBX, and Build into Mod puts it into every package that holds it."),
         })
         {
@@ -88,12 +89,13 @@ sealed partial class ModelPage
 
     void ToggleEffects() => ShowView(effectsView == null || !effectsView.Visible);
 
-    /// <summary>The view shown: 0 Characters, 1 Effects.</summary>
-    int CurrentView => effectsView?.Visible == true ? 1 : 0;
+    /// <summary>The view shown: 0 Characters, 1 Props, 2 Effects.</summary>
+    int CurrentView => effectsView?.Visible == true ? 2 : propMode ? 1 : 0;
 
     void SetView(int view)
     {
-        ShowView(view == 1);
+        ShowView(view == 2);
+        if (view != 2) SetPropMode(view == 1);
         for (int k = 0; k < viewTabs.Count; k++) { viewTabs[k].ForeColor = k == CurrentView ? Ui.Text : Ui.Subtle; viewTabs[k].Invalidate(); }
     }
 

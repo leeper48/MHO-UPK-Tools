@@ -1,6 +1,25 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.209
+- Model tab, Props: a prop shown with a left click has its texture the right way up (it was flipped).
+
+0.60.208
+- Model tab: right-click a target → Revert to Original: the costume back as it was before the Model tab built onto it (the mod's own copy from before, else the game's), its added props off and the source cleared, so the preview shows the costume itself.
+
+0.60.207
+- Model tab, Props: a left click on a prop in the list shows it on its own over the preview (Back to the Costume or Esc returns); a right-click adds it to the target.
+- Model tab: right-click a target → Revert to Last Build: the package back as its last build made it, with the props as they were then (props added, fitted or moved since are dropped).
+
+0.60.206
+- Model tab: adding a prop works on a costume that uses its hero's prop list (Doctor Doom Classic said "this costume has no prop list of its own"): the costume gets a list of its own, the hero's props (Doom's pistol and throne) plus the new one, referenced as the game's own costumes do.
+
+0.60.205
+- Model tab: a Props tab between Characters and Effects, in place of the Add a Prop ▾ button. Pick a character on the left (From the Game, an MFF character or a Single Model FBX): its props are listed under it (a costume's props, an MFF character's parts with its weapons first, an FBX as made), and a click on one adds it to the costume picked under Target. From the Game also lists a costume's animated props (Squirrel Girl's surf squirrels) and its summons and power models (her squirrels), each added as a model of its own. A click on a character there never changes the target or the Characters tab's source; characters are changed only in the Characters tab.
+
+0.60.203
+- Model tab: an MFF part as a prop (Add a Prop ▾ → From the Source's Parts, or right-click a part → Add as a Prop): an MFF weapon goes on the costume as a prop of its own, sized to the hero. MFF parks a hand's weapon beside the character in its rest pose (Red She-Hulk's 131 cm away), so it's put on that hand, its turn kept (the Prop Fit sliders turn it); one worn on the body (a holstered gun) stays where it's worn. Its bone, fit and paint as any added prop.
+
 0.60.202
 - Settings → File Pickers → Model Pickers: a view of its own for pickers of 3D models (.FBX, .OBJ, .BLEND …), Last Used by default, so models can be browsed by their thumbnails while packages stay in Details.
 

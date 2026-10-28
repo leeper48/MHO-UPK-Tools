@@ -1917,8 +1917,16 @@ static class PowerBorrow
         int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
         if (pd < 0) throw new InvalidDataException("the package has no player class default (not a costume)");
         byte[] pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
-        var at = TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase))
-                 ?? throw new InvalidDataException("this costume has no prop list of its own (it uses its hero's): not supported yet");
+        var at = TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase));
+        if (at == null)
+        {
+            // a costume that uses its hero's list (Doctor Doom Classic; Kurt, 2026-10-27): given a list of its own, the hero's
+            dst = WithOwnPropList(dst, pd, e.Package, log);
+            classRef = ClassExport(dst) + 1;
+            pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
+            at = TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase))
+                 ?? throw new InvalidDataException("the costume's own prop list didn't read back");
+        }
         int n = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt));
         var pinBones = AttachBones(dst, def);
         for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return e.Fit.PinPivot ? hold(dst.RawFile, e, pinBones, log) : dst.RawFile;   // listed already
@@ -1931,6 +1939,96 @@ static class PowerBorrow
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{e.Class} added to {dst.Exports[pd].ObjectName}'s props ({n + 1} now)");
         return e.Fit.PinPivot ? hold(output, e, pinBones, log) : output;
+    }
+
+    /// <summary>
+    /// A costume class default without mAttachmentClasses (it keeps its hero's: Doctor Doom Classic) given a list of its own: the
+    /// hero's (its base package's player default; classes there referenced by import), so a prop can be added to it without
+    /// taking the hero's away. Verified and read back; throws InvalidDataException with the reason.
+    /// </summary>
+    static Package WithOwnPropList(Package dst, int pd, string costumeFile, List<string> log)
+    {
+        // the hero's base package: UC__MarvelPlayer_<Hero>_SF
+        string stem = Path.GetFileNameWithoutExtension(costumeFile);
+        const string Pre = "UC__MarvelPlayer_";
+        if (!stem.StartsWith(Pre, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("this package's character keeps its prop list elsewhere: not a costume");
+        string baseFile = $"{Pre}{stem[Pre.Length..].Split('_')[0]}_SF.upk";
+        var heroPaths = new List<string>();
+        if (!baseFile.Equals(costumeFile, StringComparison.OrdinalIgnoreCase) && StockFiles.Cooked is string cooked && StockFiles.For(cooked, baseFile) is var basePath && File.Exists(basePath))
+        {
+            var bp = Package.Open(basePath);
+            var bt = new Fx.FxTables(bp);
+            int bd = Array.FindIndex(bp.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && bp.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+            if (bd >= 0)
+            {
+                byte[] bb = bp.ReadExportBytes(bp.Exports[bd]).ToArray();
+                if (TagWalker.Walk(bp, bb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is { } bl)
+                {
+                    int bn = BinaryPrimitives.ReadInt32LittleEndian(bb.AsSpan(bl.ValueAt));
+                    for (int k = 0; k < bn; k++) if (BinaryPrimitives.ReadInt32LittleEndian(bb.AsSpan(bl.ValueAt + 4 + 4 * k)) is int r && r != 0) heroPaths.Add(bt.PathOf(r));
+                }
+            }
+        }
+        var t = new Fx.FxTables(dst);
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+            return dst.Names.Length + j;
+        }
+        var addImports = new List<NewImport>();
+        // a class by its path: an export or import there already, else imported (its outers as package imports)
+        int RefOf(string path)
+        {
+            for (int k = 0; k < dst.Exports.Length; k++) if (t.PathOf(k + 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return k + 1;
+            for (int k = 0; k < dst.Imports.Length; k++) if (t.PathOf(-k - 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return -k - 1;
+            string[] parts = path.Split('.');
+            int outer = 0;
+            for (int k = 0; k < parts.Length; k++)
+            {
+                bool last = k == parts.Length - 1;
+                string cn = last ? "Class" : "Package";
+                int found = Array.FindIndex(dst.Imports, im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer && im.ClassName.Equals(cn, StringComparison.OrdinalIgnoreCase));
+                if (found >= 0) { outer = -1 - found; continue; }
+                int added = addImports.FindIndex(im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer);
+                if (added < 0)
+                {
+                    foreach (string n in new[] { "Core", cn, parts[k] }) NameIdx(n);
+                    addImports.Add(new NewImport("Core", cn, outer, parts[k]));
+                    added = addImports.Count - 1;
+                }
+                outer = -(dst.Imports.Length + added + 1);
+            }
+            return outer;
+        }
+        var refs = heroPaths.Select(RefOf).ToList();
+        var value = new byte[4 + 4 * refs.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(value, refs.Count);
+        for (int k = 0; k < refs.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * k), refs[k]);
+        byte[] b = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
+        var tags = TagWalker.Walk(dst, b, 4) ?? throw new InvalidDataException($"{dst.Exports[pd].ObjectName} doesn't read");
+        var tag = new byte[24 + value.Length];
+        BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx("mAttachmentClasses"));
+        BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("ArrayProperty"));
+        BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), value.Length);
+        value.CopyTo(tag.AsSpan(24));
+        byte[] nb = [.. b.AsSpan(0, tags.NoneAt), .. tag, .. b.AsSpan(tags.NoneAt)];
+        var rep = new Dictionary<int, Func<long, byte[]>> { [pd] = _ => nb };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames, addImports);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames, addImports);
+        if (problems.Count > 0) throw new InvalidDataException("the costume's own prop list couldn't be made: " + string.Join("; ", problems.Take(2)));
+        var back = Package.FromBytes(output);
+        var bt2 = new Fx.FxTables(back);
+        byte[] rb = back.ReadExportBytes(back.Exports[pd]).ToArray();
+        var rl = TagWalker.Walk(back, rb, 4)?.FirstOrDefault(x => x.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase))
+                 ?? throw new InvalidDataException("the costume's own prop list didn't read back");
+        var got = Enumerable.Range(0, BinaryPrimitives.ReadInt32LittleEndian(rb.AsSpan(rl.ValueAt))).Select(k => bt2.PathOf(BinaryPrimitives.ReadInt32LittleEndian(rb.AsSpan(rl.ValueAt + 4 + 4 * k)))).ToList();
+        if (!got.SequenceEqual(heroPaths, StringComparer.OrdinalIgnoreCase)) throw new InvalidDataException($"the costume's own prop list reads back as [{string.Join(", ", got)}], not its hero's");
+        log.Add($"{dst.Exports[pd].ObjectName} kept its hero's prop list: given one of its own, the hero's {heroPaths.Count}{(heroPaths.Count > 0 ? " (" + string.Join(", ", heroPaths.Select(x => x.Split('.').Last())) + ")" : "")}{(addImports.Count > 0 ? $"; {addImports.Count} import(s) added" : "")}");
+        return back;
     }
 
     /// <summary>

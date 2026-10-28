@@ -1188,6 +1188,61 @@ static partial class Program
                     Console.WriteLine($"  {v.Emitters,5}  {(v.Additive ? "additive" : "blended "),-9} {v.Texture,-34} {k}");
                 return 0;
             }
+            case "--prop-list-census":
+            {
+                // Read only: every stock hero package's player default: its own mAttachmentClasses or none (its hero's), and how
+                // its entries are referenced (export here, or an import: from which package path). --prop-list-census
+                string? lgr = settings.ResolvedGameRoot(data);
+                if (lgr == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(lgr, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string lcooked = StockFiles.Cooked!;
+                int own = 0, none = 0, exportsOnly = 0, withImports = 0;
+                var importSamples = new List<string>();
+                foreach (string f in Directory.EnumerateFiles(lcooked, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileName).OfType<string>().Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        var pk = MhoPackageModifier.Package.Open(StockFiles.For(lcooked, f));
+                        var tt = new Fx.FxTables(pk);
+                        int pd = Array.FindIndex(pk.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && pk.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+                        if (pd < 0) continue;
+                        byte[] b = pk.ReadExportBytes(pk.Exports[pd]).ToArray();
+                        var at = MhoPackageModifier.TagWalker.Walk(pk, b, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase));
+                        if (at == null) { none++; continue; }
+                        own++;
+                        int n = BitConverter.ToInt32(b, at.ValueAt);
+                        var refs = Enumerable.Range(0, n).Select(k => BitConverter.ToInt32(b, at.ValueAt + 4 + 4 * k)).ToList();
+                        if (refs.Any(r => r < 0)) { withImports++; if (importSamples.Count < 8) importSamples.Add($"{f}: " + string.Join(", ", refs.Where(r => r < 0).Select(r => tt.PathOf(r) + $" ({pk.Imports[-r - 1].ClassName})"))); }
+                        else exportsOnly++;
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+                }
+                Console.WriteLine($"player defaults: {own} with their own list ({exportsOnly} only classes of their own package, {withImports} with imported classes), {none} without (their hero's)");
+                foreach (var l in importSamples) Console.WriteLine("  " + l);
+                return 0;
+            }
+            case "--own-prop-list-test":
+            {
+                // --own-prop-list-test <costume file> <prop's package> <class> <out.upk> (reads the game's stock copies; writes only
+                // <out.upk>): Add a Prop on the stock costume, as the Model tab does, and the log
+                if (rest.Count < 5) { Console.WriteLine("--own-prop-list-test <costume file> <prop's package> <class> <out.upk>"); return 1; }
+                string? ogr = settings.ResolvedGameRoot(data);
+                if (ogr == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(ogr, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                string ocooked = StockFiles.Cooked!;
+                var oe = new AddedPropEntry { Package = rest[1], From = rest[2], Class = rest[3], Name = rest[3], Fit = new PropFit { Class = rest[3] } };
+                var olog = new List<string>();
+                try
+                {
+                    byte[] ob = PowerBorrow.AddProp(File.ReadAllBytes(StockFiles.For(ocooked, rest[1])), oe, StockFiles.For(ocooked, rest[2]), olog);
+                    Model.Protected.CheckWrite(rest[4]);
+                    File.WriteAllBytes(rest[4], ob);
+                    foreach (var l in olog) Console.WriteLine(l);
+                    Console.WriteLine("props now: " + string.Join(", ", ModMeshes.AttachmentClasses(rest[4]) ?? []));
+                    return 0;
+                }
+                catch (InvalidDataException ex) { foreach (var l in olog) Console.WriteLine(l); Console.WriteLine("refused: " + ex.Message); return 1; }
+            }
             case "--ghost-slots":
             {
                 // Read only: a hero package's dodge ghosts, where each sits and its automatic pose (DodgeGhosts.Analyze, as the

@@ -38,17 +38,31 @@ sealed partial class ModelPage
         panel.Controls.Add(sourceSummons, 0, 1);
         sourceSummonsPanel = panel;
         sourceSplit.Controls.Add(panel, 0, 1);
-        sourceSummons.Thumb = it => it.Header || it.Label ? null : PackageThumb(it.ThumbKey ?? SplitGameKey(it.Key).File);
+        sourceSummons.Thumb = it => it.Header || it.Label ? null
+            : it.Key.StartsWith(PropFbx) ? (File.Exists(it.Key[PropFbx.Length..]) ? Thumbs.Fbx(it.Key[PropFbx.Length..]) : null)
+            : it.Key.StartsWith(PropMff) ? null
+            : PackageThumb(it.ThumbKey ?? SplitGameKey(it.Key).File);
         Ui.Tip(sourceSummons, "The props of the costume picked above (Thor's hammer, Cap's shield), and its summons and power models (a costume can summon its own version: Cable's Original costume summons his Original illusion). Click one to use it as the source; right-click to make it the target too (a prop: then Edit in Blender, or pick another model as the source to put on it).");
         sourceSummons.SelectedIndexChanged += (_, _) =>
         {
-            if (fillingSummons || sourceSummons.SelectedItem is not CharacterList.Item { Header: false, Label: false } it || it.Key == chosenKey) return;
+            if (propMode || fillingSummons || sourceSummons.SelectedItem is not CharacterList.Item { Header: false, Label: false } it || it.Key == chosenKey) return;
             characters.ClearSelected();
             GameChosen(it.Key);
         };
         sourceSummons.MouseUp += (_, e) =>
         {
             int i = sourceSummons.IndexFromPoint(e.Location);
+            // the Props view (Kurt, 2026-10-27): a left click shows the prop, a right-click adds it to the target
+            if (propMode)
+            {
+                if (i >= 0 && i < sourceSummons.Items.Count && sourceSummons.Items[i] is CharacterList.Item { Header: false, Label: false } pi)
+                {
+                    fillingSummons = true; sourceSummons.SelectedIndex = i; fillingSummons = false;
+                    if (e.Button == MouseButtons.Left) ShowPropModel(pi);
+                    else if (e.Button == MouseButtons.Right) PropPicked(pi);
+                }
+                return;
+            }
             if (e.Button != MouseButtons.Right || i < 0 || i >= sourceSummons.Items.Count || sourceSummons.Items[i] is not CharacterList.Item { Header: false, Label: false } it) return;
             sourceSummons.SelectedIndex = i;
             if (SplitGameKey(it.Key) is (var pf, string pm)) PropToTarget(pf, pm);   // a prop: the source and the target (to edit it, or put another model on it)
@@ -62,17 +76,19 @@ sealed partial class ModelPage
     /// <summary>The panel shows only for From the Game → Heroes (the list above takes the whole column otherwise).</summary>
     void ShowSummonsPanel()
     {
-        bool on = GameMode && sourceKindTab == 0;   // (props always; summons while they're shown: WhatsNew.Summons)
+        bool on = propMode || GameMode && sourceKindTab == 0;   // (props always; summons while they're shown: WhatsNew.Summons)
+        if (propMode) FillPropSource();
         if (sourceSummonsPanel.Visible == on && sourceSplit.RowStyles[1].Height == (on ? 33 : 0)) return;
         sourceSummonsPanel.Visible = on;
         sourceSplit.RowStyles[0] = new RowStyle(SizeType.Percent, on ? 67 : 100);
         sourceSplit.RowStyles[1] = new RowStyle(SizeType.Percent, on ? 33 : 0);
-        if (on) FillSourceSummons();
+        if (on && !propMode) FillSourceSummons();
     }
 
     /// <summary>The hero (and costume) of the row picked above: a costume package, or a hero's group row.</summary>
     void SummonsForSelection()
     {
+        if (propMode) { FillPropSource(); return; }
         if (!GameMode || characters.SelectedItem is not CharacterList.Item it) return;
         if (it.Header && it.Key.StartsWith("group:game ")) summonsFor = (it.Key["group:game ".Length..], null);
         else if (it.Key.StartsWith(GameSrc) && KindOf(it.Key[GameSrc.Length..]) == 0)

@@ -426,7 +426,7 @@ sealed partial class ModelPage : UserControl
             if (i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Header: true } h) ToggleGroup(h);
             // right-click a game source: the source, and the same package in the Target's From the Game list (Kurt, 2026-10-25:
             // summons; 2026-10-26: any of them, the same tree shown on the right)
-            else if (e.Button == MouseButtons.Right && i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Header: false, Label: false } s
+            else if (e.Button == MouseButtons.Right && !propMode && i >= 0 && i < characters.Items.Count && characters.Items[i] is CharacterList.Item { Header: false, Label: false } s
                      && s.Key.StartsWith(GameSrc)) SourceBoth(i, s.Key[GameSrc.Length..]);
         };
         characters.KeyDown += (_, e) =>
@@ -452,6 +452,8 @@ sealed partial class ModelPage : UserControl
                 var rm = new ToolStripMenuItem("Remove", null, (_, _) => RemoveTarget(t)) { ShortcutKeyDisplayString = "Del",
                     ToolTipText = added.Contains(t.Key) || host.SavedPath(t.Key) == null ? "Take it off the list and out of the mod (the Model tab added it)." : "One of the mod's own packages: put its own copy back, or take it out of the mod." };
                 m.Items.Add(rm);
+                m.Items.Add(OriginalItem(t));   // (Kurt, 2026-10-27)
+                m.Items.Add(RevertItem(t));
                 m.Closed += (_, _) => BeginInvoke(m.Dispose);
                 m.Show(packages, e.Location);
             }
@@ -464,7 +466,7 @@ sealed partial class ModelPage : UserControl
         Thumbs.Ready += OnThumbReady;
         MhoAnim.BaseLookup = ModCopy;   // the export's animations: the hero's base package from the mod first
         Disposed += (_, _) => { Thumbs.Ready -= OnThumbReady; StopBlenderWatch(); if (MhoAnim.BaseLookup == ModCopy) MhoAnim.BaseLookup = null; };
-        packages.SelectedIndexChanged += (_, _) => UpdateStatus();
+        packages.SelectedIndexChanged += (_, _) => { UpdateStatus(); if (propMode) { HidePropShow(); FillPropSource(); } };   // (the Props view names the target)
 
         Ui.Lit(mapBones, preview.ShowBones); Ui.Lit(mapWeights, preview.ShowWeights);
         log.BackColor = Color.FromArgb(22, 22, 26); log.ForeColor = Ui.Subtle; log.Font = new Font("Consolas", 9f * Ui.UiScale);
@@ -478,6 +480,19 @@ sealed partial class ModelPage : UserControl
                 SetUse([parts.Rows[e.RowIndex]], parts.Rows[e.RowIndex].Cells["use"].Value is not true);
             if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "own")
                 ToggleOwnMaterial(parts.Rows[e.RowIndex]);
+            // right-click an MFF part: Add as a Prop (Kurt, 2026-10-27: an MFF weapon as a prop, held where MFF holds it)
+            if (e.Button == MouseButtons.Right && e.RowIndex >= 0 && model != null && parts.Rows[e.RowIndex].Cells["part"].Value is string pn
+                && model.Parts.Any(p => p.Name.Equals(pn, StringComparison.OrdinalIgnoreCase)))
+            {
+                parts.ClearSelection(); parts.Rows[e.RowIndex].Selected = true;
+                var menu = new ContextMenuStrip();
+                menu.Items.Add(new ToolStripMenuItem("Add as a Prop", null, (_, _) => _ = AddPartProp(pn))
+                {
+                    ToolTipText = "Gives the costume this part as a prop of its own (an MFF weapon), sized to the hero: a weapon on the hand that holds it (its grip may need a turn: Prop Fit), one worn on the body where it's worn. Its bone, fit and paint: on the right once it's added.",
+                });
+                menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+                menu.Show(parts, parts.PointToClient(Cursor.Position));
+            }
         };
         parts.KeyDown += (_, e) =>
         {
@@ -988,6 +1003,7 @@ sealed partial class ModelPage : UserControl
     {
         if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Label || it.Key == chosenKey) return;
         if (it.Key == "browse:") { BrowseFbx(); return; }
+        if (propMode) return;   // (the Props view: the pick lists its props below; the source and the target stay)
         if (it.Key.StartsWith("fbx:")) { FbxChosen(it.Key); return; }
         if (it.Key.StartsWith(GameSrc)) { GameChosen(it.Key); return; }
         chosenKey = it.Key; sourceFbx = null; unrigged = null;

@@ -110,6 +110,7 @@ sealed partial class ModelPage
                 await TimeSteps(result.Package, pkg.Key);
                 if (uf != null) KeepRig(uf, pkg.Key);   // the mod keeps the rig of a hero it's built onto
                 host.SetPackage(pkg.Key, result.Package);
+                RememberBuild(pkg.Key, result.Package);
                 built[pkg.Key] = result.Package;
                 if (print != null) builtPrint[pkg.Key] = print;
                 takenOff.Remove(pkg.Key);
@@ -303,6 +304,7 @@ sealed partial class ModelPage
                 File.WriteAllBytes(file, bytes);
                 await TimeSteps(file, pkg.Key);
                 host.SetPackage(pkg.Key, file);
+                RememberBuild(pkg.Key, file);
                 built[pkg.Key] = file;
                 if (print != null) builtPrint[pkg.Key] = print;
                 takenOff.Remove(pkg.Key);

@@ -8,7 +8,7 @@ namespace MhoExtendedModManager.Model.Gui;
 /// chosen package's own props (PowerParts.CostumeProps: belts, weapons, whips), ticked = kept. Unticking one keeps it in the
 /// draft's PartsOff, and Save sets that prop's mesh to none in the package (PowerParts.Build, after the build); ticking it again
 /// puts the game's mesh back. The preview leaves unticked props out at once. Under them, the props added from other
-/// characters (Kurt, 2026-10-27: Add a Prop / Remove here; picked in the selector, their fit is on the Prop Fit sliders).
+/// characters (Kurt, 2026-10-27: added in the Props view, Remove here; picked in the selector, their fit is on the Prop Fit sliders).
 /// </summary>
 sealed partial class ModelPage
 {
@@ -16,14 +16,13 @@ sealed partial class ModelPage
     readonly Label targetPropsCap = new() { Text = "THE TARGET'S PROPS  ·  untick one to leave it off this costume (a belt, a weapon)", AutoSize = true, ForeColor = Ui.Subtle, Font = Ui.Bold(8.5f), Margin = new Padding(2, 8, 0, 4) };
     List<AddedPropEntry> addedRows = [];
     TableLayoutPanel? partsPage;
-    Button addProp = null!;
     readonly Label partsCap = new() { Text = "SOURCE PARTS", AutoSize = true, ForeColor = Ui.Subtle, Font = Ui.Bold(8.5f) };
     List<PowerParts.Switch> propSwitches = [];
     int targetPropsRun;
 
     /// <summary>
     /// The Parts tab (Kurt, 2026-10-27: one list, not two short panels): the source's parts, then the target's props, each
-    /// table as tall as its rows in one scrolling list with a heading per group; Add a Prop ▾ and Remove in the toolbar
+    /// table as tall as its rows in one scrolling list with a heading per group; Remove in the toolbar
     /// (<paramref name="partsHead"/>) with Smooth, Add Rigs and Default Parts.
     /// </summary>
     Control PartsTab(FlowLayoutPanel partsHead)
@@ -87,19 +86,10 @@ sealed partial class ModelPage
             foreach (var r in rows) SetPropKept(r, keep);
             e.Handled = true;
         };
-        // Add a Prop ▾ and Remove in the tab's toolbar
-        addProp = Ui.FlatButton("Add a Prop ▾", () =>
-        {
-            var menu = new ContextMenuStrip();
-            menu.Items.Add("From a Character", null, (_, _) => AddPropClicked());
-            menu.Items.Add("From an FBX", null, (_, _) => AddFbxPropClicked());
-            menu.Items[0].ToolTipText = "Another character's prop (a hero's hammer, sword, shield), held on the bone its own character holds it on.";
-            menu.Items[1].ToolTipText = "A model of your own (an FBX from Blender), as made: its size and shape kept, its origin on the bone. Pick the bone under Held On ▾ after.";
-            Ui.ShowUnder(menu, addProp);
-        }, "Give this costume another prop: From a Character (a hero's hammer, sword, shield) or From an FBX (a model of your own). It goes into the package at once; Save puts it into the mod. Its fit and bone: pick it with ◀ ▶ under the preview.");
+        // Remove in the tab's toolbar (props are added in the Props view: Kurt, 2026-10-27, it replaced Add a Prop ▾)
         var removeProp = Ui.FlatButton("Remove", RemovePropClicked, "Takes the added prop picked in the list (or with ◀ ▶) off this costume. The game's own props are left off by unticking them instead.");
-        addProp.Margin = new Padding(14, 0, 6, 0); removeProp.Margin = new Padding(0);
-        partsHead.Controls.AddRange([addProp, removeProp]);
+        removeProp.Margin = new Padding(14, 0, 0, 0);
+        partsHead.Controls.Add(removeProp);
         // the list: SOURCE PARTS and its table, THE TARGET'S PROPS and its table, each as tall as its rows
         var list = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = Color.Transparent, Margin = new Padding(0), AutoScroll = true };
         list.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -192,32 +182,10 @@ sealed partial class ModelPage
     PartOffEntry? PropOff(PowerParts.Switch s) => host.PartsOff.FirstOrDefault(e => e.Package.Equals(s.Package, StringComparison.OrdinalIgnoreCase)
         && e.Part.Equals(s.Part, StringComparison.OrdinalIgnoreCase) && e.Switch.Equals(s.Key, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Add a Prop: another character's prop on the chosen costume, picked in the selector after.</summary>
-    async void AddPropClicked()
-    {
-        if (ChosenPackage is not CharacterList.Item pkg) { Log("Pick the costume to add a prop to under Target first."); return; }
-        string before = PropBefore();
-        if (await host.AddPropTo(pkg.Key) is not { } e || IsDisposed) return;
-        PropDone(before, $"Add {e.Name}");
-        await AddedPropsChanged(pkg.Key, e);
-        Log($"{e.Name} added to {pkg.Key}: it's picked under the preview, so the Prop Fit sliders move it (let go of a slider and it goes in). Save Changes keeps it.");
-    }
-
-    /// <summary>
-    /// Add a Prop → From an FBX (Kurt, 2026-10-27, props step 4): a model of the user's own as a prop. The game finds a prop by its
-    /// attachment class, and a new script class can't be made, so a plain prop class from the game carries it (<see cref="FreeCarrier"/>:
-    /// one this costume doesn't have yet); the FBX is then built onto it as made (its size and shape, its origin on the bone).
-    /// </summary>
-    async void AddFbxPropClicked()
-    {
-        if (ChosenPackage is not CharacterList.Item pkg) { Log("Pick the costume to add a prop to under Target first."); return; }
-        using var d = new OpenFileDialog { Title = "A Model for the Prop", Filter = "FBX models (*.fbx)|*.fbx" };
-        if (d.ShowDialog(this) != DialogResult.OK) return;
-        await AddFbxProp(pkg.Key, d.FileName);
-    }
-
     /// <summary>The FBX at <paramref name="fbx"/> added to <paramref name="key"/> as a prop of its own and built (also the tests').</summary>
-    internal async Task<AddedPropEntry?> AddFbxProp(string key, string fbx)
+    /// <param name="name">The prop's name in the lists (else the file's name + " (FBX)").</param>
+    /// <param name="bone">The bone it's held on (else the carrier's own; Held On ▾ changes it).</param>
+    internal async Task<AddedPropEntry?> AddFbxProp(string key, string fbx, string? name = null, string? bone = null)
     {
         status.Text = "Finding a prop class to carry it…";
         string before = PropBefore();
@@ -226,9 +194,15 @@ sealed partial class ModelPage
         var carrier = await Task.Run(() => FreeCarrier(start, have));
         if (IsDisposed) return null;
         if (carrier == null) { Log("From an FBX: no free prop class was found to carry it (every one tried is on this costume already)."); UpdateStatus(); return null; }
-        string name = Path.GetFileNameWithoutExtension(fbx) + " (FBX)";
+        name ??= Path.GetFileNameWithoutExtension(fbx) + " (FBX)";
         if (await host.AddPropTo(key, carrier with { Name = name }) is not { } e || IsDisposed) { UpdateStatus(); return null; }
         e.KeepShape = true;
+        if (bone != null && !bone.Equals(e.Bone, StringComparison.OrdinalIgnoreCase))
+        {
+            e.Bone = bone;
+            if (!await host.RefitAddedProp(e)) { e.Bone = null; Log($"{name}: it couldn't be put on {bone} (see above); it's on its carrier's bone: Held On ▾ moves it."); }
+            if (IsDisposed) return e;
+        }
         PropDone(before, $"Add {name}");
         await AddedPropsChanged(key, e);
         for (int i = 0; i < 300 && AddedTarget != e; i++) await Task.Delay(100);
@@ -238,9 +212,43 @@ sealed partial class ModelPage
         FbxChosen(src);
         for (int i = 0; i < 600 && !(src.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource && !refreshing); i++) await Task.Delay(100);
         if (!HasSource) { Log($"{name}: the FBX didn't load as its model (see above)."); return e; }
-        Log($"{name}: added on {carrier.Name} (its class carries the model; it's held where that prop is: Held On ▾ moves it). Building its model as made.");
+        Log(bone != null && bone.Equals(e.Bone, StringComparison.OrdinalIgnoreCase)
+            ? $"{name}: added on {carrier.Name} (its class carries the model), held on {bone}. Building its model as made."
+            : $"{name}: added on {carrier.Name} (its class carries the model; it's held where that prop is: Held On ▾ moves it). Building its model as made.");
         await BuildAsync();
         return e;
+    }
+
+    /// <summary>
+    /// Add as a Prop (Kurt, 2026-10-27): a part of the MFF source (a weapon on Bone_w, BoneW…) as a prop of its own. It's put on
+    /// the costume's skeleton as the build would (<see cref="MffPropExport"/>: on the hand that holds it, sized to the hero),
+    /// written as an FBX in the work folder (it goes into the mod's Model folder on Save) and added From an FBX, on the bone
+    /// that carries it.
+    /// </summary>
+    internal Task<AddedPropEntry?> AddPartProp(string partName) => AddPartProp(model, partName);
+
+    internal async Task<AddedPropEntry?> AddPartProp(MffModel? m, string partName)
+    {
+        if (ChosenPackage is not CharacterList.Item pkg) { Log("Pick the costume to add a prop to under Target first."); return null; }
+        if (m == null || m.Parts.FirstOrDefault(p => p.Name.Equals(partName, StringComparison.OrdinalIgnoreCase)) is not { } part)
+        { Log($"Add as a Prop: {partName} isn't a part of the source (pick the MFF character as the source)."); return null; }
+        string key = pkg.Key, start = StartPackageCore(key);
+        string mp = Path.Combine(host.WorkFolder, "maps", $"{m.Folder} on {Path.GetFileNameWithoutExtension(key)}.json");
+        string? mapFile = File.Exists(mp) ? mp : null;
+        string dir = Path.Combine(host.WorkFolder, "props", FbxExport.SafeName(m.Folder));
+        var (title, _) = MffNames.Describe(m.Folder);
+        status.Text = $"Making {part.Name} a prop…";
+        MffPropExport.Result res;
+        try
+        {
+            res = await Task.Run(() => MffPropExport.Write(m, part, MhoSkeleton.Load(start, null, body: true),
+                mapFile != null ? BoneMapFile.Load(mapFile) : null, dir, line => BeginInvoke(() => Log(line))));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or Assimp.AssimpException)
+        { Log($"Add as a Prop: {part.Name} couldn't be made a prop ({ex.Message})."); UpdateStatus(); return null; }
+        if (IsDisposed) return null;
+        Log($"{part.Name}: {res.Vertices:N0} vertices, from {title} ({res.Fbx}).");
+        return await AddFbxProp(key, res.Fbx, $"{title} · {part.Name} (MFF)", res.Bone);
     }
 
     /// <summary>
