@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.243
+- Editor → Voice: a costume given another voice with Use Another Voice could crash the game while loading it ("Assertion failed: i>=0 && (i<ArrayNum…)"; two users: Juggernaut Fear Itself on Hulk, Thing Fear Itself on Knull). A voice from a hero's voice package is built on that hero's own character data, which the game doesn't load for another costume; the copied voice still pointed there, and setting the voice back left that part in the package. A copied voice is now built on the costume's own. To fix a mod made before: open it in the Editor and Save (the voice you chose stays).
+
 0.60.242
 - Copy Setup From a Costume: a game crash ("CreateTexture … SizeX=1, SizeY=1 … DXT1 … D3DERR_INVALIDCALL") after copying onto a costume whose textures were made with another tool (a user's Spider-Woman with Angela 1602's material): the new textures (reflection image, stand-ins, converted spec maps) took their texture group from such a texture, one the game doesn't know, and the game shrank them to 1×1. They're now built on a texture of a group the game knows. Copy the setup again to fix a costume copied before.
 

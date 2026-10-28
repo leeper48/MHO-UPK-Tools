@@ -1931,6 +1931,24 @@ static partial class Program
                 Console.WriteLine("wrote " + rest[2]);
                 return 0;
             }
+            case "--parse-all":
+            {
+                // Read-only: every export of a package through the copier's exact parser (ExportCopy.ReferencesOf): the ones it
+                // can't read, and references outside the package's export / import tables. --parse-all <package.upk>
+                if (rest.Count < 2) { Console.WriteLine("--parse-all <package.upk>"); return 1; }
+                MeshCopy.Register();
+                var pa = MhoPackageModifier.Package.Open(rest[1]);
+                int bad = 0, unread = 0;
+                for (int i = 0; i < pa.Exports.Length; i++)
+                {
+                    var refs = MhoPackageModifier.ExportCopy.ReferencesOf(pa, i);
+                    if (refs == null) { unread++; if (unread <= 40) Console.WriteLine($"  can't parse #{i + 1} {pa.PathOf(pa.Exports[i])} ({pa.ClassOf(pa.Exports[i])})"); continue; }
+                    foreach (int r in refs)
+                        if (r > pa.Exports.Length || -r > pa.Imports.Length) { bad++; Console.WriteLine($"  #{i + 1} {pa.PathOf(pa.Exports[i])} ({pa.ClassOf(pa.Exports[i])}): reference {r} outside the tables"); }
+                }
+                Console.WriteLine($"{pa.Exports.Length} exports, {pa.Imports.Length} imports: {unread} can't be parsed, {bad} reference(s) outside the tables");
+                return 0;
+            }
             case "--crash-check":
             {
                 // Read-only: the crash checks (CrashCheck) on a mod, or every mod with "all": added bones, other copies of a

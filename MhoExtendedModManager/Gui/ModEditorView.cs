@@ -328,6 +328,13 @@ sealed partial class ModEditorView : UserControl
             foreach (string? w in new[] { work, powerWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
             Dialog.Show(this, "The parts couldn't be switched off: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
+        string? voiceWork;
+        try { voiceWork = RepairVoices(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            foreach (string? w in new[] { work, powerWork, partsWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+            Dialog.Show(this, "The voice components couldn't be put right: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         string? uniqueWork;
         try { uniqueWork = MakeDraftUnique(powerLog); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException)
@@ -340,6 +347,7 @@ sealed partial class ModEditorView : UserControl
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }
         if (partsWork != null) try { Directory.Delete(partsWork, true); } catch (IOException) { }
+        if (voiceWork != null) try { Directory.Delete(voiceWork, true); } catch (IOException) { }
         if (propsWork != null) try { Directory.Delete(propsWork, true); } catch (IOException) { }
         if (saved != null)
         {

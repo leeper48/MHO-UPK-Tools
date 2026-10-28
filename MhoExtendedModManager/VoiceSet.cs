@@ -460,6 +460,82 @@ static class VoiceSet
         return m.Success ? m.Groups[1].Value : null;
     }
 
+    /// <summary>An export's archetype reference (the export table entry's last int).</summary>
+    static int EntryArchetype(Package pkg, int export) => BinaryPrimitives.ReadInt32LittleEndian(pkg.Body.AsSpan(pkg.ExportEntryStart[export] + 20));
+
+    /// <summary>
+    /// The spare voice components an earlier Use Another Voice left (soundscomponent_voice…, under the costume's class
+    /// default) whose archetype is an import other than the costume's own soundscomponent's: pointed at that one, in place
+    /// (the export table entry's archetype int, same size; checked by reading back). Before 0.60.243 such a copy from an audio
+    /// package kept its hero's class default component as the archetype and the game asserted while loading the costume; a
+    /// voice set back to the mod's own kept the spare, so the crash stayed. Returns the bytes as they were when there's nothing.
+    /// </summary>
+    public static byte[] RepairSpares(byte[] file, List<string> log)
+    {
+        var pkg = Package.FromBytes(file);
+        int own = Slot(pkg);
+        if (own < 0) return file;
+        int want = EntryArchetype(pkg, own);
+        if (want == 0) return file;
+        if (pkg.Body.Length != pkg.RawFile.Length) return file;   // (a compressed package: never one we wrote)
+        string ownPath = pkg.PathOf(pkg.Exports[own]);
+        string parent = ownPath[..ownPath.LastIndexOf('.')];
+        byte[]? o = null;
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            string path = pkg.PathOf(pkg.Exports[i]);
+            if (!path.StartsWith(parent + ".soundscomponent_voice", StringComparison.OrdinalIgnoreCase)) continue;
+            int arch = EntryArchetype(pkg, i);
+            if (arch >= 0 || arch == want) continue;
+            o ??= (byte[])file.Clone();
+            BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(pkg.ExportEntryStart[i] + 20), want);
+            log.Add($"voice: {path} made from the costume's own component (it was {ModMeshes.ImportPath(pkg, arch)}, another hero's: it crashed the game on load)");
+        }
+        if (o == null) return file;
+        // the other hero's class-default imports nothing uses any more (the spare's old archetype and its outer): made copies
+        // of the Core import, so nothing is left that names a package the game doesn't load for this costume
+        // (again until nothing changes: an import whose only user was one made harmless, its outer, goes next)
+        for (bool changed = true; changed;)
+        {
+        changed = false;
+        var mid = Package.FromBytes(o);
+        int size = mid.Imports.Length == 0 ? 0 : (mid.ExportOffset - mid.ImportOffset) / mid.Imports.Length;
+        int core = Array.FindIndex(mid.Imports, im => im.OuterIndex == 0 && im.ObjectName.Equals("Core", StringComparison.OrdinalIgnoreCase));
+        if (size == 28 && core >= 0)
+        {
+            HashSet<int>? used = new();
+            for (int i = 0; i < mid.Exports.Length; i++)
+            {
+                // (an object the parser can't read, a stock one of a class it doesn't know, existed before any voice copy:
+                // its table entry is checked, its data can't point at the other hero's imports the copy brought in)
+                var refs = ExportCopy.ReferencesOf(mid, i) ?? [.. new[] { 0, 4, 8, 20 }.Select(at => BinaryPrimitives.ReadInt32LittleEndian(mid.Body.AsSpan(mid.ExportEntryStart[i] + at)))];
+                foreach (int r in refs) if (r < 0) used.Add(r);
+            }
+            if (used != null)
+            {
+                foreach (var im in mid.Imports) if (im.OuterIndex < 0) used.Add(im.OuterIndex);
+                // (the costume's own hero's class default, the one its own component is made from, is never touched)
+                string ownArch = want < 0 ? ModMeshes.ImportPath(mid, want) : mid.PathOf(mid.Exports[want - 1]);
+                string ownHero = ownArch.Contains('.') ? ownArch[..ownArch.LastIndexOf('.')] : ownArch;
+                for (int k = 0; k < mid.Imports.Length; k++)
+                {
+                    string ip = ModMeshes.ImportPath(mid, -(k + 1));
+                    if (used.Contains(-(k + 1)) || !ip.StartsWith("marvelgamecontent.default__marvelplayer_", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (ip.Equals(ownHero, StringComparison.OrdinalIgnoreCase) || ip.StartsWith(ownHero + ".", StringComparison.OrdinalIgnoreCase)) continue;
+                    Array.Copy(o, mid.ImportOffset + core * size, o, mid.ImportOffset + k * size, size);
+                    log.Add($"voice: the unused import {ip} (another hero's) made harmless");
+                    changed = true;
+                }
+            }
+        }
+        }
+        var back = Package.FromBytes(o);
+        for (int i = 0; i < back.Exports.Length; i++)
+            if (back.PathOf(back.Exports[i]).StartsWith(parent + ".soundscomponent_voice", StringComparison.OrdinalIgnoreCase) && EntryArchetype(back, i) < 0 && EntryArchetype(back, i) != want)
+                throw new InvalidDataException("the voice components didn't read back as written");
+        return o;
+    }
+
     /// <summary>A costume package's class-default soundscomponent (empty or not), or -1.</summary>
     public static int Slot(Package pkg) => Array.FindIndex(pkg.Exports, e => e.ObjectName.Equals("soundscomponent", StringComparison.OrdinalIgnoreCase)
         && pkg.ClassOf(e).Equals("MarvelEntityCompSounds", StringComparison.OrdinalIgnoreCase)
@@ -499,6 +575,18 @@ static class VoiceSet
                     }
                 }
             }
+        // The copy's archetype: the costume's own soundscomponent's (Kurt, 2026-10-28, two users' crashes on load, "Assertion
+        // failed: i>=0 && (i<ArrayNum…)", after Use Another Voice with Thing Fear Itself and Juggernaut Fear Itself): a voice
+        // from an audio package (UC__MarvelPlayerAudio_<Hero>_<Voice>_SF) is instanced from its hero's class default,
+        // default__marvelplayer_<hero>.soundscomponent, in that hero's own package, which the game doesn't load for this
+        // costume; the copied component kept that archetype as an import the game couldn't resolve.
+        int srcArch = EntryArchetype(vp, vc);
+        int own = Slot(pkg);
+        if (srcArch < 0 && own >= 0 && EntryArchetype(pkg, own) is int tgtArch && tgtArch != 0)
+        {
+            string from = ModMeshes.ImportPath(vp, srcArch), to = tgtArch < 0 ? ModMeshes.ImportPath(pkg, tgtArch) : pkg.PathOf(pkg.Exports[tgtArch - 1]);
+            if (!from.Equals(to, StringComparison.OrdinalIgnoreCase)) { vreplace[from] = to; log.Add($"voice: its component made from {to} (the costume's own), not {from} (another hero's package)"); }
+        }
         // The copy is a spare export beside the costume's own soundscomponent (its data then goes into that one), under a
         // name the package doesn't have yet (a costume can be given a voice more than once).
         string spare = "soundscomponent_voice";
@@ -523,7 +611,8 @@ static class VoiceSet
     /// </summary>
     public static byte[] Replace(string costumePackage, string sourcePackage, List<string> log)
     {
-        var pkg = Package.Open(costumePackage);
+        // spare components an earlier copy left with another hero's archetype put right first (they stay in the package)
+        var pkg = Package.FromBytes(RepairSpares(File.ReadAllBytes(costumePackage), log));
         int slot = Slot(pkg);
         if (slot < 0) throw new InvalidDataException($"{Path.GetFileName(costumePackage)} isn't a costume package (no voice slot)");
         string compPath = pkg.PathOf(pkg.Exports[slot]);

@@ -502,4 +502,30 @@ sealed partial class ModEditorView
         }
         return work;
     }
+
+    /// <summary>
+    /// Before saving: each character package's spare voice components put right (VoiceSet.RepairSpares: a voice copied by
+    /// 0.60.242 or older from an audio package kept another hero's archetype and crashed the game on load; two users,
+    /// 2026-10-28). A repaired package goes into a work folder and the draft points at it. Returns that folder, or null.
+    /// </summary>
+    string? RepairVoices(List<string> log)
+    {
+        string? dir = null;
+        for (int i = 0; i < draft.Packages.Count; i++)
+        {
+            var (file, source) = draft.Packages[i];
+            if (!(file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase)) || !File.Exists(source)) continue;
+            byte[] was = File.ReadAllBytes(source);
+            var said = new List<string>();
+            byte[] now = VoiceSet.RepairSpares(was, said);
+            if (ReferenceEquals(now, was)) continue;
+            dir ??= Path.Combine(lib.DataFolder, "voicefix-" + Guid.NewGuid().ToString("N")[..8]);
+            Directory.CreateDirectory(dir);
+            string outFile = Path.Combine(dir, file);
+            File.WriteAllBytes(outFile, now);
+            draft.Packages[i] = (file, outFile);
+            log.Add($"{file}:"); log.AddRange(said.Select(l => "  " + l));
+        }
+        return dir;
+    }
 }

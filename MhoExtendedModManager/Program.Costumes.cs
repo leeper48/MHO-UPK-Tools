@@ -1155,6 +1155,19 @@ static partial class Program
                 return offOk && same ? 0 : 1;
             }
             case "--voice-sources":
+            case "--voice-repair":
+            {
+                // --voice-repair <costume.upk> <out.upk> (out never in the game folder): spare voice components an earlier Use
+                // Another Voice left with another hero's archetype pointed at the costume's own (VoiceSet.RepairSpares)
+                if (rest.Count < 3) { Console.WriteLine("--voice-repair <costume.upk> <out.upk>"); return 1; }
+                MhoExtendedModManager.Model.Protected.CheckWrite(rest[2]);
+                var rlog = new List<string>();
+                var fixedBytes = VoiceSet.RepairSpares(File.ReadAllBytes(rest[1]), rlog);
+                foreach (var l in rlog) Console.WriteLine(l);
+                File.WriteAllBytes(rest[2], fixedBytes);
+                Console.WriteLine(rlog.Count == 0 ? "nothing to repair (written unchanged)" : $"written: {rest[2]}");
+                return 0;
+            }
             case "--voice-copy":
             {
                 // Read-only: the stock voice sets (--voice-sources), or a costume package with one copied in, written to <out.upk>
