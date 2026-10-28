@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.216
+- Model tab: the move / turn gizmo on a game prop picked as the target too (Thor's hammer), on its grip, lined up with the world's X / Y / Z; letting go keeps the fit as the Prop Fit sliders do (the build uses it).
+
 0.60.215
 - Model tab: stepping back to a costume's body (◀ ▶) when it has no source of its own makes its own model the source, so its parts (body, cape) are listed again, as Paint already did.
 - The Target's Props list the props a costume gets from its hero too (Doctor Doom Classic's pistol and throne, kind Hero Prop); untick one to leave it off this costume (Save takes it off the costume's prop list; tick it to put it back).

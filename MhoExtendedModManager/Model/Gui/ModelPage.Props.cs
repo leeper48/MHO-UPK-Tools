@@ -212,6 +212,27 @@ sealed partial class ModelPage
         // Prop Fit (phase 2): the sliders show for a prop target; a move, turn and size change the preview and go into the build
         UpdatePropFitUi();
         Check(propFitBox?.Visible == true && sizeBoxRef?.Visible == false && sizeCaption?.Text == "PROP FIT", "Prop Fit shows in place of the size sliders");
+        // the gizmo on the game prop (Kurt, 2026-10-28): on its grip; an arrow moves it, a ring turns it, kept after letting go
+        for (int i = 0; i < 150 && (!GizmoShownForTest || refreshing); i++) await Task.Delay(100);
+        Check(GizmoShownForTest, $"Gizmo on the game prop: shown ({heldClass})");
+        if (GizmoShownForTest)
+        {
+            var gp0 = CurrentPropFit();
+            Check(true, "(info) game prop target, X arrow: " + await GizmoLiveForTest(0, 80, 0));
+            for (int i = 0; i < 100 && refreshing; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            var gp1 = CurrentPropFit();
+            Check(true, "(info) game prop target, Z ring: " + await GizmoLiveForTest(5, 60, 60));
+            for (int i = 0; i < 100 && refreshing; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            var gp2 = CurrentPropFit();
+            Check(gp1 != gp0 && PropFitKey() is string gpk2 && propFits.TryGetValue(gpk2, out var gkept) && gkept == CurrentPropFit(),
+                $"Gizmo on the game prop: the fit follows and is kept (move {gp1.MoveX}, {gp1.MoveY}, {gp1.MoveZ}; turn {gp2.TurnX}, {gp2.TurnY}, {gp2.TurnZ}; kept {(PropFitKey() is string kk && propFits.TryGetValue(kk, out var kv) ? kv.ToString() : "none")}; now {CurrentPropFit()})");
+            SetPropFit(new PropAdjust(), save: true);
+            for (int i = 0; i < 100 && !refreshing; i++) await Task.Delay(50);
+            for (int i = 0; i < 200 && refreshing; i++) await Task.Delay(100);
+            await Task.Delay(1000);
+        }
         float before = preview.ExtentValueForTest;
         SetPropFit(new PropAdjust(MoveZ: 10, TurnZ: 90, Scale: 1.5f), save: true);
         for (int i = 0; i < 100 && (refreshing || MathF.Abs(preview.ExtentValueForTest - before) < 1); i++) await Task.Delay(100);

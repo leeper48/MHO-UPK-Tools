@@ -178,6 +178,18 @@ static class PropFit
         sk.Mesh.HighestDetail is { } lod ? Measure(lod.Positions, lod.Indices) : null;
 
     /// <summary>The bone the game's prop hangs on: the one carrying most of its skin.</summary>
+    /// <summary>Where the Prop Fit sliders turn and size a prop around (its grip: the bone carrying most of its weight), in its
+    /// model's space (the Model tab's gizmo sits there).</summary>
+    public static Vector3 Pivot(MhoSkeleton sk) => sk.Pos(HoldBone(sk));
+
+    /// <summary>The Prop Fit sliders as one matrix, as <see cref="Adjust"/> moves a prop's vertices (row vectors).</summary>
+    public static Matrix4x4 Matrix(PropAdjust a, Vector3 pivot)
+    {
+        const float deg = MathF.PI / 180;
+        var turn = Matrix4x4.CreateRotationX(a.TurnX * deg) * Matrix4x4.CreateRotationY(a.TurnY * deg) * Matrix4x4.CreateRotationZ(a.TurnZ * deg);
+        return Matrix4x4.CreateTranslation(-pivot) * Matrix4x4.CreateScale(a.Scale) * turn * Matrix4x4.CreateTranslation(pivot + new Vector3(a.MoveX, a.MoveY, a.MoveZ));
+    }
+
     static int HoldBone(MhoSkeleton sk)
     {
         var lod = sk.Mesh.HighestDetail;

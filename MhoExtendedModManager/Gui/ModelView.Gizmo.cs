@@ -229,9 +229,17 @@ sealed partial class ModelView
         if (GizmoSource?.Invoke() is not { } g || cams.Count == 0) return false;
         var (cam, pane) = cams[0];
         var area = PaneArea(pane);
-        PointF? at = handle < 3
-            ? (OnCanvas(g.Center, cam, area) is PointF o && OnCanvas(g.Center + g.MoveAxes[handle] * g.Size, cam, area) is PointF e ? new PointF((o.X + 2 * e.X) / 3, (o.Y + 2 * e.Y) / 3) : null)
-            : RingPoints(g, handle - 3, cam, area).FirstOrDefault(x => x != null);
+        // a point of the handle that no other handle is near (the mouse's own hit test decides)
+        var cands = new List<PointF>();
+        if (handle < 3)
+        {
+            if (OnCanvas(g.Center, cam, area) is PointF o && OnCanvas(g.Center + g.MoveAxes[handle] * g.Size, cam, area) is PointF e)
+                for (int k = 3; k <= 10; k++) cands.Add(new PointF(o.X + (e.X - o.X) * k / 10f, o.Y + (e.Y - o.Y) * k / 10f));
+        }
+        else cands.AddRange(RingPoints(g, handle - 3, cam, area).OfType<PointF>());
+        PointF? at = null;
+        foreach (var c in cands)
+            if (GizmoHandleAt(Point.Round(c), out _, out _) == handle) { at = c; break; }
         if (at is not PointF p0) return false;
         var p = Point.Round(p0);
         static IntPtr L(int x, int y) => (IntPtr)((y << 16) | (x & 0xFFFF));
@@ -239,6 +247,7 @@ sealed partial class ModelView
         SendMessage(canvas.Handle, MOVE, IntPtr.Zero, L(p.X, p.Y));
         SendMessage(canvas.Handle, DOWN, (IntPtr)MK_L, L(p.X, p.Y));
         bool grabbed = gizmoDrag?.Handle == handle;
+        if (!grabbed) { SendMessage(canvas.Handle, UP, IntPtr.Zero, L(p.X, p.Y)); return false; }
         for (int k = 1; k <= steps; k++) SendMessage(canvas.Handle, MOVE, (IntPtr)MK_L, L(p.X + dx * k / steps, p.Y + dy * k / steps));
         if (release) SendMessage(canvas.Handle, UP, IntPtr.Zero, L(p.X + dx, p.Y + dy));
         return grabbed;

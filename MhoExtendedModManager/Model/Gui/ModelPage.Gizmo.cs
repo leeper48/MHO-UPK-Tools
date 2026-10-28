@@ -4,7 +4,8 @@ using MhoExtendedModManager.Gui;
 namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
-/// The move / turn gizmo on an added prop (Kurt, 2026-10-27: colored arrows to drag it along X / Y / Z, colored rings to turn it
+/// The move / turn gizmo on an added prop, and on a game prop picked as the target (Kurt, 2026-10-28: Thor's hammer; its
+/// sliders turn and size it around its grip, PropFit.Adjust, so the gizmo sits there) (Kurt, 2026-10-27: colored arrows to drag it along X / Y / Z, colored rings to turn it
 /// around one axis; 2026-10-28: oriented to the world's X / Y / Z). It sits where the prop's fit puts it, its arrows and rings
 /// along the game world's axes; a drag is turned into the fit's own terms (Move X / Y / Z in the bone's frame; Turn X / Y / Z,
 /// the angles that give the turned prop, found by a few Newton steps from the angles before). The Prop Fit sliders follow and
@@ -38,11 +39,37 @@ sealed partial class ModelPage
             bool changed = was != now;
             gizmoStart = null; gizmoBuilt = null; gizmoFrame = null;
             Log($"Gizmo: {addedPick?.Name ?? "no prop picked"} let go: move {was.MoveX:0.#}, {was.MoveY:0.#}, {was.MoveZ:0.#} → {now.MoveX:0.#}, {now.MoveY:0.#}, {now.MoveZ:0.#}; turn {was.TurnX:0}°, {was.TurnY:0}°, {was.TurnZ:0}° → {now.TurnX:0}°, {now.TurnY:0}°, {now.TurnZ:0}°{(changed ? "; putting it in" : " (no change)")}.");
-            if (changed) AddedFitCommitted();
+            if (!changed) return;
+            if (addedPick != null) AddedFitCommitted();
+            else PropFitChanged();   // (a game prop: kept with the tab's state, the preview made again with it)
         };
     }
 
-    bool GizmoMatch(string cls) => addedPick is { } e && PowerBorrow.SameClass(cls, e.Class);
+    bool GizmoMatch(string cls) => addedPick is { } e ? PowerBorrow.SameClass(cls, e.Class) : heldClass != null && GamePropTarget && cls.Equals(heldClass, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A game prop is the target (Thor's hammer): its Prop Fit sliders are the tab's, around its grip.</summary>
+    bool GamePropTarget => addedPick == null && TargetIsProp();
+    /// <summary>The game prop target's grip (its model's space), for the prop it was worked out for (package | model).</summary>
+    (string Key, Vector3 Pivot)? gamePivot;
+    int gamePivotRun;
+
+    /// <summary>The game prop target's grip, worked out in the background the first time (null until then).</summary>
+    Vector3? GamePivot()
+    {
+        if (PropFitKey() is not string key || ChosenPackage is not CharacterList.Item pkg) return null;
+        if (gamePivot is var (k, p) && k == key) return p;
+        int run = ++gamePivotRun;
+        string start = StartPackageCore(pkg.Key);
+        _ = Task.Run(() =>
+        {
+            try { return (Vector3?)PropFit.Pivot(MhoSkeleton.Load(start, null)); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { return null; }
+        }).ContinueWith(t =>
+        {
+            if (t.Result is Vector3 v && run == gamePivotRun && !IsDisposed) BeginInvoke(() => { gamePivot = (key, v); preview.GizmoSource = GizmoNow; });
+        });
+        return null;
+    }
 
     /// <summary>The fit as the sliders have it, as an added prop's fit (for FitMatrix).</summary>
     MhoExtendedModManager.PropFit SliderFit(AddedPropEntry e, PropAdjust a) => new()
@@ -54,10 +81,19 @@ sealed partial class ModelPage
     /// <summary>The gizmo for the added prop picked (a plain one: an animated prop's fit isn't baked into its model), else none.</summary>
     ModelView.TransformGizmo? GizmoNow()
     {
-        if (!Settings.Current.Preview.Gizmo || addedPick is not { } e || e.Off || e.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase)) return null;
-        if (preview.PropBase(GizmoMatch) is not var (b, size)) return null;
+        if (!Settings.Current.Preview.Gizmo) return null;
+        Vector3 at;
         var fit = CurrentPropFit();
-        var center = Vector3.Transform(new Vector3(fit.MoveX, fit.MoveY, fit.MoveZ), b);
+        if (addedPick is { } e)
+        {
+            if (e.Off || e.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase)) return null;
+            at = new Vector3(fit.MoveX, fit.MoveY, fit.MoveZ);
+        }
+        else if (GamePropTarget && heldClass != null && !heldClass.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase) && GamePivot() is Vector3 pivot)
+            at = pivot + new Vector3(fit.MoveX, fit.MoveY, fit.MoveZ);
+        else return null;
+        if (preview.PropBase(GizmoMatch) is not var (b, size)) return null;
+        var center = Vector3.Transform(at, b);
         // the world's axes (the game's X, Y, Z: Z up)
         Vector3[] world = [Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ];
         return new ModelView.TransformGizmo(center, world, world, Math.Clamp(size * 0.6f, 8, 60));
@@ -66,9 +102,11 @@ sealed partial class ModelPage
     /// <summary>A gizmo drag: the slider moved from where the drag began, the prop shown there at once.</summary>
     void GizmoDrag(int axis, float amount, bool turn)
     {
-        if (addedPick is not { } e) return;
+        var e = addedPick;
+        if (e == null && !GamePropTarget) return;
         gizmoStart ??= CurrentPropFit();
-        gizmoBuilt ??= e.Fit;
+        if (e != null) gizmoBuilt ??= e.Fit;
+        var pivot = e == null ? GamePivot() ?? Vector3.Zero : Vector3.Zero;
         var s = gizmoStart;
         PropAdjust now;
         var b = gizmoFrame ??= preview.PropBase(GizmoMatch)?.Frame ?? Matrix4x4.Identity;   // (the bone as the drag began)
@@ -82,8 +120,9 @@ sealed partial class ModelPage
             float step = ModifierKeys.HasFlag(Keys.Shift) ? 1 : 5;   // (snaps: 5°, Shift 1°)
             float a = MathF.Round(amount / step) * step * MathF.PI / 180;
             var q = Matrix4x4.CreateFromAxisAngle(w, a);
-            var want = Turn(s.TurnX, s.TurnY, s.TurnZ) * (lin * q * toBone);
-            var (tx, ty, tz) = SolveTurn(want, s.TurnX, s.TurnY, s.TurnZ);
+            Func<float, float, float, Matrix4x4> rot = e != null ? Turn : GameTurn;
+            var want = rot(s.TurnX, s.TurnY, s.TurnZ) * (lin * q * toBone);
+            var (tx, ty, tz) = SolveTurn(want, s.TurnX, s.TurnY, s.TurnZ, rot);
             now = s with { TurnX = tx, TurnY = ty, TurnZ = tz };
         }
         else
@@ -95,9 +134,11 @@ sealed partial class ModelPage
             now = s with { MoveX = Math.Clamp(R(s.MoveX + d.X), -range, range), MoveY = Math.Clamp(R(s.MoveY + d.Y), -range, range), MoveZ = Math.Clamp(R(s.MoveZ + d.Z), -range, range) };
         }
         SetPropFit(now, save: false);
-        // shown at once: from the fit in the package to this one, in the prop's own space
-        if (Matrix4x4.Invert(PowerBorrow.FitMatrix(gizmoBuilt, e.Class), out var undo))
+        // shown at once: from the fit the preview was made with (an added prop: in its package) to this one, in the prop's own space
+        if (e != null && Matrix4x4.Invert(PowerBorrow.FitMatrix(gizmoBuilt!, e.Class), out var undo))
             preview.SetPropOffset(GizmoMatch, undo * PowerBorrow.FitMatrix(SliderFit(e, now), e.Class));
+        else if (e == null && Matrix4x4.Invert(PropFit.Matrix(s, pivot), out var undoGame))
+            preview.SetPropOffset(GizmoMatch, undoGame * PropFit.Matrix(now, pivot));
         status.Text = turn ? $"Turn around world {"XYZ"[axis]}: {MathF.Round(amount / (ModifierKeys.HasFlag(Keys.Shift) ? 1 : 5)) * (ModifierKeys.HasFlag(Keys.Shift) ? 1 : 5):+0;-0;0}° (let go to put it in)"
                            : $"Move along world {"XYZ"[axis]}: {amount:+0.0;-0.0;0} (let go to put it in)";
     }
@@ -111,10 +152,18 @@ sealed partial class ModelPage
         return Fx.PowerEffects.Player.UeRotation(y * d, z * d, x * d);
     }
 
-    /// <summary>The Turn X / Y / Z (degrees, -180..180) whose turn is <paramref name="want"/>: Gauss-Newton steps from the angles
-    /// before (a drag changes them a little at a time, so it stays on the same branch).</summary>
-    static (float X, float Y, float Z) SolveTurn(Matrix4x4 want, float x, float y, float z)
+    /// <summary>A game prop's turn alone (as PropFit.Adjust turns it: X, then Y, then Z, in degrees).</summary>
+    static Matrix4x4 GameTurn(float x, float y, float z)
     {
+        const float d = MathF.PI / 180;
+        return Matrix4x4.CreateRotationX(x * d) * Matrix4x4.CreateRotationY(y * d) * Matrix4x4.CreateRotationZ(z * d);
+    }
+
+    /// <summary>The Turn X / Y / Z (degrees, -180..180) whose turn (<paramref name="turnOf"/>) is <paramref name="want"/>:
+    /// Gauss-Newton steps from the angles before (a drag changes them a little at a time, so it stays on the same branch).</summary>
+    static (float X, float Y, float Z) SolveTurn(Matrix4x4 want, float x, float y, float z, Func<float, float, float, Matrix4x4> turnOf)
+    {
+        Func<float, float, float, Matrix4x4> Turn = turnOf;
         static float[] Res(Matrix4x4 m, Matrix4x4 w) => [m.M11 - w.M11, m.M12 - w.M12, m.M13 - w.M13, m.M21 - w.M21, m.M22 - w.M22, m.M23 - w.M23, m.M31 - w.M31, m.M32 - w.M32, m.M33 - w.M33];
         double[] e = [x, y, z];
         for (int it = 0; it < 30; it++)
