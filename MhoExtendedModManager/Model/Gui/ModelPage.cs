@@ -598,7 +598,10 @@ sealed partial class ModelPage : UserControl
     void Reload()
     {
         var s = Settings.Current;
-        foldersLabel.SetFolders([("MFF", s.MffSource, "Not Set"), ("GAME", s.GameFolder, "Not Found"), .. (s.StockFolder != null ? [("STOCK", s.StockFolder, "")] : Array.Empty<(string, string?, string)>())]);
+        // (each part on its own: Kurt, 2026-10-28, users' game lists stayed empty; the MFF folder is optional, so nothing about
+        // it, or about the folder strip, may keep the game's lists from loading)
+        try { foldersLabel.SetFolders([("MFF", s.MffSource, "Not Set"), ("GAME", s.GameFolder, "Not Found"), .. (s.StockFolder != null ? [("STOCK", s.StockFolder, "")] : Array.Empty<(string, string?, string)>())]); }
+        catch (Exception ex) { Log($"The folder strip couldn't show the folders ({ex.GetType().Name}: {ex.Message})."); }
         allCharacters = new();
         try
         {
@@ -616,6 +619,12 @@ sealed partial class ModelPage : UserControl
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             Log("Set the MFF folder in Settings (" + ex.Message + ")");
+        }
+        catch (Exception ex)
+        {
+            // (any other trouble with the MFF folder setting: its list is left empty, the game's lists still load)
+            allCharacters = new();
+            Log($"The MFF folder ({s.MffSource ?? "not set"}) can't be read ({ex.GetType().Name}: {ex.Message}); the game's characters are listed anyway. Settings → Model → Change MFF Folder sets another, or clears it.");
         }
         allPackages = new();
         var dirs = new[] { s.StockFolder, s.CookedFolder }.Where(d => d != null && Directory.Exists(d)).Select(d => d!).ToList();

@@ -54,7 +54,7 @@ sealed partial class ModelPage
         if (named != null || mine.Count == 1) PickCopySourceFor(t, tpath, tmesh, named ?? mine[0]);
         else if (mine.Count > 1)
             DropList.Show(matGame, matGame.RectangleToScreen(matGame.ClientRectangle), [.. mine.Select(s => $"{t.Key} slot {s.Index}: {s.Material.Split('.').Last()}")], -1,
-                i => BeginInvoke(() => PickCopySourceFor(t, tpath, tmesh, mine[i])));
+                i => BeginInvoke(() => PickCopySourceFor(t, tpath, tmesh, mine[i])), thumb: MaterialThumbs(tpath, mine));
         else Log($"Copy Material Setup: {tmesh} has no material slots.");
     }
 
@@ -81,8 +81,17 @@ sealed partial class ModelPage
             string who = $"{title} ({Path.GetFileNameWithoutExtension(file)})";
             if (theirs.Count == 1) { _ = CopyMaterialSetup(t.Key, tpath, tmesh, to, spath, who, theirs[0]); return; }
             BeginInvoke(() => DropList.Show(matGame, matGame.RectangleToScreen(matGame.ClientRectangle), [.. theirs.Select(s => $"{title}: {s.Material.Split('.').Last()}")], -1,
-                m => _ = CopyMaterialSetup(t.Key, tpath, tmesh, to, spath, who, theirs[m])));
+                m => _ = CopyMaterialSetup(t.Key, tpath, tmesh, to, spath, who, theirs[m]), thumb: MaterialThumbs(spath, theirs)));
         }, thumb: i => SourceThumb(sources[i].File));
+    }
+
+    /// <summary>The materials' color maps for a list (Kurt, 2026-10-28), made in the background: null until each is ready.</summary>
+    Func<int, Image?> MaterialThumbs(string packagePath, List<MaterialSetupCopy.SlotInfo> slots)
+    {
+        var made = new Image?[slots.Count];
+        int size = (int)(64 * Ui.Dpi(DeviceDpi));
+        _ = Task.Run(() => { for (int i = 0; i < slots.Count; i++) if (slots[i].Export >= 0) made[i] = MaterialSetupCopy.ColorMap(packagePath, slots[i].Export, size); });
+        return i => i >= 0 && i < made.Length ? made[i] : null;
     }
 
     async Task CopyMaterialSetup(string key, string tpath, string tmesh, MaterialSetupCopy.SlotInfo to, string spath, string stitle, MaterialSetupCopy.SlotInfo from)
@@ -95,12 +104,25 @@ sealed partial class ModelPage
             + "  • Its maps: color, normal and the others it has (the two models' maps are laid out differently).\n"
             + "  • A map it hasn't got gets a flat stand-in: a flat normal, no spec, no glow. Replace File on this tab can give it its own.\n\n"
             + "The copy goes into this package under a name of its own; the old material stays in it unused. Revert to Original (right-click the costume under Target) takes it back off.";
-        if (Dialog.Show(this, text, "Copy Material Setup", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+        // the costume's older packed spec map made into the source's layout, so its shine stays (Kurt, 2026-10-28)
+        string? conv = MaterialSetupCopy.SpecConversion(File.ReadAllBytes(tpath), key, tmesh, to.Index, spath, from.Material);
+        bool convertSpec = false;
+        if (conv != null)
+        {
+            int c = Dialog.Choose(this, text + "\n\nSpec map:\n"
+                + $"  • {stitle}'s material reads a newer packed spec map (shine, power, skin mask, reflectivity) that this costume hasn't got.\n"
+                + $"  • This costume has {conv}: Convert makes the newer map from it, so the costume keeps its own shine and reflections.\n"
+                + "  • Flat Stand-In uses no spec instead (a matte look).",
+                "Copy Material Setup", "Copy and Convert My Spec Map", "Copy With a Flat Stand-In", "Cancel");
+            if (c is < 0 or 2) return;
+            convertSpec = c == 0;
+        }
+        else if (Dialog.Show(this, text, "Copy Material Setup", MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
         string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"material {Path.GetFileNameWithoutExtension(key)}"));
         string tag = "on_" + MaterialOut.Safe(Path.GetFileNameWithoutExtension(key).Replace("UC__MarvelPlayer_", "", StringComparison.OrdinalIgnoreCase).Replace("_SF", "", StringComparison.OrdinalIgnoreCase)).ToLowerInvariant();
         MaterialSetupCopy.Result r;
         using (Busy.Begin("Model: copying the material setup"))
-            try { r = await Task.Run(() => MaterialSetupCopy.Copy(File.ReadAllBytes(tpath), key, tmesh, to.Index, spath, from.Material, tag, Path.Combine(outDir, "standins"))); }
+            try { r = await Task.Run(() => MaterialSetupCopy.Copy(File.ReadAllBytes(tpath), key, tmesh, to.Index, spath, from.Material, tag, Path.Combine(outDir, "standins"), convertSpec)); }
             catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
             { Log($"Copy Material Setup: {ex.Message}"); Dialog.Show(this, ex.Message, "Material Setup Not Copied", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
@@ -160,14 +182,25 @@ sealed partial class ModelPage
         for (int i = 0; i < 300 && !(packageMaps?.Any(m => m.Material.Contains("_on_", StringComparison.OrdinalIgnoreCase)) ?? false); i++) await Task.Delay(100);
         Check(packageMaps?.Any(m => m.Material.Contains("_on_", StringComparison.OrdinalIgnoreCase)) == true, "the Materials tab lists the copied material");
         await Task.Delay(2500);
-        if (shot != null) Shot(shot);
+        if (!string.IsNullOrEmpty(shot)) Shot(shot);
         // Current Modded Game: the list as the mod list has it
         sourceKind.SelectedIndex = 3; await Task.Delay(300);
         characterFilter.Text = filter; await Task.Delay(500);
         bool modded = characters.Items.Cast<CharacterList.Item>().Any(x => x.Detail.Contains("· from ", StringComparison.Ordinal));
         Check(modded, $"Current Modded Game names the mod a package is read from ({characters.Items.Count} rows for \"{filter}\")");
-        if (shot2 != null) { await Task.Delay(4000); Shot(shot2); }
+        if (!string.IsNullOrEmpty(shot2)) { await Task.Delay(4000); Shot(shot2); }
         sourceKind.SelectedIndex = 2;
         return fails;
+    }
+
+    /// <summary>Test (--model-lists-test): the Source and Target lists as the tab came up (a user's were empty), and the log.</summary>
+    internal async Task<int> TestLists(Action<string> say)
+    {
+        for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
+        await Task.Delay(1500);
+        say($"loaded: {loaded}; game folder: {Settings.Current.GameFolder ?? "none"}; cooked: {Settings.Current.CookedFolder ?? "none"}; MFF: {Settings.Current.MffSource ?? "none"}; stock: {Settings.Current.StockFolder ?? "none"}");
+        say($"source kind: {sourceKind.SelectedIndex} ({(sourceKind.SelectedIndex >= 0 ? sourceKind.Items[sourceKind.SelectedIndex] : "-")}); game packages: {allPackages.Count}; source rows: {characters.Items.Count}; target rows: {packages.Items.Count}");
+        say("log: " + log.Text.Replace("\r\n", " | ").Replace("\n", " | "));
+        return allPackages.Count > 0 && characters.Items.Count > 0 ? 0 : 1;
     }
 }

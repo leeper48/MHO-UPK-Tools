@@ -41,7 +41,19 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.239 (Kurt, 2026-10-28): the empty game lists, the spec conversion, the material copy's maps.</summary>
+    static Notice ListsAndSpec() => new(
+        "0.60.239-lists-spec", "0.60.239",
+        "[!]Model tab: the game's character lists load again for everyone." + nl +
+        "  • Heroes, Team-Ups and NPCs came up empty when the MFF folder setting couldn't be read (blank, or not a usable path). The MFF folder is optional: the game's lists load without it." + nl + nl +
+        "[!]Copy Setup From a Costume:" + nl +
+        "  • Copy and Convert My Spec Map: a costume with an older spec map keeps its shine and reflections with a newer material (Luke Cage's Skrull with Modern's look)." + nl +
+        "  • The material lists show each material's color map." + nl +
+        "  • Fixed: a copy onto another hero could point at maps in a package that hero doesn't load (default textures in game). The costume's own maps are used, and the source's reflection image is copied in." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-matcopy");
 
     /// <summary>0.60.235 (Kurt, 2026-10-28): Copy Setup From a Costume, Current Modded Game, the animation-edit fix.</summary>
     static Notice MaterialCopy() => new(

@@ -1,6 +1,18 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.239
+- Model tab: the game's character lists (Heroes, Team-Ups, NPCs) came up empty for some users: an MFF folder setting the tab couldn't read (blank, or not a usable path) stopped the whole list from loading, before the game's part. The MFF folder is optional: a problem with it is now logged and the game's lists always load; a blank one counts as not set.
+
+0.60.238
+- Copy Setup From a Costume: a source map in another package (most costumes take their normal, spec and reflection maps from their hero's base package) is no longer kept as a reference there, which another hero's costume doesn't load (it would have shown the default textures): the costume's own map is used, else the conversion or a stand-in; the environment image (reflectiontex) is copied into the package unless it's in one the game always loads.
+
+0.60.237
+- Copy Setup From a Costume: the material lists (the source costume's materials, and your costume's slots when it asks) show each material's color map, so mat_body and mat_cape are easy to tell apart.
+
+0.60.236
+- Copy Setup From a Costume: when the source's material reads a newer packed spec map (shine, power, skin mask, reflectivity) the costume hasn't got, the popup offers to make it from the costume's own older spec maps (Copy and Convert My Spec Map), so it keeps its shine and reflections, instead of a flat no-spec stand-in. The shine is scaled between the costume's own strength and the source map's level (Luke Cage's Skrull with Modern's setup: ×0.16).
+
 0.60.235
 - Release: What's New notice; the manual has walkthroughs with pictures for Copy Setup From a Costume and Current Modded Game.
 

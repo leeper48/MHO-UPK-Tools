@@ -473,6 +473,24 @@ static partial class Program
                 Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
                 return code;
             }
+            case "--model-lists-test":
+            {
+                // --model-lists-test <mod> (scratch MHO_EXTMM_HOME): the Model tab's Source and Target lists as they come up
+                if (rest.Count < 2) { Console.WriteLine("--model-lists-test <mod>"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library)"); return 1; }
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    try { code = await main.ModelListsTest(rest[1], Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(code == 0 ? "lists filled" : "LISTS EMPTY");
+                return code;
+            }
             case "--model-material-test":
             {
                 // --model-material-test <mod> <target package> <source package> [shot.png] [modded-list.png] [filter] (scratch

@@ -3441,8 +3441,15 @@ static partial class Program
                 // the game folder): Copy Material Setup as the Model tab does it, written to <out.upk>, then probed
                 if (rest.Count < 7) { Console.WriteLine("--material-setup-copy <target.upk> <mesh> <slot> <source.upk> <source material path> <out.upk>"); return 1; }
                 MhoExtendedModManager.Model.Protected.CheckWrite(rest[6]);
+                {
+                    var sp = MhoPackageModifier.Package.Open(rest[4]);
+                    int si = Array.FindIndex(sp.Exports, e => sp.PathOf(e).Equals(rest[5], StringComparison.OrdinalIgnoreCase));
+                    using var cm = si >= 0 ? MhoExtendedModManager.Model.MaterialSetupCopy.ColorMap(rest[4], si, 64) : null;
+                    Console.WriteLine($"source color map picture: {(cm == null ? "none" : $"{cm.Width}x{cm.Height}")}");
+                }
+                Console.WriteLine("spec conversion possible: " + (MhoExtendedModManager.Model.MaterialSetupCopy.SpecConversion(File.ReadAllBytes(rest[1]), Path.GetFileName(rest[1]), rest[2], int.Parse(rest[3]), rest[4], rest[5]) ?? "no"));
                 var mres = MhoExtendedModManager.Model.MaterialSetupCopy.Copy(File.ReadAllBytes(rest[1]), Path.GetFileName(rest[1]), rest[2], int.Parse(rest[3]), rest[4], rest[5], "test",
-                    Path.Combine(Path.GetDirectoryName(Path.GetFullPath(rest[6]))!, "standins"));
+                    Path.Combine(Path.GetDirectoryName(Path.GetFullPath(rest[6]))!, "standins"), convertSpec: rest.Contains("--convert-spec"));
                 foreach (var l in mres.Lines) Console.WriteLine(l);
                 File.WriteAllBytes(rest[6], mres.Package);
                 Console.WriteLine($"written: {rest[6]} ({mres.Package.Length:N0} bytes)");

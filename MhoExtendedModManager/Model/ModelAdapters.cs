@@ -89,8 +89,9 @@ sealed class Settings
         string? root = s.ResolvedGameRoot(MemmSettings.LibraryData(s.LibraryPath));
         return new Settings
         {
-            MffSource = s.MffFolder is { Length: > 0 } m ? m : null, GameFolder = root,
-            ModelsFolder = s.ModelsFolder is { Length: > 0 } mf ? mf : null,
+            // (a blank value is "not set": a user's " " MFF folder made every game list come up empty, 2026-10-28)
+            MffSource = !string.IsNullOrWhiteSpace(s.MffFolder) ? s.MffFolder.Trim() : null, GameFolder = root,
+            ModelsFolder = !string.IsNullOrWhiteSpace(s.ModelsFolder) ? s.ModelsFolder.Trim() : null,
             StockFolder = StockFiles.Clean ?? (s.CleanGameFiles is { Length: > 0 } c && Directory.Exists(c) ? c : null),
             BlenderPath = s.BlenderPath, SkipAddonOffer = s.SkipBlenderAddonOffer,
         }.WithOwn();
