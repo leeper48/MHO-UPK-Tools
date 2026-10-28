@@ -91,9 +91,11 @@ sealed partial class ModelPage
         Icons.Make(matLayout, "Layout", Icons.Layout, sc);
         matExport = Ui.FlatButton("Export Maps", () => _ = ExportMaps(null), "Saves every material's maps as PNG files into a folder you pick, the ones the importer makes too (generated normal and spec maps, MHO spec maps converted or made from your tags, glow maps): <material>.png, _n, _sp, _mhospec (with its gray channel files), _speccolor, _glow, _alpha. The names the FBX import reads, so they can be edited and used again.");
         Icons.Make(matExport, "Export Maps", Icons.Export, sc);
-        matGame = Ui.FlatButton("Game Material ▾", ShowGameMaterialMenu, "Which of the game's materials the selected material is built from: Automatic (picked from the maps: metal maps or an MHO spec map → Metal, a glow map → Glow, else Cloth and Skin), Cloth and Skin, Metal, Glow, or The Costume's Own. Each material can have its own: a body in cloth with armor in metal. The game can't make new shaders, so these are copies of materials it already has. Undo (Ctrl+Z) takes a change back. Needs a source model (picked on the left): it's used when the model is built, so with only the package's own textures listed it's grayed out.");
+        matGame = Ui.FlatButton("This Material ▾", ShowGameMaterialMenu, "Which of the game's materials the selected material is built from: Same as All Materials (the choice above), or one of its own: Cloth and Skin, Metal, Glow, or The Costume's Own. Each material can have its own: a body in cloth with armor in metal. The game can't make new shaders, so these are copies of materials it already has. Undo (Ctrl+Z) takes a change back. Needs a source model (picked on the left): it's used when the model is built, so with only the package's own textures listed it's grayed out.");
         matSlotUp = Ui.FlatButton("Slot Up", () => MoveSlot(-1), "Moves the selected material one game material slot earlier (Slot column). The costume's own effects can name slots by number: Hulk's revive visual keeps the pants slot, Doctor Doom's force field tells body from cape; the line under the buttons says which slots this costume's effects keep. Undo (Ctrl+Z) takes it back.");
         matSlotDown = Ui.FlatButton("Slot Down", () => MoveSlot(1), "Moves the selected material one game material slot later (Slot column). See Slot Up.");
+        Icons.Make(matSlotUp, "Slot Up", Icons.ArrowUp, sc);   // (Kurt, 2026-10-28: arrows, not words)
+        Icons.Make(matSlotDown, "Slot Down", Icons.ArrowDown, sc);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0) };
         EditButton();
         foreach (var b in new[] { matUse, matEdit, matAdjust, matAuto, matFlip, matNoGlow, matRecipe, matTags, matChannels, matLayout, matExport, matGame, matSlotUp, matSlotDown }) { b.Margin = new Padding(0, 0, 6, 0); buttons.Controls.Add(b); }
@@ -108,7 +110,10 @@ sealed partial class ModelPage
         showRow.Controls.Add(showMap);
         // the build's game material for every material (Kurt, 2026-10-27: moved here from under the tabs); Game Material ▾ sets
         // one material's own
-        showRow.Controls.Add(new Label { Text = "Game Material", AutoSize = true, Margin = new Padding(18, 6, 8, 0) });
+        // (Kurt, 2026-10-28: "make it clearer which is the default and which is the selected material's": named for what each sets)
+        var allLabel = new Label { Text = "All Materials", AutoSize = true, Margin = new Padding(18, 6, 8, 0) };
+        Ui.Tip(allLabel, "The game material every material is built from, unless one is set on its own (This Material ▾, in the row below, for the selected material).");
+        showRow.Controls.Add(allLabel);
         material.Width = (int)(230 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)); material.Margin = new Padding(0);
         showRow.Controls.Add(material);
         var head = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, RowCount = 3, BackColor = Color.Transparent, Margin = new Padding(0) };
@@ -143,16 +148,26 @@ sealed partial class ModelPage
             if (r.Cells["part"].Value is string part) r.Cells["own"].Value = own.Contains(part, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>A material's own game material in words: "Same as All" when it has none.</summary>
+    static string OwnChoice(string? template) => template == null ? "Same as All" : MaterialChoice.TemplateLabel(template);
+
+    /// <summary>What All Materials is set to, in words.</summary>
+    string AllChoice() => material.SelectedIndex >= 0 ? Materials[material.SelectedIndex].Label : "Automatic";
+
     /// <summary>Game Material ▾: the selected material's game material (MaterialOverrides.Entry.Template).</summary>
     void ShowGameMaterialMenu()
     {
+        if (SelectedPackageMap() is { } pm) { ShowCopySetupMenu(pm); return; }   // (no source: the target's own materials)
         if (SelectedMap() is not { } sel || OverridesPath() is not string path || matGame == null) return;
         string? now = File.Exists(path) && MaterialOverrides.Load(path).Materials.TryGetValue(sel.Material, out var e) ? e.Template : null;
         var menu = new ContextMenuStrip();
         void Add(string? key, string label, string tip) => menu.Items.Add(new ToolStripMenuItem(label, null, (_, _) => ChangeOverrides((_, en) => en.Template = key, sel.Material, $"{sel.Material} built from {label}"))
             { Checked = now == key, ToolTipText = tip });
-        Add(null, "Automatic", "Picked from the maps, as before: metal maps or an MHO spec map → Metal, a glow map → Glow, else Cloth and Skin.");
+        Add(null, $"Same as All Materials ({AllChoice()})", "No choice of its own: the one All Materials (above) sets for every material.");
         foreach (var t in MaterialChoice.Templates) Add(t.Key, t.Label, t.Tip);
+        // (Kurt, 2026-10-28: with a source picked too, the target's own costume as the source above all)
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(CopySetupItem(sel.Material, null));
         menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
         Ui.ShowUnder(menu, matGame);
     }
@@ -227,7 +242,7 @@ sealed partial class ModelPage
             foreach (var kind in MapKinds)
             {
                 var (from, path) = Describe(kind, tex, e);
-                int i = matGrid.Rows.Add(mat, kind, from, kind == MapKinds[0] ? $"{slotOrder.IndexOf(mat)} · {MaterialChoice.TemplateLabel(e?.Template)}" : "");
+                int i = matGrid.Rows.Add(mat, kind, from, kind == MapKinds[0] ? $"{slotOrder.IndexOf(mat)} · {OwnChoice(e?.Template)}" : "");
                 matGrid.Rows[i].Tag = (mat, kind);
                 matGrid.Rows[i].Cells["from"].ToolTipText = path ?? from;
                 if (from.StartsWith("Your file", StringComparison.Ordinal)) matGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.OverrideAmber;
@@ -294,7 +309,20 @@ sealed partial class ModelPage
         Ui.Lit(matAdjust, sel?.Kind == "Color" && e?.Adjust is { IsNone: false });
         matChannels.Enabled = any && sel!.Value.Kind == "MHO Spec";
         matExport.Enabled = shownMaterials.Count > 0;
-        if (matGame != null) matGame.Enabled = any;
+        if (matGame != null && SelectedPackageMap() is { } own)
+        {
+            // the target's own material (no source picked): its setup can be copied from another costume (Kurt, 2026-10-28)
+            matGame.Enabled = true;
+            matGame.Text = "This Material: Its Own ▾";
+            Ui.Tip(matGame, $"{own.Material} is the costume's own material. Copy Setup From a Costume gives it another costume's shader setup (its switches, spec, rim, glow and color values) and keeps its own maps.");
+        }
+        else if (matGame != null)
+        {
+            matGame.Enabled = any;
+            matGame.Text = sel is { } s3 ? $"This Material: {OwnChoice(e?.Template)} ▾" : "This Material ▾";
+            Ui.Tip(matGame, (sel is { } s4 ? $"The game material {s4.Material} is built from: " : "The selected material's game material: ")
+                + "Same as All Materials (the choice above), or one of its own: Cloth and Skin, Metal, Glow, or The Costume's Own. Each material can have its own: a body in cloth with armor in metal. The game can't make new shaders, so these are copies of materials it already has. Undo (Ctrl+Z) takes a change back.");
+        }
         matLayout.Enabled = any && sel!.Value.Kind == "MHO Spec" && tx?.SpecMho != null;
         matFlip.Enabled = any && sel!.Value.Kind == "Normal" && shownMaterials.FirstOrDefault(m => m.Material == sel.Value.Material).Tex?.Normal != null;
         Ui.Lit(matFlip, e?.FlipGreen == true && sel?.Kind == "Normal");

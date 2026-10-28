@@ -74,7 +74,11 @@ sealed partial class ModelPage : UserControl
     bool settingTargetKind;
     bool FbxMode => sourceKind.SelectedIndex == 1;
     /// <summary>From the Game (Kurt, 2026-10-23): a player costume, team-up or NPC as the source (GameSource).</summary>
-    bool GameMode => sourceKind.SelectedIndex == 2;
+    bool GameMode => sourceKind.SelectedIndex is 2 or 3;
+    /// <summary>Current Modded Game: the game list, each package read as the mod list has it (Kurt, 2026-10-28).</summary>
+    bool ModdedMode => sourceKind.SelectedIndex == 3;
+    /// <summary>The mod list's packages while Current Modded Game is picked (read when it's picked).</summary>
+    IReadOnlyDictionary<string, (string Path, string Mod)> moddedPackages = new Dictionary<string, (string, string)>();
     const string GameSrc = "gamesrc:";
     /// <summary>The Source kind is being set from a mod's saved state (not the user's pick, so not remembered).</summary>
     bool kindByState;
@@ -359,8 +363,8 @@ sealed partial class ModelPage : UserControl
         SearchBox.AddClear(mapFilter);
         foreach (var m in Materials) material.Items.Add(m.Label);
         material.SelectedIndex = 0;
-        material.SelectedIndexChanged += (_, _) => Ui.Tip(material, Materials[Math.Max(0, material.SelectedIndex)].Tip);
-        Ui.Tip(material, Materials[0].Tip);
+        material.SelectedIndexChanged += (_, _) => Ui.Tip(material, "All Materials (every material without a choice of its own: This Material ▾): " + Materials[Math.Max(0, material.SelectedIndex)].Tip);
+        Ui.Tip(material, "All Materials (every material without a choice of its own: This Material ▾): " + Materials[0].Tip);
         Ui.Tip(heroesOnly, "List only characters: heroes, villains, bosses, enemies, NPCs and person-like summons (anything with a character rig); props such as cocoons, drones and boxes are left out.");
         Ui.Tip(smooth, "One level of smooth subdivision on the ticked parts: every triangle becomes four and the surface rounds off. For the older low-poly models; about 4x the triangles.");
         smooth.CheckedChanged += (_, _) => SchedulePreview();
@@ -403,21 +407,22 @@ sealed partial class ModelPage : UserControl
         characterFilter.TextChanged += (_, _) => FillCharacters();
         heroesOnly.CheckedChanged += (_, _) => FillCharacters();
         // (Kurt, 2026-10-05: "MFF Repository" for the bulk library, "Single Model" for one FBX file or one MFF character folder)
-        sourceKind.Items.AddRange(["MFF Repository", "Single Model", "From the Game"]);
-        sourceKind.SelectedIndex = Settings.Current.SourceKind is int sk0 and >= 0 and <= 2 ? sk0 : 2;
-        Ui.Tip(sourceKind, "Where the model comes from: MFF Repository = a character from your MFF repository folder (retargeted onto the base hero); Single Model = one FBX file (MHO, Mixamo or other skeleton, or no armature) or one MFF character folder picked on its own; From the Game = a hero costume, team-up or NPC from the game (its model and maps, fitted onto the target like an FBX with MHO bones).");
+        sourceKind.Items.AddRange(["MFF Repository", "Single Model", "Default Game", "Current Modded Game"]);
+        sourceKind.SelectedIndex = Settings.Current.SourceKind is int sk0 and >= 0 and <= 3 ? sk0 : 2;
+        Ui.Tip(sourceKind, "Where the model comes from: MFF Repository = a character from your MFF repository folder (retargeted onto the base hero); Single Model = one FBX file (MHO, Mixamo or other skeleton, or no armature) or one MFF character folder picked on its own; Default Game = a hero costume, team-up or NPC as the game ships it (its model and maps, fitted onto the target like an FBX with MHO bones); Current Modded Game = the same list as your mod list has it now: each package an enabled mod replaces is read from the highest of those mods (as Apply puts it in the game), named on its row.");
         sourceKind.SelectedIndexChanged += (_, _) =>
         {
             chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
             if (!kindByState && Settings.Current.SourceKind != sourceKind.SelectedIndex) { Settings.Current.SourceKind = sourceKind.SelectedIndex; Settings.Current.Save(); }
             bool mff = sourceKind.SelectedIndex == 0;
             heroesOnly.Visible = mff; smooth.Enabled = mff; if (!mff) smooth.Checked = false;
-            sourceKindStrip.Visible = sourceKind.SelectedIndex == 2;
+            sourceKindStrip.Visible = GameMode;
+            UseModded();
             summonsSource.Visible = false;
             characterFilter.Text = "";
             FillCharacters(); UpdateStatus(); SchedulePreview();
         };
-        { bool mff0 = sourceKind.SelectedIndex == 0; heroesOnly.Visible = mff0; smooth.Enabled = mff0; sourceKindStrip.Visible = sourceKind.SelectedIndex == 2; summonsSource.Visible = false; }
+        { bool mff0 = sourceKind.SelectedIndex == 0; heroesOnly.Visible = mff0; smooth.Enabled = mff0; sourceKindStrip.Visible = GameMode; summonsSource.Visible = false; UseModded(); }
         packageFilter.TextChanged += (_, _) => FillPackages();
         packages.SelectedIndexChanged += (_, _) => PackagePicked();   // first: "From the Game" and the game list's picks
         characters.SelectedIndexChanged += (_, _) => CharacterChosen();
@@ -436,7 +441,7 @@ sealed partial class ModelPage : UserControl
         };
         characters.Thumb = it => it.Key.StartsWith("browse") ? null
             : it.Label ? null
-            : GameMode ? PackageThumb(it.ThumbKey ?? it.Key)
+            : GameMode ? SourceThumb(it.ThumbKey ?? it.Key)
             : it.Key.StartsWith("fbx:") ? (File.Exists(it.Key[4..]) ? Thumbs.Fbx(it.Key[4..]) : null)   // (its color map: Kurt, 2026-10-04)
             : it.Key.StartsWith(MffDir) ? (Directory.Exists(it.Key[MffDir.Length..]) ? Thumbs.Model(it.Key[MffDir.Length..]) : null)
             : Thumbs.Model(it.ThumbKey ?? it.Key);
@@ -466,7 +471,7 @@ sealed partial class ModelPage : UserControl
         };
         Thumbs.Ready += OnThumbReady;
         MhoAnim.BaseLookup = ModCopy;   // the export's animations: the hero's base package from the mod first
-        Disposed += (_, _) => { Thumbs.Ready -= OnThumbReady; StopBlenderWatch(); if (MhoAnim.BaseLookup == ModCopy) MhoAnim.BaseLookup = null; };
+        Disposed += (_, _) => { GameSource.Modded = null; Thumbs.Ready -= OnThumbReady; StopBlenderWatch(); if (MhoAnim.BaseLookup == ModCopy) MhoAnim.BaseLookup = null; };
         packages.SelectedIndexChanged += (_, _) => { UpdateStatus(); if (propMode) { HidePropShow(); FillPropSource(); } };   // (the Props view names the target)
 
         Ui.Lit(mapBones, preview.ShowBones); Ui.Lit(mapWeights, preview.ShowWeights);
@@ -504,7 +509,14 @@ sealed partial class ModelPage : UserControl
         };
         parts.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "use") SchedulePreview(); };
 
-        HandleCreated += (_, _) => { if (!loaded) { loaded = true; ScaleToDpi(); Reload(); } };
+        HandleCreated += (_, _) =>
+        {
+            if (loaded) return;
+            loaded = true; ScaleToDpi();
+            // (a user's lists came up empty with nothing in the log, 2026-10-28: any failure here is shown, not lost)
+            try { Settings.Reset(); Reload(); }   // (read fresh, as a Settings change does)
+            catch (Exception ex) { Log($"The lists couldn't be read: {ex.GetType().Name}: {ex.Message}"); Log(ex.StackTrace ?? ""); }
+        };
         InitBuildFrom();
         InitMeshPick();
     }
@@ -619,6 +631,8 @@ sealed partial class ModelPage : UserControl
                 allPackages.Add((n, t, det));
             }
         allPackages.Sort((a, b) => string.Compare(a.Title + a.Detail, b.Title + b.Detail, StringComparison.OrdinalIgnoreCase));
+        if (allPackages.Count == 0)
+            Log($"From the Game: no character packages found. Game folder: {s.GameFolder ?? "not set"}; its CookedPCConsole: {(s.CookedFolder == null ? "none" : s.CookedFolder + (Directory.Exists(s.CookedFolder) ? $" ({SafeCount(s.CookedFolder)} UC__ packages)" : " (not found)"))}; clean stock folder: {s.StockFolder ?? "not set"}. Check Settings → Change Game Folder.");
         if (!stateLoaded) gameList = Settings.Current.TargetFromGame ?? true;   // (a mod's saved target switches back: LoadState)
         FillCharacters();
         FillPackages();
@@ -630,13 +644,20 @@ sealed partial class ModelPage : UserControl
         if (!stateLoaded) { stateLoaded = true; LoadState(); }
     }
 
+    static string SafeCount(string dir)
+    {
+        try { return Directory.EnumerateFiles(dir, "UC__*_SF.upk").Count().ToString("N0"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return ex.Message; }
+    }
+
     /// <summary>The packages of the heroes' default costumes (Kurt, 2026-10-23: reworks and visual updates moved some off the
     /// package named Base or Classic): each hero avatar's StartingCostume → its class's package (Costume.All, the game data).
     /// Null until read.</summary>
     HashSet<string>? defaultCostumes;
 
-    /// <summary>A list title with " •" when the package is a hero's default costume.</summary>
-    string Dot(string file, string title) => defaultCostumes?.Contains(file) == true ? title + " •" : title;
+    /// <summary>A list title with "• " in front when the package is a hero's default costume (Kurt, 2026-10-28: at the end it
+    /// got lost between the name and the costume).</summary>
+    string Dot(string file, string title) => defaultCostumes?.Contains(file) == true ? "• " + title : title;
 
     async void LoadDefaultCostumes()
     {
@@ -875,7 +896,7 @@ sealed partial class ModelPage : UserControl
         foreach (var g in groups)
         {
             var list = g.ToList();
-            if (list.Count == 1) { var p = list[0]; characters.Items.Add(new CharacterList.Item(GameSrc + p.File, Dot(p.File, p.Title), p.Detail, ThumbKey: p.File)); continue; }
+            if (list.Count == 1) { var p = list[0]; characters.Items.Add(new CharacterList.Item(GameSrc + p.File, Dot(p.File, p.Title), ModdedNote(p.File, p.Detail), ThumbKey: p.File)); continue; }
             bool open = f.Length > 0 || summonsOnlySource || expanded.Contains("game " + g.Key) || list.Any(p => (GameSrc + p.File).Equals(chosenKey ?? pendingState?.Source, StringComparison.OrdinalIgnoreCase));
             var first = list.FirstOrDefault(p => p.Detail.StartsWith("Base Package", StringComparison.OrdinalIgnoreCase));
             characters.Items.Add(new CharacterList.Item("group:game " + g.Key, list[0].Title, GroupDetail(list), Header: true, Expanded: open, ThumbKey: (first == default ? list[0] : first).File));
@@ -883,7 +904,7 @@ sealed partial class ModelPage : UserControl
                 foreach (var row in GroupRows("game " + g.Key, list, p =>
                 {
                     int dot = p.Detail.IndexOf(" · ", StringComparison.Ordinal);
-                    return new CharacterList.Item(GameSrc + p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), dot > 0 ? p.Detail[(dot + 3)..] : p.File, Indent: 1, ThumbKey: p.File);
+                    return new CharacterList.Item(GameSrc + p.File, Dot(p.File, dot > 0 ? p.Detail[..dot] : p.Detail), ModdedNote(p.File, dot > 0 ? p.Detail[(dot + 3)..] : p.File), Indent: 1, ThumbKey: p.File);
                 }))
                     characters.Items.Add(row);
         }
@@ -898,6 +919,27 @@ sealed partial class ModelPage : UserControl
         if (chosenKey != null) Reselect(characters, chosenKey);
         if (top < characters.Items.Count && f.Length == 0) characters.TopIndex = top;
     }
+
+    /// <summary>Current Modded Game: the mod list read again and the sources pointed at its copies (else the game's own).</summary>
+    void UseModded()
+    {
+        moddedPackages = ModdedMode ? host.ActivePackages() : new Dictionary<string, (string, string)>();
+        var map = moddedPackages;
+        GameSource.Modded = ModdedMode ? f => map.TryGetValue(f, out var m) ? m.Path : null : null;
+        moddedIcons = ModdedMode ? host.ActiveIcons() : new Dictionary<string, string>();
+        // (the icons' names, images and file dates: a changed mod list makes new thumbnails)
+        moddedIconStamp = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            string.Join("|", moddedIcons.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).Select(kv => $"{kv.Key}={kv.Value}={Ui.FileStamp(kv.Value)}")))))[..12];
+    }
+
+    IReadOnlyDictionary<string, string> moddedIcons = new Dictionary<string, string>();
+    string moddedIconStamp = "";
+
+    /// <summary>A source row's picture: the portrait as the mod list shows it (Current Modded Game), else the game's.</summary>
+    Image? SourceThumb(string file) => ModdedMode && !IsSummon(file) && moddedIcons.Count > 0 ? Thumbs.ModdedHero(file, moddedIcons, moddedIconStamp) : PackageThumb(file);
+
+    /// <summary>A row's detail with the mod whose copy it reads (Current Modded Game).</summary>
+    string ModdedNote(string file, string detail) => ModdedMode && moddedPackages.TryGetValue(file, out var m) ? $"{detail} · from {m.Mod}" : detail;
 
     /// <summary>A game package picked as the source: its character written as an FBX once (GameSource), then read as one.</summary>
     async void GameChosen(string key)
@@ -1005,6 +1047,7 @@ sealed partial class ModelPage : UserControl
         if (characters.SelectedItem is not CharacterList.Item it || it.Header || it.Label || it.Key == chosenKey) return;
         if (it.Key == "browse:") { BrowseFbx(); return; }
         if (propMode) return;   // (the Props view: the pick lists its props below; the source and the target stay)
+        SourceStep(it.Key);
         if (it.Key.StartsWith("fbx:")) { FbxChosen(it.Key); return; }
         if (it.Key.StartsWith(GameSrc)) { GameChosen(it.Key); return; }
         chosenKey = it.Key; sourceFbx = null; unrigged = null;

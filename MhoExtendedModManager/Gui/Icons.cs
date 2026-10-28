@@ -103,6 +103,20 @@ static class Icons
         g.DrawLine(p, b.Right - b.Width * 0.1f, b.Y + h * 0.1f, b.Right - b.Width * 0.1f, b.Bottom - h * 0.1f);
     }
 
+    /// <summary>Slot Up: an arrow pointing up (a shaft under a head).</summary>
+    public static void ArrowUp(Graphics g, RectangleF b, Pen p, Brush br) => Arrow(g, b, p, br, true);
+
+    /// <summary>Slot Down: an arrow pointing down.</summary>
+    public static void ArrowDown(Graphics g, RectangleF b, Pen p, Brush br) => Arrow(g, b, p, br, false);
+
+    static void Arrow(Graphics g, RectangleF b, Pen p, Brush br, bool up)
+    {
+        float w = b.Width, h = b.Height, cx = b.X + w / 2;
+        float tip = up ? b.Y + h * 0.08f : b.Bottom - h * 0.08f, baseY = up ? b.Y + h * 0.5f : b.Bottom - h * 0.5f, end = up ? b.Bottom - h * 0.08f : b.Y + h * 0.08f;
+        g.FillPolygon(br, new[] { new PointF(cx, tip), new PointF(b.X + w * 0.14f, baseY), new PointF(b.Right - w * 0.14f, baseY) });
+        g.DrawLine(p, cx, baseY, cx, end);
+    }
+
     /// <summary>Tag Colors: a price tag.</summary>
     public static void Tag(Graphics g, RectangleF b, Pen p, Brush br)
     {

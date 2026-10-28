@@ -92,7 +92,7 @@ sealed partial class ModelPage
         built.Remove(key); builtPrint.Remove(key);
         takenOff[key] = Fingerprint();
         propUndo.Clear(); propRedo.Clear();
-        undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
+        UpdateUndoButtons();
         if (ChosenPackage?.Key.Equals(key, StringComparison.OrdinalIgnoreCase) == true) await AddedPropsChanged(key, null);
         FillPackages();
         SaveState(); UpdateStatus(); SchedulePreview();
@@ -110,7 +110,7 @@ sealed partial class ModelPage
         built[key] = lb.Package;
         takenOff.Remove(key);
         propUndo.Clear(); propRedo.Clear();
-        undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
+        UpdateUndoButtons();
         if (ChosenPackage?.Key.Equals(key, StringComparison.OrdinalIgnoreCase) == true) await AddedPropsChanged(key, null);
         SaveState(); SchedulePreview();
         Log($"{key}: back to its last build ({lb.At:MMM d, h:mm tt}, {lb.Package}), the props as they were then.");

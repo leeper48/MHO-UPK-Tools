@@ -71,7 +71,9 @@ sealed class Settings
     /// <summary>The main window's settings object, when one is open. It keeps its own copy and saves it (the window's place
     /// on exit), so the Model tab's choices are made on that copy: a change written only to the file was overwritten on exit
     /// (Kurt: the MFF folder was forgotten after a restart).</summary>
-    public static MemmSettings? App { get; set; }
+    /// (Setting it drops a copy read before: a user's lists came up empty until a Settings change read them again, 2026-10-28.)
+    public static MemmSettings? App { get => app; set { app = value; current = null; } }
+    static MemmSettings? app;
 
     /// <summary>Changes the Mod Manager's settings and saves them, on the main window's copy when there is one.</summary>
     public static void Change(Action<MemmSettings> change)

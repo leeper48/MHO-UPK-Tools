@@ -317,9 +317,21 @@ sealed partial class Preview3D
         {
             effects?.AddActors(r);
             // Look ▾ → Barrel Size Reference: the game's oil drum on the floor beside the character (no bone: it stays put)
-            if (PreviewViews.SizeRef && SizeReference.For(ctx?.Cooked) is { } d) r.Add(d.Mesh, -1, [], false, "size_reference", offset: d.Place);
+            if (PreviewViews.SizeRef && SizeReference.For(ctx?.Cooked) is { } d) r.Add(d.Mesh, -1, [], false, "size_reference", offset: RefPlace);
         },
     };
+
+    /// <summary>The drum's placement, its size kept as the game's whatever the Model tab's Size draws the model at (Kurt,
+    /// 2026-10-28: scaled with the character it measured nothing): the view's scale taken back off.</summary>
+    System.Numerics.Matrix4x4 RefPlace => SizeReference.Place * System.Numerics.Matrix4x4.CreateScale(1 / Math.Max(0.01f, view.ModelScale));
+
+    /// <summary>The view's scale changed (the Model tab's Size): the drum put back at the game's size.</summary>
+    public void ModelScaleChanged()
+    {
+        if (!PreviewViews.SizeRef) return;
+        rig.SetOffset("size_reference", RefPlace);
+        ShowPose();
+    }
 
     /// <summary>The character's props (PropRig.Attached: what its attachment classes name), loaded in the background and held
     /// on their bones; none with Props off. The camera stays.</summary>

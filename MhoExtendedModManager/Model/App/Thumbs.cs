@@ -43,6 +43,23 @@ static class Thumbs
     public static Image? Model(string folder) => Get(ModelKey(folder), png => MakeModel(folder, png));
     public static Image? BaseHero(string file) => Get(PackageKey(file), png => MakePortrait(file, png));
 
+    /// <summary>
+    /// A package's portrait as the mod list shows it (Current Modded Game, Kurt 2026-10-28): the image of the highest enabled mod
+    /// that replaces that portrait texture (<paramref name="icons"/>: texture → image), else the game's.
+    /// <paramref name="stamp"/> names the mod list's icons, so a change to them makes new thumbnails.
+    /// </summary>
+    public static Image? ModdedHero(string file, IReadOnlyDictionary<string, string> icons, string stamp) =>
+        Get("pkgmod_" + Path.GetFileNameWithoutExtension(file) + "_" + stamp, png =>
+        {
+            string? tex;
+            lock (iconGate)
+                tex = GamePortraits.For(file)?.Texture ?? (LoadIcons() ? PortraitFor(Path.GetFileNameWithoutExtension(file)) : null);
+            if (tex != null && icons.TryGetValue(tex, out var dds))
+                using (var img = MhoExtendedModManager.Gui.Ui.DdsThumb(dds, 512))
+                    if (img != null) { ImagePixels.SavePng((Bitmap)img, png); return true; }
+            return MakePortrait(file, png);
+        });
+
     /// <summary>A summon's or power model's row (Kurt, 2026-10-25): the icon of the power that brings it in (summons have no
     /// portrait of their own); else the package's portrait as for a base hero.</summary>
     public static Image? Summon(string file, string iconPath) => Get("summon_" + Path.GetFileNameWithoutExtension(file), png =>

@@ -180,7 +180,7 @@ static class HairAnims
                     // made on it unless the FBX animates the hair itself; then the whole sequence encoded anew
                     var edit = AnimEdits.ForGame(fbx!, aref, anim);
                     if (add.Count > 0) edit = Moved(edit, add);   // a rig the FBX animates itself keeps the FBX's tracks
-                    byte[] eqd = Encode(pkg, qd, qt, track, edit, bones, aref, AnimEdits.SecondsPerFrame(anim), out var full, out int eFrames);
+                    byte[] eqd = Encode(pkg, qd, qt, track, edit, bones, aref, AnimEdits.SecondsPerFrame(anim), NameIdx, out var full, out int eFrames);
                     int eRef = clone ? setRef + 1 + seqData.Count : q;
                     newSeqRefs.Add(eRef);
                     seqData.Add((q, eqd));
@@ -415,12 +415,15 @@ static class HairAnims
     /// A sequence encoded anew from <paramref name="anim"/> (an FBX edit, 0.16.0), in the stock combination 9,093 of the
     /// game's sequences use and the hair tracks proved in game: AKF_ConstantKeyLerp, rotations ACF_Float96NoW (conjugated,
     /// w ≥ 0), translations ACF_None; one key per frame (a position that never changes, or one the set ignores, one key).
-    /// The format properties are dropped (those are their defaults), NumFrames / SequenceLength / CompressedTrackOffsets
+    /// KeyEncodingFormat and TranslationCompressionFormat are dropped (their defaults: the game's files leave them out), and
+    /// RotationCompressionFormat is written as ACF_Float96NoW: it is NOT its default (2026-10-28, a user's edited animation spun
+    /// in game; every stock sequence stores it, Float96NoW too: Cyclops 201 of 201, Captain America 203 of 203, Punisher 262 of
+    /// 262, so the engine's default is another format and a sequence without it is read wrong). NumFrames / SequenceLength / CompressedTrackOffsets
     /// set, the stream replaced; everything else (notifies, rate, curves) kept. <paramref name="full"/> = every track's
     /// rotation keys as written (for the read-back check).
     /// </summary>
     static byte[] Encode(Package pkg, byte[] qd, TagWalker qt, List<string> track, BoneAnimation anim, IReadOnlyList<MeshBone> bones, AnimRef aref, float secondsPerFrame,
-        out Dictionary<string, Quaternion[]> full, out int numFrames)
+        Func<string, int> nameIdx, out Dictionary<string, Quaternion[]> full, out int numFrames)
     {
         var (last, _) = MeshAnimator.Span(anim);
         numFrames = Math.Max(1, (int)MathF.Round(last) + 1);
@@ -463,11 +466,18 @@ static class HairAnims
         byte[] props = qd.AsSpan(0, qt.NoneAt + 8).ToArray();
         TagWalker.Tag? Tag(string n) => qt.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
         var edits = new List<(TagWalker.Tag Tag, byte[]? Value)>();
-        foreach (string drop in new[] { "KeyEncodingFormat", "RotationCompressionFormat", "TranslationCompressionFormat" }) if (Tag(drop) is { } d) edits.Add((d, null));
+        foreach (string drop in new[] { "KeyEncodingFormat", "TranslationCompressionFormat" }) if (Tag(drop) is { } d) edits.Add((d, null));
+        byte[] NameBytes(string n) => [.. BitConverter.GetBytes(nameIdx(n)), .. BitConverter.GetBytes(0)];
+        byte[] float96 = NameBytes("ACF_Float96NoW");
+        if (Tag("RotationCompressionFormat") is { } rotTag)
+            edits.Add((rotTag, rotTag.Size == 16 ? [.. qd.AsSpan(rotTag.ValueAt, 8), .. float96] : float96));   // (a byte enum stored with its enum's name first)
+        // else (an edit copy built before 0.60.222 dropped it): put in before None, below
         if (Tag("NumFrames") is not { } nfTag || Tag("SequenceLength") is not { } slTag || Tag("CompressedTrackOffsets") is not { } offTag) throw new InvalidDataException($"{aref.Name}: NumFrames, SequenceLength or CompressedTrackOffsets missing");
         edits.Add((nfTag, BitConverter.GetBytes(numFrames)));
         edits.Add((slTag, BitConverter.GetBytes((numFrames - 1) * secondsPerFrame)));
         edits.Add((offTag, [.. BitConverter.GetBytes(offsets.Count), .. offsets.SelectMany(BitConverter.GetBytes)]));
+        if (Tag("RotationCompressionFormat") == null)
+            props = [.. props.AsSpan(0, qt.NoneAt), .. NameBytes("RotationCompressionFormat"), .. NameBytes("ByteProperty"), .. BitConverter.GetBytes(8), .. BitConverter.GetBytes(0), .. float96, .. props.AsSpan(qt.NoneAt)];
         foreach (var (tag, value) in edits.OrderByDescending(e => e.Tag.Start))
         {
             if (value == null) { props = [.. props.AsSpan(0, tag.Start), .. props.AsSpan(tag.End)]; continue; }

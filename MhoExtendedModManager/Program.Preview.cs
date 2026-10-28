@@ -3435,6 +3435,19 @@ static partial class Program
                 Console.WriteLine("only in the second: " + string.Join(", ", bb.Where(x => !an.Contains(x.Name)).Select(x => x.Name)));
                 return 0;
             }
+            case "--material-setup-copy":
+            {
+                // --material-setup-copy <target.upk> <mesh> <slot> <source.upk> <source material path> <out.upk> (out never in
+                // the game folder): Copy Material Setup as the Model tab does it, written to <out.upk>, then probed
+                if (rest.Count < 7) { Console.WriteLine("--material-setup-copy <target.upk> <mesh> <slot> <source.upk> <source material path> <out.upk>"); return 1; }
+                MhoExtendedModManager.Model.Protected.CheckWrite(rest[6]);
+                var mres = MhoExtendedModManager.Model.MaterialSetupCopy.Copy(File.ReadAllBytes(rest[1]), Path.GetFileName(rest[1]), rest[2], int.Parse(rest[3]), rest[4], rest[5], "test",
+                    Path.Combine(Path.GetDirectoryName(Path.GetFullPath(rest[6]))!, "standins"));
+                foreach (var l in mres.Lines) Console.WriteLine(l);
+                File.WriteAllBytes(rest[6], mres.Package);
+                Console.WriteLine($"written: {rest[6]} ({mres.Package.Length:N0} bytes)");
+                return 0;
+            }
             case "--material-probe":
             {
                 // Read-only: each section's material (parent, switches on, parameters, maps) for a mod's meshes; with an

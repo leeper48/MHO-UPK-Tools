@@ -22,7 +22,7 @@ sealed partial class ModelPage
     const string PropGame = "propgame:", PropMff = "propmff:", PropFbx = "propfbx:", PropSummon = "propsummon:";
 
     /// <summary>A list title without the "changed in the mod" dot.</summary>
-    static string Plain(string title) => title.Replace(" •", "").Replace("•", "").Trim();
+    static string Plain(string title) => title.Replace(" •", "").Replace("• ", "").Replace("•", "").Trim();
 
     void SetPropMode(bool on)
     {

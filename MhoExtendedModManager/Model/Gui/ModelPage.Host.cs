@@ -13,6 +13,12 @@ interface IModelHost
     string WorkFolder { get; }
     /// <summary>The draft's packages: file name and where its bytes are now.</summary>
     IReadOnlyList<(string File, string Path)> Packages { get; }
+    /// <summary>The game's packages as the mod list has them (From Current Modded Game): each package an enabled mod replaces,
+    /// with the copy of the highest one in the list (as Apply puts it in the game) and that mod's name.</summary>
+    IReadOnlyDictionary<string, (string Path, string Mod)> ActivePackages();
+    /// <summary>The icon textures the mod list replaces (texture name → the image of the highest enabled mod that replaces it),
+    /// for Current Modded Game's portraits.</summary>
+    IReadOnlyDictionary<string, string> ActiveIcons();
     /// <summary>The mod's saved copy of a package (before this editing session), or null.</summary>
     string? SavedPath(string file);
     /// <summary>A built package into the draft (replacing that file's bytes).</summary>
@@ -705,6 +711,12 @@ sealed partial class ModelPage
     /// <summary>A source picked again by its key (the saved state's, or a target's own when Model ▾ changes): its kind and
     /// list, then the row (a summon or prop: in the panel below), which loads it.</summary>
     void SelectSourceKey(string source)
+    {
+        autoSource++;
+        try { SelectSourceKeyCore(source); } finally { autoSource--; }
+    }
+
+    void SelectSourceKeyCore(string source)
     {
         var st = new { Source = source };
         kindByState = true;

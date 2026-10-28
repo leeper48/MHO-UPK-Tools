@@ -473,6 +473,27 @@ static partial class Program
                 Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
                 return code;
             }
+            case "--model-material-test":
+            {
+                // --model-material-test <mod> <target package> <source package> [shot.png] [modded-list.png] [filter] (scratch
+                // MHO_EXTMM_HOME + MHO_EXTMM_TEST_DIALOGS; the mod isn't saved): Copy Setup From a Costume on the target's own
+                // material, then the Source's Current Modded Game list (ModelPage.TestMaterialCopy; the manual's shots)
+                if (rest.Count < 4) { Console.WriteLine("--model-material-test <mod> <target package> <source package> [shot.png] [modded-list.png] [filter]"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library)"); return 1; }
+                Environment.SetEnvironmentVariable("MFF_GUI_NOASK", "1");
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    try { code = await main.ModelMaterialTest(rest[1], rest[2], rest[3], rest.Count > 4 ? rest[4] : null, rest.Count > 5 ? rest[5] : null, rest.Count > 6 ? rest[6] : "", Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
+                return code;
+            }
             case "--model-partner-test":
             {
                 // --model-partner-test <mod> <target package> <source package> (scratch MHO_EXTMM_HOME + MHO_EXTMM_TEST_DIALOGS;

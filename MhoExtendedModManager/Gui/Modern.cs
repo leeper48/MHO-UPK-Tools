@@ -383,17 +383,28 @@ sealed class DropList : ToolStripDropDown
     readonly TextBox? search;
     readonly List<string> texts;
     readonly Func<int, Color?>? color;
+    /// <summary>A picture per item (left of its text; null until it's made), or none (Kurt, 2026-10-28: the costume list).</summary>
+    readonly Func<int, Image?>? thumb;
+    readonly System.Windows.Forms.Timer? thumbTimer;
     readonly Action<int> pick;
     readonly int selected;
     List<int> shown;
 
-    DropList(Control owner, Rectangle anchor, List<string> texts, int selected, Action<int> pick, Func<int, Color?>? color, int maxRows)
+    DropList(Control owner, Rectangle anchor, List<string> texts, int selected, Action<int> pick, Func<int, Color?>? color, int maxRows, Func<int, Image?>? thumb = null)
     {
-        this.texts = texts; this.selected = selected; this.pick = pick; this.color = color;
+        this.texts = texts; this.selected = selected; this.pick = pick; this.color = color; this.thumb = thumb;
         shown = [.. Enumerable.Range(0, texts.Count)];
         float s = MhoExtendedModManager.Gui.Ui.Dpi(owner.DeviceDpi);
         var font = Ui.Regular(9.5f);
-        int row = TextRenderer.MeasureText("Ag", font).Height + (int)(8 * s);
+        int row = thumb != null ? (int)(40 * s) : TextRenderer.MeasureText("Ag", font).Height + (int)(8 * s);
+        if (thumb != null)
+        {
+            // (pictures are made in the background: the rows are drawn again until the list closes)
+            thumbTimer = new System.Windows.Forms.Timer { Interval = 300 };
+            thumbTimer.Tick += (_, _) => { if (!list!.IsDisposed) list.Invalidate(); };
+            thumbTimer.Start();
+            Closed += (_, _) => thumbTimer.Dispose();
+        }
         AutoSize = false; Padding = Padding.Empty; Margin = Padding.Empty; DropShadowEnabled = true;
         BackColor = Modern.MenuBack;
         var panel = new Panel { BackColor = Modern.MenuBack, Padding = new Padding(1), Margin = Padding.Empty };
@@ -436,7 +447,7 @@ sealed class DropList : ToolStripDropDown
 
         int widest = texts.Count == 0 ? 0 : texts.Max(t => TextRenderer.MeasureText(t, font).Width);
         int minW = Math.Max(anchor.Width, (int)(140 * s));
-        int width = Math.Clamp(widest + (int)(48 * s) + SystemInformation.VerticalScrollBarWidth, minW, Math.Max(minW, (int)(640 * s)));
+        int width = Math.Clamp(widest + (int)(48 * s) + (thumb != null ? row + (int)(6 * s) : 0) + SystemInformation.VerticalScrollBarWidth, minW, Math.Max(minW, (int)(700 * s)));
         var screen = Screen.FromRectangle(anchor).WorkingArea;
         int rows = Math.Min(texts.Count, Math.Max(4, maxRows));
         int height = rows * row + searchH + 2;
@@ -452,9 +463,9 @@ sealed class DropList : ToolStripDropDown
     }
 
     /// <summary>Opens a list at <paramref name="anchor"/> (screen coordinates); <paramref name="pick"/> gets the chosen item's index.</summary>
-    public static DropList Show(Control owner, Rectangle anchor, List<string> texts, int selected, Action<int> pick, Func<int, Color?>? color = null, int maxRows = 18)
+    public static DropList Show(Control owner, Rectangle anchor, List<string> texts, int selected, Action<int> pick, Func<int, Color?>? color = null, int maxRows = 18, Func<int, Image?>? thumb = null)
     {
-        var d = new DropList(owner, anchor, texts, selected, pick, color, maxRows);
+        var d = new DropList(owner, anchor, texts, selected, pick, color, maxRows, thumb);
         d.Closed += (_, _) => d.BeginInvoke(d.Dispose);
         d.Show(d.Location);
         if (d.search != null) d.search.Focus(); else d.list.Focus();
@@ -533,6 +544,19 @@ sealed class DropList : ToolStripDropDown
             g.SmoothingMode = SmoothingMode.None;
         }
         var fore = color?.Invoke(i) ?? Ui.Text;
+        if (thumb != null)
+        {
+            int side = e.Bounds.Height - (int)(6 * s);
+            var box = new Rectangle(e.Bounds.X + check, e.Bounds.Y + (e.Bounds.Height - side) / 2, side, side);
+            if (thumb(i) is { } img)
+            {
+                float k = Math.Min((float)box.Width / img.Width, (float)box.Height / img.Height);
+                int w = (int)(img.Width * k), h = (int)(img.Height * k);
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.DrawImage(img, box.X + (box.Width - w) / 2, box.Y + (box.Height - h) / 2, w, h);
+            }
+            check += side + (int)(8 * s);
+        }
         TextRenderer.DrawText(g, texts[i], list.Font, new Rectangle(e.Bounds.X + check, e.Bounds.Y, e.Bounds.Width - check - (int)(6 * s), e.Bounds.Height), fore,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
     }

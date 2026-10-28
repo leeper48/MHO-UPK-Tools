@@ -46,7 +46,8 @@ sealed partial class ModelPage
         sourceSummons.SelectedIndexChanged += (_, _) =>
         {
             if (propMode || fillingSummons || sourceSummons.SelectedItem is not CharacterList.Item { Header: false, Label: false } it || it.Key == chosenKey) return;
-            characters.ClearSelected();
+            SourceStep(it.Key);
+            autoSource++; try { characters.ClearSelected(); } finally { autoSource--; }
             GameChosen(it.Key);
         };
         sourceSummons.MouseUp += (_, e) =>
@@ -141,11 +142,13 @@ sealed partial class ModelPage
             }
             // the costume's props (Kurt, 2026-10-26: as the summons; Thor Marvel NOW's hammer): a click makes one the source, a
             // right-click the source and the target
-            var props = PropsFor(hero, costume);
+            // every kind (Kurt, 2026-10-28: Ghost Rider's bike and chains are animated props with skeletons of their own, and weren't
+            // listed): an animated one is a model like a summon's, edited in Blender with its own bones
+            var props = PropsFor(hero, costume, allKinds: true);
             if (props.Count > 0 && rows.Count > 0) sourceSummons.Items.Add(new CharacterList.Item("label:props", "PROPS", "", Label: true));
             foreach (var p in props)
                 sourceSummons.Items.Add(new CharacterList.Item($"{GameSrc}{p.MeshPackage}|{p.Mesh}", $"Prop: {PropLabel(p.Mesh)}",
-                    $"{(costume == null ? string.Join(", ", Props.Where(x => x.MeshPath.Equals(p.MeshPath, StringComparison.OrdinalIgnoreCase)).Select(x => Spaced(x.Costume)).Distinct().Take(4)) + " · " : "")}{p.MeshPackage}", ThumbKey: p.CostumeFile));
+                    $"{(costume == null ? string.Join(", ", Props.Where(x => x.MeshPath.Equals(p.MeshPath, StringComparison.OrdinalIgnoreCase)).Select(x => Spaced(x.Costume)).Distinct().Take(4)) + " · " : "")}{(p.Kind == "other" ? "Animated Prop · " : "")}{p.MeshPackage}", ThumbKey: p.CostumeFile));
             if (rows.Count == 0 && props.Count == 0) sourceSummons.Items.Add(new CharacterList.Item("label:none", Summons.Count > 0 ? "No summons, power models or props" : "No props", "", Label: true));
         }
         sourceSummons.EndUpdate();

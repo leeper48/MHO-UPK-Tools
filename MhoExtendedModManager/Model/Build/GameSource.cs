@@ -17,11 +17,19 @@ static class GameSource
     /// <summary>The FBX for <paramref name="packageFile"/> (a game package name), written if it isn't there yet or is stale.</summary>
     /// <param name="meshName">A model of the package by name (a prop: Kurt, 2026-10-26, props in the Source's panel), kept apart from
     /// the package's character in its own folder; null: the character the Model tab picks for the package.</param>
+    /// <summary>Current Modded Game (Kurt, 2026-10-28): a package's path as the mod list has it (an enabled mod's copy),
+    /// or null for the game's own. Set by the Model tab while that source is picked.</summary>
+    public static Func<string, string?>? Modded { get; set; }
+
+    /// <summary>The package a source reads: the mod list's copy (Current Modded Game), else the game's stock one.</summary>
+    public static string PathFor(string packageFile) => Modded?.Invoke(packageFile) ?? BasePackage.Resolve(packageFile, true);
+
     public static string Export(string packageFile, Action<string> log, string? meshName = null)
     {
-        string stock = BasePackage.Resolve(packageFile, true);
+        string? modded = Modded?.Invoke(packageFile);
+        string stock = modded ?? BasePackage.Resolve(packageFile, true);
         string meshPath = Gui.PreviewPanel.MeshPackage(stock);
-        string outDir = Path.Combine(Folder, Path.GetFileNameWithoutExtension(packageFile) + (meshName != null ? "__" + meshName : ""));
+        string outDir = Path.Combine(Folder, Path.GetFileNameWithoutExtension(packageFile) + (meshName != null ? "__" + meshName : "") + (modded != null ? "__modded" : ""));
         string fbx = Path.Combine(outDir, "model.fbx"), stampFile = Path.Combine(outDir, "source.txt");
         var fi = new FileInfo(meshPath);
         // the character the Model tab fits to (MhoSkeleton.Load: the chosen one, a summon's or power model's mesh, the costume's

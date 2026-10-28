@@ -28,6 +28,52 @@ sealed partial class ModelPage
     /// <summary>When each step above was made (Undo takes the newer of the two kinds).</summary>
     readonly Stack<DateTime> undoAt = new(), redoAt = new();
 
+    /// <summary>
+    /// Source steps (Kurt, 2026-10-28: a click on the left that put another model on the character, or on the added prop, couldn't
+    /// be taken back with Ctrl+Z): the source before each pick by a click (none: null). Picks the tab makes itself (a saved
+    /// state, a target's own source) aren't steps.
+    /// </summary>
+    readonly Stack<(DateTime At, string Label, string? Key)> sourceUndo = new(), sourceRedo = new();
+    /// <summary>The tab picks a source itself (no undo step).</summary>
+    int autoSource;
+
+    /// <summary>A source about to be picked by a click: the one before becomes an undo step.</summary>
+    void SourceStep(string? key)
+    {
+        if (autoSource > 0 || pendingState != null || !loaded || string.Equals(key, chosenKey, StringComparison.OrdinalIgnoreCase)) return;
+        sourceUndo.Push((DateTime.UtcNow, "Source: " + (key == null ? "None" : SourceTitle(key)), chosenKey));
+        sourceRedo.Clear();
+        UpdateUndoButtons();
+    }
+
+    /// <summary>A source step undone or redone: that source picked again (or none).</summary>
+    void SourceRestore(Stack<(DateTime At, string Label, string? Key)> from, Stack<(DateTime At, string Label, string? Key)> to, string what)
+    {
+        var step = from.Pop();
+        to.Push((DateTime.UtcNow, step.Label, chosenKey));
+        autoSource++;
+        try
+        {
+            if (step.Key == null)
+            {
+                chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
+                if (!propMode) characters.ClearSelected();
+                fillingSummons = true; sourceSummons.ClearSelected(); fillingSummons = false;
+                UpdateStatus(); SchedulePreview(); SaveState();
+            }
+            else SelectSourceKey(step.Key);
+        }
+        finally { autoSource--; }
+        Log($"{what}: {step.Label} (the source is {(step.Key == null ? "none" : SourceTitle(step.Key))} again).");
+        UpdateUndoButtons();
+    }
+
+    void UpdateUndoButtons()
+    {
+        undoButton.Enabled = undo.Count > 0 || propUndo.Count > 0 || sourceUndo.Count > 0;
+        redoButton.Enabled = redo.Count > 0 || propRedo.Count > 0 || sourceRedo.Count > 0;
+    }
+
     /// <summary>The props before a change (<see cref="PropDone"/> keeps it as a step when the change happened).</summary>
     string PropBefore() => host.PropState();
 
@@ -36,7 +82,7 @@ sealed partial class ModelPage
         if (host.PropState() == before) return;
         propUndo.Push((DateTime.UtcNow, label, before));
         propRedo.Clear();
-        undoButton.Enabled = true; redoButton.Enabled = redo.Count > 0;
+        UpdateUndoButtons();
     }
 
     /// <summary>A prop step undone or redone: the props back to that state, the lists and the target read again.</summary>
@@ -54,7 +100,7 @@ sealed partial class ModelPage
             if (again == null && addedPick != null) { addedPick = null; MhoSkeleton.Choose(pkg.Key, null); PropTicks(changed: true); SourceForTarget(); SaveState(); }
             await AddedPropsChanged(pkg.Key, again);
         }
-        undoButton.Enabled = undo.Count > 0 || propUndo.Count > 0; redoButton.Enabled = redo.Count > 0 || propRedo.Count > 0;
+        UpdateUndoButtons();
     }
     UiState? committed;
     string? historyKey;
@@ -74,18 +120,22 @@ sealed partial class ModelPage
         else if (committed != null && !now.Same(committed) && !restoring) { undo.Push(committed); undoAt.Push(DateTime.UtcNow); redo.Clear(); redoAt.Clear(); committed = now with { Label = Describe(committed, now) }; }
         else if (committed == null || !committed.Same(now)) committed = now;   // (the same state keeps its History name)
         restoring = false;
-        undoButton.Enabled = undo.Count > 0 || propUndo.Count > 0; redoButton.Enabled = redo.Count > 0 || propRedo.Count > 0;
+        UpdateUndoButtons();
         SaveState();
     }
 
     void Undo()
     {
-        // (the newer of a prop step and a step of the tab's own)
+        // (the newest of a source step, a prop step and a step of the tab's own)
+        if (sourceUndo.Count > 0 && (propUndo.Count == 0 || sourceUndo.Peek().At >= propUndo.Peek().At) && (undo.Count == 0 || undoAt.Count == 0 || sourceUndo.Peek().At >= undoAt.Peek()))
+        { SourceRestore(sourceUndo, sourceRedo, "Undo"); return; }
         if (propUndo.Count > 0 && (undo.Count == 0 || undoAt.Count == 0 || propUndo.Peek().At >= undoAt.Peek())) { _ = PropRestore(propUndo, propRedo, "Undo"); return; }
         if (undo.Count > 0) { if (undoAt.Count > 0) undoAt.Pop(); redoAt.Push(DateTime.UtcNow); redo.Push(Current()); Restore(undo.Pop(), "Undo"); }
     }
     void Redo()
     {
+        if (sourceRedo.Count > 0 && (propRedo.Count == 0 || sourceRedo.Peek().At >= propRedo.Peek().At) && (redo.Count == 0 || redoAt.Count == 0 || sourceRedo.Peek().At >= redoAt.Peek()))
+        { SourceRestore(sourceRedo, sourceUndo, "Redo"); return; }
         if (propRedo.Count > 0 && (redo.Count == 0 || redoAt.Count == 0 || propRedo.Peek().At >= redoAt.Peek())) { _ = PropRestore(propRedo, propUndo, "Redo"); return; }
         if (redo.Count > 0) { if (redoAt.Count > 0) redoAt.Pop(); undoAt.Push(DateTime.UtcNow); undo.Push(Current()); Restore(redo.Pop(), "Redo"); }
     }
@@ -158,7 +208,7 @@ sealed partial class ModelPage
             else { Protected.CheckWrite(op); Directory.CreateDirectory(Path.GetDirectoryName(op)!); File.WriteAllText(op, s.Overrides); }
         }
         if (PaintText() != s.Paint) RestorePaint(s.Paint);
-        undoButton.Enabled = undo.Count > 0 || propUndo.Count > 0; redoButton.Enabled = redo.Count > 0 || propRedo.Count > 0;
+        UpdateUndoButtons();
         Log(what + ": back to the earlier parts / Smooth / material / size / bone map / FBX edits / weight paint.");
         // a paint-only step: the model's weights rebuilt in place (no "Loading…", Kurt 2026-10-25); anything else rebuilds
         if (paintOnly && preview.ApplyPaintInPlace(s.Paint)) { restoring = false; UpdateStatus(); return; }

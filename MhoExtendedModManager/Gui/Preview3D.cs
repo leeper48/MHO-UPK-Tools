@@ -157,9 +157,9 @@ sealed partial class Preview3D : UserControl
         frame.Committed += () => PlaybackMoved?.Invoke();
         view.ViewChanged += () => ViewChanged?.Invoke();
         // the size reference: dragged along the floor, kept on the drop, put back by a double-click (Kurt, 2026-10-23)
-        view.PartDragged += d => { SizeReference.Spot += new System.Numerics.Vector2(d.X, d.Y); rig.SetOffset("size_reference", SizeReference.Place); ShowPose(); };
+        view.PartDragged += d => { SizeReference.Spot += new System.Numerics.Vector2(d.X, d.Y) * view.ModelScale; rig.SetOffset("size_reference", RefPlace); ShowPose(); };
         view.PartDropped += SizeReference.Keep;
-        view.PartReset += () => { SizeReference.Reset(); rig.SetOffset("size_reference", SizeReference.Place); ShowPose(); };
+        view.PartReset += () => { SizeReference.Reset(); rig.SetOffset("size_reference", RefPlace); ShowPose(); };
         frame.Enabled = false; frame.Format = _ => "–";
         anims.SelectedIndexChanged += (_, _) => AnimationChosen();
         Ui.Lit(loop, prefs.Loop);

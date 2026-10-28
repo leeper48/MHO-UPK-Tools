@@ -1,6 +1,55 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.235
+- Release: What's New notice; the manual has walkthroughs with pictures for Copy Setup From a Costume and Current Modded Game.
+
+0.60.234
+- Model tab: the "•" marking a hero's default costume is in front of its name (Source, Target and the Copy Setup list), where it's easier to see.
+
+0.60.233
+- Copy Setup From a Costume: the costume list shows each costume's picture and the "•" on a hero's default costume, as the Source list does.
+
+0.60.232
+- Copy Setup From a Costume is in This Material ▾ with a source picked too (the material's slot by name, else the costume's only one, else picked from its slots). When the source was the costume itself, it's cleared afterwards, so the preview shows the new material.
+
+0.60.231
+- Model tab: Copy Material Setup moved to the Materials tab: with no source picked, select one of the costume's own materials and use This Material ▾ → Copy Setup From a Costume (a searchable list of the game's costumes, then the material when it has several). The Source isn't changed for it any more, and the right-click item under Target is gone.
+
+0.60.230
+- Model tab, Materials: Slot Up and Slot Down are arrow icons.
+
+0.60.229
+- Model tab: the game's character lists could come up empty until the MFF folder was changed in Settings (a user, every start): the tab read the settings once for the whole session, sometimes before the game folder was known. It reads them fresh when it opens.
+
+0.60.228
+- Model tab: when the game's character lists come up empty, the log says why (the game folder, its CookedPCConsole and how many packages it holds, the clean stock folder), and an error reading the lists is shown in the log.
+
+0.60.227
+- Model tab: a prop picked as the target (◀ ▶ under the preview) shows its character at the Size set for it, not at 100 %.
+
+0.60.226
+- Model tab: the Barrel Size Reference keeps the game's size when Size scales the character up or down (it grew with the model, so it measured nothing); dragging it still follows the mouse.
+
+0.60.225
+- Model tab, Materials: the two game material choices say what they set: All Materials (beside Preview Shows: every material) and This Material ▾ (the selected one, showing its choice, "Same as All" when it has none; the Slot column says the same).
+
+0.60.224
+- Current Modded Game shows each row's portrait as your mod list has it (the image of the highest enabled mod that replaces it, else the game's). The Target list keeps the game's.
+
+0.60.223
+- Model tab: the Source's From the Game is now two choices: Default Game (the game's own packages, as before) and Current Modded Game (each package as your mod list has it: the copy of the highest enabled mod that replaces it, named on its row), so a modded costume can be a source, a prop source or a Copy Material Setup source.
+
+0.60.222
+- Model tab: right-click a costume under Target → Copy Material Setup From the Source: the source character's material setup (shader, switches, spec / rim / glow values, colors) on the costume, with the costume's own maps (a flat stand-in where it has none). A popup says what happens first.
+- Model tab: animations edited in Blender (or with hair added) spun or twisted in game: the build left out the animation's rotation format, which the game then read as another format (found by a user). It's written now; build the mod again to fix one built before.
+
+0.60.221
+- Model tab: Undo (Ctrl+Z) takes back a source picked by a click on the left (a model put on the character, or on an added prop, by mistake): the source before it comes back; Redo picks it again.
+
+0.60.220
+- Model tab: a costume's animated props (Ghost Rider's bike and chains: models with skeletons of their own) are listed under the character in the Characters view too, marked Animated Prop, to use as the source or the target.
+
 0.60.219
 - Summons and power models are released on the Model tab (they were a preview feature): in From the Game under each hero, in the Props view, as targets and sources.
 - Model tab, Props: adding a prop no longer empties the list of the character picked on the left.

@@ -106,6 +106,27 @@ sealed partial class ModEditorView : IModelHost
     /// <summary>Test (--model-tab-test): the Model tab's page once it has shown.</summary>
     internal ModelPage? ModelPageForTest => modelPage;   // also Settings ▾ → Model (reload after a change)
 
+    public IReadOnlyDictionary<string, (string Path, string Mod)> ActivePackages()
+    {
+        var map = new Dictionary<string, (string Path, string Mod)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (file, m) in lib.PackageWinners())
+            if (Path.Combine(m.Folder, file) is var p && File.Exists(p)) map[file] = (p, m.Name);
+        return map;
+    }
+
+    public IReadOnlyDictionary<string, string> ActiveIcons()
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in lib.Mods.Where(m => m.Enabled).OrderBy(m => m.Priority))
+        {
+            var mf = m.Manifest;
+            foreach (var (tex, dds) in mf.Replacements.Concat(mf.StoreReplacements).Concat(mf.AchievementReplacements).Select(r => (r.TextureName, r.DdsFileName))
+                         .Concat((mf.ExtraIconReplacements ?? []).Select(r => (r.TextureName, r.DdsFileName))))
+                if (tex.Length > 0 && Path.Combine(m.Folder, dds) is var p && File.Exists(p)) map.TryAdd(tex, p);
+        }
+        return map;
+    }
+
     public string WorkFolder
     {
         get

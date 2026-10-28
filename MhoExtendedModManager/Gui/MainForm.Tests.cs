@@ -468,6 +468,21 @@ sealed partial class MainForm
         return fails == 0 ? 0 : 1;
     }
 
+    public async Task<int> ModelMaterialTest(string modName, string target, string source, string? shot, string? shot2, string filter, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m);
+        pages.Select(1);
+        int tab = Enumerable.Range(0, editor!.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Model", -1);
+        if (tab < 0) { say("no Model tab"); return 1; }
+        editor.SelectTab(tab);
+        for (int i = 0; i < 50 && editor.ModelPageForTest == null; i++) await Task.Delay(100);
+        if (editor.ModelPageForTest is not { } page) { say("the Model tab didn't open"); return 1; }
+        int fails = await page.TestMaterialCopy(target, source, shot, shot2, filter, say);
+        CloseEditor();
+        return fails == 0 ? 0 : 1;
+    }
+
     public async Task<int> ModelPartnerTest(string modName, string target, string source, Action<string> say)
     {
         if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }

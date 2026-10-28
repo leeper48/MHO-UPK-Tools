@@ -266,7 +266,7 @@ sealed partial class PreviewPanel : UserControl
         if (p.TargetOnly) { comparing = true; Ui.Lit(compare, true); compare.Enabled = false; }
         else if (targetOnly) { comparing = false; Ui.Lit(compare, false); }
         targetOnly = p.TargetOnly;
-        view.ModelScale = ShownScale;
+        view.ModelScale = ShownScale; p3.ModelScaleChanged();
         Ui.Tip(compare, p.TargetOnly ? "No source is picked: this is the target's own model. Pick a source on the left to put a model on it; Compare then switches between the two."
             : "Show the target's own in-game mesh instead, in the same animation, frame and view, to compare (click again for the source's model).");
         // each target's model as last fitted, so the body and its prop show together whichever is the target (Kurt, 2026-10-27)
@@ -285,7 +285,8 @@ sealed partial class PreviewPanel : UserControl
             // 2026-10-27: the hammer moved to the left hand only after stepping to the axe)
             { h = new HeldBy(fitted.P.Mesh, fitted.P.Animations, h0.Main, h0.Meshes, h0.PropMesh); hBones = fitted.P.Bones; hFeet = fitted.Feet; _ = fm; }
             holderAnimator = new MeshAnimator(hBones, h.Body.Positions, h.Body.Normals, h.Body.Influences, h.Body.Tangents) { Shift = new Vector3(0, 0, hFeet) };
-            view.ModelScale = 1;
+            // (the character at its Size, as the body target shows it: Kurt, 2026-10-28, stepping to the prop shrank it to 100 %)
+            view.ModelScale = size; p3.ModelScaleChanged();
             p3.ReplaceProp = HeldProp;
             p3.ReplacedIsTarget = true;
             var hctx = new PreviewContext(Hero(), Cooked, h.Main, h.Meshes, PreviewPanel.ModsNow, () => TargetClass?.Invoke() ?? MhoExtendedModManager.Model.ConditionSwaps.ClassOf(p.PackagePath), SwapsFor);
@@ -370,7 +371,7 @@ sealed partial class PreviewPanel : UserControl
 
     float size = 1;
     /// <summary>The Model tab's Size: the model drawn that much larger or smaller (Compare shows the hero at its own size).</summary>
-    public float Size { get => size; set { size = value; view.ModelScale = ShownScale; view.Invalidate(); } }
+    public float Size { get => size; set { size = value; view.ModelScale = ShownScale; p3.ModelScaleChanged(); view.Invalidate(); } }
     /// <summary>The model at Size; Compare's hero at the game's size, except with no source (the target alone is what's sized).</summary>
     float ShownScale => comparing && !targetOnly ? 1 : size;
 
@@ -441,7 +442,7 @@ sealed partial class PreviewPanel : UserControl
         }
         if (shown == null || stockAnimator == null || mffAnimator == null) return;
         comparing = !comparing; Ui.Lit(compare, comparing);
-        view.ModelScale = ShownScale;
+        view.ModelScale = ShownScale; p3.ModelScaleChanged();
         p3.SwapCharacter(comparing ? shown.Stock! : shown.Mesh, comparing ? stockAnimator : mffAnimator);
     }
 

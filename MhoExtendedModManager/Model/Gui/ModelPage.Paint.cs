@@ -181,7 +181,7 @@ sealed partial class ModelPage
         var now = Capture();
         if (committed != null && !now.Same(committed)) { undo.Push(committed); redo.Clear(); committed = now with { Label = preview.LastPaint ?? Describe(committed, now) }; }
         else committed = now;
-        undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0;
+        UpdateUndoButtons();
         UpdatePaintButtons();
         UpdateStatus();
     }

@@ -60,7 +60,11 @@ static class MaterialOut
     }
 
     /// <summary>Texture parameters of a material instance: slot name → texture export index (-1 when it's an import).</summary>
-    public static Dictionary<string, int> TextureSlots(Package pkg, int mic)
+    public static Dictionary<string, int> TextureSlots(Package pkg, int mic) =>
+        TextureRefs(pkg, mic).ToDictionary(kv => kv.Key, kv => kv.Value > 0 ? kv.Value - 1 : -1, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Texture parameters of a material instance: slot name → object reference (export index + 1, or an import below 0).</summary>
+    public static Dictionary<string, int> TextureRefs(Package pkg, int mic)
     {
         byte[] d = pkg.ReadExportBytes(pkg.Exports[mic]);
         int at = 4;
@@ -73,8 +77,7 @@ static class MaterialOut
             var pn = e.Find("parametername"); var pv = e.Find("parametervalue");
             if (pn == null || pv == null) continue;
             string name = NameOf(pkg, BinaryPrimitives.ReadInt64LittleEndian(pn.Value));
-            int r = BinaryPrimitives.ReadInt32LittleEndian(pv.Value);
-            slots[name] = r > 0 ? r - 1 : -1;
+            slots[name] = BinaryPrimitives.ReadInt32LittleEndian(pv.Value);
         }
         return slots;
     }

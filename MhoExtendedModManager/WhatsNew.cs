@@ -41,7 +41,22 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.235 (Kurt, 2026-10-28): Copy Setup From a Costume, Current Modded Game, the animation-edit fix.</summary>
+    static Notice MaterialCopy() => new(
+        "0.60.235-material-copy", "0.60.235",
+        "[!]Model tab → Materials: give a costume another costume's material setup." + nl +
+        "  • Select a material, then This Material ▾ → Copy Setup From a Costume, and pick the costume (type to search)." + nl +
+        "  • Its shader, switches and spec / rim / glow / color values are copied; the costume keeps its own maps (Luke Cage's Skrull with Modern's look)." + nl + nl +
+        "[!]Source: Default Game or Current Modded Game." + nl +
+        "  • Current Modded Game reads each costume as your mod list has it (the highest enabled mod's copy), with that mod's portrait and name on the row." + nl + nl +
+        "Also on the Model tab:" + nl +
+        "  • Animations edited in Blender no longer spin or twist in game. Build a mod made with one again to fix it." + nl +
+        "  • The game's character lists no longer come up empty until the MFF folder is changed." + nl +
+        "  • Ctrl+Z takes back a source picked by mistake; Ghost Rider's bike and chains are listed; the barrel keeps its size; Slot Up / Down are arrows; a • in front marks a hero's default costume." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-matcopy");
 
     /// <summary>0.60.219 (Kurt, 2026-10-28): props on the Model tab (Props view, gizmo, MFF weapons, hero props), summons, Variations.</summary>
     static Notice PropsAndGizmo() => new(
