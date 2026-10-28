@@ -45,7 +45,7 @@ static class WhatsNew
 
     /// <summary>0.60.239 (Kurt, 2026-10-28): the empty game lists, the spec conversion, the material copy's maps.</summary>
     static Notice ListsAndSpec() => new(
-        "0.60.239-lists-spec", "0.60.239",
+        "0.60.240-lists-spec", "0.60.240",
         "[!]Model tab: the game's character lists load again for everyone." + nl +
         "  • Heroes, Team-Ups and NPCs came up empty when the MFF folder setting couldn't be read (blank, or not a usable path). The MFF folder is optional: the game's lists load without it." + nl + nl +
         "[!]Copy Setup From a Costume:" + nl +

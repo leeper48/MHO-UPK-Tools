@@ -509,16 +509,24 @@ sealed partial class ModelPage : UserControl
         };
         parts.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "use") SchedulePreview(); };
 
-        HandleCreated += (_, _) =>
-        {
-            if (loaded) return;
-            loaded = true; ScaleToDpi();
-            // (a user's lists came up empty with nothing in the log, 2026-10-28: any failure here is shown, not lost)
-            try { Settings.Reset(); Reload(); }   // (read fresh, as a Settings change does)
-            catch (Exception ex) { Log($"The lists couldn't be read: {ex.GetType().Name}: {ex.Message}"); Log(ex.StackTrace ?? ""); }
-        };
+        // the first load, whichever way the page comes up (Kurt, 2026-10-28: users on 0.60.239 still had empty lists, an empty
+        // log and no folder strip, so the load never ran: it waited only for HandleCreated, which never came there): the handle
+        // made, the page shown, or the handle already there now
+        HandleCreated += (_, _) => FirstLoad();
+        VisibleChanged += (_, _) => { if (Visible && IsHandleCreated) FirstLoad(); };
+        if (IsHandleCreated) BeginInvoke(FirstLoad);
         InitBuildFrom();
         InitMeshPick();
+    }
+
+    void FirstLoad()
+    {
+        if (loaded || IsDisposed) return;
+        loaded = true;
+        try { ScaleToDpi(); } catch (Exception ex) { Log($"Sizing for the screen failed ({ex.GetType().Name}: {ex.Message}); the lists load anyway."); }
+        // (any failure here is shown in the log, not lost)
+        try { Settings.Reset(); Reload(); }   // (read fresh, as a Settings change does)
+        catch (Exception ex) { Log($"The lists couldn't be read: {ex.GetType().Name}: {ex.Message}"); Log(ex.StackTrace ?? ""); }
     }
 
     void OnThumbReady(string key)

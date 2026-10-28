@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.240
+- Model tab: the lists could still come up empty (with an empty log and no folder strip): their first load waited for one window event that some setups never sent. It now also runs when the tab is shown, and sizing for the screen can no longer stop it.
+
 0.60.239
 - Model tab: the game's character lists (Heroes, Team-Ups, NPCs) came up empty for some users: an MFF folder setting the tab couldn't read (blank, or not a usable path) stopped the whole list from loading, before the game's part. The MFF folder is optional: a problem with it is now logged and the game's lists always load; a blank one counts as not set.
 
