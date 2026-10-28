@@ -110,8 +110,8 @@ sealed partial class ModelPage
         if (conv != null)
         {
             int c = Dialog.Choose(this, text + "\n\nSpec map:\n"
-                + $"  • {stitle}'s material reads a newer packed spec map (shine, power, skin mask, reflectivity) that this costume hasn't got.\n"
-                + $"  • This costume has {conv}: Convert makes the newer map from it, so the costume keeps its own shine and reflections.\n"
+                + $"  • {stitle}'s material reads a packed spec map in another layout than this costume's: {conv}.\n"
+                + "  • Convert makes the map it reads from this costume's own, so the costume keeps its own shine and reflections.\n"
                 + "  • Flat Stand-In uses no spec instead (a matte look).",
                 "Copy Material Setup", "Copy and Convert My Spec Map", "Copy With a Flat Stand-In", "Cancel");
             if (c is < 0 or 2) return;

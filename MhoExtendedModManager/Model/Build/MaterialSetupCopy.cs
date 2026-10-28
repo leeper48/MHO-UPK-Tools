@@ -25,12 +25,15 @@ static class MaterialSetupCopy
 
     public sealed record Result(byte[] Package, string NewMaterial, List<string> Lines);
 
-    /// <summary>The v2 packed spec slot (shine, power, skin mask, reflectivity), and the target's older packed maps it can be
-    /// made from (Kurt, 2026-10-28: the Skrull's v1 map gave a no-spec stand-in, so Modern's shine was lost).</summary>
-    const string V2Spec = "specmult_specpow_skinmask_reflectivity";
+    /// <summary>The game's packed spec layout a texture slot reads (v1 specmultrimmaskreflection, v2
+    /// specmult_specpow_skinmask_reflectivity, …: SpecLayouts), or null for any other slot.</summary>
+    static SpecLayouts.Layout? Packed(string slot) => SpecLayouts.All.FirstOrDefault(l => l.Parameter.Equals(slot, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>What a spec conversion would use, in words (the popup offers it), or null when there's nothing to convert: the
-    /// source has a v2 packed spec slot, the target hasn't, but it has a packed spec map of another layout.</summary>
+    /// <summary>
+    /// What a spec conversion would do, in words (the popup offers it), or null when there's nothing to convert: the source's
+    /// material reads a packed spec map the target hasn't got, and the target has a packed spec map of another layout (Kurt,
+    /// 2026-10-28: first old into new, the Skrull's v1 map for Modern's v2 material; then new into old too, v2 for a v1 one).
+    /// </summary>
     public static string? SpecConversion(byte[] target, string targetFile, string meshName, int slot, string sourceFile, string sourceMic)
     {
         try
@@ -40,65 +43,69 @@ static class MaterialSetupCopy
             var src = Package.Open(sourceFile);
             int mic = Array.FindIndex(src.Exports, e => src.PathOf(e).Equals(sourceMic, StringComparison.OrdinalIgnoreCase));
             if (mic < 0 || !old.Instance) return null;
-            var srcSlots = MaterialOut.TextureSlots(src, mic);
             var mine = MaterialOut.TextureRefs(tgt, old.Export);
-            if (!srcSlots.ContainsKey(V2Spec) || mine.TryGetValue(V2Spec, out int have) && have != 0) return null;
-            var from = SpecLayouts.All.Where(l => l.Id != "v2skin" && mine.TryGetValue(l.Parameter, out int r) && r != 0).ToList();
-            return from.Count == 0 ? null : string.Join(" and ", from.Select(l => $"{l.Parameter} ({l.Label})"));
+            bool Has(string p) => mine.TryGetValue(p, out int r) && r != 0;
+            var wanted = MaterialOut.TextureRefs(src, mic).Keys.Where(k => Packed(k) != null && !Has(k)).ToList();
+            var have = SpecLayouts.All.Where(l => Has(l.Parameter)).ToList();
+            if (wanted.Count == 0 || have.Count == 0) return null;
+            return $"this costume has {string.Join(" and ", have.Select(l => $"{l.Parameter} ({l.Label})"))}; the source's material reads {string.Join(" and ", wanted.Select(k => $"{k} ({Packed(k)!.Label})"))}";
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentOutOfRangeException) { return null; }
     }
 
     /// <summary>
-    /// The target's older packed spec maps made into one v2 map (SpecLayouts.ToAngela: shine and reflectivity from a v1
-    /// specmultrimmaskreflection, spec power from a v1 emissivespecpow's G when there is one, the rest at their defaults), as
-    /// a PNG in <paramref name="dir"/>; null when none can be read.
+    /// The target's packed spec maps made into the layout of <paramref name="want"/> (a slot the source's material reads), as
+    /// a PNG in <paramref name="dir"/>, and whether it uses alpha; null when none can be read. The maps are first read into one
+    /// set of channels (shine, power, skin mask, reflectivity: SpecLayouts.ToAngela; spec power from a second map when the
+    /// first has none, a v1 emissivespecpow's G), then laid out as <paramref name="want"/> reads them; a channel with no
+    /// counterpart gets the game's usual value (a v1 rim mask 238, no glow).
     /// </summary>
-    /// <remarks>Each channel is then scaled so its average is the source's own map's (Kurt, 2026-10-28: "look exactly the
-    /// same"): the costume's pattern of where it shines, at the source's level. Measured on Luke Cage: Modern's map averages
-    /// shine 34 and reflectivity 255 under spec 18 / reflection 10, the Skrull's v1 map shine 58 and reflection 27 under
-    /// 0.8 / 3; the map as it was came out ~20 times too shiny, and kept at the Skrull's own strength it was as dull as no
-    /// spec at all. When the source's map can't be read, the strengths' ratio is used (the costume shines as it did).</remarks>
-    static string? ConvertedSpec(Package tgt, string targetFile, Dictionary<string, int> mine, string dir, List<string> lines, MaterialInfo? was, MaterialInfo? now, Package src, int srcSpec)
+    /// <remarks>The shine and reflectivity are scaled first (Kurt, 2026-10-28: "look exactly the same"): the shine halfway
+    /// (geometric mean) between the costume's own strength and the source map's level, reflectivity never above the costume's
+    /// own. Measured on Luke Cage: Modern's map averages shine 34 and reflectivity 255 under spec 18 / reflection 10, the
+    /// Skrull's v1 map shine 58 and reflection 27 under 0.8 / 3; kept at the Skrull's own strength (×0.044) it was as dull as
+    /// no spec, at Modern's level (×0.59) the gauntlets and pants went white, between them (×0.16) it looked like Modern in the
+    /// preview; a DXT1 map's A reads 255 everywhere, which isn't a level. When the source's map can't be read, the strengths'
+    /// ratio is used (the costume shines as it did).</remarks>
+    static (string File, bool Alpha)? ConvertedSpec(Package tgt, string targetFile, Dictionary<string, int> mine, string dir, List<string> lines, MaterialInfo? was, MaterialInfo? now, Package src, int srcRef, string want, string sourceFile)
     {
-        string? baseFile = null; int[] off = [2, 1, 0, 3];
-        byte[]? px = null; int w = 0, h = 0;
-        foreach (var l in SpecLayouts.All.Where(l => l.Id != "v2skin"))
+        if (Packed(want) is not { } lw) return null;
+        int[] off = [2, 1, 0, 3];
+        byte[]? px = null; int w = 0, h = 0; bool havePower = false;
+        foreach (var l in SpecLayouts.All)
         {
             if (!mine.TryGetValue(l.Parameter, out int r) || r == 0) continue;
             string png = Path.Combine(dir, MaterialOut.Safe(l.Parameter) + "_original.png");
-            if (!DecodeTexture(tgt, r, targetFile, png)) { lines.Add($"  {l.Parameter}: can't be read, left out of the conversion"); continue; }
+            if (!File.Exists(png) && !DecodeTexture(tgt, r, targetFile, png)) { lines.Add($"  {l.Parameter}: can't be read, left out of the conversion"); continue; }
             string conv = SpecLayouts.ToAngela(png, l);
             if (px == null)
             {
                 (w, h, px) = ImagePixels.ReadBgra(conv);
-                baseFile = l.Parameter;
-                lines.Add($"  {V2Spec}: made from the costume's {l.Parameter} ({SpecLayouts.Change(l)})");
+                havePower = l.FromChannel[1] >= 0;
+                lines.Add($"  {want}: made from the costume's {l.Parameter} ({l.Label})");
             }
-            else if (l.FromChannel[1] >= 0)
+            else if (!havePower && l.FromChannel[1] >= 0)
             {
                 // a second map with a spec power (v1 emissivespecpow G): its power goes into G
                 var (_, _, p2) = ImagePixels.ReadBgra(conv, w, h);
                 for (int i = 0; i < w * h; i++) px[4 * i + off[1]] = p2[4 * i + off[1]];
-                lines.Add($"  {V2Spec}: spec power from the costume's {l.Parameter}");
+                havePower = true;
+                lines.Add($"  {want}: spec power from the costume's {l.Parameter}");
             }
         }
         if (px == null) return null;
         double Mean(byte[] b, int c) { double t = 0; for (int i = 0; i < b.Length / 4; i++) t += b[4 * i + off[c]]; return t / Math.Max(1, b.Length / 4); }
         float S(MaterialInfo? m, string n, float d) => m != null && m.Scalars.TryGetValue(n, out float v) ? v : d;
-        float shineWas = S(was, "specmult1", 1) * S(was, "totalspecmult", 1), shineNow = S(now, "specmult", 1);
+        // a material's spec strength: v2 specmult, v1 specmult1 × totalspecmult
+        float Strength(MaterialInfo? m) => m != null && m.Scalars.ContainsKey("specmult") ? S(m, "specmult", 1) : S(m, "specmult1", 1) * S(m, "totalspecmult", 1);
+        float shineWas = Strength(was), shineNow = Strength(now);
         float kStrength = shineNow > 0 ? Math.Clamp(shineWas / shineNow, 0, 4) : 1;   // (the costume as bright as with its own material)
         float ks, kr; string why;
-        string srcPng = Path.Combine(dir, V2Spec + "_source.png");
-        if (srcSpec > 0 && DecodeTexture(src, srcSpec, "", srcPng))
+        string srcPng = Path.Combine(dir, MaterialOut.Safe(want) + "_source.png");
+        if (srcRef != 0 && DecodeTexture(src, srcRef, Path.GetFileName(sourceFile), srcPng))
         {
-            var (_, _, sp) = ImagePixels.ReadBgra(srcPng);
+            var (_, _, sp) = ImagePixels.ReadBgra(SpecLayouts.ToAngela(srcPng, lw));
             double sr = Mean(sp, 0), sa = Mean(sp, 3), cr = Mean(px, 0), ca = Mean(px, 3);
-            // (reflectivity never above the costume's own: a DXT1 map's A reads 255 everywhere, which isn't a level, and taken as one
-            // it made the Skrull's gauntlets and pants mirrors in the preview)
-            // the shine halfway (geometric mean) between the costume's own strength and the source map's level: on Luke Cage
-            // the costume's own (×0.044) was as dull as no spec, the source's level (×0.59) blew the gauntlets and pants out
-            // white, and between them (×0.16) looked like Modern in the preview (renders compared, 2026-10-28)
             float kLevel = cr > 0.5 ? (float)Math.Clamp(sr / cr, 0, 4) : 1;
             ks = MathF.Sqrt(kLevel * kStrength);
             kr = ca > 0.5 ? (float)Math.Clamp(sa / ca, 0, 1) : 1;
@@ -115,11 +122,25 @@ static class MaterialSetupCopy
             px[4 * i + off[0]] = (byte)Math.Min(255, MathF.Round(px[4 * i + off[0]] * ks));
             px[4 * i + off[3]] = (byte)Math.Min(255, MathF.Round(px[4 * i + off[3]] * kr));
         }
-        lines.Add($"  {V2Spec}: shine × {ks:0.##}, reflectivity × {kr:0.##}, {why}");
-        string outFile = Path.Combine(dir, V2Spec + "_converted.png");
+        lines.Add($"  {want}: shine × {ks:0.##}, reflectivity × {kr:0.##}, {why}");
+        // laid out as the wanted slot reads it: each of its channels from the one it holds (lw.FromChannel), else the usual value
+        byte[] o = px;
+        if (lw.Id != "v2skin")
+        {
+            o = new byte[px.Length];
+            byte Usual(string channel) => channel switch { "rim mask" => 238, "ambient" or "height" => 128, _ => 0 };
+            for (int c = 0; c < 4; c++)
+            {
+                int a = Array.IndexOf(lw.FromChannel, c);
+                for (int i = 0; i < w * h; i++) o[4 * i + off[c]] = a >= 0 ? px[4 * i + off[a]] : Usual(lw.Channels[c]);
+            }
+            lines.Add($"  {want}: laid out as {lw.Label} ({string.Join(", ", lw.Channels.Select((ch, c) => ch == "—" ? null : Array.IndexOf(lw.FromChannel, c) >= 0 ? $"{ch} from the costume's maps" : $"{ch} {Usual(ch)}").OfType<string>())})");
+        }
+        bool alpha = lw.Channels[3] != "—";
+        string outFile = Path.Combine(dir, MaterialOut.Safe(want) + "_converted.png");
         Protected.CheckWrite(outFile);
-        ImagePixels.Save(w, h, px, outFile);
-        return outFile;
+        ImagePixels.Save(w, h, o, outFile);
+        return (outFile, alpha);
     }
 
     /// <summary>
@@ -257,9 +278,9 @@ static class MaterialSetupCopy
         byte[] current = target;
         if (standIns.Count > 0 || envCopies.Count > 0)
         {
-            int template = tgtSlots.Values.Where(v => v > 0).Select(v => v - 1).FirstOrDefault(-1);
-            if (template < 0) template = Array.FindIndex(tgt.Exports, e => tgt.ClassOf(e).Equals("Texture2D", StringComparison.OrdinalIgnoreCase));
-            if (template < 0) throw new InvalidDataException($"{targetFile} has no texture to build the stand-in maps on");
+            int template = TemplateTexture(tgt, tgtSlots.Values.Where(v => v > 0).Select(v => v - 1));
+            if (template < 0) throw new InvalidDataException($"{targetFile} has no texture of a known texture group to build the new maps on");
+            lines.Add($"new maps built on {tgt.Exports[template].ObjectName} ({LodGroup(tgt, template) ?? "no texture group: the default"})");
             Directory.CreateDirectory(workDir);
             var plan = new List<MaterialOut.PlannedTexture>();
             // the source's environment image from a package the target's character doesn't load: its pixels copied in
@@ -277,9 +298,9 @@ static class MaterialSetupCopy
             {
                 string texName = UniqueExport(tgt, MaterialOut.Safe($"{copyName}_{name}"));
                 // the v2 packed spec made from the costume's own older packed maps (the shine kept)
-                if (convertSpec && name.Equals(V2Spec, StringComparison.OrdinalIgnoreCase) && ConvertedSpec(tgt, targetFile, tgtSlots, workDir, lines, Info(tgt, old.Export), Info(src, mic), src, srcSlots.TryGetValue(V2Spec, out int sv) && sv >= 0 ? sv + 1 : 0) is string conv)
+                if (convertSpec && Packed(name) != null && ConvertedSpec(tgt, targetFile, tgtSlots, workDir, lines, Info(tgt, old.Export), Info(src, mic), src, MaterialOut.TextureRefs(src, mic).TryGetValue(name, out int sv) ? sv : 0, name, sourceFile) is var (conv, alpha))
                 {
-                    plan.Add(new MaterialOut.PlannedTexture(name, null, texName, template, conv, true, AlphaIsData: true));
+                    plan.Add(new MaterialOut.PlannedTexture(name, null, texName, template, conv, alpha, AlphaIsData: alpha));
                     how.Add($"{name}: made from the costume's own spec maps (converted to this layout)");
                     continue;
                 }
@@ -329,6 +350,34 @@ static class MaterialSetupCopy
             throw new InvalidDataException("the material slots didn't read back as written");
         lines.Add($"slot {slot} of {meshName} now uses {cur.Exports[made].ObjectName} (was {old.Material}); read back");
         return new Result(current, cur.Exports[made].ObjectName, lines);
+    }
+
+    /// <summary>
+    /// The texture new maps are built on (their format details and texture group come from it): one of the material's own,
+    /// else any in the package, whose texture group the game knows (TEXTUREGROUP_…, or none: the default). Kurt, 2026-10-28,
+    /// a user's crash ("CreateTexture … SizeX=1, SizeY=1, DXT1 … D3DERR_INVALIDCALL"): a Spider-Woman mod's textures, made
+    /// with MHMaterialEditor, have the group "textures" (no mipmaps, so they load); the reflection image built on one got that
+    /// group with a full mip chain, and the game, with no settings for that group, made it a 1×1 DXT1. -1 when there's none.
+    /// </summary>
+    static int TemplateTexture(Package pkg, IEnumerable<int> preferred)
+    {
+        bool Known(int i) => pkg.ClassOf(pkg.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)
+            && (LodGroup(pkg, i) is not string g || g.StartsWith("texturegroup_", StringComparison.OrdinalIgnoreCase));
+        foreach (int i in preferred) if (i >= 0 && i < pkg.Exports.Length && Known(i)) return i;
+        for (int i = 0; i < pkg.Exports.Length; i++) if (Known(i)) return i;
+        return -1;
+    }
+
+    /// <summary>A texture's LODGroup property (its texture group, lower case), or null when it has none (the default).</summary>
+    static string? LodGroup(Package pkg, int texture)
+    {
+        try
+        {
+            byte[] d = pkg.ReadExportBytes(pkg.Exports[texture]).ToArray();
+            var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("LODGroup", StringComparison.OrdinalIgnoreCase));
+            return t == null ? null : TagWalker.NameAt(pkg, d, t.ValueAt + (t.Size == 16 ? 8 : 0)).ToLowerInvariant();
+        }
+        catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { return null; }
     }
 
     /// <summary>Whether an imported object is in a package the game always loads (MarvelGame.upk, Startup.upk), so a reference to

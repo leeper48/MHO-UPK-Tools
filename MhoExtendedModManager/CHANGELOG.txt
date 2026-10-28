@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.242
+- Copy Setup From a Costume: a game crash ("CreateTexture … SizeX=1, SizeY=1 … DXT1 … D3DERR_INVALIDCALL") after copying onto a costume whose textures were made with another tool (a user's Spider-Woman with Angela 1602's material): the new textures (reflection image, stand-ins, converted spec maps) took their texture group from such a texture, one the game doesn't know, and the game shrank them to 1×1. They're now built on a texture of a group the game knows. Copy the setup again to fix a costume copied before.
+
+0.60.241
+- Copy Setup From a Costume: Convert My Spec Map works both ways now: a newer (v2) spec map is made into the older layouts a source material reads (v1 shine / rim / reflection and power maps), as well as old into new. Shine scaled the same way; a channel with no counterpart gets the game's usual value (rim mask 238, no glow).
+
 0.60.240
 - Model tab: the lists could still come up empty (with an empty log and no folder strip): their first load waited for one window event that some setups never sent. It now also runs when the tab is shown, and sizing for the screen can no longer stop it.
 
