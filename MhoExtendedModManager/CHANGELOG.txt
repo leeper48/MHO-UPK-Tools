@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.244
+- Model tab, Parts: the Source Parts and Target's Props lists scroll when they don't fit (on smaller screens they were cut off with no scrollbar).
+
 0.60.243
 - Editor → Voice: a costume given another voice with Use Another Voice could crash the game while loading it ("Assertion failed: i>=0 && (i<ArrayNum…)"; two users: Juggernaut Fear Itself on Hulk, Thing Fear Itself on Knull). A voice from a hero's voice package is built on that hero's own character data, which the game doesn't load for another costume; the copied voice still pointed there, and setting the voice back left that part in the package. A copied voice is now built on the costume's own. To fix a mod made before: open it in the Editor and Save (the voice you chose stays).
 

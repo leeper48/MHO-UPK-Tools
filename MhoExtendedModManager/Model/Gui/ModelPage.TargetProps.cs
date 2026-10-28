@@ -94,10 +94,14 @@ sealed partial class ModelPage
         removeProp.Margin = new Padding(14, 0, 0, 0);
         partsHead.Controls.Add(removeProp);
         // the list: SOURCE PARTS and its table, THE TARGET'S PROPS and its table, each as tall as its rows
-        var list = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, BackColor = Color.Transparent, Margin = new Padding(0), AutoScroll = true };
+        // (in a scrolling panel, the table as tall as its content: Kurt, 2026-10-28, a user's parts were cut off with no
+        // scrollbar; a table with a fill row lays itself out to the panel's height, so it never overflowed and never scrolled)
+        var list = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent, Margin = new Padding(0) };
         list.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         for (int r = 0; r < 4; r++) list.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        list.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.Transparent, Margin = new Padding(0) };
+        scroller.Controls.Add(list);
+        MhoExtendedModManager.Gui.Modern.DarkScrollbars(scroller);   // (the app's dark scrollbars)
         partsCap.Margin = new Padding(2, 2, 0, 4);
         parts.Dock = DockStyle.None; parts.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; parts.Margin = new Padding(0);
         targetProps.Dock = DockStyle.None; targetProps.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; targetProps.Margin = new Padding(0);
@@ -109,11 +113,11 @@ sealed partial class ModelPage
             g.RowsAdded += (_, _) => SizePropsBox();
             g.RowsRemoved += (_, _) => SizePropsBox();
             // the wheel over a table scrolls the list
-            g.MouseWheel += (_, e) => { int y = -list.AutoScrollPosition.Y - e.Delta / 2; list.AutoScrollPosition = new Point(0, Math.Max(0, y)); };
+            g.MouseWheel += (_, e) => { int y = -scroller.AutoScrollPosition.Y - e.Delta / 2; scroller.AutoScrollPosition = new Point(0, Math.Max(0, y)); };
         }
         partsPage = list;
-        list.SizeChanged += (_, _) => SizePropsBox();
-        return Column("", partsHead, list);
+        scroller.SizeChanged += (_, _) => SizePropsBox();
+        return Column("", partsHead, scroller);
     }
 
     /// <summary>The chosen package's props, read in the background; each row ticked unless the draft has it off.</summary>

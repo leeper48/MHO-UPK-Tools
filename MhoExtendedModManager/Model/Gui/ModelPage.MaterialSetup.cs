@@ -201,6 +201,16 @@ sealed partial class ModelPage
         say($"loaded: {loaded}; game folder: {Settings.Current.GameFolder ?? "none"}; cooked: {Settings.Current.CookedFolder ?? "none"}; MFF: {Settings.Current.MffSource ?? "none"}; stock: {Settings.Current.StockFolder ?? "none"}");
         say($"source kind: {sourceKind.SelectedIndex} ({(sourceKind.SelectedIndex >= 0 ? sourceKind.Items[sourceKind.SelectedIndex] : "-")}); game packages: {allPackages.Count}; source rows: {characters.Items.Count}; target rows: {packages.Items.Count}");
         say("log: " + log.Text.Replace("\r\n", " | ").Replace("\n", " | "));
+        // MHO_TEST_LISTSHOT=<png> [MHO_TEST_LISTSOURCE=<game package>]: that source picked, the Parts tab shot (its scrolling)
+        if (Environment.GetEnvironmentVariable("MHO_TEST_LISTSHOT") is { Length: > 0 } shot)
+        {
+            if (host.Packages.FirstOrDefault().File is string tp) { gameList = false; packageFilter.Text = ""; FillPackages(); Reselect(packages, tp); await Task.Delay(1500); }
+            if (Environment.GetEnvironmentVariable("MHO_TEST_LISTSOURCE") is { Length: > 0 } srcPkg) { GameChosen(GameSrc + srcPkg); for (int i = 0; i < 600 && parts.Rows.Count == 0; i++) await Task.Delay(100); }
+            for (int i = 0; i < modelTabs.Count; i++) if (modelTabs.TitleAt(i) == "Parts") modelTabs.Select(i);
+            await Task.Delay(2000);
+            say($"parts rows: {parts.Rows.Count}; parts height {parts.Height}; list scrolls: {(partsPage?.Parent as ScrollableControl)?.VerticalScroll.Visible}");
+            var form = FindForm()!; using var bmp = new Bitmap(form.Width, form.Height); form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size)); bmp.Save(shot);
+        }
         return allPackages.Count > 0 && characters.Items.Count > 0 ? 0 : 1;
     }
 }
