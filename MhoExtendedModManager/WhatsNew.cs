@@ -31,7 +31,7 @@ static class WhatsNew
     /// "PreviewFeatures": true. Off, the summon list is empty and the tab is as before summons. Releasing it: set this,
     /// uncomment the manual's summons parts (marked SUMMONS), and add a notice.</summary>
     public static bool Summons => SummonsReleased || Settings.Load().PreviewFeatures;
-    public const bool SummonsReleased = false;
+    public const bool SummonsReleased = true;   // (Kurt, 2026-10-28: released with the props)
 
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
 
@@ -41,7 +41,26 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.219 (Kurt, 2026-10-28): props on the Model tab (Props view, gizmo, MFF weapons, hero props), summons, Variations.</summary>
+    static Notice PropsAndGizmo() => new(
+        "0.60.219-props-gizmo", "0.60.219",
+        "[!]Model tab → Props: give a costume props from anywhere." + nl +
+        "  • Pick a character on the left (From the Game, an MFF character or an FBX): its props are listed under it." + nl +
+        "  • Left-click a prop to see it on its own; right-click it to add it to the costume under Target. The target never changes there." + nl +
+        "  • From the Game lists a costume's props, summons and power models (Squirrel Girl's squirrels); an MFF character lists its weapons first." + nl +
+        "  • An MFF weapon goes on the hand that holds it, sized to the hero." + nl + nl +
+        "[!]A move / turn gizmo on the prop in the preview (X red, Y green, Z blue, lined up with the world)." + nl +
+        "  • Drag an arrow to move it, a ring to turn it (5° steps, Shift: 1°). Let go and the fit goes in." + nl +
+        "  • It works on added props and on a costume's own (Thor's hammer). The Gizmo button beside Reset Fit hides it." + nl + nl +
+        "Also on the Model tab:" + nl +
+        "  • Right-click a costume under Target: Revert to Original, or Revert to Last Build." + nl +
+        "  • The Target's Props lists the props a costume gets from its hero (Doom's pistol and throne): untick one to leave it off." + nl +
+        "  • Summons and power models can be targets and sources (Cable's illusions, Strike Team's Beast); Variations sets the random materials a character picks from." + nl + nl +
+        "Settings → File Pickers: choose the view Open windows start in, for packages, images and 3D models." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-addprop");
 
     /// <summary>0.50.16 (Kurt, 2026-10-19): forms, transforms and summons in the 3D preview; Generate Normal Map; normal maps sRGB off.</summary>
     /// <summary>0.60.143 (Kurt, 2026-10-25): weight painting, keyboard shortcuts, fit fixes, Nexus sign-in.</summary>

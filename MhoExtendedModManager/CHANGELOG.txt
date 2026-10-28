@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.219
+- Summons and power models are released on the Model tab (they were a preview feature): in From the Game under each hero, in the Props view, as targets and sources.
+- Model tab, Props: adding a prop no longer empties the list of the character picked on the left.
+- What's New notice; the manual's prop walkthrough has the Props view and the gizmo.
+
 0.60.218
 - When props go into a costume's package, a prop class the game can't load for that costume (one built on another hero's class, left behind by a removed prop: Remove takes a prop off the list only) is reported with what to do (Revert to Original or Last Build, then add the props again) instead of reaching the game.
 

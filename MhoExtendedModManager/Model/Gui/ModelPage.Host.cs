@@ -771,7 +771,8 @@ sealed partial class ModelPage
         else if (chosenKey is string ck && TargetIsProp() && (OtherOwn(ck)
                  || targetSources.Any(kv => kv.Key.StartsWith(pkg.Key + "|", StringComparison.OrdinalIgnoreCase) && !kv.Key.Equals(tk, StringComparison.OrdinalIgnoreCase) && kv.Value.Equals(ck, StringComparison.OrdinalIgnoreCase))))
         {
-            chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear(); characters.ClearSelected();
+            chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
+            if (!propMode) characters.ClearSelected();   // (the Props view's pick on the left isn't the source: its props stay listed)
             Log("Source: none (that source is another model's in this package): the prop's own model shows; pick a source to give it a new one.");
             UpdateStatus(); SchedulePreview();
         }

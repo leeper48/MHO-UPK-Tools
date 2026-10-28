@@ -135,6 +135,7 @@ sealed partial class ModelPage
         int fails = 0;
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
+        if (Environment.GetEnvironmentVariable("MHO_TEST_PROPSHOWSHOT") != null || Environment.GetEnvironmentVariable("MHO_TEST_GIZMOSHOT") != null) preview.ShowBones = false;   // (the manual's shots)
         // MHO_TEST_GIZMO_ONLY = <package>: that target in the mod's packages, its first added prop picked, the gizmo dragged
         // (a copy of a user's mod, to see what it does there)
         if (Environment.GetEnvironmentVariable("MHO_TEST_GIZMO_ONLY") is { Length: > 0 } gpk)
@@ -645,6 +646,15 @@ sealed partial class ModelPage
                 bool animated = Props[int.Parse(pr.Key[PropGame.Length..])].Kind == "other";   // (shown only while an animation of its own plays)
                 for (int i = 0; i < 200 && !animated && !preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
                 Check(animated || preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase), $"Props view: in the preview ({(animated ? "an animated prop: not without its animation" : preview.PropClassesForTest)})");
+                if (Environment.GetEnvironmentVariable("MHO_TEST_PROPSHOWSHOT") is { Length: > 0 } pshot)
+                {
+                    await Task.Delay(2500);
+                    var form = FindForm()!;
+                    using var bmp = new Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
+                    bmp.Save(pshot);
+                }
+
                 Check(!PropShowForTest.Shown, "Props view: adding it shows the target again");
                 // Revert to Last Build: the package as built, the props as they were then (the one just added gone)
                 if (added != null && LastBuildOf(targetBefore) is { } lb)
