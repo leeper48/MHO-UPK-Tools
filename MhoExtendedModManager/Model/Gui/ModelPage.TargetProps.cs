@@ -68,6 +68,9 @@ sealed partial class ModelPage
                 menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add(new ToolStripMenuItem("Pick as Target", null, (_, _) => PickAdded(ap)) { ToolTipText = "Picks it under the preview: its fit, bone and model on the right." });
                 menu.Items.Add(new ToolStripMenuItem(on ? "Leave Off for Now" : "Put Back", null, (_, _) => SetPropKept(row, !on)) { ToolTipText = on ? "Takes it off the costume for now; its fit, bone and model are kept (tick it to put it back)." : "Puts it back on the costume as it was." });
+                if (ap.ModelFrom != null)
+                    menu.Items.Add(new ToolStripMenuItem("Use Its Character's Model", null, async (_, _) => { PickAdded(ap); await AddedOwnModel(ap); })
+                    { ToolTipText = "Drops the model built for it here and puts its own character's model back (asked first)." });
             }
             else if (row.Tag is PowerParts.Switch)
                 // the game's own prop can't leave the hero's package: Remove leaves it off this costume (its mesh set to none here)
@@ -125,7 +128,17 @@ sealed partial class ModelPage
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException) { path = ""; }
         try { if (path.Length == 0) path = StartPackageAsIs(key); }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { ShowTargetProps([], null); return; }
-        var list = await Task.Run(() => PowerParts.CostumeProps(key, path));
+        // the costume's own props, then those it gets from its hero (Doom Classic's pistol and throne: classes in his base package)
+        string? cooked = Settings.Current.CookedFolder;
+        var list = await Task.Run(() =>
+        {
+            var own = PowerParts.CostumeProps(key, path);
+            string? basePath = System.Text.RegularExpressions.Regex.Match(key, @"^(UC__MarvelPlayer_[^_]+)_.+_SF\.upk$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } bm && cooked != null
+                && StockFiles.For(cooked, bm.Groups[1].Value + "_SF.upk") is var bp && File.Exists(bp) ? bp : null;
+            var added = host.AddedProps(key).Select(a => a.Class).ToList();
+            own.AddRange(PowerParts.HeroProps(key, path, basePath).Where(h => !added.Any(a => PowerBorrow.SameClass(h.PartName, a))));
+            return own;
+        });
         if (IsDisposed || run != targetPropsRun || ChosenPackage?.Key != key) return;
         ShowTargetProps(list, key);
     }
@@ -137,7 +150,7 @@ sealed partial class ModelPage
         targetProps.Rows.Clear();
         foreach (var s in list)
         {
-            int i = targetProps.Rows.Add(PropOff(s) == null, s.Label, "Target Prop", s.What);
+            int i = targetProps.Rows.Add(PropOff(s) == null, s.Label, s.Kind == "Hero Prop" ? "Hero Prop" : "Target Prop", s.What);
             targetProps.Rows[i].Tag = s;
             if (PropOff(s) != null) targetProps.Rows[i].DefaultCellStyle.ForeColor = Ui.Subtle;
         }
@@ -150,7 +163,7 @@ sealed partial class ModelPage
         SizePropsBox();
         targetProps.ClearSelection();
         preview.HiddenProps = key == null ? null : cls => host.PartsOff.Any(e => e.Package.Equals(key, StringComparison.OrdinalIgnoreCase)
-            && e.Switch is "modelmesh" or "skeletalmesh" && PowerParts.PropClass(e.Part).Equals(cls, StringComparison.OrdinalIgnoreCase));
+            && e.Switch is "modelmesh" or "skeletalmesh" or PowerParts.ListEntry && PowerParts.PropClass(e.Part).Equals(cls, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Each table as tall as its rows (the list scrolls past the tab); a group's heading and table shown when it has

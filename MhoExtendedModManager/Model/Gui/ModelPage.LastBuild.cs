@@ -86,7 +86,7 @@ sealed partial class ModelPage
         File.Copy(from, copy, true);
         // the source cleared: the preview shows the costume itself
         chosenKey = null; model = null; sourceFbx = null; unrigged = null; parts.Rows.Clear();
-        characters.ClearSelected();
+        if (!propMode) characters.ClearSelected();   // (in the Props view the pick on the left isn't the source: it stays)
         if (addedPick != null) { addedPick = null; MhoSkeleton.Choose(key, null); }
         host.SetPackage(key, copy);
         built.Remove(key); builtPrint.Remove(key);

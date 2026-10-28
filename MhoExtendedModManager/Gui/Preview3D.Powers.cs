@@ -11,8 +11,20 @@ sealed partial class Preview3D
     readonly PropRig rig = new();
     /// <summary>Tests: the classes of the props the rig holds.</summary>
     internal IEnumerable<string> PropClassesForTest => rig.Classes;
+    /// <summary>The Model tab's gizmo: where a prop is held (without its live offset) and its size, as last posed.</summary>
+    internal (System.Numerics.Matrix4x4 Frame, float Size)? PropBase(Func<string, bool> match) => animator == null ? null : rig.BaseFrame(match, animator);
+    /// <summary>The Model tab's gizmo: a prop shown moved by <paramref name="offset"/> (in its own space) until the rig is made again.</summary>
+    internal void SetPropOffset(Func<string, bool> match, System.Numerics.Matrix4x4 offset) { rig.SetOffset(match, offset); ShowPose(); }
+    /// <summary>Test: the drawn middle (and a direction) of the first prop <paramref name="match"/> takes.</summary>
+    internal (System.Numerics.Vector3 Mid, System.Numerics.Vector3 Dir)? PropShownForTest(Func<string, bool> match)
+    {
+        if (shownLoaded == null) return null;
+        foreach (string c in rig.Classes.Select(x => x.Split('=')[0]))
+            if (match(c) && rig.RangeOf(c, animator?.Positions.Length ?? shownLoaded.Positions.Length) is var (f, n)) return view.ShownPartForTest(f, n);
+        return null;
+    }
     /// <summary>Tests: the bone the prop of class <paramref name="cls"/> is held on in the view, or null.</summary>
-    internal string? PropBoneForTest(string cls) => rig.BonesForTest.Where(b => b.Class.Equals(cls, StringComparison.OrdinalIgnoreCase))
+    internal string? PropBoneForTest(string cls) => rig.BonesForTest.Where(b => PowerBorrow.SameClass(b.Class, cls))
         .Select(b => shownLoaded != null && b.Bone >= 0 && b.Bone < shownLoaded.Bones.Count ? shownLoaded.Bones[b.Bone].Name : null).FirstOrDefault();
     /// <summary>A prop's frame as shown (PropRig.Frame), or null.</summary>
     public System.Numerics.Matrix4x4? PropFrame(string cls) => animator == null ? null : rig.Frame(cls, animator);

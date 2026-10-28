@@ -328,7 +328,7 @@ sealed partial class ModelPage
             Directory.CreateDirectory(dir);
             File.WriteAllBytes(path, b);
         }
-        string mesh = MhoExtendedModManager.ModMeshes.Attachments(path).FirstOrDefault(x => x.Class.Equals(e.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last()
+        string mesh = MhoExtendedModManager.ModMeshes.Attachments(path).FirstOrDefault(x => PowerBorrow.SameClass(x.Class, e.Class))?.Mesh.Split('.').Last()
             ?? throw new InvalidDataException($"{e.Name} names no model of its own in {key}");
         return (path, mesh);
         static string Stamp(string f) { var i = new FileInfo(f); return $"{i.Length}:{i.LastWriteTimeUtc.Ticks}"; }
@@ -761,6 +761,10 @@ sealed partial class ModelPage
             return;
         }
         if (PropSourceOnBody) await UseOwnModel(pkg.Key);
+        // a body with no source at all (Kurt, 2026-10-28: stepping back to Doom after his added sword, the Parts list was empty;
+        // "the body and cape would normally show"): its own model is the source, as Paint does (not in the Props view, whose
+        // list on the left only shows props)
+        else if (chosenKey == null && !HasSource && !TargetIsProp() && AddedTarget == null && !propMode) await UseOwnModel(pkg.Key);
         // a prop target with no source of its own yet, and the source is another model's in this package (Kurt, 2026-10-27: the
         // character's body fitted onto Angela's axe; the hammer's new model swapped in for the axe): no source, the prop's own
         // model shows

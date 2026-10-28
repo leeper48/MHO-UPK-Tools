@@ -125,6 +125,7 @@ sealed partial class ModelPage : UserControl
         ShortcutsUi.Attach(mapBones, "model.bones"); ShortcutsUi.Attach(mapWeights, "model.weights");   // (right-click: their shortcuts)
         preview.BonePicked += SelectBoneRow;
         preview.MaterialPicked += SelectMaterialRow;
+        InitGizmo();   // (the move / turn gizmo on an added prop: ModelPage.Gizmo.cs)
         // condition material swaps in the preview (Kurt, 2026-10-12): the target costume and the build's slot order
         preview.TargetClass = () => ChosenPackage is CharacterList.Item it ? ConditionSwaps.ClassOf(it.Key) : null;
         preview.SlotOrder = names => MaterialOverrides.Ordered(names, OverridesFile());

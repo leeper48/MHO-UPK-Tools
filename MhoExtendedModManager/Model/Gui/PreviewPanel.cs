@@ -27,6 +27,19 @@ sealed partial class PreviewPanel : UserControl
     public Func<string, bool>? HiddenProps { get => p3.HiddenProps; set => p3.HiddenProps = value; }
     /// <summary>Shows the props again after HiddenProps' answers changed.</summary>
     public void RefreshProps() => p3.RebuildRig();
+    /// <summary>The move / turn gizmo (the Model tab: an added prop's fit): what to draw, asked at every paint.</summary>
+    public Func<ModelView.TransformGizmo?>? GizmoSource { get => view.GizmoSource; set { view.GizmoSource = value; view.Invalidate(true); } }
+    public event Action<int, float>? GizmoMoved { add => view.GizmoMoved += value; remove => view.GizmoMoved -= value; }
+    public event Action<int, float>? GizmoTurned { add => view.GizmoTurned += value; remove => view.GizmoTurned -= value; }
+    public event Action? GizmoReleased { add => view.GizmoReleased += value; remove => view.GizmoReleased -= value; }
+    public (System.Numerics.Matrix4x4 Frame, float Size)? PropBase(Func<string, bool> match) => p3.PropBase(match);
+    public void SetPropOffset(Func<string, bool> match, System.Numerics.Matrix4x4 offset) => p3.SetPropOffset(match, offset);
+    internal bool TestGizmoDrag(int handle, int dx, int dy, bool release = true) => view.TestGizmoDrag(handle, dx, dy, release);
+    internal void TestGizmoRelease() => view.TestGizmoRelease();
+    internal bool TestGizmoMouse(int handle, int dx, int dy, int steps, bool release) => view.TestGizmoMouse(handle, dx, dy, steps, release);
+    internal void TestGizmoMouseUp() => view.TestGizmoMouseUp();
+    internal (System.Numerics.Vector3 Mid, System.Numerics.Vector3 Dir)? PropShownForTest(Func<string, bool> match) => p3.PropShownForTest(match);
+    internal int GizmoLongestArrowForTest() => view.GizmoLongestArrow();
     readonly Button compare, edits;
     ModelView view => p3.View;
     MeshAnimator? animator => p3.Animator;

@@ -123,7 +123,7 @@ sealed partial class ModelPage
     async void PropPicked(CharacterList.Item it)
     {
         if (ChosenPackage is not CharacterList.Item pkg) { Log("Pick the costume to add the prop to under Target first."); return; }
-        if (addingProp) return;
+        if (addingProp) { Log($"{Plain(it.Title)}: one moment, a prop is still being added (click it again when the log says it's in)."); return; }
         addingProp = true;
         HidePropShow();   // (the target, to see it there)
         int kind = sourceKind.SelectedIndex;

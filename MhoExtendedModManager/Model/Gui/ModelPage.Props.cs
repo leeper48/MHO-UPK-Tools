@@ -135,6 +135,47 @@ sealed partial class ModelPage
         int fails = 0;
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
+        // MHO_TEST_GIZMO_ONLY = <package>: that target in the mod's packages, its first added prop picked, the gizmo dragged
+        // (a copy of a user's mod, to see what it does there)
+        if (Environment.GetEnvironmentVariable("MHO_TEST_GIZMO_ONLY") is { Length: > 0 } gpk)
+        {
+            if (targetKind.SelectedIndex != 0) { targetKind.SelectedIndex = 0; await Task.Delay(500); }
+            FillPackages(); Reselect(packages, gpk);
+            for (int i = 0; i < 300 && (ChosenPackage?.Key != gpk || refreshing); i++) await Task.Delay(100);
+            await Task.Delay(3000);
+            var ga = host.AddedProps(gpk).FirstOrDefault();
+            Check(ga != null, $"gizmo only: {gpk} has an added prop ({ga?.Name}; fit {System.Text.Json.JsonSerializer.Serialize(ga?.Fit)}; bone {ga?.Bone}); source {chosenKey ?? "none"}");
+            if (ga == null) return fails;
+            for (int i = 0; i < 100 && meshAdded.IndexOf(ga) < 0; i++) await Task.Delay(100);
+            PickAdded(ga);
+            for (int i = 0; i < 300 && (AddedTarget != ga || refreshing); i++) await Task.Delay(100);
+            await Task.Delay(4000);
+            Check(GizmoShownForTest, $"gizmo only: shown ({MeshCaption()}; props {preview.PropClassesForTest})");
+            Check(true, "(info) X arrow: " + await GizmoLiveForTest(0, 80, 0) + $" | fit now {System.Text.Json.JsonSerializer.Serialize(ga.Fit)}");
+            await Task.Delay(2000);
+            Check(true, "(info) Z ring: " + await GizmoLiveForTest(5, 60, 60) + $" | fit now {System.Text.Json.JsonSerializer.Serialize(ga.Fit)}");
+            // back to the body: its own model the source, its parts listed; the Target's Props list the hero's props too
+            meshPick.SelectedIndex = meshPick.SelectedIndex == 0 ? 1 : 0;
+            for (int i = 0; i < 600 && (parts.Rows.Count == 0 || refreshing); i++) await Task.Delay(100);
+            Check(parts.Rows.Count > 0, $"gizmo only: back on the body ({MeshCaption()}), its parts listed: {string.Join(", ", parts.Rows.Cast<DataGridViewRow>().Select(r => r.Cells["part"].Value))} (source {chosenKey})");
+            for (int i = 0; i < 100 && propSwitches.Count == 0; i++) await Task.Delay(100);
+            Check(propSwitches.Any(p => p.Kind == "Hero Prop"), $"gizmo only: the hero's props listed: {string.Join(", ", propSwitches.Select(p => p.Label + " (" + p.Kind + ")"))}");
+            if (propSwitches.FirstOrDefault(p => p.Kind == "Hero Prop") is { } hp && ModCopy(gpk) is string mc)
+            {
+                var e1 = new PartOffEntry { Package = hp.Package, Part = hp.Part, Switch = hp.Key, Original = hp.Original };
+                var lg = new List<string>();
+                string tmp = Path.Combine(Path.GetTempPath(), "mho_heroprop_" + gpk);
+                File.WriteAllBytes(tmp, PowerParts.Apply(mc, [(e1, true)], lg));
+                var offList = MhoExtendedModManager.ModMeshes.AttachmentClasses(tmp) ?? [];
+                File.WriteAllBytes(tmp, PowerParts.Apply(tmp, [(e1, false)], lg));
+                var onList = MhoExtendedModManager.ModMeshes.AttachmentClasses(tmp) ?? [];
+                File.Delete(tmp);
+                Check(!offList.Contains(hp.PartName, StringComparer.OrdinalIgnoreCase) && onList.Contains(hp.PartName, StringComparer.OrdinalIgnoreCase),
+                    $"gizmo only: {hp.Label} left off ({offList.Count} props: {string.Join(", ", offList)}) and back ({onList.Count}) | {string.Join(" | ", lg)}");
+            }
+            Check(true, "(info) log: " + string.Join(" | ", log.Lines.TakeLast(12)));
+            return fails;
+        }
         Check(Props.Count > 1000, $"the props table: {Props.Count} rows");
         if (!GameMode) { sourceKind.SelectedIndex = 2; await Task.Delay(300); }
         sourceKindTab = 0; FillCharacters();
@@ -381,6 +422,69 @@ sealed partial class ModelPage
         for (int i = 0; i < 300 && host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Path == afterAdd; i++) await Task.Delay(100);
         string? afterFit = host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Path;
         Check(e.Fit.Z == 15 && afterFit != afterAdd && afterAdd != before, $"Move Z let go: the fit kept (Z {e.Fit.Z}) and put into the package (a new copy)");
+        // the gizmo (Kurt, 2026-10-27): shown on the picked added prop; an arrow dragged moves it, a ring dragged turns it
+        for (int i = 0; i < 100 && !GizmoShownForTest; i++) await Task.Delay(100);
+        Check(GizmoShownForTest, "Gizmo: shown on the picked added prop");
+        ToggleGizmoForTest(); bool hidden = !GizmoShownForTest; ToggleGizmoForTest();
+        Check(hidden && GizmoShownForTest, "Gizmo: the Gizmo button hides it and shows it again");
+        await Task.Delay(3000);   // (the slider's fit put in and the preview read again)
+        for (int i = 0; i < 100 && !GizmoShownForTest; i++) await Task.Delay(100);
+        Check(true, "(info) game prop, X arrow: " + await GizmoLiveForTest(0, 80, 0));
+        await Task.Delay(2000);
+        Check(true, "(info) game prop, Z ring: " + await GizmoLiveForTest(5, 60, 60));
+        await Task.Delay(2000);
+        // world X / Y / Z (Kurt, 2026-10-28): the X arrow moves the prop along the world's X, the Z ring turns it around the world's Z
+        var s0 = GizmoStateForTest();
+        var g0 = (e.Fit.X, e.Fit.Y, e.Fit.Z);
+        bool dragged = TestGizmo(0, 80, 0) || TestGizmo(0, 0, 80);
+        for (int i = 0; i < 300 && (e.Fit.X, e.Fit.Y, e.Fit.Z) == g0; i++) await Task.Delay(100);
+        await Task.Delay(3000);
+        for (int i = 0; i < 100 && !GizmoShownForTest; i++) await Task.Delay(100);
+        var s1 = GizmoStateForTest();
+        var shift = s0 is { } a0 && s1 is { } a1 ? a1.Center - a0.Center : System.Numerics.Vector3.Zero;
+        Check(dragged && MathF.Abs(shift.X) > 1 && MathF.Abs(shift.Y) < 0.3f && MathF.Abs(shift.Z) < 0.3f,
+            $"Gizmo: the X arrow moves it along the world's X only (moved {shift.X:0.##}, {shift.Y:0.##}, {shift.Z:0.##}; fit {e.Fit.X}, {e.Fit.Y}, {e.Fit.Z}) and puts it in");
+        var t0 = (e.Fit.TurnX, e.Fit.TurnY, e.Fit.TurnZ);
+        bool turned = TestGizmo(5, 60, 60) || TestGizmo(5, -60, 60);
+        for (int i = 0; i < 300 && (e.Fit.TurnX, e.Fit.TurnY, e.Fit.TurnZ) == t0; i++) await Task.Delay(100);
+        await Task.Delay(3000);
+        for (int i = 0; i < 100 && !GizmoShownForTest; i++) await Task.Delay(100);
+        var s2 = GizmoStateForTest();
+        string turnSay = "no state";
+        bool aroundZ = false;
+        if (s1 is { } b1 && s2 is { } b2 && System.Numerics.Matrix4x4.Invert(b1.World, out var inv1))
+        {
+            // the change from before to after, about the centre: its axis (row vectors: before · D = after)
+            var d = inv1 * b2.World;
+            var ax = new System.Numerics.Vector3(d.M23 - d.M32, d.M31 - d.M13, d.M12 - d.M21);
+            // in world terms: the before placement's rotation carries it; compare the world change W = B1⁻¹·B2 on directions
+            var wx = System.Numerics.Vector3.TransformNormal(System.Numerics.Vector3.UnitX, b2.World) - System.Numerics.Vector3.TransformNormal(System.Numerics.Vector3.UnitX, b1.World);
+            var dirs = new[] { System.Numerics.Vector3.UnitX, System.Numerics.Vector3.UnitY, System.Numerics.Vector3.UnitZ };
+            // a world-Z turn keeps every direction's Z the same and the centre where it was
+            float dzMax = dirs.Max(v => MathF.Abs(System.Numerics.Vector3.TransformNormal(v, b2.World).Z - System.Numerics.Vector3.TransformNormal(v, b1.World).Z));
+            float centre = (b2.Center - b1.Center).Length();
+            float change = dirs.Max(v => (System.Numerics.Vector3.TransformNormal(v, b2.World) - System.Numerics.Vector3.TransformNormal(v, b1.World)).Length());
+            aroundZ = change > 0.05f && dzMax < 0.02f * Math.Max(1, change * 10) && centre < 0.3f;
+            turnSay = $"directions changed by up to {change:0.###}, their Z by up to {dzMax:0.####}, centre moved {centre:0.##}";
+        }
+        Check(turned && aroundZ, $"Gizmo: the Z ring turns it around the world's Z only ({turnSay}; turn {t0} → {e.Fit.TurnX}, {e.Fit.TurnY}, {e.Fit.TurnZ})");
+        await Task.Delay(800);
+        // Build into Mod with no source: the fit as it shows put in, said in the log
+        propMoveY.Value = 4;
+        string? beforeBuild = host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Path;
+        bool builtFit = await BuildAsync();
+        Check(builtFit && e.Fit.Y == 4 && host.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Path != beforeBuild && log.Text.Contains("fit is in"),
+            $"Build into Mod with no source: the fit put in (Y {e.Fit.Y}) and said so");
+        await Task.Delay(1500);
+        // the live offset matches the built fit: the prop's frame where the gizmo put it after the package reloads
+        if (Environment.GetEnvironmentVariable("MHO_TEST_GIZMOSHOT") is { Length: > 0 } gshot)
+        {
+            await Task.Delay(1500);
+            var form = FindForm()!;
+            using var bmp = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
+            bmp.Save(gshot);
+        }
         // Held On ▾ for the added prop: the left palm, then its own again
         if (await HeldOnReady() is string ac && ac.Equals(cls, StringComparison.OrdinalIgnoreCase))
         {
@@ -469,12 +573,23 @@ sealed partial class ModelPage
             for (int i = 0; i < 600 && model?.Folder.Equals(mffChar, StringComparison.OrdinalIgnoreCase) != true; i++) await Task.Delay(100);
             Check(model?.Parts.Any(p => p.Name.Equals(partName, StringComparison.OrdinalIgnoreCase)) == true, $"Add as a Prop: the source has {partName} ({model?.Folder ?? "no MFF source"})");
             var ap = await AddPartProp(partName);
-            string? PartMesh() => ap != null && ModCopy(file) is string dp ? MhoExtendedModManager.ModMeshes.Attachments(dp).FirstOrDefault(x => x.Class.Equals(ap.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last() : null;
+            string? PartMesh() => ap != null && ModCopy(file) is string dp ? MhoExtendedModManager.ModMeshes.Attachments(dp).FirstOrDefault(x => PowerBorrow.SameClass(x.Class, ap.Class))?.Mesh.Split('.').Last() : null;
             for (int i = 0; i < 300 && PartMesh()?.Contains("_m") != true; i++) await Task.Delay(100);
             Check(ap != null && ap.KeepShape && ap.Bone != null && ap.Name.EndsWith("(MFF)") && PartMesh()?.Contains("_m") == true,
                 $"Add as a Prop: {ap?.Name ?? "-"} on {ap?.Bone ?? "-"}, its model built ({PartMesh()})");
             for (int i = 0; i < 200 && !preview.PropClassesForTest.Contains(ap?.Class ?? "?", StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
             Check(ap != null && preview.PropClassesForTest.Contains(ap.Class, StringComparison.OrdinalIgnoreCase), $"Add as a Prop: in the preview ({preview.PropClassesForTest})");
+            if (ap != null)
+            {
+                // the gizmo on it, held on another bone (Kurt's Doom: the sword on g_r_wrist)
+                PickAdded(ap);
+                await SetAddedBone(ap, "g_l_wrist");
+                for (int i = 0; i < 100 && (!GizmoShownForTest || refreshing); i++) await Task.Delay(100);
+                await Task.Delay(3000);
+                Check(true, "(info) MFF prop on g_l_wrist, X arrow: " + await GizmoLiveForTest(0, 80, 0));
+                await Task.Delay(2000);
+                Check(true, "(info) MFF prop on g_l_wrist, Z ring: " + await GizmoLiveForTest(5, 60, 60));
+            }
             if (ap != null) { addedPick = ap; RemovePropClicked(); for (int i = 0; i < 300 && meshAdded.Contains(ap); i++) await Task.Delay(100); }
         }
 
@@ -482,10 +597,11 @@ sealed partial class ModelPage
         // props without changing the source or the target; a click on the prop adds it to the target
         if (Environment.GetEnvironmentVariable("MHO_TEST_PROPMODE") is { Length: > 0 } pmSpec && pmSpec.Split('|') is [var pmFile, var pmMesh])
         {
-            string? targetBefore = ChosenPackage?.Key, sourceBefore = chosenKey;
+            string? targetBefore = ChosenPackage?.Key;
             SetView(1);
             Check(propMode && CurrentView == 1 && sourceSummonsPanel.Visible, "Props view: on, the props list under the characters");
             if (!GameMode) { sourceKind.SelectedIndex = 2; await Task.Delay(300); }
+            string? sourceBefore = chosenKey;
             sourceKindTab = 0; characterFilter.Text = ""; expanded.Add("game " + DescribePackage(pmFile).Title); FillCharacters();
             int ci = characters.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key.Equals(GameSrc + pmFile, StringComparison.OrdinalIgnoreCase));
             if (ci >= 0) characters.SelectedIndex = ci;
@@ -505,8 +621,9 @@ sealed partial class ModelPage
                 for (int i = 0; i < 300 && !host.AddedProps(targetBefore).Any(a => a.Class.Equals(pmCls, StringComparison.OrdinalIgnoreCase)); i++) await Task.Delay(100);
                 var added = host.AddedProps(targetBefore).FirstOrDefault(a => a.Class.Equals(pmCls, StringComparison.OrdinalIgnoreCase));
                 Check(added != null && ChosenPackage?.Key == targetBefore, $"Props view: a click adds {pmCls} to {targetBefore} ({added?.Name ?? "not added"}, from {added?.From ?? "-"})");
-                for (int i = 0; i < 200 && !preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
-                Check(preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase), $"Props view: in the preview ({preview.PropClassesForTest})");
+                bool animated = Props[int.Parse(pr.Key[PropGame.Length..])].Kind == "other";   // (shown only while an animation of its own plays)
+                for (int i = 0; i < 200 && !animated && !preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
+                Check(animated || preview.PropClassesForTest.Contains(pmCls, StringComparison.OrdinalIgnoreCase), $"Props view: in the preview ({(animated ? "an animated prop: not without its animation" : preview.PropClassesForTest)})");
                 Check(!PropShowForTest.Shown, "Props view: adding it shows the target again");
                 // Revert to Last Build: the package as built, the props as they were then (the one just added gone)
                 if (added != null && LastBuildOf(targetBefore) is { } lb)
@@ -537,11 +654,13 @@ sealed partial class ModelPage
                 Check(sr != null, $"Props view: the summon {sumFile} listed");
                 if (sr != null)
                 {
+                    for (int i = 0; i < 300 && addingProp; i++) await Task.Delay(100);   // (the add before it finishes first)
                     int had = host.AddedProps(targetBefore).Count;
                     PropPicked(sr);
                     for (int i = 0; i < 900 && (host.AddedProps(targetBefore).Count == had || addingProp); i++) await Task.Delay(100);
                     var sa = host.AddedProps(targetBefore).FirstOrDefault(a => a.Name.EndsWith("(Summon)") || a.Name.EndsWith("(Power Model)"));
                     Check(sa != null && sa.KeepShape, $"Props view: the summon added as a model of its own ({sa?.Name ?? "not added"}, carried by {sa?.Class ?? "-"})");
+                    if (sa == null) Check(false, "  the tab's log: " + string.Join(" | ", log.Lines.TakeLast(25)));
                     for (int i = 0; i < 200 && sa != null && !preview.PropClassesForTest.Contains(sa.Class, StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
                     Check(sa != null && preview.PropClassesForTest.Contains(sa.Class, StringComparison.OrdinalIgnoreCase), $"Props view: the summon in the preview ({preview.PropClassesForTest})");
                     Check(GameMode && propMode, $"Props view: still From the Game in the Props view after the build (source kind {sourceKind.SelectedIndex})");
@@ -558,7 +677,7 @@ sealed partial class ModelPage
             var raw = FbxReimport.Raw(fbxProp);
             float want = (raw.Max - raw.Min).Length();
             var f = await AddFbxProp(file, fbxProp);
-            string? FbxMesh() => f != null && ModCopy(file) is string dp ? MhoExtendedModManager.ModMeshes.Attachments(dp).FirstOrDefault(x => x.Class.Equals(f.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last() : null;
+            string? FbxMesh() => f != null && ModCopy(file) is string dp ? MhoExtendedModManager.ModMeshes.Attachments(dp).FirstOrDefault(x => PowerBorrow.SameClass(x.Class, f.Class))?.Mesh.Split('.').Last() : null;
             float Size(string? meshName)
             {
                 if (meshName == null || ModCopy(file) is not string path) return 0;
@@ -575,6 +694,14 @@ sealed partial class ModelPage
             Check(got > 0 && MathF.Abs(got / want - 1) < 0.05f && log.Text.Contains("kept as made"), $"From an FBX: kept as made ({got:0.#} units, the file's {want:0.#})");
             for (int i = 0; i < 200 && !preview.PropClassesForTest.Contains(f?.Class ?? "?", StringComparison.OrdinalIgnoreCase); i++) await Task.Delay(100);
             Check(f != null && preview.PropClassesForTest.Contains(f.Class, StringComparison.OrdinalIgnoreCase), $"From an FBX: in the preview ({preview.PropClassesForTest})");
+            if (f != null)
+            {
+                for (int i = 0; i < 100 && (!GizmoShownForTest || refreshing); i++) await Task.Delay(100);
+                await Task.Delay(2000);
+                Check(true, "(info) FBX prop, X arrow: " + await GizmoLiveForTest(0, 80, 0));
+                await Task.Delay(2000);
+                Check(true, "(info) FBX prop, Z ring: " + await GizmoLiveForTest(5, 60, 60));
+            }
             if (f != null) { addedPick = f; RemovePropClicked(); for (int i = 0; i < 300 && meshAdded.Contains(f); i++) await Task.Delay(100); }
         }
     }

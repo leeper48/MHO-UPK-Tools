@@ -204,6 +204,28 @@ sealed class PropRig
         return null;
     }
 
+    /// <summary>The same for each prop whose class <paramref name="match"/> takes (the Model tab's gizmo: the fit being dragged).</summary>
+    public void SetOffset(Func<string, bool> match, Matrix4x4 offset)
+    {
+        for (int i = 0; i < props.Count && i < offsets.Count; i++) if (match(props[i].Class)) offsets[i] = offset;
+    }
+
+    /// <summary>Where the first prop whose class <paramref name="match"/> takes is held, without its offset: its own transform,
+    /// then its bone as last posed; null when the rig has none (the Model tab's gizmo).</summary>
+    public (Matrix4x4 Frame, float Size)? BaseFrame(Func<string, bool> match, MeshAnimator animator)
+    {
+        for (int i = 0; i < props.Count; i++)
+        {
+            if (!match(props[i].Class)) continue;
+            int bone = props[i].Bone;
+            var lo = new Vector3(float.MaxValue); var hi = new Vector3(float.MinValue);
+            foreach (var p in props[i].Mesh.Positions) { lo = Vector3.Min(lo, p); hi = Vector3.Max(hi, p); }
+            float size = props[i].Mesh.Positions.Length == 0 ? 20 : (hi - lo).Length();
+            return (props[i].Mesh.MeshTransform * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone)), size);
+        }
+        return null;
+    }
+
     /// <summary>A prop's offset changed (the size reference dragged): shown at the next Update.</summary>
     public void SetOffset(string cls, Matrix4x4 offset)
     {

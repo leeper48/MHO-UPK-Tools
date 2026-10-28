@@ -1881,7 +1881,17 @@ static class PowerBorrow
         string cls = e.Class.ToLowerInvariant(), def = "marvelgamecontent.default__" + cls;
         int ClassExport(Package p) => Array.FindIndex(p.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && p.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
         // there already, perhaps renamed by Save's Make Unique (marvelattachment_thorhammer_<mod tag>): that one, by its own name
-        if (HeldClass(dst, cls) is int had && had >= 0) { cls = dst.Exports[had].ObjectName.ToLowerInvariant(); def = "marvelgamecontent.default__" + cls; }
+        if (HeldClass(dst, cls) is int had && had >= 0)
+        {
+            cls = dst.Exports[had].ObjectName.ToLowerInvariant(); def = "marvelgamecontent.default__" + cls;
+            // added by an earlier version under its own character's name: renamed now (another character's prop only)
+            if (cls.Equals(e.Class, StringComparison.OrdinalIgnoreCase) && !e.From.Equals(e.Package, StringComparison.OrdinalIgnoreCase)
+                && !(StockFiles.Cooked is string ck && File.Exists(StockFiles.For(ck, e.Package)) && Package.Open(StockFiles.For(ck, e.Package)).Exports.Any(x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase))))   // (not a class the costume has itself)
+                dst = OwnClassName(dst, cls, def, e.Package, log, out cls, out def);
+        }
+        // there under its own name but off the list (unticked, then ticked again): that one
+        else if (Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(OwnName(cls, e.Package), StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase)) is int own && own >= 0)
+        { cls = dst.Exports[own].ObjectName.ToLowerInvariant(); def = "marvelgamecontent.default__" + cls; }
         else
         {
             var hp = Package.Open(fromPath);
@@ -1893,12 +1903,16 @@ static class PowerBorrow
             log.Add($"{e.Class} copied from {Path.GetFileName(fromPath)}");
             // bones the costume's skeleton doesn't have: its root
             if (CostumeBones(dst) is { Count: > 0 } bones) dst = RootMissingBones(dst, def, bones, log);
+            // a name of its own in this costume (Kurt, 2026-10-27: Doom showed Angela's axe and another mod's Agatha instead of
+            // his added props): the game knows a class by its path, so the copy loaded first (Angela's own, another mod's
+            // carrier of the same class) is the one every costume gets
+            dst = OwnClassName(dst, cls, def, e.Package, log, out cls, out def);
         }
         // the fit, from the original model (a refit replaces the earlier one)
         int d = Find(dst, def);
         if (d < 0) throw new InvalidDataException($"{def} isn't in the package");
         dst = WithOriginalModel(dst, def, log);
-        dst = WithModel(dst, def, modelFrom, log);   // (a model of its own: then the fit is made from that)
+        dst = WithModel(dst, def, modelFrom, log, "marvelgamecontent.default__" + e.Class.ToLowerInvariant());   // (a model of its own: then the fit is made from that)
         var f = e.Fit;
         float scale = f.Scale is float fs && fs > 0 ? fs : 1;
         var move = new System.Numerics.Vector3(f.X, f.Y, f.Z);
@@ -1939,6 +1953,68 @@ static class PowerBorrow
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{e.Class} added to {dst.Exports[pd].ObjectName}'s props ({n + 1} now)");
         return e.Fit.PinPivot ? hold(output, e, pinBones, log) : output;
+    }
+
+    /// <summary>
+    /// A prop the costume gets from its hero (its class in the hero's base package: Doctor Doom Classic's pistol and throne) taken
+    /// off this costume's prop list, or put back on it (Kurt, 2026-10-28: the Target's Props list shows them; untick = left off).
+    /// A costume without a list of its own is given one first (the hero's). <paramref name="classPath"/>: the class's path
+    /// (marvelgamecontent.marvelattachment_drdoom_pistol). Verified; throws InvalidDataException with the reason.
+    /// </summary>
+    public static byte[] SetListed(byte[] package, string costumeFile, string classPath, bool listed, List<string> log)
+    {
+        var dst = Package.FromBytes(package);
+        int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+        if (pd < 0) throw new InvalidDataException("the package has no player class default (not a costume)");
+        if (TagWalker.Walk(dst, dst.ReadExportBytes(dst.Exports[pd]).ToArray(), 4)?.Any(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) != true)
+            dst = WithOwnPropList(dst, pd, costumeFile, log);
+        byte[] b = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
+        var at = TagWalker.Walk(dst, b, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase))
+                 ?? throw new InvalidDataException("the costume's prop list doesn't read");
+        var t = new Fx.FxTables(dst);
+        int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(at.ValueAt));
+        var refs = Enumerable.Range(0, n).Select(k => BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(at.ValueAt + 4 + 4 * k))).ToList();
+        int had = refs.FindIndex(r => r != 0 && t.PathOf(r).Equals(classPath, StringComparison.OrdinalIgnoreCase));
+        if (listed == (had >= 0)) return dst.RawFile;
+        var addNames = new List<string>(); var addImports = new List<NewImport>();
+        if (listed) refs.Add(ClassRef(dst, t, classPath, addNames, addImports)); else refs.RemoveAt(had);
+        var value = new byte[4 + 4 * refs.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(value, refs.Count);
+        for (int k = 0; k < refs.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * k), refs[k]);
+        byte[] nb = [.. b.AsSpan(0, at.ValueAt), .. value, .. b.AsSpan(at.End)];
+        BinaryPrimitives.WriteInt32LittleEndian(nb.AsSpan(at.Start + 16), value.Length);
+        var rep = new Dictionary<int, Func<long, byte[]>> { [pd] = _ => nb };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames, addImports);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames, addImports);
+        if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
+        log.Add($"{classPath[(classPath.LastIndexOf('.') + 1)..]}: {(listed ? "back on" : "taken off")} {dst.Exports[pd].ObjectName}'s props ({refs.Count} now)");
+        return output;
+    }
+
+    /// <summary>A class by its path in <paramref name="dst"/>: an export or import there already, else imported (its outers as
+    /// package imports; names and imports to add collected).</summary>
+    static int ClassRef(Package dst, Fx.FxTables t, string path, List<string> addNames, List<NewImport> addImports)
+    {
+        for (int k = 0; k < dst.Exports.Length; k++) if (t.PathOf(k + 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return k + 1;
+        for (int k = 0; k < dst.Imports.Length; k++) if (t.PathOf(-k - 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return -k - 1;
+        void Name(string n) { if (!dst.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase)) && !addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n); }
+        string[] parts = path.Split('.');
+        int outer = 0;
+        for (int k = 0; k < parts.Length; k++)
+        {
+            string cn = k == parts.Length - 1 ? "Class" : "Package";
+            int found = Array.FindIndex(dst.Imports, im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer && im.ClassName.Equals(cn, StringComparison.OrdinalIgnoreCase));
+            if (found >= 0) { outer = -1 - found; continue; }
+            int added = addImports.FindIndex(im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer);
+            if (added < 0)
+            {
+                foreach (string n in new[] { "Core", cn, parts[k] }) Name(n);
+                addImports.Add(new NewImport("Core", cn, outer, parts[k]));
+                added = addImports.Count - 1;
+            }
+            outer = -(dst.Imports.Length + added + 1);
+        }
+        return outer;
     }
 
     /// <summary>
@@ -2136,6 +2212,44 @@ static class PowerBorrow
     /// A prop class of the package: <paramref name="cls"/> itself, else one Save's Make Unique renamed (<paramref name="cls"/> +
     /// "_" + the mod's tag) that the costume's own props list. -1 when there's none.
     /// </summary>
+    /// <summary>An added prop's class in a package (renamed there to <c>&lt;class&gt;_on_&lt;costume&gt;</c>, or as it is) is
+    /// the added prop <paramref name="added"/> (its class's own name).</summary>
+    public static bool SameClass(string inPackage, string added) =>
+        inPackage.Equals(added, StringComparison.OrdinalIgnoreCase) || inPackage.StartsWith(added + "_on_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The class just copied in renamed with its default to <c>&lt;class&gt;_on_&lt;costume&gt;</c> (as Make Unique renames shared
+    /// attachment classes, confirmed in game 2026-10-11). Verified; the new names come back in <paramref name="newCls"/> and
+    /// <paramref name="newDef"/>.
+    /// </summary>
+    /// <summary>An added prop's class name in a costume: &lt;class&gt;_on_&lt;costume&gt; (drdoom_classic).</summary>
+    static string OwnName(string cls, string costumeFile)
+    {
+        string stem = Path.GetFileNameWithoutExtension(costumeFile);
+        foreach (string pre in new[] { "UC__MarvelPlayer_", "UC__MarvelTeamUp_", "UC__" }) if (stem.StartsWith(pre, StringComparison.OrdinalIgnoreCase)) { stem = stem[pre.Length..]; break; }
+        if (stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) stem = stem[..^3];
+        return $"{cls.ToLowerInvariant()}_on_{new string(stem.ToLowerInvariant().Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray())}";
+    }
+
+    static Package OwnClassName(Package dst, string cls, string def, string costumeFile, List<string> log, out string newCls, out string newDef)
+    {
+        newCls = cls; newDef = def;
+        string name = OwnName(cls, costumeFile);
+        int ce = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
+        int d = Find(dst, def);
+        if (ce < 0 || d < 0 || dst.Exports.Any(x => x.ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase))) return dst;
+        var renames = new Dictionary<int, string> { [ce] = name, [d] = "default__" + name };
+        var addNames = renames.Values.Where(n => !dst.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
+        byte[] output = PackageRebuilder.Rebuild(dst, new Dictionary<int, Func<long, byte[]>>(), [], out var written, addNames, null, renames);
+        var problems = PackageRebuilder.Verify(dst, output, [], [], written, addNames, null, renames);
+        if (problems.Count > 0) throw new InvalidDataException("the prop's class couldn't be given a name of its own: " + string.Join("; ", problems.Take(2)));
+        var back = Package.FromBytes(output);
+        if (Find(back, "marvelgamecontent.default__" + name) < 0) throw new InvalidDataException("the prop's class didn't read back under its own name");
+        log.Add($"  {cls} → {name} (a name of its own: the game knows a class by its path, so another copy of it would win)");
+        newCls = name; newDef = "marvelgamecontent.default__" + name;
+        return back;
+    }
+
     static int HeldClass(Package p, string cls)
     {
         bool IsClass(int i) => p.ClassOf(p.Exports[i]).Equals("Class", StringComparison.OrdinalIgnoreCase);
@@ -2194,7 +2308,7 @@ static class PowerBorrow
     /// a name of its own (&lt;its character's model&gt;_m&lt;number from that model's bytes&gt;: the same model, the same copy), or with
     /// none, its character's own model again. The attachment's ModelMesh points at it; the fit is made from it after.
     /// </summary>
-    static Package WithModel(Package dst, string classDefault, string? modelFrom, List<string> log)
+    static Package WithModel(Package dst, string classDefault, string? modelFrom, List<string> log, string? otherDefault = null)
     {
         int d = Find(dst, classDefault);
         if (d < 0) return dst;
@@ -2214,6 +2328,14 @@ static class PowerBorrow
         {
             src = Package.Open(modelFrom);
             int sd = Find(src, classDefault);
+            if (sd < 0 && otherDefault != null) sd = Find(src, otherDefault);   // (a model built before the class had a name of its own)
+            if (sd < 0 && otherDefault != null)   // (or under another costume's name for it)
+            {
+                string stem = otherDefault[(otherDefault.LastIndexOf('.') + 1)..] + "_on_";
+                sd = Array.FindIndex(src.Exports, x => x.ObjectName.StartsWith(stem, StringComparison.OrdinalIgnoreCase) && !src.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
+            }
+            if (sd < 0)
+                throw new InvalidDataException($"its new model isn't in {Path.GetFileName(modelFrom)} (no {classDefault[(classDefault.LastIndexOf('.') + 1)..]} there; its attachment defaults: {string.Join(", ", src.Exports.Where(x => x.ObjectName.StartsWith("default__marvelattachment", StringComparison.OrdinalIgnoreCase)).Select(x => x.ObjectName).Take(6))})");
             byte[] sb = sd >= 0 ? src.ReadExportBytes(src.Exports[sd]).ToArray() : [];
             if (sd < 0 || TagWalker.Walk(src, sb, 4)?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase)) is not { } smt
                 || BinaryPrimitives.ReadInt32LittleEndian(sb.AsSpan(smt.ValueAt)) < 1 || (srcMesh = BinaryPrimitives.ReadInt32LittleEndian(sb.AsSpan(smt.ValueAt + 4)) - 1) < 0 || !IsMesh(src, srcMesh))

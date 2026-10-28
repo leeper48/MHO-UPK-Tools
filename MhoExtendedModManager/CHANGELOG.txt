@@ -1,6 +1,28 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.215
+- Model tab: stepping back to a costume's body (◀ ▶) when it has no source of its own makes its own model the source, so its parts (body, cape) are listed again, as Paint already did.
+- The Target's Props list the props a costume gets from its hero too (Doctor Doom Classic's pistol and throne, kind Hero Prop); untick one to leave it off this costume (Save takes it off the costume's prop list; tick it to put it back).
+
+0.60.214
+- Model tab: the log says what a gizmo drag changed when it's let go, and each added prop fit put into its package.
+
+0.60.213
+- Model tab: the prop gizmo is lined up with the world's X / Y / Z (Z up) instead of the prop's own axes: an arrow moves the prop along the world's axis, a ring turns it around it; the Prop Fit sliders follow in the prop's own terms.
+
+0.60.212
+- Model tab: Build into Mod with an added prop picked and no source puts its fit (as the sliders and the gizmo show it) into the package and says so in the log (it said "nothing to build").
+- Model tab, Prop Fit: a Gizmo icon button beside Reset Fit (now an icon button too) shows or hides the move / turn gizmo (remembered).
+
+0.60.211
+- Model tab: a move / turn gizmo on the picked added prop, colored X red, Y green, Z blue. Drag an arrow to move the prop along that axis, drag a ring to turn it around that axis only (5° steps, Shift: 1°); it moves in the preview as you drag, and letting go puts the fit in, as the Prop Fit sliders do.
+- Build into Mod with an added prop picked and no source no longer asks to put its character's model back (its fit needs no build); that's now on its right-click menu: Use Its Character's Model.
+
+0.60.210
+- Added props get a class name of their own in each costume (<class>_on_<costume>). The game knows a prop's class by its path, so a copy loaded first won: Doctor Doom showed Angela's axe and another mod's model instead of his added Red She-Hulk sword and squirrel. Props added by earlier versions are renamed the next time the mod is saved.
+- Model tab, Props: a click while a prop is still being added says so in the log (it was ignored); Revert to Original keeps the character picked on the left in the Props view.
+
 0.60.209
 - Model tab, Props: a prop shown with a left click has its texture the right way up (it was flipped).
 

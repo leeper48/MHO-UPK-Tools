@@ -360,6 +360,7 @@ sealed partial class ModelView : UserControl
         canvas.MouseDown += (_, e) =>
         {
             downAt = e.Location; canvas.Focus();
+            if (GizmoMouseDown(e)) { dragFrom = null; return; }   // (a move / turn handle: ModelView.Gizmo.cs)
             if (PaintMouseDown(e)) return;   // (weight painting: ModelView.Paint.cs)
             // the size reference under the pointer: dragged along the floor, not the camera (Kurt, 2026-10-23)
             if (e.Button == MouseButtons.Left && GizmoHit(e.Location) == null && StartPartDrag(e.Location)) { dragFrom = null; return; }
@@ -370,6 +371,7 @@ sealed partial class ModelView : UserControl
         canvas.MouseUp += (_, e) =>
         {
             if (partDrag != null) { partDrag = null; fast = false; Redraw(); PartDropped?.Invoke(); return; }
+            if (GizmoMouseUp()) return;
             if (PaintMouseUp(e)) return;
             bool moved = dragFrom != null; dragFrom = null; fast = false;
             // a click (no drag) on an axis ball: look along that axis, flat (Kurt, 2026-10-23: as Blender's gizmo; Shift: from
@@ -381,6 +383,7 @@ sealed partial class ModelView : UserControl
         canvas.MouseMove += (_, e) =>
         {
             if (partDrag != null) { DragPartTo(e.Location); return; }
+            if (GizmoMouseMove(e)) return;
             if (PaintMouseMove(e)) return;
             if (dragFrom == null) canvas.Cursor = DragPart != null && PartUnder(e.Location) != null ? Cursors.SizeAll : Cursors.Default;
             Drag(e);
@@ -686,6 +689,7 @@ sealed partial class ModelView : UserControl
         }
         PaintGuides?.Invoke(g, canvas.ClientRectangle);
         PaintMarkers(g);
+        PaintGizmo(g);
         PaintBrush(g);
         PaintAxes(g);
     }

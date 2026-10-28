@@ -51,8 +51,17 @@ sealed partial class ModelPage
         Ui.Tip(propTurnX, "Turns the prop around X, around the bone it's held on (the grip). Double-click: back to 0.");
         Ui.Tip(propScale, "The prop's size, around the bone it's held on. Double-click: back to 100 %.");
         var reset = Ui.FlatButton("Reset Fit", ResetFit, "Puts every Prop Fit slider back (no move, no turn, 100 %; an added prop: turned as it's made for this hand).");
-        reset.Margin = new Padding(8, 2, 0, 0); reset.Anchor = AnchorStyles.Left;
-        box.Controls.Add(reset, 1, 3);
+        reset.Margin = new Padding(0, 0, 6, 0);
+        // the gizmo on or off (Kurt, 2026-10-28; remembered)
+        gizmoButton = Ui.FlatButton("Gizmo", ToggleGizmo, "Shows or hides the move / turn gizmo on the added prop in the preview: drag a colored arrow to move it along X (red), Y (green) or Z (blue), a ring to turn it around that axis (5° steps, Shift: 1°).");
+        gizmoButton.Margin = new Padding(0);
+        float sc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
+        Icons.Make(reset, "Reset Fit", Icons.Reset, sc);
+        Icons.Make(gizmoButton, "Gizmo", Icons.Gizmo, sc);
+        Ui.Lit(gizmoButton, Settings.Current.Preview.Gizmo);
+        var fitButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(8, 2, 0, 0), Anchor = AnchorStyles.Left };
+        fitButtons.Controls.AddRange([reset, gizmoButton]);
+        box.Controls.Add(fitButtons, 1, 3);
         heldOn.Dock = DockStyle.Fill; heldOn.Margin = new Padding(0, 6, 0, 0);
         box.Controls.Add(heldOn, 0, 4);
         box.SetColumnSpan(heldOn, 2);
@@ -186,9 +195,12 @@ sealed partial class ModelPage
     static PropAdjust AddedAdjust(MhoExtendedModManager.PropFit f) => new(f.X, f.Y, f.Z, f.TurnX, f.TurnY, f.TurnZ, f.Scale is float s && s > 0 ? s : 1);
 
     /// <summary>An added prop's slider let go: its fit kept in the mod and put into the package (the preview reloads after).</summary>
-    async void AddedFitCommitted()
+    async void AddedFitCommitted() => await PutAddedFit();
+
+    /// <summary>The added prop's fit as the sliders have it, kept in the mod and put into its package (also Build into Mod's).</summary>
+    async Task<bool> PutAddedFit()
     {
-        if (settingPropFit || addedPick is not { } e) return;
+        if (settingPropFit || addedPick is not { } e) return false;
         string before = PropBefore();
         var f = e.Fit;
         f.Scale = Math.Abs(propScale.Value - 1) > 0.005f ? MathF.Round(propScale.Value, 2) : null;
@@ -197,9 +209,11 @@ sealed partial class ModelPage
         status.Text = "Putting the prop's fit in…";
         bool ok = await host.RefitAddedProp(e);
         if (ok) PropDone(before, $"Prop Fit of {e.Name}");
-        if (IsDisposed) return;
+        if (IsDisposed) return ok;
         if (!ok) Log($"{e.Name}: the fit couldn't be put in (see the message).");
+        else Log($"{e.Name}: fit in {e.Package} (move {f.X:0.#}, {f.Y:0.#}, {f.Z:0.#}; turn {f.TurnX:0}°, {f.TurnY:0}°, {f.TurnZ:0}°; held on {e.Bone ?? "its own bone"}).");
         UpdateStatus();
+        return ok;
     }
 
     void ResetFit()

@@ -17,7 +17,20 @@ sealed partial class ModelPage
     public async Task<bool> BuildAsync()
     {
         await propTicks;   // (a Character just picked: a prop ticks its own part first)
-        if (AddedTarget is { } back && !HasSource && !building) return await AddedOwnModel(back);
+        // an added prop picked with no source: Build puts its fit as it shows into the package and says so (Kurt, 2026-10-28:
+        // "not build/saving"; it used to ask to put the character's model back, which is on the prop's right-click menu now)
+        if (AddedTarget is { } back && !HasSource && !building)
+        {
+            if (addedPick is null) PickAdded(back);
+            var f = CurrentPropFit();
+            bool fitIn = await PutAddedFit();
+            if (!IsDisposed && fitIn)
+            {
+                Log($"Done: {back.Name}'s fit is in {back.Package} (move {f.MoveX:0.#}, {f.MoveY:0.#}, {f.MoveZ:0.#}; turn {f.TurnX:0}°, {f.TurnY:0}°, {f.TurnZ:0}°; size {f.Scale * 100:0} %). Save Changes keeps it; Apply Changes puts it into the game.");
+                status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled;
+            }
+            return fitIn;
+        }
         if (ChosenPackage is CharacterList.Item only && !HasSource && !building) return await BuildSizeOnly(only);
         if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return false;
         var picked = SelectedParts();

@@ -129,6 +129,46 @@ static class PowerParts
         return list;
     }
 
+    /// <summary>The switch of a prop the costume gets from its hero (its class off the costume's prop list).</summary>
+    public const string ListEntry = "listentry";
+
+    /// <summary>
+    /// The props a costume gets from its hero (Kurt, 2026-10-28: Doctor Doom Classic's pistol and throne weren't listed): the
+    /// classes on its prop list (its own, else the hero's) that aren't defined in its own package, as switches of kind
+    /// <see cref="ListEntry"/> (Original: the class's path). <paramref name="listPath"/>: the package whose list counts (the
+    /// mod's copy); <paramref name="basePath"/>: the hero's base package (its list, when the costume has none).
+    /// </summary>
+    public static List<Switch> HeroProps(string packageFile, string listPath, string? basePath)
+    {
+        var list = new List<Switch>();
+        try
+        {
+            var pkg = Package.Open(listPath);
+            var own = OwnListPaths(pkg) ?? (basePath != null ? OwnListPaths(Package.Open(basePath)) : null) ?? [];
+            foreach (string path in own)
+            {
+                string cls = path[(path.LastIndexOf('.') + 1)..];
+                if (pkg.Exports.Any(x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase))) continue;
+                string label = PropLabel(cls);
+                list.Add(new(packageFile, "marvelgamecontent.default__" + cls, cls, "Class", "Hero Prop", ListEntry, label, cls, path));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or UnauthorizedAccessException) { }
+        return list;
+    }
+
+    /// <summary>The class paths a package's player class default lists (mAttachmentClasses), or null when it has no list.</summary>
+    static List<string>? OwnListPaths(Package pkg)
+    {
+        int pd = Array.FindIndex(pkg.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+        if (pd < 0) return null;
+        byte[] d = pkg.ReadExportBytes(pkg.Exports[pd]).ToArray();
+        if (TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is not { } at) return null;
+        var t = new Fx.FxTables(pkg);
+        int n = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at.ValueAt));
+        return [.. Enumerable.Range(0, n).Select(k => BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at.ValueAt + 4 + 4 * k))).Where(r => r != 0).Select(r => t.PathOf(r))];
+    }
+
     /// <summary>"marvelattachmentanimated_blackcatanad_whipleft" → "Whipleft" (the class's last word: what the prop is).</summary>
     static string PropLabel(string cls)
     {
@@ -151,6 +191,17 @@ static class PowerParts
     /// </summary>
     public static byte[] Apply(string path, IReadOnlyList<(PartOffEntry Entry, bool Off)> edits, List<string> log)
     {
+        // a prop the costume gets from its hero: off = taken off the costume's prop list (Kurt, 2026-10-28)
+        var listed = edits.Where(x => x.Entry.Switch == ListEntry).ToList();
+        if (listed.Count > 0)
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+            foreach (var (en, off) in listed) bytes = PowerBorrow.SetListed(bytes, en.Package, en.Original, !off, log);
+            string tmp = Path.Combine(Path.GetTempPath(), $"mho_parts_{Guid.NewGuid():N}_{Path.GetFileName(path)}");
+            File.WriteAllBytes(tmp, bytes);
+            try { return Apply(tmp, [.. edits.Where(x => x.Entry.Switch != ListEntry)], log); }
+            finally { try { File.Delete(tmp); } catch (IOException) { } }
+        }
         var pkg = Package.Open(path);
         var replace = new Dictionary<int, Func<long, byte[]>>();
         foreach (var g in edits.GroupBy(x => x.Entry.Part, StringComparer.OrdinalIgnoreCase))

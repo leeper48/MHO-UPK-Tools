@@ -58,6 +58,8 @@ sealed class Settings
         public float Light { get; set; } = 1;
         public float Lens { get; set; } = 50;
         public float GlowStrength { get; set; } = 1;
+        /// <summary>The move / turn gizmo on an added prop (Prop Fit's Gizmo button).</summary>
+        public bool Gizmo { get; set; } = true;
     }
 
     sealed class Own { public PreviewPrefs Preview { get; set; } = new(); public List<string> RecentFbx { get; set; } = new(); public string? ImageEditorPath { get; set; } public Dictionary<string, float>? Layout { get; set; } public List<string>? Folded { get; set; } public string? LastModelFolder { get; set; } public int? SourceKind { get; set; } public bool? TargetFromGame { get; set; } }

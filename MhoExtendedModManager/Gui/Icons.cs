@@ -53,6 +53,25 @@ static class Icons
         g.FillPolygon(br, new[] { new PointF(tip.X + s * 0.25f, tip.Y - s * 0.75f), new PointF(tip.X + s * 0.55f, tip.Y + s * 0.35f), new PointF(tip.X - s * 0.55f, tip.Y + s * 0.05f) });
     }
 
+    /// <summary>Gizmo: three arrows from a centre (up, right, toward the viewer) and a ring around it (move / turn).</summary>
+    public static void Gizmo(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        var c = new PointF(b.X + b.Width * 0.42f, b.Y + b.Height * 0.58f);
+        float s = b.Width * 0.16f;
+        void Arrow(PointF tip)
+        {
+            float dx = tip.X - c.X, dy = tip.Y - c.Y, len = MathF.Sqrt(dx * dx + dy * dy), ux = dx / len, uy = dy / len;
+            var bs = new PointF(tip.X - ux * s, tip.Y - uy * s);
+            g.DrawLine(p, c, bs);
+            g.FillPolygon(br, new[] { tip, new PointF(bs.X - uy * s * 0.6f, bs.Y + ux * s * 0.6f), new PointF(bs.X + uy * s * 0.6f, bs.Y - ux * s * 0.6f) });
+        }
+        Arrow(new PointF(c.X, b.Y));                     // up
+        Arrow(new PointF(b.Right, c.Y));                 // right
+        Arrow(new PointF(b.X, b.Bottom));                // toward the viewer
+        using var thin = new Pen(p.Color, p.Width * 0.8f);
+        g.DrawEllipse(thin, c.X - b.Width * 0.3f, c.Y - b.Height * 0.14f, b.Width * 0.6f, b.Height * 0.28f);
+    }
+
     /// <summary>OpenGL Normals: an up / down arrow (the green channel turned over).</summary>
     public static void FlipVertical(Graphics g, RectangleF b, Pen p, Brush br)
     {
