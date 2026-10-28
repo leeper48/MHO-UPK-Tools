@@ -1212,13 +1212,49 @@ static partial class Program
                         own++;
                         int n = BitConverter.ToInt32(b, at.ValueAt);
                         var refs = Enumerable.Range(0, n).Select(k => BitConverter.ToInt32(b, at.ValueAt + 4 + 4 * k)).ToList();
-                        if (refs.Any(r => r < 0)) { withImports++; if (importSamples.Count < 8) importSamples.Add($"{f}: " + string.Join(", ", refs.Where(r => r < 0).Select(r => tt.PathOf(r) + $" ({pk.Imports[-r - 1].ClassName})"))); }
+                        if (refs.Any(r => r < 0)) { withImports++; if (importSamples.Count < 8) importSamples.Add($"{f}: " + string.Join(", ", refs.Where(r => r < 0).Take(2).Select(r => tt.PathOf(r) + $" ({pk.Imports[-r - 1].ClassName}, outer {pk.Imports[-r - 1].OuterIndex}: {(pk.Imports[-r - 1].OuterIndex < 0 ? "import " + pk.Imports[-pk.Imports[-r - 1].OuterIndex - 1].ClassName : pk.Imports[-r - 1].OuterIndex > 0 ? "export " + pk.ClassOf(pk.Exports[pk.Imports[-r - 1].OuterIndex - 1]) : "none")})"))); }
                         else exportsOnly++;
                     }
                     catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
                 }
                 Console.WriteLine($"player defaults: {own} with their own list ({exportsOnly} only classes of their own package, {withImports} with imported classes), {none} without (their hero's)");
                 foreach (var l in importSamples) Console.WriteLine("  " + l);
+                return 0;
+            }
+            case "--class-imports":
+            {
+                // --class-imports <package.upk> [<fixed out.upk>] (reads the package; writes only the out file): its prop list's class
+                // imports and what each sits under; with an out file, PowerBorrow.FixClassImports applied and the same listed again
+                if (rest.Count < 2) { Console.WriteLine("--class-imports <package.upk> [<fixed out.upk>]"); return 1; }
+                static void List(MhoPackageModifier.Package pk)
+                {
+                    var tt = new Fx.FxTables(pk);
+                    for (int i = 0; i < pk.Imports.Length; i++)
+                    {
+                        var im = pk.Imports[i];
+                        if (!im.ClassName.Equals("Class", StringComparison.OrdinalIgnoreCase) || !im.ObjectName.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase)
+                            && !(im.OuterIndex == 0 && im.ClassName.Equals("Package", StringComparison.OrdinalIgnoreCase))) continue;
+                        string under = im.OuterIndex > 0 ? $"export #{im.OuterIndex} {pk.Exports[im.OuterIndex - 1].ObjectName} ({pk.ClassOf(pk.Exports[im.OuterIndex - 1])})"
+                            : im.OuterIndex < 0 ? $"import {pk.Imports[-im.OuterIndex - 1].ObjectName} ({pk.Imports[-im.OuterIndex - 1].ClassName}, outer {pk.Imports[-im.OuterIndex - 1].OuterIndex})" : "top level";
+                        Console.WriteLine($"  import {-i - 1}: {tt.PathOf(-i - 1)} ({im.ClassName}) under {under}");
+                    }
+                    foreach (var im in pk.Imports.Where(x => x.OuterIndex == 0 && x.ClassName.Equals("Package", StringComparison.OrdinalIgnoreCase)))
+                        Console.WriteLine($"  top-level package import: {im.ObjectName}");
+                }
+                var cpk = MhoPackageModifier.Package.Open(rest[1]);
+                Console.WriteLine("before:"); List(cpk);
+                if (Settings.Load().ResolvedGameRoot(data) is string cgr) StockFiles.Init(new GameState(cgr, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                Console.WriteLine("classes the game can't load for this costume: " + string.Join(", ", PowerBorrow.UnloadableClasses(cpk.RawFile, Path.GetFileName(rest[1]))));
+                if (rest.Count > 2)
+                {
+                    var clog = new List<string>();
+                    byte[] fixedBytes = PowerBorrow.FixClassImports(cpk.RawFile, clog);
+                    foreach (var l in clog) Console.WriteLine(l);
+                    Model.Protected.CheckWrite(rest[2]);
+                    File.WriteAllBytes(rest[2], fixedBytes);
+                    Console.WriteLine("after:"); List(MhoPackageModifier.Package.Open(rest[2]));
+                    Console.WriteLine("props: " + string.Join(", ", ModMeshes.AttachmentClasses(rest[2]) ?? []));
+                }
                 return 0;
             }
             case "--own-prop-list-test":

@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.218
+- When props go into a costume's package, a prop class the game can't load for that costume (one built on another hero's class, left behind by a removed prop: Remove takes a prop off the list only) is reported with what to do (Revert to Original or Last Build, then add the props again) instead of reaching the game.
+
+0.60.217
+- Fix (the game crashed on Doctor Doom with added props): a costume given a prop list of its own imported its hero's prop classes under a new top-level package "marvelgamecontent"; they go under the package's own MarvelGameContent object now, as the game's own costumes have them. Packages saved with the wrong imports are put right the next time their props go in (Save).
+- A prop from a costume's own package (Beta Ray Bill's hammer: its class builds on Thor's, which the game loads only with Thor) comes in as a model of its own on a plain prop class, held on the same bone; adding its class as it is is refused with the reason.
+
 0.60.216
 - Model tab: the move / turn gizmo on a game prop picked as the target too (Thor's hammer), on its grip, lined up with the world's X / Y / Z; letting go keeps the fit as the Prop Fit sliders do (the build uses it).
 

@@ -1876,6 +1876,12 @@ static class PowerBorrow
     public static byte[] AddProp(byte[] package, AddedPropEntry e, string fromPath, List<string> log, Func<byte[], AddedPropEntry, IReadOnlyList<string>, List<string>, byte[]>? hold = null, string? modelFrom = null)
     {
         hold ??= (b, _, bones, l) => PinPropBones(b, bones, true, l);
+        // only a hero's base package's prop class (Kurt, 2026-10-28: Beta Ray Bill's hammer added to Doom crashed the game): a
+        // costume's own class builds on its hero's (marvelattachment_thorhammer_betaraybill on Thor's), which the game loads only
+        // with that hero; copied to another hero, its parent class can't be found
+        if (!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(fromPath), @"^UC__MarvelPlayer_[^_]+_SF\.upk$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            && !Path.GetFileName(fromPath).Equals(e.Package, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"{e.Name} comes from a costume's own package ({Path.GetFileName(fromPath)}): its class builds on its hero's, which the game doesn't load for another hero (Doom crashed with Beta Ray Bill's hammer). Remove it, then add it again from the Model tab's Props view: it comes in as a model of its own.");
         MeshCopy.Register();   // (the prop's skeletal mesh copies with the class)
         var dst = Package.FromBytes(package);
         string cls = e.Class.ToLowerInvariant(), def = "marvelgamecontent.default__" + cls;
@@ -1988,7 +1994,7 @@ static class PowerBorrow
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames, addImports);
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{classPath[(classPath.LastIndexOf('.') + 1)..]}: {(listed ? "back on" : "taken off")} {dst.Exports[pd].ObjectName}'s props ({refs.Count} now)");
-        return output;
+        return FixClassImports(output, log);
     }
 
     /// <summary>A class by its path in <paramref name="dst"/>: an export or import there already, else imported (its outers as
@@ -2003,6 +2009,13 @@ static class PowerBorrow
         for (int k = 0; k < parts.Length; k++)
         {
             string cn = k == parts.Length - 1 ? "Class" : "Package";
+            // (an outer the package has as an export: its forced-export MarvelGameContent, which the game's own costumes import
+            // their hero's classes under; a top-level package import of that name crashed the game, Kurt 2026-10-28)
+            if (k < parts.Length - 1)
+            {
+                int ex = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && x.OuterIndex == outer && dst.ClassOf(x).Equals("Package", StringComparison.OrdinalIgnoreCase));
+                if (ex >= 0) { outer = ex + 1; continue; }
+            }
             int found = Array.FindIndex(dst.Imports, im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer && im.ClassName.Equals(cn, StringComparison.OrdinalIgnoreCase));
             if (found >= 0) { outer = -1 - found; continue; }
             int added = addImports.FindIndex(im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer);
@@ -2015,6 +2028,98 @@ static class PowerBorrow
             outer = -(dst.Imports.Length + added + 1);
         }
         return outer;
+    }
+
+    /// <summary>
+    /// The prop classes in a costume package that the game can't load for this costume (Kurt, 2026-10-28: Doom kept crashing after
+    /// Beta Ray Bill's hammer was removed: Remove only takes a prop off the list, its class stays, and it builds on Thor's hammer
+    /// class): attachment classes imported under the package's MarvelGameContent that neither this package nor its hero's base
+    /// package defines (the game loads those two for the costume). Empty when all is well.
+    /// </summary>
+    public static List<string> UnloadableClasses(byte[] package, string costumeFile)
+    {
+        var list = new List<string>();
+        try
+        {
+            var pkg = Package.FromBytes(package);
+            string stem = Path.GetFileNameWithoutExtension(costumeFile);
+            var m = System.Text.RegularExpressions.Regex.Match(stem, @"^(UC__MarvelPlayer_[^_]+)_.+_SF$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            HashSet<string> heroClasses = new(StringComparer.OrdinalIgnoreCase);
+            if (m.Success && StockFiles.Cooked is string ck && StockFiles.For(ck, m.Groups[1].Value + "_SF.upk") is var bp && File.Exists(bp))
+            {
+                var b = Package.Open(bp);
+                foreach (var e in b.Exports) if (b.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase)) heroClasses.Add(e.ObjectName);
+            }
+            else if (m.Success) return list;   // (the hero's package isn't readable: nothing to compare with)
+            var own = pkg.Exports.Where(e => pkg.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase)).Select(e => e.ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < pkg.Imports.Length; i++)
+            {
+                var im = pkg.Imports[i];
+                if (!im.ClassName.Equals("Class", StringComparison.OrdinalIgnoreCase) || !im.ObjectName.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase)) continue;
+                string outer = im.OuterIndex > 0 ? pkg.Exports[im.OuterIndex - 1].ObjectName : im.OuterIndex < 0 ? pkg.Imports[-im.OuterIndex - 1].ObjectName : "";
+                if (!outer.Equals("marvelgamecontent", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!own.Contains(im.ObjectName) && !heroClasses.Contains(im.ObjectName)) list.Add(im.ObjectName);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+        return list;
+    }
+
+    /// <summary>
+    /// Class imports of a costume's prop list put under the package's own MarvelGameContent export (Kurt, 2026-10-28: Doctor Doom
+    /// crashed the game after 0.60.206 made his prop list: its hero's classes were imported under a new top-level package import
+    /// "marvelgamecontent", while the game's own costumes import them under the package's forced-export MarvelGameContent object;
+    /// 77 of 77 checked, --prop-list-census). Each Class import under a top-level Package import that has the name of a top-level
+    /// Package export is moved under that export (its outer index patched in the import table, kept byte for byte otherwise), and
+    /// the stray package import is made a copy of the Core import (nothing is left that names a package the game doesn't have).
+    /// Returns the bytes unchanged when there's nothing to put right. Verified by reading back.
+    /// </summary>
+    public static byte[] FixClassImports(byte[] file, List<string> log)
+    {
+        var pkg = Package.FromBytes(file);
+        if (!ReferenceEquals(pkg.Body, pkg.RawFile) && pkg.Body.Length != pkg.RawFile.Length) return file;   // (compressed: never ours)
+        var stray = new List<(int Import, int Export)>();
+        for (int i = 0; i < pkg.Imports.Length; i++)
+        {
+            var im = pkg.Imports[i];
+            if (im.OuterIndex != 0 || !im.ClassName.Equals("Package", StringComparison.OrdinalIgnoreCase)) continue;
+            int ex = Array.FindIndex(pkg.Exports, x => x.OuterIndex == 0 && x.ObjectName.Equals(im.ObjectName, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(x).Equals("Package", StringComparison.OrdinalIgnoreCase));
+            if (ex >= 0) stray.Add((i, ex));
+        }
+        if (stray.Count == 0) return file;
+        int size = pkg.Imports.Length == 0 ? 0 : (pkg.ExportOffset - pkg.ImportOffset) / pkg.Imports.Length;
+        if (size != 28 || pkg.ImportOffset + size * pkg.Imports.Length != pkg.ExportOffset) { log.Add("  the import table isn't laid out as expected: its class imports were left as they are"); return file; }
+        int core = Array.FindIndex(pkg.Imports, im => im.OuterIndex == 0 && im.ObjectName.Equals("Core", StringComparison.OrdinalIgnoreCase) && im.ClassName.Equals("Package", StringComparison.OrdinalIgnoreCase));
+        byte[] outb = (byte[])file.Clone();
+        var t0 = new Fx.FxTables(pkg);
+        var expect = new Dictionary<int, string>();
+        int moved = 0;
+        var fixedPkgs = new List<int>();
+        foreach (var (imp, ex) in stray)
+        {
+            // only a package import holding prop classes (attachment classes) and nothing else: the game's own packages have other
+            // top-level imports beside a forced export of the same name (chbasematerials), which stay as they are
+            var children = Enumerable.Range(0, pkg.Imports.Length).Where(j => pkg.Imports[j].OuterIndex == -imp - 1).ToList();
+            if (children.Count == 0 || !children.All(j => pkg.Imports[j].ClassName.Equals("Class", StringComparison.OrdinalIgnoreCase)
+                    && pkg.Imports[j].ObjectName.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase))) continue;
+            foreach (int j in children)
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(outb.AsSpan(pkg.ImportOffset + j * size + 16), ex + 1);
+                expect[-j - 1] = t0.PathOf(-j - 1);
+                moved++;
+            }
+            if (core >= 0) Array.Copy(outb, pkg.ImportOffset + core * size, outb, pkg.ImportOffset + imp * size, size);
+            fixedPkgs.Add(ex);
+        }
+        if (moved == 0) return file;
+        // read back: every moved import keeps its path, now under the export
+        var back = Package.FromBytes(outb);
+        var t1 = new Fx.FxTables(back);
+        foreach (var (r, path) in expect)
+            if (!t1.PathOf(r).Equals(path, StringComparison.OrdinalIgnoreCase) || back.Imports[-r - 1].OuterIndex <= 0)
+                throw new InvalidDataException($"the prop list's class import {path} didn't read back under the package's own object");
+        log.Add($"  {moved} prop class import(s) put under the package's own {string.Join(", ", fixedPkgs.Select(x => pkg.Exports[x].ObjectName).Distinct())} (as the game's costumes import their hero's props)");
+        return outb;
     }
 
     /// <summary>
@@ -2056,30 +2161,7 @@ static class PowerBorrow
             return dst.Names.Length + j;
         }
         var addImports = new List<NewImport>();
-        // a class by its path: an export or import there already, else imported (its outers as package imports)
-        int RefOf(string path)
-        {
-            for (int k = 0; k < dst.Exports.Length; k++) if (t.PathOf(k + 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return k + 1;
-            for (int k = 0; k < dst.Imports.Length; k++) if (t.PathOf(-k - 1).Equals(path, StringComparison.OrdinalIgnoreCase)) return -k - 1;
-            string[] parts = path.Split('.');
-            int outer = 0;
-            for (int k = 0; k < parts.Length; k++)
-            {
-                bool last = k == parts.Length - 1;
-                string cn = last ? "Class" : "Package";
-                int found = Array.FindIndex(dst.Imports, im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer && im.ClassName.Equals(cn, StringComparison.OrdinalIgnoreCase));
-                if (found >= 0) { outer = -1 - found; continue; }
-                int added = addImports.FindIndex(im => im.ObjectName.Equals(parts[k], StringComparison.OrdinalIgnoreCase) && im.OuterIndex == outer);
-                if (added < 0)
-                {
-                    foreach (string n in new[] { "Core", cn, parts[k] }) NameIdx(n);
-                    addImports.Add(new NewImport("Core", cn, outer, parts[k]));
-                    added = addImports.Count - 1;
-                }
-                outer = -(dst.Imports.Length + added + 1);
-            }
-            return outer;
-        }
+        int RefOf(string path) => ClassRef(dst, t, path, addNames, addImports);
         var refs = heroPaths.Select(RefOf).ToList();
         var value = new byte[4 + 4 * refs.Count];
         BinaryPrimitives.WriteInt32LittleEndian(value, refs.Count);
@@ -2103,6 +2185,7 @@ static class PowerBorrow
                  ?? throw new InvalidDataException("the costume's own prop list didn't read back");
         var got = Enumerable.Range(0, BinaryPrimitives.ReadInt32LittleEndian(rb.AsSpan(rl.ValueAt))).Select(k => bt2.PathOf(BinaryPrimitives.ReadInt32LittleEndian(rb.AsSpan(rl.ValueAt + 4 + 4 * k)))).ToList();
         if (!got.SequenceEqual(heroPaths, StringComparer.OrdinalIgnoreCase)) throw new InvalidDataException($"the costume's own prop list reads back as [{string.Join(", ", got)}], not its hero's");
+        back = Package.FromBytes(FixClassImports(back.RawFile, log));
         log.Add($"{dst.Exports[pd].ObjectName} kept its hero's prop list: given one of its own, the hero's {heroPaths.Count}{(heroPaths.Count > 0 ? " (" + string.Join(", ", heroPaths.Select(x => x.Split('.').Last())) + ")" : "")}{(addImports.Count > 0 ? $"; {addImports.Count} import(s) added" : "")}");
         return back;
     }

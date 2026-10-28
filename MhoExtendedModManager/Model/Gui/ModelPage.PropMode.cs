@@ -194,7 +194,21 @@ sealed partial class ModelPage
             return null;
         });
         if (IsDisposed) return;
-        if (from == null) { Log($"{name}: its class ({p.Class}) wasn't found in {p.CostumeFile} or the hero's base package."); return; }
+        // a costume's own prop class (Beta Ray Bill's hammer: it builds on Thor's class, which the game loads only with Thor) can't
+        // go to another hero as it is: its model comes in on a plain prop class instead, held on the same bone
+        if (from == null || !from.Equals($"UC__MarvelPlayer_{p.Hero}_SF.upk", StringComparison.OrdinalIgnoreCase))
+        {
+            Log($"{name}: its class is the costume's own ({p.Class}, built on its hero's), so its model comes in on a plain prop class, held on {p.Bone}.");
+            status.Text = $"Reading {name} from the game…";
+            string fbx;
+            using (Busy.Begin($"Model: reading {p.Mesh} from the game"))
+                try { fbx = await Task.Run(() => GameSource.Export(p.MeshPackage, line => BeginInvoke(() => Log(line)), p.Mesh)); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+                { Log($"{name}: {ex.Message}"); UpdateStatus(); return; }
+            if (IsDisposed) return;
+            await AddFbxProp(key, fbx, name + " (Model)", p.Bone.Length > 0 ? p.Bone : null);
+            return;
+        }
         string before = PropBefore();
         if (await host.AddPropTo(key, new AddPropForm.Pick(from, p.Class, name)) is not { } e || IsDisposed) return;
         PropDone(before, $"Add {e.Name}");

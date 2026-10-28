@@ -508,6 +508,7 @@ sealed partial class ModEditorView
         var off = all.Where(p => p.Off).Select(p => p.Class).ToList();   // (unticked: taken off the costume's list, settings kept)
         string cooked = game.Cooked;
         var log = new List<string>();
+        List<string> bad = [];
         var hold = Hold(file, src);
         var borrows = Borrows(file);
         var models = props.ToDictionary(p => p, p => PropModel(p));
@@ -522,6 +523,8 @@ sealed partial class ModEditorView
                 byte[] b = File.ReadAllBytes(src);
                 foreach (string c in off) b = PowerBorrow.RemoveProp(b, c, log);
                 foreach (var p in props) b = PowerBorrow.AddProp(b, p, StockFiles.For(cooked, p.From), log, hold, models[p]);
+                b = PowerBorrow.FixClassImports(b, log);   // (a prop list made by 0.60.206-216: its class imports put right)
+                bad = PowerBorrow.UnloadableClasses(b, file);
                 foreach (var pb in bones) b = PowerBorrow.SetHeldBones(b, pb.Class, [pb.Bone], log);   // (the costume's own props on other bones)
                 baseBytes = HoldInBorrows(file, b, props, log, borrows, out baseFile);
                 return b;
@@ -542,8 +545,15 @@ sealed partial class ModEditorView
         propNote.Text = "";
         ReloadPropPreviews();
         modelPage?.PackageReplaced(file);   // (the Model tab's preview holds them too)
+        // a prop class left in the package that the game can't load for this costume (a removed one from another costume's
+        // package: Remove takes a prop off the list only): said before it reaches the game (Kurt, 2026-10-28: Doom crashed)
+        if (bad.Count > 0 && warnedUnloadable.Add(file + "|" + string.Join(",", bad)))
+            Dialog.Show(this, $"{file} still holds {string.Join(", ", bad)}: a prop class built on another hero's, which the game doesn't load for this costume. The game will crash loading it.\n\nOn the Model tab, right-click the costume under Target → Revert to Original (or Revert to Last Build, from before that prop), then add its props again. A prop from a costume's own package now comes in as a model of its own.",
+                "This Package Would Crash the Game", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         return true;
     }
+
+    readonly HashSet<string> warnedUnloadable = new(StringComparer.OrdinalIgnoreCase);
 
     void ReloadPropPreviews()
     {
@@ -568,6 +578,7 @@ sealed partial class ModEditorView
             if (DraftPath(g.Key) is not string src) throw new InvalidDataException($"{g.Key} isn't in the mod");
             byte[] b = File.ReadAllBytes(src);
             foreach (var p in g) b = p.Off ? PowerBorrow.RemoveProp(b, p.Class, log) : PowerBorrow.AddProp(b, p, StockFiles.For(game.Cooked, p.From), log, Hold(g.Key, src), PropModel(p));
+            b = PowerBorrow.FixClassImports(b, log);
             foreach (var pb in draft.PropBones.Where(x => x.Package.Equals(g.Key, StringComparison.OrdinalIgnoreCase))) b = PowerBorrow.SetHeldBones(b, pb.Class, [pb.Bone], log);
             string path = Path.Combine(work, g.Key);
             File.WriteAllBytes(path, b);
