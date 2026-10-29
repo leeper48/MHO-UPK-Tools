@@ -13,6 +13,8 @@ sealed partial class Preview3D
     internal IEnumerable<string> PropClassesForTest => rig.Classes;
     /// <summary>The Model tab's gizmo: where a prop is held (without its live offset) and its size, as last posed.</summary>
     internal (System.Numerics.Matrix4x4 Frame, float Size)? PropBase(Func<string, bool> match) => animator == null ? null : rig.BaseFrame(match, animator);
+    /// <summary>The middle of a prop's model as built (its own space) and its vertex count, or null.</summary>
+    internal (System.Numerics.Vector3 Mid, int Count)? PropMid(Func<string, bool> match) => rig.MidOf(match);
     /// <summary>The Model tab's gizmo: a prop shown moved by <paramref name="offset"/> (in its own space) until the rig is made again.</summary>
     internal void SetPropOffset(Func<string, bool> match, System.Numerics.Matrix4x4 offset) { rig.SetOffset(match, offset); ShowPose(); }
     /// <summary>Test: the drawn middle (and a direction) of the first prop <paramref name="match"/> takes.</summary>

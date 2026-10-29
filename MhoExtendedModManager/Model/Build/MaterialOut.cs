@@ -52,11 +52,21 @@ static class MaterialOut
     /// another session or by the mod's author, failed: 'mff_template_mat' already exists). The earlier build's objects stay
     /// in the package unused; the mesh is replaced as always.
     /// </summary>
-    public static string PrefixFor(Package pkg)
+    public static string PrefixFor(Package pkg, string? tag = null)
     {
         bool Taken(string p) => pkg.Exports.Any(e => e.ObjectName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
-        if (!Taken("mff_")) return "mff_";
-        for (int n = 2; ; n++) if (!Taken($"mff{n}_")) return $"mff{n}_";
+        string t = string.IsNullOrEmpty(tag) ? "" : Safe(tag).ToLowerInvariant() + "_";
+        if (!Taken("mff_" + t)) return "mff_" + t;
+        for (int n = 2; ; n++) if (!Taken($"mff{n}_{t}")) return $"mff{n}_{t}";
+    }
+
+    /// <summary>The name tag for a build's target (ImportOptions.NameTag): 6 hex digits from the package file and the model
+    /// (or the added prop's class), so builds onto different targets never share an object path.</summary>
+    public static string TagFor(string packageFile, string? target)
+    {
+        uint h = 2166136261;
+        foreach (char c in (Path.GetFileName(packageFile) + "|" + (target ?? "")).ToLowerInvariant()) h = (h ^ c) * 16777619;
+        return (h & 0xFFFFFF).ToString("x6");
     }
 
     /// <summary>Texture parameters of a material instance: slot name → texture export index (-1 when it's an import).</summary>

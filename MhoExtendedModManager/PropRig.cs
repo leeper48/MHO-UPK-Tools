@@ -226,6 +226,19 @@ sealed class PropRig
         return null;
     }
 
+    /// <summary>The middle of a prop's model (its bounds, in its own space before MeshTransform) and its vertex count, or null.</summary>
+    public (Vector3 Mid, int Count)? MidOf(Func<string, bool> match)
+    {
+        foreach (var p in props)
+        {
+            if (!match(p.Class) || p.Mesh.Positions.Length == 0) continue;
+            var lo = new Vector3(float.MaxValue); var hi = new Vector3(float.MinValue);
+            foreach (var v in p.Mesh.Positions) { lo = Vector3.Min(lo, v); hi = Vector3.Max(hi, v); }
+            return ((lo + hi) / 2, p.Mesh.Positions.Length);
+        }
+        return null;
+    }
+
     /// <summary>A prop's offset changed (the size reference dragged): shown at the next Update.</summary>
     public void SetOffset(string cls, Matrix4x4 offset)
     {

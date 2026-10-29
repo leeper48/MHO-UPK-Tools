@@ -74,6 +74,11 @@ sealed record ImportOptions
     public PropAdjust? PropFit { get; init; }
     /// <summary>A prop's model kept as made (its size and shape: a prop of the user's own), not laid over the target's.</summary>
     public bool PropAsIs { get; init; }
+    /// <summary>A tag in the names of everything the build adds ("mff_&lt;tag&gt;_…"; null: "mff_…"), from the target (its package
+    /// and model, or the added prop's class). Without it a body and a prop from the same source (both "DefaultMaterial"), or
+    /// two mods' builds, made objects under one path, and the game (and the copy into the mod) took one for both
+    /// (Monarch, 2026-10-29: the prop's textures went onto the character and back).</summary>
+    public string? NameTag { get; init; }
     /// <summary>The package the game's size is read from when the build starts from a copy that already holds another build
     /// (a shield built onto a package whose body was built: its size is set already, and must not be multiplied); null = the
     /// start package.</summary>
@@ -84,7 +89,8 @@ sealed record ImportOptions
         static string? Env(string n) => Environment.GetEnvironmentVariable(n);
         return new ImportOptions
         {
-            MaterialOverrides = Env("MFF_OVERRIDES"),   // a Materials tab overrides file (materials\<source>.json), for command-line builds and tests
+            MaterialOverrides = Env("MFF_OVERRIDES"),
+            NameTag = Env("MFF_NAME_TAG"),   // (the Model tab's per-target tag, MaterialOut.TagFor)   // a Materials tab overrides file (materials\<source>.json), for command-line builds and tests
             Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation, KeepSourceSize = Env("MFF_KEEPSIZE") == "1", JointFit = Env("MFF_JOINTFIT") == "1",
             Material = Env("MFF_MATERIAL") is { Length: > 0 } m ? m : null,
             ValuesFrom = Env("MFF_VALUES_FROM"),

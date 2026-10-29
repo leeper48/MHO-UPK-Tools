@@ -72,11 +72,21 @@ sealed partial class ModelPage
                     menu.Items.Add(new ToolStripMenuItem("Use Its Character's Model", null, async (_, _) => { PickAdded(ap); await AddedOwnModel(ap); })
                     { ToolTipText = "Drops the model built for it here and puts its own character's model back (asked first)." });
             }
-            else if (row.Tag is PowerParts.Switch)
+            else if (row.Tag is PowerParts.Switch sw)
+            {
+                // Swap Model (Kurt, 2026-10-28: replace Cap's shield with an MFF one instead of adding a second shield): the
+                // prop made the target under the preview, so the build puts the source part in its place (fitted over it,
+                // held as it is, used by every power that uses it)
+                int swapAt = SwapTargetIndex(sw);
+                menu.Items.Add(new ToolStripMenuItem("Swap Model", null, (_, _) => SwapModel(row, swapAt)) { Enabled = swapAt >= 0, ToolTipText = swapAt >= 0
+                    ? "Makes this prop the target, so Build into Mod replaces its model with the part ticked under Parts (laid over it: centered, turned and sized like it, on the same bone). Every power that uses it then uses the new model."
+                    : "This prop's model isn't in this package (it comes from the hero's own package): pick the hero's package under Target to swap it." });
+                menu.Items.Add(new ToolStripSeparator());
                 // the game's own prop can't leave the hero's package: Remove leaves it off this costume (its mesh set to none here)
                 menu.Items.Add(on
                     ? new ToolStripMenuItem("Remove", null, (_, _) => SetPropKept(row, false)) { ShortcutKeyDisplayString = "Del", ToolTipText = "Takes the game's prop off this costume (Save sets its mesh to none in this package only; Put Back or Ctrl+Z brings it back)." }
                     : new ToolStripMenuItem("Put Back", null, (_, _) => SetPropKept(row, true)) { ToolTipText = "Puts the game's prop back on this costume." });
+            }
             else return;
             menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
             menu.Show(targetProps, targetProps.PointToClient(Cursor.Position));
@@ -118,6 +128,23 @@ sealed partial class ModelPage
         partsPage = list;
         scroller.SizeChanged += (_, _) => SizePropsBox();
         return Column("", partsHead, scroller);
+    }
+
+    /// <summary>A game prop's model in the target selector (meshNames), or -1 when this package doesn't hold it.</summary>
+    int SwapTargetIndex(PowerParts.Switch sw)
+    {
+        string what = sw.What ?? "";
+        return meshNames.FindIndex(n => meshProps.Contains(n) && (what.Equals(n, StringComparison.OrdinalIgnoreCase) || what.EndsWith("." + n, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>Swap Model: the game prop made the target (kept on if it was left off), so the next build replaces it.</summary>
+    void SwapModel(DataGridViewRow row, int at)
+    {
+        if (at < 0) return;
+        if (row.Cells["use"].Value is not true) SetPropKept(row, true);   // (a swapped prop is shown, with its new model)
+        meshPick.SelectedIndex = at + 1;
+        status.Text = $"Swapping {meshNames[at]}: tick the part to use under Parts, then Build into Mod.";
+        Log($"Swap Model: {meshNames[at]} is the target; the build replaces its model with the part ticked under Parts.");
     }
 
     /// <summary>The chosen package's props, read in the background; each row ticked unless the draft has it off.</summary>

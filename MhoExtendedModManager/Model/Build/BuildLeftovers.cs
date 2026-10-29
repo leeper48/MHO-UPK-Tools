@@ -17,8 +17,61 @@ static class BuildLeftovers
     /// <summary>A build's own objects: mff_…, mff2_…, mff3_m2_… (MaterialOut's name prefixes).</summary>
     static readonly Regex BuildMade = new("^mff[0-9]*_", RegexOptions.IgnoreCase);
 
+    /// <summary>An added prop's model copies (PowerBorrow: its own model "&lt;model&gt;_m12345", a fit "&lt;model&gt;_x100_fit12345"):
+    /// each new fit or model leaves the one before in the package (Monarch, 2026-10-29: "1/14+ models after a save").</summary>
+    static readonly Regex PropCopy = new(@"(_x\d+(_fit\d+)?|_m\d+)$", RegexOptions.IgnoreCase);
+
+    /// <summary>An object a build or a prop fit made, which nothing may use any more (a model copy's sockets with it).</summary>
+    static bool Candidate(Package pkg, int i)
+    {
+        if (BuildMade.IsMatch(pkg.Exports[i].ObjectName)) return true;
+        for (int k = i, guard = 0; k >= 0 && guard < 8; k = pkg.Exports[k].OuterIndex - 1, guard++)
+            if (IsModelCopy(pkg, k)) return true;
+        return false;
+    }
+
+    static bool IsModelCopy(Package pkg, int i) => PropCopy.IsMatch(pkg.Exports[i].ObjectName)
+        && pkg.ClassOf(pkg.Exports[i]).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The unused build textures of a package (indices), or null with the reason when references can't all be read.</summary>
     public static List<int>? Unused(Package pkg, out string why)
+    {
+        if (Reached(pkg, out why) is not { } reached) return null;
+        return [.. Enumerable.Range(0, pkg.Exports.Length).Where(i => !reached.Contains(i) && BuildMade.IsMatch(pkg.Exports[i].ObjectName)
+            && pkg.ClassOf(pkg.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) && pkg.Exports[i].SerialSize > 512)];
+    }
+
+    /// <summary>
+    /// The added props' model copies in a package that nothing uses any more (names; empty when there are none or the
+    /// references can't all be read), cached by file size and time. The model lists leave them out: a package's objects
+    /// can't be taken out, but they needn't be offered (Monarch, 2026-10-29: 14 models after a few saves).
+    /// </summary>
+    public static IReadOnlySet<string> UnusedModels(string path)
+    {
+        string key;
+        try { var fi = new FileInfo(path); key = $"{path}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}"; }
+        catch (IOException) { return new HashSet<string>(); }
+        lock (unusedModels) if (unusedModels.TryGetValue(key, out var had)) return had;
+        var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var pkg = Package.Open(path);
+            // (most packages have no copies at all: nothing to walk)
+            if (Enumerable.Range(0, pkg.Exports.Length).Any(i => IsModelCopy(pkg, i)))
+                lock (walkLock)
+                    if (Reached(pkg, out _) is { } reached)
+                        for (int i = 0; i < pkg.Exports.Length; i++)
+                            if (!reached.Contains(i) && IsModelCopy(pkg, i)) found.Add(pkg.Exports[i].ObjectName);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException or IndexOutOfRangeException) { }
+        lock (unusedModels) unusedModels[key] = found;
+        return found;
+    }
+    static readonly Dictionary<string, IReadOnlySet<string>> unusedModels = new(StringComparer.OrdinalIgnoreCase);
+    static readonly object walkLock = new();
+
+    /// <summary>Every object reached from one no build made (null with the reason when one of a build's doesn't read).</summary>
+    static HashSet<int>? Reached(Package pkg, out string why)
     {
         why = "";
         MeshCopy.Register();   // (skeletal meshes' native data: their materials)
@@ -27,7 +80,7 @@ static class BuildLeftovers
         var scannedKinds = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var queue = new Queue<int>();
         for (int i = 0; i < pkg.Exports.Length; i++)
-            if (!BuildMade.IsMatch(pkg.Exports[i].ObjectName)) { reached.Add(i); queue.Enqueue(i); }
+            if (!Candidate(pkg, i)) { reached.Add(i); queue.Enqueue(i); }
         while (queue.Count > 0)
         {
             int i = queue.Dequeue();
@@ -36,13 +89,13 @@ static class BuildLeftovers
             {
                 // an object the parser doesn't read (a costume's class default): every 4 bytes in it that could be a reference
                 // to a build's object count as one (it can only keep more, never drop one in use)
-                if (BuildMade.IsMatch(pkg.Exports[i].ObjectName)) { why = $"{pkg.PathOf(pkg.Exports[i])} ({pkg.ClassOf(pkg.Exports[i])}) doesn't read"; return null; }
+                if (Candidate(pkg, i)) { why = $"{pkg.PathOf(pkg.Exports[i])} ({pkg.ClassOf(pkg.Exports[i])}) doesn't read"; return null; }
                 byte[] d = pkg.ReadExportBytes(pkg.Exports[i]);
                 refs = [];
                 for (int k = 0; k + 4 <= d.Length; k++)
                 {
                     int v = BitConverter.ToInt32(d, k);
-                    if (v > 0 && v <= pkg.Exports.Length && BuildMade.IsMatch(pkg.Exports[v - 1].ObjectName)) refs.Add(v);
+                    if (v > 0 && v <= pkg.Exports.Length && Candidate(pkg, v - 1)) refs.Add(v);
                 }
                 scanned++;
                 scannedKinds[pkg.ClassOf(pkg.Exports[i])] = scannedKinds.GetValueOrDefault(pkg.ClassOf(pkg.Exports[i])) + 1;
@@ -51,8 +104,7 @@ static class BuildLeftovers
                 if (r > 0 && r <= pkg.Exports.Length && reached.Add(r - 1)) queue.Enqueue(r - 1);
         }
         why = scanned > 0 ? $"{scanned} object(s) the parser doesn't read were searched byte by byte ({string.Join(", ", scannedKinds.OrderByDescending(k => k.Value).Take(8).Select(k => $"{k.Value} {k.Key}"))})" : "";
-        return [.. Enumerable.Range(0, pkg.Exports.Length).Where(i => !reached.Contains(i) && BuildMade.IsMatch(pkg.Exports[i].ObjectName)
-            && pkg.ClassOf(pkg.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase) && pkg.Exports[i].SerialSize > 512)];
+        return reached;
     }
 
     /// <summary>The package with its unused build textures made 4×4 (verified), or null when there's nothing to do or it

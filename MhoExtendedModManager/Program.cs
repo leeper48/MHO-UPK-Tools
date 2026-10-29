@@ -64,6 +64,7 @@ static partial class Program
         ("--borrow-check", "--borrow-check <target power> <donor power>", "What the Borrow Look window says for a pair: the suggested mode, what Keep This Power's Timing would change, and enemy powers that share the target power's look. Changes nothing."),
         ("--hero-forms", "--hero-forms <hero>", "A hero's forms (Jean Grey's Phoenix) and transforms (Rogue, Rocket, Loki): animation sets, transformed characters and the powers they swap. Changes nothing."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
+        ("--mount-motion", "--mount-motion <hero package.upk> <bone>", "How a hero's mount bone (g_mountattach: Green Goblin's glider) turns and moves against its root in each animation that moves it, as a borrow puts it into a ridden prop. Changes nothing."),
         ("--foot-check", "--foot-check <mod> [animation name part...]", "How high a mod's mesh stands (lowest point, pelvis) at rest and over its animations: for feet below / above the ground after a move. Changes nothing."),
         ("--mod-props", "--mod-props <mod>", "For each of a mod's meshes, the props (weapons) the 3D preview shows with it and the bones they're held on. Changes nothing."),
         ("--fx-dump", "--fx-dump <package.upk> [system name part]", "Every particle system's emitters (kind, material, alignment, sub-images, timing, spawn, modules with values). Changes nothing."),

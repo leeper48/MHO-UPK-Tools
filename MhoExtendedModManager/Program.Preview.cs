@@ -110,8 +110,9 @@ static partial class Program
                 var ent = new AddedPropEntry { Package = Path.GetFileName(rest[1]), From = Path.GetFileName(rest[2]), Class = rest[3],
                     Fit = new PropFit { Class = rest[3], Scale = rest.Count > 5 ? F(5, 1) : null, X = F(6, 0), Y = F(7, 0), Z = F(8, 0), TurnX = F(9, 0), TurnY = F(10, 0), TurnZ = F(11, 0), PinPivot = Environment.GetEnvironmentVariable("MHO_PIN") == "1" } };
                 var alog = new List<string>();
-                byte[] once = PowerBorrow.AddProp(File.ReadAllBytes(rest[1]), ent, rest[2], alog);
-                byte[] twice = PowerBorrow.AddProp(once, ent, rest[2], alog);
+                string? modelFrom = Environment.GetEnvironmentVariable("MHO_PROP_MODEL_FROM") is { Length: > 0 } pmf ? pmf : null;   // (the Model tab's build of the prop's own model)
+                byte[] once = PowerBorrow.AddProp(File.ReadAllBytes(rest[1]), ent, rest[2], alog, modelFrom: modelFrom);
+                byte[] twice = PowerBorrow.AddProp(once, ent, rest[2], alog, modelFrom: modelFrom);
                 alog.ForEach(Console.WriteLine);
                 var a1 = ModMeshes.AttachmentClasses(WriteTemp(once)); var a2 = ModMeshes.AttachmentClasses(WriteTemp(twice));
                 Console.WriteLine($"props once: {string.Join(", ", a1 ?? [])}; again: {string.Join(", ", a2 ?? [])} ({once.Length:N0} / {twice.Length:N0} bytes)");
@@ -656,6 +657,8 @@ static partial class Program
                 if (why.Length > 0) Console.WriteLine("  " + why);
                 Console.WriteLine($"{Path.GetFileName(rest[1])}: {unused.Count} unused build texture(s), {unused.Sum(i => (long)pk.Exports[i].SerialSize) / 1048576.0:0.0} MB of {new FileInfo(rest[1]).Length / 1048576.0:0.0} MB ({sw.ElapsedMilliseconds} ms)");
                 foreach (int i in unused.Take(40)) Console.WriteLine($"  {pk.PathOf(pk.Exports[i])}  {pk.Exports[i].SerialSize:N0} B");
+                var models = MhoExtendedModManager.Model.BuildLeftovers.UnusedModels(rest[1]);
+                Console.WriteLine($"{models.Count} added-prop model copy(ies) nothing uses (left out of the model lists): {string.Join(", ", models.Order())}");
                 if (rest.Count > 2)
                 {
                     MhoExtendedModManager.Model.Protected.CheckWrite(rest[2]);   // (never the game, stock or MFF folders)
@@ -2911,11 +2914,38 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--mount-motion":
+            {
+                // Read-only: a hero's mount bone (g_mountattach) against its root over each animation that moves it, as a borrow
+                // bakes it into a ridden prop (PowerBorrow.BakeMountMotion): the turn and move away from the flight loop's place.
+                if (rest.Count < 3) { Console.WriteLine("--mount-motion <hero package.upk> <bone>"); return 1; }
+                string? mgr = settings.ResolvedGameRoot(data);
+                var mlog = new List<string>();
+                var mm = PowerBorrow.MountMotion(rest[1], rest[2], mgr != null && Settings.IsGameRoot(mgr) ? Settings.Cooked(mgr) : null, mlog);
+                foreach (var l in mlog) Console.WriteLine(l);
+                if (mm == null) return 1;
+                Matrix4x4.Invert(mm.Reference, out var mref);
+                Console.WriteLine($"{rest[2]}: reference = {mm.ReferenceFrom} frame 0, at {mm.Reference.Translation}; {mm.Anims.Count} animations move it");
+                foreach (var (n, (_, fr, sec)) in mm.Anims.OrderBy(x => x.Key))
+                {
+                    float maxDeg = 0, maxMove = 0; string at = "";
+                    for (int i = 0; i <= 30; i++)
+                    {
+                        var dm = mm.At(n, sec * i / 30f) * mref;   // (the move away from the loop place)
+                        Matrix4x4.Decompose(dm, out _, out var dq, out var dt);
+                        float deg = 2 * MathF.Acos(Math.Min(1, Math.Abs(dq.W))) * 180 / MathF.PI;
+                        if (deg > maxDeg) { maxDeg = deg; at = $"{sec * i / 30f:0.00} s"; }
+                        maxMove = Math.Max(maxMove, dt.Length());
+                    }
+                    Console.WriteLine($"  {n,-40} {fr + 1,4} frames {sec,5:0.00} s   turns up to {maxDeg,6:0.0}° (at {at}), moves up to {maxMove,6:0.0}");
+                }
+                return 0;
+            }
             case "--mesh-bones":
             {
                 // Read-only: every skeletal mesh in the given packages with its bone names (skeleton comparisons).
                 foreach (string f in rest.Skip(1))
-                    foreach (var mr in ModMeshes.List([(Path.GetFileName(f), f)]))
+                    foreach (var mr in ModMeshes.List([(Path.GetFileName(f), f)], anyPackage: true))
                     {
                         var ld = ModMeshes.Load(mr, null, out string why);
                         Console.WriteLine(ld == null ? $"{mr.Package} | {mr.Name}: {why}" : $"{mr.Package} | {mr.Name} | {ld.Bones.Count} | " + string.Join(",", ld.Bones.Select(b => b.Name)));
@@ -2925,6 +2955,10 @@ static partial class Program
                             var sum = new double[ld.Bones.Count]; var cnt = new int[ld.Bones.Count];
                             foreach (var inf in ld.Influences) for (int k = 0; k < inf.Bones.Count; k++) if (inf.Weights[k] > 0 && inf.Bones[k] < sum.Length) { sum[inf.Bones[k]] += inf.Weights[k]; cnt[inf.Bones[k]]++; }
                             for (int k = 0; k < sum.Length; k++) if (cnt[k] > 0) Console.WriteLine($"   {ld.Bones[k].Name,-28} {sum[k],9:0.0} {cnt[k],6}");
+                            // each bone's rest place (relative to its parent) and the middle of the vertices it holds most
+                            var mid = new System.Numerics.Vector3[ld.Bones.Count]; var n = new int[ld.Bones.Count];
+                            for (int v = 0; v < ld.Influences.Count && v < ld.Positions.Length; v++) { var inf = ld.Influences[v]; int best = 0; for (int k = 1; k < inf.Bones.Count; k++) if (inf.Weights[k] > inf.Weights[best]) best = k; if (inf.Bones.Count > 0 && inf.Bones[best] < mid.Length) { mid[inf.Bones[best]] += ld.Positions[v]; n[inf.Bones[best]]++; } }
+                            for (int k = 0; k < ld.Bones.Count; k++) Console.WriteLine($"   {ld.Bones[k].Name,-28} parent {ld.Bones[k].ParentIndex} at {ld.Bones[k].Position} turn {ld.Bones[k].Orientation}" + (n[k] > 0 ? $" · its vertices around {mid[k] / n[k]}" : ""));
                         }
                     }
                 return 0;

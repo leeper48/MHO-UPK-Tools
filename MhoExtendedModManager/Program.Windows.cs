@@ -449,7 +449,7 @@ static partial class Program
                     if (pv.Length > 2) vs[5] = pv[2];
                     v.ViewState = vs;
                 }
-                foreach (float at in new[] { 0f, 0.33f, 0.66f, 1f })
+                foreach (float at in Environment.GetEnvironmentVariable("MHO_RENDER_AT") is { Length: > 0 } rat ? rat.Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray() : new[] { 0f, 0.33f, 0.66f, 1f })   // (MHO_RENDER_AT=0.8,0.87: those points of the animation)
                 {
                     if (fxp != null)
                         for (; fxt + 1e-6 < secs * at; fxt += 1.0 / 30) { anim8.Pose(ba, (float)(fxt / secs * frames)); fxp.Step(1f / 30, false); }

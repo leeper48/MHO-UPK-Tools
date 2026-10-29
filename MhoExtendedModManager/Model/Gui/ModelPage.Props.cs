@@ -175,6 +175,19 @@ sealed partial class ModelPage
                     $"gizmo only: {hp.Label} left off ({offList.Count} props: {string.Join(", ", offList)}) and back ({onList.Count}) | {string.Join(" | ", lg)}");
             }
             Check(true, "(info) log: " + string.Join(" | ", log.Lines.TakeLast(12)));
+            if (Environment.GetEnvironmentVariable("MHO_TEST_GIZMOSHOT") is { Length: > 0 } qshot)
+            {
+                // (the gizmo in all four panes of the quad view: MHO_TEST_QUAD=1)
+                if (addedPick == null && host.AddedProps(gpk).FirstOrDefault() is { } qa) { PickAdded(qa); for (int i = 0; i < 100 && preview.PropBase(GizmoMatch) == null; i++) await Task.Delay(100); }
+                if (!Settings.Current.Preview.Gizmo) ToggleGizmo();
+                if (Environment.GetEnvironmentVariable("MHO_TEST_QUAD") == "1" && !PreviewViews.Quad) preview.ToggleQuad();
+                await Task.Delay(2500);
+                Check(GizmoShownForTest, $"gizmo shown for the shot ({addedPick?.Name ?? "no prop picked"})");
+                var qform = FindForm()!;
+                using var qbmp = new Bitmap(qform.Width, qform.Height);
+                qform.DrawToBitmap(qbmp, new Rectangle(Point.Empty, qform.Size));
+                qbmp.Save(qshot);
+            }
             return fails;
         }
         Check(Props.Count > 1000, $"the props table: {Props.Count} rows");
@@ -501,6 +514,7 @@ sealed partial class ModelPage
         // the live offset matches the built fit: the prop's frame where the gizmo put it after the package reloads
         if (Environment.GetEnvironmentVariable("MHO_TEST_GIZMOSHOT") is { Length: > 0 } gshot)
         {
+            if (Environment.GetEnvironmentVariable("MHO_TEST_QUAD") == "1") preview.ToggleQuad();   // (the gizmo in all four panes)
             await Task.Delay(1500);
             var form = FindForm()!;
             using var bmp = new Bitmap(form.Width, form.Height);

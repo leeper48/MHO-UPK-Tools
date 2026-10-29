@@ -118,7 +118,7 @@ public static class SkeletalMeshReader
     /// <summary>Where a mesh keeps a position (byte offset in its export data): Kind "vec" = 3 floats at At (bounds origin,
     /// a bone's rest position, a packed vertex buffer's origin / extension), "origin" = the mesh's Origin (3 floats),
     /// "rotorigin" = its RotOrigin (3 ints: pitch, yaw, roll), "radius" = 1 float, "verts" = Count float positions, Stride
-    /// bytes apart, from At.</summary>
+    /// bytes apart, from At, "rootbone" = a root bone's rest rotation (4 floats) at At, its position at At + 16.</summary>
     public readonly record struct PositionSpot(string Kind, int At, int Count = 1, int Stride = 0, int At2 = 0);
 
     [ThreadStatic] static List<PositionSpot>? spots;
@@ -212,6 +212,7 @@ public static class SkeletalMeshReader
             int nameNumber = cursor.ReadInt32($"bone {i} name number");
             cursor.Skip(4); // flags
 
+            int orientationAt = cursor.Position;
             var orientation = new Quaternion(
                 cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle(), cursor.ReadSingle());
             spots?.Add(new("vec", cursor.Position));
@@ -219,6 +220,7 @@ public static class SkeletalMeshReader
 
             cursor.Skip(4); // child count — not needed; parent links are enough to rebuild the hierarchy
             int parentIndex = cursor.ReadInt32($"bone {i} parent");
+            if (parentIndex == i || parentIndex < 0) spots?.Add(new("rootbone", orientationAt));   // (rotation, then position at +16)
 
             cursor.Skip(4); // bone colour
 

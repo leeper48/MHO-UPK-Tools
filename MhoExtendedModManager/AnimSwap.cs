@@ -401,14 +401,24 @@ static class AnimSwap
             string newSetPath = pkg.PathOf(pkg.Exports[sc.RootRef - 1]);
             log.Add($"set {Path.GetFileName(first.DonorFile)} · {setPath} copied as {newSetPath} (#{sc.RootRef})");
             var seqs = new List<(int, string)>();
+            var copiedFrom = new HashSet<int>();
             foreach (var s in group)
             {
+                // a source a slot before took already (Goblin's run in both his flight loops, PowerBorrow): a copy of its own,
+                // under a name of its own (a copy under the same path is the one made before, and it can only have one slot's name)
+                string? own = null;
+                if (!copiedFrom.Add(s.DonorSequence))
+                {
+                    string b = $"{src.Exports[s.DonorSequence].ObjectName}_{s.Slot}";
+                    own = b;
+                    for (int k = 2; pkg.Exports.Any(e => e.ObjectName.Equals(own, StringComparison.OrdinalIgnoreCase)); k++) own = $"{b}_{k}";
+                }
                 // Its outer (the donor set) is the copied set: the sequence lands inside it; its notifies come along.
-                var qc = CrossMove.Quiet(() => ExportCopy.Copy(src, s.DonorSequence, pkg, [], null, new Dictionary<string, string> { [setPath] = newSetPath }), out string qsaid);
+                var qc = CrossMove.Quiet(() => ExportCopy.Copy(src, s.DonorSequence, pkg, [], own, new Dictionary<string, string> { [setPath] = newSetPath }), out string qsaid);
                 if (qc == null)
                 {
                     // Notifies (sounds, effects timed to the animation) can reach far (a power's particle systems): without them.
-                    qc = CrossMove.Quiet(() => ExportCopy.Copy(src, s.DonorSequence, pkg, ["notifies"], null, new Dictionary<string, string> { [setPath] = newSetPath }), out string q2)
+                    qc = CrossMove.Quiet(() => ExportCopy.Copy(src, s.DonorSequence, pkg, ["notifies"], own, new Dictionary<string, string> { [setPath] = newSetPath }), out string q2)
                          ?? throw new InvalidDataException($"{src.PathOf(src.Exports[s.DonorSequence])} couldn't be copied: {Reason(qsaid)}");
                     log.Add($"  {s.Slot}: copied without its notifies ({Reason(qsaid)})");
                 }

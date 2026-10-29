@@ -33,6 +33,7 @@ sealed partial class PreviewPanel : UserControl
     public event Action<int, float>? GizmoTurned { add => view.GizmoTurned += value; remove => view.GizmoTurned -= value; }
     public event Action? GizmoReleased { add => view.GizmoReleased += value; remove => view.GizmoReleased -= value; }
     public (System.Numerics.Matrix4x4 Frame, float Size)? PropBase(Func<string, bool> match) => p3.PropBase(match);
+    public (System.Numerics.Vector3 Mid, int Count)? PropMid(Func<string, bool> match) => p3.PropMid(match);
     public void SetPropOffset(Func<string, bool> match, System.Numerics.Matrix4x4 offset) => p3.SetPropOffset(match, offset);
     internal bool TestGizmoDrag(int handle, int dx, int dy, bool release = true) => view.TestGizmoDrag(handle, dx, dy, release);
     internal void TestGizmoRelease() => view.TestGizmoRelease();

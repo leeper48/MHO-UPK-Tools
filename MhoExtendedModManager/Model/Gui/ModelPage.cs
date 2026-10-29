@@ -479,7 +479,7 @@ sealed partial class ModelPage : UserControl
         previewDelay.Tick += (_, _) => { previewDelay.Stop(); RefreshPreview(); };
         packages.SelectedIndexChanged += (_, _) => SchedulePreview();
         packages.SelectedIndexChanged += (_, _) => { if (varPreview is { } vp && !vp.Target.Equals(VarTarget ?? "", StringComparison.OrdinalIgnoreCase)) varPreview = null; ShowVariationsTab(); };
-        material.SelectedIndexChanged += (_, _) => SchedulePreview();
+        material.SelectedIndexChanged += (_, _) => { RememberMaterial(); SchedulePreview(); };
         parts.CellMouseDown += (_, e) =>
         {
             if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "use")

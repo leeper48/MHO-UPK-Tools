@@ -1,6 +1,25 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.261
+- Model tab: a prop built from the same source as the body (a prop and a costume from one MFF hero or one FBX) keeps its own Materials tab settings and its own All Materials choice. They were shared, so a texture or Metal set for the prop went onto the character, and back.
+- Model tab: everything a build adds is named after its target. A prop and a body whose source materials had the same name (an FBX's "DefaultMaterial") were built under one name, so the prop showed the character's textures (or the other way round), and two mods could do the same to each other in game.
+- Added props: the prop's original model gets a name of its own in each costume (angela_weapons.angelaaxe_left became angelaaxe_left_on_<costume>). Every mod with an added prop held Angela's axe under its game path, so Apply's checks said two mods change the same model.
+- Added props: earlier fits and models of an added prop that nothing uses any more are left out of the model lists. Each new fit left a copy behind, so a costume showed "1 of 14" models after a few saves.
+
+0.60.249
+- Create from 3D: a Zoom slider under Turn, for framing an icon exactly (100 % = the whole model framed). Drag it, use the arrow keys, or click its number and type a value; it follows the mouse wheel too.
+
+0.60.248
+- Model tab, Parts: right-click one of the costume's own props under The Target's Props → Swap Model makes it the target, so Build into Mod replaces its model with the part you tick (Cap's shield with an MFF shield) instead of adding a second one. Every power that uses the prop uses the new model.
+- Model tab: the gizmo on an added prop sits at the middle of the prop's model and turns it around that point. An MFF prop whose model sat far from its own origin had the gizmo out beside the character and swung in wide arcs when turned.
+
+0.60.247
+- Model tab, Prop Fit: a prop that's turned or moved keeps its swinging parts in place. The strap of Thor's hammer, turned to sit right in another hero's hand, flapped around wildly in game: the turn moved the strap's model but not the bone the game swings it by, so it swung from where it was before the turn.
+
+0.60.246
+- Model tab: the prop gizmo shows in all four panes of the Quad View (Top, Front and Side too), and can be dragged in any of them.
+
 0.60.244
 - Model tab, Parts: the Source Parts and Target's Props lists scroll when they don't fit (on smaller screens they were cut off with no scrollbar).
 

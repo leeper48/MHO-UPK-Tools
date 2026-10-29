@@ -49,6 +49,24 @@ sealed partial class ModEditorView
             await Task.Delay(15000);
             state += $" | after Size {sz}: held fit x{held.Fit.Scale}, Animations tab slider {(apSize != null ? $"{apSize.Value * 100:0} %" : "-")}, power preview props {powerPreview?.PropsForTest}";
         }
+        // the gizmo (MHO_TEST_POWER_GIZMO=1): shown on the picked prop, the X arrow dragged and let go, the fit put in
+        if (Environment.GetEnvironmentVariable("MHO_TEST_POWER_GIZMO") == "1" && pX != null)
+        {
+            HookBorrowGizmo();
+            if (!Model.Settings.Current.Preview.Gizmo) ToggleBorrowGizmo();
+            await Task.Delay(1500);
+            bool shown = BorrowGizmoNow() != null;
+            float x0 = pX.Value;
+            float y0 = pY!.Value, z0 = pZ!.Value;
+            bool dragged = gizmoHooked?.View.TestGizmoDrag(0, 12, 0) == true;
+            float x1 = pX.Value, y1 = pY.Value, z1 = pZ.Value;   // (right after the drag: only X should have moved)
+            for (int w = 0; w < 60 && !borrowBuilding; w++) await Task.Delay(100);
+            for (int w = 0; w < 300 && borrowBuilding; w++) await Task.Delay(200);
+            await Task.Delay(2000);
+            var fitNow = propPick.SelectedItem is PowerBorrow.SpawnedProp gsp && powerList.SelectedItem is Fx.PowerList.Power gp && BorrowOf(gp.Prototype) is { } ge
+                ? (HeldAs(gsp.Class)?.Fit ?? ge.Props?.FirstOrDefault(f => f.Class.Equals(gsp.Class, StringComparison.OrdinalIgnoreCase))) : null;
+            state += $" | gizmo shown {shown}, X arrow dragged {dragged}: on the drag Move X {x0} -> {x1}, Y {y0} -> {y1}, Z {z0} -> {z1}; after the rebuild X {pX.Value}, Y {pY.Value}, Z {pZ.Value}; fit in the borrow {(fitNow == null ? "none" : $"{fitNow.X:0.#}, {fitNow.Y:0.#}, {fitNow.Z:0.#}")}";
+        }
         return state;
     }
 
@@ -123,7 +141,7 @@ sealed partial class ModEditorView
         powerAnimBlock.Root.Visible = false;
         // the fit (left) and In This Animation (right), side by side as in the Animations tab (Kurt, 2026-10-23: no scrolling)
         var fitCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        fitCol.Controls.AddRange([pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ]);
+        fitCol.Controls.AddRange([pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ, BorrowFitButtons()]);
         powerAnimBlock.Root.Margin = new Padding((int)(24 * S), 0, 0, 0);
         var cols = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0) };
         cols.Controls.AddRange([fitCol, powerAnimBlock.Root]);
@@ -156,6 +174,8 @@ sealed partial class ModEditorView
         if (e != null && e.Spawned == null && !borrowBuilding && fitBuilt.Add(e.Power + "|" + e.Donor)) { RebuildBorrows(); return; }
         var props = e?.Spawned ?? [];
         propFit.Visible = props.Count > 0;
+        HookBorrowGizmo();   // (the Powers preview's 3D view: made by now when it shows the power)
+        gizmoHooked?.View.Invalidate();
         riderFit.Visible = props.Any(x => x.Vehicle);
         bool on = !borrowBuilding;
         foreach (var sl in new[] { pSize, pX, pY, pZ, pTX, pTY, pTZ, vForward, vUp, vLean }) if (sl != null) sl.Enabled = on;

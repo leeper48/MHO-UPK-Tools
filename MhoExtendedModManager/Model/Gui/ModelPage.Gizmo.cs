@@ -71,6 +71,22 @@ sealed partial class ModelPage
         return null;
     }
 
+    /// <summary>An added prop's model middle in its own (unfitted) space, per prop and model (Kurt, 2026-10-28: an MFF shield
+    /// whose model sat far from its origin had the gizmo out in the air beside the character, and turned in wide arcs).</summary>
+    (string Key, Vector3 Mid)? addedMid;
+
+    Vector3? AddedMid(AddedPropEntry e)
+    {
+        if (preview.PropMid(GizmoMatch) is not var (mid, count)) return null;
+        string key = $"{e.Package}|{e.Class}|{count}";
+        if (addedMid is var (k, m) && k == key) return m;
+        // the shown model is the one built with the prop's fit: back to its own space (the fit is the same for any later fit)
+        if (gizmoStart != null || !Matrix4x4.Invert(PowerBorrow.FitMatrix(e.Fit, e.Class), out var unfit)) return null;
+        var own = Vector3.Transform(mid, unfit);
+        addedMid = (key, own);
+        return own;
+    }
+
     /// <summary>The fit as the sliders have it, as an added prop's fit (for FitMatrix).</summary>
     MhoExtendedModManager.PropFit SliderFit(AddedPropEntry e, PropAdjust a) => new()
     {
@@ -87,7 +103,8 @@ sealed partial class ModelPage
         if (addedPick is { } e)
         {
             if (e.Off || e.Class.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase)) return null;
-            at = new Vector3(fit.MoveX, fit.MoveY, fit.MoveZ);
+            // on the model's middle, where the fit puts it (its origin can be far from the model)
+            at = AddedMid(e) is Vector3 m ? Vector3.Transform(m, PowerBorrow.FitMatrix(SliderFit(e, fit), e.Class)) : new Vector3(fit.MoveX, fit.MoveY, fit.MoveZ);
         }
         else if (GamePropTarget && heldClass != null && !heldClass.StartsWith("marvelattachmentanimated", StringComparison.OrdinalIgnoreCase) && GamePivot() is Vector3 pivot)
             at = pivot + new Vector3(fit.MoveX, fit.MoveY, fit.MoveZ);
@@ -124,6 +141,14 @@ sealed partial class ModelPage
             var want = rot(s.TurnX, s.TurnY, s.TurnZ) * (lin * q * toBone);
             var (tx, ty, tz) = SolveTurn(want, s.TurnX, s.TurnY, s.TurnZ, rot);
             now = s with { TurnX = tx, TurnY = ty, TurnZ = tz };
+            // an added prop turns around its model's middle (the gizmo's centre), not its origin: the move makes up the difference
+            if (e != null && addedMid is var (_, mid))
+            {
+                var d = Vector3.Transform(mid, PowerBorrow.FitMatrix(SliderFit(e, s), e.Class)) - Vector3.Transform(mid, PowerBorrow.FitMatrix(SliderFit(e, now), e.Class));
+                float range = propMoveX.Max;
+                static float R(float v) => MathF.Round(v * 10) / 10;
+                now = now with { MoveX = Math.Clamp(R(s.MoveX + d.X), -range, range), MoveY = Math.Clamp(R(s.MoveY + d.Y), -range, range), MoveZ = Math.Clamp(R(s.MoveZ + d.Z), -range, range) };
+            }
         }
         else
         {
@@ -146,7 +171,7 @@ sealed partial class ModelPage
     Matrix4x4? gizmoFrame;
 
     /// <summary>The fit's turn alone (as FitMatrix turns the model: pitch Y, yaw Z, roll X, in degrees).</summary>
-    static Matrix4x4 Turn(float x, float y, float z)
+    internal static Matrix4x4 Turn(float x, float y, float z)
     {
         const float d = MathF.PI / 180;
         return Fx.PowerEffects.Player.UeRotation(y * d, z * d, x * d);
@@ -161,7 +186,7 @@ sealed partial class ModelPage
 
     /// <summary>The Turn X / Y / Z (degrees, -180..180) whose turn (<paramref name="turnOf"/>) is <paramref name="want"/>:
     /// Gauss-Newton steps from the angles before (a drag changes them a little at a time, so it stays on the same branch).</summary>
-    static (float X, float Y, float Z) SolveTurn(Matrix4x4 want, float x, float y, float z, Func<float, float, float, Matrix4x4> turnOf)
+    internal static (float X, float Y, float Z) SolveTurn(Matrix4x4 want, float x, float y, float z, Func<float, float, float, Matrix4x4> turnOf)
     {
         Func<float, float, float, Matrix4x4> Turn = turnOf;
         static float[] Res(Matrix4x4 m, Matrix4x4 w) => [m.M11 - w.M11, m.M12 - w.M12, m.M13 - w.M13, m.M21 - w.M21, m.M22 - w.M22, m.M23 - w.M23, m.M31 - w.M31, m.M32 - w.M32, m.M33 - w.M33];
@@ -204,15 +229,18 @@ sealed partial class ModelPage
     internal async Task<string> GizmoLiveForTest(int handle, int dx, int dy)
     {
         var a = preview.PropShownForTest(GizmoMatch);
+        var ga = GizmoNow()?.Center;
         bool grabbed = preview.TestGizmoMouse(handle, dx, dy, 8, release: false);   // (as the mouse: window messages)
         if (!grabbed) return "the press didn't take the handle";
         await Task.Delay(300);
         var b = preview.PropShownForTest(GizmoMatch);
+        var gb = GizmoNow()?.Center;
         preview.TestGizmoMouseUp();
         await Task.Delay(6000);
         var c = preview.PropShownForTest(GizmoMatch);
         string F((Vector3 Mid, Vector3 Dir)? v) => v is { } x ? $"mid {x.Mid.X:0.#},{x.Mid.Y:0.#},{x.Mid.Z:0.#} dir {x.Dir.X:0.#},{x.Dir.Y:0.#},{x.Dir.Z:0.#}" : "none";
-        return $"before {F(a)} | dragging {F(b)} | after {F(c)}";
+        string G(Vector3? v) => v is { } x ? $"{x.X:0.#},{x.Y:0.#},{x.Z:0.#}" : "none";
+        return $"before {F(a)} | dragging {F(b)} | after {F(c)} | gizmo centre {G(ga)} → {G(gb)}";
     }
     internal bool GizmoShownForTest => GizmoNow() != null;
     /// <summary>Test: the gizmo's centre and the prop's whole placement (fit, then bone) as the sliders have it.</summary>

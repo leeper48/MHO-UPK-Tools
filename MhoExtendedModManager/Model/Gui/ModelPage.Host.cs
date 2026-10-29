@@ -429,7 +429,8 @@ sealed partial class ModelPage
         {
             names = await Task.Run(() =>
             {
-                var list = MhoSkeleton.List(path).Select(m => m.Name).ToList();
+                var unused = BuildLeftovers.UnusedModels(path);   // (an added prop's old copies: Monarch, 2026-10-29)
+                var list = MhoSkeleton.List(path).Select(m => m.Name).Where(n => !unused.Contains(n)).ToList();
                 // the one Automatic picks (the selector says which)
                 if (list.Count > 1)
                     try { auto = MhoSkeleton.Load(path, body: true).Name; }
@@ -451,7 +452,7 @@ sealed partial class ModelPage
                         try
                         {
                             if (MhoExtendedModManager.ModMeshes.Attachments(StockFiles.For(cookedNow, a.From)).FirstOrDefault(x => x.Class.Equals(a.Class, StringComparison.OrdinalIgnoreCase))?.Mesh.Split('.').Last() is string dm
-                                && System.Text.RegularExpressions.Regex.IsMatch(was, "^" + System.Text.RegularExpressions.Regex.Escape(dm) + @"(_m\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) { addedWas = a; break; }
+                                && System.Text.RegularExpressions.Regex.IsMatch(was, "^" + System.Text.RegularExpressions.Regex.Escape(dm) + @"(_on_[a-z0-9_]+?)?(_m\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) { addedWas = a; break; }
                         }
                         catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
                 return list;
@@ -653,6 +654,9 @@ sealed partial class ModelPage
         /// <summary>Each target's last source ("package|model" → source key; Kurt, 2026-10-26): Model ▾ back to the body puts its
         /// source back, not the prop's.</summary>
         public Dictionary<string, string>? TargetSources { get; set; }
+        /// <summary>Each target's All Materials choice ("package|model" → its index; Monarch, 2026-10-29: the body's Metal
+        /// went onto the prop built from the same source, and back).</summary>
+        public Dictionary<string, int>? TargetMaterials { get; set; }
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
@@ -672,7 +676,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, TargetSources = RememberTargetSource(),
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, TargetSources = RememberTargetSource(), TargetMaterials = targetMaterials.Count > 0 ? new(targetMaterials) : null,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
@@ -696,6 +700,7 @@ sealed partial class ModelPage
         foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;
         foreach (var (k, v) in st.CopyOthers ?? []) copyOthers[k] = v;
         foreach (var (k, v) in st.PropFits ?? []) propFits[k] = v;
+        foreach (var (k, v) in st.TargetMaterials ?? []) targetMaterials[k] = v;
         foreach (var (k, v) in st.TargetSources ?? []) targetSources[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;
         buildFrom.SelectedIndex = st.FromStock ? 1 : 0;
@@ -749,6 +754,25 @@ sealed partial class ModelPage
         .Where(k => k.StartsWith(file + "|", StringComparison.OrdinalIgnoreCase)).Select(k => k[(file.Length + 1)..])
         .Where(m => m != "*").Distinct(StringComparer.OrdinalIgnoreCase)];
 
+    /// <summary>Each target's All Materials choice (State.TargetMaterials).</summary>
+    readonly Dictionary<string, int> targetMaterials = new(StringComparer.OrdinalIgnoreCase);
+    bool settingMaterial;
+
+    /// <summary>The All Materials choice kept for the target it was made on.</summary>
+    void RememberMaterial()
+    {
+        if (!settingMaterial && !restoring2 && loaded && TargetSourceKey() is string tk) { targetMaterials[tk] = Math.Max(0, material.SelectedIndex); SaveState(); }
+    }
+
+    /// <summary>The target's own All Materials choice back (a target without one keeps what shows).</summary>
+    void MaterialForTarget()
+    {
+        if (TargetSourceKey() is not string tk || !targetMaterials.TryGetValue(tk, out int i) || i < 0 || i >= material.Items.Count || i == material.SelectedIndex) return;
+        settingMaterial = true;
+        try { material.SelectedIndex = i; }
+        finally { settingMaterial = false; }
+    }
+
     Dictionary<string, string>? RememberTargetSource()
     {
         if (chosenKey != null && HasSource && !PropSourceOnBody && TargetSourceKey() is string tk) targetSources[tk] = chosenKey;   // (a prop on a body: nothing fitted)
@@ -763,6 +787,7 @@ sealed partial class ModelPage
     async void SourceForTarget()
     {
         if (ChosenPackage is not CharacterList.Item pkg || TargetSourceKey() is not string tk) return;
+        MaterialForTarget();
         // (not a prop's model on a body, nor a body's own model on a prop)
         // another model of this very package as a source (its body, the hammer's own model) belongs to that model
         bool OtherOwn(string k) => k.Equals(GameSrc + pkg.Key, StringComparison.OrdinalIgnoreCase)
@@ -814,6 +839,7 @@ sealed partial class ModelPage
         if (want.Count > 0) foreach (DataGridViewRow r in parts.Rows) r.Cells["use"].Value = want.Contains((string)r.Cells["part"].Value);
         if (smooth.Enabled) smooth.Checked = st.Subdivide;
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
+        MaterialForTarget();
         SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
         buildOnSave.Checked = st.BuildOnBlenderSave;
         sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; keepSourceSize.Checked = st.KeepSourceSize; jointFit.Checked = st.JointFit; leanCustom = st.LeanVersion >= 2 ? st.LeanCustom : st.Lean; restoringLean = true; leanSlider.Value = leanCustom ?? leanAuto; restoringLean = false; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;

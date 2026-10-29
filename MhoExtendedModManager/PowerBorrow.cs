@@ -13,7 +13,7 @@ namespace MhoExtendedModManager;
 /// target's default (renamed borrowed_&lt;name&gt;, so no path is the donor's own). The target's old components stay, unused.
 /// The donor's packages are only read.
 /// </summary>
-static class PowerBorrow
+static partial class PowerBorrow
 {
     /// <summary>
     /// The editor's borrows rebuilt into <paramref name="work"/> and put into the draft's packages (Kurt, 2026-10-10: the
@@ -568,6 +568,8 @@ static class PowerBorrow
         float targetLen = targetAnims.Select(a => Length(targetHeroPackage, a)).DefaultIfEmpty(0).Max();
         var ap = AnimExportCli.Packages.Package.Open(donorHeroPackage);
         var swaps = new List<AnimSwap.Swap>();
+        var mountSkeleton = crossHero ? HeroSkeleton(donorHeroPackage) : null;
+        bool targetNoMount = HeroBones(targetHeroPackage) is { } tb0 && !tb0.Contains("g_mountattach");
         foreach (string an in donorAnims)
         {
             // the character's set, not a vehicle's: Cyclops' bike has a set of its own (cyclops_bike_as, 22 chopper bones) with the
@@ -582,6 +584,21 @@ static class PowerBorrow
                         foundBones = set.TrackBoneNames.Count;
                     }
             if (found == null) { log.Add($"anims: {an} not found in {Path.GetFileName(donorHeroPackage)}"); continue; }
+            // a loop that turns the donor's mount a lot (Goblin's barrel roll) on a hero without the mount bone: the donor's own
+            // run instead (the same glide without the roll), copied as it is (Kurt, 2026-10-28: no roll; every edit of the rider's
+            // borrowed tracks broke him in game)
+            if (crossHero && an.Contains("_loop", StringComparison.OrdinalIgnoreCase) && mountSkeleton is { } msk && targetNoMount
+                && AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).FirstOrDefault(x => x.ExportIndex == found.DonorSet) is { } fset
+                && MountTurn(ap, fset, found.DonorSequence, msk) is float turned && turned > 30)
+            {
+                var run = fset.Sequences.Where(q => q.IsExport).FirstOrDefault(q => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, q.ExportIndex).Equals("movement_run", StringComparison.OrdinalIgnoreCase));
+                if (run != null && MountTurn(ap, fset, run.ExportIndex, msk) is float runTurn && runTurn <= 30)
+                {
+                    found = found with { DonorSequence = run.ExportIndex };
+                    log.Add($"anims: {an}: the donor's g_mountattach turns {turned:0}° in it (a roll this hero can't play: no such bone): its movement_run ({runTurn:0}°) takes its place");
+                }
+                else log.Add($"anims: {an}: the donor's g_mountattach turns {turned:0}° in it; no calmer run to use instead");
+            }
             float donorLen = Length(donorHeroPackage, an);
             float rate = fit && targetLen > 0.01f && donorLen > 0.01f ? donorLen / targetLen : 1;
             log.Add($"anims: {an} {donorLen:0.##} s{(Math.Abs(rate - 1) > 0.01f ? $", played ×{rate:0.##} to last {targetLen:0.##} s like the target's {string.Join(" / ", targetAnims)}" : "")}");
@@ -1720,7 +1737,11 @@ static class PowerBorrow
     /// <summary>
     /// A plain prop's move and turn baked into its model copy (<paramref name="md"/>, edited in place): every vertex turned
     /// (as RotOrigin would: pitch about Y, yaw about Z, roll about X) then moved, packed positions unpacked and packed again
-    /// against a new range, the tangent frames turned, and the bounds moved (their extent made the radius every way).
+    /// against a new range, the tangent frames turned, and the bounds moved (their extent made the radius every way). The
+    /// root bone's rest pose is turned and moved the same way (Kurt, 2026-10-28: the strap of Thor's hammer on Hawkeye flapped
+    /// around a lot): the skin draws the same (its bones' rest poses and its vertices moved together), and bones the model's
+    /// physics asset swings (the strap's g_hammercloth) stay with the vertices they hold instead of swinging them from where
+    /// they were before the turn.
     /// </summary>
     static void BakeMoveTurn(byte[] md, List<AnimExportCli.Meshes.SkeletalMeshReader.PositionSpot> where, System.Numerics.Vector3 move, System.Numerics.Vector3 turn)
     {
@@ -1778,6 +1799,16 @@ static class PowerBorrow
                             BinaryPrimitives.WriteUInt32LittleEndian(md.AsSpan(fa), B(n.X) | (B(n.Y) << 8) | (B(n.Z) << 16) | (pk & 0xFF000000));
                         }
                     break;
+                case "rootbone":
+                {
+                    var q = new System.Numerics.Quaternion(F(w.At), F(w.At + 4), F(w.At + 8), F(w.At + 12));
+                    // the bone's rest matrix (rotation, then position) followed by the bake's turn and move
+                    var nq = System.Numerics.Quaternion.Normalize(System.Numerics.Quaternion.Concatenate(q, System.Numerics.Quaternion.CreateFromRotationMatrix(rot)));
+                    var p = P(new System.Numerics.Vector3(F(w.At + 16), F(w.At + 20), F(w.At + 24)));
+                    W(w.At, nq.X); W(w.At + 4, nq.Y); W(w.At + 8, nq.Z); W(w.At + 12, nq.W);
+                    W(w.At + 16, p.X); W(w.At + 20, p.Y); W(w.At + 24, p.Z);
+                    break;
+                }
                 case "bounds":
                 {
                     var o = P(new System.Numerics.Vector3(F(w.At), F(w.At + 4), F(w.At + 8)));
@@ -1918,6 +1949,7 @@ static class PowerBorrow
         int d = Find(dst, def);
         if (d < 0) throw new InvalidDataException($"{def} isn't in the package");
         dst = WithOriginalModel(dst, def, log);
+        if (!e.From.Equals(e.Package, StringComparison.OrdinalIgnoreCase)) dst = OwnModelName(dst, def, e.Package, log);
         dst = WithModel(dst, def, modelFrom, log, "marvelgamecontent.default__" + e.Class.ToLowerInvariant());   // (a model of its own: then the fit is made from that)
         var f = e.Fit;
         float scale = f.Scale is float fs && fs > 0 ? fs : 1;
@@ -2331,6 +2363,53 @@ static class PowerBorrow
         log.Add($"  {cls} → {name} (a name of its own: the game knows a class by its path, so another copy of it would win)");
         newCls = name; newDef = "marvelgamecontent.default__" + name;
         return back;
+    }
+
+    /// <summary>
+    /// An added prop's model (its character's, which the copies are made from) given a name of its own in this costume
+    /// (&lt;model&gt;_on_&lt;costume&gt;), as its class is (Monarch, 2026-10-29: every mod with an added prop held Angela's axe at
+    /// angela_weapons.angelaaxe_left, so two such mods "changed the same model", and the copy loaded first is the one the game
+    /// uses for that path: Angela's own, another mod's). A model renamed already, or another prop's renamed copy of it, is used.
+    /// </summary>
+    static Package OwnModelName(Package dst, string classDefault, string costumeFile, List<string> log)
+    {
+        int d = Find(dst, classDefault);
+        if (d < 0) return dst;
+        byte[] db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        if (TagWalker.Walk(dst, db, 4)?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase)) is not { } mt || BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt)) < 1) return dst;
+        int mesh = BinaryPrimitives.ReadInt32LittleEndian(db.AsSpan(mt.ValueAt + 4)) - 1;
+        if (mesh < 0 || !dst.ClassOf(dst.Exports[mesh]).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase)) return dst;
+        bool keep = false;
+        // (its own model, <model>_m12345, is named from its bytes already: the original it was made from beside it is renamed)
+        if (System.Text.RegularExpressions.Regex.Match(dst.Exports[mesh].ObjectName, @"^(.+)_m\d+$") is { Success: true } mm)
+        {
+            mesh = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(mm.Groups[1].Value, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase));
+            if (mesh < 0) return dst;
+            keep = true;   // (the attachment keeps its model)
+        }
+        string name = dst.Exports[mesh].ObjectName;
+        string own = OwnName(name, costumeFile);
+        if (name.Contains("_on_", StringComparison.OrdinalIgnoreCase)) return dst;
+        Dictionary<int, Func<long, byte[]>> rep = [];
+        Dictionary<int, string>? renames = null;
+        List<string> addNames = [];
+        int had = Array.FindIndex(dst.Exports, x => x.ObjectName.Equals(own, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals(AnimExportCli.Meshes.SkeletalMeshReader.ClassName, StringComparison.OrdinalIgnoreCase));
+        if (had >= 0)
+        {
+            if (keep) return dst;
+            BinaryPrimitives.WriteInt32LittleEndian(db.AsSpan(mt.ValueAt + 4), had + 1);
+            rep[d] = _ => db;
+        }
+        else
+        {
+            renames = new() { [mesh] = own };
+            if (!dst.Names.Any(x => x.Equals(own, StringComparison.OrdinalIgnoreCase))) addNames.Add(own);
+        }
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames, null, renames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames, null, renames);
+        if (problems.Count > 0) throw new InvalidDataException("the prop's model couldn't be given a name of its own: " + string.Join("; ", problems.Take(2)));
+        log.Add($"  {name} → {own} (a name of its own: the game knows a model by its path, so another copy of it would win)");
+        return Package.FromBytes(output);
     }
 
     static int HeldClass(Package p, string cls)

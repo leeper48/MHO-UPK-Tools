@@ -26,12 +26,26 @@ sealed partial class ModelPage
 
     static readonly string[] MapKinds = ["Color", "Normal", "Spec", "MHO Spec", "Spec Color", "Glow", "Alpha"];
 
-    /// <summary>The source's overrides file (materials\&lt;source&gt;.json in the Model work folder); null without a source.</summary>
+    /// <summary>
+    /// The source's overrides file (materials\&lt;source&gt;.json in the Model work folder); null without a source. A prop target
+    /// has its own (materials\&lt;source&gt; on &lt;target&gt;.json; Monarch, 2026-10-29: a body and a prop built from the same source
+    /// shared one file, so a texture or game material set for one went onto the other), started as a copy of the source's.
+    /// </summary>
     string? OverridesPath()
     {
         string? key = model?.Folder ?? (sourceFbx != null ? ImportBuild.SourceName(sourceFbx) : null);
-        return key == null ? null : Path.Combine(host.WorkFolder, "materials", FbxExport.SafeName(key) + ".json");
+        if (key == null) return null;
+        string dir = Path.Combine(host.WorkFolder, "materials"), shared = Path.Combine(dir, FbxExport.SafeName(key) + ".json");
+        if (PropTargetName() is not string t) return shared;
+        string own = Path.Combine(dir, FbxExport.SafeName($"{key} on {t}") + ".json");
+        if (!File.Exists(own) && File.Exists(shared))
+            try { Protected.CheckWrite(own); File.Copy(shared, own); }
+            catch (IOException) { }
+        return own;
     }
+
+    /// <summary>The target when it's a prop (an added prop's class, else "package|model"), for settings of its own; null for a body.</summary>
+    string? PropTargetName() => AddedTarget is { } a ? a.Class : TargetIsProp() ? TargetSourceKey() : null;
 
     /// <summary>The overrides file when it exists (what the preview, Build and Export are given).</summary>
     string? OverridesFile() => OverridesPath() is string p && File.Exists(p) ? p : null;

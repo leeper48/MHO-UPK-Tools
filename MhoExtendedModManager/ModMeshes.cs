@@ -71,7 +71,10 @@ static class ModMeshes
                     try
                     {
                         var pkg = AnimPackage.Open(path);
-                        foreach (int i in pkg.FindExportsOfClass(SkeletalMeshReader.ClassName)) found.Add(new MeshRef(file, path, pkg.GetExportName(i), i));
+                        // (not an added prop's old copies nothing uses any more: each new fit or model left one; Monarch, 2026-10-29)
+                        var unused = Model.BuildLeftovers.UnusedModels(path);
+                        foreach (int i in pkg.FindExportsOfClass(SkeletalMeshReader.ClassName))
+                            if (!unused.Contains(pkg.GetExportName(i))) found.Add(new MeshRef(file, path, pkg.GetExportName(i), i));
                         // The costume's own model first (Kurt: a costume moved to another hero opened on the target's original
                         // model, which its package still holds; a hero's main package has props before the hero).
                         if (CostumeMesh(path) is string main && found.FindIndex(m => m.Name.Equals(main, StringComparison.OrdinalIgnoreCase)) is int at and > 0)

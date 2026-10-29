@@ -184,8 +184,8 @@ sealed class ImportBuild
         log($"material: {metalShare:P0} of the _sp maps marks metal, glow spots on {glowShare:P2} of the colour maps → {(donor == null ? "the base mesh's own material" : donor.Split(':').Last())}{(o.Material != null ? " (MFF_MATERIAL)" : " (automatic)")}");
         // a package that already holds a Model build (made elsewhere: no copy from before it was kept): this build's objects
         // get their own names, next to the earlier one's
-        string namePrefix = MaterialOut.PrefixFor(mp);
-        if (namePrefix != "mff_") log($"material: the package already holds an earlier Model build (its objects are kept, unused); this build's are named {namePrefix}…");
+        string namePrefix = MaterialOut.PrefixFor(mp, o.NameTag);
+        if (!namePrefix.StartsWith("mff_")) log($"material: the package already holds an earlier Model build (its objects are kept, unused); this build's are named {namePrefix}…");
         string texDir = Path.Combine(outDir, "textures");
         Protected.CheckWrite(texDir);
         Directory.CreateDirectory(texDir);

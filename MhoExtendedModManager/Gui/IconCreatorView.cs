@@ -48,6 +48,10 @@ sealed class IconCreatorView : UserControl
     readonly LightSlider lensSlider = new() { Label = "Lens", Min = 15, Max = 200, Step = 0.5f, Mark = ModelView.DefaultFocalLength };
     /// <summary>The model's turn in degrees (0 = facing the camera); follows a drag in the view (a user: a visual slider for it).</summary>
     readonly LightSlider turnSlider = new() { Label = "Turn", Min = -180, Max = 180, Step = 1, Mark = 0 };
+    /// <summary>Zoom (a user, 2026-10-28: store images a fraction off; the wheel's Shift steps weren't fine enough): the camera's
+    /// distance as a percentage, 100 % = the whole model framed (ModelView's own framing); type a value for exact framing.</summary>
+    readonly LightSlider zoomSlider = new() { Label = "Zoom", Min = 25, Max = 1000, Step = 0.5f, Mark = 100 };
+    const float ZoomFull = 2.6f;   // (ModelView.FrameMesh: the whole model at 2.6 radii)
     bool syncingTurn;
     readonly ModelView view = new() { Background = Color.FromArgb(22, 22, 24) };
     readonly Button specBtn, reflBtn, glowBtn, fxBtn, thirdsBtn, centerBtn, safeBtn;
@@ -166,7 +170,7 @@ sealed class IconCreatorView : UserControl
         left.HorizontalScroll.Maximum = 0; left.AutoScroll = false; left.HorizontalScroll.Visible = false; left.HorizontalScroll.Enabled = false; left.AutoScroll = true;
         Label Caption(string t) => new() { Text = t, AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f) };
         hint.MaximumSize = new Size(cw, 0);
-        foreach (var sl in new[] { frameSlider, lightSlider, overlaySlider, lensSlider, turnSlider }) sl.Height = (int)(24 * s);
+        foreach (var sl in new[] { frameSlider, lightSlider, overlaySlider, lensSlider, turnSlider, zoomSlider }) sl.Height = (int)(24 * s);
         // The framing buttons as a fixed 2 × 2 grid: always the column's width (a wrapping row overflowed at 150 % scaling).
         var presets = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, Width = cw, Height = (int)(64 * s), Margin = new Padding(0) };
         presets.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); presets.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -215,7 +219,7 @@ sealed class IconCreatorView : UserControl
         Row(Caption("LOOK"), 8); Row(lightSlider); Row(shading); Row(backBox); Row(overlaySlider); Row(overlayBtn); Row(guides);
         previousBtn = Ui.FlatButton("Use Previous Setup", UsePrevious, tip: "Set this icon up like the one you had open before.");
         previousBtn.AutoEllipsis = true;
-        Row(Caption("FRAMING"), 8); Row(turnSlider); Row(lensSlider); Row(presets); Row(previousBtn);
+        Row(Caption("FRAMING"), 8); Row(turnSlider); Row(zoomSlider); Row(lensSlider); Row(presets); Row(previousBtn);
         root.Controls.Add(left, 0, 0);
 
         // Middle: the viewfinder in the target's shape.
@@ -282,6 +286,15 @@ sealed class IconCreatorView : UserControl
             var vs = view.ViewState; vs[0] = turnSlider.Value * MathF.PI / 180f; view.ViewState = vs;
         };
         turnSlider.Committed += SaveSetup;
+        zoomSlider.Format = v => $"{v:0.#} %";
+        zoomSlider.Home = () => 100;
+        zoomSlider.ValueChanged += () =>
+        {
+            if (restoring || syncingTurn) return;
+            var vs = view.ViewState; vs[2] = ZoomFull * 100f / Math.Max(zoomSlider.Value, 1f); view.ViewState = vs;
+        };
+        zoomSlider.Committed += SaveSetup;
+        Ui.Tip(zoomSlider, "Zoom: how close the camera is, 100 % = the whole model framed. Drag, use the arrow keys (Shift: bigger steps) or click the number to type an exact value. The mouse wheel zooms the view too (Shift: finer). Double-click here: 100 %.");
         Ui.Tip(turnSlider, "Turn the model: 0° faces the camera. Dragging in the view turns it too (double-click here: 0°).");
         lensSlider.Format = v => $"{v:0} mm";
         lensSlider.Value = ModelView.DefaultFocalLength;
@@ -302,7 +315,13 @@ sealed class IconCreatorView : UserControl
         float deg = view.ViewState[0] * 180f / MathF.PI;
         deg = ((deg + 180f) % 360f + 360f) % 360f - 180f;
         syncingTurn = true;
-        try { turnSlider.Value = deg; } finally { syncingTurn = false; }
+        try
+        {
+            turnSlider.Value = deg;
+            float d = view.ViewState[2];
+            if (d > 0) zoomSlider.Value = Math.Clamp(ZoomFull * 100f / d, zoomSlider.Min, zoomSlider.Max);
+        }
+        finally { syncingTurn = false; }
     }
 
     /// <summary>Reset View: this icon's usual framing, facing front, the standard lens and light.</summary>
@@ -899,6 +918,20 @@ sealed class IconCreatorView : UserControl
             using (var tele = view.Snapshot(targetW, targetH)) { int after = tele == null ? 0 : Tall(tele); lensNote = $"; lens 50 → 85 mm: height {before} → {after} px"; if (tele != null) tele.Save(Path.Combine(dir, texture + "_85mm.png"), ImageFormat.Png); }
             lensSlider.Value = keepLens; view.ViewState = keepView; SyncTurn();
         }
+        // Zoom: the slider follows the view, and moving it brings the camera in (the model taller in the snapshot)
+        string zoomNote;
+        {
+            var keepView = view.ViewState;
+            float shown = zoomSlider.Value, expect = ZoomFull * 100f / keepView[2];
+            bool follows = Math.Abs(shown - Math.Clamp(expect, zoomSlider.Min, zoomSlider.Max)) <= 0.5f;
+            int before = Tall(snapshot);
+            zoomSlider.Value = shown * 1.1f;
+            float dist = view.ViewState[2];
+            using var near = view.Snapshot(targetW, targetH);
+            int after = near == null ? 0 : Tall(near);
+            zoomNote = $"; zoom slider {(follows ? "follows the view" : $"FAIL shows {shown:0.#} %, the view is {expect:0.#} %")} ({shown:0.#} %), +10 %: distance {keepView[2]:0.###} → {dist:0.###}, height {before} → {after} px{(dist < keepView[2] && after >= before ? "" : " FAIL")}";
+            view.ViewState = keepView; SyncTurn();
+        }
         bool size = snapshot.Width == SnapW && snapshot.Height == SnapH;
         int opaque = 0, clear = 0;
         for (int y = 0; y < snapshot.Height; y++) for (int x = 0; x < snapshot.Width; x++) { int a = snapshot.GetPixel(x, y).A; if (a == 255) opaque++; else if (a == 0) clear++; }
@@ -921,7 +954,7 @@ sealed class IconCreatorView : UserControl
             prevNote = $"; Use Previous Setup ({me} → {other}): {(offered && same ? "ok" : $"WRONG (offered {offered}, same {same})")}";
         }
 
-        return $"{(size && searchOk ? "ok  " : "FAIL")} {snapInfo}{lensNote}; props: {(props.Count == 0 ? "none" : string.Join(", ", props.Select(p => $"{p.Ref.Name} on {p.BoneName}")))}{searchNote}{prevNote}{fxNote}";
+        return $"{(size && searchOk ? "ok  " : "FAIL")} {snapInfo}{lensNote}{zoomNote}; props: {(props.Count == 0 ? "none" : string.Join(", ", props.Select(p => $"{p.Ref.Name} on {p.BoneName}")))}{searchNote}{prevNote}{fxNote}";
     }
 
     protected override void Dispose(bool disposing)

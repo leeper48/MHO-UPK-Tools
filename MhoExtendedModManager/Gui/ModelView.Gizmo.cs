@@ -53,14 +53,26 @@ sealed partial class ModelView
         return pts;
     }
 
-    /// <summary>The handle under <paramref name="p"/> in the main view: an arrow (its shaft or head) first, then a ring.</summary>
+    /// <summary>The handle under <paramref name="p"/>, in whichever pane it's over (Kurt, 2026-10-28: in all four of the quad
+    /// view): an arrow (its shaft or head) first, then a ring.</summary>
     int GizmoHandleAt(Point p, out Cam cam, out Rectangle area)
     {
         cam = default; area = default;
         if (CurrentGizmo() is not { } g || cams.Count == 0) return -1;
-        (cam, var pane) = cams[0];
-        area = PaneArea(pane);
-        if (!area.Contains(p) || OnCanvas(g.Center, cam, area) is not PointF o) return -1;
+        foreach (var (c, pane) in cams)
+        {
+            var a = PaneArea(pane);
+            if (!a.Contains(p)) continue;
+            cam = c; area = a;
+            return GizmoHandleIn(g, p, c, a);
+        }
+        return -1;
+    }
+
+    /// <summary>The handle under <paramref name="p"/> in one pane.</summary>
+    int GizmoHandleIn(TransformGizmo g, Point p, Cam cam, Rectangle area)
+    {
+        if (OnCanvas(g.Center, cam, area) is not PointF o) return -1;
         float s = Ui.Dpi(DeviceDpi), best = 8 * s;
         int hit = -1;
         for (int k = 0; k < 3; k++)
@@ -153,9 +165,13 @@ sealed partial class ModelView
 
     void PaintGizmo(Graphics g)
     {
-        if (CurrentGizmo() is not { } gz || cams.Count == 0) return;
-        var (cam, pane) = cams[0];
-        var area = PaneArea(pane);
+        if (CurrentGizmo() is not { } gz) return;
+        foreach (var (cam, pane) in cams) PaintGizmoIn(g, gz, cam, PaneArea(pane));
+    }
+
+    /// <summary>The gizmo in one pane; the handle hovered or dragged lit in every pane.</summary>
+    void PaintGizmoIn(Graphics g, TransformGizmo gz, Cam cam, Rectangle area)
+    {
         if (OnCanvas(gz.Center, cam, area) is not PointF o) return;
         float s = Ui.Dpi(DeviceDpi);
         var mode = g.SmoothingMode; g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;

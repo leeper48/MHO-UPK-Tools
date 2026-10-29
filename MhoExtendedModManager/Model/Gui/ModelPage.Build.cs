@@ -54,6 +54,9 @@ sealed partial class ModelPage
         log.Clear();
         string baseStart = StartPackage(pkg.Key);
         var addedTarget = AddedTarget;   // (an added prop: built in its copy, kept as its own model)
+        // names of this target's own (Monarch, 2026-10-29: a body and a prop from one source shared their materials)
+        options = options with { NameTag = MaterialOut.TagFor(pkg.Key, addedTarget?.Class ?? MhoSkeleton.ChosenFor(pkg.Key)) };
+        if (TargetSourceKey() is string mtk) targetMaterials[mtk] = Math.Max(0, material.SelectedIndex);   // (its material choice is the one it was built with)
         // another model of this package built already (the body, then its shield): this build starts from that build, so both stay
         string? keepOther = addedTarget != null ? null : await Task.Run(() => OtherModelBuilt(pkg.Key, baseStart));
         if (keepOther != null) options = options with { SizeFrom = baseStart };
