@@ -10,6 +10,8 @@ namespace MhoExtendedModManager.Model;
 sealed class MaterialMaps
 {
     readonly string workDir;
+    /// <summary>The folder the maps are written to.</summary>
+    public string Dir => workDir;
     readonly List<string> notes;
     /// <summary>Spec "raw": the _sp map unchanged; "matte": nothing view-dependent (spec, rim, reflection, spec colour 0).</summary>
     readonly bool raw, matte;

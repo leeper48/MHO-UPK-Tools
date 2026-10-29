@@ -35,7 +35,7 @@ static class AnimSwap
     /// <paramref name="DonorSequence"/> (an export of <paramref name="DonorSet"/>); <paramref name="Rate"/> &gt; 0 sets the copy's
     /// own play rate (a borrowed power's animation fitted to the length of the one it replaces), else Build's rateScale;
     /// <paramref name="Lift"/> moves the whole animation up (down when negative) by its root bone.</summary>
-    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0, float RampBy = 0);
+    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0, float RampBy = 0, float RampPower = 1);
 
     /// <summary>Vehicle Fit: the rider (the body from g_spine01 down) moved forward / up (game units) and leaned forward
     /// (degrees) on a borrowed ride's vehicle, which stays where its own animation puts it.</summary>
@@ -481,8 +481,9 @@ static class AnimSwap
                     // 2026-10-22: every ramp that added or moved keys twisted or vanished the hero; steady values didn't)
                     if (LiftRoot(pkg, sd, d, lift, out string lwhy)) lifted = true;
                     else log.Add($"  {slot}: not moved {lift:0} ({lwhy})");
-                    float by = sw.RampBy; int dir = sw.Ramp;
-                    var eased = RampBodyInPlace(pkg, sd, d, skeleton, (f, n) => { float t = f / Math.Max(1, n - 1); return by * (dir > 0 ? t : 1 - t); }, out string ewhy);
+                    float by = sw.RampBy, pow = sw.RampPower > 0 ? sw.RampPower : 1; int dir = sw.Ramp;
+                    // (RampPower > 1: a start eases in, slow at first: Hawkeye's lift barely moves while he gets on; 2026-10-29)
+                    var eased = RampBodyInPlace(pkg, sd, d, skeleton, (f, n) => { float t = f / Math.Max(1, n - 1); return by * (dir > 0 ? MathF.Pow(t, pow) : 1 - t); }, out string ewhy);
                     log.Add(eased.Count > 0 ? $"  {slot}: root {lift:0}, the body eased {by:0} more ({string.Join(", ", eased)})" : $"  {slot}: the body isn't eased ({ewhy})");
                 }
                 else if (lift != 0 && sw!.Ramp != 0)

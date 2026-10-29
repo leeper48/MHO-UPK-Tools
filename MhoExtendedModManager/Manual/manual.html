@@ -601,7 +601,8 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <ol class="steps">
 <li>Open the mod in the Editor, go to <b>Model</b>, pick a source and the target package, then the <b>Materials</b> tab.</li>
 <li>Several parts on one texture sheet that should look different (skin and armor)? Under <b>Parts</b>, tick <b>Own Material</b> on a part: it gets a material of its own, <i>&lt;material&gt; @ &lt;part&gt;</i>.</li>
-<li>Pick a material and choose its <b>Game Material ▾</b>: Automatic, Cloth and Skin, Metal, Glow or The Costume's Own. <b>Preview Shows</b> picks which maps the preview draws.</li>
+<li>Pick a material and choose its <b>Game Material ▾</b>: Automatic, Cloth and Skin, Metal, Glow, Hair and See-Through or The Costume's Own. <b>Preview Shows</b> picks which maps the preview draws.</li>
+<li>Hair, lace or feathers with an <b>Alpha</b> map (white shows, black is cut away)? <b>Hair and See-Through</b> makes the material two-sided and cuts it away where the Alpha map is dark, as the game's own hair does. Automatic picks it for every material with an Alpha map; the other game materials are solid and draw the whole surface. The Costume's Own shows <i>(Not Available Here)</i> when that costume's material takes its textures from another package (Ms Marvel Skrull's does): it can't be copied there.</li>
 <li>The costume's effects (a force field, a glow) keep material slots by number: use <b>Slot Up</b> / <b>Slot Down</b> so each lands on the right part (the note above the list says which).</li>
 <li>Bumps that look flat, or none at all? Right-click the material's <b>Color</b> or <b>Normal</b> row → <b>Generate Normal Map</b> and pick a strength (Soft, Medium, Strong, or Medium, Dark Is Raised). The preview shows it at once; Undo takes it back.</li>
 <li>Build into Mod, Save Changes, Apply Changes.</li>

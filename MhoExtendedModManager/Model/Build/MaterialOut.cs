@@ -16,6 +16,9 @@ sealed record MffMaterial(string Name, string? Colour, string? Spec, string? Nor
     /// map's near-white / cyan spots glow (the automatic Metal + Glow choice).</summary>
     public string? Glow { get; init; }
     public bool GuessGlow { get; init; }
+    /// <summary>An alpha map of its own (white shows, black is cut away): merged into the colour map's alpha on a see-through
+    /// template (MaterialChoice.Hair).</summary>
+    public string? Alpha { get; init; }
 }
 
 /// <summary>
@@ -148,7 +151,38 @@ static class MaterialOut
     /// MetalStyle (0.7.3): a v2 template with its own reflection image and spec colour (Angela's armour): metal packing and a
     /// spec colour per material. GlowSlot (0.7.5): a plain "emissive" slot of its own (Angela's weapons_1602_mtl): a glow map
     /// per material. DiffuseTex: a slot sharing the diffuse's texture follows the diffuse.</summary>
-    sealed record TemplateKind(bool MetalStyle, bool GlowSlot, int GlowTex, int DiffuseTex);
+    sealed record TemplateKind(bool MetalStyle, bool GlowSlot, int GlowTex, int DiffuseTex, bool Masked = false);
+
+    /// <summary>The instance's parent material (or its parent's, up the chain inside the package) is see-through: masked or
+    /// two-sided by name (chbasematerial_v2_dblsided, chbasematerial_masked, hairshader: all BLEND_Masked in the game's packages).</summary>
+    static bool IsMasked(Package pkg, int mic)
+    {
+        for (int i = mic, guard = 0; i >= 0 && guard < 8; guard++)
+        {
+            byte[] d = pkg.ReadExportBytes(pkg.Exports[i]);
+            int at = 4;
+            var tp = TaggedProps.Read(d, ref at, r => NameOf(pkg, r));
+            if (tp.Find("parent") is not { } pp) return false;
+            int r = BinaryPrimitives.ReadInt32LittleEndian(pp.Value);
+            string n = r > 0 ? pkg.Exports[r - 1].ObjectName : r < 0 ? pkg.Imports[-r - 1].ObjectName : "";
+            if (n.Contains("masked", StringComparison.OrdinalIgnoreCase) || n.Contains("dblsided", StringComparison.OrdinalIgnoreCase)
+                || n.Contains("doublesided", StringComparison.OrdinalIgnoreCase) || n.Contains("hairshader", StringComparison.OrdinalIgnoreCase)) return true;
+            i = r > 0 && pkg.ClassOf(pkg.Exports[r - 1]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase) ? r - 1 : -1;
+        }
+        return false;
+    }
+
+    /// <summary>Why a costume's own material can't be a template, in words (a user's Ms Marvel Skrull, 2026-10-30: her material
+    /// keeps only its colour map; its normal and spec maps are Ms Marvel's main package's), or null when it can.</summary>
+    public static string? OwnMaterialProblem(Package pkg, int mic) =>
+        TextureSlots(pkg, mic).Values.Any(v => v < 0) ? ImportedTexturesMessage(pkg, mic) : null;
+
+    static string ImportedTexturesMessage(Package pkg, int mic)
+    {
+        // (the import's outermost object is often a texture group, chbasematerials, not the package: not named)
+        var refs = TextureRefs(pkg, mic).Where(kv => kv.Value < 0).Select(kv => kv.Key).ToList();
+        return $"This costume's own material ({pkg.Exports[mic].ObjectName}) uses textures that live in another package ({string.Join(", ", refs)}), so it can't be copied. Pick Cloth and Skin, Metal, Glow or Hair and See-Through instead.";
+    }
 
     static TemplateKind KindOf(Dictionary<string, int> slots)
     {
@@ -182,14 +216,15 @@ static class MaterialOut
                                                     && pkg.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase));
         if (mic < 0) throw new InvalidDataException($"no material instance {templateMic} in the package");
         var slots = TextureSlots(pkg, mic);
-        if (slots.Values.Any(v => v < 0)) throw new InvalidDataException($"{templateMic} uses an imported texture; pick an instance whose textures are in the package");
+        if (slots.Values.Any(v => v < 0)) throw new InvalidDataException(ImportedTexturesMessage(pkg, mic));
         notes.Add($"template {pkg.PathOf(pkg.Exports[mic])} ({pkg.ClassOf(pkg.Exports[mic])}), texture slots: {string.Join(", ", slots.Keys)}");
 
         Directory.CreateDirectory(workDir);
         var stock = ReadStock(pkg, slots, notes);
         var maps = new MaterialMaps(workDir, notes, spec, reflect, stock.Rim, stock.Reflects);
         var stand = MakeStandIns(maps, stock);
-        var kind = KindOf(slots);
+        var kind = KindOf(slots) with { Masked = IsMasked(pkg, mic) };
+        if (kind.Masked) notes.Add("see-through template: the colour maps keep their alpha (DXT5), merged from each material's Alpha map");
         if (kind.MetalStyle) notes.Add("metal style (template with its own reflection image and spec colour): A = MFF metal mask (_sp blue) → ~130, R = _sp red × 3.5, G 45 → 115 on metal, B 0, spec colour = colour map × 0.85 → 1.25 on metal");
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var plan = Plan(slots, mats, maps, stand, kind, notes, out var shared);
@@ -216,6 +251,7 @@ static class MaterialOut
             // with it: the copy replaces references by texture.
             if (tex == kind.DiffuseTex) { notes.Add($"{slot} uses the diffuse texture: gets the colour map"); continue; }
             if (Is(slot, "reflectiontex")) { notes.Add("reflectiontex: the stock environment image is kept"); continue; }
+            if (Is(slot, "lambertfallofframp")) { notes.Add("lambertfallofframp: the stock light ramp is kept"); continue; }
             if (kind.MetalStyle && Is(slot, "speccolortex")) continue;   // per material
             if (kind.GlowSlot && Is(slot, "emissive")) continue;   // per material
             string n = $"{P}{Safe(slot)}_neutral";
@@ -226,7 +262,18 @@ static class MaterialOut
         foreach (var m in mats)
         {
             string b = P + Safe(m.Name);
-            if (slots.TryGetValue("diffusetex", out int dt)) plan.Add(new("diffusetex", m.Name, b + "_diff", dt, m.Colour ?? stand.Grey, false));
+            if (slots.TryGetValue("diffusetex", out int dt))
+            {
+                if (kind.Masked && m.Colour != null)
+                {
+                    // see-through: the alpha map (else the colour map's own alpha) cuts the material away, DXT5 like the game's hair
+                    string withAlpha = m.Alpha != null ? MergeAlpha(m.Colour, m.Alpha, Path.Combine(maps.Dir, b + "_diff_alpha.png")) : m.Colour;
+                    plan.Add(new("diffusetex", m.Name, b + "_diff", dt, withAlpha, true));
+                    notes.Add($"{m.Name}: {(m.Alpha != null ? $"see-through by {Path.GetFileName(m.Alpha)}" : "see-through by the colour map's own alpha")}");
+                }
+                else plan.Add(new("diffusetex", m.Name, b + "_diff", dt, m.Colour ?? stand.Grey, false));
+                if (!kind.Masked && m.Alpha != null) notes.Add($"{m.Name}: an Alpha map, but this material is solid: pick Hair and See-Through (or Automatic) to cut it away");
+            }
             if (slots.TryGetValue("normaltex", out int nt)) plan.Add(new("normaltex", m.Name, b + "_norm", nt, m.Normal ?? stand.FlatNormal, false));
             if (slots.TryGetValue("specmultrimmaskreflection", out int st))
                 plan.Add(new("specmultrimmaskreflection", m.Name, b + "_spec", st, m.Spec != null ? maps.PackedV1(m.Spec, b + "_spec_packed", stand.NoSpec, m.SpecGenerated ? 1f : 2.5f) : stand.NoSpec, false));
@@ -249,6 +296,26 @@ static class MaterialOut
     }
 
     static bool Is(string slot, string name) => slot.Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The colour map with <paramref name="alphaFile"/> as its alpha (its own alpha channel when that varies, else its
+    /// brightest channel: MFF's alpha maps keep the mask in red only, green and blue under 47, so brightness read full red as
+    /// 109), scaled to the colour map's size.</summary>
+    internal static string MergeAlpha(string colourFile, string alphaFile, string outFile)
+    {
+        var (w, h, px) = NormalMapGen.LoadArgb(colourFile);
+        var (aw, ah, apx) = NormalMapGen.LoadArgb(alphaFile);
+        bool ownAlpha = apx.Any(c => (uint)c >> 24 != 255);
+        var outPx = new int[px.Length];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int c = apx[Math.Min(ah - 1, y * ah / h) * aw + Math.Min(aw - 1, x * aw / w)];
+                int a = ownAlpha ? (int)((uint)c >> 24) : Math.Max((c >> 16) & 0xFF, Math.Max((c >> 8) & 0xFF, c & 0xFF));
+                outPx[y * w + x] = (a << 24) | (px[y * w + x] & 0xFFFFFF);
+            }
+        NormalMapGen.SaveArgb(w, h, outPx, outFile);
+        return outFile;
+    }
 
     /// <summary>Every planned texture encoded (MPM's encoder, refine) and added in one PackageRebuilder rebuild, each built from
     /// its template texture by MPM's TextureImport builder; the rebuild and every new texture verified.</summary>
@@ -320,7 +387,7 @@ static class MaterialOut
             foreach (var (slot, tex) in slots)
             {
                 if (tex == kind.DiffuseTex && !Is(slot, "diffusetex")) continue;   // follows the diffuse
-                if (Is(slot, "reflectiontex")) continue;   // stock image kept
+                if (Is(slot, "reflectiontex") || Is(slot, "lambertfallofframp")) continue;   // stock image / light ramp kept
                 string newName = shared.TryGetValue(slot, out var sn) ? sn
                     : Is(slot, "diffusetex") ? $"{P}{Safe(m.Name)}_diff"
                     : Is(slot, "normaltex") ? $"{P}{Safe(m.Name)}_norm"

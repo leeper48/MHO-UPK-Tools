@@ -21,8 +21,12 @@ static class MaterialChoice
     public const string Default = "UC__MarvelPlayer_Punisher_ModernVU_SF:punisher_modernvu_testmat";
     public const string Metal = "UC__MarvelPlayer_Angela_SF:angela_std_v2-1";
     public const string Glow = "UC__MarvelPlayer_Angela_SF:weapons_1602_mtl";
+    /// <summary>See-through (a user's Ms Marvel hair, 2026-10-30: black streaks where the alpha should cut it away; every other
+    /// template is opaque): Emma Frost's hair, chbasematerial_v2_dblsided (two-sided, BLEND_Masked by the diffuse's alpha, as
+    /// her DXT5 storm_hairtex), the same v2 family and slots as the cloth one.</summary>
+    public const string Hair = "UC__MarvelPlayer_EmmaFrost_SF:emmafrost_hair_mat_v2";
 
-    public static bool IsAutomatic(string donor) => donor is Default or Metal or Glow;
+    public static bool IsAutomatic(string donor) => donor is Default or Metal or Glow or Hair;
 
     /// <summary>The Materials tab's Game Material choices (Kurt, 2026-10-12, a user's two-material MUA2 model: one material
     /// per part, each its own kind): key, label, the instance copied (null for "base": the target costume's own), what it's
@@ -32,8 +36,22 @@ static class MaterialChoice
         ("default", "Cloth and Skin", Default, "Punisher Modern's material: the plain one most models get (cloth, skin, leather)."),
         ("metal", "Metal", Metal, "Angela's armor material: its own reflection image and spec color, for metal and shiny armor."),
         ("glow", "Glow", Glow, "Angela's weapon material: her armor's with a glow slot (a glow map of its own, or the bright spots of the color map)."),
+        ("hair", "Hair and See-Through", Hair, "Emma Frost's hair material: two-sided and see-through where the Alpha map is dark (hair, lace, feathers). Automatic picks it for a material with an Alpha map."),
         ("base", "The Costume's Own", null, "The target costume's own material (its first material instance), with this material's maps."),
     ];
+
+    /// <summary>Why the costume's own material can't be copied in <paramref name="packagePath"/> (its first material instance
+    /// takes textures from another package: a user's Ms Marvel Skrull, 2026-10-30), or null when it can (or can't be read).</summary>
+    public static string? OwnMaterialProblem(string packagePath)
+    {
+        try
+        {
+            var pkg = MpmPackage.Open(packagePath);
+            int mic = Array.FindIndex(pkg.Exports, e => pkg.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase) && !e.ObjectName.StartsWith("mff", StringComparison.OrdinalIgnoreCase));
+            return mic < 0 ? null : MaterialOut.OwnMaterialProblem(pkg, mic);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException or IndexOutOfRangeException) { return null; }
+    }
 
     public static string TemplateLabel(string? key) => key == null ? "Automatic" : Templates.FirstOrDefault(t => t.Key == key).Label ?? key;
 

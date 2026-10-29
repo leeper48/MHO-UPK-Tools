@@ -416,8 +416,17 @@ sealed partial class PreviewPanel
     static ModelView.Look LookFor(Textures tex, bool metalStyle, bool glowOn)
     {
         var colour = tex.Diffuse != null ? LoadBgra(tex.Diffuse) : null;
-        if (colour != null && tex.Alpha != null && LoadBgra(tex.Alpha) is { } a && a.W == colour.Value.W && a.H == colour.Value.H)
-            for (int i = 0; i < a.Px.Length; i += 4) colour.Value.Px[i + 3] = (byte)((a.Px[i] + a.Px[i + 1] + a.Px[i + 2]) / 3);
+        // the alpha map's brightest channel (MFF's keep the mask in red only), scaled to the colour map, as the build merges it
+        if (colour != null && tex.Alpha != null && LoadBgra(tex.Alpha) is { } a && a.W > 0 && a.H > 0)
+        {
+            int cw = colour.Value.W, ch = colour.Value.H;
+            for (int y = 0; y < ch; y++)
+                for (int x = 0; x < cw; x++)
+                {
+                    int s = 4 * (Math.Min(a.H - 1, y * a.H / ch) * a.W + Math.Min(a.W - 1, x * a.W / cw));
+                    colour.Value.Px[4 * (y * cw + x) + 3] = Math.Max(a.Px[s], Math.Max(a.Px[s + 1], a.Px[s + 2]));
+                }
+        }
         var look = ModelView.Look.Plain(colour is { } c ? new ModelView.Map(c.Px, c.W, c.H) : null);
         look.Cutout = tex.Alpha != null;
         look.UseRim = true; look.HalfLambert = true; look.Fill = true;

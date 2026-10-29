@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.270
+- Model tab: a new game material, Hair and See-Through, for hair, lace and feathers. A material with an Alpha map is two-sided and cut away where the map is dark, as the game's own hair is. Automatic picks it for every material with an Alpha map. Before, every game material was solid, so hair with an Alpha map showed black streaks in game where it should be see-through.
+- Model tab: the 3D preview reads an Alpha map that isn't the color map's size, and reads a mask kept in one color channel at full strength (MFF's alpha maps keep it in red).
+- Model tab: The Costume's Own shows "(Not Available Here)" when the costume's material takes its textures from another package (Ms Marvel Skrull's), and a build that uses it says why in plain words. It said "pick an instance whose textures are in the package".
+
 0.60.261
 - Model tab: a prop built from the same source as the body (a prop and a costume from one MFF hero or one FBX) keeps its own Materials tab settings and its own All Materials choice. They were shared, so a texture or Metal set for the prop went onto the character, and back.
 - Model tab: everything a build adds is named after its target. A prop and a body whose source materials had the same name (an FBX's "DefaultMaterial") were built under one name, so the prop showed the character's textures (or the other way round), and two mods could do the same to each other in game.

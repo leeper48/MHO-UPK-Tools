@@ -2926,6 +2926,13 @@ static partial class Program
                 File.WriteAllBytes(rest[^1], tb);
                 return 0;
             }
+            case "--power-anim-list":
+            {
+                // Read-only: a power's animation components and their PowerAnims entries, None included
+                if (rest.Count < 3) { Console.WriteLine("--power-anim-list <power package.upk> <power class>"); return 1; }
+                foreach (string line in PowerBorrow.AnimList(rest[1], $"marvelgamecontent.default__{rest[2]}".ToLowerInvariant())) Console.WriteLine(line);
+                return 0;
+            }
             case "--mount-cut":
             {
                 // Read-only: PowerBorrow.MountCut for every loop of the hero's (the cut a borrow makes before the mount's roll)

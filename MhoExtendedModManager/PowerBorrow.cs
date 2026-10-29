@@ -526,6 +526,7 @@ static partial class PowerBorrow
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var targetAnims = new List<string>(); var donorAnims = new List<string>();
         bool donorLoops = false;
+        string? powerFile = null;
         var spawnedHere = spawnedOut ?? [];   // (the props each pair brings: Pivot on the Hand needs their bones)
         // another hero's attachments are spawned, not switched on (SpawnBorrowedAttachments)
         bool crossHero = !Path.GetFileNameWithoutExtension(donorHeroPackage).Equals($"UC__{targetHeroClass}_SF", StringComparison.OrdinalIgnoreCase);
@@ -536,7 +537,7 @@ static partial class PowerBorrow
             string td = $"marvelgamecontent.default__{pr.TargetClass}".ToLowerInvariant(), dd = $"marvelgamecontent.default__{pr.DonorClass}".ToLowerInvariant();
             log.Add($"{pr.Role}: {pr.TargetClass} ({tf}) ← {pr.DonorClass} ({Path.GetFileName(pr.DonorFile)})");
             if (keepTiming && pr.Role == "power") { done[tf] = SwapLooks(cur, td, pr.DonorFile, dd, log); continue; }
-            if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); }
+            if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); powerFile = tf; }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (pr.Role == "projectile") done[tf] = ProjectileSlots(done[tf], td, pr.DonorFile, dd, log);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log, held);
@@ -614,6 +615,42 @@ static partial class PowerBorrow
             int ramp = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : an.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
             float atStart = lift * 3f / 140f, atEnd = lift * 151f / 140f;   // (Kurt, in game: 0.60.44's end (151) "ends really well"; its beginning (13) still dipped: 10 units up)
             swaps.Add(ramp != 0 ? found with { Rate = rate, Lift = atStart, Ramp = ramp, RampBy = atEnd - atStart } : found with { Rate = rate, Lift = lift });
+        }
+        // a ground run with no end animation on a flyer whose own power lands with one (Hawkeye's Sky-Cycle: Kurt, 2026-10-29,
+        // Cap's run popped him up about 3 ft at the end, Spider-Man's swing didn't): the empty end slot gets the donor's loop,
+        // lowered and easing back up to the ground over the target's landing, the start's mirror. TEST: MHO_BORROW_END_FROM_LOOP=1
+        if (Environment.GetEnvironmentVariable("MHO_BORROW_END_FROM_LOOP") == "1" && lift != 0 && powerFile != null
+            && !donorAnims.Any(a => a.EndsWith("_end", StringComparison.OrdinalIgnoreCase))
+            && targetAnims.FirstOrDefault(a => a.EndsWith("_end", StringComparison.OrdinalIgnoreCase)) is string targetEnd
+            && swaps.FirstOrDefault(s => s.Slot.EndsWith("_loop", StringComparison.OrdinalIgnoreCase)) is { } loopSwap)
+        {
+            string endName = loopSwap.Slot[..^"_loop".Length] + "_end";
+            // (Kurt, 2026-10-29: with Cap's 0.27 s start he sank to his armpits right away, and after a 0.33 s end he popped up
+            // once standing: Hawkeye's lift comes on and goes off over about his own 1.07 s start, so both play over that)
+            float liftLen = targetAnims.FirstOrDefault(a => a.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) is string targetStart ? Length(targetHeroPackage, targetStart) : 0;
+            int si = swaps.FindIndex(s => s.Slot.EndsWith("_start", StringComparison.OrdinalIgnoreCase));
+            if (si >= 0 && liftLen > 0.01f && Length(donorHeroPackage, swaps[si].Slot) is float sl && sl > 0.01f)
+            {
+                // (Kurt: over 1.07 s he still sank right away, to his waist: the lowering eases in, MHO_BORROW_START_EASE, default 3)
+                float ease = float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_START_EASE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ev) && ev > 0 ? ev : 3;   // (t^2 brought him from his waist to his shins: t^3)
+                // (Kurt, t^3: the beginning right, then a dip to the knees as the shield goes behind his back, gone once he runs:
+                // the start ended lower (151) than his lift by then; it ends at MHO_BORROW_START_TO, default 95 for 140)
+                float startTo = float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_START_TO"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float st) && st > 0 ? st : 95;   // (115: mid-shin; Kurt 2026-10-29)
+                float to = lift * startTo / 140f;
+                swaps[si] = swaps[si] with { Rate = sl / liftLen, RampPower = ease, RampBy = to - swaps[si].Lift };
+                log.Add($"anims: {swaps[si].Slot} played ×{sl / liftLen:0.##} to last {liftLen:0.##} s like the target's start (its lift)");
+            }
+            var pairTd = pairs.First(p => p.Role == "power");
+            byte[] filled = FillEndSlot(done[powerFile], $"marvelgamecontent.default__{pairTd.TargetClass}".ToLowerInvariant(), endName, log);
+            if (!ReferenceEquals(filled, done[powerFile]))
+            {
+                done[powerFile] = filled;
+                float donorLen = Length(donorHeroPackage, loopSwap.Slot), endLen = liftLen > 0.01f ? liftLen : Length(targetHeroPackage, targetEnd);
+                float rate = donorLen > 0.01f && endLen > 0.01f ? donorLen / endLen : 1;
+                float atStart = lift * 3f / 140f, atEnd = lift * 151f / 140f;
+                swaps.Add(loopSwap with { Slot = endName, Rate = rate, Lift = atStart, Ramp = -1, RampBy = atEnd - atStart });
+                log.Add($"anims: {endName} = the donor's {loopSwap.Slot}, played ×{rate:0.##} to last {endLen:0.##} s (the target's lift), lowered from {atEnd:0} back to {atStart:0}");
+            }
         }
         if (swaps.Count > 0)
         {
@@ -2971,6 +3008,69 @@ static partial class PowerBorrow
     }
 
     /// <summary>The animation names a class default's PowerFxAnimation components play (their AnimName).</summary>
+    /// <summary>
+    /// The power's looping animation components whose PowerAnims end slot is empty (start, loop, None) get <paramref name="endName"/>
+    /// there: the name's index changes in place, nothing else (the package unchanged when there's none).
+    /// </summary>
+    static byte[] FillEndSlot(byte[] package, string targetDefault, string endName, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        int td = Find(p, targetDefault);
+        if (td < 0) return package;
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return p.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        foreach (int r in Components(p, td, out _, out _))
+        {
+            if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).StartsWith("PowerFxAnimation", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
+            if (TagWalker.Walk(p, d, 16)?.FirstOrDefault(t => t.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)) is not { } pa) continue;
+            if (BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(pa.ValueAt)) != 3 || !TagWalker.NameAt(p, d, pa.ValueAt + 4 + 16).Equals("None", StringComparison.OrdinalIgnoreCase)
+                || !TagWalker.NameAt(p, d, pa.ValueAt + 4 + 8).EndsWith("_loop", StringComparison.OrdinalIgnoreCase)) continue;
+            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(pa.ValueAt + 4 + 16), NameIdx(endName));
+            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(pa.ValueAt + 4 + 20), 0);
+            rep[r - 1] = _ => d;
+        }
+        if (rep.Count == 0) return package;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  the power's end animation couldn't be set ({string.Join("; ", problems.Take(2))})"); return package; }
+        log.Add($"  the power's empty end slot plays {endName}");
+        return output;
+    }
+
+    /// <summary>Each animation component of a power with its AnimName / PowerAnims entries in order, None included (--power-anim-list).</summary>
+    internal static List<string> AnimList(string package, string defaultPath)
+    {
+        var p = Package.Open(package);
+        int d = Find(p, defaultPath);
+        if (d < 0) return [$"{defaultPath} not found"];
+        var lines = new List<string>();
+        foreach (int r in Components(p, d, out _, out _))
+        {
+            if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).StartsWith("PowerFxAnimation", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] b = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
+            var parts = new List<string>();
+            foreach (var t in TagWalker.Walk(p, b, 16) ?? [])
+            {
+                if (t.Name.Equals("AnimName", StringComparison.OrdinalIgnoreCase)) parts.Add("AnimName " + TagWalker.NameAt(p, b, t.ValueAt));
+                else if (t.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase))
+                {
+                    int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(t.ValueAt));
+                    parts.Add("PowerAnims [" + string.Join(", ", Enumerable.Range(0, n).Select(k => TagWalker.NameAt(p, b, t.ValueAt + 4 + 8 * k))) + "]");
+                }
+            }
+            lines.Add($"{p.PathOf(p.Exports[r - 1])} ({p.ClassOf(p.Exports[r - 1])}, template {Template(p, r - 1) ?? "none"}): {string.Join("; ", parts)}");
+        }
+        return lines;
+    }
+
     public static List<string> AnimNames(string package, string defaultPath, string? cooked = null)
     {
         var p = Package.Open(package);

@@ -192,8 +192,9 @@ sealed class ImportBuild
         // Each material's game material (the Materials tab's Game Material ▾; Kurt, 2026-10-12): automatic = the choice above.
         // One group per game material, each with its own template copy and its own name prefix (their stand-in textures share
         // names otherwise); the package grows group by group (every step only appends, so earlier references stay).
-        string? DonorOf(string name) => OwnOr(r.Sections.First(x => x.Material == name).Tex.Template is string key && MaterialChoice.Templates.FirstOrDefault(t => t.Key == key) is { Key: not null } t
-            ? (t.Key == "base" ? "base" : t.Donor) : donor ?? "base");
+        // (automatic, a material with an Alpha map: the see-through one; a user's Ms Marvel hair, 2026-10-30)
+        string? DonorOf(string name) => OwnOr(r.Sections.First(x => x.Material == name).Tex is var tx && tx.Template is string key && MaterialChoice.Templates.FirstOrDefault(t => t.Key == key) is { Key: not null } t
+            ? (t.Key == "base" ? "base" : t.Donor) : o.Material == null && tx.Alpha != null ? MaterialChoice.Hair : donor ?? "base");
         string? OwnOr(string? d) => d == "base" && template == null ? MaterialChoice.Default : d;
         string baseTemplate = template ?? "";
         var groups = mats.GroupBy(DonorOf).ToList();
@@ -263,7 +264,7 @@ sealed class ImportBuild
         if (specMho != null) { spec = null; generated = false; }   // an MHO packed map wins (as it is)
         string? glow = tex.GlowFile;
         if (glow != null) log($"material: {name}: glow map {(tex.Glow != null && !tex.GlowOff ? Path.GetFileName(tex.Glow) : $"from the MHO spec map's {tex.SpecLayoutUsed.Channels[tex.SpecLayoutUsed.GlowChannel]} channel")}");
-        return new MffMaterial(name, tex.Diffuse, spec, normal, generated) { SpecMho = specMho, SpecColor = tex.SpecColor, Glow = glow };
+        return new MffMaterial(name, tex.Diffuse, spec, normal, generated) { SpecMho = specMho, SpecColor = tex.SpecColor, Glow = glow, Alpha = tex.Alpha };
     }
 
     // --- the mesh export --------------------------------------------------------------------------------------------------------

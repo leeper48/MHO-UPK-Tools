@@ -65,6 +65,7 @@ static partial class Program
         ("--hero-forms", "--hero-forms <hero>", "A hero's forms (Jean Grey's Phoenix) and transforms (Rogue, Rocket, Loki): animation sets, transformed characters and the powers they swap. Changes nothing."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
         ("--trim-loop", "--trim-loop <package.upk> <set suffix> <sequence>=<frame> ... <out.upk>", "Ends borrowed sequences at a frame (key counts and length only, the keys untouched), written to <out>. For tests."),
+        ("--power-anim-list", "--power-anim-list <power package.upk> <power class>", "Each animation component of a power with its PowerAnims entries in order (start, loop, end), None included. Changes nothing."),
         ("--mount-cut", "--mount-cut <hero package.upk>", "Where a borrow ends each of the hero's loops before its mount bone turns (Green Goblin's barrel roll), with the mount's turn frame by frame. Changes nothing."),
         ("--mount-motion", "--mount-motion <hero package.upk> <bone>", "How a hero's mount bone (g_mountattach: Green Goblin's glider) turns and moves against its root in each animation that moves it, as a borrow puts it into a ridden prop. Changes nothing."),
         ("--foot-check", "--foot-check <mod> [animation name part...]", "How high a mod's mesh stands (lowest point, pelvis) at rest and over its animations: for feet below / above the ground after a move. Changes nothing."),

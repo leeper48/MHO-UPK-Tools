@@ -117,7 +117,13 @@ sealed partial class ModelPage : UserControl
         ("Metal (Angela's Armour)", MaterialChoice.Metal, "Reflective metal driven by the MFF metal mask: Angela's armour material."),
         ("Metal + Glow (Angela's Weapon)", MaterialChoice.Glow, "Angela's weapon material with her armour's values: metal plus glow where the colour map is painted near-white / bright cyan. Checked in game on Iron Man S01."),
         ("The Base Mesh's Own", "base", "The base hero's own material (older type; it gave a sheen on Punisher Classic)."),
+        // (appended: the saved choice is an index)
+        ("Hair and See-Through (Emma Frost's Hair)", MaterialChoice.Hair, "Two-sided and see-through where each material's Alpha map is dark (hair, lace, feathers): Emma Frost's hair material. Automatic already picks it for a material with an Alpha map."),
     ];
+    const int OwnMaterialIndex = 4;
+
+    /// <summary>Why the target's own material can't be copied (null when it can): The Base Mesh's Own is marked unavailable.</summary>
+    string? ownMaterialProblem;
 
     public ModelPage(IModelHost host)
     {
@@ -363,7 +369,7 @@ sealed partial class ModelPage : UserControl
         SearchBox.AddClear(mapFilter);
         foreach (var m in Materials) material.Items.Add(m.Label);
         material.SelectedIndex = 0;
-        material.SelectedIndexChanged += (_, _) => Ui.Tip(material, "All Materials (every material without a choice of its own: This Material ▾): " + Materials[Math.Max(0, material.SelectedIndex)].Tip);
+        material.SelectedIndexChanged += (_, _) => ShowMaterialTip();
         Ui.Tip(material, "All Materials (every material without a choice of its own: This Material ▾): " + Materials[0].Tip);
         Ui.Tip(heroesOnly, "List only characters: heroes, villains, bosses, enemies, NPCs and person-like summons (anything with a character rig); props such as cocoons, drones and boxes are left out.");
         Ui.Tip(smooth, "One level of smooth subdivision on the ticked parts: every triangle becomes four and the surface rounds off. For the older low-poly models; about 4x the triangles.");
@@ -1343,6 +1349,12 @@ sealed partial class ModelPage : UserControl
             DateTime? fromBlender = uf != null ? rigSent : null;
             // what Automatic picked, shown in the drop-down (0.10.19, Kurt)
             material.Items[0] = prepared.Material.Length > 0 ? $"Automatic · {prepared.Material}" : "Automatic";
+            // the costume's own material: marked when its textures come from another package (it can't be copied)
+            string ownPkg = StartPackage(pkg.Key);
+            ownMaterialProblem = await Task.Run(() => MaterialChoice.OwnMaterialProblem(ownPkg));
+            if (id != previewId || IsDisposed) return;
+            material.Items[OwnMaterialIndex] = Materials[OwnMaterialIndex].Label + (ownMaterialProblem != null ? " (Not Available Here)" : "");
+            ShowMaterialTip();
             Log("Preview: " + prepared.Note);
             if (fromBlender is DateTime sent)
             {

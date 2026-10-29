@@ -165,6 +165,14 @@ sealed partial class ModelPage
     /// <summary>A material's own game material in words: "Same as All" when it has none.</summary>
     static string OwnChoice(string? template) => template == null ? "Same as All" : MaterialChoice.TemplateLabel(template);
 
+    /// <summary>All Materials' tooltip: the choice's, and why the costume's own can't be used when it's picked and can't.</summary>
+    void ShowMaterialTip()
+    {
+        int i = Math.Max(0, material.SelectedIndex);
+        Ui.Tip(material, "All Materials (every material without a choice of its own: This Material ▾): " + Materials[i].Tip
+            + (i == OwnMaterialIndex && ownMaterialProblem != null ? "\n\nNot available here: " + ownMaterialProblem : ""));
+    }
+
     /// <summary>What All Materials is set to, in words.</summary>
     string AllChoice() => material.SelectedIndex >= 0 ? Materials[material.SelectedIndex].Label : "Automatic";
 
@@ -178,7 +186,10 @@ sealed partial class ModelPage
         void Add(string? key, string label, string tip) => menu.Items.Add(new ToolStripMenuItem(label, null, (_, _) => ChangeOverrides((_, en) => en.Template = key, sel.Material, $"{sel.Material} built from {label}"))
             { Checked = now == key, ToolTipText = tip });
         Add(null, $"Same as All Materials ({AllChoice()})", "No choice of its own: the one All Materials (above) sets for every material.");
-        foreach (var t in MaterialChoice.Templates) Add(t.Key, t.Label, t.Tip);
+        foreach (var t in MaterialChoice.Templates)
+            if (t.Key == "base" && ownMaterialProblem != null)
+                menu.Items.Add(new ToolStripMenuItem(t.Label + " (Not Available Here)") { Enabled = false, ToolTipText = ownMaterialProblem });
+            else Add(t.Key, t.Label, t.Tip);
         // (Kurt, 2026-10-28: with a source picked too, the target's own costume as the source above all)
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CopySetupItem(sel.Material, null));
