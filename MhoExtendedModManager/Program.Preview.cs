@@ -2914,6 +2914,37 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--trim-loop":
+            {
+                // --trim-loop <package.upk> <set suffix> <sequence>=<frame> ... <out.upk>: PowerBorrow.TrimLoops, written to <out> (never into the game)
+                if (rest.Count < 5) { Console.WriteLine("--trim-loop <package.upk> <set suffix> <sequence>=<frame> ... <out.upk>"); return 1; }
+                var tc = rest.Skip(3).Take(rest.Count - 4).Select(x => x.Split('=')).ToDictionary(x => x[0], x => int.Parse(x[1]), StringComparer.OrdinalIgnoreCase);
+                var tlog = new List<string>();
+                byte[] tb = PowerBorrow.TrimLoops(File.ReadAllBytes(rest[1]), rest[2], tc, tlog);
+                tlog.ForEach(Console.WriteLine);
+                MhoExtendedModManager.Model.Protected.CheckWrite(rest[^1]);
+                File.WriteAllBytes(rest[^1], tb);
+                return 0;
+            }
+            case "--mount-cut":
+            {
+                // Read-only: PowerBorrow.MountCut for every loop of the hero's (the cut a borrow makes before the mount's roll)
+                if (rest.Count < 2) { Console.WriteLine("--mount-cut <hero package.upk>"); return 1; }
+                var msk = PowerBorrow.HeroSkeleton(rest[1]);
+                if (msk == null) { Console.WriteLine("no skeleton"); return 1; }
+                var cap = AnimExportCli.Packages.Package.Open(rest[1]);
+                foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(cap))
+                    foreach (var sq in set.Sequences.Where(q => q.IsExport))
+                    {
+                        string nm = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(cap, sq.ExportIndex);
+                        if (!nm.Contains("_loop", StringComparison.OrdinalIgnoreCase)) continue;
+                        float turned = PowerBorrow.MountTurn(cap, set, sq.ExportIndex, msk);
+                        if (turned <= 30) continue;
+                        int? cut = PowerBorrow.MountCut(cap, set, sq.ExportIndex, msk, out string why);
+                        Console.WriteLine($"{nm}: turns {turned:0}°: {(cut is int c ? $"cut at {c}" : "not cut")} ({why})");
+                    }
+                return 0;
+            }
             case "--mount-motion":
             {
                 // Read-only: a hero's mount bone (g_mountattach) against its root over each animation that moves it, as a borrow

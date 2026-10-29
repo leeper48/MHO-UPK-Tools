@@ -569,6 +569,7 @@ static partial class PowerBorrow
         var ap = AnimExportCli.Packages.Package.Open(donorHeroPackage);
         var swaps = new List<AnimSwap.Swap>();
         var mountSkeleton = crossHero ? HeroSkeleton(donorHeroPackage) : null;
+        var loopCuts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         bool targetNoMount = HeroBones(targetHeroPackage) is { } tb0 && !tb0.Contains("g_mountattach");
         foreach (string an in donorAnims)
         {
@@ -584,20 +585,16 @@ static partial class PowerBorrow
                         foundBones = set.TrackBoneNames.Count;
                     }
             if (found == null) { log.Add($"anims: {an} not found in {Path.GetFileName(donorHeroPackage)}"); continue; }
-            // a loop that turns the donor's mount a lot (Goblin's barrel roll) on a hero without the mount bone: the donor's own
-            // run instead (the same glide without the roll), copied as it is (Kurt, 2026-10-28: no roll; every edit of the rider's
-            // borrowed tracks broke him in game)
+            // a loop that turns the donor's mount a lot (Goblin's barrel roll) on a hero without the mount bone: the loop ends
+            // before the roll (Kurt, 2026-10-29: his own flight loop was right but for the flip; the run swapped in for it bobbed
+            // above and below the glider). Only the key counts and the length are cut (TrimLoops), never the keys: every edit of
+            // the rider's borrowed keys broke him in game (2026-10-28)
             if (crossHero && an.Contains("_loop", StringComparison.OrdinalIgnoreCase) && mountSkeleton is { } msk && targetNoMount
                 && AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).FirstOrDefault(x => x.ExportIndex == found.DonorSet) is { } fset
                 && MountTurn(ap, fset, found.DonorSequence, msk) is float turned && turned > 30)
             {
-                var run = fset.Sequences.Where(q => q.IsExport).FirstOrDefault(q => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, q.ExportIndex).Equals("movement_run", StringComparison.OrdinalIgnoreCase));
-                if (run != null && MountTurn(ap, fset, run.ExportIndex, msk) is float runTurn && runTurn <= 30)
-                {
-                    found = found with { DonorSequence = run.ExportIndex };
-                    log.Add($"anims: {an}: the donor's g_mountattach turns {turned:0}° in it (a roll this hero can't play: no such bone): its movement_run ({runTurn:0}°) takes its place");
-                }
-                else log.Add($"anims: {an}: the donor's g_mountattach turns {turned:0}° in it; no calmer run to use instead");
+                if (MountCut(ap, fset, found.DonorSequence, msk, out string why) is int cut) { loopCuts[an] = cut; log.Add($"anims: {an}: the donor's g_mountattach turns {turned:0}° in it (a roll this hero can't play: no such bone): {why}"); }
+                else log.Add($"anims: {an}: the donor's g_mountattach turns {turned:0}° in it; {why}");
             }
             float donorLen = Length(donorHeroPackage, an);
             float rate = fit && targetLen > 0.01f && donorLen > 0.01f ? donorLen / targetLen : 1;
@@ -636,6 +633,7 @@ static partial class PowerBorrow
             // target's own run's keys, looped (travel borrows; tested on Thor's six, Kurt 2026-10-20 / 21)
             if (crossHero && (ownTracks || Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1"))
                 done[hf] = AddOwnTracks(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), targetHeroPackage, targetAnims, log);
+            if (loopCuts.Count > 0) done[hf] = TrimLoops(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), loopCuts, log);
             log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {hf} ({targetHeroClass})");
             // costumes with an animation list of their own don't play the hero's: the borrowed sets are imported into theirs
             if (cooked != null)
