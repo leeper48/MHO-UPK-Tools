@@ -13,7 +13,9 @@ namespace MhoExtendedModManager;
 /// </summary>
 static class ImportIndex
 {
-    static readonly string[] Classes = ["material", "materialinstanceconstant", "materialinstancetimevarying", "texture2d", "particlesystem", "staticmesh", "skeletalmesh", "physicsasset", "animset"];
+    // (class: a costume's attachment class extends the hero base package's: Thor Earth X's marvelattachment_thorhammer_earthx
+    // imports marvelattachment_thorhammer, 2026-10-30)
+    static readonly string[] Classes = ["material", "materialinstanceconstant", "materialinstancetimevarying", "texture2d", "particlesystem", "staticmesh", "skeletalmesh", "physicsasset", "animset", "class"];
 
     sealed class Saved
     {
@@ -46,7 +48,7 @@ static class ImportIndex
             if (index is { } ix && ix.Folder.Equals(folder, StringComparison.OrdinalIgnoreCase)) return ix.Paths;
             var infos = new DirectoryInfo(folder).EnumerateFiles("UC__*_SF.upk")
                 .Where(f => !f.Name.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Name.Contains("copy", StringComparison.OrdinalIgnoreCase)).ToList();
-            string stamp = $"{Path.GetFullPath(folder).ToLowerInvariant()}|{infos.Count}|{infos.Sum(f => f.Length)}|{(infos.Count == 0 ? 0 : infos.Max(f => f.LastWriteTimeUtc.Ticks))}|v1";
+            string stamp = $"{Path.GetFullPath(folder).ToLowerInvariant()}|{infos.Count}|{infos.Sum(f => f.Length)}|{(infos.Count == 0 ? 0 : infos.Max(f => f.LastWriteTimeUtc.Ticks))}|v2";
             string cache = Path.Combine(Settings.Home, "imported_paths.json");
             try
             {

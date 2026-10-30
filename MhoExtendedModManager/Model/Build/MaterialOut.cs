@@ -287,6 +287,7 @@ static class MaterialOut
             if (kind.MetalStyle && slots.TryGetValue("speccolortex", out int scv))
                 plan.Add(new("speccolortex", m.Name, b + "_speccol", scv, m.SpecColor ?? (m.Colour != null ? maps.SpecColour(m.Colour, m.Spec, b + "_speccol") : stand.Grey), false));
             if (m.SpecMho != null) notes.Add($"{m.Name}: MHO spec map put in as it is ({Path.GetFileName(m.SpecMho)}){(slots.ContainsKey("specmult_specpow_skinmask_reflectivity") ? "" : ": this template has no slot for it")}");
+            if (m.SpecMho != null && SpecLayouts.AlphaAllWhite(m.SpecMho)) notes.Add($"WARNING {m.Name}: the MHO spec map {Path.GetFileName(m.SpecMho)}: {SpecLayouts.FullReflectivityNote}");
             if (m.SpecColor != null && !kind.MetalStyle) notes.Add($"{m.Name}: the spec color map needs a template with its own spec color slot (Metal); this one tints by the color map");
             if (m.Colour == null) notes.Add($"{m.Name}: no colour map found (grey)");
             if (m.Spec == null && m.SpecMho == null) notes.Add($"{m.Name}: no _sp map (low spec, no reflection)");

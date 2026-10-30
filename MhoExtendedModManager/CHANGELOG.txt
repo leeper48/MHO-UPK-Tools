@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.272
+- Make Unique (and the editor's Save, which runs it) no longer renames anything other game files import. A Thor mod that ships Thor's main package had its hammer class and hammer renamed there; Earth X and six other Thor costumes take those from that package, so switching to Earth X crashed the game. A mod made unique before is repaired by opening it in the Editor and saving.
+
+0.60.271
+- Model tab: the Materials tab warns when an MHO Spec map's alpha (Reflectivity) is white everywhere or missing ("⚠ Reflectivity (A) full everywhere"), and the build log says so too. Such a map makes the whole material reflect at full strength: a white glare in game, strongest with Metal + Glow.
+
 0.60.270
 - Model tab: a new game material, Hair and See-Through, for hair, lace and feathers. A material with an Alpha map is two-sided and cut away where the map is dark, as the game's own hair is. Automatic picks it for every material with an Alpha map. Before, every game material was solid, so hair with an Alpha map showed black streaks in game where it should be see-through.
 - Model tab: the 3D preview reads an Alpha map that isn't the color map's size, and reads a mask kept in one color channel at full strength (MFF's alpha maps keep it in red).

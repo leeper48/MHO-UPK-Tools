@@ -238,6 +238,10 @@ static class UniqueNames
             int sd = stock == null ? -1 : Array.FindIndex(stock.Exports, x => x.ObjectName.Equals(dname, StringComparison.OrdinalIgnoreCase));
             var theirs = sd >= 0 ? MeshOf(stock!, sd) : null;
             bool differs = mine == null || theirs == null || !mine.Value.Path.Equals(theirs.Value.Path, StringComparison.OrdinalIgnoreCase) || !mine.Value.Bytes.AsSpan().SequenceEqual(theirs.Value.Bytes);
+            // a class another game file imports stays (Thor Earth X's hammer class extends the base package's: renamed, the
+            // game crashed on switching to Earth X, 2026-10-30)
+            if (differs && ClassImporters(pkg.PathOf(e), file, shipped, cooked) is { Count: > 0 } users)
+            { notes.Add($"class {e.ObjectName}: left as it is, {string.Join(", ", users.Take(3).Select(o => o[4..^7]))}{(users.Count > 3 ? " …" : "")} import it"); continue; }
             if (differs) classRenames.Add((i, d, e.ObjectName, others));
         }
         foreach (var (c, d, name, others) in classRenames)
@@ -267,7 +271,10 @@ static class UniqueNames
             {
                 if (Top(i) != g || i == g) continue;
                 string key = $"{pkg.PathOf(pkg.Exports[i])}|{pkg.ClassOf(pkg.Exports[i]).ToLowerInvariant()}";
-                if (importIx == null || shared.ContainsKey(key) || !importIx.TryGetValue(key, out var by)) continue;
+                // (shared paths too, 2026-10-30: a user's Thor Classic renamed the base package's thor group, which Earth X,
+                // Age of Ultron and five other costumes import hammer_physics from; another package also carrying that path
+                // isn't loaded with them, and switching to Earth X crashed the game)
+                if (importIx == null || !importIx.TryGetValue(key, out var by)) continue;
                 var outside = by.Where(f => !f.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(f)).ToList();
                 if (outside.Count > 0) return $"{pkg.PathOf(pkg.Exports[i])} is imported by {string.Join(", ", outside.Take(3).Select(o => o[4..^7]))}{(outside.Count > 3 ? " …" : "")} and no other file has it";
             }
@@ -287,6 +294,11 @@ static class UniqueNames
         }
         return new(file, renames, splits, notes) { Shared = found, Kept = kept };
     }
+
+    /// <summary>The game files other than this mod's that import the class at <paramref name="path"/> (empty without the game folder).</summary>
+    static List<string> ClassImporters(string path, string file, IReadOnlySet<string> shipped, string? cooked) =>
+        cooked != null && ImportIndex.Imported(Folder(cooked)).TryGetValue($"{path}|class", out var by)
+            ? by.Where(f => !f.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(f)).ToList() : [];
 
     /// <summary>The first ModelMesh of an attachment class default (path, bytes), or null.</summary>
     static (string Path, byte[] Bytes)? MeshOf(Package pkg, int defaultExport)
@@ -489,14 +501,20 @@ static class UniqueNames
     /// textures stayed in the game group): its objects move back into that group, the emptied group stays. Attachment
     /// classes stay as they are. Returns the package bytes (verified) and what went back, or null when nothing does.
     /// </summary>
+    /// <remarks>Also (2026-10-30, a user's Thor Classic: the game crashed on switching to Earth X) a group or attachment class
+    /// that other game files import (with <paramref name="cooked"/>): Make Unique renamed those before it checked imports of
+    /// shared paths and classes, and the costumes importing them from the hero's base package found nothing.</remarks>
     public static byte[]? Reshare(string modPackage, string? stockPackage, string file, Dictionary<string, List<string>> shared, IReadOnlySet<string> shipped,
-        IReadOnlySet<string> own, string modName, List<string> notes)
+        IReadOnlySet<string> own, string modName, List<string> notes, string? cooked = null)
     {
         // only this mod's own Make Unique tags (today's, and the 20-letter one before 0.37.273): a group like storm_astonishing
         // is a real game group, not a rename
         string letters = new string(modName.Where(char.IsAsciiLetterOrDigit).ToArray()).ToLowerInvariant();
         var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Tag(modName), letters.Length == 0 ? "mod" : letters[..Math.Min(20, letters.Length)] };
-        if (stockPackage == null || !File.Exists(stockPackage) || own.Count == 0) return null;
+        var importIx = cooked != null ? ImportIndex.Imported(Folder(cooked)) : null;
+        if (stockPackage == null || !File.Exists(stockPackage) || (own.Count == 0 && importIx == null)) return null;
+        bool Imported(string path, string cls) => importIx != null && importIx.TryGetValue($"{path}|{cls.ToLowerInvariant()}", out var by)
+            && by.Any(f => !f.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(f));
         var pkg = Package.Open(modPackage);
         var stock = Package.Open(stockPackage);
         var stockGroups = stock.Exports.Where(e => e.OuterIndex == 0 && stock.ClassOf(e).Equals("Package", StringComparison.OrdinalIgnoreCase))
@@ -512,26 +530,46 @@ static class UniqueNames
             if (cut <= 0) continue;
             string game = ge.ObjectName[..cut], suffix = ge.ObjectName[(cut + 1)..];
             if (!stockGroups.Contains(game) || !tags.Contains(suffix)) continue;
-            // every object under it, at its game path: shared only with the hero's own copies and summons?
-            bool back = true; int objects = 0;
-            for (int i = 0; i < pkg.Exports.Length && back; i++)
+            // every object under it, at its game path: shared only with the hero's own copies and summons? Or one that other
+            // game files import (then it goes back whatever else carries it)
+            bool back = own.Count > 0, imported = false; int objects = 0;
+            for (int i = 0; i < pkg.Exports.Length; i++)
             {
                 if (i == g || Top(i) != g) continue;
                 objects++;
                 string path = game + pkg.PathOf(pkg.Exports[i])[ge.ObjectName.Length..], cls = pkg.ClassOf(pkg.Exports[i]);
+                if (Imported(path, cls)) imported = true;
+                if (!back) continue;
                 if (!shared.TryGetValue($"{path}|{cls.ToLowerInvariant()}", out var carriers)) continue;
                 if (carriers.Any(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(c) && !own.Contains(c))) back = false;
                 else if (cls.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)
                     && (CrashCheck.Bones(modPackage, pkg.PathOf(pkg.Exports[i])) is not int n || CrashCheck.Bones(stockPackage, path) is not int o || n > o)) back = false;
             }
-            if (!back || objects == 0) continue;
+            if (!(back || imported) || objects == 0) continue;
+            string why = imported ? "other game files import it at its game path" : "today's rules keep it shared (the hero's own copies and summons)";
             int gameGroup = Array.FindIndex(pkg.Exports, e => e.OuterIndex == 0 && e.ObjectName.Equals(game, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(e).Equals("Package", StringComparison.OrdinalIgnoreCase));
-            if (gameGroup < 0) { renames[g] = game; notes.Add($"group {ge.ObjectName} → {game} again: today's rules keep it shared (the hero's own copies and summons)"); }
+            if (gameGroup < 0) { renames[g] = game; notes.Add($"group {ge.ObjectName} → {game} again: {why}"); }
             else
             {
                 for (int i = 0; i < pkg.Exports.Length; i++) if (pkg.Exports[i].OuterIndex == g + 1) outers[i] = gameGroup + 1;
-                notes.Add($"group {ge.ObjectName}: its objects go back into {game}: today's rules keep it shared (the hero's own copies and summons)");
+                notes.Add($"group {ge.ObjectName}: its objects go back into {game}: {why}");
             }
+        }
+        // attachment classes <class>_<tag> (and their defaults) whose game class other game files import
+        var stockClasses = stock.Exports.Where(e => stock.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase)).Select(e => e.ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (int c = 0; c < pkg.Exports.Length; c++)
+        {
+            var ce = pkg.Exports[c];
+            if (!pkg.ClassOf(ce).Equals("Class", StringComparison.OrdinalIgnoreCase) || stockClasses.Contains(ce.ObjectName)) continue;
+            int cut = ce.ObjectName.LastIndexOf('_');
+            if (cut <= 0 || !tags.Contains(ce.ObjectName[(cut + 1)..])) continue;
+            string game = ce.ObjectName[..cut], outer = ce.OuterIndex > 0 ? pkg.PathOf(pkg.Exports[ce.OuterIndex - 1]) + "." : "";
+            if (!stockClasses.Contains(game) || !Imported(outer + game, "class")) continue;
+            if (pkg.Exports.Any(x => x.ObjectName.Equals(game, StringComparison.OrdinalIgnoreCase) && x.OuterIndex == ce.OuterIndex)) continue;
+            renames[c] = game;
+            int d = Array.FindIndex(pkg.Exports, x => x.ObjectName.Equals("default__" + ce.ObjectName, StringComparison.OrdinalIgnoreCase) && x.OuterIndex == ce.OuterIndex);
+            if (d >= 0) renames[d] = "default__" + game;
+            notes.Add($"class {ce.ObjectName} → {game} again: other game files import it");
         }
         if (renames.Count == 0 && outers.Count == 0) return null;
         var addNames = renames.Values.Where(n => !pkg.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

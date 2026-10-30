@@ -30,6 +30,28 @@ static class SpecLayouts
 
     public static Layout? ById(string? id) => All.FirstOrDefault(l => l.Id == id);
 
+    static readonly Dictionary<string, bool> fullAlpha = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The map's alpha is white everywhere (or it has none): as an MHO spec map, full reflectivity on the whole
+    /// material (a user's Winter Soldier, 2026-10-29: the body glared white). Cached by path and write time; false when the
+    /// file can't be read.</summary>
+    public static bool AlphaAllWhite(string file)
+    {
+        try
+        {
+            string key = file + "|" + File.GetLastWriteTimeUtc(file).Ticks;
+            lock (fullAlpha) if (fullAlpha.TryGetValue(key, out bool known)) return known;
+            var (_, _, px) = NormalMapGen.LoadArgb(file);
+            bool all = px.All(c => (uint)c >> 24 == 255);
+            lock (fullAlpha) fullAlpha[key] = all;
+            return all;
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException or UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>The warning for <see cref="AlphaAllWhite"/>, in words.</summary>
+    public const string FullReflectivityNote = "its alpha (Reflectivity) is white everywhere or missing, so the whole material reflects at full strength: put a gray reflectivity mask in the alpha (black = none), or use From Channels";
+
     /// <summary>The layout a file name names (a map exported from the game carries its parameter name), else null.</summary>
     public static Layout? FromName(string file)
     {

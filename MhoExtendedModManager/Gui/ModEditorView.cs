@@ -390,7 +390,7 @@ sealed partial class ModEditorView : UserControl
             var own = UniqueNames.OwnFiles(file, game.Cooked);
             // groups an earlier Make Unique renamed that today's rules keep shared go back first (0.50.19)
             var backNotes = new List<string>();
-            if (UniqueNames.Reshare(src, StockFiles.For(game.Cooked, file), file, shared, shipped, own, draft.Name, backNotes) is byte[] reshared)
+            if (UniqueNames.Reshare(src, StockFiles.For(game.Cooked, file), file, shared, shipped, own, draft.Name, backNotes, game.Cooked) is byte[] reshared)
             {
                 Directory.CreateDirectory(work);
                 string back = Path.Combine(work, "reshared_" + file);

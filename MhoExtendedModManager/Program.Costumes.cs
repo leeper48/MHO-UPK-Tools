@@ -297,7 +297,7 @@ static partial class Program
                     {
                         // groups an earlier Make Unique renamed that today's rules keep shared: back first (written to <out>)
                         var back = new List<string>();
-                        if (UniqueNames.Reshare(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, uown, um.Name, back) is byte[] rb)
+                        if (UniqueNames.Reshare(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, uown, um.Name, back, ucook) is byte[] rb)
                         {
                             back.ForEach(n => Console.WriteLine("  " + n));
                             mf = Path.Combine(rest[2], "reshared_" + f);

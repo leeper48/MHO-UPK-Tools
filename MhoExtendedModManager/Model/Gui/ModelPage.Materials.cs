@@ -269,7 +269,7 @@ sealed partial class ModelPage
                 var (from, path) = Describe(kind, tex, e);
                 int i = matGrid.Rows.Add(mat, kind, from, kind == MapKinds[0] ? $"{slotOrder.IndexOf(mat)} · {OwnChoice(e?.Template)}" : "");
                 matGrid.Rows[i].Tag = (mat, kind);
-                matGrid.Rows[i].Cells["from"].ToolTipText = path ?? from;
+                matGrid.Rows[i].Cells["from"].ToolTipText = (path ?? from) + (from.Contains("⚠ Reflectivity") ? Environment.NewLine + Environment.NewLine + "Warning: " + char.ToUpper(SpecLayouts.FullReflectivityNote[0]) + SpecLayouts.FullReflectivityNote[1..] + "." : "");
                 if (from.StartsWith("Your file", StringComparison.Ordinal)) matGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.OverrideAmber;
                 else if (path == null) matGrid.Rows[i].DefaultCellStyle.ForeColor = Ui.Subtle;
             }
@@ -297,6 +297,8 @@ sealed partial class ModelPage
             return ($"Made from your color tags: {string.Join(", ", ct.GroupBy(x => ColorTags.Name(x.Tag)).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))}", null);
         string flip = kind == "Normal" && tex.NormalFlipGreen ? " · OpenGL (green flipped)" : "";
         if (kind == "MHO Spec" && file != null && tex.SpecLayoutUsed.Id != "v2skin") flip = $" · {tex.SpecLayoutUsed.Label}, converted to Angela's";
+        // (an MHO spec map with a white or missing alpha: full reflectivity everywhere)
+        if (kind == "MHO Spec" && file != null && tex.SpecLayoutUsed.Id == "v2skin" && SpecLayouts.AlphaAllWhite(file)) flip += " · ⚠ Reflectivity (A) full everywhere";
         if (mine != null) return ($"Your file: {System.IO.Path.GetFileName(file ?? mine)}{flip}", file);
         if (file != null) return ((kind == "Color" && tex.Guessed ? "Found (by a near name): " : kind == "Normal" ? "The model's own: " : "Found: ") + System.IO.Path.GetFileName(file) + flip, file);
         return (kind switch
