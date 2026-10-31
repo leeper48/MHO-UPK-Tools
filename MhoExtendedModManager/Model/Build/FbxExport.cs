@@ -170,7 +170,7 @@ static class FbxExport
 
     /// <summary>The model: FbxExporter's scene (same skeleton, axes, skin, winding) plus a material per section with its
     /// colour map.</summary>
-    internal static void WriteModel(string path, IReadOnlyList<string> sectionMaterials, SkeletalMesh mesh, SkeletalMeshLod lod, Dictionary<string, string> tex)
+    internal static void WriteModel(string path, IReadOnlyList<string> sectionMaterials, SkeletalMesh mesh, SkeletalMeshLod lod, Dictionary<string, string> tex, bool splitProps = false)
     {
         var scene = new Scene { RootNode = new Node("Scene") };
         var rest = SkeletonPose.Rest(mesh.Bones);
@@ -184,13 +184,13 @@ static class FbxExport
             nodes[b].Transform = ToAssimp(FbxExporter.ToFileSpace(local));
             if (isRoot) scene.RootNode.Children.Add(nodes[b]); else nodes[parent].Children.Add(nodes[b]);
         }
-        for (int s = 0; s < lod.Sections.Count; s++)
+        var materialAt = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (meshName, s, corners) in Pieces(mesh, lod, sectionMaterials, splitProps))
         {
-            var section = lod.Sections[s];
             var used = new Dictionary<int, int>(); var order = new List<int>();
-            for (int c = section.BaseIndex; c < section.BaseIndex + section.TriangleCount * 3; c++)
+            foreach (int c in corners)
                 if (used.TryAdd(lod.Indices[c], order.Count)) order.Add(lod.Indices[c]);
-            var part = new AssimpMesh(SafeName(sectionMaterials[s]), PrimitiveType.Triangle);
+            var part = new AssimpMesh(meshName, PrimitiveType.Triangle);
             foreach (int v in order)
             {
                 var p = FbxExporter.ToFileSpace(lod.Positions[v]); var n = FbxExporter.ToFileSpace(lod.Normals[v]);
@@ -199,8 +199,8 @@ static class FbxExport
                 part.TextureCoordinateChannels[0].Add(new Vector3D(lod.TexCoords[v].X, 1f - lod.TexCoords[v].Y, 0f));
             }
             part.UVComponentCount[0] = 2;
-            for (int c = section.BaseIndex; c + 2 < section.BaseIndex + section.TriangleCount * 3; c += 3)
-                part.Faces.Add(new Face([used[lod.Indices[c]], used[lod.Indices[c + 1]], used[lod.Indices[c + 2]]]));
+            for (int k = 0; k + 2 < corners.Count; k += 3)
+                part.Faces.Add(new Face([used[lod.Indices[corners[k]]], used[lod.Indices[corners[k + 1]]], used[lod.Indices[corners[k + 2]]]]));
             var byBone = new Dictionary<int, Assimp.Bone>();
             for (int i = 0; i < order.Count; i++)
             {
@@ -217,16 +217,73 @@ static class FbxExport
                 if (!byBone.ContainsKey(b)) byBone[b] = new Assimp.Bone { Name = mesh.Bones[b].Name, OffsetMatrix = ToAssimp(FbxExporter.ToFileSpace(rest.ModelToBone[b])) };
             foreach (var bone in byBone.OrderBy(kv => kv.Key).Select(kv => kv.Value)) part.Bones.Add(bone);
 
-            var mat = new Material { Name = SafeName(sectionMaterials[s]) };
-            if (tex.TryGetValue(sectionMaterials[s], out var file))
-                mat.TextureDiffuse = new TextureSlot(file, TextureType.Diffuse, 0, TextureMapping.FromUV, 0, 1f, TextureOperation.Multiply, TextureWrapMode.Wrap, TextureWrapMode.Wrap, 0);
-            part.MaterialIndex = scene.MaterialCount;
-            scene.Materials.Add(mat);
+            // (one material per name: a prop piece shares its section's)
+            if (!materialAt.TryGetValue(sectionMaterials[s], out int mi))
+            {
+                var mat = new Material { Name = SafeName(sectionMaterials[s]) };
+                if (tex.TryGetValue(sectionMaterials[s], out var file))
+                    mat.TextureDiffuse = new TextureSlot(file, TextureType.Diffuse, 0, TextureMapping.FromUV, 0, 1f, TextureOperation.Multiply, TextureWrapMode.Wrap, TextureWrapMode.Wrap, 0);
+                materialAt[sectionMaterials[s]] = mi = scene.MaterialCount;
+                scene.Materials.Add(mat);
+            }
+            part.MaterialIndex = mi;
             scene.Meshes.Add(part);
             scene.RootNode.MeshIndices.Add(scene.MeshCount - 1);
         }
         using var ctx = new AssimpContext();
         if (!ctx.ExportFile(scene, path, "fbx")) throw new IOException("The model could not be written as FBX.");
+    }
+
+    /// <summary>
+    /// A game model's prop bones (Kurt, 2026-10-31: Skrull Captain America's shield is skinned into his body on g_shield, one
+    /// section with the rest of him): a g_ bone named for a weapon or shield, and every bone under it.
+    /// </summary>
+    static readonly System.Text.RegularExpressions.Regex PropBone = new(@"^g_.*(shield|weapon|sword|katana|gun|pistol|rifle|knife|dagger|blade|axe|hammer|spear|staff|(?<!el)bow|quiver)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>A mesh name WriteModel gives a prop bone's piece (&lt;material&gt;__&lt;bone&gt;), so the Model tab can mark it a prop.</summary>
+    public static bool IsPropPiece(string meshName) => meshName.LastIndexOf("__g_", StringComparison.Ordinal) is int at && at > 0 && PropBone.IsMatch(meshName[(at + 2)..]);
+
+    /// <summary>Does the model have a prop bone's piece? (No FBX written: the Model tab asks of every target.)</summary>
+    public static bool HasPropPieces(SkeletalMesh mesh, SkeletalMeshLod lod) => Pieces(mesh, lod, [.. lod.Sections.Select((_, i) => "s" + i)], true).Any(p => p.Mesh.Contains("__", StringComparison.Ordinal));
+
+    /// <summary>
+    /// The FBX's meshes: one per section (mesh name, section, its corners as positions in lod.Indices); with splitProps, the
+    /// triangles whose three corners each follow the same prop bone (PropBone, by their topmost one) most go into a mesh of
+    /// their own, named &lt;material&gt;__&lt;bone&gt;, so it can be left off as a source part. Triangles shared with the body
+    /// (a strap's) stay with the body.
+    /// </summary>
+    static IEnumerable<(string Mesh, int Section, List<int> Corners)> Pieces(SkeletalMesh mesh, SkeletalMeshLod lod, IReadOnlyList<string> sectionMaterials, bool splitProps)
+    {
+        // each bone's topmost prop bone (-1: not a prop bone)
+        var top = new int[mesh.Bones.Count];
+        for (int b = 0; b < top.Length; b++)
+        {
+            top[b] = -1;
+            if (!splitProps) continue;
+            for (int x = b, g = 0; x >= 0 && x < top.Length && g < 64; x = mesh.Bones[x].ParentIndex == x ? -1 : mesh.Bones[x].ParentIndex, g++)
+                if (PropBone.IsMatch(mesh.Bones[x].Name)) top[b] = x;
+        }
+        int Dom(int v)
+        {
+            var inf = lod.Influences[v];
+            int best = -1; float w = 0;
+            for (int k = 0; k < inf.Bones.Count; k++) if (inf.Weights[k] > w && inf.Bones[k] >= 0 && inf.Bones[k] < top.Length) { w = inf.Weights[k]; best = inf.Bones[k]; }
+            return best < 0 ? -1 : top[best];
+        }
+        for (int s = 0; s < lod.Sections.Count; s++)
+        {
+            var section = lod.Sections[s];
+            var body = new List<int>(); var props = new SortedDictionary<int, List<int>>();
+            for (int c = section.BaseIndex; c + 2 < section.BaseIndex + section.TriangleCount * 3; c += 3)
+            {
+                int a = splitProps ? Dom(lod.Indices[c]) : -1;
+                bool prop = a >= 0 && Dom(lod.Indices[c + 1]) == a && Dom(lod.Indices[c + 2]) == a;
+                var list = prop ? (props.TryGetValue(a, out var l) ? l : props[a] = []) : body;
+                list.Add(c); list.Add(c + 1); list.Add(c + 2);
+            }
+            if (body.Count > 0) yield return (SafeName(sectionMaterials[s]), s, body);
+            foreach (var (bone, corners) in props) yield return ($"{SafeName(sectionMaterials[s])}__{mesh.Bones[bone].Name}", s, corners);
+        }
     }
 
     /// <summary>The colour map as a PNG, with the alpha map (if any) merged into its alpha.</summary>

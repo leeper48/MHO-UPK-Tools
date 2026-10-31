@@ -136,6 +136,52 @@ sealed partial class ModelPage
         void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
         for (int i = 0; i < 100 && !loaded; i++) await Task.Delay(100);
         if (Environment.GetEnvironmentVariable("MHO_TEST_PROPSHOWSHOT") != null || Environment.GetEnvironmentVariable("MHO_TEST_GIZMOSHOT") != null) preview.ShowBones = false;   // (the manual's shots)
+        // MHO_TEST_PIECES = <package with a prop built into its model>: <mesh> = a prop class of <other source>, added to it; the
+        // built-in piece stays listed while the added prop is the target, unticking it comes back to the body, and it stays off
+        if (Environment.GetEnvironmentVariable("MHO_TEST_PIECES") is { Length: > 0 } boss)
+        {
+            string ownKey = GameSrc + boss;
+            bool PieceTicked() => parts.Rows.Cast<DataGridViewRow>().Any(r => r.Cells["part"].Value is string n && FbxExport.IsPropPiece(n) && r.Cells["use"].Value is true);
+            bool PieceListed() => parts.Rows.Cast<DataGridViewRow>().Any(r => r.Cells["kind"].Value as string == "Prop");
+            DataGridViewRow? PieceRow() => targetProps.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is BuiltInPiece);
+            host.AddPackage(boss, BasePackage.Resolve(boss)); added.Add(boss);
+            gameList = false; FillPackages(); Reselect(packages, boss);
+            for (int i = 0; i < 100 && ChosenPackage?.Key != boss; i++) await Task.Delay(100);
+            GameChosen(ownKey);
+            for (int i = 0; i < 300 && !(HasSource && parts.Rows.Count > 0 && PieceRow() != null); i++) await Task.Delay(100);
+            Check(PieceListed() && PieceTicked(), $"Source Parts has the shield, marked Prop ({string.Join(", ", parts.Rows.Cast<DataGridViewRow>().Select(r => $"{r.Cells["part"].Value}={r.Cells["kind"].Value}"))})");
+            Check(PieceRow() != null, $"it's listed under the target's props ({PieceRow()?.Cells["part"].Value}, {PieceRow()?.Cells["kind"].Value})");
+            if (await host.AddPropTo(boss, new AddPropForm.Pick(otherSource, mesh, "Captain America: Avengers Shield")) is not { } pe) { Check(false, "the prop added"); return fails; }
+            await AddedPropsChanged(boss, pe);
+            for (int i = 0; i < 300 && !(AddedTarget == pe && PieceRow() != null && !refreshing); i++) await Task.Delay(100);
+            Check(AddedTarget == pe, $"the added prop is the target ({MeshCaption()})");
+            Check(PieceRow() != null, "the shield is still listed while the added prop is the target");
+            SetPropKept(PieceRow()!, false);
+            for (int i = 0; i < 300 && !(addedPick == null && ownKey.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource && parts.Rows.Count > 0 && !PieceTicked()); i++) await Task.Delay(100);
+            Check(addedPick == null && ownKey.Equals(chosenKey, StringComparison.OrdinalIgnoreCase), $"unticked: the character is the target, with its source ({MeshCaption()}; {chosenKey})");
+            Check(PieceListed() && !PieceTicked() && !SelectedParts().Any(FbxExport.IsPropPiece), $"unticked: left out of the build ({string.Join(", ", SelectedParts())})");
+            for (int i = 0; i < 300 && PieceRow() == null; i++) await Task.Delay(100);
+            Check(PieceRow()?.Cells["use"].Value is false, "unticked: its row shows it");
+            if (Environment.GetEnvironmentVariable("MHO_TEST_PIECESHOT") is { Length: > 0 } pieceShot)
+            {
+                preview.ShowBones = false;
+                await Task.Delay(4000);
+                var form = FindForm()!;
+                using var bmp = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
+                bmp.Save(pieceShot);
+            }
+            PickAdded(pe);
+            for (int i = 0; i < 300 && AddedTarget != pe; i++) await Task.Delay(100);
+            meshPick.SelectedIndex = 0;
+            for (int i = 0; i < 300 && !(addedPick == null && HasSource && parts.Rows.Count > 0 && PieceListed()); i++) await Task.Delay(100);
+            for (int i = 0; i < 300 && PieceRow() == null; i++) await Task.Delay(100);
+            Check(PieceListed() && !PieceTicked(), "stepping to the prop and back: still left out");
+            SetPropKept(PieceRow()!, true);
+            for (int i = 0; i < 100 && !PieceTicked(); i++) await Task.Delay(100);
+            Check(PieceTicked(), "ticked again: back in");
+            return fails;
+        }
         // MHO_TEST_GIZMO_ONLY = <package>: that target in the mod's packages, its first added prop picked, the gizmo dragged
         // (a copy of a user's mod, to see what it does there)
         if (Environment.GetEnvironmentVariable("MHO_TEST_GIZMO_ONLY") is { Length: > 0 } gpk)

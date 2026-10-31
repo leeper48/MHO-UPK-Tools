@@ -51,7 +51,7 @@ sealed partial class ModelPage
             if (e.KeyCode != Keys.Delete || targetProps.SelectedRows.Count != 1) return;
             var sel = targetProps.SelectedRows[0];
             if (sel.Tag is AddedPropEntry) { RemovePropClicked(); e.Handled = true; }
-            else if (sel.Tag is PowerParts.Switch && sel.Cells["use"].Value is true) { SetPropKept(sel, false); e.Handled = true; }   // (the game's own: left off)
+            else if (sel.Tag is PowerParts.Switch or BuiltInPiece && sel.Cells["use"].Value is true) { SetPropKept(sel, false); e.Handled = true; }   // (the game's own: left off)
         };
         // right-click: a row's menu (Kurt, 2026-10-27)
         targetProps.CellMouseDown += (_, e) =>
@@ -87,6 +87,8 @@ sealed partial class ModelPage
                     ? new ToolStripMenuItem("Remove", null, (_, _) => SetPropKept(row, false)) { ShortcutKeyDisplayString = "Del", ToolTipText = "Takes the game's prop off this costume (Save sets its mesh to none in this package only; Put Back or Ctrl+Z brings it back)." }
                     : new ToolStripMenuItem("Put Back", null, (_, _) => SetPropKept(row, true)) { ToolTipText = "Puts the game's prop back on this costume." });
             }
+            else if (row.Tag is BuiltInPiece)
+                menu.Items.Add(new ToolStripMenuItem(on ? "Leave Out of the Model" : "Put Back", null, (_, _) => SetPropKept(row, !on)) { ToolTipText = "Goes back to the character as the target, with this part of its model left out or put back. Build into Mod does it." });
             else return;
             menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
             menu.Show(targetProps, targetProps.PointToClient(Cursor.Position));
@@ -172,11 +174,112 @@ sealed partial class ModelPage
         });
         if (IsDisposed || run != targetPropsRun || ChosenPackage?.Key != key) return;
         ShowTargetProps(list, key);
+        // (after the list: a source not read yet takes a moment)
+        if (BodySource(key) is not string body) return;
+        string bodyFile = SplitGameKey(body).File;
+        var pieces = await Task.Run(() => BuiltInPieces(bodyFile, key));
+        if (IsDisposed || run != targetPropsRun || ChosenPackage?.Key != key) return;
+        pieceRows = pieces;
+        foreach (var p in pieces)
+        {
+            int i = targetProps.Rows.Add(true, $"{Ui.TitleCase(p.Bone["g_".Length..].Replace('_', ' '))} (Built into the Model)", "Built In", p.Bone);
+            targetProps.Rows[i].Tag = p;
+        }
+        ShowPieceTicks();
+        SizePropsBox();
+        targetProps.ClearSelection();
+    }
+
+    /// <summary>
+    /// A prop skinned into the character's own model (Kurt, 2026-10-31: Skrull Captain America's shield, on g_shield): a part of
+    /// the body's source, listed under the target's props too, because Source Parts belongs to the target picked and adding a
+    /// prop picks that prop ("I expected it to stay there so I could turn it off then").
+    /// </summary>
+    sealed record BuiltInPiece(string Part, string Bone);
+
+    List<BuiltInPiece> pieceRows = [];
+
+    /// <summary>Package file → the built-in pieces left off its body (kept for each package: the source's parts load ticked).</summary>
+    readonly Dictionary<string, HashSet<string>> piecesOff = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The source of the package's body as a game key: its own or remembered one, else its own model; null when it
+    /// isn't a game model (an MFF character or a file: its parts are its own).</summary>
+    string? BodySource(string key)
+    {
+        string? src = addedPick == null && !TargetIsProp() && chosenKey is string ck && !IsPropKey(ck) ? ck : null;
+        foreach (string? m in new[] { "*", autoMesh })
+            if (src == null && m != null && targetSources.TryGetValue($"{key}|{m}", out var s) && !IsPropKey(s)) src = s;
+        src ??= GameSrc + key;
+        return src.StartsWith(GameSrc) ? src : null;
+    }
+
+    /// <summary>The pieces of a game source's model (worker thread); the target's own model is asked first, so no FBX is
+    /// written for a target that has none.</summary>
+    static List<BuiltInPiece> BuiltInPieces(string file, string key)
+    {
+        try
+        {
+            if (file.Equals(key, StringComparison.OrdinalIgnoreCase) && !GameSource.HasPropPieces(file)) return [];
+            return [.. FbxReimport.Meshes(GameSource.Export(file, _ => { })).Where(x => FbxExport.IsPropPiece(x.Name))
+                .Select(x => new BuiltInPiece(x.Name, x.Name[(x.Name.LastIndexOf("__g_", StringComparison.Ordinal) + 2)..]))];
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or MhoPackageModifier.PackageFormatException) { return []; }
+    }
+
+    /// <summary>Is this piece left off the chosen package's body?</summary>
+    bool PieceOff(string part) => ChosenPackage is CharacterList.Item pkg && piecesOff.TryGetValue(pkg.Key, out var off) && off.Contains(part);
+
+    /// <summary>The rows under the target's props as the kept choice has them.</summary>
+    void ShowPieceTicks()
+    {
+        foreach (DataGridViewRow r in targetProps.Rows)
+            if (r.Tag is BuiltInPiece p)
+            {
+                r.Cells["use"].Value = !PieceOff(p.Part);
+                r.DefaultCellStyle.ForeColor = PieceOff(p.Part) ? Ui.Subtle : Ui.Text;
+            }
+    }
+
+    /// <summary>The kept choice into the source's parts, when they're the body's.</summary>
+    void ApplyPiecesOff()
+    {
+        if (TargetIsProp() || addedPick != null) return;
+        foreach (DataGridViewRow r in parts.Rows)
+            if (r.Cells["part"].Value is string n && FbxExport.IsPropPiece(n) && (r.Cells["use"].Value is true) == PieceOff(n)) r.Cells["use"].Value = !PieceOff(n);
+    }
+
+    /// <summary>A piece's row under Source Parts ticked or unticked: kept, and shown under the target's props.</summary>
+    void NotePieceTick(DataGridViewRow row)
+    {
+        if (TargetIsProp() || addedPick != null || ChosenPackage is not CharacterList.Item pkg || row.Cells["part"].Value is not string n || !FbxExport.IsPropPiece(n)) return;
+        if (!piecesOff.TryGetValue(pkg.Key, out var off)) piecesOff[pkg.Key] = off = new(StringComparer.OrdinalIgnoreCase);
+        if (row.Cells["use"].Value is true) off.Remove(n); else off.Add(n);
+        ShowPieceTicks();
+        SaveState();
+    }
+
+    /// <summary>A built-in piece's row clicked: the body becomes the target again (the row's a part of its source), with the
+    /// piece ticked or not; Build into Mod does the rest.</summary>
+    async Task SetPieceKept(BuiltInPiece p, bool keep)
+    {
+        if (ChosenPackage is not CharacterList.Item pkg || BodySource(pkg.Key) is not string src) return;
+        string key = pkg.Key;
+        if (!piecesOff.TryGetValue(key, out var off)) piecesOff[key] = off = new(StringComparer.OrdinalIgnoreCase);
+        if (keep ? !off.Remove(p.Part) : !off.Add(p.Part)) return;
+        ShowPieceTicks();
+        if (addedPick != null || TargetIsProp()) meshPick.SelectedIndex = 0;
+        if (!src.Equals(chosenKey, StringComparison.OrdinalIgnoreCase)) GameChosen(src);
+        for (int i = 0; i < 300 && !(src.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource && parts.Rows.Count > 0); i++) await Task.Delay(100);
+        if (IsDisposed || ChosenPackage?.Key != key) return;
+        ApplyPiecesOff();
+        SaveState(); SchedulePreview(); UpdateStatus();
+        Log($"{p.Bone}: {(keep ? "kept in" : "left out of")} the model of {key}. The target is the character again: Build into Mod {(keep ? "puts it back" : "takes it out")}.");
     }
 
     void ShowTargetProps(List<PowerParts.Switch> list, string? key)
     {
         propSwitches = list;
+        pieceRows = [];
         addedRows = key == null ? [] : [.. host.AddedProps(key)];
         targetProps.Rows.Clear();
         foreach (var s in list)
@@ -202,8 +305,8 @@ sealed partial class ModelPage
     void SizePropsBox()
     {
         if (partsPage == null) return;
-        int count = propSwitches.Count + addedRows.Count;
-        bool costume = ChosenPackage is CharacterList.Item c && c.Key.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase);
+        int count = propSwitches.Count + addedRows.Count + pieceRows.Count;
+        bool costume = ChosenPackage is CharacterList.Item c && new[] { "UC__MarvelPlayer_", "UC__MarvelAgent_", "UC__MarvelTeamUp_" }.Any(x => c.Key.StartsWith(x, StringComparison.OrdinalIgnoreCase));   // (enemies, bosses and team-ups hold props too)
         bool showProps = count > 0 || costume, showParts = parts.Rows.Count > 0;
         static int Tall(DataGridView g) => g.ColumnHeadersHeight + g.Rows.Cast<DataGridViewRow>().Where(r => r.Visible).Sum(r => r.Height) + 2;
         partsCap.Visible = showParts; parts.Visible = showParts;
@@ -330,6 +433,8 @@ sealed partial class ModelPage
         row.DefaultCellStyle.ForeColor = keep ? Ui.Text : Ui.Subtle;
         if (!await host.SetAddedPropOn(ap, keep) || IsDisposed) { row.Cells["use"].Value = !keep; row.DefaultCellStyle.ForeColor = !keep ? Ui.Text : Ui.Subtle; return; }
         PropDone(before, keep ? $"Tick {ap.Name}" : $"Untick {ap.Name}");
+        // (picked as the target, its copy kept showing it: Kurt, 2026-10-31) back to the character
+        if (!keep && ReferenceEquals(addedPick, ap) && meshPick.Items.Count > 0) meshPick.SelectedIndex = 0;
         Log(keep ? $"{ap.Name}: back on {ap.Package}, as it was." : $"{ap.Name}: left off {ap.Package} (its fit, bone and model are kept: tick it to put it back; Remove takes it away).");
     }
 
@@ -376,6 +481,7 @@ sealed partial class ModelPage
     void SetPropKept(DataGridViewRow row, bool keep)
     {
         if (row.Tag is AddedPropEntry ap) { _ = SetAddedKept(row, ap, keep); return; }
+        if (row.Tag is BuiltInPiece piece) { _ = SetPieceKept(piece, keep); return; }
         if (row.Tag is not PowerParts.Switch s) return;
         if (!keep && s.Original.Length == 0) { Log($"{s.Label}: that prop shows nothing in the game already."); return; }
         var had = PropOff(s);

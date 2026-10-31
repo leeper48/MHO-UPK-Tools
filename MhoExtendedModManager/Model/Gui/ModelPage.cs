@@ -513,7 +513,7 @@ sealed partial class ModelPage : UserControl
             SetUse(rows, rows.Any(r => r.Cells["use"].Value is not true));
             e.Handled = true;
         };
-        parts.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "use") SchedulePreview(); };
+        parts.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && parts.Columns[e.ColumnIndex].Name == "use") { NotePieceTick(parts.Rows[e.RowIndex]); SchedulePreview(); } };
 
         // the first load, whichever way the page comes up (Kurt, 2026-10-28: users on 0.60.239 still had empty lists, an empty
         // log and no folder strip, so the load never ran: it waited only for HandleCreated, which never came there): the handle
@@ -1220,7 +1220,8 @@ sealed partial class ModelPage : UserControl
                 unrigged = file;
                 Log($"{Path.GetFileName(file)} has no armature: on each base hero it's stood up, scaled to the hero and rigged to its skeleton in Blender (Automatic Weights, in the background; all its meshes are used). Full Export ▾ → Open the Rig in Blender to fix the weights; each Ctrl+S there comes back here.");
             }
-            foreach (var (name, verts) in meshes) parts.Rows.Add(true, name, "Mesh", verts.ToString("N0"));
+            // (a game model's prop skinned into its body, written apart: Skrull Captain America's shield on g_shield)
+            foreach (var (name, verts) in meshes) parts.Rows.Add(true, name, FbxExport.IsPropPiece(name) ? "Prop" : "Mesh", verts.ToString("N0"));
             string folder = Path.GetFileName(Path.GetDirectoryName(file)) ?? "";
             int on = folder.IndexOf(" on ", StringComparison.Ordinal);
             if (on > 0)
@@ -1232,6 +1233,8 @@ sealed partial class ModelPage : UserControl
             SchedulePreview();
             Log($"FBX source: {file} ({meshes.Count} mesh(es))");
             RestoreState();
+            ApplyPiecesOff();
+            FillTargetProps();
         }
         catch (Exception ex) { Log($"{file}: {ex.Message}"); }
         UpdateStatus();

@@ -2008,8 +2008,8 @@ static partial class PowerBorrow
         // listed in the costume's own props
         int classRef = ClassExport(dst) + 1;
         if (classRef <= 0) throw new InvalidDataException($"{e.Class} isn't in the package after copying");
-        int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
-        if (pd < 0) throw new InvalidDataException("the package has no player class default (not a costume)");
+        int pd = ModMeshes.CharacterDefault(dst);
+        if (pd < 0) throw new InvalidDataException("the package has no character class default (not a costume, team-up or enemy)");
         byte[] pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
         var at = TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase));
         if (at == null)
@@ -2044,8 +2044,8 @@ static partial class PowerBorrow
     public static byte[] SetListed(byte[] package, string costumeFile, string classPath, bool listed, List<string> log)
     {
         var dst = Package.FromBytes(package);
-        int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
-        if (pd < 0) throw new InvalidDataException("the package has no player class default (not a costume)");
+        int pd = ModMeshes.CharacterDefault(dst);
+        if (pd < 0) throw new InvalidDataException("the package has no character class default (not a costume, team-up or enemy)");
         if (TagWalker.Walk(dst, dst.ReadExportBytes(dst.Exports[pd]).ToArray(), 4)?.Any(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) != true)
             dst = WithOwnPropList(dst, pd, costumeFile, log);
         byte[] b = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
@@ -2206,10 +2206,10 @@ static partial class PowerBorrow
         // the hero's base package: UC__MarvelPlayer_<Hero>_SF
         string stem = Path.GetFileNameWithoutExtension(costumeFile);
         const string Pre = "UC__MarvelPlayer_";
-        if (!stem.StartsWith(Pre, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("this package's character keeps its prop list elsewhere: not a costume");
-        string baseFile = $"{Pre}{stem[Pre.Length..].Split('_')[0]}_SF.upk";
+        // (an enemy or team-up package without a list, Skrull Captain America: given an empty one; Kurt, 2026-10-31)
+        string? baseFile = stem.StartsWith(Pre, StringComparison.OrdinalIgnoreCase) ? $"{Pre}{stem[Pre.Length..].Split('_')[0]}_SF.upk" : null;
         var heroPaths = new List<string>();
-        if (!baseFile.Equals(costumeFile, StringComparison.OrdinalIgnoreCase) && StockFiles.Cooked is string cooked && StockFiles.For(cooked, baseFile) is var basePath && File.Exists(basePath))
+        if (baseFile != null && !baseFile.Equals(costumeFile, StringComparison.OrdinalIgnoreCase) && StockFiles.Cooked is string cooked && StockFiles.For(cooked, baseFile) is var basePath && File.Exists(basePath))
         {
             var bp = Package.Open(basePath);
             var bt = new Fx.FxTables(bp);
@@ -2260,6 +2260,7 @@ static partial class PowerBorrow
         var got = Enumerable.Range(0, BinaryPrimitives.ReadInt32LittleEndian(rb.AsSpan(rl.ValueAt))).Select(k => bt2.PathOf(BinaryPrimitives.ReadInt32LittleEndian(rb.AsSpan(rl.ValueAt + 4 + 4 * k)))).ToList();
         if (!got.SequenceEqual(heroPaths, StringComparer.OrdinalIgnoreCase)) throw new InvalidDataException($"the costume's own prop list reads back as [{string.Join(", ", got)}], not its hero's");
         back = Package.FromBytes(FixClassImports(back.RawFile, log));
+        if (baseFile == null) { log.Add($"{dst.Exports[pd].ObjectName} had no prop list: given one of its own"); return back; }
         log.Add($"{dst.Exports[pd].ObjectName} kept its hero's prop list: given one of its own, the hero's {heroPaths.Count}{(heroPaths.Count > 0 ? " (" + string.Join(", ", heroPaths.Select(x => x.Split('.').Last())) + ")" : "")}{(addImports.Count > 0 ? $"; {addImports.Count} import(s) added" : "")}");
         return back;
     }
@@ -2295,7 +2296,7 @@ static partial class PowerBorrow
     {
         var dst = Package.FromBytes(package);
         int ce = HeldClass(dst, cls.ToLowerInvariant());
-        int pd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+        int pd = ModMeshes.CharacterDefault(dst);
         if (ce < 0 || pd < 0) return package;
         byte[] pb = dst.ReadExportBytes(dst.Exports[pd]).ToArray();
         if (TagWalker.Walk(dst, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is not { } at) return package;
@@ -2459,7 +2460,7 @@ static partial class PowerBorrow
         bool IsClass(int i) => p.ClassOf(p.Exports[i]).Equals("Class", StringComparison.OrdinalIgnoreCase);
         int exact = Array.FindIndex(p.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase));
         if (exact >= 0 && IsClass(exact)) return exact;
-        int pd = Array.FindIndex(p.Exports, x => x.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) && p.ClassOf(x).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase));
+        int pd = ModMeshes.CharacterDefault(p);
         if (pd < 0) return -1;
         byte[] pb = p.ReadExportBytes(p.Exports[pd]).ToArray();
         if (TagWalker.Walk(p, pb, 4)?.FirstOrDefault(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)) is not { } at) return -1;

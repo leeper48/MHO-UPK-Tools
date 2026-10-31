@@ -682,6 +682,10 @@ static partial class Program
                         var lm = ModMeshes.Load(new MeshRef(Path.GetFileName(f), f, pk.Exports[i].ObjectName, i), null, out string why);
                         var mats = ModMeshes.MaterialRefs(AnimExportCli.Packages.Package.Open(f), i).Select(r => new Fx.FxTables(pk).PathOf(r));
                         Console.WriteLine($"{Path.GetFileName(f)} | {pk.PathOf(pk.Exports[i])}: {(lm != null ? $"{lm.Positions.Length:N0} vertices, {lm.Bones.Count} bones" : "not read: " + why)} · materials {string.Join(", ", mats)}");
+                        // (MHO_BONE_VERTS=1: how many vertices each bone carries most of: a shield skinned into the body shows as g_shield)
+                        if (lm != null && Environment.GetEnvironmentVariable("MHO_BONE_VERTS") == "1")
+                            foreach (var g in lm.Influences.GroupBy(v => v.Bones[v.Weights.Select((w, k) => (w, k)).MaxBy(x => x.w).k]).OrderByDescending(g => g.Count()))
+                                Console.WriteLine($"  {lm.Bones[g.Key].Name,-24} {g.Count(),6:N0} vertices");
                     }
                 }
                 return 0;

@@ -1,6 +1,16 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.277
+- Model tab: a prop built into the character's model (Skrull Captain America's shield) stays listed under The Target's Props, marked Built In, also while an added prop is the target (Source Parts belongs to the target picked, so it left that list). Unticking it goes back to the character with that part left out; Build into Mod does the rest. The choice is kept for the package: it used to come back ticked when you stepped back to the character.
+
+0.60.276
+- Model tab, a game character as the Source: a prop skinned into the body (Skrull Captain America's shield, on g_shield, in one piece with the rest of him) is its own row under Source Parts, marked Prop: untick it to build the character without it, then add another shield as a prop. Only triangles whose three corners follow the prop's bone go with it; ones shared with the arm (a strap) stay with the body.
+- Model tab: unticking an added prop that's picked under the preview takes the preview back to the character (it kept showing the prop).
+
+0.60.275
+- Props for enemies, bosses and team-ups: the Model tab adds props to an enemy's package (Skrull Captain America) as it does to a costume ("the package has no player class default" before). The game's own enemies hold props the same way (Bullseye's knives, the Frost Giant Shield Maiden's sword and shield). The Target's Props list shows for them too.
+
 0.60.274
 - Props: the Model and Animations tabs lay out the prop's fit as the Powers tab does: Size, Move X / Y / Z and Turn X / Y / Z in one column, with Reset Fit, Gizmo: All Animations and Pivot on the Hand in a row under them, and In This Animation beside them (no longer folded on the Model tab). The Animations tab gained Reset Fit.
 

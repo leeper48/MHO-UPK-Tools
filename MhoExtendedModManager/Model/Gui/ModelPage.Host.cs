@@ -658,6 +658,7 @@ sealed partial class ModelPage
         public Dictionary<string, bool>? CopyOthers { get; set; }
         /// <summary>Each prop's Prop Fit sliders ("package|model" → the fit; Kurt, 2026-10-26).</summary>
         public Dictionary<string, PropAdjust>? PropFits { get; set; }
+        public Dictionary<string, List<string>>? PiecesOff { get; set; }
         /// <summary>Each target's last source ("package|model" → source key; Kurt, 2026-10-26): Model ▾ back to the body puts its
         /// source back, not the prop's.</summary>
         public Dictionary<string, string>? TargetSources { get; set; }
@@ -683,7 +684,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, TargetSources = RememberTargetSource(), TargetMaterials = targetMaterials.Count > 0 ? new(targetMaterials) : null,
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, PiecesOff = piecesOff.Any(kv => kv.Value.Count > 0) ? piecesOff.Where(kv => kv.Value.Count > 0).ToDictionary(kv => kv.Key, kv => kv.Value.Order(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase) : null, TargetSources = RememberTargetSource(), TargetMaterials = targetMaterials.Count > 0 ? new(targetMaterials) : null,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
@@ -707,6 +708,7 @@ sealed partial class ModelPage
         foreach (var (k, v) in st.BuiltPrints ?? []) builtPrint[k] = v;
         foreach (var (k, v) in st.CopyOthers ?? []) copyOthers[k] = v;
         foreach (var (k, v) in st.PropFits ?? []) propFits[k] = v;
+        foreach (var (k, v) in st.PiecesOff ?? []) piecesOff[k] = new(v, StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in st.TargetMaterials ?? []) targetMaterials[k] = v;
         foreach (var (k, v) in st.TargetSources ?? []) targetSources[k] = v;   // built in an earlier session: its bytes are the mod's package
         restoring2 = true;

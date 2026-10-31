@@ -858,6 +858,7 @@ static partial class Program
                 MhoExtendedModManager.Model.Settings.Reset();
                 string fbx = MhoExtendedModManager.Model.GameSource.Export(rest[1], Console.WriteLine);
                 foreach (var f in Directory.GetFiles(Path.GetDirectoryName(fbx)!)) Console.WriteLine($"  {Path.GetFileName(f)}  {new FileInfo(f).Length:N0}");
+                foreach (var (mn, mv) in MhoExtendedModManager.Model.FbxReimport.Meshes(fbx)) Console.WriteLine($"  mesh {mn}: {mv:N0} vertices{(MhoExtendedModManager.Model.FbxExport.IsPropPiece(mn) ? " (prop)" : "")}");
                 if (rest.Count < 3) return 0;
                 string pkg = MhoExtendedModManager.Model.BasePackage.Resolve(rest[2], true);
                 var prep = MhoExtendedModManager.Model.Gui.PreviewPanel.PrepareFbx(fbx, null, pkg, null);

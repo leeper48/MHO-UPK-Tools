@@ -569,6 +569,19 @@ static class ModMeshes
         return null;
     }
 
+    /// <summary>A character's class default: a costume's (default__marvelplayer_…), an enemy's or boss's (default__marvelagent_…:
+    /// Bullseye's knives, the Frost Giant Shield Maiden's sword and shield) or a team-up's (default__marvelteamup_…); they all
+    /// list their props in mAttachmentClasses.</summary>
+    public static bool IsCharacterDefault(Package p, ExportEntry e)
+    {
+        foreach (string k in new[] { "marvelplayer", "marvelagent", "marvelteamup" })
+            if (e.ObjectName.StartsWith("default__" + k, StringComparison.OrdinalIgnoreCase) && p.ClassOf(e).StartsWith(k, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    /// <summary>The package's character class default (IsCharacterDefault), or -1.</summary>
+    public static int CharacterDefault(Package p) => Array.FindIndex(p.Exports, x => IsCharacterDefault(p, x));
+
     /// <summary>
     /// The attachment classes a character package's player class default lists (mAttachmentClasses: Punisher's 17 guns,
     /// Thor Age of Ultron's own hammer), by class name; null when the package has no player default or it doesn't set
@@ -582,7 +595,7 @@ static class ModMeshes
             for (int i = 0; i < pkg.Exports.Length; i++)
             {
                 var e = pkg.Exports[i];
-                if (!e.ObjectName.StartsWith("default__marvelplayer", StringComparison.OrdinalIgnoreCase) || !pkg.ClassOf(e).StartsWith("marvelplayer", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!IsCharacterDefault(pkg, e)) continue;
                 var d = pkg.ReadExportBytes(e);
                 if (TagWalker.Walk(pkg, d, 4) is not { } tags) continue;
                 foreach (var t in tags.Where(t => t.Name.Equals("mAttachmentClasses", StringComparison.OrdinalIgnoreCase)))

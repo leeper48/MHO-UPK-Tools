@@ -26,6 +26,26 @@ static class GameSource
 
     public static string Export(string packageFile, Action<string> log, string? meshName = null)
     {
+        lock (exporting) return ExportCore(packageFile, log, meshName);   // (one at a time: the same folder is cleared and written)
+    }
+
+    static readonly object exporting = new();
+
+    /// <summary>Is a prop skinned into the package's character (FbxExport.Pieces)? Read without writing the FBX.</summary>
+    public static bool HasPropPieces(string packageFile)
+    {
+        string meshPath = Gui.PreviewPanel.MeshPackage(PathFor(packageFile));
+        var refs = ModMeshes.List([(Path.GetFileName(meshPath), meshPath)], anyPackage: true);
+        if (refs.Count == 0) return false;
+        string? pickName = null;
+        try { pickName = MhoSkeleton.Load(meshPath).Mesh.Name; } catch (InvalidDataException) { }
+        var main = refs.FirstOrDefault(x => x.Name.Equals(pickName, StringComparison.OrdinalIgnoreCase)) ?? refs[0];
+        var mesh = SkeletalMeshReader.TryRead(AnimPackage.Open(meshPath), main.Export);
+        return mesh?.HighestDetail is { HasGeometry: true } lod && FbxExport.HasPropPieces(mesh, lod);
+    }
+
+    static string ExportCore(string packageFile, Action<string> log, string? meshName)
+    {
         string? modded = Modded?.Invoke(packageFile);
         string stock = modded ?? BasePackage.Resolve(packageFile, true);
         string meshPath = Gui.PreviewPanel.MeshPackage(stock);
@@ -37,7 +57,7 @@ static class GameSource
         string? pickName = null;
         if (meshName != null) pickName = meshName;
         else try { pickName = MhoSkeleton.Load(meshPath).Mesh.Name; } catch (InvalidDataException) { }
-        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|3";   // (3: no glow from a DXT1 map's missing alpha)
+        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|4";   // (3: no glow from a DXT1 map's missing alpha; 4: prop bones' pieces apart)
         if (File.Exists(fbx) && File.Exists(stampFile) && File.ReadAllText(stampFile) == stamp) return fbx;
 
         Protected.CheckWrite(outDir);
@@ -98,7 +118,7 @@ static class GameSource
                 else if (p.Contains("emissive") || p.Contains("glow")) { if (Save(mp, export, b + "_glow.png", cooked)) maps++; }
             }
         }
-        FbxExport.WriteModel(fbx, names, mesh, lod, tex);
+        FbxExport.WriteModel(fbx, names, mesh, lod, tex, splitProps: true);
         File.WriteAllText(stampFile, stamp);
         log($"{packageFile}: {main.Name} from {Path.GetFileName(meshPath)} written as a source ({lod.Positions.Count:N0} vertices, {lod.Sections.Count} sections, {mesh.Bones.Count} bones, {maps} maps) in {outDir}");
         return fbx;
