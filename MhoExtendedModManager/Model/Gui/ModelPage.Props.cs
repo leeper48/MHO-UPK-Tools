@@ -152,6 +152,19 @@ sealed partial class ModelPage
             for (int i = 0; i < 300 && (AddedTarget != ga || refreshing); i++) await Task.Delay(100);
             await Task.Delay(4000);
             Check(GizmoShownForTest, $"gizmo only: shown ({MeshCaption()}; props {preview.PropClassesForTest})");
+            // MHO_TEST_GIZMO_SHOTONLY = <animation>: the manual's shot (that animation shown, In This Animation live), no drags
+            if (Environment.GetEnvironmentVariable("MHO_TEST_GIZMO_SHOTONLY") is { Length: > 0 } shotAnim && Environment.GetEnvironmentVariable("MHO_TEST_GIZMOSHOT") is { Length: > 0 } onlyShot)
+            {
+                Check(preview.PlayAnimationForTest(shotAnim), $"shot: {shotAnim} shown");
+                await Task.Delay(4000);
+                ShowModelAnimFit();
+                await Task.Delay(500);
+                var sform = FindForm()!;
+                using var sbmp = new Bitmap(sform.Width, sform.Height);
+                sform.DrawToBitmap(sbmp, new Rectangle(Point.Empty, sform.Size));
+                sbmp.Save(onlyShot);
+                return fails;
+            }
             Check(true, "(info) X arrow: " + await GizmoLiveForTest(0, 80, 0) + $" | fit now {System.Text.Json.JsonSerializer.Serialize(ga.Fit)}");
             await Task.Delay(2000);
             Check(true, "(info) Z ring: " + await GizmoLiveForTest(5, 60, 60) + $" | fit now {System.Text.Json.JsonSerializer.Serialize(ga.Fit)}");

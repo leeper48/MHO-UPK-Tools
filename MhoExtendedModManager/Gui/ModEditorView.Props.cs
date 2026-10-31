@@ -57,13 +57,15 @@ sealed partial class ModEditorView
         apTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll). Double-click: back to 0.");
         apTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch). Double-click: back to 0.");
         apTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw). Some props start turned for this hand (Thor's hammer). Double-click: back to that start.");
-        Ui.Tip(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) hold the prop as that character holds it: in the hand where they hold it, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). Worked out from that character's own animation and baked into the copies. Look ▾ → Prop Pivots shows the pivot.");
+        var propPinButton = Icons.PivotToggle(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) hold the prop as that character holds it: in the hand where they hold it, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). Worked out from that character's own animation and baked into the copies. Look ▾ → Prop Pivots shows the pivot. The same setting as the Model and Powers tabs' button.", S);
+        propPinButton.Margin = new Padding(0, (int)(6 * S), 0, (int)(2 * S));
         propPin.CheckedChanged += (_, _) => PinChanged();
-        animBlock = new AnimFitBlock(S, "The prop moved and turned further in one animation (the row selected above), for a pose that wants it elsewhere. Needs Pivot on the Hand and an animation from another character (a Changed row).",
-            () => { var e = propList.SelectedItem as AddedPropEntry; AnimFitSlot(e, out string why); return (e, SelectedAnim?.Name, why); }, SetAnimFit, c => Toolbar(c));
+        animBlock = new AnimFitBlock(S, "The prop moved and turned further in one animation (the row selected above), for a pose that wants it elsewhere. Needs an animation from another character (a Changed row); with Pivot on the Hand or without.",
+            () => { var e = propList.SelectedItem as AddedPropEntry; AnimFitSlot(e, out string why); return (e, SelectedAnim?.Name, why); }, SetAnimFit, c => Toolbar(c), gizmo: true);
+        animBlock.GizmoTargetChanged += () => PickAnimGizmo(thisAnimation: true);
         // the fit (left) and this animation's adjustment (right), side by side so the list above keeps its room
         var fitCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        fitCol.Controls.AddRange([propPin, apSize, apX, apY, apZ, apTX, apTY, apTZ]);
+        fitCol.Controls.AddRange([propPinButton, apSize, apX, apY, apZ, apTX, apTY, apTZ, AnimGizmoButtons()]);
         var animCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding((int)(24 * S), 0, 0, 0) };
         animCol.Controls.Add(animBlock.Root);
         var cols = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0) };
@@ -71,7 +73,7 @@ sealed partial class ModEditorView
         // added, removed and fitted on the Model tab (Kurt, 2026-10-27: what the character holds there, how it moves here);
         // the buttons and sliders stay for the tests and the Powers tab's held props, hidden
         add.Visible = false; propRemove.Visible = false;
-        var toModel = Ui.FlatButton("Set Up Props on the Model Tab", OpenModelTab, "Props are added, removed and fitted on the Model tab (Target's Props, and ◀ ▶ under its preview). Here: Pivot on the Hand and In This Animation.");
+        var toModel = Ui.FlatButton("Set Up Props on the Model Tab", OpenModelTab, "Props are added, removed and fitted on the Model tab (Target's Props, and ◀ ▶ under its preview). Here: its fit, Pivot on the Hand and In This Animation (the same as on the Model and Powers tabs).");
         box.Controls.AddRange([head, Toolbar(add, propRemove, toModel), propList, cols, propNote]);
         FillPropList();
         return box;
@@ -99,7 +101,10 @@ sealed partial class ModEditorView
         var e = propList.SelectedItem as AddedPropEntry;
         bool on = e != null;
         propList.Visible = on;
-        foreach (var sl in new[] { apSize, apX, apY, apZ, apTX, apTY, apTZ }) if (sl != null) sl.Visible = false;   // (fitted on the Model tab)
+        // (the fit here too, Kurt 2026-10-30: the same as the Model and Powers tabs')
+        foreach (var sl in new[] { apSize, apX, apY, apZ, apTX, apTY, apTZ }) if (sl != null) sl.Visible = on;
+        if (animGizmoButton != null) animGizmoButton.Visible = on;
+        HookAnimGizmo();
         propPin.Visible = on;
         if (propRemove != null) propRemove.Enabled = on;
         ShowAnimFit();
@@ -111,7 +116,7 @@ sealed partial class ModEditorView
             var f = e.Fit;
             apSize.Value = f.Scale is float s && s > 0 ? s : 1;
             // global axes: the prop's own move shown along the character's axes, as it's held now
-            apAxes = (animPreview?.Visible == true ? animPreview.PropFrame(e.Class) : powerPreview?.PropFrame(e.Class)) is { } pf ? Turn(WithoutAnimFit(e, pf)) : System.Numerics.Matrix4x4.Identity;
+            apAxes = AnimHeldFrame(e.Class) is { } pf ? Turn(WithoutAnimFit(e, pf)) : System.Numerics.Matrix4x4.Identity;
             var w = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(f.X, f.Y, f.Z), apAxes);
             apX.Value = w.X; apY.Value = w.Y; apZ.Value = w.Z;
             float dz = PowerBorrow.DefaultTurnZ(e.Class);
@@ -129,6 +134,7 @@ sealed partial class ModEditorView
         e.Fit.Scale = Math.Abs(apSize.Value - 1) > 0.005f ? MathF.Round(apSize.Value, 2) : null;
         e.Fit.X = MathF.Round(own.X, 2); e.Fit.Y = MathF.Round(own.Y, 2); e.Fit.Z = MathF.Round(own.Z, 2);
         e.Fit.TurnX = apTX.Value; e.Fit.TurnY = apTY.Value; e.Fit.TurnZ = apTZ.Value;
+        PropFitsChanged(e, from: "anims");
         _ = ApplyPropsTo(e.Package);
     }
 
@@ -141,7 +147,6 @@ sealed partial class ModEditorView
         why = "";
         string? slot = SelectedAnim?.Name;
         if (e == null) return null;
-        if (!e.Fit.PinPivot) { why = "Tick Pivot on the Hand to adjust the prop in one animation."; return null; }
         if (slot == null || AnimFile is not string file || DonorsOf(file)(slot) == null) { why = "Pick an animation changed to another character's (a Changed row) to adjust the prop in it only."; return null; }
         return slot;
     }
@@ -164,7 +169,23 @@ sealed partial class ModEditorView
         list.RemoveAll(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase));
         if (a is { IsZero: false }) list.Add(a);
         e.Anims = list.Count > 0 ? list : null;
+        PropFitsChanged(e, from: "");
         _ = ApplyPropsTo(e.Package);
+    }
+
+    /// <summary>
+    /// An added prop's fit or one of its animations' adjustments changed in one tab: the others show it (Kurt, 2026-10-30:
+    /// the fit and In This Animation in the Model, Animations and Powers tabs, kept in step). <paramref name="from"/>: the tab
+    /// it was changed in ("model", "anims", "powers"), whose fit sliders already show it.
+    /// </summary>
+    void PropFitsChanged(AddedPropEntry e, string from)
+    {
+        if (from != "anims" && ReferenceEquals(propList.SelectedItem, e)) ShowPropFit();
+        else animBlock?.Show();
+        if (from != "powers" && propPick.SelectedItem is PowerBorrow.SpawnedProp sp && HeldAs(sp.Class) == e && powerList.SelectedItem is Fx.PowerList.Power pw && !borrowBuilding)
+            ShowFits(BorrowOf(pw.Prototype));
+        if (powerAnimBlock?.Root.Visible == true) powerAnimBlock.Show();
+        modelPage?.AddedFitChanged(e, refit: from != "model");
     }
 
     // ---- Test hooks (--prop-tab-test, scratch libraries only)
@@ -279,10 +300,28 @@ sealed partial class ModEditorView
         await SetPin(e, propPin.Checked);
     }
 
+    /// <summary>Both Pivot on the Hand boxes showing a held prop's setting (the Animations tab's and the Powers tab's are one
+    /// setting, but each box was only read when its panel was filled: Kurt, 2026-10-30, they disagreed).</summary>
+    void SyncPinBoxes(AddedPropEntry e)
+    {
+        if (propList.SelectedItem == e && propPin.Checked != e.Fit.PinPivot)
+        {
+            propShowing = true;
+            try { propPin.Checked = e.Fit.PinPivot; } finally { propShowing = false; }
+        }
+        modelPage?.ShowAddedPin(e);
+        if (propPick.SelectedItem is PowerBorrow.SpawnedProp sp && HeldAs(sp.Class) == e && pinPivot.Checked != e.Fit.PinPivot)
+        {
+            vShowing = true;
+            try { pinPivot.Checked = e.Fit.PinPivot; } finally { vShowing = false; }
+        }
+    }
+
     /// <summary>An added prop's Pivot on the Hand set (the Animations tab's box, or the Powers tab's for a held prop).</summary>
     async Task SetPin(AddedPropEntry e, bool on)
     {
         e.Fit.PinPivot = on;
+        SyncPinBoxes(e);
         if (!e.Fit.PinPivot && DraftPath(e.Package) is string src)
         {
             // let go: the bone back in the sets' positions, then the props as they are
@@ -333,7 +372,7 @@ sealed partial class ModEditorView
         // (the hero's own package can hold a borrowed power's animations too: their source is the donor hero's)
         var borrowed = BorrowAnims(package) is { } ba && ba.File.Equals(package, StringComparison.OrdinalIgnoreCase) ? ba.Donors : null;
         Func<string, PropHold.Donor?> donors = slot => swaps(slot) ?? borrowed?.Invoke(slot);
-        return (b, e, bones, l) => PropHold.Apply(b, bones, true, donors, PowerBorrow.HeroSkeleton(path), l, PowerBorrow.FitMatrix(e), ExtraOf(e));
+        return (b, e, bones, l) => PropHold.Apply(b, bones, e.Fit.PinPivot, donors, PowerBorrow.HeroSkeleton(path), l, PowerBorrow.FitMatrix(e), ExtraOf(e));
     }
 
     /// <summary>A prop's In This Animation adjustments, by animation (its slot).</summary>
@@ -369,13 +408,13 @@ sealed partial class ModEditorView
     static byte[]? HoldInBorrows(string costumeFile, byte[] costume, IReadOnlyList<AddedPropEntry> props, List<string> log, ((string File, Func<string, PropHold.Donor?> Donors) Anims, string Path)? borrows, out string? baseFile)
     {
         baseFile = null;
-        var pinned = props.Where(p => p.Fit.PinPivot).ToList();
+        var pinned = props.Where(PowerBorrow.NeedsHold).ToList();   // (pinned, or adjusted in one of its animations)
         if (pinned.Count == 0 || borrows is not { } bw || bw.Anims.File.Equals(costumeFile, StringComparison.OrdinalIgnoreCase)) return null;
         var ba = bw.Anims; string basePath = bw.Path;
         baseFile = ba.File;
         byte[] b = File.ReadAllBytes(basePath);
         var skeleton = PowerBorrow.HeroSkeleton(basePath);
-        foreach (var p in pinned) b = PropHold.Apply(b, PowerBorrow.HeldPropBones(costume, p.Class), true, ba.Donors, skeleton, log, PowerBorrow.FitMatrix(p), ExtraOf(p), onlyKnown: true);
+        foreach (var p in pinned) b = PropHold.Apply(b, PowerBorrow.HeldPropBones(costume, p.Class), p.Fit.PinPivot, ba.Donors, skeleton, log, PowerBorrow.FitMatrix(p), ExtraOf(p), onlyKnown: true);
         return b;
     }
 

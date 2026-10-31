@@ -31,6 +31,9 @@ sealed partial class PreviewPanel : UserControl
     public Func<ModelView.TransformGizmo?>? GizmoSource { get => view.GizmoSource; set { view.GizmoSource = value; view.Invalidate(true); } }
     public event Action<int, float>? GizmoMoved { add => view.GizmoMoved += value; remove => view.GizmoMoved -= value; }
     public event Action<int, float>? GizmoTurned { add => view.GizmoTurned += value; remove => view.GizmoTurned -= value; }
+    public event Action<System.Numerics.Vector3>? GizmoPlaneMoved { add => view.GizmoPlaneMoved += value; remove => view.GizmoPlaneMoved -= value; }
+    /// <summary>An animation picked or restored in the 3D view (its name, null: the rest pose).</summary>
+    public event Action<string?, bool>? AnimationPicked { add => p3.AnimationPicked += value; remove => p3.AnimationPicked -= value; }
     public event Action? GizmoReleased { add => view.GizmoReleased += value; remove => view.GizmoReleased -= value; }
     public (System.Numerics.Matrix4x4 Frame, float Size)? PropBase(Func<string, bool> match) => p3.PropBase(match);
     public (System.Numerics.Vector3 Mid, int Count)? PropMid(Func<string, bool> match) => p3.PropMid(match);

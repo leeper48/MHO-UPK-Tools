@@ -380,7 +380,16 @@ sealed partial class ModelPage
             if (!loaded || building || ChosenPackage is not CharacterList.Item pkg) return false;
             string? fp = Fingerprint();
             if (takenOff.TryGetValue(pkg.Key, out var off) && off == fp) return false;   // the model just taken off: not asked again
-            if (builtPrint.TryGetValue(pkg.Key, out var b)) return b != fp;
+            if (builtPrint.TryGetValue(pkg.Key, out var b))
+            {
+                // another model of the package picked (an added prop, as a target to fit it, or the shield): the print is the
+                // package's last build, of another model, so only what this one changes counts: a source on it, or another
+                // size (Kurt, 2026-10-30: picking the hammer to fit it asked to build Worthy Captain America's size each time)
+                var was = b.Split('|');
+                if (was.Length > 3 && fp != null && !was[1].Equals(MhoSkeleton.ChosenFor(pkg.Key), StringComparison.OrdinalIgnoreCase))
+                    return HasSource || was[3] != sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                return b != fp;
+            }
             if (built.ContainsKey(pkg.Key)) return false;
             return HasSource || Math.Abs(sizeSlider.Value - 1) > 1e-4;
         }

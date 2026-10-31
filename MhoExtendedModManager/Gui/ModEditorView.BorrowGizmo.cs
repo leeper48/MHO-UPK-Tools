@@ -24,23 +24,37 @@ sealed partial class ModEditorView
     {
         float sc = Ui.Dpi(DeviceDpi);
         var reset = Ui.FlatButton("Reset Fit", ResetBorrowFit, "Puts the prop back as the borrow brings it: its own size, no move, its usual turn.");
-        borrowGizmoButton = Ui.FlatButton("Gizmo", ToggleBorrowGizmo, "Shows or hides the move / turn gizmo on the prop in the preview: drag a colored arrow to move it along X (red), Y (green) or Z (blue), a ring to turn it around that axis (5° steps, Shift: 1°). Letting go puts the fit in.");
+        borrowGizmoButton = Ui.FlatButton("Gizmo: All Animations", () => PickBorrowGizmo(thisAnimation: false), "The move / turn gizmo in the preview on the prop's fit in every animation (these sliders): drag a colored arrow to move it along X (red), Y (green) or Z (blue), a ring to turn it around that axis (5° steps, Shift: 1°). Letting go puts the fit in. Lit when it's on; click again to hide the gizmo. Gizmo: This Animation Only (In This Animation) is the other choice.");
         Icons.Make(reset, "Reset Fit", Icons.Reset, sc);
-        Icons.Make(borrowGizmoButton, "Gizmo", Icons.Gizmo, sc);
+        Icons.Make(borrowGizmoButton, "Gizmo: All Animations", Icons.Gizmo, sc);
         Ui.Lit(borrowGizmoButton, Model.Settings.Current.Preview.Gizmo);
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 0), BackColor = Color.Transparent };
         row.Controls.AddRange([reset, borrowGizmoButton]);
+        if (pinButton != null) { pinButton.Margin = new Padding((int)(6 * sc), 0, 0, 0); row.Controls.Add(pinButton); }
         return row;
     }
 
-    void ToggleBorrowGizmo()
+    /// <summary>
+    /// Gizmo: All Animations or Gizmo: This Animation Only clicked (Kurt, 2026-10-30: one or the other): the one clicked is lit
+    /// and the gizmo works on its sliders; clicking the lit one hides the gizmo.
+    /// </summary>
+    void PickBorrowGizmo(bool thisAnimation)
     {
-        bool on = !Model.Settings.Current.Preview.Gizmo;
-        Model.Settings.Current.Preview.Gizmo = on;   // (one setting with the Model tab's gizmo)
+        bool on = Model.Settings.Current.Preview.Gizmo, here = powerAnimBlock?.GizmoHere == true;
+        bool show = !(on && here == thisAnimation);
+        Model.Settings.Current.Preview.Gizmo = show;   // (one setting with the Model tab's gizmo)
         Model.Settings.Current.Save();
-        if (borrowGizmoButton != null) Ui.Lit(borrowGizmoButton, on);
+        if (powerAnimBlock != null) powerAnimBlock.GizmoHere = show && thisAnimation;
+        LightBorrowGizmos();
         HookBorrowGizmo();
         gizmoHooked?.View.Invalidate();
+    }
+
+    void LightBorrowGizmos()
+    {
+        bool on = Model.Settings.Current.Preview.Gizmo, here = powerAnimBlock?.GizmoHere == true;
+        if (borrowGizmoButton != null) Ui.Lit(borrowGizmoButton, on && !here);
+        powerAnimBlock?.LightGizmo(on && here);
     }
 
     void ResetBorrowFit()
@@ -62,13 +76,21 @@ sealed partial class ModEditorView
     /// <summary>The gizmo hooked to the Powers preview's 3D view (made when it's first shown).</summary>
     void HookBorrowGizmo()
     {
+        LightBorrowGizmos();   // (the Model tab's Gizmo is the same show / hide setting)
         if (powerPreview?.Viewer3D is not { } p3 || ReferenceEquals(p3, gizmoHooked)) return;
         gizmoHooked = p3;
         p3.View.GizmoSource = BorrowGizmoNow;
         p3.View.GizmoMoved += (axis, t) => BorrowGizmoDrag(axis, t, turn: false);
         p3.View.GizmoTurned += (axis, deg) => BorrowGizmoDrag(axis, deg, turn: true);
+        p3.View.GizmoPlaneMoved += v => BorrowGizmoDrag(0, 0, turn: false, free: v);
         p3.View.GizmoReleased += () =>
         {
+            if (animGizmoStart != null)
+            {
+                animGizmoStart = null; borrowGizmoFrame = null;
+                powerAnimBlock?.Commit();   // (this animation's adjustment, built again)
+                return;
+            }
             if (borrowGizmoStart == null) return;
             borrowGizmoStart = null; borrowGizmoBuilt = null; borrowGizmoFrame = null;
             PropFitChanged();   // (the fit into the borrow, which is built again)
@@ -95,6 +117,8 @@ sealed partial class ModEditorView
 
     ModelView.TransformGizmo? BorrowGizmoNow()
     {
+        // (This Animation Only with no animation to adjust: no gizmo, rather than one on the fit while its button is dark)
+        if (powerAnimBlock is { GizmoHere: true, Target: null }) return null;
         if (!Model.Settings.Current.Preview.Gizmo || pX == null || BorrowGizmoTarget() is not var (_, fit) || gizmoHooked?.PropBase(BorrowGizmoMatch) is not var (b, size)) return null;
         var now = SliderBorrowFit(fit);
         var center = Vector3.Transform(new Vector3(now.X, now.Y, now.Z), b);
@@ -102,10 +126,30 @@ sealed partial class ModEditorView
         return new ModelView.TransformGizmo(center, world, world, Math.Clamp(size * 0.6f, 8, 60));
     }
 
-    void BorrowGizmoDrag(int axis, float amount, bool turn)
+    /// <summary>A gizmo drag on this animation's adjustment (In This Animation's Gizmo on This Animation lit): its values at the
+    /// drag's start.</summary>
+    PropAnimFit? animGizmoStart;
+
+    /// <summary>The gizmo on In This Animation's adjustment: Move along the world's axes as the sliders are, Turn about them
+    /// around the bone the prop hangs on (as PropHold bakes it), shown at once as an offset on the prop.</summary>
+    bool AnimGizmoDrag(int axis, float amount, bool turn, Vector3? free = null)
     {
+        if (powerAnimBlock is not { GizmoHere: true } blk || blk.Target is null || gizmoHooked is not { } p3) return false;
+        animGizmoStart ??= blk.Current;
+        var b = borrowGizmoFrame ??= p3.PropBase(BorrowGizmoMatch)?.Frame ?? Matrix4x4.Identity;
+        var (now, offset) = AnimFitGizmo.Drag(animGizmoStart, b, axis, amount, turn, free, ModifierKeys.HasFlag(Keys.Shift));
+        blk.SetLive(now);
+        p3.SetPropOffset(BorrowGizmoMatch, offset);
+        return true;
+    }
+
+    void BorrowGizmoDrag(int axis, float amount, bool turn, Vector3? free = null)
+    {
+        if (AnimGizmoDrag(axis, amount, turn, free)) return;
         if (BorrowGizmoTarget() is not var (sp, fit) || gizmoHooked is not { } p3 || pX == null || pY == null || pZ == null || pTX == null || pTY == null || pTZ == null) return;
-        if (borrowGizmoStart == null && p3.PropFrame(sp.Class) is { } pf)
+        // (the frame without the preview's offset, as the Model tab's gizmo reads it: PropFrame includes the offset an earlier
+        // drag left until the borrow is built again, and its turn made the arrows move the prop diagonally, Kurt 2026-10-30)
+        if (borrowGizmoStart == null && HeldFrame(sp.Class) is { } pf)
         {
             // the sliders' axes as the prop is drawn now (they were filled with no turn when the preview hadn't drawn it yet),
             // the sliders put in those terms, so a drag along world X changes Move X only
@@ -139,9 +183,10 @@ sealed partial class ModEditorView
             {
                 // Move X / Y / Z are along the world's axes already
                 static float R(float v) => MathF.Round(v * 10) / 10;
-                pX.Value = Math.Clamp(R(s.X + w.X * amount), pX.Min, pX.Max);
-                pY.Value = Math.Clamp(R(s.Y + w.Y * amount), pY.Min, pY.Max);
-                pZ.Value = Math.Clamp(R(s.Z + w.Z * amount), pZ.Min, pZ.Max);
+                var mv = free ?? w * amount;
+                pX.Value = Math.Clamp(R(s.X + mv.X), pX.Min, pX.Max);
+                pY.Value = Math.Clamp(R(s.Y + mv.Y), pY.Min, pY.Max);
+                pZ.Value = Math.Clamp(R(s.Z + mv.Z), pZ.Min, pZ.Max);
             }
         }
         finally { vShowing = false; }

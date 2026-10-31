@@ -1154,7 +1154,6 @@ static partial class Program
                 File.Delete(tmp);
                 return offOk && same ? 0 : 1;
             }
-            case "--voice-sources":
             case "--voice-repair":
             {
                 // --voice-repair <costume.upk> <out.upk> (out never in the game folder): spare voice components an earlier Use
@@ -1168,6 +1167,7 @@ static partial class Program
                 Console.WriteLine(rlog.Count == 0 ? "nothing to repair (written unchanged)" : $"written: {rest[2]}");
                 return 0;
             }
+            case "--voice-sources":
             case "--voice-copy":
             {
                 // Read-only: the stock voice sets (--voice-sources), or a costume package with one copied in, written to <out.upk>

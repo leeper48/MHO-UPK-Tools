@@ -24,6 +24,8 @@ sealed partial class ModEditorView
     LightSlider? pSize, pX, pY, pZ, pTX, pTY, pTZ, vForward, vUp, vLean;
     readonly CheckBox keepWeapons = new() { Text = "Keep This Hero's Weapons", AutoSize = true, Margin = new Padding(0, 6, 0, 2), Visible = false };
     readonly CheckBox pinPivot = new() { Text = "Pivot on the Hand", AutoSize = true, Margin = new Padding(0, 6, 0, 2) };
+    /// <summary>pinPivot's icon button (the box keeps the setting, not shown).</summary>
+    Button? pinButton;
     bool vShowing;
     readonly HashSet<string> fitBuilt = new(StringComparer.OrdinalIgnoreCase);
     // the power throws the prop the costume holds (an added prop, Animations tab): that prop in this power's animations
@@ -53,7 +55,7 @@ sealed partial class ModEditorView
         if (Environment.GetEnvironmentVariable("MHO_TEST_POWER_GIZMO") == "1" && pX != null)
         {
             HookBorrowGizmo();
-            if (!Model.Settings.Current.Preview.Gizmo) ToggleBorrowGizmo();
+            if (!Model.Settings.Current.Preview.Gizmo || powerAnimBlock?.GizmoHere == true) PickBorrowGizmo(thisAnimation: false);
             await Task.Delay(1500);
             bool shown = BorrowGizmoNow() != null;
             float x0 = pX.Value;
@@ -74,9 +76,9 @@ sealed partial class ModEditorView
     /// prop built again into its package and the borrowed powers' animations; the Animations tab's sliders follow.</summary>
     async Task HeldFitApplied(AddedPropEntry held, bool pin)
     {
+        PropFitsChanged(held, from: "powers");
         if (held.Fit.PinPivot != pin) await SetPin(held, pin);
         else await ApplyPropsTo(held.Package);
-        if (propList.SelectedItem == held) ShowPropFit();
         if (powerAnimBlock?.Root.Visible == true) powerAnimBlock.Show();
     }
 
@@ -89,7 +91,6 @@ sealed partial class ModEditorView
         var held = propPick.SelectedItem is PowerBorrow.SpawnedProp sp ? HeldAs(sp.Class) : null;
         string? slot = powerPreview?.CurrentAnimationName;
         if (held == null) return (null, slot, "");
-        if (!held.Fit.PinPivot) return (held, slot, "Tick Pivot on the Hand for the prop in the Animations tab to adjust it in this power's animations.");
         if (slot == null) return (held, null, "Play one of this power's animations.");
         if (BorrowAnims(held.Package)?.Donors(slot) == null) return (held, slot, "This animation isn't one the borrowed power brought: adjust the prop in it in the Animations tab.");
         return (held, slot, "");
@@ -134,14 +135,16 @@ sealed partial class ModEditorView
         propPick.Format = o => o is PowerBorrow.SpawnedProp sp ? PropName(sp) : o.ToString() ?? "";
         propPick.SelectedIndexChanged += (_, _) => { if (!vShowing && powerList.SelectedItem is Fx.PowerList.Power p0) ShowFits(BorrowOf(p0.Prototype)); };
         Ui.Tip(propPick, "The prop to fit.");
-        Ui.Tip(pinPivot, "The borrowed animations stop moving the bone this prop hangs on, so it turns about the hand (Thor's Hammer of Storms moves his palm bone out along the strap to swing the hammer). Then Move places the prop from the hand. Look ▾ → Prop Pivots shows where the pivot is.");
+        const string pinTip = "The borrowed animations stop moving the bone this prop hangs on, so it turns about the hand (Thor's Hammer of Storms moves his palm bone out along the strap to swing the hammer). Then Move places the prop from the hand. Look ▾ → Prop Pivots shows where the pivot is. The same setting as the Model and Animations tabs' button.";
+        pinButton = Icons.PivotToggle(pinPivot, pinTip, S);
         pinPivot.CheckedChanged += (_, _) => PropFitChanged();
         powerAnimBlock = new AnimFitBlock(S, "The prop the costume holds, moved and turned further in this power's animation playing (the throw), for a pose that wants it elsewhere. Its fit is in the Animations tab (Props).",
-            PowerAnimTarget, SetAnimFit, c => Toolbar(c));
+            PowerAnimTarget, SetAnimFit, c => Toolbar(c), gizmo: true);
+        powerAnimBlock.GizmoTargetChanged += () => PickBorrowGizmo(thisAnimation: true);
         powerAnimBlock.Root.Visible = false;
         // the fit (left) and In This Animation (right), side by side as in the Animations tab (Kurt, 2026-10-23: no scrolling)
         var fitCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        fitCol.Controls.AddRange([pinPivot, pSize, pX, pY, pZ, pTX, pTY, pTZ, BorrowFitButtons()]);
+        fitCol.Controls.AddRange([pSize, pX, pY, pZ, pTX, pTY, pTZ, BorrowFitButtons()]);
         powerAnimBlock.Root.Margin = new Padding((int)(24 * S), 0, 0, 0);
         var cols = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0) };
         cols.Controls.AddRange([fitCol, powerAnimBlock.Root]);
@@ -200,7 +203,7 @@ sealed partial class ModEditorView
                 pSize.Home = () => sp.Auto; pSize.Mark = sp.Auto;
                 pSize.Value = fit?.Scale is float fs && fs > 0 ? fs : auto;
                 // global axes (Kurt, 2026-10-23): the fit's own move shown along the character's axes, as the prop is held now
-                fitAxes = powerPreview?.PropFrame(sp.Class) is { } pf ? Turn(pf) : System.Numerics.Matrix4x4.Identity;
+                fitAxes = HeldFrame(sp.Class) is { } pf ? Turn(pf) : System.Numerics.Matrix4x4.Identity;
                 var world = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(fit?.X ?? 0, fit?.Y ?? 0, fit?.Z ?? 0), fitAxes);
                 pX.Value = world.X; pY.Value = world.Y; pZ.Value = world.Z;
                 pTX.Value = fit?.TurnX ?? 0; pTY.Value = fit?.TurnY ?? 0; pTZ.Value = fit?.TurnZ ?? sp.TurnZAuto;
@@ -217,7 +220,7 @@ sealed partial class ModEditorView
                     float dz = PowerBorrow.DefaultTurnZ(held.Class);
                     pSize.Home = () => 1; pSize.Mark = 1;
                     pSize.Value = hf.Scale is float hs && hs > 0 ? hs : 1;
-                    fitAxes = powerPreview?.PropFrame(held.Class) is { } hpf ? Turn(hpf) : System.Numerics.Matrix4x4.Identity;
+                    fitAxes = HeldFrame(held.Class) is { } hpf ? Turn(hpf) : System.Numerics.Matrix4x4.Identity;
                     var hw = System.Numerics.Vector3.TransformNormal(new System.Numerics.Vector3(hf.X, hf.Y, hf.Z), fitAxes);
                     pX.Value = hw.X; pY.Value = hw.Y; pZ.Value = hw.Z;
                     pTX.Value = hf.TurnX; pTY.Value = hf.TurnY; pTZ.Value = hf.TurnZ == 0 && hf.IsIdentity ? dz : hf.TurnZ;
@@ -234,6 +237,11 @@ sealed partial class ModEditorView
     /// <summary>The prop's own axes in the character's, as shown when the sliders were filled (identity: the preview doesn't
     /// show the prop, so the sliders move along its own axes).</summary>
     System.Numerics.Matrix4x4 fitAxes = System.Numerics.Matrix4x4.Identity;
+
+    /// <summary>Where the Powers preview holds a prop of class <paramref name="cls"/> (its bone, without the gizmo's offset), by
+    /// the same class match as the gizmo: an added prop's class is renamed in the costume (marvelattachment_thorhammer_on_…),
+    /// so an exact name found nothing and the Move sliders stayed in the prop's own axes, not the world's (Kurt, 2026-10-30).</summary>
+    System.Numerics.Matrix4x4? HeldFrame(string cls) => powerPreview?.Viewer3D?.PropBase(c => PowerBorrow.SameClass(c, cls))?.Frame;
 
     /// <summary>A frame's turn only: its rows made unit length (a size in it left out), no move.</summary>
     static System.Numerics.Matrix4x4 Turn(System.Numerics.Matrix4x4 m)

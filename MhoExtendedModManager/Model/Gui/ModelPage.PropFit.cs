@@ -24,6 +24,10 @@ sealed partial class ModelPage
     string? heldClass;
     int heldRun;
     bool settingHeld;
+    /// <summary>Pivot on the Hand for an added prop (Kurt, 2026-10-30: here too; one setting with the Animations and Powers
+    /// tabs' boxes).</summary>
+    readonly CheckBox pinBox = new() { Text = "Pivot on the Hand", AutoSize = true, Margin = new Padding(0, 6, 0, 0), Visible = false };
+    bool settingPin;
 
     static LightSlider MoveSlider(string label) => new() { Label = label, Min = -60, Max = 60, Step = 0.5f, Mark = 0, Value = 0, Home = () => 0, Format = v => $"{v:+0.0;-0.0;0}", Dock = DockStyle.Top };
     static LightSlider TurnSlider(string label) => new() { Label = label, Min = -180, Max = 180, Step = 1, Mark = 0, Value = 0, Home = () => 0, Format = v => $"{v:+0;-0;0}°", Dock = DockStyle.Top };
@@ -53,14 +57,17 @@ sealed partial class ModelPage
         var reset = Ui.FlatButton("Reset Fit", ResetFit, "Puts every Prop Fit slider back (no move, no turn, 100 %; an added prop: turned as it's made for this hand).");
         reset.Margin = new Padding(0, 0, 6, 0);
         // the gizmo on or off (Kurt, 2026-10-28; remembered)
-        gizmoButton = Ui.FlatButton("Gizmo", ToggleGizmo, "Shows or hides the move / turn gizmo on the added prop in the preview: drag a colored arrow to move it along X (red), Y (green) or Z (blue), a ring to turn it around that axis (5° steps, Shift: 1°).");
+        gizmoButton = Ui.FlatButton("Gizmo: All Animations", () => PickModelGizmo(thisAnimation: false), "The move / turn gizmo in the preview on the prop's fit in every animation (these sliders): drag a colored arrow to move it along X (red), Y (green) or Z (blue), the white dot to move it in the view, a ring to turn it around that axis (5° steps, Shift: 1°). Lit when it's on; click again to hide the gizmo. Gizmo: This Animation Only (In This Animation, for an added prop) is the other choice.");
         gizmoButton.Margin = new Padding(0);
         float sc = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
         Icons.Make(reset, "Reset Fit", Icons.Reset, sc);
-        Icons.Make(gizmoButton, "Gizmo", Icons.Gizmo, sc);
+        Icons.Make(gizmoButton, "Gizmo: All Animations", Icons.Gizmo, sc);
         Ui.Lit(gizmoButton, Settings.Current.Preview.Gizmo);
         var fitButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(8, 2, 0, 0), Anchor = AnchorStyles.Left };
-        fitButtons.Controls.AddRange([reset, gizmoButton]);
+        var pinButton = Icons.PivotToggle(pinBox, "The animations this costume took from another character hold the prop as that character holds it: in the hand where theirs is held, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). The same setting as the Animations and Powers tabs' button. For an added prop.", sc);
+        pinButton.Margin = new Padding((int)(6 * sc), 0, 0, 0);
+        pinButton.Visible = false;
+        fitButtons.Controls.AddRange([reset, gizmoButton, pinButton]);
         box.Controls.Add(fitButtons, 1, 3);
         heldOn.Dock = DockStyle.Fill; heldOn.Margin = new Padding(0, 6, 0, 0);
         box.Controls.Add(heldOn, 0, 4);
@@ -78,7 +85,59 @@ sealed partial class ModelPage
             Log(ok ? $"{cls}: held on {bone ?? "its own bone"} (in {pkg.Key} now; Save Changes keeps it)." : $"{cls}: the bone wasn't changed (see the message).");
             UpdateStatus();
         };
+
+        pinBox.CheckedChanged += async (_, _) =>
+        {
+            if (settingPin || addedPick is not { } e || e.Fit.PinPivot == pinBox.Checked) return;
+            status.Text = "Setting Pivot on the Hand…";
+            string before = PropBefore();
+            bool ok = await host.SetAddedPin(e, pinBox.Checked);
+            if (ok) PropDone(before, $"Pivot on the Hand {(pinBox.Checked ? "On" : "Off")}");
+            if (IsDisposed) return;
+            ShowAddedPin(e);
+            UpdateStatus();
+        };
+        // In This Animation (Kurt, 2026-10-30: here as in the Animations and Powers tabs; one setting with theirs)
+        modelAnimBlock = new MhoExtendedModManager.Gui.AnimFitBlock(sc, "The added prop moved and turned further in the animation playing only, for a pose that wants it elsewhere. Needs an animation taken from another character (Animations tab) or a borrowed power's. The same adjustment as the Animations and Powers tabs' In This Animation.",
+            () => addedPick is { } e ? (e, preview.CurrentAnimationName, host.AnimFitWhy(e, preview.CurrentAnimationName)) : (null, null, ""),
+            (e, slot, a) => host.SetAnimFit(e, slot, a),
+            c => { var f = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0) }; f.Controls.AddRange(c); return f; }, gizmo: true, twoColumns: true);
+        modelAnimBlock.Root.Dock = DockStyle.Fill;
+        modelAnimBlock.GizmoTargetChanged += () => PickModelGizmo(thisAnimation: true);
+        modelAnimBlock.Root.Visible = false;
+        box.RowCount = 6;
+        box.Controls.Add(modelAnimBlock.Root, 0, 5);
+        box.SetColumnSpan(modelAnimBlock.Root, 2);
         return propFitBox = box;
+    }
+
+    MhoExtendedModManager.Gui.AnimFitBlock? modelAnimBlock;
+
+    /// <summary>An added prop's fit or adjustments changed in another tab: shown here when it's the one picked (its sliders
+    /// only with <paramref name="refit"/>: this tab's own change shows already).</summary>
+    internal void AddedFitChanged(AddedPropEntry e, bool refit)
+    {
+        if (addedPick != e) return;
+        if (refit && gizmoStart == null) SetPropFit(AddedAdjust(e.Fit), save: false);
+        ShowModelAnimFit();
+    }
+
+    /// <summary>In This Animation showing the added prop picked and the animation playing (after a pick, an animation, a change
+    /// in another tab).</summary>
+    internal void ShowModelAnimFit()
+    {
+        if (modelAnimBlock == null) return;
+        modelAnimBlock.Root.Visible = addedPick != null;
+        if (addedPick != null) modelAnimBlock.Show();
+        LightModelGizmos();
+    }
+
+    /// <summary>The Pivot on the Hand box showing <paramref name="e"/>'s setting, when it's the added prop picked.</summary>
+    internal void ShowAddedPin(AddedPropEntry e)
+    {
+        if (addedPick != e || pinBox.Checked == e.Fit.PinPivot) return;
+        settingPin = true;
+        try { pinBox.Checked = e.Fit.PinPivot; } finally { settingPin = false; }
     }
 
     /// <summary>The key of the prop the target is: its package and model.</summary>
@@ -123,6 +182,9 @@ sealed partial class ModelPage
         foreach (var s in new[] { propMoveX, propMoveY, propMoveZ }) { s.Min = -range; s.Max = range; }
         propTurnZ.Home = () => dz; propTurnZ.Mark = dz;
         if (ap != null) SetPropFit(AddedAdjust(ap.Fit), save: false);
+        pinBox.Visible = ap != null;
+        ShowModelAnimFit();
+        if (ap != null) { settingPin = true; try { pinBox.Checked = ap.Fit.PinPivot; } finally { settingPin = false; } }
         else if (prop && PropFitKey() is string key) SetPropFit(propFits.GetValueOrDefault(key) ?? new PropAdjust(), save: false);
         if (prop) FillHeldOn();
     }

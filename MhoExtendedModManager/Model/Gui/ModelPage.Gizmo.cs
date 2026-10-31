@@ -17,14 +17,30 @@ sealed partial class ModelPage
     PropAdjust? gizmoStart;
     Button gizmoButton = null!;
 
-    void ToggleGizmo()
+    void ToggleGizmo() => PickModelGizmo(thisAnimation: false);
+
+    /// <summary>Gizmo: All Animations or Gizmo: This Animation Only clicked (Kurt, 2026-10-30: one or the other, as in the
+    /// Powers tab): the one clicked is lit and the gizmo works on its sliders; clicking the lit one hides the gizmo.</summary>
+    void PickModelGizmo(bool thisAnimation)
     {
-        bool on = !Settings.Current.Preview.Gizmo;
-        Settings.Current.Preview.Gizmo = on;
+        bool on = Settings.Current.Preview.Gizmo, here = modelAnimBlock?.GizmoHere == true;
+        bool show = !(on && here == thisAnimation);
+        Settings.Current.Preview.Gizmo = show;
         Settings.Current.Save();
-        Ui.Lit(gizmoButton, on);
+        if (modelAnimBlock != null) modelAnimBlock.GizmoHere = show && thisAnimation;
+        LightModelGizmos();
         preview.GizmoSource = GizmoNow;   // (repaints)
     }
+
+    void LightModelGizmos()
+    {
+        bool on = Settings.Current.Preview.Gizmo, here = modelAnimBlock?.GizmoHere == true;
+        if (gizmoButton != null) Ui.Lit(gizmoButton, on && !here);
+        modelAnimBlock?.LightGizmo(on && here);
+    }
+
+    /// <summary>A drag on In This Animation's adjustment: its values as the drag began.</summary>
+    PropAnimFit? animGizmoStart;
     MhoExtendedModManager.PropFit? gizmoBuilt;
 
     void InitGizmo()
@@ -32,8 +48,16 @@ sealed partial class ModelPage
         preview.GizmoSource = GizmoNow;
         preview.GizmoMoved += (axis, t) => GizmoDrag(axis, t, turn: false);
         preview.GizmoTurned += (axis, deg) => GizmoDrag(axis, deg, turn: true);
+        preview.GizmoPlaneMoved += v => GizmoDrag(0, 0, turn: false, free: v);
+        preview.AnimationPicked += (_, _) => ShowModelAnimFit();
         preview.GizmoReleased += () =>
         {
+            if (animGizmoStart != null)
+            {
+                animGizmoStart = null; gizmoFrame = null;
+                modelAnimBlock?.Commit();   // (this animation's adjustment, built in)
+                return;
+            }
             if (gizmoStart == null) return;
             var was = gizmoStart; var now = CurrentPropFit();
             bool changed = was != now;
@@ -98,6 +122,7 @@ sealed partial class ModelPage
     ModelView.TransformGizmo? GizmoNow()
     {
         if (!Settings.Current.Preview.Gizmo) return null;
+        if (modelAnimBlock is { GizmoHere: true, Target: null }) return null;   // (This Animation Only with no animation to adjust)
         Vector3 at;
         var fit = CurrentPropFit();
         if (addedPick is { } e)
@@ -117,8 +142,18 @@ sealed partial class ModelPage
     }
 
     /// <summary>A gizmo drag: the slider moved from where the drag began, the prop shown there at once.</summary>
-    void GizmoDrag(int axis, float amount, bool turn)
+    /// <param name="free">A drag on the centre dot: the world move (any direction), instead of along <paramref name="axis"/>.</param>
+    void GizmoDrag(int axis, float amount, bool turn, Vector3? free = null)
     {
+        if (modelAnimBlock is { GizmoHere: true } blk && blk.Target != null && addedPick != null)
+        {
+            animGizmoStart ??= blk.Current;
+            var fb = gizmoFrame ??= preview.PropBase(GizmoMatch)?.Frame ?? Matrix4x4.Identity;
+            var (an, off) = MhoExtendedModManager.Gui.AnimFitGizmo.Drag(animGizmoStart, fb, axis, amount, turn, free, ModifierKeys.HasFlag(Keys.Shift));
+            blk.SetLive(an);
+            preview.SetPropOffset(GizmoMatch, off);
+            return;
+        }
         var e = addedPick;
         if (e == null && !GamePropTarget) return;
         gizmoStart ??= CurrentPropFit();
@@ -153,7 +188,7 @@ sealed partial class ModelPage
         else
         {
             // along the world's axis → the fit's move, in the bone's frame
-            var d = Vector3.TransformNormal(w * amount, toBone);
+            var d = Vector3.TransformNormal(free ?? w * amount, toBone);
             float range = propMoveX.Max;
             static float R(float v) => MathF.Round(v * 10) / 10;
             now = s with { MoveX = Math.Clamp(R(s.MoveX + d.X), -range, range), MoveY = Math.Clamp(R(s.MoveY + d.Y), -range, range), MoveZ = Math.Clamp(R(s.MoveZ + d.Z), -range, range) };
@@ -165,6 +200,7 @@ sealed partial class ModelPage
         else if (e == null && Matrix4x4.Invert(PropFit.Matrix(s, pivot), out var undoGame))
             preview.SetPropOffset(GizmoMatch, undoGame * PropFit.Matrix(now, pivot));
         status.Text = turn ? $"Turn around world {"XYZ"[axis]}: {MathF.Round(amount / (ModifierKeys.HasFlag(Keys.Shift) ? 1 : 5)) * (ModifierKeys.HasFlag(Keys.Shift) ? 1 : 5):+0;-0;0}° (let go to put it in)"
+                           : free is Vector3 fv ? $"Move: {fv.X:+0.0;-0.0;0}, {fv.Y:+0.0;-0.0;0}, {fv.Z:+0.0;-0.0;0} (let go to put it in)"
                            : $"Move along world {"XYZ"[axis]}: {amount:+0.0;-0.0;0} (let go to put it in)";
     }
 

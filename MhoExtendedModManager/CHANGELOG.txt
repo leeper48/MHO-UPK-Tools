@@ -1,6 +1,20 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.273
+- Added props: a prop held on its own character's bone (no Held On picked) lost that bone when it was added, so it hung on none. Your own client coped, but other players' clients crashed the moment they saw your character (Worthy Captain America with Thor's hammer crashed every player near a Classic Cap). The prop now keeps its character's bone. A mod with such a prop is repaired by opening it in the Editor and saving.
+- Props: Pivot on the Hand is an icon button (lit when on) on the Model tab (new), the Animations tab and the Powers tab; all three are one setting.
+- Voice: Use Another Voice also offers the costumes with a voice of their own (26: Captain America's American Dream, whose package is named CapnAmerica, Captain Marvel's Binary and Mar-Vell, Black Bolt, Iron Man Extremis …), as alternate voices of their hero.
+- Voice: Use Another Voice works on a mod that ships only the hero's own package (Sentry on Vision Classic): the menu marks it as the hero's own voice, which every costume without a voice of its own uses.
+- Props: the fit and In This Animation are on all three tabs (Model, Animations, Powers), each with Gizmo: All Animations / Gizmo: This Animation Only; a change in one shows in the others. On the Model tab In This Animation folds (click its heading; it opens by itself with Gizmo: This Animation Only), and shows its values when folded.
+- Gizmo (Model and Powers tabs): the white dot in the middle is bigger and drags the prop left / right and up / down in the view or Quad View pane it's dragged in.
+- Powers tab: the gizmo works on the prop's fit (Gizmo: All Animations, beside Reset Fit) or on In This Animation's adjustment (Gizmo: This Animation Only); the one lit is the one it changes.
+- Props: In This Animation (Animations and Powers tabs) works without Pivot on the Hand too: the adjustment goes on top of the other character's own motion of the prop's bone. The Animations and Powers tabs' Pivot on the Hand boxes now always show the same setting.
+- Powers tab: Move X / Y / Z and the gizmo's arrows work along the world's axes for a prop the costume holds (they stayed in the prop's own axes, so an arrow moved it diagonally).
+- Model tab: picking another model of a package (an added prop, to fit it) no longer asks to build the package's size on leaving the tab.
+- Fixed a crash ("Parameter is not valid") when a 3D view in Quad View was redrawn after it closed.
+- Make Unique: a copy of another hero's object (a borrowed prop's hammer and its physics) is renamed in your costume again; only paths the package itself has in the game stay as they are.
+
 0.60.272
 - Make Unique (and the editor's Save, which runs it) no longer renames anything other game files import. A Thor mod that ships Thor's main package had its hammer class and hammer renamed there; Earth X and six other Thor costumes take those from that package, so switching to Earth X crashed the game. A mod made unique before is repaired by opening it in the Editor and saving.
 

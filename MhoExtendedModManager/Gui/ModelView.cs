@@ -1022,6 +1022,9 @@ sealed partial class ModelView : UserControl
 
     void Render()
     {
+        // (a view closed while a redraw was still due: its frame is disposed, and reading its size threw "Parameter is not
+        // valid" in the quad view, Kurt 2026-10-30)
+        if (IsDisposed) return;
         cams.Clear();
         if (quad) RenderQuad();
         else { Flat(ortho, () => Render(0, 0)); cams.Add((lastCam, -1)); }
@@ -1663,5 +1666,5 @@ sealed partial class ModelView : UserControl
         });
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) frame?.Dispose(); base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { frame?.Dispose(); frame = null; } base.Dispose(disposing); }
 }

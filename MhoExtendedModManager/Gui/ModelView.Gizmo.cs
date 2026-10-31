@@ -22,13 +22,16 @@ sealed partial class ModelView
     public event Action<int, float>? GizmoMoved;
     /// <summary>A drag on ring <c>axis</c>: turned this many degrees around it since the drag began.</summary>
     public event Action<int, float>? GizmoTurned;
+    /// <summary>A drag on the centre dot (Kurt, 2026-10-30): moved this far (engine units, a world vector) since the drag began,
+    /// in the plane of the pane it's dragged in (left / right and up / down there).</summary>
+    public event Action<Vector3>? GizmoPlaneMoved;
     /// <summary>The drag ended (the owner keeps what it was dragged to).</summary>
     public event Action? GizmoReleased;
 
     static readonly Color[] GizmoColors = [Color.FromArgb(235, 70, 80), Color.FromArgb(120, 200, 50), Color.FromArgb(60, 135, 240)];
     static readonly Color GizmoHot = Color.FromArgb(255, 210, 60);
 
-    /// <summary>The handle under the mouse or dragged: 0-2 an arrow, 3-5 a ring; -1 none.</summary>
+    /// <summary>The handle under the mouse or dragged: 0-2 an arrow, 3-5 a ring, 6 the centre dot; -1 none.</summary>
     int gizmoHover = -1;
     /// <summary>A drag under way: the handle, its gizmo as the drag began, the camera and pane, the press point, the angle so far.</summary>
     (int Handle, TransformGizmo G, Cam Cam, Rectangle Area, Point Start, float Angle, float LastPhi)? gizmoDrag;
@@ -36,6 +39,8 @@ sealed partial class ModelView
     TransformGizmo? CurrentGizmo() => gizmoDrag?.G ?? GizmoSource?.Invoke();
 
     const int RingSegments = 48;
+    /// <summary>The centre dot's radius (pixels at 100 %; Kurt, 2026-10-30: half again as big, and a handle).</summary>
+    const float DotRadius = 5.25f;
 
     /// <summary>A ring's points on the canvas (null where behind the camera).</summary>
     PointF?[] RingPoints(TransformGizmo g, int axis, Cam cam, Rectangle area)
@@ -74,6 +79,8 @@ sealed partial class ModelView
     {
         if (OnCanvas(g.Center, cam, area) is not PointF o) return -1;
         float s = Ui.Dpi(DeviceDpi), best = 8 * s;
+        // the centre dot first (it sits where the arrows start)
+        if (MathF.Sqrt((p.X - o.X) * (p.X - o.X) + (p.Y - o.Y) * (p.Y - o.Y)) <= DotRadius * s + 3 * s) return 6;
         int hit = -1;
         for (int k = 0; k < 3; k++)
             if (OnCanvas(g.Center + g.MoveAxes[k] * g.Size, cam, area) is PointF e && SegDist(p, o, e) is float d && d < best) { best = d; hit = k; }
@@ -118,10 +125,23 @@ sealed partial class ModelView
             int now = GizmoSource == null ? -1 : GizmoHandleAt(e.Location, out _, out _);
             if (now != gizmoHover) { gizmoHover = now; canvas.Invalidate(); }
             if (now < 0) return false;
-            canvas.Cursor = now < 3 ? Cursors.SizeAll : Cursors.Hand;
+            canvas.Cursor = now < 3 || now == 6 ? Cursors.SizeAll : Cursors.Hand;
             return true;
         }
         if (OnCanvas(g.Center, cam, area) is not PointF o) return true;
+        if (h == 6)
+        {
+            // in the pane's own plane: the mouse's travel as the camera's right and up show on screen there
+            var right = new Vector3(cam.R.X, -cam.R.Y, cam.R.Z);   // (the view's axes in engine space: Y is turned over there)
+            var up = new Vector3(cam.U.X, -cam.U.Y, cam.U.Z);
+            if (OnCanvas(g.Center + right * g.Size, cam, area) is not PointF pr || OnCanvas(g.Center + up * g.Size, cam, area) is not PointF pu) return true;
+            float ax = pr.X - o.X, ay = pr.Y - o.Y, bx = pu.X - o.X, by = pu.Y - o.Y, det = ax * by - ay * bx;
+            if (MathF.Abs(det) < 1e-3f) return true;
+            float mx = e.X - start.X, my = e.Y - start.Y;
+            float ka = (mx * by - my * bx) / det, kb = (ax * my - ay * mx) / det;
+            GizmoPlaneMoved?.Invoke((right * ka + up * kb) * g.Size);
+            return true;
+        }
         if (h < 3)
         {
             // along the arrow as it shows on screen: the mouse's travel along it, in engine units
@@ -198,7 +218,7 @@ sealed partial class ModelView
             using var brush = new SolidBrush(col);
             g.FillPolygon(brush, [e, new PointF(baseP.X - uy * wide, baseP.Y + ux * wide), new PointF(baseP.X + uy * wide, baseP.Y - ux * wide)]);
         }
-        using (var dot = new SolidBrush(Color.FromArgb(240, 240, 240))) g.FillEllipse(dot, o.X - 3.5f * s, o.Y - 3.5f * s, 7 * s, 7 * s);
+        using (var dot = new SolidBrush(active == 6 ? GizmoHot : Color.FromArgb(240, 240, 240))) g.FillEllipse(dot, o.X - DotRadius * s, o.Y - DotRadius * s, 2 * DotRadius * s, 2 * DotRadius * s);
         g.ResetClip();
         g.SmoothingMode = mode;
     }

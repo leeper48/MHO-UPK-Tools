@@ -57,6 +57,7 @@ sealed partial class ModEditorView
             animPreview = new StorePreview { Dock = DockStyle.Fill, CookedFolder = game.Cooked, Catalog = catalog, PowerStrip = false, Always3D = true };
             animPreview.ControlAdded += (_, _) => Ui.RestyleButtons(animPreview);
             animPreview.HeroPowersLoaded += FillAnimGrid;   // the Power column
+            animPreview.AnimationShown += () => { HookAnimGizmo(); animGizmoHooked?.View.Invalidate(); };
             animPreview.OverrideFiles = PreviewOverrides;   // (added props not saved yet)
             host.Controls.Add(animPreview);
             animPreview.Mod = editing;

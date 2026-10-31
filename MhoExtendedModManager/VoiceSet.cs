@@ -379,6 +379,22 @@ static class VoiceSet
                     list.Add(new Source(HeroName(hero) + " · " + (own ? "Default" : VoiceName(voice)), hero, f, !own));
                 }
             }
+            // Costumes with a voice of their own (Kurt, 2026-10-30: Captain America's American Dream, whose package is named
+            // CapnAmerica, didn't show): an alternate voice of their hero
+            var costumeRx = new Regex(@"^UC__MarvelPlayer_([A-Za-z0-9]+)_([A-Za-z0-9_]+)_SF\.upk$", RegexOptions.IgnoreCase);
+            var found = new System.Collections.Concurrent.ConcurrentBag<Source>();
+            Parallel.ForEach(Directory.EnumerateFiles(cooked, "UC__MarvelPlayer_*_SF.upk"), new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, f =>
+            {
+                string name = Path.GetFileName(f);
+                var mc = costumeRx.Match(name);
+                if (!mc.Success || name.Contains("bak", StringComparison.OrdinalIgnoreCase) || name.Contains("copy", StringComparison.OrdinalIgnoreCase)) return;
+                string stock = StockFiles.For(cooked, name);   // (the game's own: a costume a mod changed isn't offered with the mod's voice)
+                try { if (Find(Package.Open(stock)) < 0 || !Read(name, stock, []).Any(l => l.Sound)) return; }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return; }
+                string hero = HeroAlias(mc.Groups[1].Value);
+                found.Add(new Source(HeroName(hero) + " · " + string.Join(" ", mc.Groups[2].Value.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(VoiceName)), hero, stock, true));
+            });
+            list.AddRange(found);
             // Team-ups: the same voice set in their class default (Angel: 52 lines: activation, attack, boast, banter with
             // the heroes they team up with …)
             var teamRx = new Regex(@"^UC__MarvelTeamUp_([A-Za-z0-9]+)_SF\.upk$", RegexOptions.IgnoreCase);
@@ -414,6 +430,13 @@ static class VoiceSet
     };
 
     static string SplitWords(string s) => Regex.Replace(s, "(?<=[a-z])(?=[A-Z])", " ");
+    /// <summary>A package's hero name as its hero package spells it (American Dream's package says CapnAmerica).</summary>
+    public static string HeroAlias(string token) => token.ToLowerInvariant() switch
+    {
+        "capnamerica" => "CaptainAmerica",
+        _ => token,
+    };
+
     static string HeroName(string token) => AutoTags.DisplayName(token) ?? SplitWords(token);
 
     /// <summary>
@@ -457,7 +480,7 @@ static class VoiceSet
     public static string? HeroOf(string packageFile)
     {
         var m = Regex.Match(packageFile, @"^UC__MarvelPlayer_([A-Za-z0-9]+)_", RegexOptions.IgnoreCase);
-        return m.Success ? m.Groups[1].Value : null;
+        return m.Success ? HeroAlias(m.Groups[1].Value) : null;
     }
 
     /// <summary>An export's archetype reference (the export table entry's last int).</summary>

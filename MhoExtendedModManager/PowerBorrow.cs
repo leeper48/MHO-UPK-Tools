@@ -1939,9 +1939,13 @@ static partial class PowerBorrow
     /// holding them (PropHold, baked into the copied animations); null: the copied sets stop moving the bones (PinPropBones).</param>
     /// <param name="modelFrom">A package holding a model of the prop's own (the Model tab's build: the same class, its ModelMesh
     /// the new model), put in its place; null: its character's own model.</param>
+    /// <summary>A prop whose animations' hand keys are rewritten (PropHold): pinned (Pivot on the Hand), or adjusted in one of
+    /// its animations (In This Animation works without the pin too, Kurt 2026-10-30).</summary>
+    public static bool NeedsHold(AddedPropEntry e) => e.Fit.PinPivot || e.Anims?.Any(a => !a.IsZero) == true;
+
     public static byte[] AddProp(byte[] package, AddedPropEntry e, string fromPath, List<string> log, Func<byte[], AddedPropEntry, IReadOnlyList<string>, List<string>, byte[]>? hold = null, string? modelFrom = null)
     {
-        hold ??= (b, _, bones, l) => PinPropBones(b, bones, true, l);
+        hold ??= (b, pe, bones, l) => pe.Fit.PinPivot ? PinPropBones(b, bones, true, l) : b;
         // only a hero's base package's prop class (Kurt, 2026-10-28: Beta Ray Bill's hammer added to Doom crashed the game): a
         // costume's own class builds on its hero's (marvelattachment_thorhammer_betaraybill on Thor's), which the game loads only
         // with that hero; copied to another hero, its parent class can't be found
@@ -1995,7 +1999,10 @@ static partial class PowerBorrow
         dst = AlwaysHeld(dst, def, log);
         // the bone it's held on: the Model tab's Held On, else its character's (put back when one was set before)
         {
-            var want = e.Bone is string eb ? [eb] : AttachBones(Package.Open(fromPath), def);
+            // (the character's class default by its own name: def is the renamed copy's, which isn't in the character's package,
+            // so the bone was taken out and the prop hung on none: other players' clients crashed drawing Worthy Captain America
+            // with Thor's hammer, 2026-10-30)
+            var want = e.Bone is string eb ? [eb] : AttachBones(Package.Open(fromPath), "marvelgamecontent.default__" + e.Class.ToLowerInvariant());
             if (!AttachBones(dst, def).SequenceEqual(want, StringComparer.OrdinalIgnoreCase)) dst = WithAttachBones(dst, Find(dst, def), want, log);
         }
         // listed in the costume's own props
@@ -2016,7 +2023,7 @@ static partial class PowerBorrow
         }
         int n = BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt));
         var pinBones = AttachBones(dst, def);
-        for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return e.Fit.PinPivot ? hold(dst.RawFile, e, pinBones, log) : dst.RawFile;   // listed already
+        for (int k = 0; k < n; k++) if (BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(at.ValueAt + 4 + 4 * k)) == classRef) return NeedsHold(e) ? hold(dst.RawFile, e, pinBones, log) : dst.RawFile;   // listed already
         byte[] np = [.. pb.AsSpan(0, at.End), .. BitConverter.GetBytes(classRef), .. pb.AsSpan(at.End)];
         BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.ValueAt), n + 1);
         BinaryPrimitives.WriteInt32LittleEndian(np.AsSpan(at.Start + 16), at.Size + 4);
@@ -2025,7 +2032,7 @@ static partial class PowerBorrow
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
         if (problems.Count > 0) throw new InvalidDataException("the costume's prop list couldn't be changed: " + string.Join("; ", problems.Take(2)));
         log.Add($"{e.Class} added to {dst.Exports[pd].ObjectName}'s props ({n + 1} now)");
-        return e.Fit.PinPivot ? hold(output, e, pinBones, log) : output;
+        return NeedsHold(e) ? hold(output, e, pinBones, log) : output;
     }
 
     /// <summary>

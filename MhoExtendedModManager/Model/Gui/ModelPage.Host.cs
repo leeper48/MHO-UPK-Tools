@@ -49,6 +49,13 @@ interface IModelHost
     Task<bool> SetPropState(string state);
     /// <summary>An added prop left off the costume (its settings kept) or put back on.</summary>
     Task<bool> SetAddedPropOn(AddedPropEntry e, bool on);
+    /// <summary>An added prop's Pivot on the Hand set (the Animations and Powers tabs' box too).</summary>
+    Task<bool> SetAddedPin(AddedPropEntry e, bool on);
+    /// <summary>Why an added prop can't be adjusted in animation <paramref name="slot"/> alone ("" when it can: one taken from
+    /// another character, or a borrowed power's).</summary>
+    string AnimFitWhy(AddedPropEntry e, string? slot);
+    /// <summary>An added prop's adjustment in one animation set (null: none), built into its package; every tab shows it.</summary>
+    void SetAnimFit(AddedPropEntry e, string slot, PropAnimFit? a);
     /// <summary>The package's own props held on other bones (manifest PropBones).</summary>
     IReadOnlyList<PropBoneEntry> PropBones(string file);
     /// <summary>One of the package's own props held on <paramref name="bone"/>, or on its own again (null).</summary>

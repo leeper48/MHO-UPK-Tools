@@ -204,10 +204,23 @@ sealed partial class ModEditorView : IModelHost
     }
     IReadOnlyList<PropBoneEntry> IModelHost.PropBones(string file) => [.. draft.PropBones.Where(p => p.Package.Equals(file, StringComparison.OrdinalIgnoreCase))];
     Task<bool> IModelHost.SetPropBone(string file, string cls, string? bone) => SetPropBone(file, cls, bone);
+    string IModelHost.AnimFitWhy(AddedPropEntry e, string? slot) =>
+        slot == null ? "Play one of the animations to adjust the prop in it only."
+        : DonorsOf(e.Package)(slot) != null || BorrowAnims(e.Package)?.Donors(slot) != null ? ""
+        : "This animation isn't one taken from another character (Animations tab) or a borrowed power's: the prop's fit applies in it.";
+
+    void IModelHost.SetAnimFit(AddedPropEntry e, string slot, PropAnimFit? a) => SetAnimFit(e, slot, a);
+
+    async Task<bool> IModelHost.SetAddedPin(AddedPropEntry e, bool on)
+    {
+        if (e.Fit.PinPivot != on) await SetPin(e, on);
+        return e.Fit.PinPivot == on;
+    }
+
     async Task<bool> IModelHost.RefitAddedProp(AddedPropEntry e)
     {
         bool ok = await ApplyPropsTo(e.Package);
-        if (ok && ReferenceEquals(propList.SelectedItem, e)) ShowPropFit();   // (the Animations tab's list shows it as it is now)
+        if (ok) PropFitsChanged(e, from: "model");
         return ok;
     }
 

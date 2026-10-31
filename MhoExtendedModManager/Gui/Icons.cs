@@ -26,6 +26,41 @@ static class Icons
         });
     }
 
+    /// <summary>
+    /// Pivot on the Hand as an icon button (Kurt, 2026-10-30: in each tab it appears in), lit when on. <paramref name="box"/>
+    /// keeps the setting (not shown): a click flips it, and the button follows its Checked, Visible and Enabled.
+    /// </summary>
+    public static Button PivotToggle(CheckBox box, string tip, float scale)
+    {
+        var b = Ui.FlatButton("Pivot on the Hand", () => box.Checked = !box.Checked, tip);
+        Make(b, "Pivot on the Hand", Pivot, scale);
+        b.Margin = new Padding(0);
+        Ui.Lit(b, box.Checked);
+        box.CheckedChanged += (_, _) => Ui.Lit(b, box.Checked);
+        box.VisibleChanged += (_, _) => b.Visible = box.Visible;
+        box.EnabledChanged += (_, _) => b.Enabled = box.Enabled;
+        return b;
+    }
+
+    /// <summary>Pivot on the Hand: a pivot point with a hammer hanging from it, swinging (an arc).</summary>
+    public static void Pivot(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float cx = b.X + b.Width / 2, top = b.Y + b.Height * 0.12f, r = b.Width * 0.12f;
+        var head = new PointF(cx + b.Width * 0.22f, b.Bottom - b.Height * 0.3f);
+        g.FillEllipse(br, cx - r, top - r, 2 * r, 2 * r);
+        g.DrawLine(p, cx, top, head.X, head.Y);
+        // the hammer's head, square to the handle
+        float hw = b.Width * 0.2f, hh = b.Height * 0.13f;
+        var st = g.Save();
+        g.TranslateTransform(head.X, head.Y);
+        g.RotateTransform((float)(Math.Atan2(head.Y - top, head.X - cx) * 180 / Math.PI) - 90);
+        g.FillRectangle(br, -hw, -hh / 2, 2 * hw, hh * 1.4f);
+        g.Restore(st);
+        // the swing
+        using var thin = new Pen(p.Color, p.Width * 0.8f) { DashStyle = DashStyle.Dot };
+        g.DrawArc(thin, cx - b.Width * 0.45f, top - b.Height * 0.8f, b.Width * 0.9f, b.Height * 1.65f, 55, 70);
+    }
+
     /// <summary>Replace File: an open folder.</summary>
     public static void Folder(Graphics g, RectangleF b, Pen p, Brush _)
     {

@@ -240,7 +240,7 @@ static class UniqueNames
             bool differs = mine == null || theirs == null || !mine.Value.Path.Equals(theirs.Value.Path, StringComparison.OrdinalIgnoreCase) || !mine.Value.Bytes.AsSpan().SequenceEqual(theirs.Value.Bytes);
             // a class another game file imports stays (Thor Earth X's hammer class extends the base package's: renamed, the
             // game crashed on switching to Earth X, 2026-10-30)
-            if (differs && ClassImporters(pkg.PathOf(e), file, shipped, cooked) is { Count: > 0 } users)
+            if (differs && sd >= 0 && ClassImporters(pkg.PathOf(e), file, shipped, cooked) is { Count: > 0 } users)
             { notes.Add($"class {e.ObjectName}: left as it is, {string.Join(", ", users.Take(3).Select(o => o[4..^7]))}{(users.Count > 3 ? " …" : "")} import it"); continue; }
             if (differs) classRenames.Add((i, d, e.ObjectName, others));
         }
@@ -275,6 +275,10 @@ static class UniqueNames
                 // Age of Ultron and five other costumes import hammer_physics from; another package also carrying that path
                 // isn't loaded with them, and switching to Earth X crashed the game)
                 if (importIx == null || !importIx.TryGetValue(key, out var by)) continue;
+                // only a path this file has in the game: the importers find it here. A copy the mod added at another
+                // package's path (a borrowed prop: Worthy Captain America's Classic carried thor.hammer_physics) is found by
+                // them in that package, and left at its path it clashed with it: the game crashed loading Avengers Tower, 2026-10-30
+                if (stock != null && !stockByPath.ContainsKey(key)) continue;
                 var outside = by.Where(f => !f.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(f)).ToList();
                 if (outside.Count > 0) return $"{pkg.PathOf(pkg.Exports[i])} is imported by {string.Join(", ", outside.Take(3).Select(o => o[4..^7]))}{(outside.Count > 3 ? " …" : "")} and no other file has it";
             }
@@ -517,6 +521,7 @@ static class UniqueNames
             && by.Any(f => !f.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(f));
         var pkg = Package.Open(modPackage);
         var stock = Package.Open(stockPackage);
+        var stockPaths = stock.Exports.Select(e => $"{stock.PathOf(e)}|{stock.ClassOf(e).ToLowerInvariant()}").ToHashSet(StringComparer.OrdinalIgnoreCase);
         var stockGroups = stock.Exports.Where(e => e.OuterIndex == 0 && stock.ClassOf(e).Equals("Package", StringComparison.OrdinalIgnoreCase))
             .Select(e => e.ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         int Top(int i) { for (int g = 0; g < 64 && pkg.Exports[i].OuterIndex > 0; g++) i = pkg.Exports[i].OuterIndex - 1; return i; }
@@ -538,7 +543,7 @@ static class UniqueNames
                 if (i == g || Top(i) != g) continue;
                 objects++;
                 string path = game + pkg.PathOf(pkg.Exports[i])[ge.ObjectName.Length..], cls = pkg.ClassOf(pkg.Exports[i]);
-                if (Imported(path, cls)) imported = true;
+                if (stockPaths.Contains($"{path}|{cls.ToLowerInvariant()}") && Imported(path, cls)) imported = true;
                 if (!back) continue;
                 if (!shared.TryGetValue($"{path}|{cls.ToLowerInvariant()}", out var carriers)) continue;
                 if (carriers.Any(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(c) && !own.Contains(c))) back = false;

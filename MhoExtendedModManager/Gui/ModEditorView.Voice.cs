@@ -93,15 +93,20 @@ sealed partial class ModEditorView
 
     /// <summary>The draft's costume packages (UC__MarvelPlayer_&lt;Hero&gt;_&lt;Costume&gt;_SF) and team-up packages
     /// (UC__MarvelTeamUp_&lt;Name&gt;_SF, a user asked 2026-10-16): the ones a voice can be put into.</summary>
+    /// <remarks>Also a hero's own package (UC__MarvelPlayer_&lt;Hero&gt;_SF, Kurt 2026-10-30: the Sentry mod ships only
+    /// Vision's, Vision Classic has no costume package): its voice is the hero's, every costume without one of its own uses it.</remarks>
     List<(string File, string Source)> CostumePackages() =>
         [.. draft.Packages.Where(p => File.Exists(p.Source) && (Regex.IsMatch(p.File, @"^UC__MarvelPlayer_[A-Za-z0-9]+_[A-Za-z0-9_]+_SF\.upk$", RegexOptions.IgnoreCase)
-            || Regex.IsMatch(p.File, @"^UC__MarvelTeamUp_[A-Za-z0-9_]+_SF\.upk$", RegexOptions.IgnoreCase)))];
+            || Regex.IsMatch(p.File, @"^UC__MarvelTeamUp_[A-Za-z0-9_]+_SF\.upk$", RegexOptions.IgnoreCase))),
+         .. draft.Packages.Where(p => File.Exists(p.Source) && IsHeroPackage(p.File))];
+
+    static bool IsHeroPackage(string file) => Regex.IsMatch(file, @"^UC__MarvelPlayer_[A-Za-z0-9]+_SF\.upk$", RegexOptions.IgnoreCase);
 
     /// <summary>The voice menu: per costume package, its hero's voices first, then every other hero's (submenus by hero).</summary>
     async void VoiceMenu(Control button)
     {
         var targets = CostumePackages();
-        if (targets.Count == 0) { Dialog.Show(this, "A voice goes into a costume or team-up package (UC__MarvelPlayer_<Hero>_<Costume>_SF.upk, UC__MarvelTeamUp_<Name>_SF.upk). Add one on the Packages tab first.", "No Costume or Team-Up Package", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (targets.Count == 0) { Dialog.Show(this, "A voice goes into a costume, team-up or hero package (UC__MarvelPlayer_<Hero>_<Costume>_SF.upk, UC__MarvelTeamUp_<Name>_SF.upk, UC__MarvelPlayer_<Hero>_SF.upk). Add one on the Packages tab first.", "No Costume or Team-Up Package", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         if (game == null) { Dialog.Show(this, "Set the game folder first (Settings → Change Game Folder): The voices come from the game's files.", "No Game Folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         voiceStatus.ForeColor = Ui.Subtle; voiceStatus.Text = "Loading the game's voices…";
         List<VoiceSet.Source> all;
@@ -114,7 +119,11 @@ sealed partial class ModEditorView
         foreach (var (file, source) in targets)
         {
             ToolStripItemCollection items = menu.Items;
-            if (targets.Count > 1) { var sub = new ToolStripMenuItem(file); menu.Items.Add(sub); items = sub.DropDownItems; }
+            bool heroOwn = IsHeroPackage(file);
+            string label = heroOwn ? $"{file} (the Hero's Own Voice)" : file;
+            if (targets.Count > 1) { var sub = new ToolStripMenuItem(label); menu.Items.Add(sub); items = sub.DropDownItems; }
+            if (heroOwn)
+                items.Add(new ToolStripMenuItem("The hero's own voice: every costume without a voice of its own uses it") { Enabled = false, ToolTipText = file });
             string hero = (VoiceSet.HeroOf(file) ?? VoiceSet.TeamUpOf(file) ?? "").ToLowerInvariant();
             bool teamUp = VoiceSet.TeamUpOf(file) != null;
             bool Mine(VoiceSet.Source v) => hero.Length > 0 && v.TeamUp == teamUp && (v.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase) || v.Hero.StartsWith(hero, StringComparison.OrdinalIgnoreCase) || hero.StartsWith(v.Hero.ToLowerInvariant()));

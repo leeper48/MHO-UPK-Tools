@@ -12,6 +12,37 @@ static partial class Program
     {
         switch (cmd)
         {
+            case "--strip-test":
+            {
+                // --strip-test <package.upk> <out dir> <costume class> <prop class> <slot,...>: copies without the added prop,
+                // without the animation swaps, and without both (finding which part of a costume crashes other players' clients)
+                if (rest.Count < 6) { Console.WriteLine("--strip-test <package.upk> <out dir> <costume class> <prop class> <slot,...>"); return 1; }
+                byte[] src = File.ReadAllBytes(rest[1]);
+                Directory.CreateDirectory(rest[2]);
+                var slog = new List<string>();
+                byte[] noProp = PowerBorrow.RemoveProp(src, rest[4], slog);
+                byte[]? NoSwap(byte[] b) => AnimSwap.Unswap(MhoPackageModifier.Package.FromBytes(b), rest[3], rest[5].Split(','), slog);
+                byte[] noSwap = NoSwap(src) ?? throw new InvalidDataException("no swaps undone");
+                byte[] neither = NoSwap(noProp) ?? throw new InvalidDataException("no swaps undone (no prop)");
+                string name = Path.GetFileName(rest[1]);
+                foreach (var (dir, b) in new[] { ("noprop", noProp), ("noswap", noSwap), ("neither", neither) })
+                {
+                    Directory.CreateDirectory(Path.Combine(rest[2], dir));
+                    File.WriteAllBytes(Path.Combine(rest[2], dir, name), b);
+                    Console.WriteLine($"{dir}: {b.Length:N0} bytes");
+                }
+                slog.ForEach(x => Console.WriteLine("  " + x));
+                return 0;
+            }
+            case "--held-test":
+            {
+                // --held-test <package.upk> <out.upk> <prop class> <bone>: a copy with the prop held on that bone (SetHeldBones)
+                if (rest.Count < 5) { Console.WriteLine("--held-test <package.upk> <out.upk> <prop class> <bone>"); return 1; }
+                var hlog = new List<string>();
+                File.WriteAllBytes(rest[2], PowerBorrow.SetHeldBones(File.ReadAllBytes(rest[1]), rest[3], [rest[4]], hlog));
+                hlog.ForEach(x => Console.WriteLine("  " + x));
+                return 0;
+            }
             case "--snapshot-take":
             {
                 // --snapshot-take [name]: a snapshot of the library now (Settings → Snapshots), kept until deleted. Only reads the mods.
