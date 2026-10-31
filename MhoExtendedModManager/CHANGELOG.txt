@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.284
+- Audio → Power Sounds (new): a hero's power sound effects, with what the powers set off (projectiles, hits, conditions). Play, turn off, export as .WAV, and replace with .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files, a folder at a time or one by right-clicking. Note says when a sound also plays elsewhere (Also in Dual Wield), and unticking it asks whether to turn them all off. Looping sounds can be turned off but not replaced yet. Undo, Redo and History share the Voice tab's steps. Applies to every costume of the hero; installs in the old MHModManager too.
+- Voice tab: What's Said shows the words of each line (15,203 of the game's 15,438 voice lines; written down by speech recognition, from MH_PCK_SoundSilencer by CorvaeOboro, so a word can be off). Find searches them.
+- Voice tab: Export Lines saves the lines as .WAV files named after their sound events, with lines.csv (when each plays, what's said). Select rows to save only those.
+- Voice tab: Replace Lines takes a folder of .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files with those names and replaces those lines; the rest stay as they are. Right-click a row to replace or export one line, or to put the original back. A Voice Shift leaves your lines alone. Works in the old MHModManager too.
+- Audio tab: Undo, Redo (Ctrl+Z, Ctrl+Y) and History: replacing lines, a Voice Shift, another voice, ticking lines and sound packs can each be taken back, step by step or by picking one in History, until the editor closes. After a Save, Back to the Original Line takes your files out. A package another tab rebuilt since a step is left alone, and it tells you.
+
 0.60.277
 - Model tab: a prop built into the character's model (Skrull Captain America's shield) stays listed under The Target's Props, marked Built In, also while an added prop is the target (Source Parts belongs to the target picked, so it left that list). Unticking it goes back to the character with that part left out; Build into Mod does the rest. The choice is kept for the package: it used to come back ticked when you stepped back to the character.
 

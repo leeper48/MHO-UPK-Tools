@@ -10,7 +10,9 @@ sealed partial class ModEditorView
     // ---- Sound packs
     Control SoundsPage() => Page(sounds, Toolbar(Ui.FlatButton("Add .MHSFX Files", AddSounds, tip: "Add sound packs (.MHSFX): new voice lines and sounds."), Ui.Tip(Ui.FlatButton("Remove", () =>
         {
+            var audioWas = AudioNow();
             foreach (DataGridViewRow r in sounds.SelectedRows) draft.SoundPacks.Remove((string)r.Tag!);
+            AudioRecord("Remove Sound Pack", audioWas);
             RefreshSounds();
         }), "Take the selected sound packs out of the mod.")), "Sound packs (.MHSFX) add new voice or sound events to the game's sound files; the mod's packages play them by name.");
 
@@ -18,12 +20,14 @@ sealed partial class ModEditorView
     {
         using var d = new OpenFileDialog { Title = "Add Sound Packs", Filter = "Sound packs (*.mhsfx)|*.mhsfx", Multiselect = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
+        var audioWas = AudioNow();
         foreach (string f in d.FileNames)
         {
             try { SoundPack.Load(f); }
             catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException or FormatException or KeyNotFoundException) { Dialog.Show(this, $"{Path.GetFileName(f)} isn't a readable sound pack: {ex.Message}", "Sound Packs"); continue; }
             if (!draft.SoundPacks.Contains(f, StringComparer.OrdinalIgnoreCase)) draft.SoundPacks.Add(f);
         }
+        AudioRecord("Add Sound Pack", audioWas);
         RefreshSounds();
     }
 

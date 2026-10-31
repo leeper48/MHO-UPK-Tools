@@ -46,6 +46,7 @@ sealed class ModDraft
     public string? MovedFrom;
     public bool KeepShared;
     public List<VoiceShiftEntry> VoiceShifts = [];
+    public List<PowerSoundEntry> PowerSounds = [];
     public List<PowerColorEntry> PowerColors = [];
     public List<PartOffEntry> PartsOff = [];
     public List<DodgeGhostEntry> DodgeGhosts = [];
@@ -110,6 +111,7 @@ sealed class ModDraft
         d.MovedFrom = m.Manifest.MovedFrom;
         d.KeepShared = m.Manifest.KeepShared == true;
         d.VoiceShifts = m.Manifest.VoiceShifts?.ToList() ?? [];
+        d.PowerSounds = m.Manifest.PowerSounds?.ToList() ?? [];
         d.PowerColors = m.Manifest.PowerColors?.ToList() ?? [];
         d.PartsOff = m.Manifest.PartsOff?.ToList() ?? [];
         d.DodgeGhosts = m.Manifest.DodgeGhosts?.Select(g => new DodgeGhostEntry { Package = g.Package, Ghost = g.Ghost, ModelPackage = g.ModelPackage, ModelMesh = g.ModelMesh, Anim = g.Anim, Frame = g.Frame, KeepEffectSize = g.KeepEffectSize, Lean = g.Lean, LeanDegrees = g.LeanDegrees }).ToList() ?? [];
@@ -194,6 +196,7 @@ static class ModWriter
             manifest.MovedFrom = string.IsNullOrEmpty(d.MovedFrom) ? null : d.MovedFrom;
             manifest.KeepShared = d.KeepShared ? true : null;
             manifest.VoiceShifts = d.VoiceShifts.Count > 0 ? d.VoiceShifts : null;
+            manifest.PowerSounds = d.PowerSounds.Count > 0 ? d.PowerSounds : null;
             manifest.PowerColors = d.PowerColors.Count > 0 ? d.PowerColors : null;
             manifest.PartsOff = d.PartsOff.Count > 0 ? d.PartsOff : null;
             manifest.DodgeGhosts = d.DodgeGhosts.Count > 0 ? d.DodgeGhosts : null;

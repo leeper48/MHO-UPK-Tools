@@ -27,9 +27,17 @@ sealed class VoiceShiftEntry
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public float Robot { get; set; }
 
+    /// <summary>Lines replaced by files of the user's own (Replace Lines; their event names): their audio is in the sound pack,
+    /// and a new shift leaves them alone.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Replaced { get; set; }
+
     /// <summary>Anything to do: a shift or a filter.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool Any => Pitch != 0 || Formant != 0 || Warmth != 0 || VoiceEffects.Any(this);
+
+    /// <summary>Is this line one of the user's own?</summary>
+    public bool IsReplaced(string leaf) => Replaced?.Contains(leaf, StringComparer.OrdinalIgnoreCase) == true;
 }
 
 /// <summary>
@@ -73,11 +81,16 @@ static class VoiceShiftBuild
     /// <summary>
     /// Renders the shift. Returns the new package and the sound pack (both written into <paramref name="work"/>), and a log.
     /// <paramref name="soundPacks"/>: the mod's sound packs (other than an earlier shift pack), read for lines they voice.
+    /// <paramref name="newLines"/>: lines replaced now, event name → WAV at the game's format (VoiceLines.Load);
+    /// <paramref name="earlierPack"/>: this package's earlier pack, which holds the lines replaced before. Without a shift only
+    /// the replaced lines change.
     /// </summary>
     public static (string Package, string Pack, List<string> Log) Build(string packagePath, string packageFile, IReadOnlyList<VoiceOffEntry> off,
-        IReadOnlyList<string> soundPacks, string cooked, VoiceShiftEntry s, string work, IProgress<string>? progress = null)
+        IReadOnlyList<string> soundPacks, string cooked, VoiceShiftEntry s, string work, IProgress<string>? progress = null,
+        IReadOnlyDictionary<string, byte[]>? newLines = null, string? earlierPack = null)
     {
         var log = new List<string>();
+        var earlier = earlierPack != null && File.Exists(earlierPack) ? SoundPack.Load(earlierPack).Wems : null;
         Directory.CreateDirectory(work);
         // The package as it grows is kept in memory (a file per copied event was 1.1 GB for Sentry's 123 lines).
         string cur = packagePath;
@@ -94,15 +107,18 @@ static class VoiceShiftBuild
         int done = 0;
         foreach (string ev in events)
         {
-            progress?.Report($"Shifting Line {++done} of {events.Count}");
+            progress?.Report($"Working on Line {++done} of {events.Count}");
             string leaf = ev[(ev.LastIndexOf('.') + 1)..], group = ev[..ev.LastIndexOf('.')], nleaf = leaf + Suffix;
+            bool own = s.IsReplaced(leaf);
+            if (!s.Any && !own) continue;   // (only the replaced lines: the rest stay the game's)
             // The event's copy in the package, under the new name; its bank by the AkBank's name (the old manager's lookup).
             // A voice set can name things other than sounds (Storm's emotes point at an animation): left as they are.
             int ei = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(ev, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(e).Equals("AkEvent", StringComparison.OrdinalIgnoreCase));
             if (ei < 0) { log.Add($"{leaf}: left as it is (not a sound event)"); continue; }
-            byte[] wem;
-            try { wem = VoiceAudio.Wem(ev, soundPacks, cooked).Wem; }
-            catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException) { log.Add($"{leaf}: left as it is ({ex.Message})"); continue; }
+            byte[] wem = [];
+            if (!own)
+                try { wem = VoiceAudio.Wem(ev, soundPacks, cooked).Wem; }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException) { log.Add($"{leaf}: left as it is ({ex.Message})"); continue; }
             if (!index.TryGetValue(SoundPack.Fnv(leaf), out var where)) { log.Add($"{leaf}: left as it is (its event isn't in the game's sound banks)"); continue; }
             byte[] ed = pkg.ReadExportBytes(pkg.Exports[ei]).ToArray();
             string? bank = TagWalker.Walk(pkg, ed, 4)?.FirstOrDefault(t => t.Name.Equals("RequiredBank", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } rb
@@ -110,9 +126,12 @@ static class VoiceShiftBuild
             if (bank == null || SoundPack.Fnv(bank) != where.Bank) { log.Add($"{leaf}: left as it is (its bank {bank ?? "?"} isn't the one it's in)"); continue; }
             // Voice only (Kurt, 2026-10-02): a voice set can also name sound effects (Sentry's has a dodge whoosh in
             // dodgepassivesfx); only lines in voice banks (…vo, …vo_…, …voice…: speech and vocal efforts) are shifted.
-            if (!IsVoiceBank(bank)) { log.Add($"{leaf}: left as it is (a sound effect, in {bank})"); continue; }
-            byte[] shifted = VoiceShift.Process(VoiceAudio.ToWav(wem), s);
-            byte[] outWem = WwiseVorbisWrite.ToWem(VorbisEncode.Encode(shifted, 0.4f), WavPcm.Read(shifted).Channels[0].Length);
+            if (!own && !IsVoiceBank(bank)) { log.Add($"{leaf}: left as it is (a sound effect, in {bank})"); continue; }
+            byte[] outWem;
+            if (newLines?.TryGetValue(leaf, out var line) == true) outWem = Encode(line);
+            else if (!own) outWem = Encode(VoiceShift.Process(VoiceAudio.ToWav(wem), s));
+            else if (earlier?.TryGetValue(nleaf + ".wem", out var kept) == true) outWem = kept;   // (not encoded again: it'd lose quality each time)
+            else { log.Add($"{leaf}: left as it is (its replacement isn't in the mod's sound pack)"); continue; }
             if (!pkg.Exports.Any(e => e.ObjectName.Equals(nleaf, StringComparison.OrdinalIgnoreCase)))
             {
                 var cp = CrossMove.Quiet(() => ExportCopy.Copy(pkg, ei, pkg, [], nleaf), out string said) ?? throw new InvalidDataException($"{leaf}: the event couldn't be copied ({said.Trim()})");
@@ -128,7 +147,7 @@ static class VoiceShiftBuild
                 ["wem_file"] = nleaf + ".wem", ["bank_name"] = bank, ["pck_file"] = where.Pck,
             });
         }
-        if (patches.Count == 0) throw new InvalidDataException("no line could be shifted: " + string.Join("; ", log.Take(3)));
+        if (patches.Count == 0) throw new InvalidDataException("no line could be changed: " + string.Join("; ", log.Take(3)));
         // The voice set at the copies.
         var changes = lines.Where(l => newPath.ContainsKey(l.Event)).Select(l => (l.Offset, (string?)newPath[l.Event])).ToList();
         if (grown) { cur = Path.Combine(work, "events_" + packageFile); File.WriteAllBytes(cur, pkg.RawFile); }
@@ -141,12 +160,14 @@ static class VoiceShiftBuild
             using (var sw = new StreamWriter(z.CreateEntry("mod.json").Open()))
                 sw.Write(JsonSerializer.Serialize(new Dictionary<string, object>
                 {
-                    ["name"] = $"Voice shift: pitch {s.Pitch:+0.#;-0.#;0}, formant {s.Formant:+0.#;-0.#;0}, warmth {s.Warmth:+0.#;-0.#;0} dB",
+                    ["name"] = $"Voice shift: pitch {s.Pitch:+0.#;-0.#;0}, formant {s.Formant:+0.#;-0.#;0}, warmth {s.Warmth:+0.#;-0.#;0} dB" + (s.Replaced is { Count: > 0 } r ? $", {r.Count} line(s) replaced" : ""),
                     ["patches"] = patches,
                 }, new JsonSerializerOptions { WriteIndented = true }));
             foreach (var (n, b) in wems) using (var e = z.CreateEntry(n).Open()) e.Write(b);
         }
-        log.Insert(0, $"{patches.Count} line(s) shifted ({lines.Count} voice set entries), {wems.Values.Sum(w => (long)w.Length) / 1024:N0} KB of audio");
+        log.Insert(0, $"{patches.Count} line(s) changed ({lines.Count} voice set entries), {wems.Values.Sum(w => (long)w.Length) / 1024:N0} KB of audio");
         return (outPkg, pack, log);
     }
+
+    static byte[] Encode(byte[] wav) => WwiseVorbisWrite.ToWem(VorbisEncode.Encode(wav, 0.4f), WavPcm.Read(wav).Channels[0].Length);
 }

@@ -1167,6 +1167,302 @@ static partial class Program
                 Console.WriteLine(rlog.Count == 0 ? "nothing to repair (written unchanged)" : $"written: {rest[2]}");
                 return 0;
             }
+            case "--audio-formats-test":
+            {
+                // Scratch files only: <tone.wav> encoded by Windows into each format in <dir>, read back through VoiceLines.Load, compared
+                // with the source at the best lag. --audio-formats-test <tone.wav> <dir>
+                if (rest.Count < 3) { Console.WriteLine("--audio-formats-test <tone.wav> <dir>"); return 1; }
+                Directory.CreateDirectory(rest[2]);
+                short[] Pcm(byte[] w) { var s = new short[(w.Length - 44) / 2]; Buffer.BlockCopy(w, 44, s, 0, s.Length * 2); return s; }
+                short[] source = Pcm(VoiceLines.Load(rest[1]));
+                int bad = 0;
+                foreach (var (ext, type) in new (string, Guid)[] { (".mp3", NAudio.MediaFoundation.AudioSubtypes.MFAudioFormat_MP3), (".m4a", NAudio.MediaFoundation.AudioSubtypes.MFAudioFormat_AAC), (".wma", NAudio.MediaFoundation.AudioSubtypes.MFAudioFormat_WMAudioV8), (".flac", NAudio.MediaFoundation.AudioSubtypes.MFAudioFormat_FLAC) })
+                {
+                    string f = Path.Combine(rest[2], "tone" + ext);
+                    if (!File.Exists(f)) try
+                    {
+                        using (var r = new NAudio.Wave.WaveFileReader(rest[1]))
+                        {
+                            var media = NAudio.Wave.MediaFoundationEncoder.SelectMediaType(type, r.WaveFormat, 128000) ?? throw new InvalidDataException("Windows has no encoder for it");
+                            using var enc = new NAudio.Wave.MediaFoundationEncoder(media);
+                            enc.Encode(f, r);
+                        }
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or System.Runtime.InteropServices.COMException or ArgumentException) { Console.WriteLine($"{ext}: can't make a test file here: {ex.Message}"); continue; }
+                    try
+                    {
+                        short[] got = Pcm(VoiceLines.Load(f));
+                        double best = 0; int lag = 0;
+                        for (int l = 0; l < 6000; l += 1)
+                        {
+                            double ab = 0, aa = 0, bb = 0;
+                            for (int i = 0; i < 40000 && i < source.Length && i + l < got.Length; i++) { ab += source[i] * (double)got[i + l]; aa += source[i] * (double)source[i]; bb += got[i + l] * (double)got[i + l]; }
+                            double cor = ab / Math.Sqrt(aa * bb + 1);
+                            if (cor > best) { best = cor; lag = l; }
+                        }
+                        bool ok = best > 0.9 && Math.Abs(got.Length - source.Length) < VoiceLines.Rate / 2;
+                        Console.WriteLine($"{ext}: {(ok ? "PASS" : "FAIL")} {new FileInfo(f).Length:N0} bytes, {got.Length} samples (source {source.Length}), match {best:0.000} at lag {lag}");
+                        if (!ok) bad++;
+                    }
+                    catch (InvalidDataException ex) { Console.WriteLine($"{ext}: FAIL {ex.Message}"); bad++; }
+                }
+                string junk = Path.Combine(rest[2], "junk.mp3");
+                File.WriteAllBytes(junk, new byte[5000]);
+                try { VoiceLines.Load(junk); Console.WriteLine("junk: FAIL read"); bad++; }
+                catch (InvalidDataException ex) { Console.WriteLine("junk: PASS refused: " + ex.Message); }
+                return bad == 0 ? 0 : 1;
+            }
+            case "--voice-lines-test":
+            {
+                // Test (scratch; writes only into <dir>): Export Lines, two lines replaced by test tones (44.1 kHz stereo 16-bit and 48 kHz
+                // mono 24-bit), a shift built over them, one taken back. --voice-lines-test <mod> <dir>
+                if (rest.Count < 3 || lib.Find(rest[1]) is not { } tm) { Console.WriteLine("--voice-lines-test <mod> <dir>"); return 1; }
+                var tst = Settings.Load();
+                string? tgr = tst.ResolvedGameRoot(lib.DataFolder);
+                if (tgr == null || !Settings.IsGameRoot(tgr)) { Console.WriteLine("game folder not set"); return 1; }
+                string cooked = Settings.Cooked(tgr), dir = rest[2];
+                MhoExtendedModManager.Model.Protected.CheckWrite(dir);
+                int fails = 0;
+                void Check(bool c, string what) { Console.WriteLine((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+                string file = tm.Manifest.UpkReplacements.First(f => VoiceSet.Read(f, Path.Combine(tm.Folder, f), tm.Manifest.VoiceOff ?? []).Any(l => l.Sound));
+                string src = Path.Combine(tm.Folder, file);
+                var off = tm.Manifest.VoiceOff ?? [];
+                var packs = tm.Manifest.AudioPacks.Select(f => Path.Combine(tm.Folder, f)).Where(f => !Path.GetFileName(f).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase)).ToList();
+                var lines = VoiceSet.Read(file, src, off).Where(l => l.Sound && !l.Missing && !l.Off).ToList();
+                var (written, failed) = VoiceLines.Export(lines, packs, cooked, Path.Combine(dir, "export"));
+                string[] csv = File.ReadAllLines(Path.Combine(dir, "export", "lines.csv"));
+                Console.WriteLine($"  {csv[1]}");
+                Check(written > 0 && csv.Length == written + 1, $"exported {written} lines of {lines.DistinctBy(l => l.Event).Count()} events, {failed.Count} silent; lines.csv has them");
+                var index = Akpk.EventIndex(cooked);
+                var usable = lines.Where(l => index.ContainsKey(SoundPack.Fnv(VoiceLines.Leaf(l.Event)))).Select(l => VoiceLines.Leaf(l.Event)).Distinct(StringComparer.OrdinalIgnoreCase).Take(2).ToArray();
+                static byte[] Tone(int rate, int ch, int bits, float hz)
+                {
+                    int frames = rate * 2;
+                    var m = new MemoryStream(); var w = new BinaryWriter(m);
+                    int bytes = frames * ch * bits / 8;
+                    w.Write("RIFF"u8); w.Write(36 + bytes); w.Write("WAVE"u8); w.Write("fmt "u8); w.Write(16); w.Write((short)1); w.Write((short)ch); w.Write(rate); w.Write(rate * ch * bits / 8); w.Write((short)(ch * bits / 8)); w.Write((short)bits);
+                    w.Write("data"u8); w.Write(bytes);
+                    for (int i = 0; i < frames; i++)
+                        for (int k = 0; k < ch; k++)
+                        {
+                            int v = (int)(MathF.Sin(2 * MathF.PI * hz * i / rate) * 0.5f * (bits == 16 ? 32767 : 8388607));
+                            if (bits == 16) w.Write((short)v); else { w.Write((byte)v); w.Write((byte)(v >> 8)); w.Write((byte)(v >> 16)); }
+                        }
+                    return m.ToArray();
+                }
+                static float Hz(byte[] wav) { var (c, r) = WavPcm.Read(wav); int z = 0; for (int i = 1; i < c[0].Length; i++) if (c[0][i - 1] < 0 && c[0][i] >= 0) z++; return z * (float)r / c[0].Length; }
+                Directory.CreateDirectory(Path.Combine(dir, "mine"));
+                File.WriteAllBytes(Path.Combine(dir, "mine", usable[0] + ".wav"), Tone(44100, 2, 16, 440));
+                File.WriteAllBytes(Path.Combine(dir, "mine", usable[1] + ".wav"), Tone(48000, 1, 24, 880));
+                File.WriteAllText(Path.Combine(dir, "mine", "notes.wav"), "not audio");
+                var (matched, unknown) = VoiceLines.Match(Path.Combine(dir, "mine"), lines.Select(l => VoiceLines.Leaf(l.Event)));
+                Check(matched.Count == 2 && unknown.SequenceEqual(["notes.wav"]), $"matched by name: {string.Join(", ", matched.Keys)}; left out: {string.Join(", ", unknown)}");
+                var wavs = matched.ToDictionary(kv => kv.Key, kv => VoiceLines.Load(kv.Value), StringComparer.OrdinalIgnoreCase);
+                Check(wavs.Values.All(w => WavPcm.Read(w).Rate == VoiceLines.Rate && WavPcm.Read(w).Channels.Length == 1), "loaded as mono at the game's rate");
+                Check(Math.Abs(Hz(wavs[usable[0]]) - 440) < 5 && Math.Abs(Hz(wavs[usable[1]]) - 880) < 8, $"resampled in tune ({Hz(wavs[usable[0]]):0} Hz, {Hz(wavs[usable[1]]):0} Hz)");
+                bool Moved(string pkg, string leaf) => VoiceSet.Read(file, pkg, off).Any(l => l.Event.EndsWith("." + leaf + VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase));
+                int MovedAll(string pkg) => VoiceSet.Read(file, pkg, off).Count(l => l.Event.EndsWith(VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase));
+                var e1 = new VoiceShiftEntry { Package = file, Replaced = [.. usable] };
+                var (p1, pk1, _) = VoiceShiftBuild.Build(src, file, off, packs, cooked, e1, Path.Combine(dir, "b1"), null, wavs);
+                var sp1 = SoundPack.Load(pk1);
+                Check(sp1.Patches.Count == 2 && Moved(p1, usable[0]) && Moved(p1, usable[1]) && MovedAll(p1) == lines.Count(l => usable.Contains(VoiceLines.Leaf(l.Event), StringComparer.OrdinalIgnoreCase)), $"only those lines changed: {sp1.Patches.Count} patches, {MovedAll(p1)} of {lines.Count} voice set entries");
+                byte[] wem0 = sp1.Wems[usable[0] + VoiceShiftBuild.Suffix + ".wem"];
+                Check(Math.Abs(Hz(VoiceAudio.ToWav(wem0)) - 440) < 8, $"the first line plays the file ({Hz(VoiceAudio.ToWav(wem0)):0} Hz)");
+                var heard = VoiceAudio.Wem(VoiceSet.Read(file, p1, off).First(l => l.Event.EndsWith(usable[0] + VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase)).Event, [pk1], cooked);
+                Check(heard.Wem.SequenceEqual(wem0), $"the player finds it in the pack ({heard.From})");
+                var byPck = sp1.Patches.GroupBy(pp => pp.PckFile).ToList();
+                foreach (var g in byPck)
+                {
+                    var notes = new List<string>(); var probs = new List<string>();
+                    byte[]? built = Akpk.Build(Path.Combine(cooked, g.Key), g.Key, [sp1], notes, probs);
+                    Check(built != null && probs.Count == 0, $"{g.Key} builds with the pack ({built?.Length ?? 0:N0} bytes{(probs.Count > 0 ? ": " + probs[0] : "")})");
+                }
+                var e2 = new VoiceShiftEntry { Package = file, Pitch = 3, Replaced = [.. usable] };
+                var (p2, pk2, l2) = VoiceShiftBuild.Build(p1, file, off, packs, cooked, e2, Path.Combine(dir, "b2"), null, null, pk1);
+                var sp2 = SoundPack.Load(pk2);
+                Check(sp2.Wems[usable[0] + VoiceShiftBuild.Suffix + ".wem"].SequenceEqual(wem0) && sp2.Wems[usable[1] + VoiceShiftBuild.Suffix + ".wem"].SequenceEqual(sp1.Wems[usable[1] + VoiceShiftBuild.Suffix + ".wem"]), "a shift keeps the replaced lines byte for byte");
+                Check(sp2.Patches.Count > 2, $"the shift took the other lines ({sp2.Patches.Count} patches); {l2[0]}");
+                var e3 = new VoiceShiftEntry { Package = file, Replaced = [usable[0]] };
+                var (p3, pk3, _) = VoiceShiftBuild.Build(p2, file, off, packs, cooked, e3, Path.Combine(dir, "b3"), null, null, pk2);
+                Check(SoundPack.Load(pk3).Patches.Count == 1 && Moved(p3, usable[0]) && !Moved(p3, usable[1]), "shift off, one line back to the original: only the other stays");
+                string? text = VoiceText.For(lines[0].Event);
+                Console.WriteLine($"  text: {text}");
+                Console.WriteLine(fails == 0 ? "All voice line checks passed." : $"{fails} FAILED");
+                return fails == 0 ? 0 : 1;
+            }
+            case "--power-sounds":
+            {
+                // Read-only: each hero's powers with their sounds (PowerSounds), checked against the game's sound files; other
+                // AkEvents in those packages that no sound component names. --power-sounds <hero> ...
+                var pst = Settings.Load();
+                string? pgr = pst.ResolvedGameRoot(lib.DataFolder);
+                if (pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("game folder not set"); return 1; }
+                string pc = Settings.Cooked(pgr);
+                StockFiles.Init(new GameState(pgr, lib.DataFolder), pst.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                var sw3 = System.Diagnostics.Stopwatch.StartNew();
+                var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
+                Console.WriteLine($"game data {sw3.ElapsedMilliseconds} ms");
+                bool verbose = rest.Contains("-v");
+                foreach (string hero in rest.Skip(1).Where(a => a != "-v"))
+                {
+                    sw3.Restart();
+                    var powers = Fx.PowerList.For(pdb, hero, pc, [], effectOnly: true);
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    int sounds = 0, loops = 0, silent = 0, stray = 0;
+                    foreach (var p in powers)
+                    {
+                        var files = PowerRecolor.PackagesOf(pdb, p.Prototype, hero, pc);
+                        int here = 0;
+                        foreach (string f in files.Where(seen.Add))
+                        {
+                            string path = StockFiles.For(pc, f);
+                            if (!File.Exists(path)) continue;
+                            var ss = PowerSounds.Read(f, path);
+                            here += ss.Count;
+                            foreach (var s in ss)
+                            {
+                                sounds++; if (s.Stop != null) loops++;
+                                bool ok = true;
+                                try { VoiceAudio.Wem(s.Event, [], pc); } catch (InvalidDataException) { ok = false; silent++; }
+                                if (verbose) Console.WriteLine($"    {p.Name,-26} {f[4..^4],-44} {s.Part,-22} {s.When,-24} {s.Event[(s.Event.LastIndexOf('.') + 1)..]}{(s.Stop != null ? " (loop)" : "")}{(ok ? "" : " SILENT")}");
+                            }
+                            var pk = MhoPackageModifier.Package.Open(path);
+                            var named = ss.Select(s => s.Event).Concat(ss.Where(s => s.Stop != null).Select(s => s.Stop!)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                            stray += pk.Exports.Count(e => pk.ClassOf(e).Equals("AkEvent", StringComparison.OrdinalIgnoreCase) && !named.Contains(pk.PathOf(e)));
+                        }
+                    }
+                    Console.WriteLine($"{hero}: {powers.Count} powers, {seen.Count} packages, {sounds} sounds ({loops} looping, {silent} silent), {stray} other events; {sw3.ElapsedMilliseconds} ms");
+                }
+                return 0;
+            }
+            case "--power-sounds-test":
+            {
+                // Test (scratch library; the mod isn't saved): a sound off and one replaced by a tone, saved through PowerSounds.Apply
+                // twice, put back. --power-sounds-test <mod> <hero> <tone.wav> <dir>
+                if (rest.Count < 5 || lib.Find(rest[1]) is not { } tm) { Console.WriteLine("--power-sounds-test <mod> <hero> <tone.wav> <dir>"); return 1; }
+                var tst = Settings.Load();
+                string? tgr = tst.ResolvedGameRoot(lib.DataFolder);
+                if (tgr == null || !Settings.IsGameRoot(tgr)) { Console.WriteLine("game folder not set"); return 1; }
+                string pc = Settings.Cooked(tgr);
+                var tgame = new GameState(tgr, lib.DataFolder);
+                StockFiles.Init(tgame, tst.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                var tdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(tgr, "Data", "Game", "Calligraphy.sip")));
+                int fails = 0;
+                void Check(bool c, string what) { Console.WriteLine((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+                var all = new List<PowerSound>();
+                foreach (var p in Fx.PowerList.For(tdb, rest[2], pc, [], effectOnly: true))
+                    foreach (string f in PowerRecolor.PackagesOf(tdb, p.Prototype, rest[2], pc))
+                        if (!all.Any(s => s.Package == f)) all.AddRange(PowerSounds.Read(f, StockFiles.For(pc, f)));
+                var oneShots = all.Where(s => s.Stop == null).ToList();
+                var offS = oneShots[0];
+                var repS = oneShots.First(s => s.Package != offS.Package);
+                var d = ModDraft.From(tm);
+                int pkgs0 = d.Packages.Count;
+                d.PowerSounds.Add(new PowerSoundEntry { Package = offS.Package, Component = offS.Component, Index = offS.Index, Event = offS.Event, Off = true });
+                d.PowerSounds.Add(new PowerSoundEntry { Package = repS.Package, Component = repS.Component, Index = repS.Index, Event = repS.Event, Replaced = true });
+                string leaf = PowerSounds.Leaf(repS.Event);
+                var log = new List<string>();
+                var wavs = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase) { [leaf] = VoiceLines.Load(rest[3]) };
+                string? w1 = PowerSounds.Apply(d, tm, lib, tgame, wavs, log);
+                log.ForEach(l => Console.WriteLine("  " + l));
+                string Src(string f) => d.Packages.First(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source;
+                Check(d.Packages.Count == pkgs0 + 2, $"both power packages joined the mod ({offS.Package}, {repS.Package})");
+                var readOff = PowerSounds.Read(offS.Package, Src(offS.Package));
+                Check(!readOff.Any(s => s.Component == offS.Component && s.Index == offS.Index), $"off: {PowerSounds.Leaf(offS.Event)} gone from its component; {readOff.Count} others stay");
+                var readRep = PowerSounds.Read(repS.Package, Src(repS.Package));
+                Check(readRep.Any(s => s.Component == repS.Component && s.Index == repS.Index && s.Event.EndsWith(PowerSounds.Suffix, StringComparison.OrdinalIgnoreCase)), "replaced: the component plays the copy");
+                string? pack = d.SoundPacks.FirstOrDefault(p => Path.GetFileName(p) == PowerSounds.PackName);
+                var sp = pack != null ? SoundPack.Load(pack) : null;
+                Check(sp?.Patches.Count == 1 && sp.Wems.ContainsKey(leaf + PowerSounds.Suffix + ".wem"), "the sound pack has it");
+                var wem0 = sp!.Wems[leaf + PowerSounds.Suffix + ".wem"];
+                var heard = VoiceAudio.Wem(repS.Event + PowerSounds.Suffix, [pack!], pc);
+                Check(heard.Wem.SequenceEqual(wem0) && VoiceAudio.ToWav(heard.Wem).Length > 1000, $"the player finds it ({heard.From})");
+                foreach (var g in sp.Patches.GroupBy(pp => pp.PckFile))
+                {
+                    var notes = new List<string>(); var probs = new List<string>();
+                    byte[]? built = Akpk.Build(Path.Combine(pc, g.Key), g.Key, [sp], notes, probs);
+                    Check(built != null && probs.Count == 0 && notes.Count == 0, $"{g.Key} builds with the pack ({built?.Length ?? 0:N0} bytes{string.Concat(probs.Concat(notes).Take(1).Select(x => ": " + x))})");
+                }
+                // saved, then opened again and applied with nothing new: the audio kept byte for byte
+                string saved = Path.Combine(rest[4], "manifest_sim");
+                var tmEdit = new Mod { Folder = "", FolderName = "", Manifest = new ModManifest { PowerSounds = [.. d.PowerSounds] } };
+                string? w2 = PowerSounds.Apply(d, tmEdit, lib, tgame, new Dictionary<string, byte[]>(), log);
+                var sp2 = SoundPack.Load(d.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName));
+                Check(sp2.Wems[leaf + PowerSounds.Suffix + ".wem"].SequenceEqual(wem0), "built again without the file: the audio is kept byte for byte");
+                // all put back
+                var saved2 = new Mod { Folder = "", FolderName = "", Manifest = new ModManifest { PowerSounds = [.. d.PowerSounds] } };
+                d.PowerSounds.Clear();
+                string? w3 = PowerSounds.Apply(d, saved2, lib, tgame, new Dictionary<string, byte[]>(), log);
+                Check(d.Packages.Count == pkgs0 && !d.SoundPacks.Any(p => Path.GetFileName(p) == PowerSounds.PackName), "put back: both packages out of the mod, the pack gone");
+                foreach (string? w in new[] { w1, w2, w3 }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+                Console.WriteLine(fails == 0 ? "All power sound checks passed." : $"{fails} FAILED");
+                return fails == 0 ? 0 : 1;
+            }
+            case "--sound-info":
+            {
+                // Read-only: what sound events play: source, length, loudness; with a folder, each as .wav. --sound-info <event path> ... [--out <dir>]
+                var ist = Settings.Load();
+                string? igr = ist.ResolvedGameRoot(lib.DataFolder);
+                if (igr == null || !Settings.IsGameRoot(igr)) { Console.WriteLine("game folder not set"); return 1; }
+                int oi = rest.IndexOf("--out");
+                string? odir = oi > 0 ? rest[oi + 1] : null;
+                foreach (string ev in rest.Skip(1).Take((oi > 0 ? oi : rest.Count) - 1))
+                {
+                    var (wem, from) = VoiceAudio.Wem(ev, [], Settings.Cooked(igr));
+                    byte[] wav = VoiceAudio.ToWav(wem);
+                    var (c, r) = WavPcm.Read(wav);
+                    float peak = c.Max(x => x.Max(MathF.Abs));
+                    Console.WriteLine($"{ev}: {from}; {c[0].Length / (float)r:0.00} s, {c.Length} ch, {r} Hz, peak {peak:0.00}");
+                    if (odir != null) { Directory.CreateDirectory(odir); File.WriteAllBytes(Path.Combine(odir, ev[(ev.LastIndexOf('.') + 1)..] + ".wav"), wav); }
+                }
+                return 0;
+            }
+            case "--akevent-users":
+            {
+                // Read-only: in each package, every export that holds a reference to an AkEvent whose path has <text>, by its class
+                // and path (any property or list: found as the raw reference). --akevent-users <text> <package.upk> ...
+                foreach (string f in rest.Skip(2))
+                {
+                    var pk = MhoPackageModifier.Package.Open(f);
+                    for (int i = 0; i < pk.Exports.Length; i++)
+                    {
+                        if (!pk.ClassOf(pk.Exports[i]).Equals("AkEvent", StringComparison.OrdinalIgnoreCase) || !pk.PathOf(pk.Exports[i]).Contains(rest[1], StringComparison.OrdinalIgnoreCase)) continue;
+                        byte[] key = BitConverter.GetBytes(i + 1);
+                        for (int k = 0; k < pk.Exports.Length; k++)
+                            if (k != i && pk.ReadExportBytes(pk.Exports[k]).AsSpan().IndexOf(key) >= 0)
+                                Console.WriteLine($"{Path.GetFileName(f)}: {pk.Exports[i].ObjectName} <- {pk.ClassOf(pk.Exports[k])} {pk.PathOf(pk.Exports[k])}");
+                    }
+                }
+                return 0;
+            }
+            case "--voice-text-make":
+            {
+                // --voice-text-make <sounds.tsv.gz> <clean CookedPCConsole> <out.tsv.gz>: StockData\voice_text.tsv.gz from
+                // make_voice_text.py's table. Reads the game's files only.
+                if (rest.Count < 4) { Console.WriteLine("--voice-text-make <sounds.tsv.gz> <clean CookedPCConsole> <out.tsv.gz>"); return 1; }
+                var (tev, tsnd) = VoiceText.Make(rest[1], rest[2], rest[3]);
+                Console.WriteLine($"{tev:N0} events, {tsnd:N0} sounds, {new FileInfo(rest[3]).Length:N0} bytes");
+                return 0;
+            }
+            case "--voice-text-check":
+            {
+                // Read-only: how many lines of the stock voice sets have their text. --voice-text-check [samples per set]
+                int samples = rest.Count > 1 ? int.Parse(rest[1]) : 0;
+                var ts = Settings.Load();
+                string? tg = ts.ResolvedGameRoot(lib.DataFolder);
+                if (tg == null || !Settings.IsGameRoot(tg)) { Console.WriteLine("game folder not set"); return 1; }
+                int all = 0, found = 0, sets = 0;
+                foreach (var s in VoiceSet.Sources(Settings.Cooked(tg)))
+                {
+                    var lines = VoiceSet.Read(Path.GetFileName(s.File), s.File, []).Where(l => l.Sound).DistinctBy(l => l.Event).ToList();
+                    int hits = lines.Count(l => VoiceText.For(l.Event).Length > 0);
+                    foreach (var l in lines.Where(l => VoiceText.For(l.Event).Length > 0).Take(samples)) Console.WriteLine($"    {l.Situation,-22} \"{VoiceText.For(l.Event)}\"");
+                    Console.WriteLine($"{s.Title,-36} {hits,4} of {lines.Count,4} lines");
+                    all += lines.Count; found += hits; sets++;
+                }
+                Console.WriteLine($"{sets} sets: {found} of {all} lines have their text");
+                return 0;
+            }
             case "--voice-sources":
             case "--voice-copy":
             {

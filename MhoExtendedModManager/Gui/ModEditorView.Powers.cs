@@ -78,6 +78,12 @@ sealed partial class ModEditorView
         // Ctrl+S: Save and Keep Editing; Ctrl+Enter: Save Changes and back to the Mods tab (Kurt, 2026-10-23); as the buttons
         if (Shortcuts.Is("editor.save", keyData) && saveStayButton is { Enabled: true, Visible: true }) { KeepEditing = true; SaveAsked(); return true; }
         if (Shortcuts.Is("editor.saveclose", keyData) && saveButton is { Enabled: true, Visible: true }) { KeepEditing = false; SaveAsked(); return true; }
+        // Ctrl+Z / Ctrl+Y on the Audio tab: its own steps
+        if ((voice?.Visible == true || sounds.Visible || soundRows?.Visible == true) && !Typing())
+        {
+            if (Shortcuts.Is("model.undo", keyData)) { AudioUndo(); return true; }
+            if (Shortcuts.Is("model.redo", keyData)) { AudioRedo(); return true; }
+        }
         if (Shortcuts.Is("view.quad", keyData) && !Typing())
             foreach (var pv in new[] { powerPreview, animPreview })
                 if (pv != null && pv.Visible && pv.ToggleQuad()) return true;

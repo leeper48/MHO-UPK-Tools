@@ -156,6 +156,8 @@ function mhoNext(dir) {
 <!-- HIDDEN until Borrowed Look is released (WhatsNew.PowerBorrowReleased): <li><a href="#w-borrow">Give a Power Another Hero's Look</a></li> -->
 <li><a href="#w-anims">Give a Costume Another Character's Animations</a></li>
 <li><a href="#w-voice">Give a Costume Another Voice, Shift It or Add Effects</a></li>
+<li><a href="#w-lines">Replace Voice Lines with Your Own Audio</a></li>
+<li><a href="#w-sounds">Change or Silence a Power's Sounds</a></li>
 <li><a href="#w-model">Put Your Own Model on a Costume</a></li>
 <li><a href="#w-size">Make a Character Bigger or Smaller</a></li>
 <li><a href="#w-npc">Put a Model on an NPC, Enemy or Team-Up</a></li>
@@ -395,6 +397,33 @@ function mhoNext(dir) {
 </ol>
 <figure><img src="img/editor-voice.jpg" alt="The Voice tab: each situation the hero speaks in, its sound, and the Voice Shift and Effects sliders above."><figcaption>The Voice tab: each situation the hero speaks in, its sound, and the Voice Shift and Effects sliders above.</figcaption></figure>
 <p>See <a href="#voice">Voice lines</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-lines">Replace Voice Lines with Your Own Audio</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Audio → Voice</b>. <b>What's Said</b> shows the words of each line. They come from speech recognition, so a few are off.</li>
+<li><b>One line:</b> right-click it, <b>Replace This Line</b>, and pick a .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA file. Any sample rate, mono or stereo.</li>
+<li><b>Many lines:</b> select rows if you only want those, click <b>Export Lines</b> and pick a folder. Each line is saved as a .WAV named after its sound event, with <code>lines.csv</code> saying when it plays and what's said.</li>
+<li>Change those files in any audio or voice tool, or record your own. Keep each file's name; the extension can change. Delete the ones you don't want to replace.</li>
+<li>Click <b>Replace Lines</b> and pick the folder.</li>
+<li>Press ▶ on a line to hear the new one. <b>Undo</b>, <b>Redo</b> and <b>History</b> take back an import you don't like; right-click a line for <b>Back to the Original Line</b>.</li>
+<li>Save Changes, then Apply Changes.</li>
+</ol>
+<p>See <a href="#voice">Voice lines</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-sounds">Change or Silence a Power's Sounds</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Audio → Power Sounds</b>. It opens on the mod's hero; <b>Hero</b> picks another.</li>
+<li>Use <b>Find</b> to narrow the list and ▶ to hear a sound.</li>
+<li><b>To silence a sound</b>, untick it. If the same sound plays elsewhere, <b>Note</b> says so (<i>Also in Dual Wield</i>) and you're asked: <b>All</b> of them, or <b>Only This One</b>. A power can have several sounds: a gun's shot and its falling shells are separate rows.</li>
+<li><b>To replace a sound</b>, right-click it, <b>Replace This Sound</b>, and pick an audio file. For many at once, use <b>Export Sounds</b>, change the files, then <b>Replace Sounds</b>. Sounds marked <b>Loops</b> can only be turned off.</li>
+<li>Save Changes, then Apply Changes. The power's package joins the mod, so the change applies to every costume of that hero.</li>
+</ol>
+<figure><img src="img/editor-power-sounds.jpg" alt="The Power Sounds tab: Vision's powers with each sound's part, when it plays, a note when it loops or is used twice, and its sound event."><figcaption>The Power Sounds tab: each power's sounds, when they play, and a note when one loops or plays more than once.</figcaption></figure>
+<p>See <a href="#power-sounds">Power Sounds</a>.</p>
 </div>
 
 <div class="walk">
@@ -778,6 +807,7 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <tr><td>Overview → Packages</td><td>the .upk files the mod replaces</td></tr>
 <tr><td>Icons → Icons, Store Images, Achievements, Other Packages</td><td>images the mod replaces; search the game's names, see the original and your replacement side by side. A PNG, JPG or BMP is converted to the right size and format. To change an existing replacement, select it in the table (or double-click it) and load the new file.</td></tr>
 <tr><td>Strings</td><td>text changes: search the game's strings (the <b>Used By</b> column says what each belongs to), add or edit rows, or import a language .json</td></tr>
+<tr><td>Audio → Power Sounds</td><td>a hero's power sound effects: play, turn off, export and replace them (see <a href="#power-sounds">Power Sounds</a>).</td></tr>
 <tr><td>Audio → Voice</td><td>the costume's voice set: every line the hero says and when (death, level up, hits, banter, mission lines …); play a line, untick it to turn it off, give the costume another voice, or make the whole voice higher or lower with <b>Voice Shift</b> (see <a href="#voice">Voice lines</a>)</td></tr>
 <tr><td>Audio → Sound Packs</td><td>.mhsfx voice or sound packs</td></tr>
 <tr><td>Powers</td><td>recolor the hero's powers: pick a power, set Hue, Saturation and Brightness, and watch it in the 3D preview (see <a href="#powers">Power colors</a>)</td></tr>
@@ -873,13 +903,28 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <ul>
 <li><b>▶</b> plays a line: from the mod's own sound pack if it has that line, otherwise from the game's sound files. <b>Stop</b> stops it. If a line has no sound anywhere, it says so; it's silent in the game too.</li>
 <li><b>Untick</b> a line to turn it off, for example when a voice borrowed from another hero names its own team. <b>Save Changes</b> writes it into the mod's package; the mod remembers what was turned off, so it can be ticked again later (or <b>Turn All On</b>).</li>
-<li><b>Find</b> narrows the list by words in the situation, detail or event.</li>
+<li><b>What's Said</b> shows the words of each line (15,200 of the game's 15,400 voice lines). They were written down by speech recognition, so a word can be off. A line of your own shows <i>(Your Own Line)</i>. <b>Find</b> searches them too: type <code>hammer</code> to find every line about a hammer.</li>
+<li><b>Find</b> narrows the list by words in the situation, detail, what's said or event.</li>
+<li><b>Undo</b>, <b>Redo</b> (<kbd>Ctrl+Z</kbd>, <kbd>Ctrl+Y</kbd>) and <b>History</b> take back replaced lines you don't like, a Voice Shift, another voice, ticked lines and sound packs, step by step or by picking a step in History. They last until the editor closes; after that, right-click a line → <b>Back to the Original Line</b> takes your file out. If another tab rebuilt the package after a step (a Model build), that step can't be taken back, so it isn't lost.</li>
+<li><b>Export Lines</b> saves every line as a .WAV named after its sound event, with <code>lines.csv</code> saying when each plays and what's said (select several rows to save only those). Edit them in any audio or voice tool, or record your own.</li>
+<li><b>Replace Lines</b> takes a folder of .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files with those names: the lines that match are replaced and the rest stay as they are, so you only need the ones you changed. Any sample rate, mono or stereo. Right-click a row for <b>Replace This Line</b>, <b>Export This Line</b> or <b>Back to the Original Line</b>. Replaced lines keep your audio through a later Voice Shift, which leaves them alone. They go into the mod's sound pack, so the old MHModManager installs them too.</li>
 <li><b>Use Another Voice</b> gives the costume a whole voice from the game. Its hero's own voice comes first: a stock costume has no voice set of its own (it uses its hero's), so this is how you get its lines to play and turn off. Below it are the other voices the game has, such as Lady Deadpool, Spider-Gwen or Jane Foster, and the costumes with a voice of their own (Captain America's American Dream, Captain Marvel's Binary, Iron Man's Extremis …), and under <b>Other Heroes</b> every hero's voice. A mod that ships only the hero's own package (Sentry on Vision Classic, which has no costume package) can change that package's voice: the menu marks it <b>(the Hero's Own Voice)</b>, as every costume of that hero without a voice of its own uses it. The costume's powers then play that voice's lines. <b>Back to This Mod's Voice</b> undoes it before you save.</li>
 <li>Some entries aren't sounds: a <b>Banter Target</b> names a character other heroes' banter is about, and some emotes name an animation. They have no ▶ and aren't shifted.</li>
 <li>If the mod's packages have no voice lines, a line above the list says where the hero's voice is in the game. Some heroes keep it outside their main package: Carnage's comes from his Classic costume, which plays the Carnage voice package. <b>Add Classic and Use Its Voice</b> adds that costume's package to the mod (the game's copy) with the voice put in, so it can be played, turned off and shifted. When the mod is for one of the hero's other costumes (White Tiger on Iron Fist Classic), the button is <b>Use</b> plus the voice's name instead: the voice goes into that costume's own package, so the shift reaches the costume the mod changes.</li>
 <li><b>Voice Shift</b> makes the voice higher or lower, for example to turn a female voice male or the other way round. <b>Pitch</b> moves the voice in semitones, <b>Formant</b> moves the size of the throat you hear (lower sounds bigger), and <b>Warmth</b> adds body (a raised voice can sound thin). <b>Female → Male</b> and <b>Male → Female</b> are starting points; <b>Original</b> sets everything back to 0. While you move the sliders, <b>▶</b> plays the original line at those settings. <b>Apply to This Voice</b> shifts every line that is on (about 30 seconds) and <b>Save Changes</b> puts it into the mod; the line next to the buttons shows the saved settings, and ▶ then plays the lines as the mod has them. <b>Remove Shift</b> brings the original lines back.</li>
 <li><b>Effects</b> (the row under Voice Shift) filter the voice, each from Off to 100 %: <b>Reverb</b> (a room, up to a hall), <b>Echo</b> (repeats every quarter second), <b>Distortion</b> (gritty to heavily clipped), <b>Lo-Fi</b> (radio or old speaker: a narrow band, fewer bits), <b>Chorus</b> (doubled, wavering) and <b>Robot</b> (metallic ring modulation). They combine with each other and with the shift; ▶ previews them, and <b>Apply to This Voice</b> puts them in with the shift. Reverb and echo let a line ring out up to about a second longer. <b>No Effects</b> turns them all off. Like the shift, the result is a sound pack MHModManager can install too.</li>
 <li>Only the costume's voice lines are shifted. Sound effects in its voice set (such as a dodge), the hero's other costumes and every other character keep their sounds. The shift goes into the mod as a sound pack, so the old MHModManager installs it too. <b>Use Another Voice</b> drops a shift: shift the new voice again if you want it.</li>
+</ul>
+
+<h3 id="power-sounds">Power Sounds</h3>
+<p><b>Audio → Power Sounds</b> lists the sound effects of a hero's powers, and of what those powers set off: projectiles, hits and conditions. It opens on the mod's hero; <b>Hero</b> picks another.</p>
+<ul>
+<li><b>▶</b> plays a sound, <b>Stop</b> stops it. <b>Find</b> narrows the list by power, part or event. <b>When</b> says when in the power it plays, as far as the game says.</li>
+<li><b>Untick</b> a sound to turn it off; <b>Turn All On</b> brings them all back. Many sounds play from more than one place: Taskmaster's .45 Caliber and Dual Wield fire the same gunshot. <b>Note</b> says so (<i>Also in Dual Wield</i>), and unticking one asks whether to turn them all off. Replacing a sound always changes every place of this hero that plays it.</li>
+<li><b>Export Sounds</b> saves them as .WAV files named after their sound events, with <code>lines.csv</code> saying which power each belongs to (select rows to save only those). <b>Replace Sounds</b> takes a folder of .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files with those names; right-click a row for <b>Replace This Sound</b> or <b>Back to the Original Sound</b>. A sound used by two parts of a power changes in both.</li>
+<li>Sounds marked <b>Loops</b> can be turned off but not replaced yet: the game stops a loop by its original sound, so a new one would never end.</li>
+<li><b>Undo</b>, <b>Redo</b> and <b>History</b> are the same as on the Voice tab, and share its steps.</li>
+<li><b>Save Changes</b> builds them: the power's package joins the mod and the audio goes into its sound pack, so the old MHModManager installs it too. A power's package is shared, so the change applies to every costume of that hero. Sounds that many heroes share (knockdowns, slows) aren't listed. Sounds played by animations, such as footsteps, aren't in this list.</li>
 </ul>
 
 <h2 id="icons">Icons and Create from 3D</h2>

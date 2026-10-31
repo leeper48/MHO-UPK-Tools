@@ -4,6 +4,10 @@ MHModManager (mod format and behavior replicated; no code copied)
   By its original author. The mod format (manifest.json, string .json files, .mhsfx sound packs) and the library layout
   follow MHModManager 1.0.1 so mods stay interchangeable.
 
+MH_PCK_SoundSilencer (the words of voice lines: StockData\voice_text.tsv.gz)
+  By CorvaeOboro, https://github.com/CorvaeOboro/MH_PCK_SoundSilencer. CC0 1.0 (public domain). Its speech-to-text index of the
+  game's sounds, matched to the game's sound events by this project.
+
 MHO Actions, a Blender add-on (Assets\Blender\mho_fbx_to_actions-1.55.2.zip; optional: the Model tab's Settings > Model
 installs it into Blender)
   By Kurt (leeper48). License: GPL-3.0-or-later, as Blender add-ons are. It is shipped as its own file and its Python
@@ -14,6 +18,11 @@ SharpCompress (reading .7z and .rar mod archives)
   https://github.com/adamhathcock/sharpcompress
   License: MIT
   Copyright (c) 2014 Adam Hathcock
+
+NAudio (reading .MP3, .FLAC, .M4A and .WMA files through Windows' decoders)
+  https://github.com/naudio/NAudio
+  License: MIT
+  Copyright (c) 2020 Mark Heath
 
 NVorbis (decoding voice lines for playback in the Editor)
   https://github.com/NVorbis/NVorbis

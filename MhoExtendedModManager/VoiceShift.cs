@@ -104,7 +104,7 @@ static class VoiceShift
     /// reading faster (pitch up) first filters out what the new rate can't hold. (The first version interpolated without a
     /// filter: raising a voice folded its highs back down as a metallic, tinny edge; Kurt 2026-10-02.)
     /// </summary>
-    static float[] Resample(float[] x, float r)
+    internal static float[] Resample(float[] x, float r)
     {
         int n = Math.Max(1, (int)(x.Length / r));
         var y = new float[n];

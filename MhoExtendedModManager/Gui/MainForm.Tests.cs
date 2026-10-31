@@ -1059,6 +1059,16 @@ sealed partial class MainForm
     /// manifest's VoiceShifts, the pack, the voice set at …_mhoshift events), then Remove Shift, saved, and the costume package
     /// compared with the one before. Results in &lt;dir&gt;\result.txt.
     /// </summary>
+    /// <summary>--voice-undo-test: the Audio tab's Undo / Redo / History (ModEditorView.TestAudioUndo); nothing is saved.</summary>
+    public async Task<int> VoiceUndoTest(string modName, string tone, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m); pages.Select(1);
+        int fails = await editor!.TestAudioUndo(tone, say);
+        CloseEditor();
+        return fails;
+    }
+
     public async Task VoiceShiftTabTest(string dir, string modName, float pitch, float formant, float warmth)
     {
         Directory.CreateDirectory(dir);

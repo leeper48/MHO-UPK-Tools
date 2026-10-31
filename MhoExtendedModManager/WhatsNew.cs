@@ -41,7 +41,24 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.284 (Kurt, 2026-10-31): Power Sounds, What's Said, Replace Lines, Audio undo, more import formats.</summary>
+    static Notice AudioTools() => new(
+        "0.60.284-audio", "0.60.284",
+        "[!]Power Sounds: a new tab under Editor → Audio." + nl +
+        "  • Hear a hero's power sounds, turn them off, or replace them with your own." + nl +
+        "  • Note says when the same sound plays elsewhere, and unticking it asks whether to turn them all off." + nl +
+        "  • Looping sounds can be turned off but not replaced yet." + nl + nl +
+        "[!]Voice: see and replace what's said." + nl +
+        "  • What's Said shows the words of each line." + nl +
+        "  • Export Lines saves them as .WAV files; Replace Lines takes your own, a folder at a time or one by right-clicking." + nl + nl +
+        "[!]Both tabs" + nl +
+        "  • Replacing takes .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files." + nl +
+        "  • Undo, Redo and History take back an import you don't like." + nl +
+        "  • Mods made this way still install in the old MHModManager." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-sounds");
 
     /// <summary>0.60.243 (Kurt, 2026-10-28): Use Another Voice from an audio package crashed the game on load.</summary>
     static Notice VoiceCrashFix() => new(

@@ -244,6 +244,13 @@ sealed class Akpk
     /// <summary>Voice playback: what an event in one of this .pck's banks plays (see Bank.Media).</summary>
     public static (uint SourceId, byte[]? Embedded)? EventMedia(Stream f, Entry bank, uint eventId) => new Bank(ReadData(f, bank)).Media(eventId);
 
+    /// <summary>Every event in a bank with the sound it plays (Bank.Media): the voice text table's build.</summary>
+    public static IEnumerable<(uint Event, uint SourceId)> AllEventMedia(Stream f, Entry bank)
+    {
+        var b = new Bank(ReadData(f, bank));
+        foreach (var o in b.Objects.Where(o => o.Type == 4)) if (b.Media(o.Id) is { } m) yield return (o.Id, m.SourceId);
+    }
+
     static Dictionary<uint, (string Pck, uint Bank)>? eventIndex;
     static string? eventIndexFolder;
 

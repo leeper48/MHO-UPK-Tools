@@ -10,7 +10,10 @@ sealed partial class ModEditorView
     // ---- Voice
     Control VoicePage()
     {
-        voice = Ui.Grid(S, false, ("Situation", 230), ("Detail", 260), ("Sound Event", 0), ("Package", 280));
+        voice = Ui.Grid(S, false, ("Situation", 210), ("Detail", 210), ("What's Said", 0), ("Sound Event", 300), ("Package", 280));
+        // (the whole event name shows, however long; the words take the room left: Kurt, 2026-10-31, they clipped it)
+        voice.Columns["Sound Event"]!.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;   // (measured in FillVoice: the grid's own sizing still clipped the longest)
+        voice.Columns["What's Said"]!.MinimumWidth = (int)(240 * S);
         voice.Columns.Insert(0, new DataGridViewCheckBoxColumn { Name = "on", HeaderText = "On", Width = (int)(46 * S), SortMode = DataGridViewColumnSortMode.NotSortable });
         voice.Columns.Insert(1, new DataGridViewTextBoxColumn { Name = "play", HeaderText = "Play", Width = (int)(50 * S), ReadOnly = true, SortMode = DataGridViewColumnSortMode.NotSortable,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter, ForeColor = Ui.Accent, SelectionForeColor = Ui.Accent } });
@@ -20,7 +23,9 @@ sealed partial class ModEditorView
             if (e.RowIndex < 0 || voice.Columns[e.ColumnIndex].Name != "on" || voice.Rows[e.RowIndex].Tag is not VoiceLine l) return;
             if (l.Missing) return;   // the moved voice has no line here; the hero's own isn't in the package to turn on
             bool on = !IsOn(l);
+            var audioWas = AudioNow();
             voiceWanted[(l.Package, l.Offset)] = on;
+            AudioRecord($"Line {(on ? "On" : "Off")}: {l.Situation}", audioWas);
             voice.Rows[e.RowIndex].Cells["on"].Value = on;
             voice.Rows[e.RowIndex].DefaultCellStyle.ForeColor = on ? Ui.Text : Ui.Subtle;
             UpdateVoiceCount();
@@ -28,14 +33,30 @@ sealed partial class ModEditorView
         voiceFind.TextChanged += (_, _) => FillVoice();
         MhoPackageModifier.Gui.SearchBox.AddClear(voiceFind);
         Disposed += (_, _) => { VoiceAudio.Stop(); if (voiceWork != null) try { Directory.Delete(voiceWork, true); } catch (IOException) { } };
-        Ui.Tip(voiceFind, "Show only lines whose situation, detail or sound event has these words.");
+        Ui.Tip(voiceFind, "Show only lines whose situation, detail, words or sound event have these words.");
         var find = new Label { Text = "Find", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 4, 0) };
         var allOn = Ui.FlatButton("Turn All On", () =>
         {
+            var audioWas = AudioNow();
             foreach (var l in voiceLines) voiceWanted[(l.Package, l.Offset)] = true;
+            AudioRecord("Turn All On", audioWas);
             FillVoice();
         }, tip: "Turn every line of the voice set back on.");
         var stop = Ui.FlatButton("Stop", () => { VoiceAudio.Stop(); voiceStatus.Text = ""; }, tip: "Stop the line that's playing.");
+        var export = Ui.FlatButton("Export Lines", () => ExportLines(null), "Saves every line as a .WAV named after its sound event, with lines.csv saying what each one is and what's said. Change them in any audio or voice tool, or record your own, then use Replace Lines. Selected rows: only those.");
+        var replace = Ui.FlatButton("Replace Lines", ReplaceLines, $"Pick a folder of {VoiceLines.Formats} files named as Export Lines names them: those lines of the voice are replaced by your files. You don't need all of them. Any rate, mono or stereo. Right-click a row for one line.");
+        voice.CellMouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Right || e.RowIndex < 0 || voice.Rows[e.RowIndex].Tag is not VoiceLine) return;
+            if (!voice.Rows[e.RowIndex].Selected) { voice.ClearSelection(); voice.Rows[e.RowIndex].Selected = true; }
+            var picked = PickedLines();
+            var menu = new ContextMenuStrip();
+            if (picked.Count == 1) menu.Items.Add(new ToolStripMenuItem("Replace This Line", null, (_, _) => ReplaceOne(picked[0])) { ToolTipText = "Pick an audio file to play instead of this line." });
+            menu.Items.Add(new ToolStripMenuItem(picked.Count == 1 ? "Export This Line" : $"Export {picked.Count} Lines", null, (_, _) => ExportLines(picked)) { ToolTipText = "Saves them as .WAV files." });
+            if (picked.Any(IsOwnLine)) menu.Items.Add(new ToolStripMenuItem("Back to the Original Line", null, (_, _) => OriginalLines(picked)) { ToolTipText = "Takes your file out: the line plays as it did before." });
+            menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+            menu.Show(voice, voice.PointToClient(Cursor.Position));
+        };
         Button? another = null;
         another = Ui.FlatButton("Use Another Voice ▾", () => VoiceMenu(another!),
             tip: "Give the costume a whole voice from the game: its hero's own (so you can play and turn off its lines), another costume's voice such as Lady Deadpool or Spider-Gwen, or any hero's.");
@@ -63,7 +84,7 @@ sealed partial class ModEditorView
         Ui.Tip(voiceFormant, "Moves the voice's formants (the size of the throat you hear) by semitones, apart from the pitch. Lower sounds bigger, higher smaller.");
         Button Preset(string text, float pitch, float formant, float warmth, string tip) => Ui.FlatButton(text, () => { voicePitch.Value = pitch; voiceFormant.Value = formant; voiceWarmth.Value = warmth; }, tip);
         var shiftNow = Ui.AccentButton("Apply to This Voice", ShiftVoice, "Shift and filter every line of the voice with these settings (about 30 seconds). Lines that are off stay off; sound effects in the voice set aren't changed. Save puts it into the mod: a sound pack MHModManager can install too.");
-        var unshift = Ui.FlatButton("Remove Shift", RemoveShift, "Put the voice's original lines back, without the shift and filters (Save to keep it).");
+        var unshift = Ui.FlatButton("Remove Shift", () => _ = UnshiftVoice(), "Put the voice's original lines back, without the shift and filters (Save to keep it).");
         var noFx = Ui.FlatButton("No Effects", () => { foreach (var sl in new[] { voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot }) sl!.Value = 0; }, "Every filter off (the shift stays).");
         var shiftRow = Toolbar(new Label { Text = "VOICE SHIFT", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, voicePitch, voiceFormant, voiceWarmth,
             Preset("Female → Male", -5, -2.5f, 0, "Pitch -5, formants -2.5: a starting point for a female voice to sound male."),
@@ -78,7 +99,7 @@ sealed partial class ModEditorView
         }
         ShowShiftNote();
         var bars = new Panel { Dock = DockStyle.Top, AutoSize = true };
-        var mainRow = Toolbar(find, voiceFind, allOn, stop, another, voiceCount, voiceStatus);
+        var mainRow = Toolbar([find, voiceFind, allOn, stop, export, replace, another, .. AudioButtons(), voiceCount, voiceStatus]);
         voiceHintButton = Ui.AccentButton("Use the Hero's Voice", UseHeroVoice, "Add the hero's default costume package to the mod (the game's copy) and put the voice the game plays for it into that package, so its lines can be played, turned off and shifted.");
         voiceHintRow = Toolbar(voiceHint, voiceHintButton);
         voiceHintRow.Visible = false;
@@ -155,8 +176,9 @@ sealed partial class ModEditorView
     ToolStripMenuItem VoiceItem(string file, VoiceSet.Source v) => new(v.Title, null, (_, _) => UseVoice(file, v)) { ToolTipText = Path.GetFileName(v.File) };
 
     /// <summary>Puts a stock voice into a costume package of the draft (VoiceSet.Replace, verified, in a work folder until Save), or back to the mod's own.</summary>
-    async void UseVoice(string file, VoiceSet.Source? v)
+    async void UseVoice(string file, VoiceSet.Source? v, AudioState? audioWas = null)
     {
+        audioWas ??= AudioNow();
         int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
         if (k < 0) return;
         if (v == null)
@@ -190,6 +212,7 @@ sealed partial class ModEditorView
         foreach (var key in voiceWanted.Keys.Where(x => x.Item1.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList()) voiceWanted.Remove(key);
         voiceWavs.Clear();
         RefreshPackages();
+        AudioRecord(v == null ? "Back to This Mod's Voice" : "Voice: " + v.Title, audioWas);
     }
 
     readonly Label voiceStatus = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(14, 8, 0, 0) };
@@ -260,6 +283,7 @@ sealed partial class ModEditorView
     {
         if (heroVoice is not { } f || game == null) return;
         if (heroVoiceInto != null) { UseVoice(heroVoiceInto, f.Voice); return; }
+        var audioWas = AudioNow();
         if (!draft.Packages.Any(p => p.File.Equals(f.CostumeFile, StringComparison.OrdinalIgnoreCase)))
         {
             string src = StockFiles.For(game.Cooked, f.CostumeFile);
@@ -271,7 +295,7 @@ sealed partial class ModEditorView
             draft.Packages.Add((f.CostumeFile, src));
             RefreshPackages();
         }
-        UseVoice(f.CostumeFile, f.Voice);
+        UseVoice(f.CostumeFile, f.Voice, audioWas);
     }
     readonly Label voiceShiftNote = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(10, 8, 0, 0) };
     bool shifting;
@@ -289,7 +313,9 @@ sealed partial class ModEditorView
     {
         var v = draft.VoiceShifts.FirstOrDefault();
         voiceShiftNote.ForeColor = v == null ? Ui.Subtle : Ui.Enabled;
-        voiceShiftNote.Text = v == null ? "Not Shifted" : $"Shifted: Pitch {v.Pitch:+0.#;-0.#;0}, Formant {v.Formant:+0.#;-0.#;0}, Warmth {v.Warmth:+0.#;-0.#;0} dB" + EffectsText(v);
+        int own = draft.VoiceShifts.Sum(x => x.Replaced?.Count ?? 0);
+        voiceShiftNote.Text = (v?.Any != true ? "Not Shifted" : $"Shifted: Pitch {v.Pitch:+0.#;-0.#;0}, Formant {v.Formant:+0.#;-0.#;0}, Warmth {v.Warmth:+0.#;-0.#;0} dB" + EffectsText(v))
+            + (own > 0 ? $" · {own} Line{(own == 1 ? "" : "s")} Replaced" : "");
     }
 
     /// <summary>", Reverb 40 %, Echo 20 %" for the filters that are on.</summary>
@@ -327,28 +353,147 @@ sealed partial class ModEditorView
     }
     internal string ShiftNote => voiceShiftNote.Text;
 
+    /// <summary>The lines picked in the table.</summary>
+    List<VoiceLine> PickedLines() => [.. voice!.SelectedRows.Cast<DataGridViewRow>().OrderBy(r => r.Index).Select(r => r.Tag).OfType<VoiceLine>()];
+
+    /// <summary>Is this line replaced by a file of the user's?</summary>
+    bool IsOwnLine(VoiceLine l) => draft.VoiceShifts.Any(x => x.Package.Equals(l.Package, StringComparison.OrdinalIgnoreCase) && x.IsReplaced(VoiceLines.Leaf(l.Event)));
+
+    /// <summary>Export Lines: <paramref name="only"/>, else the rows selected if there are several, else all.</summary>
+    async void ExportLines(List<VoiceLine>? only)
+    {
+        if (game == null) return;
+        var picked = only ?? (voice!.SelectedRows.Count > 1 ? PickedLines() : voiceLines);
+        if (!picked.Any(l => l.Sound)) { Dialog.Show(this, "No package of this mod has a voice set. Use Another Voice gives a costume one first.", "No Voice to Export", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        using var d = new FolderBrowserDialog { Description = "Folder for the lines (.WAV files and lines.csv)", UseDescriptionForTitle = true };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        string folder = d.SelectedPath, cooked = game.Cooked;
+        var packs = draft.SoundPacks.ToList();
+        var lines = picked.ToList();
+        var progress = new Progress<string>(m => { voiceStatus.ForeColor = Ui.Subtle; voiceStatus.Text = m; });
+        var (written, failed) = await Task.Run(() => VoiceLines.Export(lines, packs, cooked, folder, progress));
+        if (IsDisposed) return;
+        voiceStatus.ForeColor = Ui.Subtle;
+        voiceStatus.Text = $"{written} Line{(written == 1 ? "" : "s")} Exported";
+        if (failed.Count > 0) Dialog.ShowLog(this, $"{written} exported. These have no sound (silent in the game too):" + Environment.NewLine + string.Join(Environment.NewLine, failed), "Lines Exported");
+    }
+
+    /// <summary>Replace Lines: a folder of files named after the lines.</summary>
+    void ReplaceLines()
+    {
+        using var d = new FolderBrowserDialog { Description = "Folder with your audio files, named as Export Lines names them", UseDescriptionForTitle = true };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        var lines = voiceLines.Where(l => l.Sound && !l.Missing && !l.Off).ToList();
+        var (matched, unknown) = VoiceLines.Match(d.SelectedPath, lines.Select(l => VoiceLines.Leaf(l.Event)));
+        if (matched.Count == 0) { Dialog.Show(this, "No file there is named after a line that's on in this voice. Export Lines shows the names.", "Nothing to Replace", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (unknown.Count > 0 && Dialog.Show(this, $"{matched.Count} line(s) will be replaced.{Environment.NewLine}{Environment.NewLine}{unknown.Count} file(s) aren't named after a line and are left out:{Environment.NewLine}{string.Join(Environment.NewLine, unknown.Take(12).Select(u => "  • " + u))}{(unknown.Count > 12 ? Environment.NewLine + "  …" : "")}",
+                "Replace Lines", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+        _ = PutLines(lines.Where(l => matched.ContainsKey(VoiceLines.Leaf(l.Event))).ToList(), matched, $"Replace {matched.Count} Line{(matched.Count == 1 ? "" : "s")}");
+    }
+
+    void ReplaceOne(VoiceLine l)
+    {
+        using var d = new OpenFileDialog { Title = "A line to play instead of " + VoiceLines.Leaf(l.Event), Filter = VoiceLines.FileFilter };
+        if (d.ShowDialog(this) == DialogResult.OK) _ = PutLines([l], new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [VoiceLines.Leaf(l.Event)] = d.FileName }, "Replace Line: " + l.Situation);
+    }
+
+    /// <summary>The files into the mod, per package (what's already replaced or shifted stays).</summary>
+    internal async Task PutLines(List<VoiceLine> lines, IReadOnlyDictionary<string, string> files, string label)
+    {
+        Dictionary<string, byte[]> wavs;
+        var bad = new List<string>();
+        try
+        {
+            wavs = await Task.Run(() =>
+            {
+                var w = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (leaf, file) in files)
+                    try { w[leaf] = VoiceLines.Load(file); }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or IndexOutOfRangeException or ArgumentException or UnauthorizedAccessException) { bad.Add($"{Path.GetFileName(file)}: {ex.Message}"); }
+                return w;
+            });
+        }
+        finally { }
+        if (IsDisposed) return;
+        var entries = new Dictionary<string, VoiceShiftEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var g in lines.Where(l => wavs.ContainsKey(VoiceLines.Leaf(l.Event))).GroupBy(l => l.Package, StringComparer.OrdinalIgnoreCase))
+        {
+            var e = SavedShift(g.Key);
+            e.Replaced = [.. (e.Replaced ?? []).Concat(g.Select(l => VoiceLines.Leaf(l.Event))).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)];
+            entries[g.Key] = e;
+        }
+        if (entries.Count > 0) await BuildVoice(entries, wavs, label);
+        if (bad.Count > 0) Dialog.ShowLog(this, "These files couldn't be read:" + Environment.NewLine + string.Join(Environment.NewLine, bad), "Some Lines Not Replaced");
+    }
+
+    /// <summary>Back to the Original Line: the user's files out of these lines.</summary>
+    async void OriginalLines(List<VoiceLine> lines)
+    {
+        var entries = new Dictionary<string, VoiceShiftEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var g in lines.Where(IsOwnLine).GroupBy(l => l.Package, StringComparer.OrdinalIgnoreCase))
+        {
+            var e = SavedShift(g.Key);
+            var gone = g.Select(l => VoiceLines.Leaf(l.Event)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            e.Replaced = e.Replaced?.Where(x => !gone.Contains(x)).ToList();
+            entries[g.Key] = e;
+        }
+        await BuildVoice(entries, null, lines.Count == 1 ? "Back to the Original: " + lines[0].Situation : $"Back to the Original: {lines.Count} Lines");
+    }
+
+    /// <summary>A copy of the package's saved shift and replaced lines (none: an empty one).</summary>
+    VoiceShiftEntry SavedShift(string file)
+    {
+        var s = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
+        return new VoiceShiftEntry { Package = file, Pitch = s?.Pitch ?? 0, Formant = s?.Formant ?? 0, Warmth = s?.Warmth ?? 0, Reverb = s?.Reverb ?? 0, Echo = s?.Echo ?? 0,
+            Distortion = s?.Distortion ?? 0, LoFi = s?.LoFi ?? 0, Chorus = s?.Chorus ?? 0, Robot = s?.Robot ?? 0, Replaced = s?.Replaced?.ToList() };
+    }
+
+    /// <summary>Remove Shift: the lines the user replaced stay.</summary>
+    async Task UnshiftVoice()
+    {
+        var kept = draft.VoiceShifts.Where(x => x.Replaced is { Count: > 0 }).ToList();
+        if (kept.Count == 0) { RemoveShift(); return; }
+        await BuildVoice(kept.ToDictionary(x => x.Package, x => { var e = new VoiceShiftEntry { Package = x.Package, Replaced = x.Replaced?.ToList() }; return e; }, StringComparer.OrdinalIgnoreCase), null, "Remove Shift");
+    }
+
     async Task ShiftVoiceAsync()
     {
         if (shifting || game == null) return;
         var targets = draft.Packages.Where(p => File.Exists(p.Source) && VoiceSet.Read(p.File, p.Source, draft.VoiceOff).Any(l => l.Sound)).ToList();
         if (targets.Count == 0) { Dialog.Show(this, "No package of this mod has a voice set. Use Another Voice gives a costume one first.", "No Voice to Shift", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         var set = Sliders;
-        if (!set.Any) { RemoveShift(); return; }
-        shifting = true;
+        if (!set.Any) { await UnshiftVoice(); return; }
+        var entries = new Dictionary<string, VoiceShiftEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (file, _) in targets)
+            entries[file] = new VoiceShiftEntry { Package = file, Pitch = set.Pitch, Formant = set.Formant, Warmth = set.Warmth, Reverb = set.Reverb, Echo = set.Echo, Distortion = set.Distortion,
+                LoFi = set.LoFi, Chorus = set.Chorus, Robot = set.Robot, Replaced = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase))?.Replaced?.ToList() };
+        await BuildVoice(entries, null, $"Voice Shift: Pitch {set.Pitch:+0.#;-0.#;0}, Formant {set.Formant:+0.#;-0.#;0}, Warmth {set.Warmth:+0.#;-0.#;0}" + EffectsText(set));
+    }
+
+    /// <summary>These packages' voices rendered (VoiceShiftBuild) into the work folder; Save writes them. A package with nothing
+    /// left to do goes back to its original lines.</summary>
+    async Task BuildVoice(Dictionary<string, VoiceShiftEntry> entries, IReadOnlyDictionary<string, byte[]>? newLines, string label)
+    {
+        if (shifting || game == null) return;
+        var audioWas = AudioNow();
+        shifting = audioBusy = true;
+        UpdateAudioButtons();
         string cooked = game.Cooked;
         voiceWork ??= Path.Combine(lib.DataFolder, "voice-work-" + Guid.NewGuid().ToString("N")[..8]);
         var progress = new Progress<string>(m => { voiceShiftNote.ForeColor = Ui.Subtle; voiceShiftNote.Text = m; });
         var logs = new List<string>();
         try
         {
-            foreach (var (file, source) in targets)
+            foreach (var (file, entry) in entries)
             {
-                var entry = new VoiceShiftEntry { Package = file, Pitch = set.Pitch, Formant = set.Formant, Warmth = set.Warmth,
-                    Reverb = set.Reverb, Echo = set.Echo, Distortion = set.Distortion, LoFi = set.LoFi, Chorus = set.Chorus, Robot = set.Robot };
+                if (!entry.Any && entry.Replaced is not { Count: > 0 }) { RemoveShift(file); continue; }
+                if (entry.Replaced is { Count: 0 }) entry.Replaced = null;
+                string source = draft.Packages.First(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source;
+                string? earlier = draft.SoundPacks.FirstOrDefault(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase));
                 var packs = draft.SoundPacks.Where(x => !Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase)).ToList();
                 var off = draft.VoiceOff.ToList();
                 string work = Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6]);
-                var (pkg, pack, log) = await Task.Run(() => VoiceShiftBuild.Build(source, file, off, packs, cooked, entry, work, progress));
+                var (pkg, pack, log) = await Task.Run(() => VoiceShiftBuild.Build(source, file, off, packs, cooked, entry, work, progress, newLines, earlier));
                 if (IsDisposed) return;
                 int k = draft.Packages.FindIndex(x => x.File.Equals(file, StringComparison.OrdinalIgnoreCase));
                 draft.Packages[k] = (file, pkg);
@@ -361,25 +506,28 @@ sealed partial class ModEditorView
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or UnauthorizedAccessException)
         {
-            shifting = false; ShowShiftNote();
+            shifting = audioBusy = false; ShowShiftNote(); UpdateAudioButtons();
             Dialog.Show(this, "The voice couldn't be shifted: " + ex.Message, "Voice Not Shifted", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        shifting = false;
+        shifting = audioBusy = false;
         voiceWavs.Clear();
         RefreshPackages(); RefreshSounds(); RefreshVoice(); ShowShiftNote();
+        AudioRecord(label, audioWas);
+        UpdateAudioButtons();
         voiceShiftNote.Text += " · Not Saved Yet";
         // Sound effects in a voice set are always left out (that's by design); anything else left out is worth a look.
         if (logs.Any(l => l.Contains("left as it is") && !VoiceShiftBuild.ExpectedSkip(l))) Dialog.ShowLog(this, string.Join(Environment.NewLine, logs), "Voice Shifted");
     }
 
-    /// <summary>Remove Shift: the voice set back at the original lines, the shift's sound pack out.</summary>
-    void RemoveShift()
+    /// <summary>Remove Shift: the voice set back at the original lines, the shift's sound pack out (one package's, else all).</summary>
+    void RemoveShift(string? only = null)
     {
+        var audioWas = audioBusy ? null : AudioNow();
         bool any = false;
         foreach (var (file, source) in draft.Packages.ToList())
         {
-            if (!File.Exists(source)) continue;
+            if (!File.Exists(source) || only != null && !only.Equals(file, StringComparison.OrdinalIgnoreCase)) continue;
             byte[]? undone;
             try { undone = VoiceShiftBuild.Unshift(source, file, draft.VoiceOff); }
             catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, ex.Message, "Shift Not Removed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -396,9 +544,10 @@ sealed partial class ModEditorView
             if (draft.SoundPacks.RemoveAll(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase)) > 0) any = true;
         }
         any |= draft.VoiceShifts.Count > 0;
-        draft.VoiceShifts.Clear();
+        draft.VoiceShifts.RemoveAll(x => only == null || only.Equals(x.Package, StringComparison.OrdinalIgnoreCase));
         voiceWavs.Clear();
         RefreshPackages(); RefreshSounds(); RefreshVoice(); ShowShiftNote();
+        if (audioWas != null) AudioRecord("Remove Shift", audioWas);
         if (any) voiceShiftNote.Text += " · Not Saved Yet";
     }
 
@@ -416,7 +565,7 @@ sealed partial class ModEditorView
             // the sliders' settings (a preview).
             var set = Sliders;
             var saved = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(l.Package, StringComparison.OrdinalIgnoreCase));
-            bool asIs = l.Event.EndsWith(VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase) && saved != null && Same(saved, set);
+            bool asIs = l.Event.EndsWith(VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase) && saved != null && (Same(saved, set) || saved.IsReplaced(leaf.Replace(VoiceShiftBuild.Suffix, "")));
             string ev = asIs ? l.Event : VoiceShiftBuild.Original(l.Event);
             if (!voiceWavs.TryGetValue(ev, out byte[]? wav))
             {
@@ -457,13 +606,17 @@ sealed partial class ModEditorView
         string[] words = voiceFind.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         voice.Rows.Clear();
         voice.Columns["Package"]!.Visible = voiceLines.Select(l => l.Package).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
+        // (every line, not only the ones found: the column doesn't jump as you type)
+        voice.Columns["Sound Event"]!.Width = voiceLines.Select(l => TextRenderer.MeasureText(l.Event, voice.Font).Width).DefaultIfEmpty((int)(300 * S)).Max() + (int)(24 * S);
         foreach (var l in voiceLines)
         {
-            string text = $"{l.Situation} {l.Detail} {l.Event}";
+            string said = !l.Sound ? "" : IsOwnLine(l) ? "(Your Own Line)" : VoiceText.For(l.Event);
+            string text = $"{l.Situation} {l.Detail} {said} {l.Event}";
             if (!words.All(w => text.Contains(w, StringComparison.OrdinalIgnoreCase))) continue;
             bool on = IsOn(l);
-            int i = voice.Rows.Add(on, l.Sound ? "▶" : "", l.Situation, l.Missing ? (l.Detail.Length > 0 ? l.Detail + " · " : "") + "Not in This Voice" : l.Detail, l.Event, l.Package);
+            int i = voice.Rows.Add(on, l.Sound ? "▶" : "", l.Situation, l.Missing ? (l.Detail.Length > 0 ? l.Detail + " · " : "") + "Not in This Voice" : l.Detail, said, l.Event, l.Package);
             voice.Rows[i].Tag = l;
+            voice.Rows[i].Cells["What's Said"].ToolTipText = said.Length > 0 ? said + Environment.NewLine + "(written down by speech recognition: close, not exact)" : "";
             voice.Rows[i].Cells["play"].ToolTipText = l.Missing ? "Play the hero's own line (the one turned off here)" : "Play this line";
             if (l.Missing)
             {

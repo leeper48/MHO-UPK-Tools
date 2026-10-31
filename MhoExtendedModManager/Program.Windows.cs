@@ -706,6 +706,24 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--voice-undo-test", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            AttachConsole(-1);
+            var main = new Gui.MainForm();
+            int code = 1;
+            var report = new List<string>();
+            main.Shown += (_, _) => main.BeginInvoke(async () =>
+            {
+                try { code = await main.VoiceUndoTest(args[1], args[2], report.Add); }
+                catch (Exception ex) { report.Add("ERROR: " + ex); }
+                File.WriteAllLines(args[2] + ".result.txt", report);
+                main.Close();
+            });
+            Application.Run(main);
+            return code == 0 ? 0 : 1;
+        }
         if (args.Length == 6 && args[0].Equals("--voice-shift-tab-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
