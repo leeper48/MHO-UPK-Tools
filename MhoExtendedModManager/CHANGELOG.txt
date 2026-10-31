@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.274
+- Props: the Model and Animations tabs lay out the prop's fit as the Powers tab does: Size, Move X / Y / Z and Turn X / Y / Z in one column, with Reset Fit, Gizmo: All Animations and Pivot on the Hand in a row under them, and In This Animation beside them (no longer folded on the Model tab). The Animations tab gained Reset Fit.
+
 0.60.273
 - Added props: a prop held on its own character's bone (no Held On picked) lost that bone when it was added, so it hung on none. Your own client coped, but other players' clients crashed the moment they saw your character (Worthy Captain America with Thor's hammer crashed every player near a Classic Cap). The prop now keeps its character's bone. A mod with such a prop is repaired by opening it in the Editor and saving.
 - Props: Pivot on the Hand is an icon button (lit when on) on the Model tab (new), the Animations tab and the Powers tab; all three are one setting.

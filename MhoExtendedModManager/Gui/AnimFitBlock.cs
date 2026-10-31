@@ -26,12 +26,8 @@ sealed class AnimFitBlock
     /// choose which the gizmo works on). Only with a gizmo (the Powers tab's).</summary>
     public bool GizmoHere { get; set; }
     readonly Button? gizmoHere;
-    /// <summary>The sliders' two-column table (twoColumns), or null.</summary>
-    readonly Control? sliderGrid;
-    /// <summary>The two-column block opened (its heading clicked).</summary>
-    bool open;
 
-    public AnimFitBlock(float scale, string headTip, Func<(AddedPropEntry? Entry, string? Slot, string Why)> target, Action<AddedPropEntry, string, PropAnimFit?> changed, Func<Control[], Control> toolbar, bool gizmo = false, bool twoColumns = false)
+    public AnimFitBlock(float scale, string headTip, Func<(AddedPropEntry? Entry, string? Slot, string Why)> target, Action<AddedPropEntry, string, PropAnimFit?> changed, Func<Control[], Control> toolbar, bool gizmo = false)
     {
         this.target = target; this.changed = changed;
         string Units(float v) => $"{v:+0;-0;0}";
@@ -65,32 +61,17 @@ sealed class AnimFitBlock
             Ui.Lit(gizmoHere, false);
         }
         tools = toolbar(gizmoHere != null ? [copy, reset, gizmoHere] : [copy, reset]);
-        if (twoColumns)
-        {
-            // Move | Turn side by side (the Model tab's column, Kurt 2026-10-30: the panel under it kept its room)
-            var grid = new TableLayoutPanel { ColumnCount = 2, RowCount = 3, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0), Dock = DockStyle.Fill };
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            LightSlider[] l = [x, y, z], r = [tx, ty, tz];
-            for (int k = 0; k < 3; k++)
-            {
-                l[k].Dock = DockStyle.Fill; l[k].Margin = new Padding(0, k == 0 ? 0 : 2, 8, 0); grid.Controls.Add(l[k], 0, k);
-                r[k].Dock = DockStyle.Fill; r[k].Margin = new Padding(8, k == 0 ? 0 : 2, 0, 0); grid.Controls.Add(r[k], 1, k);
-            }
-            sliderGrid = grid;
-            // folds (the Model tab's column has no room for the sliders always): the heading opens it, and so does Gizmo:
-            // This Animation Only; folded, the heading shows the values
-            head.Cursor = Cursors.Hand;
-            head.Click += (_, _) => { open = !open; Show(); };
-            Root.Controls.AddRange([head, note, grid, tools]);
-        }
-        else Root.Controls.AddRange([head, note, x, y, z, tx, ty, tz, tools]);
+        Root.Controls.AddRange([head, note, x, y, z, tx, ty, tz, tools]);
     }
 
     /// <summary>Gizmo: This Animation Only clicked (the view decides, with its Gizmo: All Animations).</summary>
     public event Action? GizmoTargetChanged;
 
     /// <summary>Gizmo: This Animation Only lit or not.</summary>
-    public void LightGizmo(bool on) { if (gizmoHere != null) Ui.Lit(gizmoHere, on); if (sliderGrid != null) Show(); }
+    public void LightGizmo(bool on) { if (gizmoHere != null) Ui.Lit(gizmoHere, on); }
+
+    /// <summary>The sliders' width (the Model tab's column: as wide as its Prop Fit column beside it).</summary>
+    public void SetSliderWidth(int w) { foreach (var sl in new[] { x, y, z, tx, ty, tz }) sl.Width = w; }
 
     /// <summary>The prop and animation the sliders adjust (null when they can't).</summary>
     public (AddedPropEntry Entry, string Slot)? Target => target() is var (e, slot, why) && e != null && slot != null && why.Length == 0 ? (e, slot) : null;
@@ -119,14 +100,6 @@ sealed class AnimFitBlock
         head.Visible = e != null;
         head.Text = slot != null ? "IN THIS ANIMATION: " + slot.ToUpperInvariant() : "IN THIS ANIMATION";
         foreach (var c in new Control[] { x, y, z, tx, ty, tz, tools }) c.Visible = can;
-        if (sliderGrid != null)
-        {
-            bool shown = can && (open || GizmoHere);
-            sliderGrid.Visible = shown;
-            if (can && !shown && Of(e!, slot) is var f)
-                head.Text = (f is { IsZero: false } ? $"▸ IN THIS ANIMATION: {slot!.ToUpperInvariant()}  ·  Move {f.X:0}, {f.Y:0}, {f.Z:0}  ·  Turn {f.TurnX:0}°, {f.TurnY:0}°, {f.TurnZ:0}°" : $"▸ IN THIS ANIMATION: {slot!.ToUpperInvariant()}  ·  none");
-            else if (can) head.Text = "▾ " + head.Text;
-        }
         note.Text = e == null ? "" : why;
         note.Visible = e != null && why.Length > 0;
         if (!can) return;

@@ -11,20 +11,45 @@ namespace MhoExtendedModManager.Gui;
 sealed partial class ModEditorView
 {
     Button? animGizmoButton;
+    /// <summary>Pivot on the Hand's icon button (beside the gizmo, as in the Powers tab).</summary>
+    Button? propPinButton;
     Preview3D? animGizmoHooked;
     PropFit? animFitBuilt;
     (float X, float Y, float Z, float TX, float TY, float TZ)? animFitStart;
     PropAnimFit? animAdjustStart;
     Matrix4x4? animGizmoFrame;
 
-    /// <summary>Gizmo: All Animations, for the fit column.</summary>
+    /// <summary>Reset Fit, Gizmo: All Animations and Pivot on the Hand under the fit's sliders (laid out as the Powers tab's,
+    /// Kurt 2026-10-30).</summary>
     Control AnimGizmoButtons()
     {
+        var reset = Ui.FlatButton("Reset Fit", ResetAnimPropFit, "Puts the prop's fit back: its own size, no move, its usual turn.");
+        Icons.Make(reset, "Reset Fit", Icons.Reset, S);
         animGizmoButton = Ui.FlatButton("Gizmo: All Animations", () => PickAnimGizmo(thisAnimation: false), "The move / turn gizmo in the preview on the prop's fit in every animation (these sliders): drag a colored arrow to move it along X (red), Y (green) or Z (blue), the white dot to move it in the view, a ring to turn it around that axis (5° steps, Shift: 1°). Letting go puts the fit in. Lit when it's on; click again to hide the gizmo. Gizmo: This Animation Only (In This Animation) is the other choice.");
         Icons.Make(animGizmoButton, "Gizmo: All Animations", Icons.Gizmo, S);
-        animGizmoButton.Margin = new Padding(0, (int)(4 * S), 0, 0);
         LightAnimGizmos();
-        return animGizmoButton;
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, (int)(4 * S), 0, 0), BackColor = Color.Transparent };
+        row.Controls.AddRange([reset, animGizmoButton]);
+        if (propPinButton != null) row.Controls.Add(propPinButton);
+        animFitButtons = row;
+        return row;
+    }
+
+    Control? animFitButtons;
+
+    void ResetAnimPropFit()
+    {
+        if (propList.SelectedItem is not AddedPropEntry e || apSize == null || apX == null || apY == null || apZ == null || apTX == null || apTY == null || apTZ == null) return;
+        propShowing = true;
+        try
+        {
+            apSize.Value = 1;
+            apX.Value = apY.Value = apZ.Value = 0;
+            apTX.Value = apTY.Value = 0;
+            apTZ.Value = PowerBorrow.DefaultTurnZ(e.Class);
+        }
+        finally { propShowing = false; }
+        PropFitCommitted();
     }
 
     void PickAnimGizmo(bool thisAnimation)

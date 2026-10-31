@@ -57,15 +57,15 @@ sealed partial class ModEditorView
         apTX = Slider("Turn X", -180, 180, 1, Deg, "Turns the prop about its own X axis (roll). Double-click: back to 0.");
         apTY = Slider("Turn Y", -180, 180, 1, Deg, "Turns the prop about its own Y axis (pitch). Double-click: back to 0.");
         apTZ = Slider("Turn Z", -180, 180, 1, Deg, "Turns the prop about its own Z axis (yaw). Some props start turned for this hand (Thor's hammer). Double-click: back to that start.");
-        var propPinButton = Icons.PivotToggle(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) hold the prop as that character holds it: in the hand where they hold it, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). Worked out from that character's own animation and baked into the copies. Look ▾ → Prop Pivots shows the pivot. The same setting as the Model and Powers tabs' button.", S);
-        propPinButton.Margin = new Padding(0, (int)(6 * S), 0, (int)(2 * S));
+        propPinButton = Icons.PivotToggle(propPin, "The animations this costume took from another character (Animations tab: Thor's idles and fidgets) hold the prop as that character holds it: in the hand where they hold it, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). Worked out from that character's own animation and baked into the copies. Look ▾ → Prop Pivots shows the pivot. The same setting as the Model and Powers tabs' button.", S);
+        propPinButton.Margin = new Padding((int)(6 * S), 0, 0, 0);
         propPin.CheckedChanged += (_, _) => PinChanged();
         animBlock = new AnimFitBlock(S, "The prop moved and turned further in one animation (the row selected above), for a pose that wants it elsewhere. Needs an animation from another character (a Changed row); with Pivot on the Hand or without.",
             () => { var e = propList.SelectedItem as AddedPropEntry; AnimFitSlot(e, out string why); return (e, SelectedAnim?.Name, why); }, SetAnimFit, c => Toolbar(c), gizmo: true);
         animBlock.GizmoTargetChanged += () => PickAnimGizmo(thisAnimation: true);
         // the fit (left) and this animation's adjustment (right), side by side so the list above keeps its room
         var fitCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        fitCol.Controls.AddRange([propPinButton, apSize, apX, apY, apZ, apTX, apTY, apTZ, AnimGizmoButtons()]);
+        fitCol.Controls.AddRange([apSize, apX, apY, apZ, apTX, apTY, apTZ, AnimGizmoButtons()]);
         var animCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding((int)(24 * S), 0, 0, 0) };
         animCol.Controls.Add(animBlock.Root);
         var cols = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = true, Margin = new Padding(0) };
@@ -103,7 +103,7 @@ sealed partial class ModEditorView
         propList.Visible = on;
         // (the fit here too, Kurt 2026-10-30: the same as the Model and Powers tabs')
         foreach (var sl in new[] { apSize, apX, apY, apZ, apTX, apTY, apTZ }) if (sl != null) sl.Visible = on;
-        if (animGizmoButton != null) animGizmoButton.Visible = on;
+        if (animFitButtons != null) animFitButtons.Visible = on;
         HookAnimGizmo();
         propPin.Visible = on;
         if (propRemove != null) propRemove.Enabled = on;

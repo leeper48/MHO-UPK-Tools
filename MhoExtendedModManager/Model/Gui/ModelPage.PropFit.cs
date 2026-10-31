@@ -37,16 +37,18 @@ sealed partial class ModelPage
     /// <summary>The Prop Fit sliders' box (shown in place of the size sliders for a prop target).</summary>
     Control PropFitBox(int sliderHeight)
     {
-        // two columns (Move | Turn), so the Target list and the tabs above keep their room
-        var box = new TableLayoutPanel { ColumnCount = 2, RowCount = 5, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0), Visible = false, Dock = DockStyle.Fill };
+        // laid out as the Powers tab's Prop Fit (Kurt, 2026-10-30): Held On above; the fit (Size, Move, Turn, then Reset Fit,
+        // the gizmo and Pivot on the Hand) on the left, In This Animation on the right
+        var box = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0), Visible = false, Dock = DockStyle.Fill };
         box.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); box.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        LightSlider[] left = [propMoveX, propMoveY, propMoveZ, propScale], right = [propTurnX, propTurnY, propTurnZ];
-        for (int k = 0; k < left.Length; k++) Place(left[k], 0, k);
-        for (int k = 0; k < right.Length; k++) Place(right[k], 1, k);
-        void Place(LightSlider s, int col, int row)
+        var fitCol = new TableLayoutPanel { ColumnCount = 1, RowCount = 8, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0, 0, 12, 0), Dock = DockStyle.Fill };
+        fitCol.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        LightSlider[] order = [propScale, propMoveX, propMoveY, propMoveZ, propTurnX, propTurnY, propTurnZ];
+        for (int k = 0; k < order.Length; k++)
         {
-            s.Height = sliderHeight; s.Dock = DockStyle.Fill; s.Margin = new Padding(col == 0 ? 0 : 8, row == 0 ? 0 : 2, col == 0 ? 8 : 0, 0);
-            box.Controls.Add(s, col, row);
+            var s = order[k];
+            s.Height = sliderHeight; s.Dock = DockStyle.Fill; s.Margin = new Padding(0, k == 0 ? 0 : 2, 0, 0);
+            fitCol.Controls.Add(s, 0, k);
             s.ValueChanged += PropFitChanged;
             s.Committed += AddedFitCommitted;
         }
@@ -63,14 +65,15 @@ sealed partial class ModelPage
         Icons.Make(reset, "Reset Fit", Icons.Reset, sc);
         Icons.Make(gizmoButton, "Gizmo: All Animations", Icons.Gizmo, sc);
         Ui.Lit(gizmoButton, Settings.Current.Preview.Gizmo);
-        var fitButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(8, 2, 0, 0), Anchor = AnchorStyles.Left };
+        var fitButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0), Anchor = AnchorStyles.Left };
         var pinButton = Icons.PivotToggle(pinBox, "The animations this costume took from another character hold the prop as that character holds it: in the hand where theirs is held, swinging where theirs swings (Thor's fidget02 swings the hammer by its strap). The same setting as the Animations and Powers tabs' button. For an added prop.", sc);
         pinButton.Margin = new Padding((int)(6 * sc), 0, 0, 0);
         pinButton.Visible = false;
         fitButtons.Controls.AddRange([reset, gizmoButton, pinButton]);
-        box.Controls.Add(fitButtons, 1, 3);
-        heldOn.Dock = DockStyle.Fill; heldOn.Margin = new Padding(0, 6, 0, 0);
-        box.Controls.Add(heldOn, 0, 4);
+        fitCol.Controls.Add(fitButtons, 0, 7);
+        heldOn.Dock = DockStyle.Fill; heldOn.Margin = new Padding(0, 0, 0, 6);
+        box.Controls.Add(heldOn, 0, 0);
+        box.Controls.Add(fitCol, 0, 1);
         box.SetColumnSpan(heldOn, 2);
         Ui.Tip(heldOn, "The character bone the prop is held on: its own (as its character holds it), or another (the left hand, the back, the hip). It goes into the package at once; the sliders then fit it on that bone. Only this costume changes.");
         heldOn.SelectedIndexChanged += async (_, _) =>
@@ -101,13 +104,13 @@ sealed partial class ModelPage
         modelAnimBlock = new MhoExtendedModManager.Gui.AnimFitBlock(sc, "The added prop moved and turned further in the animation playing only, for a pose that wants it elsewhere. Needs an animation taken from another character (Animations tab) or a borrowed power's. The same adjustment as the Animations and Powers tabs' In This Animation.",
             () => addedPick is { } e ? (e, preview.CurrentAnimationName, host.AnimFitWhy(e, preview.CurrentAnimationName)) : (null, null, ""),
             (e, slot, a) => host.SetAnimFit(e, slot, a),
-            c => { var f = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0) }; f.Controls.AddRange(c); return f; }, gizmo: true, twoColumns: true);
-        modelAnimBlock.Root.Dock = DockStyle.Fill;
+            c => { var f = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 4, 0, 0) }; f.Controls.AddRange(c); return f; }, gizmo: true);
+        modelAnimBlock.Root.Margin = new Padding(12, 0, 0, 0);
         modelAnimBlock.GizmoTargetChanged += () => PickModelGizmo(thisAnimation: true);
         modelAnimBlock.Root.Visible = false;
-        box.RowCount = 6;
-        box.Controls.Add(modelAnimBlock.Root, 0, 5);
-        box.SetColumnSpan(modelAnimBlock.Root, 2);
+        box.Controls.Add(modelAnimBlock.Root, 1, 1);
+        // its sliders as wide as the fit's beside them
+        box.SizeChanged += (_, _) => { if (box.GetColumnWidths() is { Length: 2 } cw && cw[1] > 40) modelAnimBlock.SetSliderWidth(cw[1] - 12); };
         return propFitBox = box;
     }
 
