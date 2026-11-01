@@ -157,7 +157,7 @@ static class VoiceLines
         return (o, rate);
     }
 
-    static byte[] Wav(float[] samples)
+    internal static byte[] Wav(float[] samples)
     {
         var wav = new MemoryStream();
         var w = new BinaryWriter(wav);

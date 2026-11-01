@@ -93,6 +93,7 @@ sealed class ModManifest
     /// sound pack (AudioPacks) and package edit, which MHModManager applies too; this only says how they were made. Null when none.</summary>
     public List<VoiceShiftEntry>? VoiceShifts { get; set; }
     public List<PowerSoundEntry>? PowerSounds { get; set; }
+    public List<PowerSoundSet>? PowerSoundSets { get; set; }
     // MHModManager leaves false flags and a zero count out of its manifests; so do we (re-saving a mod gives the same file).
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasTextures { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool HasStrings { get; set; }

@@ -12,8 +12,47 @@ namespace MhoExtendedModManager;
 /// <param name="Stop">The event that ends it (a looping sound), or null.</param>
 sealed record PowerSound(string Package, string Component, string Part, string When, int Index, string Event, string? Stop);
 
+/// <summary>Volume and filters (a user asked, 2026-10-31): a sound's, or a hero's whole set of sounds'.</summary>
+class SoundShape
+{
+    /// <summary>How loud it plays (1 = as it is; null: not set).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public float? Volume { get; set; }
+    // The Voice tab's filters (VoiceEffects): 0 = off to 1.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public float Reverb { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public float Echo { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public float Distortion { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public float LoFi { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public float Chorus { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public float Robot { get; set; }
+
+    /// <summary>The volume and filters, as VoiceShift.Process takes them.</summary>
+    [JsonIgnore]
+    public VoiceShiftEntry Filters => new() { Volume = Volume, Reverb = Reverb, Echo = Echo, Distortion = Distortion, LoFi = LoFi, Chorus = Chorus, Robot = Robot };
+    /// <summary>Volume and filters as one value: two with the same one sound the same.</summary>
+    [JsonIgnore]
+    public string Shape => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{Volume ?? 1:0.00} {Reverb:0.00} {Echo:0.00} {Distortion:0.00} {LoFi:0.00} {Chorus:0.00} {Robot:0.00}");
+    [JsonIgnore]
+    public bool Shaped => Filters.Any;
+    public void ClearShape() { Volume = null; Reverb = Echo = Distortion = LoFi = Chorus = Robot = 0; }
+    public void CopyShape(SoundShape o) { Volume = o.Volume; Reverb = o.Reverb; Echo = o.Echo; Distortion = o.Distortion; LoFi = o.LoFi; Chorus = o.Chorus; Robot = o.Robot; }
+}
+
+/// <summary>A hero's whole set of sounds (manifest PowerSoundSets; extension). Its settings are also on every sound that follows
+/// it (PowerSoundEntry.InSet), so a build needs only the entries.</summary>
+sealed class PowerSoundSet : SoundShape
+{
+    public string Hero { get; set; } = "";
+}
+
 /// <summary>A sound of a power changed by the mod (manifest PowerSounds; extension, MHModManager ignores it).</summary>
-sealed class PowerSoundEntry
+sealed class PowerSoundEntry : SoundShape
 {
     public string Package { get; set; } = "";
     public string Component { get; set; } = "";
@@ -28,6 +67,9 @@ sealed class PowerSoundEntry
     /// <summary>The package came into the mod for this (it leaves again when no sound of it is changed).</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool AddedPackage { get; set; }
+    /// <summary>Follows the hero's whole set; false with a set in place: this row has its own settings (none = plays as it is).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool InSet { get; set; }
 }
 
 /// <summary>
@@ -37,12 +79,17 @@ sealed class PowerSoundEntry
 /// the event copied in the package (…_mhosnd, same bank), the component pointed at it, and a sound pack that adds that event, so
 /// MHModManager 1.0.1 applies it too. A looping sound can't be replaced: its stop event stops the original sound object, so a
 /// clone would never end. Applied last at Save (PowerColorBuild rebuilds power packages from the game's), in place and
-/// reversibly; the manifest holds what's changed.
+/// reversibly; the manifest holds what's changed. Volume and filters go the same way, on the game's own sounds too (every one-shot
+/// on four heroes checked is 22 kHz mono Vorbis, what we write, 2026-11-01). The imported audio stays in the pack as
+/// &lt;event&gt;.source.wav and each change renders from it, so moving a slider never re-encodes an encoded sound. A clone keeps one
+/// sound, so an event that picks among variations (4-18 % of a hero's) plays only its first once changed; the row says so.
 /// </summary>
 static class PowerSounds
 {
     public const string Suffix = "_mhosnd";
     public const string PackName = "PowerSounds.mhsfx";
+    /// <summary>A replaced sound's audio as imported, in the pack beside its .wem.</summary>
+    public const string SourceEnd = ".source.wav";
 
     /// <summary>The sound's event name without its path, or the copy's suffix.</summary>
     public static string Leaf(string eventPath)
@@ -50,6 +97,34 @@ static class PowerSounds
         string p = eventPath.EndsWith(Suffix, StringComparison.OrdinalIgnoreCase) ? eventPath[..^Suffix.Length] : eventPath;
         return p[(p.LastIndexOf('.') + 1)..];
     }
+
+    /// <summary>The imported audio kept in a pack: entry name → WAV (a pack from before volume and filters has none).</summary>
+    public static Dictionary<string, byte[]> Sources(string? pack)
+    {
+        var all = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        if (pack == null || !File.Exists(pack)) return all;
+        using var z = ZipFile.OpenRead(pack);
+        var entries = z.Entries.Where(e => e.FullName.EndsWith(SourceEnd, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (entries.Sum(e => e.Length) > 1L << 30) throw new InvalidDataException($"{Path.GetFileName(pack)}: more than 1 GB of sound");   // (as SoundPack.Load)
+        foreach (var e in entries)
+        {
+            using var ms = new MemoryStream(); e.Open().CopyTo(ms); all[e.FullName] = ms.ToArray();
+        }
+        return all;
+    }
+
+    /// <summary>A saved replacement's audio as imported: from the mod's pack, else (an older pack) its .wem decoded.</summary>
+    public static byte[] Saved(string leaf, IEnumerable<string> soundPacks)
+    {
+        string nleaf = leaf + Suffix;
+        string pack = soundPacks.FirstOrDefault(p => Path.GetFileName(p).Equals(PackName, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException($"{leaf}: its replacement isn't in the mod's sound pack");
+        if (Sources(pack).TryGetValue(nleaf + SourceEnd, out var source)) return source;
+        if (SoundPack.Load(pack).Wems.TryGetValue(nleaf + ".wem", out var wem)) return VoiceAudio.ToWav(wem);
+        throw new InvalidDataException($"{leaf}: its replacement isn't in the mod's sound pack");
+    }
+
+    /// <summary>Audio with the filters and volume: a WAV in the same format.</summary>
+    public static byte[] Render(byte[] source, SoundShape e) => VoiceShift.Process(source, e.Filters);
 
     /// <summary>The events and their tags of a sound component, or null when it has none.</summary>
     static (List<TagWalker> Elements, byte[] Bytes)? Elements(Package pkg, int export)
@@ -137,8 +212,13 @@ static class PowerSounds
         var index = Akpk.EventIndex(game.Cooked);
         string? earlierPath = draft.SoundPacks.FirstOrDefault(p => Path.GetFileName(p).Equals(PackName, StringComparison.OrdinalIgnoreCase));
         var earlier = earlierPath != null && File.Exists(earlierPath) ? SoundPack.Load(earlierPath).Wems : null;
+        var kept = Sources(earlierPath);
+        var others = draft.SoundPacks.Where(p => !Path.GetFileName(p).Equals(PackName, StringComparison.OrdinalIgnoreCase)).ToList();
+        var sources = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var renders = new List<(string Wem, byte[] Audio, PowerSoundEntry Entry)>();
         var patches = new List<Dictionary<string, string>>();
         var wems = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string file in draft.PowerSounds.Concat(back).Select(e => e.Package).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
         {
             int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
@@ -159,8 +239,13 @@ static class PowerSounds
             foreach (var e in back.Where(e => e.Package.Equals(file, StringComparison.OrdinalIgnoreCase))) changes.Add((e.Component, e.Index, e.Event));
             foreach (var e in mine)
             {
-                if (!e.Replaced) { changes.Add((e.Component, e.Index, e.Off ? null : e.Event)); continue; }
+                if (!e.Replaced && (e.Off || !e.Shaped)) { changes.Add((e.Component, e.Index, e.Off ? null : e.Event)); continue; }
                 string leaf = Leaf(e.Event), nleaf = leaf + Suffix, group = e.Event[..e.Event.LastIndexOf('.')];
+                byte[]? stock = null;
+                if (!e.Replaced)
+                    // (a whole set reaches sounds that can't take it: they stay as they are)
+                    try { stock = VoiceAudio.ToWav(VoiceAudio.Wem(e.Event, others, game.Cooked).Wem); }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException) { log.Add($"{leaf}: left as it is ({ex.Message})"); changes.Add((e.Component, e.Index, e.Event)); continue; }
                 int ei = Array.FindIndex(pkg.Exports, x => pkg.PathOf(x).Equals(e.Event, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(x).Equals("AkEvent", StringComparison.OrdinalIgnoreCase));
                 if (ei < 0) throw new InvalidDataException($"{file}: the sound event {e.Event} isn't in the package");
                 if (!index.TryGetValue(SoundPack.Fnv(leaf), out var where)) throw new InvalidDataException($"{leaf}: its event isn't in the game's sound banks");
@@ -174,10 +259,17 @@ static class PowerSounds
                     pkg = Package.FromBytes(cp.Output);
                 }
                 changes.Add((e.Component, e.Index, e.Off ? null : group + "." + nleaf));
-                if (wems.ContainsKey(nleaf + ".wem")) continue;   // (the same sound in another package: one new event)
-                if (newLines.TryGetValue(leaf, out var wav)) wems[nleaf + ".wem"] = WwiseVorbisWrite.ToWem(VorbisEncode.Encode(wav, 0.4f), WavPcm.Read(wav).Channels[0].Length);
-                else if (earlier?.TryGetValue(nleaf + ".wem", out var kept) == true) wems[nleaf + ".wem"] = kept;   // (not encoded again: it'd lose quality each time)
-                else throw new InvalidDataException($"{leaf}: its replacement isn't in the mod's sound pack");
+                if (!claimed.Add(nleaf + ".wem")) continue;   // (the same sound in another package: one new event)
+                byte[]? fresh = newLines.GetValueOrDefault(leaf), audio = fresh ?? kept.GetValueOrDefault(nleaf + SourceEnd), wem = earlier?.GetValueOrDefault(nleaf + ".wem");
+                if (fresh == null && wem != null && was.Any(w => w.Replaced == e.Replaced && w.Shape == e.Shape && Leaf(w.Event).Equals(leaf, StringComparison.OrdinalIgnoreCase)))
+                    wems[nleaf + ".wem"] = wem;   // (not encoded again: it'd lose quality each time)
+                else if (stock != null) renders.Add((nleaf + ".wem", stock, e));
+                else
+                {
+                    audio ??= wem != null ? VoiceAudio.ToWav(wem) : throw new InvalidDataException($"{leaf}: its replacement isn't in the mod's sound pack");   // (a pack from before volume and filters)
+                    renders.Add((nleaf + ".wem", audio, e));
+                }
+                if (e.Replaced && audio != null) sources[nleaf + SourceEnd] = audio;
                 patches.Add(new Dictionary<string, string>
                 {
                     ["type"] = "new_event", ["original_event_name"] = leaf, ["event_name"] = nleaf, ["event_hash"] = $"0x{SoundPack.Fnv(nleaf):X8}",
@@ -189,6 +281,14 @@ static class PowerSounds
             File.WriteAllBytes(outFile, Write(pkg, changes));
             if (k >= 0) draft.Packages[k] = (file, outFile); else draft.Packages.Add((file, outFile));
         }
+        // (side by side: a whole set is a hundred sounds or more, and Save waits for it)
+        var made = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        Parallel.ForEach(renders, r =>
+        {
+            byte[] wav = r.Entry.Shaped ? Render(r.Audio, r.Entry) : r.Audio;
+            made[r.Wem] = WwiseVorbisWrite.ToWem(VorbisEncode.Encode(wav, 0.4f), WavPcm.Read(wav).Channels[0].Length);
+        });
+        foreach (var (n, b) in made) wems[n] = b;
         draft.SoundPacks.RemoveAll(p => Path.GetFileName(p).Equals(PackName, StringComparison.OrdinalIgnoreCase));
         if (patches.Count > 0)
         {
@@ -197,11 +297,11 @@ static class PowerSounds
             {
                 using (var sw = new StreamWriter(z.CreateEntry("mod.json").Open()))
                     sw.Write(JsonSerializer.Serialize(new Dictionary<string, object> { ["name"] = "Power sounds", ["patches"] = patches }, new JsonSerializerOptions { WriteIndented = true }));
-                foreach (var (n, b) in wems) using (var e = z.CreateEntry(n).Open()) e.Write(b);
+                foreach (var (n, b) in wems.Concat(sources)) using (var e = z.CreateEntry(n).Open()) e.Write(b);
             }
             draft.SoundPacks.Add(pack);
         }
-        log.Add($"Power sounds: {draft.PowerSounds.Count(e => e.Off)} off, {patches.Count} replaced");
+        log.Add($"Power sounds: {draft.PowerSounds.Count(e => e.Off)} off, {patches.Count} changed");
         return work;
     }
 }

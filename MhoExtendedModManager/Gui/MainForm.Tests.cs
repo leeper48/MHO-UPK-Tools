@@ -1069,6 +1069,46 @@ sealed partial class MainForm
         return fails;
     }
 
+    /// <summary>--voice-shape-test: a line's own settings and the whole voice (ModEditorView.TestVoiceShape); nothing is saved.</summary>
+    public async Task<int> VoiceShapeTest(string modName, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m); pages.Select(1);
+        int fails = await editor!.TestVoiceShape(say);
+        CloseEditor();
+        return fails;
+    }
+
+    /// <summary>--sound-shape-test: volume and filters on replaced power sounds (ModEditorView.TestSoundShape); nothing is saved.</summary>
+    public async Task<int> SoundShapeTest(string modName, string tone, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m); pages.Select(1);
+        int fails = await editor!.TestSoundShape(tone, say);
+        CloseEditor();
+        return fails;
+    }
+
+    /// <summary>--audio-snapshot (scratch library, the manual's pictures): Voice and Power Sounds with a whole set and rows of their own; nothing is saved.</summary>
+    public async Task AudioSnapshot(string dir, string modName)
+    {
+        Directory.CreateDirectory(dir);
+        OpenEditor(lib?.Find(modName)); pages.Select(1);
+        async Task Shot(string tab, Func<Task> setUp)
+        {
+            editor!.SelectTab(Enumerable.Range(0, editor.TabCount).First(i => editor.TabTitle(i) == tab));
+            await Task.Delay(1500);
+            await setUp();
+            await Task.Delay(1500);
+            using var b = new Bitmap(Width, Height);
+            DrawToBitmap(b, new Rectangle(0, 0, Width, Height));
+            b.Save(Path.Combine(dir, $"audio_{tab.Replace(' ', '_')}.png"));
+        }
+        await Shot("Voice", editor!.SnapVoice);
+        await Shot("Power Sounds", editor.SnapSounds);
+        CloseEditor();
+    }
+
     public async Task VoiceShiftTabTest(string dir, string modName, float pitch, float formant, float warmth)
     {
         Directory.CreateDirectory(dir);

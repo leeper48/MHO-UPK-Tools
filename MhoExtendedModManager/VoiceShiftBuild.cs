@@ -26,15 +26,51 @@ sealed class VoiceShiftEntry
     public float Chorus { get; set; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public float Robot { get; set; }
+    /// <summary>How loud (1 = as it is; null: not set).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public float? Volume { get; set; }
+
+    /// <summary>Lines with settings of their own, by event name: each takes the place of the whole set's for that line.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, VoiceShiftEntry>? Lines { get; set; }
 
     /// <summary>Lines replaced by files of the user's own (Replace Lines; their event names): their audio is in the sound pack,
     /// and a new shift leaves them alone.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Replaced { get; set; }
 
-    /// <summary>Anything to do: a shift or a filter.</summary>
+    /// <summary>Anything to do: a shift, a filter or a volume.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool Any => Pitch != 0 || Formant != 0 || Warmth != 0 || VoiceEffects.Any(this);
+    public bool Any => Pitch != 0 || Formant != 0 || Warmth != 0 || VoiceEffects.Any(this) || Volume is float v && Math.Abs(v - 1) > 0.001f;
+
+    /// <summary>All the settings as one value: two entries with the same one sound the same.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Key => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{Pitch:0.00} {Formant:0.00} {Warmth:0.00} {Volume ?? 1:0.00} {Reverb:0.00} {Echo:0.00} {Distortion:0.00} {LoFi:0.00} {Chorus:0.00} {Robot:0.00}");
+
+    /// <summary>The settings alone (no line lists).</summary>
+    public VoiceShiftEntry Settings() => new() { Package = Package, Pitch = Pitch, Formant = Formant, Warmth = Warmth, Volume = Volume, Reverb = Reverb, Echo = Echo, Distortion = Distortion, LoFi = LoFi, Chorus = Chorus, Robot = Robot };
+
+    /// <summary>The settings and both line lists, as a copy.</summary>
+    public VoiceShiftEntry Clone()
+    {
+        var e = Settings();
+        e.Replaced = Replaced?.ToList();
+        e.Lines = Lines?.ToDictionary(x => x.Key, x => x.Value.Settings(), StringComparer.OrdinalIgnoreCase);
+        return e;
+    }
+
+    /// <summary>What a line plays with: its own settings, else the whole set's. The whole set reaches the user's own audio with
+    /// its volume and filters only: pitching a recording of one's own isn't what a voice's shift is for.</summary>
+    public VoiceShiftEntry For(string leaf)
+    {
+        if (LineOf(leaf) is { } own) return own;
+        var e = Settings();
+        if (IsReplaced(leaf)) e.Pitch = e.Formant = e.Warmth = 0;
+        return e;
+    }
+
+    /// <summary>This line's own settings, or null. (Looked up without regard to case: a manifest reads back case-sensitive.)</summary>
+    public VoiceShiftEntry? LineOf(string leaf) => Lines?.FirstOrDefault(x => x.Key.Equals(leaf, StringComparison.OrdinalIgnoreCase)).Value;
 
     /// <summary>Is this line one of the user's own?</summary>
     public bool IsReplaced(string leaf) => Replaced?.Contains(leaf, StringComparer.OrdinalIgnoreCase) == true;
@@ -91,6 +127,10 @@ static class VoiceShiftBuild
     {
         var log = new List<string>();
         var earlier = earlierPack != null && File.Exists(earlierPack) ? SoundPack.Load(earlierPack).Wems : null;
+        var keptSources = PowerSounds.Sources(earlierPack);
+        var keptShapes = Shapes(earlierPack);
+        var sources = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        var shapes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         Directory.CreateDirectory(work);
         // The package as it grows is kept in memory (a file per copied event was 1.1 GB for Sentry's 123 lines).
         string cur = packagePath;
@@ -110,7 +150,8 @@ static class VoiceShiftBuild
             progress?.Report($"Working on Line {++done} of {events.Count}");
             string leaf = ev[(ev.LastIndexOf('.') + 1)..], group = ev[..ev.LastIndexOf('.')], nleaf = leaf + Suffix;
             bool own = s.IsReplaced(leaf);
-            if (!s.Any && !own) continue;   // (only the replaced lines: the rest stay the game's)
+            var shape = s.For(leaf);
+            if (!shape.Any && !own) continue;   // (only the lines with something to do: the rest stay the game's)
             // The event's copy in the package, under the new name; its bank by the AkBank's name (the old manager's lookup).
             // A voice set can name things other than sounds (Storm's emotes point at an animation): left as they are.
             int ei = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(ev, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(e).Equals("AkEvent", StringComparison.OrdinalIgnoreCase));
@@ -126,12 +167,21 @@ static class VoiceShiftBuild
             if (bank == null || SoundPack.Fnv(bank) != where.Bank) { log.Add($"{leaf}: left as it is (its bank {bank ?? "?"} isn't the one it's in)"); continue; }
             // Voice only (Kurt, 2026-10-02): a voice set can also name sound effects (Sentry's has a dodge whoosh in
             // dodgepassivesfx); only lines in voice banks (…vo, …vo_…, …voice…: speech and vocal efforts) are shifted.
-            if (!own && !IsVoiceBank(bank)) { log.Add($"{leaf}: left as it is (a sound effect, in {bank})"); continue; }
+            if (!own && s.LineOf(leaf) == null && !IsVoiceBank(bank)) { log.Add($"{leaf}: left as it is (a sound effect, in {bank})"); continue; }
             byte[] outWem;
-            if (newLines?.TryGetValue(leaf, out var line) == true) outWem = Encode(line);
-            else if (!own) outWem = Encode(VoiceShift.Process(VoiceAudio.ToWav(wem), s));
-            else if (earlier?.TryGetValue(nleaf + ".wem", out var kept) == true) outWem = kept;   // (not encoded again: it'd lose quality each time)
-            else { log.Add($"{leaf}: left as it is (its replacement isn't in the mod's sound pack)"); continue; }
+            byte[]? fresh = newLines?.GetValueOrDefault(leaf), kept = earlier?.GetValueOrDefault(nleaf + ".wem"), source = fresh ?? keptSources.GetValueOrDefault(nleaf + PowerSounds.SourceEnd);
+            // (a pack from before these has no list: the user's own line in it is as imported)
+            bool sameShape = keptShapes.TryGetValue(leaf, out string? was) ? was == shape.Key : own && !shape.Any;
+            if (fresh == null && kept != null && sameShape) outWem = kept;   // (not encoded again: it'd lose quality, and a voice takes half a minute)
+            else if (own)
+            {
+                source ??= kept != null ? VoiceAudio.ToWav(kept) : null;
+                if (source == null) { log.Add($"{leaf}: left as it is (its replacement isn't in the mod's sound pack)"); continue; }
+                outWem = Encode(shape.Any ? VoiceShift.Process(source, shape) : source);
+            }
+            else outWem = Encode(VoiceShift.Process(VoiceAudio.ToWav(wem), shape));
+            if (own && source != null) sources[nleaf + PowerSounds.SourceEnd] = source;
+            shapes[leaf] = shape.Key;
             if (!pkg.Exports.Any(e => e.ObjectName.Equals(nleaf, StringComparison.OrdinalIgnoreCase)))
             {
                 var cp = CrossMove.Quiet(() => ExportCopy.Copy(pkg, ei, pkg, [], nleaf), out string said) ?? throw new InvalidDataException($"{leaf}: the event couldn't be copied ({said.Trim()})");
@@ -163,10 +213,35 @@ static class VoiceShiftBuild
                     ["name"] = $"Voice shift: pitch {s.Pitch:+0.#;-0.#;0}, formant {s.Formant:+0.#;-0.#;0}, warmth {s.Warmth:+0.#;-0.#;0} dB" + (s.Replaced is { Count: > 0 } r ? $", {r.Count} line(s) replaced" : ""),
                     ["patches"] = patches,
                 }, new JsonSerializerOptions { WriteIndented = true }));
-            foreach (var (n, b) in wems) using (var e = z.CreateEntry(n).Open()) e.Write(b);
+            using (var sw = new StreamWriter(z.CreateEntry(ShapesFile).Open())) sw.Write(JsonSerializer.Serialize(shapes));
+            foreach (var (n, b) in wems.Concat(sources)) using (var e = z.CreateEntry(n).Open()) e.Write(b);
         }
         log.Insert(0, $"{patches.Count} line(s) changed ({lines.Count} voice set entries), {wems.Values.Sum(w => (long)w.Length) / 1024:N0} KB of audio");
         return (outPkg, pack, log);
+    }
+
+    /// <summary>Beside the audio in a pack: what settings each line was made with, so a line whose settings didn't change isn't
+    /// encoded again. MHModManager reads only mod.json and the .wem files.</summary>
+    const string ShapesFile = "shapes.json";
+
+    static Dictionary<string, string> Shapes(string? pack)
+    {
+        var all = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (pack == null || !File.Exists(pack)) return all;
+        using var z = ZipFile.OpenRead(pack);
+        if (z.GetEntry(ShapesFile) is not { } e) return all;
+        using var r = new StreamReader(e.Open());
+        foreach (var (k, v) in JsonSerializer.Deserialize<Dictionary<string, string>>(r.ReadToEnd()) ?? []) all[k] = v;
+        return all;
+    }
+
+    /// <summary>A replaced line's audio as imported, from the package's pack (a pack from before settings per line: its .wem decoded).</summary>
+    public static byte[] Saved(string leaf, string pack)
+    {
+        string nleaf = leaf + Suffix;
+        if (PowerSounds.Sources(pack).TryGetValue(nleaf + PowerSounds.SourceEnd, out var source)) return source;
+        if (SoundPack.Load(pack).Wems.TryGetValue(nleaf + ".wem", out var wem)) return VoiceAudio.ToWav(wem);
+        throw new InvalidDataException($"{leaf}: its replacement isn't in the mod's sound pack");
     }
 
     static byte[] Encode(byte[] wav) => WwiseVorbisWrite.ToWem(VorbisEncode.Encode(wav, 0.4f), WavPcm.Read(wav).Channels[0].Length);

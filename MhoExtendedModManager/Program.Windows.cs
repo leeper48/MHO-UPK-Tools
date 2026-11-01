@@ -706,7 +706,7 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
-        if (args.Length == 3 && args[0].Equals("--voice-undo-test", StringComparison.OrdinalIgnoreCase))
+        if (args.Length == 3 && (args[0].Equals("--voice-undo-test", StringComparison.OrdinalIgnoreCase) || args[0].Equals("--sound-shape-test", StringComparison.OrdinalIgnoreCase) || args[0].Equals("--voice-shape-test", StringComparison.OrdinalIgnoreCase)))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
@@ -716,7 +716,7 @@ static partial class Program
             var report = new List<string>();
             main.Shown += (_, _) => main.BeginInvoke(async () =>
             {
-                try { code = await main.VoiceUndoTest(args[1], args[2], report.Add); }
+                try { code = args[0].Equals("--voice-shape-test", StringComparison.OrdinalIgnoreCase) ? await main.VoiceShapeTest(args[1], report.Add) : args[0].EndsWith("shape-test", StringComparison.OrdinalIgnoreCase) ? await main.SoundShapeTest(args[1], args[2], report.Add) : await main.VoiceUndoTest(args[1], args[2], report.Add); }
                 catch (Exception ex) { report.Add("ERROR: " + ex); }
                 File.WriteAllLines(args[2] + ".result.txt", report);
                 main.Close();
@@ -864,6 +864,15 @@ static partial class Program
             main.Shown += (_, _) => main.BeginInvoke(async () => { code = await main.TooltipAudit(args[1]); main.Close(); });
             Application.Run(main);
             return code;
+        }
+        if (args.Length == 3 && args[0].Equals("--audio-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.AudioSnapshot(args[1], args[2]); main.Close(); });
+            Application.Run(main);
+            return 0;
         }
         if (args.Length >= 2 && args[0].Equals("--editor-snapshot", StringComparison.OrdinalIgnoreCase))
         {

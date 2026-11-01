@@ -292,9 +292,9 @@ sealed partial class ModEditorView : UserControl
         Collect();
         draft.Strings = stringsPage.Collect();
         string? work, powerWork, borrowWorkSave = null;
-        try { work = ApplyVoice(); }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, "The voice lines couldn't be changed: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         var powerLog = new List<string>();
+        try { work = ApplyVoice(); BuildVoiceRows(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException) { Dialog.Show(this, "The voice lines couldn't be changed: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         HashSet<string> borrowed;
         try { (borrowed, borrowWorkSave) = ApplyPowerBorrows(powerLog); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)

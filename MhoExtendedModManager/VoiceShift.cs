@@ -33,9 +33,28 @@ static class VoiceShift
     public static byte[] Process(byte[] wav, VoiceShiftEntry e)
     {
         byte[] shifted = Shift(wav, e.Pitch, e.Formant, Mode.Natural, e.Warmth);
-        if (!VoiceEffects.Any(e)) return shifted;
-        var (chans, rate) = Read(shifted);
-        return Write([.. chans.Select(c => VoiceEffects.Apply(c, rate, e))], rate);
+        if (VoiceEffects.Any(e))
+        {
+            var (chans, rate) = Read(shifted);
+            shifted = Write([.. chans.Select(c => VoiceEffects.Apply(c, rate, e))], rate);
+        }
+        return e.Volume is float v && Math.Abs(v - 1) > 0.001f ? Louder(shifted, v) : shifted;
+    }
+
+    /// <summary>The WAV at <paramref name="gain"/>. When that goes past full scale the peaks are rounded off, so a loud sound turned
+    /// up doesn't crackle.</summary>
+    static byte[] Louder(byte[] wav, float gain)
+    {
+        const float knee = 0.8f;
+        var (chans, rate) = Read(wav);
+        bool over = chans.Any(c => c.Length > 0 && c.Max(MathF.Abs) * gain > 1);
+        foreach (var x in chans)
+            for (int i = 0; i < x.Length; i++)
+            {
+                float v = x[i] * gain, a = MathF.Abs(v);
+                x[i] = !over || a <= knee ? v : MathF.CopySign(knee + (1 - knee) * MathF.Tanh((a - knee) / (1 - knee)), v);
+            }
+        return Write(chans, rate);
     }
 
     /// <summary>

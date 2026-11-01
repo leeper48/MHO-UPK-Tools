@@ -1303,7 +1303,7 @@ static partial class Program
                 var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
                 Console.WriteLine($"game data {sw3.ElapsedMilliseconds} ms");
                 bool verbose = rest.Contains("-v");
-                foreach (string hero in rest.Skip(1).Where(a => a != "-v"))
+                foreach (string hero in rest.Skip(1).Where(a => a != "-v" && a != "-census"))
                 {
                     sw3.Restart();
                     var powers = Fx.PowerList.For(pdb, hero, pc, [], effectOnly: true);
@@ -1332,6 +1332,28 @@ static partial class Program
                         }
                     }
                     Console.WriteLine($"{hero}: {powers.Count} powers, {seen.Count} packages, {sounds} sounds ({loops} looping, {silent} silent), {stray} other events; {sw3.ElapsedMilliseconds} ms");
+                    if (rest.Contains("-census"))
+                    {
+                        var evs = seen.Select(f => StockFiles.For(pc, f)).Where(File.Exists).SelectMany(path => PowerSounds.Read(Path.GetFileName(path), path)).Where(s => s.Stop == null).Select(s => s.Event).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        var kinds = new Dictionary<string, int>(); int single = 0, multi = 0, multiAct = 0, none = 0;
+                        foreach (string ev in evs)
+                        {
+                            var (acts, snds) = VoiceAudio.Variations(ev, pc);
+                            if (snds == 0) { none++; continue; }
+                            if (snds == 1) single++; else multi++;
+                            if (acts > 1) multiAct++;
+                            try
+                            {
+                                byte[] w = VoiceAudio.Wem(ev, [], pc).Wem;
+                                int fa = 12; while (fa + 8 < w.Length && System.Text.Encoding.ASCII.GetString(w, fa, 4) != "fmt ") fa += 8 + BitConverter.ToInt32(w, fa + 4);
+                                string k = $"fmt 0x{BitConverter.ToUInt16(w, fa + 8):X4} ch {BitConverter.ToInt16(w, fa + 10)} rate {BitConverter.ToInt32(w, fa + 12)}";
+                                kinds[k] = kinds.GetValueOrDefault(k) + 1;
+                            }
+                            catch (Exception ex) when (ex is InvalidDataException or IOException) { kinds["no media"] = kinds.GetValueOrDefault("no media") + 1; }
+                        }
+                        Console.WriteLine($"  {evs.Count} one-shot events: {single} one sound, {multi} with variations, {multiAct} with several actions, {none} none");
+                        foreach (var (k, n) in kinds.OrderByDescending(x => x.Value)) Console.WriteLine($"    {n,4}  {k}");
+                    }
                 }
                 return 0;
             }
@@ -1389,12 +1411,80 @@ static partial class Program
                 string? w2 = PowerSounds.Apply(d, tmEdit, lib, tgame, new Dictionary<string, byte[]>(), log);
                 var sp2 = SoundPack.Load(d.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName));
                 Check(sp2.Wems[leaf + PowerSounds.Suffix + ".wem"].SequenceEqual(wem0), "built again without the file: the audio is kept byte for byte");
+                // volume and filters: rendered from the imported audio, kept while unchanged, back to the plain sound
+                static float Peak(byte[] wem) => VoiceAudio.ToWav(wem) is var w ? WavPcm.Read(w).Channels[0].Max(MathF.Abs) : 0;
+                static byte[] WemOf(ModDraft dr, string name) => SoundPack.Load(dr.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName)).Wems[name];
+                string wn = leaf + PowerSounds.Suffix + ".wem";
+                var rep = d.PowerSounds.First(e => e.Replaced);
+                using (var z0 = System.IO.Compression.ZipFile.OpenRead(d.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName)))
+                    Check(z0.GetEntry(leaf + PowerSounds.Suffix + ".source.wav") != null, "the imported audio is kept in the pack");
+                Mod Now() => new() { Folder = "", FolderName = "", Manifest = new ModManifest { PowerSounds = System.Text.Json.JsonSerializer.Deserialize<List<PowerSoundEntry>>(System.Text.Json.JsonSerializer.Serialize(d.PowerSounds)) } };
+                var plain = Now();
+                rep.Volume = 0.5f;
+                string? w4 = PowerSounds.Apply(d, plain, lib, tgame, new Dictionary<string, byte[]>(), log);
+                float p0 = Peak(wem0), p1 = Peak(WemOf(d, wn));
+                Check(Math.Abs(p1 / p0 - 0.5f) < 0.06f, $"volume 50 %: peak {p0:0.000} → {p1:0.000}");
+                var half = Now();
+                var wem1 = WemOf(d, wn);
+                string? w5 = PowerSounds.Apply(d, half, lib, tgame, new Dictionary<string, byte[]>(), log);
+                Check(WemOf(d, wn).SequenceEqual(wem1), "the same setting, built again: the audio is kept byte for byte");
+                rep.Volume = 3; rep.Echo = 1;
+                string? w6 = PowerSounds.Apply(d, half, lib, tgame, new Dictionary<string, byte[]>(), log);
+                var loud = WavPcm.Read(VoiceAudio.ToWav(WemOf(d, wn))).Channels[0];
+                Check(loud.Length > WavPcm.Read(wavs[leaf]).Channels[0].Length && loud.Max(MathF.Abs) <= 1.02f, $"volume 300 % with echo: longer, peak {loud.Max(MathF.Abs):0.000}, not past full scale");
+                var echoed = Now();
+                rep.ClearShape();
+                string? w7 = PowerSounds.Apply(d, echoed, lib, tgame, new Dictionary<string, byte[]>(), log);
+                Check(WemOf(d, wn).SequenceEqual(wem0), "settings cleared: the plain sound again, byte for byte (no generation loss)");
+                Check(PowerSounds.Render(wavs[leaf], new PowerSoundEntry()).SequenceEqual(wavs[leaf]), "a render with nothing set changes nothing (the limiter only runs past full scale)");
+                // a pack from before volume and filters (no imported audio in it): its .wem is the starting point
+                string oldPack = Path.Combine(rest[4], PowerSounds.PackName);
+                File.Copy(d.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName), oldPack, true);
+                using (var z1 = System.IO.Compression.ZipFile.Open(oldPack, System.IO.Compression.ZipArchiveMode.Update)) z1.GetEntry(leaf + PowerSounds.Suffix + ".source.wav")!.Delete();
+                d.SoundPacks.RemoveAll(p => Path.GetFileName(p) == PowerSounds.PackName); d.SoundPacks.Add(oldPack);
+                Check(PowerSounds.Saved(leaf, d.SoundPacks).Length > 1000, "an older pack still previews (its .wem decoded)");
+                rep.Volume = 0.5f;
+                string? w8 = PowerSounds.Apply(d, Now(), lib, tgame, new Dictionary<string, byte[]>(), log);
+                var oldNow = Now(); oldNow.Manifest.PowerSounds!.First(e => e.Replaced).Volume = null;
+                string? w9 = PowerSounds.Apply(d, oldNow, lib, tgame, new Dictionary<string, byte[]>(), log);
+                Check(Math.Abs(Peak(WemOf(d, wn)) / p0 - 0.5f) < 0.08f, "an older pack takes a volume too");
+                File.Copy(d.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName), Path.Combine(rest[4], "shaped_" + PowerSounds.PackName), true);
                 // all put back
                 var saved2 = new Mod { Folder = "", FolderName = "", Manifest = new ModManifest { PowerSounds = [.. d.PowerSounds] } };
                 d.PowerSounds.Clear();
                 string? w3 = PowerSounds.Apply(d, saved2, lib, tgame, new Dictionary<string, byte[]>(), log);
                 Check(d.Packages.Count == pkgs0 && !d.SoundPacks.Any(p => Path.GetFileName(p) == PowerSounds.PackName), "put back: both packages out of the mod, the pack gone");
-                foreach (string? w in new[] { w1, w2, w3 }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+                // a whole set: every one-shot of the hero, the game's own sounds
+                var sd = ModDraft.From(tm);
+                foreach (var s in oneShots) sd.PowerSounds.Add(new PowerSoundEntry { Package = s.Package, Component = s.Component, Index = s.Index, Event = s.Event, InSet = true, Volume = 0.5f });
+                var swSet = System.Diagnostics.Stopwatch.StartNew();
+                string? w10 = PowerSounds.Apply(sd, tm, lib, tgame, new Dictionary<string, byte[]>(), log);
+                long msSet = swSet.ElapsedMilliseconds;
+                var setPack = SoundPack.Load(sd.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName));
+                int readable = oneShots.Select(s => s.Event).Distinct(StringComparer.OrdinalIgnoreCase).Count(ev => { try { VoiceAudio.Wem(ev, [], pc); return true; } catch (InvalidDataException) { return false; } });
+                Check(setPack.Patches.Count == readable, $"a whole set: {setPack.Patches.Count} of {readable} sounds made in {msSet} ms ({setPack.Wems.Values.Sum(x => (long)x.Length) / 1024:N0} KB)");
+                var probe = oneShots.First(s => VoiceAudio.Variations(s.Event, pc).Sounds == 1 && setPack.Wems.ContainsKey(PowerSounds.Leaf(s.Event) + PowerSounds.Suffix + ".wem"));
+                float stockPeak = Peak(VoiceAudio.Wem(probe.Event, [], pc).Wem), setPeak = Peak(setPack.Wems[PowerSounds.Leaf(probe.Event) + PowerSounds.Suffix + ".wem"]);
+                Check(Math.Abs(setPeak / stockPeak - 0.5f) < 0.08f, $"a stock sound at 50 %: peak {stockPeak:0.000} → {setPeak:0.000}");
+                var readSet = oneShots.Select(s => s.Package).Distinct().SelectMany(f => PowerSounds.Read(f, sd.Packages.First(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source)).ToList();
+                Check(readSet.Count(s => s.Event.EndsWith(PowerSounds.Suffix, StringComparison.OrdinalIgnoreCase)) >= setPack.Patches.Count, "the components play the copies");
+                Check(readSet.Where(s => s.Stop != null).All(s => !s.Event.EndsWith(PowerSounds.Suffix, StringComparison.OrdinalIgnoreCase)), "looping sounds stay the game's");
+                using (var zs = System.IO.Compression.ZipFile.OpenRead(sd.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName)))
+                    Check(!zs.Entries.Any(e => e.FullName.EndsWith(".source.wav", StringComparison.OrdinalIgnoreCase)), "the game's own audio isn't stored in the pack");
+                foreach (var g in setPack.Patches.GroupBy(pp => pp.PckFile))
+                {
+                    var notes = new List<string>(); var probs = new List<string>();
+                    byte[]? built = Akpk.Build(Path.Combine(pc, g.Key), g.Key, [setPack], notes, probs);
+                    Check(built != null && probs.Count == 0, $"{g.Key} builds with {g.Count()} sounds ({built?.Length ?? 0:N0} bytes{string.Concat(probs.Concat(notes).Take(2).Select(x => "; " + x))})");
+                }
+                var setWems = setPack.Wems.ToDictionary(x => x.Key, x => x.Value);
+                var setSaved = new Mod { Folder = "", FolderName = "", Manifest = new ModManifest { PowerSounds = System.Text.Json.JsonSerializer.Deserialize<List<PowerSoundEntry>>(System.Text.Json.JsonSerializer.Serialize(sd.PowerSounds)) } };
+                swSet.Restart();
+                string? w11 = PowerSounds.Apply(sd, setSaved, lib, tgame, new Dictionary<string, byte[]>(), log);
+                var setPack2 = SoundPack.Load(sd.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName));
+                Check(setWems.All(x => setPack2.Wems[x.Key].SequenceEqual(x.Value)), $"built again: every sound kept byte for byte ({swSet.ElapsedMilliseconds} ms)");
+                File.Copy(sd.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName), Path.Combine(rest[4], "set_" + PowerSounds.PackName), true);
+                foreach (string? w in new[] { w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11 }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
                 Console.WriteLine(fails == 0 ? "All power sound checks passed." : $"{fails} FAILED");
                 return fails == 0 ? 0 : 1;
             }

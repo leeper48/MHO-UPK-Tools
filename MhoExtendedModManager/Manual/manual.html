@@ -158,6 +158,7 @@ function mhoNext(dir) {
 <li><a href="#w-voice">Give a Costume Another Voice, Shift It or Add Effects</a></li>
 <li><a href="#w-lines">Replace Voice Lines with Your Own Audio</a></li>
 <li><a href="#w-sounds">Change or Silence a Power's Sounds</a></li>
+<li><a href="#w-audio-set">Change the Volume or Effects of a Whole Set or Just Some Rows</a></li>
 <li><a href="#w-model">Put Your Own Model on a Costume</a></li>
 <li><a href="#w-size">Make a Character Bigger or Smaller</a></li>
 <li><a href="#w-npc">Put a Model on an NPC, Enemy or Team-Up</a></li>
@@ -420,10 +421,26 @@ function mhoNext(dir) {
 <li>Use <b>Find</b> to narrow the list and ▶ to hear a sound.</li>
 <li><b>To silence a sound</b>, untick it. If the same sound plays elsewhere, <b>Note</b> says so (<i>Also in Dual Wield</i>) and you're asked: <b>All</b> of them, or <b>Only This One</b>. A power can have several sounds: a gun's shot and its falling shells are separate rows.</li>
 <li><b>To replace a sound</b>, right-click it, <b>Replace This Sound</b>, and pick an audio file. For many at once, use <b>Export Sounds</b>, change the files, then <b>Replace Sounds</b>. Sounds marked <b>Loops</b> can only be turned off.</li>
+<li><b>To change a sound's volume or effects</b>, click <b>Selected Sounds</b>, select its row and move <b>Volume</b> or an effect such as <b>Reverb</b> or <b>Robot</b>. Press ▶ to hear it. <b>To change them all</b>, click <b>All Sounds</b>, set the sliders and press <b>Apply to All Sounds</b>.</li>
 <li>Save Changes, then Apply Changes. The power's package joins the mod, so the change applies to every costume of that hero.</li>
 </ol>
-<figure><img src="img/editor-power-sounds.jpg" alt="The Power Sounds tab: Vision's powers with each sound's part, when it plays, a note when it loops or is used twice, and its sound event."><figcaption>The Power Sounds tab: each power's sounds, when they play, and a note when one loops or plays more than once.</figcaption></figure>
+<figure><img src="img/editor-power-sounds.jpg" alt="The Power Sounds tab: Vision's powers with each sound's part, when it plays, its settings, a note when it loops or is used twice, and its sound event."><figcaption>The Power Sounds tab: each power's sounds, when they play, what settings they follow, and a note when one loops or plays more than once.</figcaption></figure>
 <p>See <a href="#power-sounds">Power Sounds</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-audio-set">Change the Volume or Effects of a Whole Set or Just Some Rows</h3>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Audio → Voice</b> or <b>Audio → Power Sounds</b>.</li>
+<li><b>For everything:</b> under <b>Settings For</b>, click <b>Whole Voice</b> or <b>All Sounds</b>. Set <b>Volume</b> and the effects, and press ▶ on a few rows to hear them. Nothing changes yet.</li>
+<li>Click <b>Apply to This Voice</b> or <b>Apply to All Sounds</b>. The <b>Settings</b> column turns green: those rows follow the set.</li>
+<li><b>For some rows:</b> click <b>Selected Lines</b> or <b>Selected Sounds</b>, select the rows (<kbd>Ctrl</kbd> or <kbd>Shift</kbd> for several) and move a slider. It changes at once on all of them, and they turn amber: they have settings of their own, listed beside <b>This Line</b> or <b>This Sound</b>.</li>
+<li>If you apply to everything again, the app asks about the amber rows: <b>Keep Their Settings</b> or <b>Override Them</b>.</li>
+<li>To put a row back, select it and click <b>Back to the Whole Voice</b> or <b>Back to the Set</b>.</li>
+<li>Save Changes, then Apply Changes. A whole set can touch many sound files, so Apply can take longer.</li>
+</ol>
+<figure><img src="img/editor-audio-settings.jpg" alt="Settings For set to Selected Lines, the Volume and effect sliders, and the Settings column with green Whole Voice rows and two amber This Line rows."><figcaption>Green rows follow the whole voice; amber rows have settings of their own.</figcaption></figure>
+<p>See <a href="#audio-settings">Whole Set or Selected Rows</a>.</p>
 </div>
 
 <div class="walk">
@@ -907,21 +924,37 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <li><b>Find</b> narrows the list by words in the situation, detail, what's said or event.</li>
 <li><b>Undo</b>, <b>Redo</b> (<kbd>Ctrl+Z</kbd>, <kbd>Ctrl+Y</kbd>) and <b>History</b> take back replaced lines you don't like, a Voice Shift, another voice, ticked lines and sound packs, step by step or by picking a step in History. They last until the editor closes; after that, right-click a line → <b>Back to the Original Line</b> takes your file out. If another tab rebuilt the package after a step (a Model build), that step can't be taken back, so it isn't lost.</li>
 <li><b>Export Lines</b> saves every line as a .WAV named after its sound event, with <code>lines.csv</code> saying when each plays and what's said (select several rows to save only those). Edit them in any audio or voice tool, or record your own.</li>
-<li><b>Replace Lines</b> takes a folder of .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files with those names: the lines that match are replaced and the rest stay as they are, so you only need the ones you changed. Any sample rate, mono or stereo. Right-click a row for <b>Replace This Line</b>, <b>Export This Line</b> or <b>Back to the Original Line</b>. Replaced lines keep your audio through a later Voice Shift, which leaves them alone. They go into the mod's sound pack, so the old MHModManager installs them too.</li>
+<li><b>Replace Lines</b> takes a folder of .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files with those names: the lines that match are replaced and the rest stay as they are, so you only need the ones you changed. Any sample rate, mono or stereo. Right-click a row for <b>Replace This Line</b>, <b>Export This Line</b> or <b>Back to the Original Line</b>. Replaced lines keep your audio through a later Voice Shift: the whole voice's volume and effects reach them, its pitch, formant and warmth don't. They go into the mod's sound pack, so the old MHModManager installs them too.</li>
 <li><b>Use Another Voice</b> gives the costume a whole voice from the game. Its hero's own voice comes first: a stock costume has no voice set of its own (it uses its hero's), so this is how you get its lines to play and turn off. Below it are the other voices the game has, such as Lady Deadpool, Spider-Gwen or Jane Foster, and the costumes with a voice of their own (Captain America's American Dream, Captain Marvel's Binary, Iron Man's Extremis …), and under <b>Other Heroes</b> every hero's voice. A mod that ships only the hero's own package (Sentry on Vision Classic, which has no costume package) can change that package's voice: the menu marks it <b>(the Hero's Own Voice)</b>, as every costume of that hero without a voice of its own uses it. The costume's powers then play that voice's lines. <b>Back to This Mod's Voice</b> undoes it before you save.</li>
 <li>Some entries aren't sounds: a <b>Banter Target</b> names a character other heroes' banter is about, and some emotes name an animation. They have no ▶ and aren't shifted.</li>
 <li>If the mod's packages have no voice lines, a line above the list says where the hero's voice is in the game. Some heroes keep it outside their main package: Carnage's comes from his Classic costume, which plays the Carnage voice package. <b>Add Classic and Use Its Voice</b> adds that costume's package to the mod (the game's copy) with the voice put in, so it can be played, turned off and shifted. When the mod is for one of the hero's other costumes (White Tiger on Iron Fist Classic), the button is <b>Use</b> plus the voice's name instead: the voice goes into that costume's own package, so the shift reaches the costume the mod changes.</li>
 <li><b>Voice Shift</b> makes the voice higher or lower, for example to turn a female voice male or the other way round. <b>Pitch</b> moves the voice in semitones, <b>Formant</b> moves the size of the throat you hear (lower sounds bigger), and <b>Warmth</b> adds body (a raised voice can sound thin). <b>Female → Male</b> and <b>Male → Female</b> are starting points; <b>Original</b> sets everything back to 0. While you move the sliders, <b>▶</b> plays the original line at those settings. <b>Apply to This Voice</b> shifts every line that is on (about 30 seconds) and <b>Save Changes</b> puts it into the mod; the line next to the buttons shows the saved settings, and ▶ then plays the lines as the mod has them. <b>Remove Shift</b> brings the original lines back.</li>
-<li><b>Effects</b> (the row under Voice Shift) filter the voice, each from Off to 100 %: <b>Reverb</b> (a room, up to a hall), <b>Echo</b> (repeats every quarter second), <b>Distortion</b> (gritty to heavily clipped), <b>Lo-Fi</b> (radio or old speaker: a narrow band, fewer bits), <b>Chorus</b> (doubled, wavering) and <b>Robot</b> (metallic ring modulation). They combine with each other and with the shift; ▶ previews them, and <b>Apply to This Voice</b> puts them in with the shift. Reverb and echo let a line ring out up to about a second longer. <b>No Effects</b> turns them all off. Like the shift, the result is a sound pack MHModManager can install too.</li>
+<li><b>Volume</b> (5 to 300 %) sets how loud the voice plays. A line can't go past full level: above that, its peaks are rounded off.</li>
+<li><b>Effects</b> (the rows under Voice Shift) filter the voice, each from Off to 100 %: <b>Reverb</b> (a room, up to a hall), <b>Echo</b> (repeats every quarter second), <b>Distortion</b> (gritty to heavily clipped), <b>Lo-Fi</b> (radio or old speaker: a narrow band, fewer bits), <b>Chorus</b> (doubled, wavering) and <b>Robot</b> (metallic ring modulation). They combine with each other and with the shift; ▶ previews them, and <b>Apply to This Voice</b> puts them in with the shift. Reverb and echo let a line ring out up to about a second longer. <b>No Effects</b> turns them all off. Like the shift, the result is a sound pack MHModManager can install too.</li>
 <li>Only the costume's voice lines are shifted. Sound effects in its voice set (such as a dodge), the hero's other costumes and every other character keep their sounds. The shift goes into the mod as a sound pack, so the old MHModManager installs it too. <b>Use Another Voice</b> drops a shift: shift the new voice again if you want it.</li>
 </ul>
 
+<h3 id="audio-settings">Whole Set or Selected Rows</h3>
+<p>The sliders on the <b>Voice</b> and <b>Power Sounds</b> tabs work two ways. <b>Settings For</b> chooses which.</p>
+<ul>
+<li><b>Whole Voice</b> or <b>All Sounds</b>: the sliders are every row's settings. Nothing changes until you press <b>Apply to This Voice</b> or <b>Apply to All Sounds</b>. While you move them, ▶ previews them.</li>
+<li><b>Selected Lines</b> or <b>Selected Sounds</b>: select rows (<kbd>Ctrl</kbd> or <kbd>Shift</kbd> for several) and the sliders show the first one. Each slider you move is set on all of them at once, and only that slider. <b>Save Changes</b> builds them.</li>
+<li>The <b>Settings</b> column shows what each row follows. Green <b>Whole Voice</b> or <b>Whole Set</b> means it follows the set. Amber <b>This Line</b> or <b>This Sound</b> means it has its own settings, listed beside it. Empty means it plays as it is. Type <kbd>This</kbd> in <b>Find</b> to list the rows you changed by hand.</li>
+<li>A row's own settings take the place of the whole set's. Its first change starts from what it plays with now, so turning one line down in a shifted voice keeps the shift. After that, changing the set leaves it alone.</li>
+<li>If rows have their own settings when you apply to everything, the app asks: <b>Keep Their Settings</b> or <b>Override Them</b>.</li>
+<li><b>Back to the Whole Voice</b> or <b>Back to the Set</b> (a button, and on a row's right-click menu) drops a row's own settings. On Power Sounds, setting a row back to 100 % with no effects leaves it out of the set: it says <b>This Sound: As It Is</b>.</li>
+<li><b>Your own audio:</b> it stays in the mod as you imported it, so you can change these as often as you like without losing quality. The whole voice reaches a replaced line with its volume and effects only, not its pitch, formant or warmth. A line's own settings can use them all.</li>
+<li><b>A sound that picks at random:</b> many power sounds, such as gunshots, choose among several variations. A changed sound can keep only the first, so firing sounds the same each time. <b>Note</b> says so on those rows (<b>Only 1 of Its 4 Variations Plays</b>). To keep the variety, leave that row out of the set.</li>
+<li><b>Sounds that loop</b> can't change yet: the game stops a loop by its original sound, so a new one would never end.</li>
+<li>Rows sharing a sound share its settings, like <b>Off</b>: the game has one copy of it.</li>
+</ul>
 <h3 id="power-sounds">Power Sounds</h3>
 <p><b>Audio → Power Sounds</b> lists the sound effects of a hero's powers, and of what those powers set off: projectiles, hits and conditions. It opens on the mod's hero; <b>Hero</b> picks another.</p>
 <ul>
 <li><b>▶</b> plays a sound, <b>Stop</b> stops it. <b>Find</b> narrows the list by power, part or event. <b>When</b> says when in the power it plays, as far as the game says.</li>
 <li><b>Untick</b> a sound to turn it off; <b>Turn All On</b> brings them all back. Many sounds play from more than one place: Taskmaster's .45 Caliber and Dual Wield fire the same gunshot. <b>Note</b> says so (<i>Also in Dual Wield</i>), and unticking one asks whether to turn them all off. Replacing a sound always changes every place of this hero that plays it.</li>
 <li><b>Export Sounds</b> saves them as .WAV files named after their sound events, with <code>lines.csv</code> saying which power each belongs to (select rows to save only those). <b>Replace Sounds</b> takes a folder of .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files with those names; right-click a row for <b>Replace This Sound</b> or <b>Back to the Original Sound</b>. A sound used by two parts of a power changes in both.</li>
+<li><b>Volume</b> and the effects (<b>Reverb</b>, <b>Echo</b>, <b>Distortion</b>, <b>Lo-Fi</b>, <b>Chorus</b>, <b>Robot</b>) work on the game's sounds and on your own. See <a href="#audio-settings">Whole Set or Selected Rows</a>.</li>
 <li>Sounds marked <b>Loops</b> can be turned off but not replaced yet: the game stops a loop by its original sound, so a new one would never end.</li>
 <li><b>Undo</b>, <b>Redo</b> and <b>History</b> are the same as on the Voice tab, and share its steps.</li>
 <li><b>Save Changes</b> builds them: the power's package joins the mod and the audio goes into its sound pack, so the old MHModManager installs it too. A power's package is shared, so the change applies to every costume of that hero. Sounds that many heroes share (knockdowns, slows) aren't listed. Sounds played by animations, such as footsteps, aren't in this list.</li>

@@ -244,6 +244,9 @@ sealed class Akpk
     /// <summary>Voice playback: what an event in one of this .pck's banks plays (see Bank.Media).</summary>
     public static (uint SourceId, byte[]? Embedded)? EventMedia(Stream f, Entry bank, uint eventId) => new Bank(ReadData(f, bank)).Media(eventId);
 
+    /// <summary>How many sounds an event can pick from, and its actions (see Bank.Variations).</summary>
+    public static (int Actions, int Sounds) EventVariations(Stream f, Entry bank, uint eventId) => new Bank(ReadData(f, bank)).Variations(eventId);
+
     /// <summary>Every event in a bank with the sound it plays (Bank.Media): the voice text table's build.</summary>
     public static IEnumerable<(uint Event, uint SourceId)> AllEventMedia(Stream f, Entry bank)
     {
@@ -460,6 +463,34 @@ sealed class Akpk
                 return (source, data.GetBuffer().AsSpan((int)d.Offset, (int)d.Size).ToArray());
             }
             return null;
+        }
+
+        /// <summary>An event's actions, and the sounds under their targets: more than one = random or sequence variations (a clone keeps only the first).</summary>
+        public (int Actions, int Sounds) Variations(uint eventId)
+        {
+            if (Obj(eventId) is not { } ev || ev.Type != 4 || ev.Body.Length < 4) return (0, 0);
+            int n = (int)BinaryPrimitives.ReadUInt32LittleEndian(ev.Body), sounds = 0, actions = 0;
+            var seen = new HashSet<uint>();
+            void Walk((byte Type, uint Id, byte[] Body) c, int depth)
+            {
+                if (depth > 6 || !seen.Add(c.Id)) return;
+                if (c.Type == 2) { sounds++; return; }
+                Span<byte> key = stackalloc byte[4], parentKey = stackalloc byte[4];
+                BinaryPrimitives.WriteUInt32LittleEndian(parentKey, c.Id);
+                foreach (var o in objects)
+                {
+                    if (o.Id == c.Id || o.Type is not (2 or 5 or 6 or 9) || o.Body.AsSpan().IndexOf(parentKey) < 0) continue;
+                    BinaryPrimitives.WriteUInt32LittleEndian(key, o.Id);
+                    if (c.Body.AsSpan().IndexOf(key) >= 0) Walk(o, depth + 1);
+                }
+            }
+            for (int i = 0; i < n && 8 + 4 * i <= ev.Body.Length; i++)
+            {
+                if (Obj(BinaryPrimitives.ReadUInt32LittleEndian(ev.Body.AsSpan(4 + 4 * i))) is not { } act || act.Type != 3 || act.Body.Length < 6) continue;
+                actions++;
+                if (Obj(BinaryPrimitives.ReadUInt32LittleEndian(act.Body.AsSpan(2))) is { } tgt) Walk(tgt, 0);
+            }
+            return (actions, sounds);
         }
 
         public string Probe(uint target)

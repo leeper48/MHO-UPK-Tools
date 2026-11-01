@@ -11,7 +11,7 @@ namespace MhoExtendedModManager.Gui;
 sealed partial class ModEditorView
 {
     sealed record AudioState(Dictionary<string, string> Packages, List<string> SoundPacks, string Shifts, List<VoiceOffEntry> Off,
-        Dictionary<(string, int), bool> Wanted, Dictionary<string, string> Before, VoiceShiftEntry Sliders, string Sounds);
+        Dictionary<(string, int), bool> Wanted, Dictionary<string, string> Before, VoiceShiftEntry Sliders, string Sounds, Dictionary<string, byte[]> SoundAudio, string SoundSets);
 
     sealed record AudioStep(string Label, AudioState Was, AudioState Is);
 
@@ -21,9 +21,9 @@ sealed partial class ModEditorView
     bool audioBusy;
 
     AudioState AudioNow() => new(draft.Packages.ToDictionary(p => p.File, p => p.Source, StringComparer.OrdinalIgnoreCase), [.. draft.SoundPacks], JsonSerializer.Serialize(draft.VoiceShifts),
-        [.. draft.VoiceOff], new(voiceWanted), new(voiceBefore, StringComparer.OrdinalIgnoreCase), Sliders, JsonSerializer.Serialize(draft.PowerSounds));
+        [.. draft.VoiceOff], new(voiceWanted), new(voiceBefore, StringComparer.OrdinalIgnoreCase), VoiceSetSliders, JsonSerializer.Serialize(draft.PowerSounds), new(soundWavs, StringComparer.OrdinalIgnoreCase), JsonSerializer.Serialize(draft.PowerSoundSets));
 
-    static bool SameAudio(AudioState a, AudioState b) => a.Shifts == b.Shifts && a.Sounds == b.Sounds && a.SoundPacks.SequenceEqual(b.SoundPacks) && a.Off.SequenceEqual(b.Off)
+    static bool SameAudio(AudioState a, AudioState b) => a.Shifts == b.Shifts && a.Sounds == b.Sounds && a.SoundSets == b.SoundSets && a.SoundAudio.Count == b.SoundAudio.Count && a.SoundAudio.All(kv => b.SoundAudio.GetValueOrDefault(kv.Key) == kv.Value) && a.SoundPacks.SequenceEqual(b.SoundPacks) && a.Off.SequenceEqual(b.Off)
         && a.Packages.Count == b.Packages.Count && a.Packages.All(kv => b.Packages.GetValueOrDefault(kv.Key) == kv.Value)
         && a.Wanted.Count == b.Wanted.Count && a.Wanted.All(kv => b.Wanted.TryGetValue(kv.Key, out bool v) && v == kv.Value);
 
@@ -75,14 +75,16 @@ sealed partial class ModEditorView
         draft.VoiceShifts.Clear(); draft.VoiceShifts.AddRange(JsonSerializer.Deserialize<List<VoiceShiftEntry>>(to.Shifts) ?? []);
         draft.VoiceOff.Clear(); draft.VoiceOff.AddRange(to.Off);
         draft.PowerSounds.Clear(); draft.PowerSounds.AddRange(JsonSerializer.Deserialize<List<PowerSoundEntry>>(to.Sounds) ?? []);
+        draft.PowerSoundSets.Clear(); draft.PowerSoundSets.AddRange(JsonSerializer.Deserialize<List<PowerSoundSet>>(to.SoundSets) ?? []);
+        soundWavs.Clear(); foreach (var (k, v) in to.SoundAudio) soundWavs[k] = v;
         voiceWanted.Clear(); foreach (var (k, v) in to.Wanted) voiceWanted[k] = v;
         voiceBefore.Clear(); foreach (var (k, v) in to.Before) voiceBefore[k] = v;
-        var s = to.Sliders;
-        foreach (var (sl, v) in new[] { (voicePitch, s.Pitch), (voiceFormant, s.Formant), (voiceWarmth, s.Warmth), (voiceReverb, s.Reverb), (voiceEcho, s.Echo), (voiceDistortion, s.Distortion), (voiceLoFi, s.LoFi), (voiceChorus, s.Chorus), (voiceRobot, s.Robot) })
-            if (sl != null) sl.Value = v;
+        voiceSetKept = to.Sliders;
+        if (!voiceRowScope) ShowVoiceSliders(to.Sliders);
         VoiceAudio.Stop();
         voiceWavs.Clear();
-        RefreshPackages(); RefreshSounds(); RefreshVoice(); ShowShiftNote(); FillSounds();
+        RefreshPackages(); RefreshSounds(); RefreshVoice(); ShowShiftNote(); ShowVoiceShape();
+        ShowSoundSet(); FillSounds();
         return true;
     }
 

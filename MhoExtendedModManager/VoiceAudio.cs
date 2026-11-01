@@ -126,6 +126,16 @@ static class VoiceAudio
         using (var f = File.OpenRead(st.Pck)) return (Akpk.ReadData(f, st.Entry), $"{Path.GetFileName(st.Pck)}: sound {m.SourceId}");
     }
 
+    /// <summary>How many sounds a game event picks from (1: one sound), and its actions; (0, 0) when it isn't in the game's files.</summary>
+    public static (int Actions, int Sounds) Variations(string eventPath, string cooked)
+    {
+        string leaf = eventPath[(eventPath.LastIndexOf('.') + 1)..];
+        Index(cooked);
+        if (FindEvent(SoundPack.Fnv(leaf), eventPath.Split('.')[0]) is not { } where) return (0, 0);
+        using var f = File.OpenRead(where.Pck);
+        return Akpk.EventVariations(f, where.Entry, SoundPack.Fnv(leaf));
+    }
+
     /// <summary>Wwise Vorbis .wem → a 16-bit PCM WAV file in memory.</summary>
     public static byte[] ToWav(byte[] wem)
     {

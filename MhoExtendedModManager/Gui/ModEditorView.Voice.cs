@@ -10,7 +10,7 @@ sealed partial class ModEditorView
     // ---- Voice
     Control VoicePage()
     {
-        voice = Ui.Grid(S, false, ("Situation", 210), ("Detail", 210), ("What's Said", 0), ("Sound Event", 300), ("Package", 280));
+        voice = Ui.Grid(S, false, ("Situation", 210), ("Detail", 210), ("Settings", 210), ("What's Said", 0), ("Sound Event", 300), ("Package", 280));
         // (the whole event name shows, however long; the words take the room left: Kurt, 2026-10-31, they clipped it)
         voice.Columns["Sound Event"]!.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;   // (measured in FillVoice: the grid's own sizing still clipped the longest)
         voice.Columns["What's Said"]!.MinimumWidth = (int)(240 * S);
@@ -30,10 +30,11 @@ sealed partial class ModEditorView
             voice.Rows[e.RowIndex].DefaultCellStyle.ForeColor = on ? Ui.Text : Ui.Subtle;
             UpdateVoiceCount();
         };
+        voice.SelectionChanged += (_, _) => { if (!voiceFilling) ShowVoiceShape(); };
         voiceFind.TextChanged += (_, _) => FillVoice();
         MhoPackageModifier.Gui.SearchBox.AddClear(voiceFind);
         Disposed += (_, _) => { VoiceAudio.Stop(); if (voiceWork != null) try { Directory.Delete(voiceWork, true); } catch (IOException) { } };
-        Ui.Tip(voiceFind, "Show only lines whose situation, detail, words or sound event have these words.");
+        Ui.Tip(voiceFind, "Show only lines whose situation, detail, settings, words or sound event have these words.");
         var find = new Label { Text = "Find", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 4, 0) };
         var allOn = Ui.FlatButton("Turn All On", () =>
         {
@@ -54,6 +55,7 @@ sealed partial class ModEditorView
             if (picked.Count == 1) menu.Items.Add(new ToolStripMenuItem("Replace This Line", null, (_, _) => ReplaceOne(picked[0])) { ToolTipText = "Pick an audio file to play instead of this line." });
             menu.Items.Add(new ToolStripMenuItem(picked.Count == 1 ? "Export This Line" : $"Export {picked.Count} Lines", null, (_, _) => ExportLines(picked)) { ToolTipText = "Saves them as .WAV files." });
             if (picked.Any(IsOwnLine)) menu.Items.Add(new ToolStripMenuItem("Back to the Original Line", null, (_, _) => OriginalLines(picked)) { ToolTipText = "Takes your file out: the line plays as it did before." });
+            if (picked.Any(l => RowOf(l) != null)) menu.Items.Add(new ToolStripMenuItem("Back to the Whole Voice", null, (_, _) => LinesBackToSet()) { ToolTipText = "Drops these lines' own settings: they follow the whole voice's again." });
             menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
             menu.Show(voice, voice.PointToClient(Cursor.Position));
         };
@@ -62,48 +64,61 @@ sealed partial class ModEditorView
             tip: "Give the costume a whole voice from the game: its hero's own (so you can play and turn off its lines), another costume's voice such as Lady Deadpool or Spider-Gwen, or any hero's.");
         // Voice shift (Kurt, 2026-10-02): the sliders preview with ▶; Shift This Voice renders every line into the mod
         // (VoiceShiftBuild: a sound pack MHModManager 1.0.1 applies too); Remove Shift puts the original lines back.
-        voicePitch = new LightSlider { Label = "Pitch", Min = -12, Max = 12, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 st" : $"{v:+0.#;-0.#} st", Home = () => 0, Size = new Size((int)(230 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
-        voiceFormant = new LightSlider { Label = "Formant", Min = -6, Max = 6, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 st" : $"{v:+0.#;-0.#} st", Home = () => 0, Size = new Size((int)(230 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
-        voiceWarmth = new LightSlider { Label = "Warmth", Min = -6, Max = 6, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 dB" : $"{v:+0.#;-0.#} dB", Home = () => 0, Size = new Size((int)(230 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
+        voicePitch = new LightSlider { Label = "Pitch", Min = -12, Max = 12, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 st" : $"{v:+0.#;-0.#} st", Home = () => 0, Size = new Size((int)(132 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
+        voiceFormant = new LightSlider { Label = "Formant", Min = -6, Max = 6, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 st" : $"{v:+0.#;-0.#} st", Home = () => 0, Size = new Size((int)(132 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
+        voiceWarmth = new LightSlider { Label = "Warmth", Min = -6, Max = 6, Step = 0.5f, Mark = 0, Format = v => v == 0 ? "0 dB" : $"{v:+0.#;-0.#} dB", Home = () => 0, Size = new Size((int)(132 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(10 * S), 0) };
         voicePitch.Value = 0; voiceFormant.Value = 0; voiceWarmth.Value = 0;
+        voicePitch.Committed += () => SetLineShape(r => r.Pitch = voicePitch.Value);
+        voiceFormant.Committed += () => SetLineShape(r => r.Formant = voiceFormant.Value);
+        voiceWarmth.Committed += () => SetLineShape(r => r.Warmth = voiceWarmth.Value);
         // Filters (a user asked, 2026-10-16): 0-100 % each, previewed with ▶, applied with the shift
-        LightSlider Fx(string label, string tip)
+        LightSlider Fx(string label, string tip, Action<VoiceShiftEntry, float> set)
         {
             var sl = new LightSlider { Label = label, Min = 0, Max = 1, Step = 0.05f, Mark = 0, Format = v => v == 0 ? "Off" : $"{v * 100:0} %", Home = () => 0, Size = new Size((int)(165 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(8 * S), 0) };
-            sl.Value = 0; Ui.Tip(sl, tip + " ▶ plays lines with it; Apply to This Voice puts it into the mod (double-click: off).");
+            sl.Value = 0; Ui.Tip(sl, tip + " ▶ plays lines with it. Whole Voice: Apply to This Voice puts it into the mod. Selected Lines: it's set at once (double-click: off).");
+            sl.Committed += () => SetLineShape(r => set(r, sl.Value));
             return sl;
         }
-        voiceReverb = Fx("Reverb", "A room around the voice: small at low settings, a hall at 100 %.");
-        voiceEcho = Fx("Echo", "Repeats every quarter second, fading out (more repeats and louder as it goes up).");
-        voiceDistortion = Fx("Distortion", "Drives the voice into soft clipping: gritty to heavily distorted.");
-        voiceLoFi = Fx("Lo-Fi", "Radio or old-speaker sound: a narrow band, fewer bits and a lower sample rate as it goes up.");
-        voiceChorus = Fx("Chorus", "Two slightly delayed, wavering copies of the voice: doubled, otherworldly.");
-        voiceRobot = Fx("Robot", "Ring modulation: a metallic, robotic voice.");
+        voiceVolume = new LightSlider { Label = "Volume", Min = 0.05f, Max = 3, Step = 0.05f, Mark = 1, Format = v => $"{v * 100:0} %", Home = () => 1, Size = new Size((int)(165 * S), (int)(30 * S)), Margin = new Padding(0, 2, (int)(8 * S), 0) };
+        voiceVolume.Value = 1;
+        voiceVolume.Committed += () => SetLineShape(r => r.Volume = Math.Abs(voiceVolume.Value - 1) < 0.001f ? null : voiceVolume.Value);
+        Ui.Tip(voiceVolume, "How loud the voice plays; 100 % is the line as it is. Past full level the peaks are rounded off, so a line that's already at full level won't get much louder (double-click: back to 100 %).");
+        voiceReverb = Fx("Reverb", "A room around the voice: small at low settings, a hall at 100 %.", (r, v) => r.Reverb = v);
+        voiceEcho = Fx("Echo", "Repeats every quarter second, fading out (more repeats and louder as it goes up).", (r, v) => r.Echo = v);
+        voiceDistortion = Fx("Distortion", "Drives the voice into soft clipping: gritty to heavily distorted.", (r, v) => r.Distortion = v);
+        voiceLoFi = Fx("Lo-Fi", "Radio or old-speaker sound: a narrow band, fewer bits and a lower sample rate as it goes up.", (r, v) => r.LoFi = v);
+        voiceChorus = Fx("Chorus", "Two slightly delayed, wavering copies of the voice: doubled, otherworldly.", (r, v) => r.Chorus = v);
+        voiceRobot = Fx("Robot", "Ring modulation: a metallic, robotic voice.", (r, v) => r.Robot = v);
         Ui.Tip(voiceWarmth, "More (or less) of the low end, the voice's body. A raised voice can sound thin; a little warmth helps.");   // (a LightSlider starts at 1: it was made for the light level)
         Ui.Tip(voicePitch, "How many semitones higher or lower the voice is (double-click: back to 0). ▶ plays lines with these settings; Apply to This Voice puts them into the mod.");
         Ui.Tip(voiceFormant, "Moves the voice's formants (the size of the throat you hear) by semitones, apart from the pitch. Lower sounds bigger, higher smaller.");
-        Button Preset(string text, float pitch, float formant, float warmth, string tip) => Ui.FlatButton(text, () => { voicePitch.Value = pitch; voiceFormant.Value = formant; voiceWarmth.Value = warmth; }, tip);
-        var shiftNow = Ui.AccentButton("Apply to This Voice", ShiftVoice, "Shift and filter every line of the voice with these settings (about 30 seconds). Lines that are off stay off; sound effects in the voice set aren't changed. Save puts it into the mod: a sound pack MHModManager can install too.");
-        var unshift = Ui.FlatButton("Remove Shift", () => _ = UnshiftVoice(), "Put the voice's original lines back, without the shift and filters (Save to keep it).");
-        var noFx = Ui.FlatButton("No Effects", () => { foreach (var sl in new[] { voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot }) sl!.Value = 0; }, "Every filter off (the shift stays).");
+        Button Preset(string text, float pitch, float formant, float warmth, string tip) => Ui.FlatButton(text, () => { voicePitch.Value = pitch; voiceFormant.Value = formant; voiceWarmth.Value = warmth; SetLineShape(r => { r.Pitch = pitch; r.Formant = formant; r.Warmth = warmth; }); }, tip);
+        voiceApply = Ui.AccentButton("Apply to This Voice", ShiftVoice, "Shift and filter every line of the voice with these settings (about 30 seconds). Lines that are off stay off; sound effects in the voice set aren't changed; your own audio takes the volume and effects, not the shift. Save puts it into the mod: a sound pack MHModManager can install too.");
+        voiceRemove = Ui.FlatButton("Remove Shift", () => _ = UnshiftVoice(), "Put the voice's original lines back, without the whole voice's settings (Save to keep it). Lines with settings of their own keep them.");
+        voiceBackToSet = Ui.FlatButton("Back to the Whole Voice", LinesBackToSet, "Drops the selected lines' own settings: they follow the whole voice's again.");
+        var noFx = Ui.FlatButton("No Effects", () => { foreach (var sl in new[] { voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot }) sl!.Value = 0; SetLineShape(r => r.Reverb = r.Echo = r.Distortion = r.LoFi = r.Chorus = r.Robot = 0); }, "Every filter off (the shift and volume stay).");
+        voiceScopeSet = Ui.FlatButton("Whole Voice", () => SetVoiceScope(false), "The sliders are every line's settings. Nothing changes until Apply to This Voice. Lines with settings of their own keep them, unless you choose to override them.");
+        voiceScopeRows = Ui.FlatButton("Selected Lines", () => SetVoiceScope(true), "The sliders are the selected lines' own settings, set as you move them, and built when you Save. A line's own settings take the place of the whole voice's. The Settings column says which each line follows.");
+        var scopeRow = Toolbar(new Label { Text = "SETTINGS FOR", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, voiceScopeSet, voiceScopeRows, voiceApply, voiceRemove, voiceBackToSet, voiceShiftNote);
         var shiftRow = Toolbar(new Label { Text = "VOICE SHIFT", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, voicePitch, voiceFormant, voiceWarmth,
             Preset("Female → Male", -5, -2.5f, 0, "Pitch -5, formants -2.5: a starting point for a female voice to sound male."),
             Preset("Male → Female", 5, 2.5f, 2, "Pitch +5, formants +2.5, warmth +2 dB: a starting point for a male voice to sound female."),
-            Preset("Original", 0, 0, 0, "Back to the line as it is (the filters stay as they are)."), shiftNow, unshift, voiceShiftNote);
-        var fxRow = Toolbar(new Label { Text = "EFFECTS", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, noFx, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot);
-        fxRow.WrapContents = true;   // six sliders: a second line on a narrow window
-        if (draft.VoiceShifts.FirstOrDefault() is { } saved)
-        {
-            voicePitch.Value = saved.Pitch; voiceFormant.Value = saved.Formant; voiceWarmth.Value = saved.Warmth;
-            voiceReverb.Value = saved.Reverb; voiceEcho.Value = saved.Echo; voiceDistortion.Value = saved.Distortion; voiceLoFi.Value = saved.LoFi; voiceChorus.Value = saved.Chorus; voiceRobot.Value = saved.Robot;
-        }
+            Preset("Original", 0, 0, 0, "Back to the line as it is (the filters stay as they are)."));
+        // (fixed rows: a wrapping row doesn't grow in a docked panel, so its last sliders were hidden on a narrow window)
+        var fxRow = Toolbar(new Label { Text = "EFFECTS", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, voiceVolume, noFx, voiceReverb, voiceEcho);
+        var fxRow2 = Toolbar(voiceDistortion, voiceLoFi, voiceChorus, voiceRobot);
+        foreach (var row in new[] { scopeRow, shiftRow, fxRow, fxRow2 }) row.Padding = new Padding(0, 1, 0, 1);   // (room for the table)
+        voiceShapeControls.AddRange([voicePitch, voiceFormant, voiceWarmth, voiceVolume, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot, noFx]);
+        voiceShapeControls.AddRange(shiftRow.Controls.OfType<Button>());
+        if (draft.VoiceShifts.FirstOrDefault() is { } saved) ShowVoiceSliders(saved);
         ShowShiftNote();
+        SetVoiceScope(false);
         var bars = new Panel { Dock = DockStyle.Top, AutoSize = true };
         var mainRow = Toolbar([find, voiceFind, allOn, stop, export, replace, another, .. AudioButtons(), voiceCount, voiceStatus]);
         voiceHintButton = Ui.AccentButton("Use the Hero's Voice", UseHeroVoice, "Add the hero's default costume package to the mod (the game's copy) and put the voice the game plays for it into that package, so its lines can be played, turned off and shifted.");
         voiceHintRow = Toolbar(voiceHint, voiceHintButton);
         voiceHintRow.Visible = false;
-        bars.Controls.Add(voiceHintRow); bars.Controls.Add(fxRow); bars.Controls.Add(shiftRow); bars.Controls.Add(mainRow);   // (docked top: the last added is on top)
+        bars.Controls.Add(voiceHintRow); bars.Controls.Add(fxRow2); bars.Controls.Add(fxRow); bars.Controls.Add(shiftRow); bars.Controls.Add(scopeRow); bars.Controls.Add(mainRow);   // (docked top: the last added is on top)
         return Page(voice, bars,
             "The costume's voice set: what the hero says in each situation. Click ▶ to hear a line. Untick a line to turn it off (for example a donor voice naming its own team); it's saved into the mod's package, and can be turned on again. A stock costume has no voice set of its own (it uses its hero's): Use Another Voice puts its hero's voice in, or another costume's or hero's.");
     }
@@ -220,7 +235,15 @@ sealed partial class ModEditorView
     int voicePlayId;
 
     /// <summary>Plays a line (VoiceAudio: the mod's sound pack, else the game's sound files), found and decoded in the background.</summary>
-    LightSlider? voicePitch, voiceFormant, voiceWarmth, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot;
+    LightSlider? voicePitch, voiceFormant, voiceWarmth, voiceVolume, voiceReverb, voiceEcho, voiceDistortion, voiceLoFi, voiceChorus, voiceRobot;
+    Button voiceScopeSet = null!, voiceScopeRows = null!, voiceApply = null!, voiceRemove = null!, voiceBackToSet = null!;
+    readonly List<Control> voiceShapeControls = [];
+    /// <summary>The sliders are the selected lines' own settings, not the whole voice's.</summary>
+    bool voiceRowScope, voiceFilling;
+    /// <summary>The whole voice's sliders, while they show the selected lines.</summary>
+    VoiceShiftEntry voiceSetKept = new();
+    /// <summary>Each package's entry as last built (a change after it is built at Save).</summary>
+    readonly Dictionary<string, string> voiceBuilt = new(StringComparer.OrdinalIgnoreCase);
     readonly Label voiceHint = new() { AutoSize = true, ForeColor = Ui.OverrideAmber, Padding = new Padding(0, 8, 8, 0) };
     Button? voiceHintButton;
     FlowLayoutPanel? voiceHintRow;
@@ -303,19 +326,141 @@ sealed partial class ModEditorView
     VoiceShiftEntry Sliders => new()
     {
         Pitch = voicePitch?.Value ?? 0, Formant = voiceFormant?.Value ?? 0, Warmth = voiceWarmth?.Value ?? 0,
+        Volume = voiceVolume == null || Math.Abs(voiceVolume.Value - 1) < 0.001f ? null : voiceVolume.Value,
         Reverb = voiceReverb?.Value ?? 0, Echo = voiceEcho?.Value ?? 0, Distortion = voiceDistortion?.Value ?? 0, LoFi = voiceLoFi?.Value ?? 0, Chorus = voiceChorus?.Value ?? 0, Robot = voiceRobot?.Value ?? 0,
     };
-    static bool Same(VoiceShiftEntry a, VoiceShiftEntry b) => Math.Abs(a.Pitch - b.Pitch) < 0.01f && Math.Abs(a.Formant - b.Formant) < 0.01f && Math.Abs(a.Warmth - b.Warmth) < 0.01f
-        && Math.Abs(a.Reverb - b.Reverb) < 0.01f && Math.Abs(a.Echo - b.Echo) < 0.01f && Math.Abs(a.Distortion - b.Distortion) < 0.01f
-        && Math.Abs(a.LoFi - b.LoFi) < 0.01f && Math.Abs(a.Chorus - b.Chorus) < 0.01f && Math.Abs(a.Robot - b.Robot) < 0.01f;
+    /// <summary>The whole voice's settings, whichever the sliders show.</summary>
+    VoiceShiftEntry VoiceSetSliders => voiceRowScope ? voiceSetKept : Sliders;
+
+    static bool Same(VoiceShiftEntry a, VoiceShiftEntry b) => a.Key == b.Key;
+
+    void ShowVoiceSliders(VoiceShiftEntry s)
+    {
+        foreach (var (sl, v) in new[] { (voicePitch, s.Pitch), (voiceFormant, s.Formant), (voiceWarmth, s.Warmth), (voiceVolume, s.Volume ?? 1), (voiceReverb, s.Reverb), (voiceEcho, s.Echo), (voiceDistortion, s.Distortion), (voiceLoFi, s.LoFi), (voiceChorus, s.Chorus), (voiceRobot, s.Robot) })
+            if (sl != null) sl.Value = v;
+    }
+
+    /// <summary>Whole Voice or Selected Lines: what the sliders are.</summary>
+    void SetVoiceScope(bool rows)
+    {
+        if (rows != voiceRowScope)
+        {
+            if (rows) voiceSetKept = Sliders; else ShowVoiceSliders(voiceSetKept);
+            voiceRowScope = rows;
+        }
+        Ui.Lit(voiceScopeSet, !rows); Ui.Lit(voiceScopeRows, rows);
+        voiceApply.Visible = voiceRemove.Visible = !rows;
+        voiceBackToSet.Visible = rows;
+        ShowVoiceShape();
+    }
+
+    /// <summary>The lines the sliders work on: the selected ones with sound.</summary>
+    List<VoiceLine> PickedLinesWithSound() => voice == null ? [] : [.. PickedLines().Where(l => l.Sound && !l.Missing)];
+
+    VoiceShiftEntry? RowOf(VoiceLine l) => draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(l.Package, StringComparison.OrdinalIgnoreCase))?.LineOf(VoiceLines.Leaf(l.Event));
+
+    /// <summary>Selected Lines: the sliders show the first selected line; with none selected they're off.</summary>
+    void ShowVoiceShape()
+    {
+        if (voice == null || voiceBackToSet == null) return;
+        var picked = PickedLinesWithSound();
+        if (voiceRowScope)
+        {
+            if (picked.Count > 0)
+            {
+                var e = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(picked[0].Package, StringComparison.OrdinalIgnoreCase));
+                ShowVoiceSliders(e?.For(VoiceLines.Leaf(picked[0].Event)) ?? new VoiceShiftEntry());
+            }
+            else ShowVoiceSliders(new VoiceShiftEntry());
+        }
+        foreach (var c in voiceShapeControls) c.Enabled = !voiceRowScope || picked.Count > 0;
+        voiceBackToSet.Enabled = picked.Any(l => RowOf(l) != null);
+    }
+
+    /// <summary>A slider moved in Selected Lines: every selected line's own settings (a line's first change starts from what it
+    /// plays with now). Built at Save; a step of the Audio tab's Undo.</summary>
+    void SetLineShape(Action<VoiceShiftEntry> set)
+    {
+        if (!voiceRowScope) return;
+        var picked = PickedLinesWithSound();
+        if (picked.Count == 0) return;
+        var was = AudioNow();
+        foreach (var g in picked.GroupBy(l => l.Package, StringComparer.OrdinalIgnoreCase))
+        {
+            var e = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(g.Key, StringComparison.OrdinalIgnoreCase));
+            if (e == null) draft.VoiceShifts.Add(e = new VoiceShiftEntry { Package = g.Key });
+            e.Lines ??= new(StringComparer.OrdinalIgnoreCase);
+            foreach (string leaf in g.Select(l => VoiceLines.Leaf(l.Event)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var row = e.LineOf(leaf) ?? e.For(leaf);
+                row.Package = g.Key;
+                set(row);
+                e.Lines.Remove(leaf);
+                if (row.Any || e.Any) e.Lines[leaf] = row;   // (nothing set and nothing to differ from: it follows the set)
+            }
+        }
+        draft.VoiceShifts.RemoveAll(x => x.Lines is { Count: 0 } && !x.Any && x.Replaced is not { Count: > 0 });
+        foreach (var x in draft.VoiceShifts) if (x.Lines is { Count: 0 }) x.Lines = null;
+        AudioRecord(picked.Count == 1 ? "This Line: " + picked[0].Situation : $"Selected Lines: {picked.Count}", was);
+        ShowLineSettings();
+        voiceBackToSet.Enabled = picked.Any(l => RowOf(l) != null);
+        ShowShiftNote();
+        voiceShiftNote.Text += " · Not Saved Yet";
+    }
+
+    /// <summary>The selected lines follow the whole voice again.</summary>
+    void LinesBackToSet()
+    {
+        var picked = PickedLinesWithSound();
+        var was = AudioNow();
+        foreach (var l in picked)
+        {
+            var e = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(l.Package, StringComparison.OrdinalIgnoreCase));
+            if (e?.Lines == null) continue;
+            foreach (string k in e.Lines.Keys.Where(k => k.Equals(VoiceLines.Leaf(l.Event), StringComparison.OrdinalIgnoreCase)).ToList()) e.Lines.Remove(k);
+            if (e.Lines.Count == 0) e.Lines = null;
+        }
+        draft.VoiceShifts.RemoveAll(x => x.Lines == null && !x.Any && x.Replaced is not { Count: > 0 } && !voiceBuilt.ContainsKey(x.Package) && !(editing?.Manifest.VoiceShifts?.Any(w => w.Package.Equals(x.Package, StringComparison.OrdinalIgnoreCase)) ?? false));
+        AudioRecord("Back to the Whole Voice", was);
+        ShowLineSettings();
+        ShowVoiceShape();
+        ShowShiftNote();
+        voiceShiftNote.Text += " · Not Saved Yet";
+    }
+
+    /// <summary>A line's Settings cell: what it follows (the column that tells a whole set's change from a row's own).</summary>
+    string LineSetting(VoiceLine l)
+    {
+        if (!l.Sound || l.Missing) return "";
+        if (RowOf(l) is { } row) return "This Line" + (row.Any ? ": " + ShapeText(row) : ": As It Is");
+        var e = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(l.Package, StringComparison.OrdinalIgnoreCase));
+        if (e?.For(VoiceLines.Leaf(l.Event)).Any != true) return "";
+        return IsOwnLine(l) ? "Whole Voice (No Shift)" : "Whole Voice";
+    }
+
+    /// <summary>"Pitch +2, Volume 60 %, Reverb 40 %" for what's set.</summary>
+    static string ShapeText(VoiceShiftEntry v) => (((v.Pitch != 0 ? $", Pitch {v.Pitch:+0.#;-0.#}" : "") + (v.Formant != 0 ? $", Formant {v.Formant:+0.#;-0.#}" : "") + (v.Warmth != 0 ? $", Warmth {v.Warmth:+0.#;-0.#}" : "")
+        + (v.Volume is float g && Math.Abs(g - 1) > 0.001f ? $", Volume {g * 100:0} %" : "") + EffectsText(v)) is { Length: > 0 } t ? t[2..] : "");
+
+    static void PaintSetting(DataGridViewCell c, string text)
+    {
+        c.Value = text;
+        c.Style.ForeColor = c.Style.SelectionForeColor = text.StartsWith("This", StringComparison.Ordinal) ? Ui.OverrideAmber : Ui.Enabled;
+    }
+
+    void ShowLineSettings()
+    {
+        foreach (DataGridViewRow r in voice!.Rows) if (r.Tag is VoiceLine l) PaintSetting(r.Cells["Settings"], LineSetting(l));
+    }
 
     void ShowShiftNote()
     {
         var v = draft.VoiceShifts.FirstOrDefault();
         voiceShiftNote.ForeColor = v == null ? Ui.Subtle : Ui.Enabled;
-        int own = draft.VoiceShifts.Sum(x => x.Replaced?.Count ?? 0);
-        voiceShiftNote.Text = (v?.Any != true ? "Not Shifted" : $"Shifted: Pitch {v.Pitch:+0.#;-0.#;0}, Formant {v.Formant:+0.#;-0.#;0}, Warmth {v.Warmth:+0.#;-0.#;0} dB" + EffectsText(v))
-            + (own > 0 ? $" · {own} Line{(own == 1 ? "" : "s")} Replaced" : "");
+        int own = draft.VoiceShifts.Sum(x => x.Replaced?.Count ?? 0), rows = draft.VoiceShifts.Sum(x => x.Lines?.Count ?? 0);
+        voiceShiftNote.Text = (v?.Any != true ? "No Whole-Voice Settings" : "Whole Voice: " + ShapeText(v))
+            + (own > 0 ? $" · {own} Line{(own == 1 ? "" : "s")} Replaced" : "")
+            + (rows > 0 ? $" · {rows} Line{(rows == 1 ? "" : "s")} With Own Settings" : "");
     }
 
     /// <summary>", Reverb 40 %, Echo 20 %" for the filters that are on.</summary>
@@ -352,6 +497,93 @@ sealed partial class ModEditorView
         return hint;
     }
     internal string ShiftNote => voiceShiftNote.Text;
+
+    /// <summary>Test (--voice-shape-test): a line's own settings and the whole voice through the tab, with builds; nothing is saved.</summary>
+    internal async Task<int> TestVoiceShape(Action<string> say)
+    {
+        int fails = 0;
+        void Check(bool c, string what) { say((c ? "PASS " : "FAIL ") + what); if (!c) fails++; }
+        RefreshVoice();
+        await HeroVoiceForTest();
+        var lines = voiceLines.Where(l => l.Sound && !l.Missing && !l.Off).DistinctBy(l => VoiceLines.Leaf(l.Event), StringComparer.OrdinalIgnoreCase).ToList();
+        if (lines.Count < 4) { Check(false, "the mod has a voice"); return fails; }
+        var (a, b, c) = (lines[0], lines[1], lines[2]);
+        void Pick(params VoiceLine[] rows)
+        {
+            voice!.ClearSelection();
+            foreach (DataGridViewRow row in voice.Rows) if (row.Tag is VoiceLine l && rows.Contains(l)) row.Selected = true;
+        }
+        VoiceLine Now(VoiceLine l) => voiceLines.First(x => x.Offset == l.Offset && x.Package == l.Package);
+        string Cell(VoiceLine l) => voice!.Rows.Cast<DataGridViewRow>().First(x => x.Tag is VoiceLine y && y.Offset == l.Offset && y.Package == l.Package).Cells["Settings"].Value as string ?? "";
+        Dictionary<string, byte[]> Wems() => SoundPack.Load(draft.SoundPacks.First(p => Path.GetFileName(p).Equals(VoiceShiftBuild.PackName(a.Package), StringComparison.OrdinalIgnoreCase))).Wems.ToDictionary(x => x.Key, x => x.Value, StringComparer.OrdinalIgnoreCase);
+        static float Peak(byte[] wem) => WavPcm.Read(VoiceAudio.ToWav(wem)).Channels[0].Max(MathF.Abs);
+        string Name(VoiceLine l) => VoiceLines.Leaf(l.Event) + VoiceShiftBuild.Suffix + ".wem";
+        SetVoiceScope(true);
+        Pick();
+        Check(!voiceVolume!.Enabled, "Selected Lines, nothing selected: the sliders are off");
+        Pick(a);
+        Check(voiceVolume.Enabled, "a line selected: the sliders are on");
+        voiceVolume.TestKey(Keys.Left);
+        Check(RowOf(a)?.Volume is > 0.94f and < 0.96f, "the line has a volume of its own");
+        Check(Cell(a).StartsWith("This Line: Volume 95 %"), $"its Settings cell says so ({Cell(a)})");
+        Check(Cell(b) == "", "the next line doesn't");
+        AudioUndo();
+        Check(RowOf(a) == null && Cell(a) == "", "undo: gone");
+        AudioRedo();
+        Check(RowOf(a) != null, "redo");
+        SetLineShape(r => r.Volume = 0.5f);
+        SetVoiceScope(false);
+        Check(voiceVolume.Enabled && Math.Abs(voiceVolume.Value - 1) < 0.001f, "Whole Voice: the sliders are the whole voice's");
+        await ShiftForTest(2, 0, 0);   // (the test's Dialog answers Keep Their Settings)
+        a = Now(a); b = Now(b); c = Now(c);
+        Check(draft.VoiceShifts.FirstOrDefault() is { Pitch: 2 } e && e.LineOf(VoiceLines.Leaf(a.Event))?.Pitch == 0, "the whole voice applied: the line keeps its own");
+        Check(Cell(b) == "Whole Voice" && Cell(a).StartsWith("This Line"), $"Settings: {Cell(b)}, {Cell(a)}");
+        var one = Wems();
+        float plain = Peak(VoiceAudio.Wem(VoiceShiftBuild.Original(a.Event), [], game!.Cooked).Wem);
+        Check(Math.Abs(Peak(one[Name(a)]) / plain - 0.5f) < 0.08f, $"the line's volume is in the pack: peak {plain:0.000} → {Peak(one[Name(a)]):0.000}");
+        Check(voiceShiftNote.Text.Contains("Whole Voice: Pitch +2") && voiceShiftNote.Text.Contains("1 Line With Own Settings"), $"the note ({voiceShiftNote.Text})");
+        // one more line by itself: built at Save, the others not encoded again
+        SetVoiceScope(true);
+        Pick(c);
+        Check(Math.Abs(voicePitch!.Value - 2) < 0.001f, "Selected Lines shows what the line plays with");
+        SetLineShape(r => r.Robot = 0.5f);
+        Check(RowOf(c) is { Pitch: 2, Robot: 0.5f }, "a line leaves the set from its settings");
+        var said = new List<string>();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        BuildVoiceRows(said);
+        long ms = sw.ElapsedMilliseconds;
+        var two = Wems();
+        var changed = one.Keys.Where(k => !two[k].SequenceEqual(one[k])).ToList();
+        Check(changed.Count == 1 && changed[0].Equals(Name(c), StringComparison.OrdinalIgnoreCase), $"Save's build: {changed.Count} of {one.Count} lines encoded again, in {ms} ms ({string.Join(", ", changed.Take(3))})");
+        said.Clear(); BuildVoiceRows(said);
+        Check(said.Count == 0, "nothing changed: no build");
+        LinesBackToSet();
+        Check(RowOf(c) == null && Cell(Now(c)) == "Whole Voice", "Back to the Whole Voice");
+        BuildVoiceRows(said);
+        Check(Wems()[Name(c)].SequenceEqual(one[Name(c)]), "and it's the whole voice's line again, byte for byte");
+        await UnshiftVoice();
+        Check(draft.VoiceShifts.Count == 1 && RowOf(Now(a)) != null && !draft.VoiceShifts[0].Any && Cell(Now(b)) == "", "Remove Shift: the line keeps its own settings, the rest are the game's");
+        Check(Wems().Count == 1, $"the pack holds that line ({Wems().Count})");
+        Environment.SetEnvironmentVariable("MHO_EXTMM_TEST_CHOICE", "1");
+        await ShiftForTest(1, 0, 0);
+        Environment.SetEnvironmentVariable("MHO_EXTMM_TEST_CHOICE", "0");
+        Check(draft.VoiceShifts.All(x => x.Lines == null) && Cell(Now(a)) == "Whole Voice", "Override Them: the whole voice replaces the line's");
+        await ShiftForTest(0, 0, 0);
+        return fails;
+    }
+
+    /// <summary>--audio-snapshot: a shifted voice with two lines of their own.</summary>
+    internal async Task SnapVoice()
+    {
+        RefreshVoice();
+        await HeroVoiceForTest();
+        await ShiftForTest(2, 0, 0);
+        SetVoiceScope(true);
+        voice!.ClearSelection();
+        foreach (DataGridViewRow row in voice.Rows.Cast<DataGridViewRow>().Where(r => r.Tag is VoiceLine { Sound: true, Missing: false, Off: false }).Skip(1).Take(2)) row.Selected = true;
+        SetLineShape(r => { r.Volume = 0.7f; r.Reverb = 0.4f; });
+        ShowVoiceShape();
+    }
 
     /// <summary>The lines picked in the table.</summary>
     List<VoiceLine> PickedLines() => [.. voice!.SelectedRows.Cast<DataGridViewRow>().OrderBy(r => r.Index).Select(r => r.Tag).OfType<VoiceLine>()];
@@ -435,6 +667,7 @@ sealed partial class ModEditorView
             var e = SavedShift(g.Key);
             var gone = g.Select(l => VoiceLines.Leaf(l.Event)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             e.Replaced = e.Replaced?.Where(x => !gone.Contains(x)).ToList();
+            foreach (string k in gone) e.Lines?.Remove(k);
             entries[g.Key] = e;
         }
         await BuildVoice(entries, null, lines.Count == 1 ? "Back to the Original: " + lines[0].Situation : $"Back to the Original: {lines.Count} Lines");
@@ -444,16 +677,15 @@ sealed partial class ModEditorView
     VoiceShiftEntry SavedShift(string file)
     {
         var s = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
-        return new VoiceShiftEntry { Package = file, Pitch = s?.Pitch ?? 0, Formant = s?.Formant ?? 0, Warmth = s?.Warmth ?? 0, Reverb = s?.Reverb ?? 0, Echo = s?.Echo ?? 0,
-            Distortion = s?.Distortion ?? 0, LoFi = s?.LoFi ?? 0, Chorus = s?.Chorus ?? 0, Robot = s?.Robot ?? 0, Replaced = s?.Replaced?.ToList() };
+        return s?.Clone() ?? new VoiceShiftEntry { Package = file };
     }
 
     /// <summary>Remove Shift: the lines the user replaced stay.</summary>
     async Task UnshiftVoice()
     {
-        var kept = draft.VoiceShifts.Where(x => x.Replaced is { Count: > 0 }).ToList();
+        var kept = draft.VoiceShifts.Where(x => x.Replaced is { Count: > 0 } || x.Lines is { Count: > 0 }).ToList();
         if (kept.Count == 0) { RemoveShift(); return; }
-        await BuildVoice(kept.ToDictionary(x => x.Package, x => { var e = new VoiceShiftEntry { Package = x.Package, Replaced = x.Replaced?.ToList() }; return e; }, StringComparer.OrdinalIgnoreCase), null, "Remove Shift");
+        await BuildVoice(kept.ToDictionary(x => x.Package, x => { var e = new VoiceShiftEntry { Package = x.Package, Replaced = x.Replaced?.ToList(), Lines = x.Clone().Lines }; return e; }, StringComparer.OrdinalIgnoreCase), null, "Remove Shift");
     }
 
     async Task ShiftVoiceAsync()
@@ -462,12 +694,27 @@ sealed partial class ModEditorView
         var targets = draft.Packages.Where(p => File.Exists(p.Source) && VoiceSet.Read(p.File, p.Source, draft.VoiceOff).Any(l => l.Sound)).ToList();
         if (targets.Count == 0) { Dialog.Show(this, "No package of this mod has a voice set. Use Another Voice gives a costume one first.", "No Voice to Shift", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         var set = Sliders;
-        if (!set.Any) { await UnshiftVoice(); return; }
+        // Lines with settings of their own: the user says whether the whole voice overrides them.
+        int rows = draft.VoiceShifts.Sum(x => x.Lines?.Count ?? 0);
+        bool over = false;
+        if (rows > 0)
+        {
+            int pick = Dialog.Choose(this, $"{rows} line{(rows == 1 ? " has" : "s have")} settings of {(rows == 1 ? "its" : "their")} own. Should the whole voice replace them?", "Lines With Their Own Settings", "Keep Their Settings", "Override Them", "Cancel");
+            if (pick == 2) return;
+            over = pick == 1;
+        }
+        if (!set.Any) { if (over) foreach (var x in draft.VoiceShifts) x.Lines = null; await UnshiftVoice(); return; }
         var entries = new Dictionary<string, VoiceShiftEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var (file, _) in targets)
-            entries[file] = new VoiceShiftEntry { Package = file, Pitch = set.Pitch, Formant = set.Formant, Warmth = set.Warmth, Reverb = set.Reverb, Echo = set.Echo, Distortion = set.Distortion,
-                LoFi = set.LoFi, Chorus = set.Chorus, Robot = set.Robot, Replaced = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase))?.Replaced?.ToList() };
-        await BuildVoice(entries, null, $"Voice Shift: Pitch {set.Pitch:+0.#;-0.#;0}, Formant {set.Formant:+0.#;-0.#;0}, Warmth {set.Warmth:+0.#;-0.#;0}" + EffectsText(set));
+        {
+            var e = set.Settings();
+            e.Package = file;
+            var was = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase))?.Clone();
+            e.Replaced = was?.Replaced;
+            e.Lines = over ? null : was?.Lines;
+            entries[file] = e;
+        }
+        await BuildVoice(entries, null, "Whole Voice: " + (ShapeText(set) is { Length: > 0 } t ? t : "As It Is"));
     }
 
     /// <summary>These packages' voices rendered (VoiceShiftBuild) into the work folder; Save writes them. A package with nothing
@@ -486,7 +733,7 @@ sealed partial class ModEditorView
         {
             foreach (var (file, entry) in entries)
             {
-                if (!entry.Any && entry.Replaced is not { Count: > 0 }) { RemoveShift(file); continue; }
+                if (!entry.Any && entry.Replaced is not { Count: > 0 } && entry.Lines is not { Count: > 0 }) { RemoveShift(file); continue; }
                 if (entry.Replaced is { Count: 0 }) entry.Replaced = null;
                 string source = draft.Packages.First(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source;
                 string? earlier = draft.SoundPacks.FirstOrDefault(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase));
@@ -495,12 +742,7 @@ sealed partial class ModEditorView
                 string work = Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6]);
                 var (pkg, pack, log) = await Task.Run(() => VoiceShiftBuild.Build(source, file, off, packs, cooked, entry, work, progress, newLines, earlier));
                 if (IsDisposed) return;
-                int k = draft.Packages.FindIndex(x => x.File.Equals(file, StringComparison.OrdinalIgnoreCase));
-                draft.Packages[k] = (file, pkg);
-                draft.SoundPacks.RemoveAll(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase));
-                draft.SoundPacks.Add(pack);
-                draft.VoiceShifts.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
-                draft.VoiceShifts.Add(entry);
+                PutVoiceBuild(file, entry, pkg, pack);
                 logs.AddRange(log.Select(l => $"{file}: {l}"));
             }
         }
@@ -518,6 +760,40 @@ sealed partial class ModEditorView
         voiceShiftNote.Text += " · Not Saved Yet";
         // Sound effects in a voice set are always left out (that's by design); anything else left out is worth a look.
         if (logs.Any(l => l.Contains("left as it is") && !VoiceShiftBuild.ExpectedSkip(l))) Dialog.ShowLog(this, string.Join(Environment.NewLine, logs), "Voice Shifted");
+    }
+
+    /// <summary>A built voice into the draft.</summary>
+    void PutVoiceBuild(string file, VoiceShiftEntry entry, string pkg, string pack)
+    {
+        int k = draft.Packages.FindIndex(x => x.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+        draft.Packages[k] = (file, pkg);
+        draft.SoundPacks.RemoveAll(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase));
+        draft.SoundPacks.Add(pack);
+        draft.VoiceShifts.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
+        draft.VoiceShifts.Add(entry);
+        voiceBuilt[file] = System.Text.Json.JsonSerializer.Serialize(entry);
+    }
+
+    /// <summary>Before saving: packages whose lines' own settings changed since they were built. Only the changed lines are encoded
+    /// (VoiceShiftBuild keeps the others), so this takes moments even for a whole voice.</summary>
+    void BuildVoiceRows(List<string> log)
+    {
+        if (game == null) return;
+        foreach (var entry in draft.VoiceShifts.ToList())
+        {
+            string file = entry.Package, now = System.Text.Json.JsonSerializer.Serialize(entry);
+            string? built = voiceBuilt.GetValueOrDefault(file) ?? (editing?.Manifest.VoiceShifts?.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase)) is { } saved ? System.Text.Json.JsonSerializer.Serialize(saved) : null);
+            if (built == now) continue;
+            if (!draft.Packages.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase))) continue;
+            if (!entry.Any && entry.Replaced is not { Count: > 0 } && entry.Lines is not { Count: > 0 }) { RemoveShift(file); continue; }
+            string source = draft.Packages.First(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source;
+            string? earlier = draft.SoundPacks.FirstOrDefault(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase));
+            var packs = draft.SoundPacks.Where(x => !Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase)).ToList();
+            voiceWork ??= Path.Combine(lib.DataFolder, "voice-work-" + Guid.NewGuid().ToString("N")[..8]);
+            var (pkg, pack, said) = VoiceShiftBuild.Build(source, file, draft.VoiceOff.ToList(), packs, game.Cooked, entry, Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6]), null, null, earlier);
+            PutVoiceBuild(file, entry, pkg, pack);
+            log.Add($"{file}: {said[0]}");
+        }
     }
 
     /// <summary>Remove Shift: the voice set back at the original lines, the shift's sound pack out (one package's, else all).</summary>
@@ -545,6 +821,7 @@ sealed partial class ModEditorView
         }
         any |= draft.VoiceShifts.Count > 0;
         draft.VoiceShifts.RemoveAll(x => only == null || only.Equals(x.Package, StringComparison.OrdinalIgnoreCase));
+        foreach (string f in voiceBuilt.Keys.Where(f => only == null || only.Equals(f, StringComparison.OrdinalIgnoreCase)).ToList()) voiceBuilt.Remove(f);
         voiceWavs.Clear();
         RefreshPackages(); RefreshSounds(); RefreshVoice(); ShowShiftNote();
         if (audioWas != null) AudioRecord("Remove Shift", audioWas);
@@ -563,8 +840,21 @@ sealed partial class ModEditorView
         {
             // A shifted line plays as the mod has it when the sliders are the saved shift; otherwise the original line with
             // the sliders' settings (a preview).
-            var set = Sliders;
+            var set = VoiceSetSliders;
             var saved = draft.VoiceShifts.FirstOrDefault(x => x.Package.Equals(l.Package, StringComparison.OrdinalIgnoreCase));
+            // A line with settings of its own plays with them (built at Save).
+            if (RowOf(l) is { } row)
+            {
+                string orig = VoiceLines.Leaf(l.Event);
+                string? pack = draft.SoundPacks.FirstOrDefault(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(l.Package), StringComparison.OrdinalIgnoreCase));
+                bool mine = IsOwnLine(l) && pack != null;
+                string plain = VoiceShiftBuild.Original(l.Event);
+                byte[] heard = await Task.Run(() => VoiceShift.Process(mine ? VoiceShiftBuild.Saved(orig, pack!) : VoiceAudio.ToWav(VoiceAudio.Wem(plain, packs, cooked).Wem), row));
+                if (id != voicePlayId || IsDisposed) return;
+                VoiceAudio.Play(heard);
+                voiceStatus.Text = "Playing " + leaf + " (This Line's Settings)";
+                return;
+            }
             bool asIs = l.Event.EndsWith(VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase) && saved != null && (Same(saved, set) || saved.IsReplaced(leaf.Replace(VoiceShiftBuild.Suffix, "")));
             string ev = asIs ? l.Event : VoiceShiftBuild.Original(l.Event);
             if (!voiceWavs.TryGetValue(ev, out byte[]? wav))
@@ -604,6 +894,8 @@ sealed partial class ModEditorView
     {
         if (voice == null) return;
         string[] words = voiceFind.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var keep = PickedLines();
+        voiceFilling = true;
         voice.Rows.Clear();
         voice.Columns["Package"]!.Visible = voiceLines.Select(l => l.Package).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         // (every line, not only the ones found: the column doesn't jump as you type)
@@ -611,11 +903,13 @@ sealed partial class ModEditorView
         foreach (var l in voiceLines)
         {
             string said = !l.Sound ? "" : IsOwnLine(l) ? "(Your Own Line)" : VoiceText.For(l.Event);
-            string text = $"{l.Situation} {l.Detail} {said} {l.Event}";
+            string setting = LineSetting(l);
+            string text = $"{l.Situation} {l.Detail} {setting} {said} {l.Event}";
             if (!words.All(w => text.Contains(w, StringComparison.OrdinalIgnoreCase))) continue;
             bool on = IsOn(l);
-            int i = voice.Rows.Add(on, l.Sound ? "▶" : "", l.Situation, l.Missing ? (l.Detail.Length > 0 ? l.Detail + " · " : "") + "Not in This Voice" : l.Detail, said, l.Event, l.Package);
+            int i = voice.Rows.Add(on, l.Sound ? "▶" : "", l.Situation, l.Missing ? (l.Detail.Length > 0 ? l.Detail + " · " : "") + "Not in This Voice" : l.Detail, setting, said, l.Event, l.Package);
             voice.Rows[i].Tag = l;
+            PaintSetting(voice.Rows[i].Cells["Settings"], setting);
             voice.Rows[i].Cells["What's Said"].ToolTipText = said.Length > 0 ? said + Environment.NewLine + "(written down by speech recognition: close, not exact)" : "";
             voice.Rows[i].Cells["play"].ToolTipText = l.Missing ? "Play the hero's own line (the one turned off here)" : "Play this line";
             if (l.Missing)
@@ -630,6 +924,9 @@ sealed partial class ModEditorView
             if (!on || !l.Sound) voice.Rows[i].DefaultCellStyle.ForeColor = Ui.Subtle;
         }
         voice.ClearSelection();
+        foreach (DataGridViewRow row in voice.Rows) if (row.Tag is VoiceLine l && keep.Any(k => k.Package == l.Package && k.Offset == l.Offset)) row.Selected = true;
+        voiceFilling = false;
+        ShowVoiceShape();
         UpdateVoiceCount();
     }
 
