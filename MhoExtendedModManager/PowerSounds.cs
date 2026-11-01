@@ -59,6 +59,9 @@ sealed class PowerSoundEntry : SoundShape
     public int Index { get; set; }
     /// <summary>The sound's own event, so it can be put back.</summary>
     public string Event { get; set; } = "";
+    /// <summary>The event that ends it (a looping sound): copied too, so the copy of the loop stops.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string? Stop { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool Off { get; set; }
     /// <summary>Plays the mod's own audio (in its PowerSounds.mhsfx).</summary>
@@ -77,8 +80,10 @@ sealed class PowerSoundEntry : SoundShape
 /// ConditionFxSound, EntityFxSound) hold Events, a list of { ActivateEvent, DeactivateEvent }: the AkEvent that starts the sound
 /// and the one that stops it, set for looping sounds. Off = ActivateEvent none. Replaced goes the way Voice Shift's lines do:
 /// the event copied in the package (…_mhosnd, same bank), the component pointed at it, and a sound pack that adds that event, so
-/// MHModManager 1.0.1 applies it too. A looping sound can't be replaced: its stop event stops the original sound object, so a
-/// clone would never end. Applied last at Save (PowerColorBuild rebuilds power packages from the game's), in place and
+/// MHModManager 1.0.1 applies it too. A looping sound's stop event stops the sound object it names (70 of 73 on seven heroes
+/// name the sound they play), so its copy needs a copied stop: a second patch with the same sound_id, whose action then targets
+/// the new sound, with DeactivateEvent pointed at it (MHModManager takes it; both .pck byte-identical; heard in game on Vision,
+/// 2026-11-01). The bank then holds two sounds with that ID and the game plays the first. Applied last at Save (PowerColorBuild rebuilds power packages from the game's), in place and
 /// reversibly; the manifest holds what's changed. Volume and filters go the same way, on the game's own sounds too (every one-shot
 /// on four heroes checked is 22 kHz mono Vorbis, what we write, 2026-11-01). The imported audio stays in the pack as
 /// &lt;event&gt;.source.wav and each change renders from it, so moving a slider never re-encodes an encoded sound. A clone keeps one
@@ -164,27 +169,38 @@ static class PowerSounds
         return list;
     }
 
+    /// <summary>The game's stop event of a changed sound (the copy's name taken off), or null when it has none.</summary>
+    static string? StopOf(Package pkg, PowerSoundEntry e)
+    {
+        int x = Array.FindIndex(pkg.Exports, y => pkg.PathOf(y).Equals(e.Component, StringComparison.OrdinalIgnoreCase));
+        if (x < 0 || Elements(pkg, x) is not { } el || e.Index >= el.Elements.Count) return null;
+        int r = el.Elements[e.Index].FirstOrDefault(f => f.Name.Equals("deactivateevent", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } f ? BinaryPrimitives.ReadInt32LittleEndian(el.Bytes.AsSpan(f.ValueAt)) : 0;
+        if (r <= 0 || r > pkg.Exports.Length || !pkg.ClassOf(pkg.Exports[r - 1]).Equals("AkEvent", StringComparison.OrdinalIgnoreCase)) return null;
+        string path = pkg.PathOf(pkg.Exports[r - 1]);
+        return path.EndsWith(Suffix, StringComparison.OrdinalIgnoreCase) ? path[..^Suffix.Length] : path;
+    }
+
     /// <summary>The components' events set (null: none), as verified bytes: every other byte kept.</summary>
-    static byte[] Write(Package pkg, IEnumerable<(string Component, int Index, string? Event)> changes)
+    static byte[] Write(Package pkg, IEnumerable<(string Component, int Index, string? Event, string? Stop)> changes)
     {
         var rep = new Dictionary<int, Func<long, byte[]>>();
+        int Ref(string ev)
+        {
+            int i = Array.FindIndex(pkg.Exports, y => pkg.PathOf(y).Equals(ev, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(y).Equals("AkEvent", StringComparison.OrdinalIgnoreCase));
+            return i >= 0 ? i + 1 : throw new InvalidDataException($"the sound event {ev} isn't in the package");
+        }
         foreach (var g in changes.GroupBy(c => c.Component, StringComparer.OrdinalIgnoreCase))
         {
             int x = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(g.Key, StringComparison.OrdinalIgnoreCase));
             if (x < 0 || Elements(pkg, x) is not { } e) throw new InvalidDataException($"{g.Key} isn't a sound component in the package");
             byte[] d = e.Bytes;
-            foreach (var (_, index, ev) in g)
+            foreach (var (_, index, ev, stop) in g)
             {
                 if (index >= e.Elements.Count || e.Elements[index].FirstOrDefault(f => f.Name.Equals("activateevent", StringComparison.OrdinalIgnoreCase)) is not { Size: 4 } tag)
                     throw new InvalidDataException($"{g.Key} has no sound {index}");
-                int r = 0;
-                if (ev != null)
-                {
-                    int i = Array.FindIndex(pkg.Exports, y => pkg.PathOf(y).Equals(ev, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(y).Equals("AkEvent", StringComparison.OrdinalIgnoreCase));
-                    if (i < 0) throw new InvalidDataException($"the sound event {ev} isn't in the package");
-                    r = i + 1;
-                }
-                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(tag.ValueAt), r);
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(tag.ValueAt), ev != null ? Ref(ev) : 0);
+                if (stop != null)
+                    BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan((e.Elements[index].FirstOrDefault(f => f.Name.Equals("deactivateevent", StringComparison.OrdinalIgnoreCase) && f.Size == 4) ?? throw new InvalidDataException($"{g.Key} sound {index} has no stop event")).ValueAt), Ref(stop));
             }
             rep[x] = _ => d;
         }
@@ -219,6 +235,7 @@ static class PowerSounds
         var patches = new List<Dictionary<string, string>>();
         var wems = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var stopFor = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string file in draft.PowerSounds.Concat(back).Select(e => e.Package).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
         {
             int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
@@ -235,17 +252,18 @@ static class PowerSounds
             if (source == null) throw new InvalidDataException($"{file}: no clean original of this power package (the game's copy is changed)");
             if (k < 0) foreach (var e in mine) e.AddedPackage = true;
             var pkg = Package.Open(source);
-            var changes = new List<(string, int, string?)>();
-            foreach (var e in back.Where(e => e.Package.Equals(file, StringComparison.OrdinalIgnoreCase))) changes.Add((e.Component, e.Index, e.Event));
+            var changes = new List<(string, int, string?, string?)>();
+            foreach (var e in back.Where(e => e.Package.Equals(file, StringComparison.OrdinalIgnoreCase))) changes.Add((e.Component, e.Index, e.Event, StopOf(pkg, e)));
             foreach (var e in mine)
             {
-                if (!e.Replaced && (e.Off || !e.Shaped)) { changes.Add((e.Component, e.Index, e.Off ? null : e.Event)); continue; }
+                e.Stop = StopOf(pkg, e);
+                if (!e.Replaced && (e.Off || !e.Shaped)) { changes.Add((e.Component, e.Index, e.Off ? null : e.Event, e.Stop)); continue; }
                 string leaf = Leaf(e.Event), nleaf = leaf + Suffix, group = e.Event[..e.Event.LastIndexOf('.')];
                 byte[]? stock = null;
                 if (!e.Replaced)
                     // (a whole set reaches sounds that can't take it: they stay as they are)
                     try { stock = VoiceAudio.ToWav(VoiceAudio.Wem(e.Event, others, game.Cooked).Wem); }
-                    catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException) { log.Add($"{leaf}: left as it is ({ex.Message})"); changes.Add((e.Component, e.Index, e.Event)); continue; }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException) { log.Add($"{leaf}: left as it is ({ex.Message})"); changes.Add((e.Component, e.Index, e.Event, e.Stop)); continue; }
                 int ei = Array.FindIndex(pkg.Exports, x => pkg.PathOf(x).Equals(e.Event, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(x).Equals("AkEvent", StringComparison.OrdinalIgnoreCase));
                 if (ei < 0) throw new InvalidDataException($"{file}: the sound event {e.Event} isn't in the package");
                 if (!index.TryGetValue(SoundPack.Fnv(leaf), out var where)) throw new InvalidDataException($"{leaf}: its event isn't in the game's sound banks");
@@ -258,7 +276,30 @@ static class PowerSounds
                     var cp = CrossMove.Quiet(() => ExportCopy.Copy(pkg, ei, pkg, [], nleaf), out string said) ?? throw new InvalidDataException($"{leaf}: the event couldn't be copied ({said.Trim()})");
                     pkg = Package.FromBytes(cp.Output);
                 }
-                changes.Add((e.Component, e.Index, e.Off ? null : group + "." + nleaf));
+                // a loop: its stop event copied too, and pointed at the same new sound (patch below), or the copy would never end
+                string? nstop = null;
+                if (e.Stop != null)
+                {
+                    string sleaf = Leaf(e.Stop);
+                    nstop = sleaf + Suffix;
+                    // (two loops ending by one stop event: it can follow only one copy)
+                    if (stopFor.TryGetValue(nstop, out string? other) && !other.Equals(nleaf, StringComparison.OrdinalIgnoreCase))
+                    {
+                        log.Add($"{leaf}: left as it is (its stop event also ends {Leaf(other)})");
+                        changes.Add((e.Component, e.Index, e.Off ? null : e.Event, e.Stop));
+                        continue;
+                    }
+                    stopFor[nstop] = nleaf;
+                    if (!index.TryGetValue(SoundPack.Fnv(sleaf), out var swhere) || swhere.Bank != where.Bank) throw new InvalidDataException($"{sleaf}: its event isn't in the loop's sound bank");
+                    int si = Array.FindIndex(pkg.Exports, x => pkg.PathOf(x).Equals(e.Stop, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(x).Equals("AkEvent", StringComparison.OrdinalIgnoreCase));
+                    if (si < 0) throw new InvalidDataException($"{file}: the sound event {e.Stop} isn't in the package");
+                    if (!pkg.Exports.Any(x => x.ObjectName.Equals(nstop, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var cp = CrossMove.Quiet(() => ExportCopy.Copy(pkg, si, pkg, [], nstop), out string said) ?? throw new InvalidDataException($"{sleaf}: the event couldn't be copied ({said.Trim()})");
+                        pkg = Package.FromBytes(cp.Output);
+                    }
+                }
+                changes.Add((e.Component, e.Index, e.Off ? null : group + "." + nleaf, nstop != null ? e.Stop![..e.Stop!.LastIndexOf('.')] + "." + nstop : null));
                 if (!claimed.Add(nleaf + ".wem")) continue;   // (the same sound in another package: one new event)
                 byte[]? fresh = newLines.GetValueOrDefault(leaf), audio = fresh ?? kept.GetValueOrDefault(nleaf + SourceEnd), wem = earlier?.GetValueOrDefault(nleaf + ".wem");
                 if (fresh == null && wem != null && was.Any(w => w.Replaced == e.Replaced && w.Shape == e.Shape && Leaf(w.Event).Equals(leaf, StringComparison.OrdinalIgnoreCase)))
@@ -276,6 +317,14 @@ static class PowerSounds
                     ["action_id"] = $"0x{SoundPack.Fnv(nleaf + "_action"):X8}", ["sound_id"] = $"0x{SoundPack.Fnv(nleaf + "_sound"):X8}", ["source_id"] = $"0x{SoundPack.Fnv(nleaf + "_source"):X8}",
                     ["wem_file"] = nleaf + ".wem", ["bank_name"] = bank, ["pck_file"] = where.Pck,
                 });
+                if (nstop != null)
+                    patches.Add(new Dictionary<string, string>
+                    {
+                        // (the same sound_id: the copied stop action targets the loop's new sound; MHModManager takes this too, 2026-11-01)
+                        ["type"] = "new_event", ["original_event_name"] = Leaf(e.Stop!), ["event_name"] = nstop, ["event_hash"] = $"0x{SoundPack.Fnv(nstop):X8}",
+                        ["action_id"] = $"0x{SoundPack.Fnv(nstop + "_action"):X8}", ["sound_id"] = $"0x{SoundPack.Fnv(nleaf + "_sound"):X8}", ["source_id"] = $"0x{SoundPack.Fnv(nstop + "_source"):X8}",
+                        ["wem_file"] = nleaf + ".wem", ["bank_name"] = bank, ["pck_file"] = where.Pck,
+                    });
             }
             string dir = Directory.CreateDirectory(Path.Combine(work, Guid.NewGuid().ToString("N")[..6])).FullName, outFile = Path.Combine(dir, file);
             File.WriteAllBytes(outFile, Write(pkg, changes));

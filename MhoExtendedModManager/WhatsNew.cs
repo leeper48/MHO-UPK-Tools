@@ -45,7 +45,7 @@ static class WhatsNew
 
     /// <summary>0.60.284 (Kurt, 2026-10-31): Power Sounds, What's Said, Replace Lines, Audio undo, more import formats.</summary>
     static Notice AudioSettings() => new(
-        "0.60.286-audio-settings", "0.60.286",
+        "0.60.287-audio-settings", "0.60.287",
         "[!]Volume and effects on Voice and Power Sounds" + nl +
         "  • Volume, Reverb, Echo, Distortion, Lo-Fi, Chorus and Robot work on the game's sounds and on your own." + nl +
         "  • Your own audio stays in the mod as you imported it, so you can change these as often as you like." + nl + nl +
@@ -54,8 +54,11 @@ static class WhatsNew
         "  • Selected Lines or Selected Sounds gives those rows settings of their own." + nl +
         "  • The Settings column shows which: green follows the set, amber has its own." + nl +
         "  • Applying to everything asks whether rows with their own settings keep them." + nl + nl +
+        "[!]Sounds that loop can change now" + nl +
+        "  • A flight hum or a held beam takes Volume, effects and your own audio, and stops when the power ends." + nl +
+        "  • Your audio repeats from start to end, so pick a file that repeats cleanly." + nl +
+        "  • A few Loop rows are music or filter switches: Note says so, and they can only be turned off." + nl + nl +
         "[!]Good to know" + nl +
-        "  • Sounds that loop can't change yet." + nl +
         "  • A changed sound keeps only one of its random variations; Note says so on those rows." + nl +
         "  • Mods made this way still install in the old MHModManager." + nl + nl +
         "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",

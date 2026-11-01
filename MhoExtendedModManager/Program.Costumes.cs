@@ -1303,7 +1303,7 @@ static partial class Program
                 var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
                 Console.WriteLine($"game data {sw3.ElapsedMilliseconds} ms");
                 bool verbose = rest.Contains("-v");
-                foreach (string hero in rest.Skip(1).Where(a => a != "-v" && a != "-census"))
+                foreach (string hero in rest.Skip(1).Where(a => a != "-v" && a != "-census" && a != "-loops"))
                 {
                     sw3.Restart();
                     var powers = Fx.PowerList.For(pdb, hero, pc, [], effectOnly: true);
@@ -1322,6 +1322,13 @@ static partial class Program
                             foreach (var s in ss)
                             {
                                 sounds++; if (s.Stop != null) loops++;
+                                if (s.Stop != null && rest.Contains("-loops"))
+                                {
+                                    var play = VoiceAudio.Actions(s.Event, pc); var stop = VoiceAudio.Actions(s.Stop, pc);
+                                    string Say(List<(ushort Type, uint Target, int TargetType)> a) => string.Join(" + ", a.Select(x => $"{x.Type:X4}>{x.Target:X8}(t{x.TargetType})"));
+                                    bool same = play.Select(x => x.Target).Intersect(stop.Select(x => x.Target)).Any();
+                                    Console.WriteLine($"  LOOP {hero,-14} {s.Event[(s.Event.LastIndexOf('.') + 1)..],-52} play {Say(play),-34} stop {Say(stop)}{(same ? " SAME" : " other")}");
+                                }
                                 bool ok = true;
                                 try { VoiceAudio.Wem(s.Event, [], pc); } catch (InvalidDataException) { ok = false; silent++; }
                                 if (verbose) Console.WriteLine($"    {p.Name,-26} {f[4..^4],-44} {s.Part,-22} {s.When,-24} {s.Event[(s.Event.LastIndexOf('.') + 1)..]}{(s.Stop != null ? " (loop)" : "")}{(ok ? "" : " SILENT")}");
@@ -1357,6 +1364,39 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--power-loop-mod":
+            {
+                // Test mod (a new mod, off, at the top): stock loops of a hero changed, with their stop events copied.
+                // --power-loop-mod <hero> <mod name> <volume> <robot> <part of an event name> ...
+                if (rest.Count < 6) { Console.WriteLine("--power-loop-mod <hero> <mod name> <volume> <robot> <part of an event name> ..."); return 1; }
+                var lst = Settings.Load();
+                string? lgr = lst.ResolvedGameRoot(lib.DataFolder);
+                if (lgr == null || !Settings.IsGameRoot(lgr)) { Console.WriteLine("game folder not set"); return 1; }
+                string lpc = Settings.Cooked(lgr);
+                var lgame = new GameState(lgr, lib.DataFolder);
+                StockFiles.Init(lgame, lst.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                var ldb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(lgr, "Data", "Game", "Calligraphy.sip")));
+                var linv = System.Globalization.CultureInfo.InvariantCulture;
+                var loops = new List<PowerSound>();
+                var lseen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in Fx.PowerList.For(ldb, rest[1], lpc, [], effectOnly: true))
+                    foreach (string f in PowerRecolor.PackagesOf(ldb, p.Prototype, rest[1], lpc).Where(lseen.Add))
+                        loops.AddRange(PowerSounds.Read(f, StockFiles.For(lpc, f)).Where(s => s.Stop != null && rest.Skip(5).Any(n => s.Event.Contains(n, StringComparison.OrdinalIgnoreCase))));
+                if (loops.Count == 0) { Console.WriteLine("no such looping sound"); return 1; }
+                var ld = new ModDraft { Name = rest[2], Author = "Test", Version = "1" };
+                foreach (var s in loops)
+                {
+                    var wav = VoiceAudio.ToWav(VoiceAudio.Wem(s.Event, [], lpc).Wem);
+                    Console.WriteLine($"  {PowerSounds.Leaf(s.Event)}: stop {PowerSounds.Leaf(s.Stop!)}, {BitConverter.ToInt16(wav, 22)} channel(s), {BitConverter.ToInt32(wav, 24)} Hz, {wav.Length:N0} bytes");
+                    ld.PowerSounds.Add(new PowerSoundEntry { Package = s.Package, Component = s.Component, Index = s.Index, Event = s.Event, Stop = s.Stop, Volume = float.Parse(rest[3], linv), Robot = float.Parse(rest[4], linv) });
+                }
+                var llog = new List<string>();
+                PowerSounds.Apply(ld, null, lib, lgame, new Dictionary<string, byte[]>(), llog);
+                llog.ForEach(l => Console.WriteLine("  " + l));
+                string? lmade = ModWriter.Save(lib, ld, null, out string? lerr);
+                Console.WriteLine(lmade != null ? "created " + lmade : "not saved: " + lerr);
+                return lmade != null ? 0 : 1;
+            }
             case "--power-sounds-test":
             {
                 // Test (scratch library; the mod isn't saved): a sound off and one replaced by a tone, saved through PowerSounds.Apply
@@ -1375,6 +1415,23 @@ static partial class Program
                 foreach (var p in Fx.PowerList.For(tdb, rest[2], pc, [], effectOnly: true))
                     foreach (string f in PowerRecolor.PackagesOf(tdb, p.Prototype, rest[2], pc))
                         if (!all.Any(s => s.Package == f)) all.AddRange(PowerSounds.Read(f, StockFiles.For(pc, f)));
+                // a loop: the play and stop events copied, one new sound, and all of it back when it's taken off
+                if (all.FirstOrDefault(s => s.Stop != null && VoiceAudio.Actions(s.Event, pc).Any(a => a.Type == 0x0403)) is { } loopS)
+                {
+                    var dl = ModDraft.From(tm);
+                    dl.PowerSounds.Add(new PowerSoundEntry { Package = loopS.Package, Component = loopS.Component, Index = loopS.Index, Event = loopS.Event, Volume = 0.5f });
+                    var ll = new List<string>();
+                    PowerSounds.Apply(dl, tm, lib, tgame, new Dictionary<string, byte[]>(), ll);
+                    var lr = PowerSounds.Read(loopS.Package, dl.Packages.First(p => p.File.Equals(loopS.Package, StringComparison.OrdinalIgnoreCase)).Source).First(s => s.Component == loopS.Component && s.Index == loopS.Index);
+                    Check(lr.Event.EndsWith(PowerSounds.Suffix, StringComparison.OrdinalIgnoreCase) && lr.Stop?.EndsWith(PowerSounds.Suffix, StringComparison.OrdinalIgnoreCase) == true, $"a loop: play and stop both copied ({PowerSounds.Leaf(loopS.Event)})");
+                    Check(dl.PowerSounds[^1].Stop == loopS.Stop, "the entry knows its stop event");
+                    var lp = SoundPack.Load(dl.SoundPacks.First(p => Path.GetFileName(p) == PowerSounds.PackName));
+                    Check(lp.Patches.Count == 2 && lp.Patches[0].SoundId == lp.Patches[1].SoundId && lp.Patches[1].OriginalEvent == PowerSounds.Leaf(loopS.Stop!), "the pack's stop copy names the loop's new sound");
+                    var lmod = new Mod { Folder = "", FolderName = "", Manifest = new ModManifest { PowerSounds = [.. dl.PowerSounds] } };
+                    dl.PowerSounds.Clear();
+                    PowerSounds.Apply(dl, lmod, lib, tgame, new Dictionary<string, byte[]>(), ll);
+                    Check(!dl.Packages.Any(p => p.File.Equals(loopS.Package, StringComparison.OrdinalIgnoreCase)), "taken off: the package leaves the mod");
+                }
                 var oneShots = all.Where(s => s.Stop == null).ToList();
                 var offS = oneShots[0];
                 var repS = oneShots.First(s => s.Package != offS.Package);

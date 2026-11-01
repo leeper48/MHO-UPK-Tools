@@ -420,7 +420,7 @@ function mhoNext(dir) {
 <li>Open the mod in the Editor and go to <b>Audio → Power Sounds</b>. It opens on the mod's hero; <b>Hero</b> picks another.</li>
 <li>Use <b>Find</b> to narrow the list and ▶ to hear a sound.</li>
 <li><b>To silence a sound</b>, untick it. If the same sound plays elsewhere, <b>Note</b> says so (<i>Also in Dual Wield</i>) and you're asked: <b>All</b> of them, or <b>Only This One</b>. A power can have several sounds: a gun's shot and its falling shells are separate rows.</li>
-<li><b>To replace a sound</b>, right-click it, <b>Replace This Sound</b>, and pick an audio file. For many at once, use <b>Export Sounds</b>, change the files, then <b>Replace Sounds</b>. Sounds marked <b>Loops</b> can only be turned off.</li>
+<li><b>To replace a sound</b>, right-click it, <b>Replace This Sound</b>, and pick an audio file. For many at once, use <b>Export Sounds</b>, change the files, then <b>Replace Sounds</b>. Sounds marked <b>Loops</b> work the same way, and end when the power ends.</li>
 <li><b>To change a sound's volume or effects</b>, click <b>Selected Sounds</b>, select its row and move <b>Volume</b> or an effect such as <b>Reverb</b> or <b>Robot</b>. Press ▶ to hear it. <b>To change them all</b>, click <b>All Sounds</b>, set the sliders and press <b>Apply to All Sounds</b>.</li>
 <li>Save Changes, then Apply Changes. The power's package joins the mod, so the change applies to every costume of that hero.</li>
 </ol>
@@ -945,7 +945,7 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <li><b>Back to the Whole Voice</b> or <b>Back to the Set</b> (a button, and on a row's right-click menu) drops a row's own settings. On Power Sounds, setting a row back to 100 % with no effects leaves it out of the set: it says <b>This Sound: As It Is</b>.</li>
 <li><b>Your own audio:</b> it stays in the mod as you imported it, so you can change these as often as you like without losing quality. The whole voice reaches a replaced line with its volume and effects only, not its pitch, formant or warmth. A line's own settings can use them all.</li>
 <li><b>A sound that picks at random:</b> many power sounds, such as gunshots, choose among several variations. A changed sound can keep only the first, so firing sounds the same each time. <b>Note</b> says so on those rows (<b>Only 1 of Its 4 Variations Plays</b>). To keep the variety, leave that row out of the set.</li>
-<li><b>Sounds that loop</b> can't change yet: the game stops a loop by its original sound, so a new one would never end.</li>
+<li><b>Sounds that loop</b> (a flight hum, a held beam) change like any other and end when the power ends. Your audio repeats from start to end, so a file that fades in or out will be heard fading on each repeat. A few <b>Loop</b> rows are music or filter switches, not sounds: <b>Note</b> says so, and they can only be turned off.</li>
 <li>Rows sharing a sound share its settings, like <b>Off</b>: the game has one copy of it.</li>
 </ul>
 <h3 id="power-sounds">Power Sounds</h3>
@@ -955,7 +955,7 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <li><b>Untick</b> a sound to turn it off; <b>Turn All On</b> brings them all back. Many sounds play from more than one place: Taskmaster's .45 Caliber and Dual Wield fire the same gunshot. <b>Note</b> says so (<i>Also in Dual Wield</i>), and unticking one asks whether to turn them all off. Replacing a sound always changes every place of this hero that plays it.</li>
 <li><b>Export Sounds</b> saves them as .WAV files named after their sound events, with <code>lines.csv</code> saying which power each belongs to (select rows to save only those). <b>Replace Sounds</b> takes a folder of .WAV, .MP3, .OGG, .FLAC, .M4A or .WMA files with those names; right-click a row for <b>Replace This Sound</b> or <b>Back to the Original Sound</b>. A sound used by two parts of a power changes in both.</li>
 <li><b>Volume</b> and the effects (<b>Reverb</b>, <b>Echo</b>, <b>Distortion</b>, <b>Lo-Fi</b>, <b>Chorus</b>, <b>Robot</b>) work on the game's sounds and on your own. See <a href="#audio-settings">Whole Set or Selected Rows</a>.</li>
-<li>Sounds marked <b>Loops</b> can be turned off but not replaced yet: the game stops a loop by its original sound, so a new one would never end.</li>
+<li>Sounds marked <b>Loops</b> repeat while a power runs. They can be replaced too, and they stop when the power ends.</li>
 <li><b>Undo</b>, <b>Redo</b> and <b>History</b> are the same as on the Voice tab, and share its steps.</li>
 <li><b>Save Changes</b> builds them: the power's package joins the mod and the audio goes into its sound pack, so the old MHModManager installs it too. A power's package is shared, so the change applies to every costume of that hero. Sounds that many heroes share (knockdowns, slows) aren't listed. Sounds played by animations, such as footsteps, aren't in this list.</li>
 </ul>

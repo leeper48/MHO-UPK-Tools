@@ -28,6 +28,7 @@ sealed partial class ModEditorView
     PowerSoundSet soundSetKept = new();
     /// <summary>Event name → how many sounds it picks among, when more than one (a clone keeps one).</summary>
     readonly Dictionary<string, int> soundVariations = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> soundSwitches = new(StringComparer.OrdinalIgnoreCase);
 
     Control PowerSoundsPage()
     {
@@ -49,7 +50,7 @@ sealed partial class ModEditorView
             var picked = PickedSounds();
             var menu = new ContextMenuStrip();
             if (picked.Count == 1)
-                menu.Items.Add(new ToolStripMenuItem("Replace This Sound", null, (_, _) => ReplaceSound(picked[0])) { Enabled = picked[0].Sound.Stop == null, ToolTipText = picked[0].Sound.Stop == null ? "Pick an audio file to play instead of this sound." : "A looping sound can't be replaced yet: nothing would stop it. It can be turned off." });
+                menu.Items.Add(new ToolStripMenuItem("Replace This Sound", null, (_, _) => ReplaceSound(picked[0])) { Enabled = CanChange(picked[0]), ToolTipText = CanChange(picked[0]) ? "Pick an audio file to play instead of this sound." : "This row switches music or a filter: it has no sound to replace." });
             menu.Items.Add(new ToolStripMenuItem(picked.Count == 1 ? "Export This Sound" : $"Export {picked.Count} Sounds", null, (_, _) => ExportSounds(picked)) { ToolTipText = "Saves them as .WAV files." });
             if (picked.Any(r => SoundEntry(r.Sound)?.Replaced == true)) menu.Items.Add(new ToolStripMenuItem("Back to the Original Sound", null, (_, _) => OriginalSounds(picked)) { ToolTipText = "Takes your file out: the sound plays as it did before." });
             if (PickedShapable().Any(r => SoundEntry(r.Sound) is { InSet: false } e && (e.Shaped || SoundSetNow() != null))) menu.Items.Add(new ToolStripMenuItem("Back to the Set", null, (_, _) => SoundsBackToSet()) { ToolTipText = "Drops these sounds' own settings: they follow the whole set again, or play as they are when there's no set." });
@@ -101,7 +102,7 @@ sealed partial class ModEditorView
         var noFx = Ui.FlatButton("No Effects", () => { foreach (var sl in soundFilters) sl.Value = 0; SetSoundShape(e => e.Reverb = e.Echo = e.Distortion = e.LoFi = e.Chorus = e.Robot = 0); }, "Every filter off (the volume stays).");
         soundScopeSet = Ui.FlatButton("All Sounds", () => SetSoundScope(false), "The sliders are every sound's settings. Nothing changes until Apply to All Sounds. Rows with settings of their own keep them, unless you choose to override them. Looping sounds can't change.");
         soundScopeRows = Ui.FlatButton("Selected Sounds", () => SetSoundScope(true), "The sliders are the selected sounds' own settings, set as you move them. A row's own settings take the place of the whole set's. The Settings column says which each sound follows.");
-        soundApplyAll = Ui.AccentButton("Apply to All Sounds", ApplySoundSet, "Gives every sound of this hero these settings, your own audio too. Sounds that loop can't change. Save builds them.");
+        soundApplyAll = Ui.AccentButton("Apply to All Sounds", ApplySoundSet, "Gives every sound of this hero these settings, your own audio too. Save builds them.");
         soundRemoveSet = Ui.FlatButton("Remove Set", RemoveSoundSet, "Takes the whole set's settings off. Rows with settings of their own keep them.");
         soundBackToSet = Ui.FlatButton("Back to the Set", SoundsBackToSet, "Drops the selected sounds' own settings: they follow the whole set again, or play as they are when there's no set.");
         var scope = Toolbar(new Label { Text = "SETTINGS FOR", AutoSize = true, Tag = "subtle", Padding = new Padding(0, 8, 8, 0) }, soundScopeSet, soundScopeRows, soundApplyAll, soundRemoveSet, soundBackToSet, soundSetNote);
@@ -160,8 +161,11 @@ sealed partial class ModEditorView
         ShowSoundShape();
     }
 
-    /// <summary>The selected rows the sliders work on (a sound that loops can't change).</summary>
-    List<SoundRow> PickedShapable() => [.. PickedSounds().Where(r => r.Sound.Stop == null)];
+    /// <summary>Is the row a sound (not a music or filter switch, which some loops are)?</summary>
+    bool CanChange(SoundRow r) => !soundSwitches.Contains(PowerSounds.Leaf(r.Sound.Event));
+
+    /// <summary>The selected rows the sliders work on.</summary>
+    List<SoundRow> PickedShapable() => [.. PickedSounds().Where(CanChange)];
 
     /// <summary>Selected Sounds: the sliders show the first selected sound; with none selected they're off.</summary>
     void ShowSoundShape()
@@ -180,7 +184,7 @@ sealed partial class ModEditorView
     /// <summary>Every entry of these event names (rows sharing audio share settings), made when a row has none.</summary>
     List<PowerSoundEntry> EntriesOf(HashSet<string> leaves)
     {
-        foreach (var r in shownSounds.Where(r => r.Sound.Stop == null && leaves.Contains(PowerSounds.Leaf(r.Sound.Event)) && SoundEntry(r.Sound) == null))
+        foreach (var r in shownSounds.Where(r => CanChange(r) && leaves.Contains(PowerSounds.Leaf(r.Sound.Event)) && SoundEntry(r.Sound) == null))
             draft.PowerSounds.Add(new PowerSoundEntry { Package = r.Sound.Package, Component = r.Sound.Component, Index = r.Sound.Index, Event = r.Sound.Event });
         return [.. draft.PowerSounds.Where(e => leaves.Contains(PowerSounds.Leaf(e.Event)))];
     }
@@ -215,7 +219,7 @@ sealed partial class ModEditorView
     {
         var now = SoundSliders();
         if (!now.Shaped) { RemoveSoundSet(); return; }
-        var rows = shownSounds.Where(r => r.Sound.Stop == null).ToList();
+        var rows = shownSounds.Where(CanChange).ToList();
         var set = SoundSetNow();
         var ownRows = rows.Where(r => SoundEntry(r.Sound) is { InSet: false } e && (e.Shaped || set != null)).ToList();
         var own = ownRows.Select(r => SoundEntry(r.Sound)!).ToHashSet();
@@ -274,7 +278,7 @@ sealed partial class ModEditorView
     /// <summary>A row's Settings cell: what it follows (the column that tells a whole set's change from a row's own).</summary>
     string SoundSetting(SoundRow r)
     {
-        if (r.Sound.Stop != null || SoundEntry(r.Sound) is not { } e) return "";
+        if (!CanChange(r) || SoundEntry(r.Sound) is not { } e) return "";
         if (e.InSet) return "Whole Set";
         if (e.Shaped) return "This Sound: " + ShapeText(e.Filters);
         return SoundSetNow() != null ? "This Sound: As It Is" : "";
@@ -284,9 +288,9 @@ sealed partial class ModEditorView
     string SoundNote(SoundRow r)
     {
         var e = SoundEntry(r.Sound);
-        string own = e?.Replaced == true ? "Your Own Sound" : r.Sound.Stop != null ? "Loops" : "";
+        string own = !CanChange(r) ? "Music or Filter Switch" : e?.Replaced == true ? "Your Own Sound" : r.Sound.Stop != null ? "Loops" : "";
         int ways = soundVariations.GetValueOrDefault(PowerSounds.Leaf(r.Sound.Event));
-        string kinds = ways < 2 || r.Sound.Stop != null ? "" : e?.Replaced == true || e?.Shaped == true ? $"Only 1 of Its {ways} Variations Plays" : $"{ways} Variations";
+        string kinds = ways < 2 ? "" : e?.Replaced == true || e?.Shaped == true ? $"Only 1 of Its {ways} Variations Plays" : $"{ways} Variations";
         return string.Join(" · ", new[] { own, kinds, AlsoIn(r) }.Where(x => x.Length > 0));
     }
 
@@ -324,8 +328,12 @@ sealed partial class ModEditorView
                         foreach (string f in PowerRecolor.PackagesOf(powerDb, p.Prototype, hero, g.Cooked).Where(seen.Add))
                             if (StockFiles.For(g.Cooked, f) is var path && File.Exists(path))
                                 rows.AddRange(PowerSounds.Read(f, path).Select(s => new SoundRow(p.Name, s)));
-                    foreach (string ev in rows.Where(r => r.Sound.Stop == null).Select(r => r.Sound.Event).Distinct(StringComparer.OrdinalIgnoreCase))
-                        try { if (VoiceAudio.Variations(ev, g.Cooked).Sounds is > 1 and var n) lock (soundVariations) soundVariations[PowerSounds.Leaf(ev)] = n; }
+                    foreach (string ev in rows.Select(r => r.Sound.Event).Distinct(StringComparer.OrdinalIgnoreCase))
+                        try
+                        {
+                            if (VoiceAudio.Variations(ev, g.Cooked).Sounds is > 1 and var n) lock (soundVariations) soundVariations[PowerSounds.Leaf(ev)] = n;
+                            if (VoiceAudio.Actions(ev, g.Cooked) is { Count: > 0 } acts && !acts.Any(a => a.Type == 0x0403)) lock (soundSwitches) soundSwitches.Add(PowerSounds.Leaf(ev));
+                        }
                         catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException or IndexOutOfRangeException) { }
                     return rows;
                 });
@@ -421,7 +429,7 @@ sealed partial class ModEditorView
                 if (e == null)
                 {
                     draft.PowerSounds.Add(e = new PowerSoundEntry { Package = r.Sound.Package, Component = r.Sound.Component, Index = r.Sound.Index, Event = r.Sound.Event });
-                    if (r.Sound.Stop == null && SoundSetNow() is { } set) { e.InSet = true; e.CopyShape(set); }
+                    if (CanChange(r) && SoundSetNow() is { } set) { e.InSet = true; e.CopyShape(set); }
                 }
                 e.Off = true;
             }
@@ -442,7 +450,7 @@ sealed partial class ModEditorView
             var own = SoundEntry(r.Sound);
             // With All Sounds up, a sound that follows the set plays with the sliders (a preview); one of its own, as it's set.
             bool follows = own == null || own.InSet || !own.Shaped && SoundSetNow() == null;
-            SoundShape? shape = r.Sound.Stop != null ? null : !soundRowScope && follows ? SoundSliders() : own;
+            SoundShape? shape = !CanChange(r) ? null : !soundRowScope && follows ? SoundSliders() : own;
             soundWavs.TryGetValue(leaf, out var mine);
             bool replaced = own?.Replaced == true;
             byte[] wav = await Task.Run(() =>
@@ -485,10 +493,10 @@ sealed partial class ModEditorView
         using var d = new FolderBrowserDialog { Description = "Folder with your audio files, named as Export Sounds names them", UseDescriptionForTitle = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         var (matched, unknown) = VoiceLines.Match(d.SelectedPath, shownSounds.Select(r => PowerSounds.Leaf(r.Sound.Event)));
-        var loops = matched.Keys.Where(l => shownSounds.Any(r => r.Sound.Stop != null && PowerSounds.Leaf(r.Sound.Event).Equals(l, StringComparison.OrdinalIgnoreCase))).ToList();
+        var loops = matched.Keys.Where(soundSwitches.Contains).ToList();
         foreach (string l in loops) matched.Remove(l);
-        if (matched.Count == 0) { Dialog.Show(this, "No file there is named after a sound of this hero that can be replaced. Export Sounds shows the names; looping sounds can't be replaced yet.", "Nothing to Replace", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-        var skipped = unknown.Concat(loops.Select(l => l + " (loops)")).ToList();
+        if (matched.Count == 0) { Dialog.Show(this, "No file there is named after a sound of this hero that can be replaced. Export Sounds shows the names.", "Nothing to Replace", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        var skipped = unknown.Concat(loops.Select(l => l + " (music or filter switch)")).ToList();
         if (skipped.Count > 0 && Dialog.Show(this, $"{matched.Count} sound(s) will be replaced.{Environment.NewLine}{Environment.NewLine}{skipped.Count} file(s) are left out:{Environment.NewLine}{string.Join(Environment.NewLine, skipped.Take(12).Select(u => "  • " + u))}{(skipped.Count > 12 ? Environment.NewLine + "  …" : "")}",
                 "Replace Sounds", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         _ = PutSounds(matched, $"Replace {matched.Count} Sound{(matched.Count == 1 ? "" : "s")}");
@@ -584,7 +592,7 @@ sealed partial class ModEditorView
         SetSoundScope(true);
         Pick();
         Check(!soundVolume.Enabled, "Selected Sounds, nothing selected: the sliders are off");
-        if (shownSounds.FirstOrDefault(r => r.Sound.Stop != null) is { } loop) { Pick(loop); Check(!soundVolume.Enabled, "a looping sound selected: the sliders are off"); }
+        if (shownSounds.FirstOrDefault(r => r.Sound.Stop != null && CanChange(r)) is { } loop) { Pick(loop); Check(soundVolume.Enabled, "a looping sound selected: the sliders are on"); }
         Pick(plain);
         Check(soundVolume.Enabled, "a stock sound selected: the sliders are on");
         soundVolume.TestKey(Keys.Left);
@@ -632,7 +640,7 @@ sealed partial class ModEditorView
         Check(SoundSetNow() != null && SoundEntry(plain.Sound) is { InSet: true, Volume: 0.5f, Replaced: false }, "Apply to All Sounds: a stock sound follows the set");
         Check(Cell(plain) == "Whole Set" && Cell(b) == "Whole Set", $"Settings: Whole Set ({Cell(plain)}, {Cell(b)})");
         Check(SoundEntry(a.Sound) is { InSet: false, Reverb: > 0.04f } && Cell(a).StartsWith("This Sound"), $"the row with its own settings kept them ({Cell(a)})");
-        Check(draft.PowerSounds.All(e => !shownSounds.Any(r => r.Sound.Stop != null && SameEntry(e, r.Sound))), "looping sounds aren't in it");
+        Check(draft.PowerSounds.Any(e => shownSounds.Any(r => r.Sound.Stop != null && CanChange(r) && SameEntry(e, r.Sound))) || !shownSounds.Any(r => r.Sound.Stop != null && CanChange(r)), "looping sounds are in it");
         Check(soundSetNote.Text.Contains("All Sounds: Volume 50 %, Robot 30 %") && soundSetNote.Text.Contains("With Own Settings"), $"the note ({soundSetNote.Text})");
         SetSoundScope(true);
         Pick(plain);

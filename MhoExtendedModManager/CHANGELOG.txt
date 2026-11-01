@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.287
+- Power Sounds: sounds that loop can change now: Volume, effects and your own audio, like any other sound. They stop when the power ends, and the whole set includes them.
+- A few Loop rows are music or filter switches, not sounds: Note says so, and they can only be turned off.
+
 0.60.286
 - Voice and Power Sounds: Volume (5 to 300 %) and the six effects (Reverb, Echo, Distortion, Lo-Fi, Chorus, Robot) now work on both tabs, on the game's own sounds and on your own audio.
 - Voice and Power Sounds: a choice of what the sliders set. Whole Voice / All Sounds sets everything with one Apply button; Selected Lines / Selected Sounds gives those rows settings of their own.

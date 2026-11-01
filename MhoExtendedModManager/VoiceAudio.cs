@@ -136,6 +136,16 @@ static class VoiceAudio
         return Akpk.EventVariations(f, where.Entry, SoundPack.Fnv(leaf));
     }
 
+    /// <summary>An event's actions (Akpk.EventActions); empty when it isn't in a bank.</summary>
+    public static List<(ushort Type, uint Target, int TargetType)> Actions(string eventPath, string cooked)
+    {
+        string leaf = eventPath[(eventPath.LastIndexOf('.') + 1)..];
+        Index(cooked);
+        if (FindEvent(SoundPack.Fnv(leaf), eventPath.Split('.')[0]) is not { } where) return [];
+        using var f = File.OpenRead(where.Pck);
+        return Akpk.EventActions(f, where.Entry, SoundPack.Fnv(leaf));
+    }
+
     /// <summary>Wwise Vorbis .wem → a 16-bit PCM WAV file in memory.</summary>
     public static byte[] ToWav(byte[] wem)
     {

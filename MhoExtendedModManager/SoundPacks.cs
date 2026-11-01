@@ -246,6 +246,8 @@ sealed class Akpk
 
     /// <summary>How many sounds an event can pick from, and its actions (see Bank.Variations).</summary>
     public static (int Actions, int Sounds) EventVariations(Stream f, Entry bank, uint eventId) => new Bank(ReadData(f, bank)).Variations(eventId);
+    /// <summary>An event's actions (see Bank.Actions).</summary>
+    public static List<(ushort Type, uint Target, int TargetType)> EventActions(Stream f, Entry bank, uint eventId) => new Bank(ReadData(f, bank)).Actions(eventId);
 
     /// <summary>Every event in a bank with the sound it plays (Bank.Media): the voice text table's build.</summary>
     public static IEnumerable<(uint Event, uint SourceId)> AllEventMedia(Stream f, Entry bank)
@@ -465,6 +467,21 @@ sealed class Akpk
             return null;
         }
 
+        /// <summary>An event's actions: Wwise type (0x0403 play, 0x0102 / 0x0103 stop), target, and the target's object type (-1: not in this bank).</summary>
+        public List<(ushort Type, uint Target, int TargetType)> Actions(uint eventId)
+        {
+            var all = new List<(ushort, uint, int)>();
+            if (Obj(eventId) is not { } ev || ev.Type != 4 || ev.Body.Length < 4) return all;
+            int n = (int)BinaryPrimitives.ReadUInt32LittleEndian(ev.Body);
+            for (int i = 0; i < n && 8 + 4 * i <= ev.Body.Length; i++)
+                if (Obj(BinaryPrimitives.ReadUInt32LittleEndian(ev.Body.AsSpan(4 + 4 * i))) is { Type: 3 } act && act.Body.Length >= 6)
+                {
+                    uint target = BinaryPrimitives.ReadUInt32LittleEndian(act.Body.AsSpan(2));
+                    all.Add((BinaryPrimitives.ReadUInt16LittleEndian(act.Body), target, Obj(target) is { } t ? t.Type : -1));
+                }
+            return all;
+        }
+
         /// <summary>An event's actions, and the sounds under their targets: more than one = random or sequence variations (a clone keeps only the first).</summary>
         public (int Actions, int Sounds) Variations(uint eventId)
         {
@@ -505,7 +522,8 @@ sealed class Akpk
         {
             streamed = false;
             if (Obj(SoundPack.Fnv(p.OriginalEvent)) is not { } ev || ev.Type != 4) return $"original event '{p.OriginalEvent}' not in the bank";
-            if (Obj(p.EventHash) != null || Obj(p.ActionId) != null || Obj(p.SoundId) != null) return "its IDs are already in the bank";
+            // (a loop's stop copy names the sound its play copy added: PowerSounds.Apply)
+            if (Obj(p.EventHash) != null || Obj(p.ActionId) != null || Obj(p.SoundId) is { Type: not 2 }) return "its IDs are already in the bank";
             if (BinaryPrimitives.ReadUInt32LittleEndian(ev.Body) == 0) return "original event has no actions";
             uint actionId = BinaryPrimitives.ReadUInt32LittleEndian(ev.Body.AsSpan(4));
             if (Obj(actionId) is not { } act || act.Type != 3 || act.Body.Length < 6) return "original event's action not found";
