@@ -312,7 +312,9 @@ sealed partial class Preview3D
         Shown = () => animator != null && shownLoaded != null ? (view, animator, shownLoaded) : null,
         Playing = () => anim,
         Seconds = () => seconds,
+        StartSeconds = n => allAnims.Concat(animList).FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } r && ModAnimations.Load(r) is { } sa ? MeshAnimator.Span(sa).Seconds : 0,
         ShowPose = ShowPose,
+        Retime = RetimeShown,
         Display = Display,
         Entity = () => ctx?.Entity(),
         AddMore = r =>
@@ -322,6 +324,21 @@ sealed partial class Preview3D
             if (PreviewViews.SizeRef && SizeReference.For(ctx?.Cooked) is { } d) r.Add(d.Mesh, -1, [], false, "size_reference", offset: RefPlace);
         },
     };
+
+    /// <summary>The animation showing played over <paramref name="secs"/> seconds, at the same place in it (PreviewProps.Retime:
+    /// the game plays a high-flying power's start over the power's wind-up, PowerFXAnimationLooping).</summary>
+    void RetimeShown(float secs)
+    {
+        if (anim is not { } a || secs <= 0.01f || Math.Abs(a.DurationSeconds - secs) < 1e-4f) return;
+        float at = Fraction;
+        bool wasPlaying = IsPlaying;
+        var timed = new AnimExportCli.Animation.BoneAnimation { Name = a.Name, DurationSeconds = secs, Tracks = a.Tracks };
+        if (ModAnimations.TranslationBones(a) is { } tb) ModAnimations.SetTranslationBones(timed, tb);
+        Player.Set(timed, at * secs);
+        rig.SetParentAnimation(timed);
+        Pose(frames > 0 ? at * frames : 0);
+        if (wasPlaying && !IsPlaying) TogglePlay();
+    }
 
     /// <summary>The drum's placement, its size kept as the game's whatever the Model tab's Size draws the model at (Kurt,
     /// 2026-10-28: scaled with the character it measured nothing): the view's scale taken back off.</summary>

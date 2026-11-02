@@ -84,6 +84,12 @@ sealed partial class ModEditorView
             if (Shortcuts.Is("model.undo", keyData)) { AudioUndo(); return true; }
             if (Shortcuts.Is("model.redo", keyData)) { AudioRedo(); return true; }
         }
+        // Ctrl+Z / Ctrl+Y on the Animations tab: the height keys' steps
+        if (animPreview?.Visible == true && heightStrip?.Visible == true && !Typing())
+        {
+            if (Shortcuts.Is("model.undo", keyData)) { _ = HeightUndo(); return true; }
+            if (Shortcuts.Is("model.redo", keyData)) { _ = HeightRedo(); return true; }
+        }
         if (Shortcuts.Is("view.quad", keyData) && !Typing())
             foreach (var pv in new[] { powerPreview, animPreview })
                 if (pv != null && pv.Visible && pv.ToggleQuad()) return true;

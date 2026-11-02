@@ -76,10 +76,14 @@ sealed partial class Preview3D : UserControl
     AnimPlayer Player => player ??= new AnimPlayer
     {
         Loop = () => prefs.Loop,
-        Moved = (f, ended) => { FxAdvance(playTime, ended); Pose(f); },
+        Moved = (f, ended) => { if (playTime + 1e-3f < lastMoved) loopPass++; lastMoved = playTime; if (ChainToLoop(ended)) return; FxAdvance(playTime, ended); Pose(f); },
         StateChanged = () => { play.Text = IsPlaying ? "❚❚" : "▶"; view.Moving = IsPlaying; if (!IsPlaying) PlaybackMoved?.Invoke(); },   // smaller frames while playing (ModelView.Moving)
         CanRun = () => CanRun?.Invoke() ?? true,
     };
+    /// <summary>How many times the animation has looped since it was picked (a high-flying loop's floor: its first play
+    /// carries on its start's climb), and the time last moved to.</summary>
+    int loopPass;
+    float lastMoved;
     BoneAnimation? anim => player?.Anim;
     float frames => player?.Frames ?? 0;
     float seconds => player?.Seconds ?? 0;
@@ -125,7 +129,8 @@ sealed partial class Preview3D : UserControl
         loop = Ui.FlatButton("⟳ Loop", () => { prefs.Loop = !prefs.Loop; prefs.Save(); Ui.Lit(loop!, prefs.Loop); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
         reset = Ui.FlatButton("Reset View", () => { if (ResetViewAction != null) ResetViewAction(); else view.ResetView(); }, "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Ground on or off, and the Light, Glow and Lens sliders. Remembered.");
-        (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);
+        // Shift+click locks the view to that part, or unlocks it (Kurt, 2026-11-02), as the right-click menu's Lock View does
+        (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(shot => { if ((ModifierKeys & Keys.Shift) != 0) LockTo(lockShot == shot ? null : shot); else FrameShot(shot); }, S);
         foreach (var (b, shot, part) in new[] { (frameHead, Framing.Shot.HeadShoulders, "Head"), (frameBust, Framing.Shot.Bust, "Torso"), (frameFull, Framing.Shot.Full, "Body") })
             LockMenu(b, shot, part);
         quadButton = ShortcutsUi.Attach(PreviewControls.QuadButton(() => ToggleQuad(), S), "view.quad");
@@ -234,6 +239,7 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
             items.Add(new("Barrel Size Reference", "A 55-gallon oil drum from the game (Brooklyn's docks) on the floor beside the character, to judge sizes by. Drag it to move it along the floor (in any pane); double-click it to put it back beside the character. Remembered for every 3D view.", () => PreviewViews.SizeRef, () => { PreviewViews.SizeRef = !PreviewViews.SizeRef; Props.Rebuild(); }));
             items.Add(new("Prop Pivots", "Each prop's pivot: the point its model is placed and turned around (its bone, the attachment's offset and its own move and turn), with its axes (X red, Y green, Z blue). Prop Fit moves and turns the prop about it. Remembered for every 3D view.", () => PreviewViews.Pivots, () => { PreviewViews.Pivots = !PreviewViews.Pivots; ShowPose(); }));
+            items.Add(new("Start Into Loop", "A high-flying travel power's start plays on into its loop, as the game plays them, so the moment the loop takes over shows (off: the start loops on its own, to look at it). Remembered for every 3D view.", () => PreviewViews.StartIntoLoop, () => PreviewViews.StartIntoLoop = !PreviewViews.StartIntoLoop));
             items.Add(new("Axis Gizmo", "The game's axes in the view's corner, as Blender's: X red (the way the character faces), Y green, Z blue (up). Remembered for every 3D view.", () => PreviewViews.Gizmo, () => PreviewViews.Gizmo = !PreviewViews.Gizmo));
             items.AddRange(ExtraLook);
             lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });
@@ -414,6 +420,7 @@ sealed partial class Preview3D : UserControl
     void AnimationChosen()
     {
         Player.Stop();
+        loopPass = 0; lastMoved = 0;
         int i = anims.SelectedIndex - 1;
         BoneAnimation? a = null;
         if (i >= 0 && i < animList.Count)
@@ -524,6 +531,31 @@ sealed partial class Preview3D : UserControl
         return true;
     }
 
+    /// <summary>The body shown raised by <paramref name="z"/> at the frame showing (MeshAnimator.BodyLift; the Height gizmo's
+    /// drag), 0 = as the animation has it.</summary>
+    public void SetBodyLift(float z)
+    {
+        if (animator == null || animator.BodyLift == z) return;
+        animator.BodyLift = z;
+        Pose(frames > 0 && seconds > 0 ? playTime / seconds * frames : 0);
+    }
+
+    /// <summary>
+    /// A high-flying power's start played on into its loop, as the game plays them (PowerFXAnimationLooping: the start over
+    /// the wind-up, then the loop; Kurt, 2026-11-02: the dip at the handover showed in game but never here, where the start
+    /// and the loop played on their own). The loop's first play then carries on the climb (PreviewProps.GroundAt). The
+    /// handover is a cut: the game blends it, over a time it doesn't state. True when it switched.
+    /// </summary>
+    bool ChainToLoop(bool ended)
+    {
+        if (!PreviewViews.StartIntoLoop || !(ended || loopPass > 0) || props?.Flight == null || CurrentAnimation is not string name || !name.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) return false;
+        string loopName = name[..^"_start".Length] + "_loop";
+        if (!animList.Any(a => a.Name.Equals(loopName, StringComparison.OrdinalIgnoreCase))) return false;
+        props.BeginLoop();
+        BeginInvoke(() => PlayAnimation(loopName, true));
+        return true;
+    }
+
     void Pose(float f)
     {
         if (animator == null) return;
@@ -540,7 +572,7 @@ sealed partial class Preview3D : UserControl
         else if (view.Effects.Count > 0 || view.EffectTris.Count > 0) { view.Effects = []; view.EffectTris = []; }
         rig.At(anim == null || seconds <= 0 ? 0 : Math.Min(playTime, seconds));
         FollowLock();
-        if (props != null) view.GroundZ = anim == null ? 0 : props.GroundAt(Math.Min(playTime, seconds));   // (a high-flying power's floor: rising, held, falling)
+        if (props != null) view.GroundZ = anim == null ? 0 : props.GroundAt(Math.Min(playTime, seconds), loopPass == 0);   // (a high-flying power's floor: rising, held, falling)
         rig.Update(view, animator);
         view.Markers = PreviewViews.Pivots ? rig.ShownFrames(animator) : [];
         view.DragPart = PreviewViews.SizeRef ? rig.RangeOf("size_reference", animator.Positions.Length) : null;
@@ -594,7 +626,7 @@ sealed partial class Preview3D : UserControl
     void LockMenu(Button b, Framing.Shot shot, string part)
     {
         Ui.Tip(b, (shot switch { Framing.Shot.HeadShoulders => "Frame the head and shoulders.", Framing.Shot.Bust => "Frame head and chest.", _ => "Frame the whole character." })
-            + $" Right-click: lock the view to the {part.ToLowerInvariant()}, so the camera follows it while the animation plays (a blue border while locked).");
+            + $" Shift+click (or right-click → Lock View): lock the view to the {part.ToLowerInvariant()}, so the camera follows it while the animation plays (a blue border while locked); Shift+click again unlocks it.");
         // (in the buttons' right-click menu, above its shortcut items: ShortcutsUi shows that menu for every button)
         ShortcutsUi.MenuItems.AddOrUpdate(b, () =>
         {

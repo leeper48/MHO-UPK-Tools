@@ -203,7 +203,13 @@ static class ModAnimations
     {
         try
         {
-            var anim = AnimObjectReader.TryRead(Open(a.File), a.SequenceExport, a.TrackBoneNames);
+            var pkg = Open(a.File);
+            var anim = AnimObjectReader.TryRead(pkg, a.SequenceExport, a.TrackBoneNames);
+            // played at its RateScale, as UE3 plays it (UnAnimPlay.cpp: Rate × RateScale × time; a borrowed start stretched to
+            // the game's lift): the length in seconds divided by it
+            if (anim != null && pkg.TryReadProperties(a.SequenceExport) is { } pr && pr.Find("RateScale") != null
+                && pr.GetFloat("RateScale") is float rate && rate > 0.01f && Math.Abs(rate - 1) > 1e-4f && anim.DurationSeconds > 0)
+                anim = new BoneAnimation { Name = anim.Name, DurationSeconds = anim.DurationSeconds / rate, Tracks = anim.Tracks };
             if (anim != null && a.TranslationBones != null) translation.AddOrUpdate(anim, a.TranslationBones);
             if (anim != null && LegIkSequences(a.File).Contains(a.SequenceExport)) legIk.AddOrUpdate(anim, a);
             return anim;
@@ -235,6 +241,10 @@ sealed class MeshAnimator
 
     /// <summary>The posed model and its bones moved by this (the Model tab's Feet on the Floor: the built mesh's Origin).</summary>
     public Vector3 Shift { get; set; }
+
+    /// <summary>The body (every bone under the root, so all but the root) raised by this, in game units: the Height gizmo's
+    /// drag shown live, as its key will raise it (Kurt, 2026-11-02). 0 while not dragging.</summary>
+    public float BodyLift { get; set; }
 
     int[]? parentMap;
     MeshAnimator? mappedTo;
@@ -330,6 +340,7 @@ sealed class MeshAnimator
             var local = Matrix4x4.CreateFromQuaternion(Unit(r)) * Matrix4x4.CreateTranslation(p);
             locals[i] = local;
             posed[i] = b.ParentIndex >= 0 && b.ParentIndex < i ? local * posed[b.ParentIndex] : local;
+            if (BodyLift != 0 && b.ParentIndex == 0) posed[i].Translation += new Vector3(0, 0, BodyLift);
             skin[i] = restModelToBone[i] * posed[i];
         }
         if (a != null && ModAnimations.UsesLegIk(a) && (LegIk("g_l_ankle", "g_l_legikeffector") | LegIk("g_r_ankle", "g_r_legikeffector")))

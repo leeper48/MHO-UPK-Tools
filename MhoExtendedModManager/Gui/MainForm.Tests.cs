@@ -1298,6 +1298,48 @@ sealed partial class MainForm
             var a = ca?.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
             return (a != null && a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase), m.Manifest.AnimSwaps?.Count ?? 0, a?.From.Path ?? "none");
         }
+        if (Environment.GetEnvironmentVariable("MHO_TEST_MODEL_LEAVE") == "1")
+        {
+            // (a user, 2026-11-02: open the Model tab, go to Icons: "Model Not Built", and Build Now loops) the tab's state at
+            // each step; every dialog is written to MHO_EXTMM_TEST_DIALOGS and answered with its default (Build Now)
+            var lm = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(modName);
+            if (lm == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), "no such mod"); return; }
+            OpenEditor(lm);
+            pages.Select(1);
+            var le = editor!;
+            int Tab(string t) { for (int i = 0; i < le.TabCount; i++) if (le.TabTitle(i) == t) return i; return -1; }
+            le.SelectTab(Tab("Model"));
+            await Task.Delay(15000);
+            lines.Add("on Model: " + (le.ModelPageForTest?.UnbuiltForTest ?? "no page"));
+            await Task.Delay(3000);
+            lines.Add("3 s later: " + (le.ModelPageForTest?.UnbuiltForTest ?? "no page"));
+            le.SelectTab(Tab("Icons"));
+            await Task.Delay(8000);
+            lines.Add($"after going to Icons: tab {le.TabTitle(le.SelectedTabForTest)} | " + (le.ModelPageForTest?.UnbuiltForTest ?? "no page"));
+            // Build into Mod, then whether Save would still ask
+            le.SelectTab(Tab("Model"));
+            await Task.Delay(2000);
+            if (le.ModelPageForTest is { } mp)
+            {
+                bool built = await mp.BuildAsync();
+                lines.Add($"Build into Mod: {built} | " + mp.UnbuiltForTest);
+                lines.Add("editor says unbuilt (Save would ask): " + le.ModelUnbuilt);
+            }
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
+        if (Environment.GetEnvironmentVariable("MHO_TEST_RESAVE") == "1")
+        {
+            // (Kurt, 2026-11-02) a mod opened and saved unchanged: its borrows rebuilt from the manifest (height keys set in it)
+            var rm = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(modName);
+            if (rm == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), "no such mod"); return; }
+            OpenEditor(rm);
+            pages.Select(1);
+            await Task.Delay(3000);
+            string? rs = await editor!.SaveForTest();
+            File.WriteAllText(Path.Combine(dir, "result.txt"), "saved " + (rs ?? "(nothing)"));
+            return;
+        }
         if (Environment.GetEnvironmentVariable("MHO_TEST_BORROW_HEIGHTS") is string bv)
         {
             // (Kurt, 2026-11-02) height keys on a borrowed travel power's animation: the Powers tab builds the borrows, the
@@ -1319,6 +1361,9 @@ sealed partial class MainForm
             if (be == null || bslot == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), $"no mod or no borrowed animation ({be != null})"); return; }
             lines.Add($"borrowed animation {bslot}: " + await be.HeightTest(bslot, float.Parse(bv, System.Globalization.CultureInfo.InvariantCulture)));
             Shot("borrow_heights.png");
+            lines.Add("height gizmo dragged up: " + await be.HeightGizmoTest());
+            Shot("borrow_gizmo.png");
+            lines.Add("undo / redo / history: " + await be.HeightUndoTest());
             string? bs = await be.SaveForTest();
             await Task.Delay(1500);
             var bm = ModLibrary.Load(lib!.DataFolder).Find(bs ?? modName);

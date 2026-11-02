@@ -1,6 +1,35 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.305
+- 3D views: Shift+click on Head, Bust or Full Body locks the view to that part, or unlocks it.
+
+0.60.304
+- 3D view: Look ▾ → Start Into Loop (off by default): a high-flying power's start plays on into its loop, as the game plays them, so the moment the loop takes over shows. Off, the start loops on its own. The handover is a cut; the game blends it a little.
+
+0.60.302
+- Editor: saving a new mod a second time saves over it, instead of refusing with "A mod named ... already exists".
+
+0.60.301
+- Travel powers: the game plays a high-flying power's start over its wind-up (0.75 s), whatever the start's own length, then the loop (read from the game client). A borrowed start is now lowered on that clock, so the hero stays on the floor through the wind-up; the 3D view plays the start over the wind-up too. A hero who climbs slowly (Hawkeye) is still finishing the climb when the loop begins: the first moments of the loop sit a little low, in the game and in the 3D view alike.
+- Model tab: leaving it, or saving, no longer asks to build a model that is already built (it asked every time for mods with Blender edits, and after Build into Mod).
+
+0.60.300
+- Travel powers now follow the game's own lift, read from the game client's code. A high-flying power starts lifting the hero when it applies (Hawkeye 0.26 s after activation, most flights 0.75 s), then raises him in a straight line at his climb speed (Hawkeye 170 units a second) to 140.
+- Borrowing a ground run or other ground animation onto a high-flying power: the borrowed start plays until the hero is fully lifted, lowered by exactly the lift at each moment, so he stays on the floor by construction. The loop begins at full height. Height keys add on top.
+- 3D view: plays animations at their play rate, as the engine does. A high-flying start's floor follows the same lift; a loop's first play continues it.
+
+0.60.299
+- Taken back from 0.60.298: the borrowed start played slower to last the hero's climb, the loop's first play shown still climbing, and the 3D view playing animations at their play rate. None matched the game; the 3D view is as in 0.60.297.
+
+0.60.297
+- Height keys: Undo, Redo and History in the Height bar (Ctrl+Z, Ctrl+Y on the Animations tab) for every change to the keys: the strip, the gizmo, Add Key at Frame, Clear Keys.
+- Height Gizmo: the body moves while you drag, not only when you let go.
+- Apply Changes: with Don't Ask Again ticked, the window no longer opens when the checks find something; the status line says so instead (click it for the details). The box shows the saved setting, so it no longer looks reset, and unticking it turns the setting off.
+
+0.60.296
+- Height strip: a Height Gizmo button. On, a blue up arrow sits at the hips in the 3D view (all four quad panes); drag it to raise or lower the body at the frame showing, and letting go puts a key there.
+
 0.60.295
 - 3D views: right-click Head, Bust or Full Body to lock the view to the head, torso or body. The camera follows that part while the animation plays (all four panes of the quad view), so the character stays on screen; turning and zooming still work. The locked button has a blue border.
 

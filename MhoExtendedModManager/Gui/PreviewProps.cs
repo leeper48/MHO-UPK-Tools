@@ -47,7 +47,10 @@ sealed class PreviewProps
 
     public PreviewProps(PropRig rig, Control owner) { this.rig = rig; this.owner = owner; }
 
-    float lift, rise = 600, fall = 600;
+    float lift, rise = 600, fall = 600, applyAt, windUp;
+
+    /// <summary>Plays the animation showing over this many seconds (a high-flying power's start, over its wind-up).</summary>
+    public Action<float>? Retime { get; init; }
     int phase;
 
     /// <summary>
@@ -58,12 +61,28 @@ sealed class PreviewProps
     /// high). The loop is at full height; 0 for anything else. Constant speeds are a reading of the property names, to be
     /// checked against the game.
     /// </summary>
-    public float GroundAt(double seconds)
+    /// <param name="firstPass">The loop's first play after its start: the climb goes on where the start left off (Kurt,
+    /// 2026-11-02: Cap's 0.27 s start on Hawkeye, who climbs 140 at 170 a second, left his loop sunk for half a second in
+    /// game; the floor held at full height hid it here). Its repeats are at full height.</param>
+    public float GroundAt(double seconds, bool firstPass = false)
     {
         if (lift <= 0) return 0;
         float t = (float)Math.Max(0, seconds);
-        return -(phase > 0 ? Math.Min(lift, rise * t) : phase < 0 ? Math.Max(0, lift - fall * t) : lift);
+        // the game's lift (PowerBorrow.FlightLift, from the client's code, 2026-11-02): nothing until the power applies (applyAt
+        // after activation, which is the start's first frame), then up in a straight line at the hero's flyingZSpeed; a loop's
+        // first play goes on from where its start left off; the end comes down at landingZSpeed
+        if (phase > 0) return -PowerBorrow.LiftAt(t, applyAt, rise, lift);
+        if (phase == 0 && firstPass && startSeconds > 0) return -PowerBorrow.LiftAt(startSeconds + t, applyAt, rise, lift);
+        return -(phase < 0 ? Math.Max(0, lift - fall * t) : lift);
     }
+
+    /// <summary>The length (seconds, at its play rate) of a loop's start animation, by name; 0 when there's none.</summary>
+    public Func<string, float>? StartSeconds { get; init; }
+    float startSeconds;
+
+    /// <summary>The start played on into its loop (Preview3D.ChainToLoop): the floor goes on as the loop's first play at once,
+    /// before the loop's own settings have loaded.</summary>
+    public void BeginLoop() { if (lift > 0 && phase > 0) { phase = 0; startSeconds = windUp > 0 ? windUp : startSeconds; } }
 
     /// <summary>The playing power's lift (HighFlyingHeight) and the hero's speeds (null: not a high-flying power).</summary>
     public (float Lift, float Rise, float Fall)? Flight => lift > 0 ? (lift, rise, fall) : null;
@@ -154,8 +173,15 @@ sealed class PreviewProps
                 (rules, contact) = (t.Result.Rules, t.Result.Contact);
                 // the floor under a high-flying power (GroundAt, drawn by the preview's ShowPose): rising, held, falling
                 lift = t.Result.Lift;
+                applyAt = t.Result.ApplyAt;
+                windUp = t.Result.ChannelStart;
                 (rise, fall) = t0.Result.Speeds;
                 phase = anim != null && anim.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : anim != null && anim.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
+                // (the game plays a high-flying power's start over its wind-up, whatever the start's own length: the loop's first
+                // play begins when the wind-up ends, and a start shown now is played over it: Retime)
+                startSeconds = lift > 0 && phase == 0 && anim != null && anim.EndsWith("_loop", StringComparison.OrdinalIgnoreCase)
+                    ? (windUp > 0 ? windUp : StartSeconds?.Invoke(anim[..^"_loop".Length] + "_start") ?? 0) : 0;
+                if (lift > 0 && phase > 0 && windUp > 0) Retime?.Invoke(windUp);
                 seqs = t.Result.Seqs;
                 bool rebuild = powerProps.Count > 0 || t.Result.Extra.Count > 0;
                 powerProps = t.Result.Extra;

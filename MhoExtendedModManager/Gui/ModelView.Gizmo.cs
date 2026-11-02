@@ -14,7 +14,12 @@ sealed partial class ModelView
 {
     /// <summary>Where the gizmo is: its centre, the three move axes and the three turn axes (engine space, unit length), and its
     /// size in engine units (the arrows' length; the rings are a little smaller).</summary>
-    public sealed record TransformGizmo(Vector3 Center, Vector3[] MoveAxes, Vector3[] TurnAxes, float Size);
+    public sealed record TransformGizmo(Vector3 Center, Vector3[] MoveAxes, Vector3[] TurnAxes, float Size)
+    {
+        /// <summary>The handles shown (0-2 arrows, 3-5 rings, 6 the centre dot); null: all (the Height gizmo: the Z arrow only).</summary>
+        public int[]? Handles { get; init; }
+        public bool Has(int handle) => Handles == null || Handles.Contains(handle);
+    }
 
     /// <summary>The gizmo to draw now (asked at every paint, so it follows an animation), or null for none.</summary>
     public Func<TransformGizmo?>? GizmoSource { get; set; }
@@ -80,14 +85,15 @@ sealed partial class ModelView
         if (OnCanvas(g.Center, cam, area) is not PointF o) return -1;
         float s = Ui.Dpi(DeviceDpi), best = 8 * s;
         // the centre dot first (it sits where the arrows start)
-        if (MathF.Sqrt((p.X - o.X) * (p.X - o.X) + (p.Y - o.Y) * (p.Y - o.Y)) <= DotRadius * s + 3 * s) return 6;
+        if (g.Has(6) && MathF.Sqrt((p.X - o.X) * (p.X - o.X) + (p.Y - o.Y) * (p.Y - o.Y)) <= DotRadius * s + 3 * s) return 6;
         int hit = -1;
         for (int k = 0; k < 3; k++)
-            if (OnCanvas(g.Center + g.MoveAxes[k] * g.Size, cam, area) is PointF e && SegDist(p, o, e) is float d && d < best) { best = d; hit = k; }
+            if (g.Has(k) && OnCanvas(g.Center + g.MoveAxes[k] * g.Size, cam, area) is PointF e && SegDist(p, o, e) is float d && d < best) { best = d; hit = k; }
         if (hit >= 0) return hit;
         best = 6 * s;
         for (int k = 0; k < 3; k++)
         {
+            if (!g.Has(3 + k)) continue;
             var pts = RingPoints(g, k, cam, area);
             for (int i = 0; i < RingSegments; i++)
                 if (pts[i] is PointF a && pts[i + 1] is PointF b && SegDist(p, a, b) is float d && d < best) { best = d; hit = 3 + k; }
@@ -200,6 +206,7 @@ sealed partial class ModelView
         // the rings first (the arrows on top)
         for (int k = 0; k < 3; k++)
         {
+            if (!gz.Has(3 + k)) continue;
             var pts = RingPoints(gz, k, cam, area);
             using var pen = new Pen(active == 3 + k ? GizmoHot : Color.FromArgb(220, GizmoColors[k]), (active == 3 + k ? 3f : 2f) * s);
             for (int i = 0; i < RingSegments; i++)
@@ -207,7 +214,7 @@ sealed partial class ModelView
         }
         for (int k = 0; k < 3; k++)
         {
-            if (OnCanvas(gz.Center + gz.MoveAxes[k] * gz.Size, cam, area) is not PointF e) continue;
+            if (!gz.Has(k) || OnCanvas(gz.Center + gz.MoveAxes[k] * gz.Size, cam, area) is not PointF e) continue;
             var col = active == k ? GizmoHot : GizmoColors[k];
             using var pen = new Pen(col, (active == k ? 3.5f : 2.5f) * s);
             float dx = e.X - o.X, dy = e.Y - o.Y, len = MathF.Sqrt(dx * dx + dy * dy);
@@ -218,7 +225,7 @@ sealed partial class ModelView
             using var brush = new SolidBrush(col);
             g.FillPolygon(brush, [e, new PointF(baseP.X - uy * wide, baseP.Y + ux * wide), new PointF(baseP.X + uy * wide, baseP.Y - ux * wide)]);
         }
-        using (var dot = new SolidBrush(active == 6 ? GizmoHot : Color.FromArgb(240, 240, 240))) g.FillEllipse(dot, o.X - DotRadius * s, o.Y - DotRadius * s, 2 * DotRadius * s, 2 * DotRadius * s);
+        if (gz.Has(6)) using (var dot = new SolidBrush(active == 6 ? GizmoHot : Color.FromArgb(240, 240, 240))) g.FillEllipse(dot, o.X - DotRadius * s, o.Y - DotRadius * s, 2 * DotRadius * s, 2 * DotRadius * s);
         g.ResetClip();
         g.SmoothingMode = mode;
     }

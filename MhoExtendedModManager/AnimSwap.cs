@@ -40,7 +40,12 @@ static class AnimSwap
     /// <paramref name="DonorSequence"/> (an export of <paramref name="DonorSet"/>); <paramref name="Rate"/> &gt; 0 sets the copy's
     /// own play rate (a borrowed power's animation fitted to the length of the one it replaces), else Build's rateScale;
     /// <paramref name="Lift"/> moves the whole animation up (down when negative) by its root bone.</summary>
-    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0, float RampBy = 0, float RampPower = 1, IReadOnlyList<(float At, float Z)>? Heights = null);
+    public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0, float RampBy = 0, float RampPower = 1, IReadOnlyList<(float At, float Z)>? Heights = null)
+    {
+        /// <summary>The body lowered along this curve ([0..1 through the animation, game units]; the bones under the root, as
+        /// height keys): a borrowed start following the game's lift (PowerBorrow.FlightLift). Applied before the height keys.</summary>
+        public IReadOnlyList<(float At, float Z)>? Model { get; init; }
+    }
 
     /// <summary>A height curve's value at <paramref name="t"/> (0..1 through the animation): straight lines between its keys
     /// (none: 0).</summary>
@@ -393,7 +398,7 @@ static class AnimSwap
         IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton = null,
         IReadOnlyCollection<string>? noPositions = null)
     {
-        if (skeleton == null && swaps.Any(s => s.Heights is { Count: > 0 })) skeleton = PowerBorrow.HeroSkeleton(costumePath);   // (height keys need it)
+        if (skeleton == null && swaps.Any(s => s.Heights is { Count: > 0 } || s.Model is { Count: > 0 })) skeleton = PowerBorrow.HeroSkeleton(costumePath);   // (height keys need it)
         var body = BodyRoots(skeleton);
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
@@ -520,6 +525,11 @@ static class AnimSwap
                 {
                     if (LiftRoot(pkg, sd, d, lift, out string why)) lifted = true;
                     else log.Add($"  {slot}: not moved {lift:0} ({why})");
+                }
+                if (sw?.Model is { Count: > 0 } liftCurve)
+                {
+                    var lowered = RampBodyInPlace(pkg, sd, d, skeleton, (f, n) => HeightAt(liftCurve, f / Math.Max(1, n - 1)), out string mwhy);
+                    log.Add(lowered.Count > 0 ? $"  {slot}: lowered with the game's lift on {string.Join(", ", lowered)}" : $"  {slot}: not lowered with the lift ({mwhy})");
                 }
                 if (sw?.Heights is { Count: > 0 } heights)
                 {

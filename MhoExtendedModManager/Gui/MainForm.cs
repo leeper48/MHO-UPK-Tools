@@ -147,7 +147,7 @@ sealed partial class MainForm : Form
         Font = Ui.Regular(9.5f);
         DoubleBuffered = true;
         SetStyle(ControlStyles.ResizeRedraw, true);
-        applyButton = ShortcutsUi.Attach(Ui.AccentButton("Apply Changes", Apply), "mods.apply");
+        applyButton = ShortcutsUi.Attach(Ui.AccentButton("Apply Changes", () => Apply()), "mods.apply");
 
         // ---- Top bar
         // Kurt's order: New Mod, Extract, Install Mod, the game folder and whether it runs on the left; the update alert and
@@ -198,7 +198,7 @@ sealed partial class MainForm : Form
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
-        var askApply = new ToolStripMenuItem("Ask Before Applying") { CheckOnClick = true, ToolTipText = "Apply Changes shows what it will write and asks first. Off: it writes right away (the window still opens when the checks find something or an apply stops)." };
+        var askApply = new ToolStripMenuItem("Ask Before Applying") { CheckOnClick = true, ToolTipText = "Apply Changes shows what it will write and asks first. Off: it writes right away; anything the checks find is noted in the status line (click it to see), and only an apply that stops shows a window." };
         askApply.CheckedChanged += (_, _) => { if (settings.ApplyWithoutAsking == askApply.Checked) { settings.ApplyWithoutAsking = !askApply.Checked; settings.Save(); } };
         menu.Opening += (_, _) => askApply.Checked = !settings.ApplyWithoutAsking;
         menu.Items.Add(askApply);
@@ -544,7 +544,7 @@ sealed partial class MainForm : Form
         Ui.SetTipText(applyButton, "Write the mods that are on into the game: each file is built from its verified original, checked, and can be undone.  (Ctrl+Enter)");
         bottom.Controls.Add(leftButtons, 0, 0);
         bottom.Controls.Add(status, 1, 0);
-        status.Click += (_, _) => { if (reviewable && !readOnly) Apply(); };
+        status.Click += (_, _) => { if (reviewable && !readOnly) Apply(review: true); };   // (the window, even with Don't Ask Again)
         applyButton.Anchor = AnchorStyles.Right;
         bottom.Controls.Add(applyButton, 2, 0);
 
@@ -1152,7 +1152,8 @@ sealed partial class MainForm : Form
         f.ShowDialog(this);
     }
 
-    async void Apply()
+    /// <param name="review">The status line's click: the window, even with Don't Ask Again on.</param>
+    async void Apply(bool review = false)
     {
         if (readOnly || lib == null || game == null) return;
         if (!game.HasStockList) { Dialog.Show(this, "There is no stock checksum list, so originals can't be verified. Reinstall the program to get it back (StockData folder).", "Can't Apply", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -1171,25 +1172,33 @@ sealed partial class MainForm : Form
             string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
             return (ok, ok ? log : log + "\n\n" + ApplyCheck.Text(check, g).Replace("\nPLAN", "").TrimEnd());
         });
-        // Without asking (Kurt, 2026-11-02): straight to writing, the status line says how it went. The window still opens
-        // when the checks found something (crash risks, files changed outside the app) and when the apply stops.
-        if (settings.ApplyWithoutAsking && !check.Any)
+        // Without asking (Kurt, 2026-11-02): straight to writing, the status line says how it went, and that the checks found
+        // something (Kurt: no pop-up with the box ticked, checks or not: one look-only note showed it at every Apply); a click
+        // on the status line opens the window with them. Only an apply that stops shows a window.
+        string checkNote = check.Any ? "  ·  Checks Found Something: Click Here for Details" : "";
+        if (settings.ApplyWithoutAsking && !review)
         {
-            if (plan.Steps.Count == 0) { status.Text = "Nothing to Apply: The Game Already Matches Your List"; return; }
+            if (plan.Steps.Count == 0)
+            {
+                status.Text = "Nothing to Apply: The Game Already Matches Your List" + checkNote;
+                reviewable = check.Any; status.Cursor = reviewable ? Cursors.Hand : Cursors.Default;
+                return;
+            }
             applyButton.Enabled = false; applyButton.Text = "Applying…"; UseWaitCursor = true;
             (bool Ok, string Log) r;
             try { r = await run(); } catch (Exception ex) { r = (false, ex.Message); }
             UseWaitCursor = false; applyButton.Enabled = true;
-            note = r.Ok ? Ui.TitleCase($"Applied {plan.Steps.Count} file(s)") : null;
+            note = r.Ok ? Ui.TitleCase($"Applied {plan.Steps.Count} file(s)") + checkNote : null;
             Reload();
             if (!r.Ok) ShowLog("Not Applied", r.Log + "\n\nFiles written before the stop were verified and can be undone; nothing after it was changed.", Dialog.Tone.Bad);
             return;
         }
         // One window (Kurt): the plan and the question, then "Success" or what went wrong.
-        using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : run, check.Any, review: check.Unexpected.Count > 0);
+        using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : run, check.Any, review: check.Unexpected.Count > 0, dontAsk: settings.ApplyWithoutAsking);
         f.ShowDialog(this);
-        if (f.DialogResult == DialogResult.Retry) { ChangedGameFiles(); Apply(); return; }
-        if (f.DontAskAgain && f.DialogResult == DialogResult.OK) { settings.ApplyWithoutAsking = true; settings.Save(); }
+        if (f.DialogResult == DialogResult.Retry) { ChangedGameFiles(); Apply(review); return; }
+        // the box as left when Apply was pressed: ticked turns it on, unticked off
+        if (plan.Steps.Count > 0 && f.DialogResult == DialogResult.OK && f.DontAskAgain != settings.ApplyWithoutAsking) { settings.ApplyWithoutAsking = f.DontAskAgain; settings.Save(); }
         if (plan.Steps.Count > 0 && f.DialogResult == DialogResult.OK) Reload();
     }
 

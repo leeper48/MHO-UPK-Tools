@@ -3748,6 +3748,14 @@ static partial class Program
                     var (fN, _) = MeshAnimator.Span(ba); float minLo = float.MaxValue, maxLo = float.MinValue;
                     for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); float lo = fa.Positions.Min(p => p.Z); minLo = Math.Min(minLo, lo); maxLo = Math.Max(maxLo, lo); }
                     Console.WriteLine($"      over the animation the lowest point runs {minLo:0.0} .. {maxLo:0.0}");
+                    // MHO_FOOT_BONES=<bone,bone>: those bones' heights at the first, middle and last frame
+                    if (Environment.GetEnvironmentVariable("MHO_FOOT_BONES") is { Length: > 0 } fbs)
+                        foreach (string bn in fbs.Split(','))
+                            if (fa.BoneIndex(bn) is int bi && bi >= 0)
+                            {
+                                var zs = new[] { 0f, fN / 2, fN }.Select(f => { fa.Pose(ba, f); return fa.BonePosition(bi).Z; }).ToArray();
+                                Console.WriteLine($"      {bn,-22} z first {zs[0],7:0.0}  middle {zs[1],7:0.0}  last {zs[2],7:0.0}");
+                            }
                     // MHO_FOOT_FLY=<hero>[,lift]: a high-flying power's floor as the game moves it (PowerPreview.FlyingSpeeds, the
                     // hero's flyingZSpeed up from a _start's first frame, landingZSpeed down from an _end's; lift default 140), and
                     // the lowest point above that floor
@@ -3755,20 +3763,37 @@ static partial class Program
                     {
                         string[] fp = fly.Split(',');
                         float flift = fp.Length > 1 && float.TryParse(fp[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float fv) ? fv : 140;
+                        float fapply = fp.Length > 2 && float.TryParse(fp[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float fav) ? fav : 0;
+                        // the wind-up the game plays a start over (PowerFXAnimationLooping), and the loop's first play begins after
+                        float fwind = fp.Length > 3 && float.TryParse(fp[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float fwv) ? fwv : 0;
                         string bf = $"UC__MarvelPlayer_{fp[0]}_SF.upk";
                         string bp = fm.Manifest.UpkReplacements.Any(x => x.Equals(bf, StringComparison.OrdinalIgnoreCase)) ? Path.Combine(fm.Folder, bf) : StockFiles.For(fc ?? "", bf);
                         var (rise, fall) = Gui.PowerPreview.FlyingSpeeds(bp, fp[0]);
                         int ph = a.Name.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : a.Name.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
-                        float secs = MeshAnimator.Span(ba).Seconds;
+                        float secs = ph > 0 && fwind > 0 ? fwind : MeshAnimator.Span(ba).Seconds;
                         var line = new List<string>();
                         for (int k = 0; k <= 8; k++)
                         {
                             float f = fN * k / 8f, t = secs * k / 8f;
-                            float floor = -(ph > 0 ? Math.Min(flift, rise * t) : ph < 0 ? Math.Max(0, flift - fall * t) : flift);
+                            float floor = -(ph > 0 ? PowerBorrow.LiftAt(t, fapply, rise, flift) : ph < 0 ? Math.Max(0, flift - fall * t) : flift);
                             fa.Pose(ba, f);
                             line.Add($"{t:0.00}s {fa.Positions.Min(p => p.Z) - floor:0}");
                         }
-                        Console.WriteLine($"      in game (rise {rise:0}/s, fall {fall:0}/s, lift {flift:0}): lowest point above the floor: {string.Join(" · ", line)}");
+                        Console.WriteLine($"      in game (applies {fapply:0.##} s, rise {rise:0}/s, fall {fall:0}/s, lift {flift:0}): lowest point above the floor: {string.Join(" · ", line)}");
+                        // a loop's first play: the climb goes on from where its start left off
+                        if (ph == 0 && a.Name.EndsWith("_loop", StringComparison.OrdinalIgnoreCase)
+                            && fanims.FirstOrDefault(x => x.Name.Equals(a.Name[..^"_loop".Length] + "_start", StringComparison.OrdinalIgnoreCase)) is { } sr && ModAnimations.Load(sr) is { } sba)
+                        {
+                            float sl = fwind > 0 ? fwind : MeshAnimator.Span(sba).Seconds;
+                            var first = new List<string>();
+                            for (int k = 0; k <= 8; k++)
+                            {
+                                float f = fN * k / 8f, t = secs * k / 8f;
+                                fa.Pose(ba, f);
+                                first.Add($"{t:0.00}s {fa.Positions.Min(p => p.Z) + PowerBorrow.LiftAt(sl + t, fapply, rise, flift):0}");
+                            }
+                            Console.WriteLine($"      its first play (after the {sl:0.00} s start): {string.Join(" · ", first)}");
+                        }
                     }
                     // MHO_FOOT_POS=<bone>: that bone's average place (X front, Y side, Z up) over the animation, against the root
                     if (Environment.GetEnvironmentVariable("MHO_FOOT_POS") is { Length: > 0 } pb2 && fa.BoneIndex(pb2) is int pi2 && pi2 >= 0)

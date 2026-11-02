@@ -72,7 +72,8 @@ static partial class PowerBorrow
             // ground animations sit at the floor, so they are lowered by that much (Spider-Man riding Cyclops' bike floated
             // in Web-Swinging; Kurt, 2026-10-20)
             float lift = 0;
-            if (!e.KeepTiming && Field(db, e.Power, "HighFlying", 'B') is 1 && Field(db, e.Donor, "HighFlying", 'B') is not 1
+            // (MHO_BORROW_NO_LIFT=1: not lowered at all, a probe: in game the hero then floats exactly as high as the game lifts him)
+            if (!e.KeepTiming && Environment.GetEnvironmentVariable("MHO_BORROW_NO_LIFT") != "1" && Field(db, e.Power, "HighFlying", 'B') is 1 && Field(db, e.Donor, "HighFlying", 'B') is not 1
                 && Field(db, "Globals/Globals.defaults", "HighFlyingHeight", 'D') is double hf && hf > 0)
             {
                 lift = -(float)hf;
@@ -91,7 +92,8 @@ static partial class PowerBorrow
                 e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass, keepWeapons: e.KeepWeapons,
                 held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
                 heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
-                heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots);
+                heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots,
+                flight: lift != 0 && FlightLift(db, e.Power) is { } fl ? (fl.ApplyAt, Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th).Rise, fl.ChannelStart) : null);
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
             // the hero's own ride (Hawkeye's Sky-Cycle): shown by the travel power's condition and hidden again by the power's
@@ -498,6 +500,27 @@ static partial class PowerBorrow
         return null;
     }
 
+    /// <summary>
+    /// The game's lift for a high-flying power (Kurt, 2026-11-02, from the 1.53 client's code: Power::applyInternal switches the
+    /// locomotor to HighFlying when the power applies; AMarvelEntity::MoveTo / physCustom then raise the hero in a straight line
+    /// at the class's flyingZSpeed to Globals' HighFlyingHeight, and lower him at landingZSpeed when it ends). A channeled,
+    /// non-recurring power applies at ChannelStartTimeMS × AnimationContactTimePercent (MHServerEmu Power.GetActivationTime):
+    /// Hawkeye's flight 0.75 × 0.35 = 0.26 s, the flight default 0.75 s. Returns when it applies (seconds after activation) and
+    /// the height; null when the power isn't high-flying.
+    /// </summary>
+    public static (float ApplyAt, float Height, float ChannelStart)? FlightLift(Fx.GameData db, string power)
+    {
+        if (Field(db, power, "HighFlying", 'B') is not 1) return null;
+        double start = Field(db, power, "ChannelStartTimeMS", 'L') is long ms ? ms / 1000.0 : 0.75;
+        double contact = Field(db, power, "AnimationContactTimePercent", 'D') is double c ? c : 1;
+        double height = Field(db, "Globals/Globals.defaults", "HighFlyingHeight", 'D') is double h ? h : 140;
+        return ((float)(start * contact), (float)height, (float)start);
+    }
+
+    /// <summary>The lift a high-flying power gives <paramref name="t"/> seconds after activation (FlightLift, the hero's
+    /// flyingZSpeed): none until it applies, then up in a straight line to the full height.</summary>
+    public static float LiftAt(float t, float applyAt, float rise, float height) => Math.Clamp((t - applyAt) * rise, 0, height);
+
     /// <summary>A sequence's length in seconds in a hero package's animation sets (the character's: the set with the most bones
     /// holding that name, not a vehicle's), else 0.</summary>
     public static float Length(string heroPackage, string anim)
@@ -524,7 +547,7 @@ static partial class PowerBorrow
         IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
         IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false,
         (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null,
-        IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null)
+        IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart)? flight = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -576,6 +599,9 @@ static partial class PowerBorrow
         var mountSkeleton = crossHero ? HeroSkeleton(donorHeroPackage) : null;
         var loopCuts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         bool targetNoMount = HeroBones(targetHeroPackage) is { } tb0 && !tb0.Contains("g_mountattach");
+        // the game's lift, as its code does it (FlightLift): none until the power applies, then up at the hero's flyingZSpeed;
+        // fully up at liftDone seconds after activation (Hawkeye: 0.26 + 140 / 170 = 1.09 s)
+        float liftDone = flight is { } fl0 ? fl0.ApplyAt + Math.Abs(lift) / fl0.Rise : 0;
         foreach (string an in donorAnims)
         {
             // the character's set, not a vehicle's: Cyclops' bike has a set of its own (cyclops_bike_as, 22 chopper bones) with the
@@ -617,6 +643,25 @@ static partial class PowerBorrow
             // Kurt's flat tests (2026-10-22): root -23 put the start's beginning at the ground, -117 its end: the root steady at
             // the first, the body eased the rest of the way in place (RampBodyInPlace)
             int ramp = an.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : an.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
+            // 2026-11-02 (Kurt: "trust math instead of all this guessing"): with the game's lift known (FlightLift), the start is
+            // played at least as long as the climb takes (else the loop, lowered the full height, starts sunk), and its body is
+            // lowered by exactly the lift at each moment: none until the power applies, then in a straight line. On the floor by
+            // construction; height keys add to it.
+            // The client plays the start over exactly the power's wind-up, whatever its own length or RateScale
+            // (PowerFXAnimationLooping.Activate: startAnimRate = length / ChannelStartTime), then the loop: so the start is
+            // lowered on that clock (a frame at fraction f plays at f × the wind-up) and its own speed is left alone.
+            if (ramp > 0 && flight is { } fl && fl.ChannelStart > 0.01f && donorLen > 0.01f)
+            {
+                float h = Math.Abs(lift), w = fl.ChannelStart;
+                var model = new List<(float At, float Z)> { (0, 0), (Math.Min(1, fl.ApplyAt / w), 0) };
+                if (liftDone < w) model.Add((liftDone / w, -h));
+                model.Add((1, -LiftAt(w, fl.ApplyAt, fl.Rise, h)));
+                swaps.Add(found with { Model = model });
+                float atLoop = LiftAt(w, fl.ApplyAt, fl.Rise, h);
+                log.Add($"anims: {an} plays over the {w:0.##} s wind-up, lowered as the game lifts: from {fl.ApplyAt:0.##} s (the power applies) at {fl.Rise:0} a second, {atLoop:0} by the loop"
+                        + (atLoop < h - 0.5f ? $"; the loop starts {h - atLoop:0} low and is level after {(h - atLoop) / fl.Rise:0.##} s (the climb is still going)" : ""));
+                continue;
+            }
             float atStart = lift * 3f / 140f, atEnd = lift * 151f / 140f;   // (Kurt, in game: 0.60.44's end (151) "ends really well"; its beginning (13) still dipped: 10 units up)
             swaps.Add(ramp != 0 ? found with { Rate = rate, Lift = atStart, Ramp = ramp, RampBy = atEnd - atStart } : found with { Rate = rate, Lift = lift });
         }
@@ -633,7 +678,7 @@ static partial class PowerBorrow
             // once standing: Hawkeye's lift comes on and goes off over about his own 1.07 s start, so both play over that)
             float liftLen = targetAnims.FirstOrDefault(a => a.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) is string targetStart ? Length(targetHeroPackage, targetStart) : 0;
             int si = swaps.FindIndex(s => s.Slot.EndsWith("_start", StringComparison.OrdinalIgnoreCase));
-            if (si >= 0 && liftLen > 0.01f && Length(donorHeroPackage, swaps[si].Slot) is float sl && sl > 0.01f)
+            if (si >= 0 && swaps[si].Model == null && liftLen > 0.01f && Length(donorHeroPackage, swaps[si].Slot) is float sl && sl > 0.01f)
             {
                 // (Kurt: over 1.07 s he still sank right away, to his waist: the lowering eases in, MHO_BORROW_START_EASE, default 3)
                 float ease = float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_START_EASE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ev) && ev > 0 ? ev : 3;   // (t^2 brought him from his waist to his shins: t^3)

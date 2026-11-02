@@ -277,7 +277,7 @@ sealed partial class MainForm
             status.ForeColor = n == 0 ? Ui.Subtle : Ui.Text;
             // A user saw "7 Can't Be (See Apply)" and didn't know what it meant or whether Apply was safe: the line now
             // says it plainly and opens the plan (the Apply window asks before it writes anything).
-            reviewable = n + skipped > 0;
+            reviewable = n + skipped > 0 || baseText.Contains("Checks Found Something", StringComparison.OrdinalIgnoreCase);   // (Don't Ask Again: the checks' note)
             status.Cursor = reviewable ? Cursors.Hand : Cursors.Default;
             Ui.SetTipText(status, !reviewable ? "" :
                 (n > 0 ? $"{n} game file(s) don't match your mod list yet. " : "") +

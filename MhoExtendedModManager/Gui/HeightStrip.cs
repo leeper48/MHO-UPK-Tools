@@ -25,6 +25,9 @@ sealed class HeightStrip : Control
     string? message;
     /// <summary>The keys changed by the user (mouse released, or a key removed).</summary>
     public event Action? Committed;
+    /// <summary>What the last commit was, for Undo / History: Add Key, Move Key, Remove Key, Add Key at Frame.</summary>
+    public string LastAction { get; private set; } = "Height Keys";
+    bool added;
     /// <summary>While dragging: the key's place and height, for a status line.</summary>
     public event Action<float, float>? Dragging;
 
@@ -51,6 +54,7 @@ sealed class HeightStrip : Control
         keys.Add((at, AnimSwap.HeightAt(keys, at)));
         keys.Sort((a, b) => a.At.CompareTo(b.At));
         Invalidate();
+        LastAction = "Add Key at Frame";
         Committed?.Invoke();
     }
 
@@ -90,6 +94,7 @@ sealed class HeightStrip : Control
             if (k < 0) return;
             keys.RemoveAt(k); hover = -1;
             Invalidate();
+            LastAction = "Remove Key";
             Committed?.Invoke();
             return;
         }
@@ -100,9 +105,9 @@ sealed class HeightStrip : Control
             keys.Sort((a, b) => a.At.CompareTo(b.At));
             k = KeyAt(e.Location);
             if (k < 0) k = keys.Count - 1;
-            moved = true;   // (a new key is a change even without moving)
+            moved = added = true;   // (a new key is a change even without moving)
         }
-        else moved = false;
+        else moved = added = false;
         drag = k;
         Capture = true;
         Invalidate();
@@ -131,7 +136,7 @@ sealed class HeightStrip : Control
         Capture = false;
         FitRange();
         Invalidate();
-        if (moved) Committed?.Invoke();
+        if (moved) { LastAction = added ? "Add Key" : "Move Key"; Committed?.Invoke(); }
     }
 
     protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (hover >= 0) { hover = -1; Invalidate(); } }

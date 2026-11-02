@@ -254,6 +254,10 @@ static class PowerPreview
     {
         /// <summary>How high the game lifts the hero while this plays (a high-flying travel power: Globals' HighFlyingHeight), else 0.</summary>
         public float Lift { get; init; }
+        /// <summary>When the game starts lifting (seconds after the power is activated: PowerBorrow.FlightLift).</summary>
+        public float ApplyAt { get; init; }
+        /// <summary>The wind-up the game plays the start over, whatever its length (PowerFXAnimationLooping); 0: none known.</summary>
+        public float ChannelStart { get; init; }
         public static Switches None => new([], 0, [], new(StringComparer.OrdinalIgnoreCase));
     }
 
@@ -341,18 +345,18 @@ static class PowerPreview
                 break;
             }
         // the contact time: the power's AnimationContactTimePercent (else 0.4) of the animation
-        float pct = 0.4f, lift = 0;
+        float pct = 0.4f, lift = 0, applyAt = 0, windUp = 0;
         if (db != null)
         {
             var byClass = Fx.PowerIndex.PrototypesByClass(db);
             var protos = refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).ToList();
             if (protos.FirstOrDefault() is string proto) pct = Fx.PowerEffects.ContactPercentOf(db, proto);
-            if (protos.Any(p => PowerBorrow.Field(db, p, "HighFlying", 'B') is 1) && PowerBorrow.Field(db, "Globals/Globals.defaults", "HighFlyingHeight", 'D') is double hf) lift = (float)hf;
+            if (protos.Select(p => PowerBorrow.FlightLift(db, p)).FirstOrDefault(f => f != null) is { } fly) (lift, applyAt, windUp) = (fly.Height, fly.ApplyAt, fly.ChannelStart);
         }
         var seqs = new Dictionary<string, AnimExportCli.Animation.BoneAnimation>(StringComparer.OrdinalIgnoreCase);
         foreach (var (cls, ar) in motionRefs) if (!seqs.ContainsKey(cls) && ModAnimations.Load(ar) is { } ba) seqs[cls] = ba;
         foreach (var (cls, ba) in extraSeqs) seqs.TryAdd(cls, ba);
-        return new(rules, pct * seconds, extra, seqs) { Lift = lift };
+        return new(rules, pct * seconds, extra, seqs) { Lift = lift, ApplyAt = applyAt, ChannelStart = windUp };
     }
 
     /// <summary>Plays a power's effects in time: moved on as the animation plays (started over when time goes back: a loop),

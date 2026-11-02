@@ -27,9 +27,10 @@ sealed class ApplyForm : Form
     /// <param name="checks">ApplyCheck found something: the footer points at the Checks section.</param>
     /// <param name="review">Changed game files outside the app were found: a Review Changed Files button closes this window
     /// with DialogResult.Retry (the caller opens Changed Game Files, then Apply again).</param>
-    public ApplyForm(string plan, Func<Task<(bool Ok, string Log)>>? run, bool checks = false, bool review = false)
+    public ApplyForm(string plan, Func<Task<(bool Ok, string Log)>>? run, bool checks = false, bool review = false, bool dontAsk = false)
     {
         this.run = run;
+        silent.Checked = dontAsk;   // (the setting as saved: Kurt, 2026-11-02, the box always showed unticked and looked reset)
         Text = "Apply Changes";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this);
@@ -76,11 +77,11 @@ sealed class ApplyForm : Form
             close.Visible = false;
         }
         FormClosing += (_, e) => { if (running) e.Cancel = true; };   // not while files are being written
-        Ui.Tip(silent, "From now on, Apply Changes writes right away without this window. It still opens when the checks find something or an apply stops. Settings → Ask Before Applying turns this window back on.");
+        Ui.Tip(silent, "From now on, Apply Changes writes right away without this window; anything the checks find is noted in the status line (click it to open this window). Only an apply that stops shows a window. Settings → Ask Before Applying turns this window back on.");
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         footer.ForeColor = Ui.Subtle;
-        if (checks) { footer.Text = "Some things need a look: See Checks at the top of the list. " + footer.Text; footer.ForeColor = Ui.Warn; }
+        if (checks) { footer.Text = "Some things need a look: " + "See Checks at the top of the list. " + footer.Text; footer.ForeColor = Ui.Warn; }
         Ui.FitToScreen(this, 640, 460);
         AcceptButton = run == null ? headingBtn : apply;   // Enter confirms
         CancelButton = run == null ? headingBtn : cancel;

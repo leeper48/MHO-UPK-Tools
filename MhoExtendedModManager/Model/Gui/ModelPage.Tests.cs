@@ -8,6 +8,10 @@ sealed partial class ModelPage
     /// packages, Build into Mod. The built file, or null when nothing was built into the draft.</summary>
     internal PreviewPanel PreviewForTest => preview;
 
+    /// <summary>Test: whether the tab counts as unbuilt, why (the picked package, its build print against the settings now).</summary>
+    internal string UnbuiltForTest => $"unbuilt {HasUnbuiltChanges} (loaded {loaded}, building {building}, package {(ChosenPackage as CharacterList.Item)?.Key ?? "none"}, source {HasSource}, size {sizeSlider.Value:0.###}, built {(ChosenPackage is CharacterList.Item p && built.ContainsKey(p.Key))}"
+        + $", print now {Fingerprint() ?? "-"}, built print {(ChosenPackage is CharacterList.Item q && builtPrint.TryGetValue(q.Key, out var bp) ? bp : "-")})";
+
     internal async Task<string?> TestBuild(string mff, string package, Action<string> say)
     {
         if (!await TestPick(mff, package, say)) return null;

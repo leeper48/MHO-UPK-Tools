@@ -378,15 +378,16 @@ sealed partial class ModelPage
         get
         {
             if (!loaded || building || ChosenPackage is not CharacterList.Item pkg) return false;
-            string? fp = Fingerprint();
-            if (takenOff.TryGetValue(pkg.Key, out var off) && off == fp) return false;   // the model just taken off: not asked again
-            if (builtPrint.TryGetValue(pkg.Key, out var b))
+            string? fp = SamePlace(Fingerprint());
+            if (takenOff.TryGetValue(pkg.Key, out var off) && SamePlace(off) == fp) return false;   // the model just taken off: not asked again
+            if (builtPrint.TryGetValue(pkg.Key, out var b0) && SamePlace(b0) is string b)
             {
                 // another model of the package picked (an added prop, as a target to fit it, or the shield): the print is the
                 // package's last build, of another model, so only what this one changes counts: a source on it, or another
                 // size (Kurt, 2026-10-30: picking the hammer to fit it asked to build Worthy Captain America's size each time)
                 var was = b.Split('|');
-                if (was.Length > 3 && fp != null && !was[1].Equals(MhoSkeleton.ChosenFor(pkg.Key), StringComparison.OrdinalIgnoreCase))
+                // (none picked prints as "": compared as "", or every build with a source counted as unbuilt: a user, 2026-11-02)
+                if (was.Length > 3 && fp != null && !was[1].Equals(MhoSkeleton.ChosenFor(pkg.Key) ?? "", StringComparison.OrdinalIgnoreCase))
                     return HasSource || was[3] != sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
                 return b != fp;
             }
@@ -394,6 +395,12 @@ sealed partial class ModelPage
             return HasSource || Math.Abs(sizeSlider.Value - 1) > 1e-4;
         }
     }
+
+    /// <summary>A build print with the editor's work folder made placeless: each editor session copies the mod's Model files
+    /// into a work folder of its own (model-work-&lt;8 hex&gt;), and the print names the Blender edits by their path there, so
+    /// every reopened mod with edits counted as unbuilt (a user, 2026-11-02: "Model Not Built" on leaving the tab, Build Now
+    /// looping back to it).</summary>
+    static string? SamePlace(string? print) => print == null ? null : System.Text.RegularExpressions.Regex.Replace(print, @"model-work-[0-9a-f]{8}", "model-work", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>What isn't built, in a sentence for the question.</summary>
     public string UnbuiltWhat => ChosenPackage is not CharacterList.Item pkg ? ""

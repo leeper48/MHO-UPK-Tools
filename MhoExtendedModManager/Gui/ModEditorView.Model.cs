@@ -105,6 +105,8 @@ sealed partial class ModEditorView : IModelHost
 
     /// <summary>Test (--model-tab-test): the Model tab's page once it has shown.</summary>
     internal ModelPage? ModelPageForTest => modelPage;   // also Settings ▾ → Model (reload after a change)
+    /// <summary>Test: the top tab showing.</summary>
+    internal int SelectedTabForTest => tabs.SelectedIndex;
 
     public IReadOnlyDictionary<string, (string Path, string Mod)> ActivePackages()
     {

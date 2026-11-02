@@ -350,7 +350,10 @@ sealed partial class ModEditorView : UserControl
             foreach (string? w in new[] { work, powerWork, partsWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
             Dialog.Show(this, "The mod's models couldn't be made unique: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
-        string? saved = ModWriter.Save(lib, draft, editing, out string? error);
+        // a new mod this editor saved once already (SavedName) is that mod now: saved over it, not created again (Kurt,
+        // 2026-11-02: the second save of a new mod refused, "A mod named … already exists")
+        var target = editing ?? (SavedName != null ? ModLibrary.Load(lib.DataFolder).Mods.FirstOrDefault(m => m.FolderName.Equals(SavedName, StringComparison.OrdinalIgnoreCase)) : null);
+        string? saved = ModWriter.Save(lib, draft, target, out string? error);
         if (uniqueWork != null) try { Directory.Delete(uniqueWork, true); } catch (IOException) { }
         if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
         if (powerWork != null) try { Directory.Delete(powerWork, true); } catch (IOException) { }

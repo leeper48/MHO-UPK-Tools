@@ -77,12 +77,14 @@ sealed partial class ModEditorView
         LightAnimGizmos();
         if (animPreview?.Viewer3D is not { } p3 || ReferenceEquals(p3, animGizmoHooked)) return;
         animGizmoHooked = p3;
-        p3.View.GizmoSource = AnimGizmoNow;
-        p3.View.GizmoMoved += (axis, t) => AnimTabGizmoDrag(axis, t, turn: false);
+        // (the Height gizmo first when it's on: the Height section's own, ModEditorView.Heights)
+        p3.View.GizmoSource = () => HeightGizmoNow() ?? AnimGizmoNow();
+        p3.View.GizmoMoved += (axis, t) => { if (!HeightGizmoDrag(axis, t)) AnimTabGizmoDrag(axis, t, turn: false); };
         p3.View.GizmoTurned += (axis, deg) => AnimTabGizmoDrag(axis, deg, turn: true);
         p3.View.GizmoPlaneMoved += v => AnimTabGizmoDrag(0, 0, turn: false, free: v);
         p3.View.GizmoReleased += () =>
         {
+            if (HeightGizmoReleased()) return;
             animGizmoFrame = null;
             if (animAdjustStart != null) { animAdjustStart = null; animBlock?.Commit(); return; }
             if (animFitStart == null) return;
