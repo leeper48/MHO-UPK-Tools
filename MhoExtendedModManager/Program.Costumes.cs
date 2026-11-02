@@ -692,6 +692,41 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--height-census":
+            {
+                // Read-only: how many of each package's animations can take height keys (RampBodyInPlace on a copy, moving by 0).
+                // --height-census <mod for the skeleton> <package.upk> ...
+                if (rest.Count < 3 || lib.Find(rest[1]) is not { } hm || ModMeshes.List(hm).FirstOrDefault() is not { } hr) { Console.WriteLine("--height-census <mod> <package.upk> ..."); return 1; }
+                string? hgr = settings.ResolvedGameRoot(data);
+                var hld = ModMeshes.Load(hr, hgr != null && Settings.IsGameRoot(hgr) ? Settings.Cooked(hgr) : null, out _);
+                if (hld == null) { Console.WriteLine("no skeleton"); return 1; }
+                foreach (string f in rest.Skip(2))
+                {
+                    var hp = MhoPackageModifier.Package.Open(f);
+                    int all = 0, can = 0, moveAll = 0, moveCan = 0;
+                    var why = new SortedDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var e in hp.Exports.Where(x => hp.ClassOf(x).Equals("AnimSet", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        byte[] sd = hp.ReadExportBytes(e).ToArray();
+                        if ((MhoPackageModifier.TagWalker.Walk(hp, sd, 4) ?? []).FirstOrDefault(t => t.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase)) is not { } st) continue;
+                        for (int k = 0, n = BitConverter.ToInt32(sd, st.ValueAt); k < n; k++)
+                        {
+                            int r = BitConverter.ToInt32(sd, st.ValueAt + 4 + 4 * k);
+                            if (r <= 0) continue;
+                            byte[] d = hp.ReadExportBytes(hp.Exports[r - 1]).ToArray();
+                            bool moving = (MhoPackageModifier.TagWalker.Walk(hp, d, 4) ?? []).FirstOrDefault(t => t.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase)) is { Size: 8 } sn
+                                && MhoPackageModifier.TagWalker.NameAt(hp, d, sn.ValueAt).StartsWith("movement", StringComparison.OrdinalIgnoreCase);
+                            var done = AnimSwap.RampBodyInPlace(hp, sd, d, hld.Bones, (_, _) => 0, out string w);
+                            all++; if (moving) moveAll++;
+                            if (done.Count > 0) { can++; if (moving) moveCan++; }
+                            else why[w.Length > 0 ? w : "no bone with a key per frame"] = why.GetValueOrDefault(w.Length > 0 ? w : "no bone with a key per frame") + 1;
+                        }
+                    }
+                    Console.WriteLine($"{Path.GetFileName(f)}: {can} of {all} can take height keys; movement_*: {moveCan} of {moveAll}");
+                    foreach (var (w, c) in why) Console.WriteLine($"    {c}: {w}");
+                }
+                return 0;
+            }
             case "--anim-swap":
             {
                 // Builds (never into the mod or the game) a costume package with other characters' animations in place of
@@ -715,6 +750,8 @@ static partial class Program
                 var mine = CostumeAnims.Read(spath, sfile, files);
                 if (mine == null) { Console.WriteLine($"{sfile}: no character mesh component"); return 1; }
                 var swaps = new List<AnimSwap.Swap>();
+                var heightKeys = Environment.GetEnvironmentVariable("MHO_HEIGHT") is { Length: > 0 } hv
+                    ? hv.Split(',').Select(k => k.Split(':')).Select(k => (float.Parse(k[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(k[1], System.Globalization.CultureInfo.InvariantCulture))).ToList() : null;
                 var donorAnims = new Dictionary<string, CostumeAnims.Anim>(StringComparer.OrdinalIgnoreCase);
                 foreach (string arg in rest.Skip(2).Where(a => a.Contains('=') && a.Contains(':')))
                 {
@@ -727,14 +764,16 @@ static partial class Program
                     if (dpath == null || !File.Exists(dpath)) { Console.WriteLine($"no donor package {donor}"); return 1; }
                     var da = CostumeAnims.Read(dpath, dfile, CostumeAnims.FilesFor(dm, scooked))?.Anims.FirstOrDefault(a => a.Name.Equals(dname, StringComparison.OrdinalIgnoreCase));
                     if (da == null || da.From.File == null) { Console.WriteLine($"{dfile} has no animation '{dname}'"); return 1; }
-                    swaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export));
+                    // MHO_HEIGHT=<0..1>:<z>,...: height keys on every swapped animation (a test before the editor has them)
+                    swaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export) { Heights = heightKeys });
                     donorAnims[slot] = da;
                     Console.WriteLine($"{slot} ← {da.From.PackageName}.upk · {da.From.Path} · {da.Name}");
                 }
                 if (swaps.Count == 0) { Console.WriteLine("no swaps given (slot=donor:animation)"); return 1; }
                 var slog = new List<string>();
                 byte[] built;
-                try { built = AnimSwap.Build(spath, mine.Class, swaps, slog, mine.Inherited ? [.. mine.Sets.Select(s => s.Path)] : null); }
+                var skel = heightKeys != null && sm != null && ModMeshes.List(sm).FirstOrDefault() is { } smr ? ModMeshes.Load(smr, scooked, out _)?.Bones : null;
+                try { built = AnimSwap.Build(spath, mine.Class, swaps, slog, mine.Inherited ? [.. mine.Sets.Select(s => s.Path)] : null, skeleton: skel); }
                 catch (InvalidDataException ex) { foreach (string l in slog) Console.WriteLine("  " + l); Console.WriteLine("can't: " + ex.Message); return 1; }
                 foreach (string l in slog) Console.WriteLine("  " + l);
                 Directory.CreateDirectory(outDir);
@@ -751,7 +790,7 @@ static partial class Program
                     if (a == null || a.From.Kind != CostumeAnims.Source.Costume || !a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase)) { bad++; Console.WriteLine($"  FAIL {slot}: comes from {(a == null ? "nowhere" : a.From.Path)}"); continue; }
                     var x = ModAnimations.Load(da.Ref); var y = ModAnimations.Load(a.Ref);
                     bool same = x != null && y != null && x.Tracks.Count == y.Tracks.Count && x.Tracks.All(kv => y.Tracks.TryGetValue(kv.Key, out var t)
-                        && t.PositionKeys.SequenceEqual(kv.Value.PositionKeys) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys));
+                        && (heightKeys != null || t.PositionKeys.SequenceEqual(kv.Value.PositionKeys)) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys));
                     if (!same) bad++;
                     Console.WriteLine($"  {(same ? "ok  " : "FAIL")} {slot}: from {a.From.Path} (set {a.From.Order + 1} of {after!.Sets.Count}), {y?.Tracks.Count ?? 0} tracks {(same ? "identical to the donor's" : "differ from the donor's")}");
                 }

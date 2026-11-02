@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.290
+- Apply Changes: a Don't Ask Again box. Ticked, Apply Changes writes right away and the status line says how it went. The window still opens when the checks find something or an apply stops. Settings → Ask Before Applying turns the window back on.
+
 0.60.287
 - Power Sounds: sounds that loop can change now: Volume, effects and your own audio, like any other sound. They stop when the power ends, and the whole set includes them.
 - A few Loop rows are music or filter switches, not sounds: Note says so, and they can only be turned off.

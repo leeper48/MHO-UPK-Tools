@@ -269,8 +269,12 @@ static partial class Program
             var mr = rm == null ? null : ModMeshes.List(rm).FirstOrDefault(x => args.Length < 5 || x.Name.Equals(args[4], StringComparison.OrdinalIgnoreCase));
             var ld = mr == null ? null : ModMeshes.Load(mr, rc, out _);
             if (rm == null || mr == null || ld == null) { Console.WriteLine("no mesh"); return 1; }
-            var ar = ModAnimations.For(mr, ld.Bones, rm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(rm.Folder, f))), rc).FirstOrDefault(a => a.Name.Contains(args[2], StringComparison.OrdinalIgnoreCase));
+            var ranims = ModAnimations.For(mr, ld.Bones, rm.Manifest.UpkReplacements.Select(f => (f, Path.Combine(rm.Folder, f))), rc);
+            var ar = ranims.FirstOrDefault(a => a.Name.Equals(args[2], StringComparison.OrdinalIgnoreCase)) ?? ranims.FirstOrDefault(a => a.Name.Contains(args[2], StringComparison.OrdinalIgnoreCase));
             var ba = ar == null ? null : ModAnimations.Load(ar);
+            // MHO_FOOT_NOPOS=<bone,bone>: those bones keep the mesh's own positions (as --foot-check)
+            if (ba != null && Environment.GetEnvironmentVariable("MHO_FOOT_NOPOS") is { Length: > 0 } np && ModAnimations.TranslationBones(ba) is { } tb0)
+                ModAnimations.SetTranslationBones(ba, tb0.Except(np.Split(','), StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase));
             Console.WriteLine(ar == null ? "no such animation: rest pose" : $"{ar.Name} ({ar.Package})");
             var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences, ld.Tangents);
             float frames = ba == null ? 0 : MeshAnimator.Span(ba).Frames;

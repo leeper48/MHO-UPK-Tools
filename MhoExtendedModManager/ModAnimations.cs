@@ -37,6 +37,31 @@ static class ModAnimations
     /// <summary>An animation made here (PropHold's turned copy) takes another's bones with positions.</summary>
     public static void SetTranslationBones(BoneAnimation a, IReadOnlySet<string>? s) { if (s != null) translation.AddOrUpdate(a, s); }
 
+    /// <summary>
+    /// The shared animation trees' leg IK is off unless the playing sequence switches it on (bControlledByAnimMetada): an
+    /// AnimMetaData_SkelControl inside the sequence naming l_legik / r_legik (--ik-census: only idle_combat, on Hulk, Thor, Colossus).
+    /// </summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BoneAnimation, AnimRef> legIk = new();
+    public static bool UsesLegIk(BoneAnimation a) => legIk.TryGetValue(a, out _);
+    static readonly Dictionary<string, HashSet<int>> legIkSeqs = new(StringComparer.OrdinalIgnoreCase);
+
+    static HashSet<int> LegIkSequences(string file)
+    {
+        string key = file + "|" + File.GetLastWriteTimeUtc(file).Ticks;
+        lock (legIkSeqs) if (legIkSeqs.TryGetValue(key, out var known)) return known;
+        var found = new HashSet<int>();
+        var pkg = MhoPackageModifier.Package.Open(file);
+        foreach (var e in pkg.Exports.Where(x => x.OuterIndex > 0 && pkg.ClassOf(x).Equals("AnimMetaData_SkelControl", StringComparison.OrdinalIgnoreCase)))
+        {
+            byte[] d = pkg.ReadExportBytes(e).ToArray();
+            if ((MhoPackageModifier.TagWalker.Walk(pkg, d, 4) ?? []).FirstOrDefault(t => t.Name.Equals("skelcontrolnamelist", StringComparison.OrdinalIgnoreCase)) is not { } list) continue;
+            for (int k = 0, n = BitConverter.ToInt32(d, list.ValueAt); k < n; k++)
+                if (MhoPackageModifier.TagWalker.NameAt(pkg, d, list.ValueAt + 4 + 8 * k).EndsWith("_legik", StringComparison.OrdinalIgnoreCase)) found.Add(e.OuterIndex - 1);
+        }
+        lock (legIkSeqs) { if (legIkSeqs.Count > 8) legIkSeqs.Clear(); legIkSeqs[key] = found; }
+        return found;
+    }
+
     static readonly Dictionary<string, AnimPackage> open = new(StringComparer.OrdinalIgnoreCase);
 
     static AnimPackage Open(string path)
@@ -180,6 +205,7 @@ static class ModAnimations
         {
             var anim = AnimObjectReader.TryRead(Open(a.File), a.SequenceExport, a.TrackBoneNames);
             if (anim != null && a.TranslationBones != null) translation.AddOrUpdate(anim, a.TranslationBones);
+            if (anim != null && LegIkSequences(a.File).Contains(a.SequenceExport)) legIk.AddOrUpdate(anim, a);
             return anim;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or AnimExportCli.Packages.InvalidPackageException or ArgumentException or IndexOutOfRangeException) { return null; }
@@ -198,7 +224,7 @@ sealed class MeshAnimator
     readonly Vector4[] restTan;
     readonly IReadOnlyList<VertexInfluence> influences;
     readonly Matrix4x4[] restModelToBone;
-    readonly Matrix4x4[] posed, skin;
+    readonly Matrix4x4[] posed, skin, locals;
     public Vector3[] Positions { get; }
     public Vector3[] Normals { get; }
     /// <summary>Tangents (xyz) turned with the mesh; w, the bitangent's sign, is kept.</summary>
@@ -245,7 +271,7 @@ sealed class MeshAnimator
         Tangents = new Vector4[restTan.Length];
         var rest = AnimExportCli.Fbx.SkeletonPose.Rest(bones);
         restModelToBone = [.. rest.ModelToBone];
-        posed = new Matrix4x4[bones.Count]; skin = new Matrix4x4[bones.Count];
+        posed = new Matrix4x4[bones.Count]; skin = new Matrix4x4[bones.Count]; locals = new Matrix4x4[bones.Count];
         Positions = new Vector3[positions.Length]; Normals = new Vector3[normals.Length];
     }
 
@@ -289,7 +315,9 @@ sealed class MeshAnimator
             {
                 // Rotation-only sets: the animation's position only for its listed bones (and the root).
                 var tb = ModAnimations.TranslationBones(a);
-                if (tb == null || i == 0 || b.ParentIndex < 0 || tb.Contains(b.Name)) p = Sample(t.PositionKeys, frame, p);
+                // Not the ankles: hulk_v2_as lists them, which sank a shorter-legged model 8 units in the preview, but taking them
+                // off the list changed nothing in game (Spider-Punk on Planet Hulk, 2026-11-01; why isn't known, UE3 would apply them).
+                if (tb == null || i == 0 || b.ParentIndex < 0 || tb.Contains(b.Name) && b.Name is not ("g_l_ankle" or "g_r_ankle")) p = Sample(t.PositionKeys, frame, p);
                 var keys = t.RotationKeys;
                 // A single rotation key: the bind-pose rule (SingleKey) only for the root and *_offset bones, where it was
                 // confirmed; a posed bone keeps its stored rotation. Checked 2026-10-03 (--singlekey-census): where the two
@@ -300,10 +328,75 @@ sealed class MeshAnimator
                 if (InPlace && (i == 0 || b.ParentIndex < 0)) p = new Vector3(b.Position.X, b.Position.Y, p.Z);   // play in place
             }
             var local = Matrix4x4.CreateFromQuaternion(Unit(r)) * Matrix4x4.CreateTranslation(p);
+            locals[i] = local;
             posed[i] = b.ParentIndex >= 0 && b.ParentIndex < i ? local * posed[b.ParentIndex] : local;
             skin[i] = restModelToBone[i] * posed[i];
         }
+        if (a != null && ModAnimations.UsesLegIk(a) && (LegIk("g_l_ankle", "g_l_legikeffector") | LegIk("g_r_ankle", "g_r_legikeffector")))
+            for (int i = 0; i < bones.Count; i++) skin[i] = restModelToBone[i] * posed[i];
         Skin();
+    }
+
+    /// <summary>
+    /// UE3's SkelControlLimb as the biped trees set it (pc_at, pc_at_v2, pc_at_nocape: on the ankle, effector = the IK bone's
+    /// place, joint target 0 10 0 in the knee's space, stretch limits 1 1 = no stretching). The hip and knee turn from their
+    /// old directions to the new (the game rebuilds them from axes; the twist can differ a little), the ankle keeps its rotation.
+    /// </summary>
+    bool LegIk(string ankle, string effector)
+    {
+        int end = BoneIndex(ankle), target = BoneIndex(effector);
+        if (end < 0 || target < 0) return false;
+        int joint = bones[end].ParentIndex, root = joint >= 0 ? bones[joint].ParentIndex : -1;
+        if (root < 0) return false;
+        Vector3 rootPos = posed[root].Translation, oldJoint = posed[joint].Translation, oldEnd = posed[end].Translation, wanted = posed[target].Translation;
+        float length = (wanted - rootPos).Length();
+        if (length < 1e-4f) return false;
+        var dir = (wanted - rootPos) / length;
+        var jointTarget = Vector3.Transform(new Vector3(0, 10, 0), posed[joint]) - rootPos;
+        var bend = jointTarget - Vector3.Dot(jointTarget, dir) * dir;
+        if (bend.LengthSquared() < 1e-8f) return false;
+        bend = Vector3.Normalize(bend);
+        float lower = locals[end].Translation.Length(), upper = locals[joint].Translation.Length(), reach = lower + upper;
+        Vector3 newEnd = wanted, newJoint;
+        if (length > reach) { newEnd = rootPos + reach * dir; newJoint = rootPos + upper * dir; }
+        else
+        {
+            float cos = 2 * upper * length != 0 ? (upper * upper + length * length - lower * lower) / (2 * upper * length) : 0;
+            if (cos is > 1 or < -1)
+            {
+                newJoint = rootPos + (upper > lower ? upper : -upper) * dir;
+                newEnd = newJoint + (upper > lower ? -lower : lower) * dir;
+            }
+            else
+            {
+                float along = upper * cos;
+                newJoint = rootPos + along * dir + MathF.Sqrt(MathF.Max(0, upper * upper - along * along)) * bend;
+            }
+        }
+        var moved = new bool[bones.Count];
+        posed[root] = Turned(posed[root], oldJoint - rootPos, newJoint - rootPos, rootPos);
+        posed[joint] = Turned(posed[joint], oldEnd - oldJoint, newEnd - newJoint, newJoint);
+        posed[end].Translation = newEnd;
+        moved[root] = moved[joint] = moved[end] = true;
+        for (int i = root + 1; i < bones.Count; i++)
+            if (!moved[i] && bones[i].ParentIndex >= 0 && moved[bones[i].ParentIndex]) { posed[i] = locals[i] * posed[bones[i].ParentIndex]; moved[i] = true; }
+        return true;
+    }
+
+    /// <summary>A bone's matrix turned so <paramref name="from"/> points along <paramref name="to"/>, placed at <paramref name="at"/>.</summary>
+    static Matrix4x4 Turned(Matrix4x4 m, Vector3 from, Vector3 to, Vector3 at)
+    {
+        if (from.LengthSquared() < 1e-8f || to.LengthSquared() < 1e-8f) { m.Translation = at; return m; }
+        from = Vector3.Normalize(from); to = Vector3.Normalize(to);
+        var axis = Vector3.Cross(from, to);
+        float w = 1 + Vector3.Dot(from, to);
+        if (w > 1e-5f)
+        {
+            m.Translation = Vector3.Zero;
+            m *= Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(new Quaternion(axis, w)));
+        }
+        m.Translation = at;
+        return m;
     }
 
     void Skin()

@@ -2761,6 +2761,76 @@ static partial class Program
                 foreach (var kv in byValue.OrderByDescending(kv => kv.Value).Take(40)) Console.WriteLine($"  {kv.Value,6}  {kv.Key}");
                 return 0;
             }
+            case "--drop-set-position":
+            {
+                // Test: a copy of an uncompressed package where an AnimSet's UseTranslationBoneNames no longer names some bones (each
+                // entry becomes a copy of the list's first entry, so sizes and offsets stay). --drop-set-position <in.upk> <out.upk> <bone,bone>
+                byte[] body = File.ReadAllBytes(rest[1]);
+                var dp = MhoPackageModifier.Package.Open(rest[1]);
+                if (dp.Chunks.Count > 0) { Console.WriteLine("compressed package: not handled"); return 1; }
+                var drop = rest[3].Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase);
+                int changed = 0;
+                foreach (var e in dp.Exports.Where(x => dp.ClassOf(x).Equals("AnimSet", StringComparison.OrdinalIgnoreCase)))
+                {
+                    byte[] sd = dp.ReadExportBytes(e).ToArray();
+                    if ((MhoPackageModifier.TagWalker.Walk(dp, sd, 4) ?? []).FirstOrDefault(t => t.Name.Equals("usetranslationbonenames", StringComparison.OrdinalIgnoreCase)) is not { } ut) continue;
+                    for (int k = 0, n = BitConverter.ToInt32(sd, ut.ValueAt); k < n; k++)
+                    {
+                        int at = ut.ValueAt + 4 + 8 * k;
+                        string nm = MhoPackageModifier.TagWalker.NameAt(dp, sd, at);
+                        if (!drop.Contains(nm)) continue;
+                        Array.Copy(sd, ut.ValueAt + 4, body, e.SerialOffset + at, 8);
+                        Console.WriteLine($"  {dp.PathOf(e)}: {nm} off the list");
+                        changed++;
+                    }
+                }
+                if (changed == 0) { Console.WriteLine("nothing to change"); return 1; }
+                File.WriteAllBytes(rest[2], body);
+                return 0;
+            }
+            case "--ik-census":
+            {
+                // Read-only: which animations of each package switch on skeletal controls through their metadata (the shared tree's
+                // leg and arm IK is bControlledByAnimMetada). --ik-census <package.upk> ...
+                foreach (string f in rest.Skip(1))
+                {
+                    var ip = MhoPackageModifier.Package.Open(f);
+                    int seqs = 0;
+                    var on = new SortedDictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                    string SeqName(int x)
+                    {
+                        byte[] d = ip.ReadExportBytes(ip.Exports[x]).ToArray();
+                        return (MhoPackageModifier.TagWalker.Walk(ip, d, 4) ?? []).FirstOrDefault(t => t.Name.Equals("sequencename", StringComparison.OrdinalIgnoreCase)) is { Size: 8 } t2 ? MhoPackageModifier.TagWalker.NameAt(ip, d, t2.ValueAt) : ip.Exports[x].ObjectName;
+                    }
+                    for (int i = 0; i < ip.Exports.Length; i++)
+                    {
+                        string cls = ip.ClassOf(ip.Exports[i]);
+                        if (cls.Equals("AnimSequence", StringComparison.OrdinalIgnoreCase)) { seqs++; continue; }
+                        if (cls.Equals("AnimSet", StringComparison.OrdinalIgnoreCase))
+                        {
+                            byte[] sd = ip.ReadExportBytes(ip.Exports[i]).ToArray();
+                            var st = MhoPackageModifier.TagWalker.Walk(ip, sd, 4) ?? [];
+                            Console.WriteLine($"  {ip.PathOf(ip.Exports[i])}: {string.Join(" ", st.Select(t => t.Name))}");
+                            foreach (string list in new[] { "usetranslationbonenames", "forcemeshtranslationbonenames" })
+                                if (st.FirstOrDefault(t => t.Name.Equals(list, StringComparison.OrdinalIgnoreCase)) is { } ut)
+                                    Console.WriteLine($"    {list}: {string.Join(", ", Enumerable.Range(0, BitConverter.ToInt32(sd, ut.ValueAt)).Select(k => MhoPackageModifier.TagWalker.NameAt(ip, sd, ut.ValueAt + 4 + 8 * k)))}");
+                            continue;
+                        }
+                        if (!cls.Equals("AnimMetaData_SkelControl", StringComparison.OrdinalIgnoreCase)) continue;
+                        byte[] d = ip.ReadExportBytes(ip.Exports[i]).ToArray();
+                        var names = new List<string>();
+                        if ((MhoPackageModifier.TagWalker.Walk(ip, d, 4) ?? []).FirstOrDefault(t => t.Name.Equals("skelcontrolnamelist", StringComparison.OrdinalIgnoreCase)) is { } tl)
+                            for (int k = 0, n = BitConverter.ToInt32(d, tl.ValueAt); k < n; k++) names.Add(MhoPackageModifier.TagWalker.NameAt(ip, d, tl.ValueAt + 4 + 8 * k));
+                        int outer = ip.Exports[i].OuterIndex;
+                        string key = string.Join("+", names);
+                        if (!on.TryGetValue(key, out var l)) on[key] = l = [];
+                        l.Add(outer > 0 ? SeqName(outer - 1) : "?");
+                    }
+                    Console.WriteLine($"{Path.GetFileName(f)}: {seqs} sequences");
+                    foreach (var (k, l) in on) Console.WriteLine($"  {k}: {l.Count}: {string.Join(", ", l.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).Take(30))}");
+                }
+                return 0;
+            }
             case "--props-under":
             {
                 // Read-only: every export whose path starts with a prefix, with its simple properties (names, numbers, flags,
@@ -2784,6 +2854,8 @@ static partial class Program
                             "intproperty" => BitConverter.ToInt32(d, t.ValueAt).ToString(),
                             "boolproperty" => d[t.ValueAt - 1] != 0 ? "true" : "false",
                             "byteproperty" when t.Size == 8 => MhoPackageModifier.TagWalker.NameAt(pp, d, t.ValueAt),
+                            "structproperty" when t.Size is 8 or 12 or 16 => string.Join(" ", Enumerable.Range(0, t.Size / 4).Select(k => BitConverter.ToSingle(d, t.ValueAt + 4 * k).ToString("0.###"))),
+                            "arrayproperty" when t.Name.Equals("skelcontrollists", StringComparison.OrdinalIgnoreCase) => string.Join(" | ", MhoPackageModifier.TagWalker.Walk(pp, d, t.ValueAt + 4)?.Select(x => x.Name + "=" + (x.Size == 8 ? MhoPackageModifier.TagWalker.NameAt(pp, d, x.ValueAt) : "?")) ?? []) + $" (+{BitConverter.ToInt32(d, t.ValueAt)} lists, {t.Size} bytes)",
                             "objectproperty" => BitConverter.ToInt32(d, t.ValueAt) is int r && r != 0 ? (r > 0 ? pp.PathOf(pp.Exports[r - 1]) : pp.RefName(r)) : "none",
                             "arrayproperty" when BitConverter.ToInt32(d, t.ValueAt) is int n && n > 0 && t.Size == 4 + 8 * n && t.Name.EndsWith("name", StringComparison.OrdinalIgnoreCase)
                                 => "[" + string.Join(", ", Enumerable.Range(0, n).Select(k => MhoPackageModifier.TagWalker.NameAt(pp, d, t.ValueAt + 4 + 8 * k))) + "]",
@@ -3668,6 +3740,9 @@ static partial class Program
                 foreach (var a in fanims.Where(a => fw.Any(w => a.Name.Contains(w, StringComparison.OrdinalIgnoreCase))).Take(6))
                 {
                     var ba = ModAnimations.Load(a); if (ba == null) continue;
+                    // MHO_FOOT_NOPOS=<bone,bone>: those bones keep the mesh's own positions (what if the game doesn't apply them?)
+                    if (Environment.GetEnvironmentVariable("MHO_FOOT_NOPOS") is { Length: > 0 } np && ModAnimations.TranslationBones(ba) is { } tb0)
+                        ModAnimations.SetTranslationBones(ba, tb0.Except(np.Split(','), StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase));
                     var tb = ModAnimations.TranslationBones(ba);
                     fa.Pose(ba, 0); Show($"{a.Name} f0 ({a.Package})");
                     var (fN, _) = MeshAnimator.Span(ba); float minLo = float.MaxValue, maxLo = float.MinValue;

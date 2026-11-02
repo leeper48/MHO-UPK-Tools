@@ -198,6 +198,10 @@ sealed partial class MainForm : Form
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
+        var askApply = new ToolStripMenuItem("Ask Before Applying") { CheckOnClick = true, ToolTipText = "Apply Changes shows what it will write and asks first. Off: it writes right away (the window still opens when the checks find something or an apply stops)." };
+        askApply.CheckedChanged += (_, _) => { if (settings.ApplyWithoutAsking == askApply.Checked) { settings.ApplyWithoutAsking = !askApply.Checked; settings.Save(); } };
+        menu.Opening += (_, _) => askApply.Checked = !settings.ApplyWithoutAsking;
+        menu.Items.Add(askApply);
         // File Pickers (a user, 2026-10-27: image pickers kept going back to Details): a view for package pickers, one for image pickers
         var pickers = new ToolStripMenuItem("File Pickers") { ToolTipText = "The view the app's Open and Save windows start in: one for packages and other files, one for images (icon and texture replacements), one for 3D models." };
         foreach (var kind in new[] { FileDialogView.Kind.Files, FileDialogView.Kind.Images, FileDialogView.Kind.Models })
@@ -1160,16 +1164,32 @@ sealed partial class MainForm : Form
         UseWaitCursor = false;
         // The checks first (Kurt: anything unexpected, the clean folder, how to get a clean copy from Steam), then the plan.
         string planText = ApplyCheck.Text(check, g) + CaptureOutput(() => Applier.Print(plan));
-        // One window (Kurt): the plan and the question, then "Success" or what went wrong.
-        using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : () => Task.Run(() =>
+        Func<Task<(bool Ok, string Log)>> run = () => Task.Run(() =>
         {
             Snapshots.Take(l, g, "apply", $"{plan.Steps.Count} file(s) to write");   // (Settings → Snapshots: what the library was before)
             bool ok = false;
             string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
             return (ok, ok ? log : log + "\n\n" + ApplyCheck.Text(check, g).Replace("\nPLAN", "").TrimEnd());
-        }), check.Any, review: check.Unexpected.Count > 0);
+        });
+        // Without asking (Kurt, 2026-11-02): straight to writing, the status line says how it went. The window still opens
+        // when the checks found something (crash risks, files changed outside the app) and when the apply stops.
+        if (settings.ApplyWithoutAsking && !check.Any)
+        {
+            if (plan.Steps.Count == 0) { status.Text = "Nothing to Apply: The Game Already Matches Your List"; return; }
+            applyButton.Enabled = false; applyButton.Text = "Applying…"; UseWaitCursor = true;
+            (bool Ok, string Log) r;
+            try { r = await run(); } catch (Exception ex) { r = (false, ex.Message); }
+            UseWaitCursor = false; applyButton.Enabled = true;
+            note = r.Ok ? Ui.TitleCase($"Applied {plan.Steps.Count} file(s)") : null;
+            Reload();
+            if (!r.Ok) ShowLog("Not Applied", r.Log + "\n\nFiles written before the stop were verified and can be undone; nothing after it was changed.", Dialog.Tone.Bad);
+            return;
+        }
+        // One window (Kurt): the plan and the question, then "Success" or what went wrong.
+        using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : run, check.Any, review: check.Unexpected.Count > 0);
         f.ShowDialog(this);
         if (f.DialogResult == DialogResult.Retry) { ChangedGameFiles(); Apply(); return; }
+        if (f.DontAskAgain && f.DialogResult == DialogResult.OK) { settings.ApplyWithoutAsking = true; settings.Save(); }
         if (plan.Steps.Count > 0 && f.DialogResult == DialogResult.OK) Reload();
     }
 

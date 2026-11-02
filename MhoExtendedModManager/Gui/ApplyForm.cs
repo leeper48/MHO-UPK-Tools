@@ -13,6 +13,9 @@ sealed class ApplyForm : Form
     readonly TextBox body = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false };
     readonly Label footer = new() { AutoSize = true, Dock = DockStyle.Fill, Tag = "subtle", Margin = new Padding(0, 8, 0, 0) };   // wraps in the column
     readonly Button apply, cancel, close;
+    readonly CheckBox silent = new() { Text = "Don't Ask Again", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 16, 0) };
+    /// <summary>Ticked when Apply was pressed: from now on Apply Changes writes without this window (Settings → Ask Before Applying brings it back).</summary>
+    public bool DontAskAgain => silent.Checked;
     Button? headingBtn;
     readonly TableLayoutPanel layout;
     readonly FlowLayoutPanel buttonBar;
@@ -48,6 +51,7 @@ sealed class ApplyForm : Form
         cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; }, tip: "Change nothing (Esc).");
         close = Ui.AccentButton("Close", () => { DialogResult = DialogResult.OK; }, tip: "Close (Enter).");
         buttons.Controls.AddRange([close, apply, cancel]);
+        if (run != null) buttons.Controls.Add(silent);   // left of the buttons
         if (review) buttons.Controls.Add(Ui.FlatButton("Review Changed Files", () => { DialogResult = DialogResult.Retry; },
             tip: "Choose what to do with the game files changed outside this app: keep them as a mod, or put the game's originals back. Then this window opens again."));
         t.Controls.Add(buttons, 0, 3);
@@ -72,6 +76,7 @@ sealed class ApplyForm : Form
             close.Visible = false;
         }
         FormClosing += (_, e) => { if (running) e.Cancel = true; };   // not while files are being written
+        Ui.Tip(silent, "From now on, Apply Changes writes right away without this window. It still opens when the checks find something or an apply stops. Settings → Ask Before Applying turns this window back on.");
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         footer.ForeColor = Ui.Subtle;
@@ -111,7 +116,7 @@ sealed class ApplyForm : Form
     {
         if (run == null) return;
         running = true;
-        apply.Enabled = cancel.Enabled = false;
+        apply.Enabled = cancel.Enabled = silent.Enabled = false;
         heading.Text = "Applying…";
         footer.Text = "Writing and checking each file. Please wait.";
         UseWaitCursor = true;

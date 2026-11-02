@@ -40,6 +40,9 @@ sealed class Settings
     /// monitor): its normal bounds (x, y, width, height) and whether it was maximized, restored at start while that spot is
     /// on a connected monitor. <see cref="RememberWindow"/> off = the old behavior (maximized on the main monitor).</summary>
     public bool RememberWindow { get; set; } = true;
+    /// <summary>Apply Changes writes at once, without the window asking first (Kurt, 2026-11-02). The window still opens when
+    /// the checks found something, and when the apply stops. Set by the window's check box or Settings → Ask Before Applying.</summary>
+    public bool ApplyWithoutAsking { get; set; }
     /// <summary>Settings → File Pickers (a user, 2026-10-27: image pickers kept going back to Details): the view of pickers
     /// for packages and other files, and of pickers for images (<see cref="Gui.FileDialogView.Views"/>, or "Last Used").</summary>
     public string FileViewPackages { get; set; } = "Details";
