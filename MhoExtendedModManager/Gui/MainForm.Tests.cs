@@ -1298,6 +1298,21 @@ sealed partial class MainForm
             var a = ca?.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
             return (a != null && a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase), m.Manifest.AnimSwaps?.Count ?? 0, a?.From.Path ?? "none");
         }
+        if (Environment.GetEnvironmentVariable("MHO_TEST_FLOOR") is { Length: > 0 } floorSlots)
+        {
+            // (Kurt, 2026-11-02: no dip in the 3D view) the floor at each step of the named animations' first plays
+            var fm = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(modName);
+            if (fm == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), "no such mod"); return; }
+            OpenEditor(fm);
+            pages.Select(1);
+            var fe = editor!;
+            for (int i = 0; i < fe.TabCount; i++) if (fe.TabTitle(i) == "Animations") fe.SelectTab(i);
+            await Task.Delay(8000);
+            foreach (string sl in floorSlots.Split(',')) lines.Add(await fe.FloorTest(sl));
+            lines.Add(await fe.ChainFloorTest(floorSlots.Split(',')[0]));
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
         if (Environment.GetEnvironmentVariable("MHO_TEST_MODEL_LEAVE") == "1")
         {
             // (a user, 2026-11-02: open the Model tab, go to Icons: "Model Not Built", and Build Now loops) the tab's state at

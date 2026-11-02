@@ -66,6 +66,16 @@ sealed class PowerBorrowEntry
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, List<float[]>>? Heights { get; set; }
 
+    /// <summary>The hero's climb speed while this high-flying power lifts him (units a second; the class's flyingZSpeed, written
+    /// into the hero's base package), set by the user on the Powers tab (Kurt, 2026-11-02: a manual control instead of a rule
+    /// per combination). Null: the hero's own (Hawkeye 170).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public float? ClimbSpeed { get; set; }
+    /// <summary>Set by the last build (not saved): the hero's own climb speed, when the power applies and when the loop starts
+    /// (seconds after activation), and the lift height; null when this borrow isn't lifted (not high-flying, or the donor flies).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public (float OwnSpeed, float ApplyAt, float LoopAt, float Height)? Climb { get; set; }
+
     public List<(float At, float Z)> HeightKeys(string slot) =>
         Heights?.FirstOrDefault(h => h.Key.Equals(slot, StringComparison.OrdinalIgnoreCase)).Value?.Where(h => h.Length >= 2).Select(h => (h[0], h[1])).OrderBy(h => h.Item1).ToList() ?? [];
 }

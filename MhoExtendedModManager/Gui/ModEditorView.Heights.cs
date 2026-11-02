@@ -328,6 +328,43 @@ sealed partial class ModEditorView
         return true;
     }
 
+    /// <summary>Test hook: <paramref name="slot"/> picked, then the 3D view's floor (GroundZ) at 0.1 s steps of its first play.</summary>
+    public async Task<string> FloorTest(string slot)
+    {
+        if (!await WaitAnims()) return "no animations";
+        RestoreRow(slot);
+        await Task.Delay(6000);
+        if (animPreview?.Viewer3D is not { } p3 || p3.Playing == null) return "nothing playing";
+        p3.Pause();
+        var line = new List<string>();
+        for (float t = 0; t <= Math.Min(0.9f, p3.Seconds) + 1e-3f; t += 0.1f) { p3.Time = t; line.Add($"{t:0.0}s {p3.View.GroundZ:0}"); }
+        return $"{slot} ({p3.Seconds:0.00} s, playing {p3.CurrentAnimation}): floor " + string.Join(" · ", line);
+    }
+
+    /// <summary>Test hook: Start Into Loop on, <paramref name="start"/> played from its first frame into the loop, then paused
+    /// in the loop's first play; the floor at 0.1 s steps there.</summary>
+    public async Task<string> ChainFloorTest(string start)
+    {
+        if (!await WaitAnims()) return "no animations";
+        bool was = PreviewViews.StartIntoLoop;
+        PreviewViews.StartIntoLoop = false;
+        try
+        {
+            RestoreRow(start);
+            await Task.Delay(6000);
+            if (animPreview?.Viewer3D is not { } p3 || p3.Playing == null) return "nothing playing";
+            p3.Pause(); p3.Time = 0;
+            PreviewViews.StartIntoLoop = true;
+            p3.Play();
+            for (int i = 0; i < 40 && p3.CurrentAnimation?.EndsWith("_start", StringComparison.OrdinalIgnoreCase) == true; i++) await Task.Delay(50);
+            p3.Pause();
+            var line = new List<string>();
+            for (float t = 0; t <= Math.Min(0.6f, p3.Seconds) + 1e-3f; t += 0.1f) { p3.Time = t; line.Add($"{t:0.0}s {p3.View.GroundZ:0}"); }
+            return $"after {start}: playing {p3.CurrentAnimation}; its first play's floor " + string.Join(" · ", line) + " | " + p3.FloorStateForTest;
+        }
+        finally { PreviewViews.StartIntoLoop = was; }
+    }
+
     /// <summary>Test hook: the Height gizmo on, the animation paused half way, its arrow dragged 40 pixels up; the keys after.</summary>
     public async Task<string> HeightGizmoTest()
     {

@@ -84,6 +84,9 @@ sealed partial class Preview3D : UserControl
     /// carries on its start's climb), and the time last moved to.</summary>
     int loopPass;
     float lastMoved;
+    /// <summary>The loop showing was reached from its start (Start Into Loop): its first play carries on the climb, as in game;
+    /// a loop picked on its own shows the steady flight.</summary>
+    bool fromStart, chainingToLoop;
     BoneAnimation? anim => player?.Anim;
     float frames => player?.Frames ?? 0;
     float seconds => player?.Seconds ?? 0;
@@ -421,6 +424,7 @@ sealed partial class Preview3D : UserControl
     {
         Player.Stop();
         loopPass = 0; lastMoved = 0;
+        fromStart = chainingToLoop; chainingToLoop = false;
         int i = anims.SelectedIndex - 1;
         BoneAnimation? a = null;
         if (i >= 0 && i < animList.Count)
@@ -485,7 +489,7 @@ sealed partial class Preview3D : UserControl
 
     /// <summary>The animation playing (null: rest pose), where it is (seconds), and its length.</summary>
     public BoneAnimation? Playing => anim;
-    public double Time { get => playTime; set { if (anim == null) return; playTime = (float)Math.Clamp(value, 0, seconds); FxReplay(playTime); Pose(frames > 0 && seconds > 0 ? playTime / seconds * frames : 0); } }
+    public double Time { get => playTime; set { if (anim == null) return; playTime = (float)Math.Clamp(value, 0, seconds); lastMoved = playTime; FxReplay(playTime); Pose(frames > 0 && seconds > 0 ? playTime / seconds * frames : 0); } }
     public float Seconds => seconds;
     public float Frames => frames;
     /// <summary>Pauses (holding the frame) or plays on.</summary>
@@ -546,12 +550,16 @@ sealed partial class Preview3D : UserControl
     /// and the loop played on their own). The loop's first play then carries on the climb (PreviewProps.GroundAt). The
     /// handover is a cut: the game blends it, over a time it doesn't state. True when it switched.
     /// </summary>
+    /// <summary>Tests: the floor's inputs and the loop count.</summary>
+    internal string FloorStateForTest => $"{props?.FloorStateForTest} loopPass {loopPass}";
+
     bool ChainToLoop(bool ended)
     {
         if (!PreviewViews.StartIntoLoop || !(ended || loopPass > 0) || props?.Flight == null || CurrentAnimation is not string name || !name.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) return false;
         string loopName = name[..^"_start".Length] + "_loop";
         if (!animList.Any(a => a.Name.Equals(loopName, StringComparison.OrdinalIgnoreCase))) return false;
         props.BeginLoop();
+        chainingToLoop = true;
         BeginInvoke(() => PlayAnimation(loopName, true));
         return true;
     }
@@ -572,7 +580,7 @@ sealed partial class Preview3D : UserControl
         else if (view.Effects.Count > 0 || view.EffectTris.Count > 0) { view.Effects = []; view.EffectTris = []; }
         rig.At(anim == null || seconds <= 0 ? 0 : Math.Min(playTime, seconds));
         FollowLock();
-        if (props != null) view.GroundZ = anim == null ? 0 : props.GroundAt(Math.Min(playTime, seconds), loopPass == 0);   // (a high-flying power's floor: rising, held, falling)
+        if (props != null) view.GroundZ = anim == null ? 0 : props.GroundAt(Math.Min(playTime, seconds), fromStart && loopPass == 0);   // (a high-flying power's floor: rising, held, falling)
         rig.Update(view, animator);
         view.Markers = PreviewViews.Pivots ? rig.ShownFrames(animator) : [];
         view.DragPart = PreviewViews.SizeRef ? rig.RangeOf("size_reference", animator.Positions.Length) : null;
@@ -582,6 +590,7 @@ sealed partial class Preview3D : UserControl
     {
         if (settingFrame || anim == null) return;
         Player.Scrub(frame.Value * seconds);
+        lastMoved = playTime;   // (a scrub isn't a repeat: the loop's first play stays the first)
         FxReplay(playTime);
         Pose(frame.Value * frames);
     }

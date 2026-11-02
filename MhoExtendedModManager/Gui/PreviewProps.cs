@@ -80,6 +80,9 @@ sealed class PreviewProps
     public Func<string, float>? StartSeconds { get; init; }
     float startSeconds;
 
+    /// <summary>Tests: the floor's inputs.</summary>
+    internal string FloorStateForTest => $"lift {lift} rise {rise} applyAt {applyAt} windUp {windUp} phase {phase} startSeconds {startSeconds}";
+
     /// <summary>The start played on into its loop (Preview3D.ChainToLoop): the floor goes on as the loop's first play at once,
     /// before the loop's own settings have loaded.</summary>
     public void BeginLoop() { if (lift > 0 && phase > 0) { phase = 0; startSeconds = windUp > 0 ? windUp : startSeconds; } }

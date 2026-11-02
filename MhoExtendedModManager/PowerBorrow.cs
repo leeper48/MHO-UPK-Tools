@@ -85,6 +85,11 @@ static partial class PowerBorrow
             e.VehicleAuto = crossHeroNow && spawn.Any(x => x.Vehicle) && HeroHeight(StockFiles.For(game.Cooked, heroFile)) is float hh && HeroHeight(donorHero) is float dhh && dhh > 1 ? hh / dhh : null;
             var spawned = new List<SpawnedProp>();
             var slots = new List<string>();
+            // the game's lift for this power (FlightLift) and the hero's climb speed: his own, or the user's (Climb Speed)
+            var flightNow = lift != 0 ? FlightLift(db, e.Power) : null;
+            float ownSpeed = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th).Rise;
+            float climbSpeed = e.ClimbSpeed is float cs && cs > 1 ? cs : ownSpeed;
+            e.Climb = flightNow is { } fc ? (ownSpeed, fc.ApplyAt, fc.ChannelStart, fc.Height) : null;
             // the hero's costumes built as characters of their own (Kate Bishop for Hawkeye): the power stays stock on them
             var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
             if (ownClass.Count > 0) log.Add($"stock look kept for {string.Join(", ", ownClass)} (costumes of their own class)");
@@ -93,9 +98,12 @@ static partial class PowerBorrow
                 held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
                 heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
                 heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots,
-                flight: lift != 0 && FlightLift(db, e.Power) is { } fl ? (fl.ApplyAt, Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th).Rise, fl.ChannelStart) : null);
+                flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart) : null);
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
+            // the user's climb speed into the hero's class (the package the borrow ships already)
+            if (flightNow != null && e.ClimbSpeed is float set && set > 1 && Math.Abs(set - ownSpeed) > 0.5f && built.TryGetValue(heroFile, out var hb))
+                built[heroFile] = SetClimbSpeed(hb, $"MarvelPlayer_{th}", set, log);
             // the hero's own ride (Hawkeye's Sky-Cycle): shown by the travel power's condition and hidden again by the power's
             // own components, which the borrow replaces, so it stayed under him after the power ended (Kurt, 2026-10-22):
             // the condition's vehicle attachments go
@@ -515,6 +523,50 @@ static partial class PowerBorrow
         double contact = Field(db, power, "AnimationContactTimePercent", 'D') is double c ? c : 1;
         double height = Field(db, "Globals/Globals.defaults", "HighFlyingHeight", 'D') is double h ? h : 140;
         return ((float)(start * contact), (float)height, (float)start);
+    }
+
+    /// <summary>
+    /// The hero's climb speed (his class default's flyingZSpeed, which the client lifts him at: FlightLift) set to
+    /// <paramref name="speed"/> in the hero's base package (bytes), or added when the class has none of its own; verified.
+    /// The user's Climb Speed on the Powers tab (PowerBorrowEntry.ClimbSpeed): only an existing package of the mod changes.
+    /// </summary>
+    public static byte[] SetClimbSpeed(byte[] heroPackage, string heroClass, float speed, List<string> log)
+    {
+        var dst = Package.FromBytes(heroPackage);
+        string path = $"marvelgamecontent.default__{heroClass}".ToLowerInvariant();
+        int d = Array.FindIndex(dst.Exports, e => dst.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase));
+        if (d < 0) throw new InvalidDataException($"no {path} in the hero's package: the climb speed can't be set");
+        byte[] b = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var tags = TagWalker.Walk(dst, b, 4) ?? throw new InvalidDataException($"{path}'s properties don't read: the climb speed can't be set");
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return dst.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        byte[] nb;
+        if (tags.FirstOrDefault(t => t.Name.Equals("flyingZSpeed", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } st)
+        {
+            nb = b.ToArray();
+            BinaryPrimitives.WriteSingleLittleEndian(nb.AsSpan(st.ValueAt), speed);
+        }
+        else
+        {
+            var tag = new byte[28];
+            BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx("flyingZSpeed"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("FloatProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);
+            BinaryPrimitives.WriteSingleLittleEndian(tag.AsSpan(24), speed);
+            nb = [.. b.AsSpan(0, tags.NoneAt), .. tag, .. b.AsSpan(tags.NoneAt)];
+        }
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => nb };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the climb speed: " + string.Join("; ", problems.Take(3)));
+        log.Add($"  {heroClass}: climb speed {speed:0} a second (flyingZSpeed, set on the Powers tab)");
+        return output;
     }
 
     /// <summary>The lift a high-flying power gives <paramref name="t"/> seconds after activation (FlightLift, the hero's

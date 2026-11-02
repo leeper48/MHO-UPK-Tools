@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.307
+- Powers tab, a borrowed high-flying power: Climb Speed, how fast the game lifts the hero (his own from the game until you change it; Game's Speed puts it back). A note says when he's fully up against when the loop starts, and the speed that finishes in time. The build writes it into the hero's base package and lowers the borrowed start to match; the 3D view follows it.
+
+0.60.306
+- 3D view: with Look ▾ → Start Into Loop on, the loop's first play after the start shows the dip the game shows when a slow climber like Hawkeye is still rising (it never showed: stepping or scrubbing counted as a repeat). Stepping through that first play keeps it; a loop picked on its own shows the steady flight.
+
 0.60.305
 - 3D views: Shift+click on Head, Bust or Full Body locks the view to that part, or unlocks it.
 
