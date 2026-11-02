@@ -83,14 +83,17 @@ static partial class PowerBorrow
             bool crossHeroNow = !th.Equals(dh, StringComparison.OrdinalIgnoreCase);
             e.VehicleAuto = crossHeroNow && spawn.Any(x => x.Vehicle) && HeroHeight(StockFiles.For(game.Cooked, heroFile)) is float hh && HeroHeight(donorHero) is float dhh && dhh > 1 ? hh / dhh : null;
             var spawned = new List<SpawnedProp>();
+            var slots = new List<string>();
             // the hero's costumes built as characters of their own (Kate Bishop for Hawkeye): the power stays stock on them
             var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
             if (ownClass.Count > 0) log.Add($"stock look kept for {string.Join(", ", ownClass)} (costumes of their own class)");
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
                 e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass, keepWeapons: e.KeepWeapons,
                 held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
-                heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()]);
+                heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
+                heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots);
             e.Spawned = spawned;
+            e.Slots = slots.Count > 0 ? slots : null;
             // the hero's own ride (Hawkeye's Sky-Cycle): shown by the travel power's condition and hidden again by the power's
             // own components, which the borrow replaces, so it stayed under him after the power ended (Kurt, 2026-10-22):
             // the condition's vehicle attachments go
@@ -520,7 +523,8 @@ static partial class PowerBorrow
     public static Dictionary<string, byte[]> Build(List<Pair> pairs, string targetHeroPackage, string targetHeroClass, string donorHeroPackage, List<string> log, bool fit = true, bool keepTiming = false, Func<string, string?>? startFrom = null, string? cooked = null,
         IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
         IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false,
-        (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null)
+        (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null,
+        IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -652,6 +656,11 @@ static partial class PowerBorrow
                 log.Add($"anims: {endName} = the donor's {loopSwap.Slot}, played ×{rate:0.##} to last {endLen:0.##} s (the target's lift), lowered from {atEnd:0} back to {atStart:0}");
             }
         }
+        // the Animations tab's height keys, on top of the lift (the bones under the root, never the root: AnimSwap.Build)
+        if (heights is { Count: > 0 })
+            for (int i = 0; i < swaps.Count; i++)
+                if (heights.TryGetValue(swaps[i].Slot, out var hk) && hk.Count > 0) { swaps[i] = swaps[i] with { Heights = hk }; log.Add($"anims: {swaps[i].Slot}: {hk.Count} height key(s)"); }
+        slotsOut?.AddRange(swaps.Select(s => s.Slot));
         if (swaps.Count > 0)
         {
             string hf = Path.GetFileName(targetHeroPackage);

@@ -3748,6 +3748,28 @@ static partial class Program
                     var (fN, _) = MeshAnimator.Span(ba); float minLo = float.MaxValue, maxLo = float.MinValue;
                     for (float f = 0; f <= fN; f += Math.Max(1, fN / 40)) { fa.Pose(ba, f); float lo = fa.Positions.Min(p => p.Z); minLo = Math.Min(minLo, lo); maxLo = Math.Max(maxLo, lo); }
                     Console.WriteLine($"      over the animation the lowest point runs {minLo:0.0} .. {maxLo:0.0}");
+                    // MHO_FOOT_FLY=<hero>[,lift]: a high-flying power's floor as the game moves it (PowerPreview.FlyingSpeeds, the
+                    // hero's flyingZSpeed up from a _start's first frame, landingZSpeed down from an _end's; lift default 140), and
+                    // the lowest point above that floor
+                    if (Environment.GetEnvironmentVariable("MHO_FOOT_FLY") is { Length: > 0 } fly)
+                    {
+                        string[] fp = fly.Split(',');
+                        float flift = fp.Length > 1 && float.TryParse(fp[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float fv) ? fv : 140;
+                        string bf = $"UC__MarvelPlayer_{fp[0]}_SF.upk";
+                        string bp = fm.Manifest.UpkReplacements.Any(x => x.Equals(bf, StringComparison.OrdinalIgnoreCase)) ? Path.Combine(fm.Folder, bf) : StockFiles.For(fc ?? "", bf);
+                        var (rise, fall) = Gui.PowerPreview.FlyingSpeeds(bp, fp[0]);
+                        int ph = a.Name.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : a.Name.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
+                        float secs = MeshAnimator.Span(ba).Seconds;
+                        var line = new List<string>();
+                        for (int k = 0; k <= 8; k++)
+                        {
+                            float f = fN * k / 8f, t = secs * k / 8f;
+                            float floor = -(ph > 0 ? Math.Min(flift, rise * t) : ph < 0 ? Math.Max(0, flift - fall * t) : flift);
+                            fa.Pose(ba, f);
+                            line.Add($"{t:0.00}s {fa.Positions.Min(p => p.Z) - floor:0}");
+                        }
+                        Console.WriteLine($"      in game (rise {rise:0}/s, fall {fall:0}/s, lift {flift:0}): lowest point above the floor: {string.Join(" · ", line)}");
+                    }
                     // MHO_FOOT_POS=<bone>: that bone's average place (X front, Y side, Z up) over the animation, against the root
                     if (Environment.GetEnvironmentVariable("MHO_FOOT_POS") is { Length: > 0 } pb2 && fa.BoneIndex(pb2) is int pi2 && pi2 >= 0)
                     {

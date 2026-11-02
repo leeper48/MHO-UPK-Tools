@@ -587,6 +587,10 @@ sealed partial class ModelView : UserControl
     }
     public void ZoomOut(float factor) { FrameMesh(); distance *= factor; Redraw(); }
 
+    /// <summary>The camera's target moved by <paramref name="engineDelta"/> (engine space), turn and zoom kept: a view locked to
+    /// a part of the character follows it (the next draw shows it).</summary>
+    public void MoveTarget(Vector3 engineDelta) => target += new Vector3(engineDelta.X, -engineDelta.Y, engineDelta.Z);
+
     public void ShowMessage(string text)
     {
         message = Ui.TitleCase(text); idx = []; pos = [];

@@ -57,6 +57,17 @@ sealed class PowerBorrowEntry
     /// <summary>Set by the last build (not saved): the props this borrow brings (class, vehicle, automatic size); null: not built.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public List<PowerBorrow.SpawnedProp>? Spawned { get; set; }
+    /// <summary>The animations this borrow puts into the hero's package (their names: movement_flying_loop …), set by each build,
+    /// so the Animations tab knows which borrow an animation belongs to.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Slots { get; set; }
+    /// <summary>Height keys per animation (the Animations tab's Height strip, Kurt 2026-11-02): [at 0..1, game units up],
+    /// applied by every build after the borrow's own lift.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, List<float[]>>? Heights { get; set; }
+
+    public List<(float At, float Z)> HeightKeys(string slot) =>
+        Heights?.FirstOrDefault(h => h.Key.Equals(slot, StringComparison.OrdinalIgnoreCase)).Value?.Where(h => h.Length >= 2).Select(h => (h[0], h[1])).OrderBy(h => h.Item1).ToList() ?? [];
 }
 
 /// <summary>A brought prop's fit: its size (null: automatic: a vehicle sized for the hero, else as made), moved along its

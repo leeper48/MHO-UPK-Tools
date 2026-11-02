@@ -126,6 +126,8 @@ sealed partial class Preview3D : UserControl
         reset = Ui.FlatButton("Reset View", () => { if (ResetViewAction != null) ResetViewAction(); else view.ResetView(); }, "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Ground on or off, and the Light, Glow and Lens sliders. Remembered.");
         (frameHead, frameBust, frameFull) = PreviewControls.FramingButtons(FrameShot, S);
+        foreach (var (b, shot, part) in new[] { (frameHead, Framing.Shot.HeadShoulders, "Head"), (frameBust, Framing.Shot.Bust, "Torso"), (frameFull, Framing.Shot.Full, "Body") })
+            LockMenu(b, shot, part);
         quadButton = ShortcutsUi.Attach(PreviewControls.QuadButton(() => ToggleQuad(), S), "view.quad");
         fullScreen = ShortcutsUi.Attach(PreviewControls.FullScreenButton(ToggleFull, () => IsFull, S), "view.full");
         ShortcutsUi.Attach(play, "view.play");
@@ -266,6 +268,7 @@ sealed partial class Preview3D : UserControl
     public void ShowCharacter(ModMeshes.Loaded mesh, MeshAnimator animator, List<AnimRef> animations, PreviewContext context, string? keep, float keepAt, bool play, float[]? keepView, bool samePowers)
     {
         player?.Stop();
+        lockAt = null;   // (another character: a locked view starts from this one's place)
         ctx = context;
         this.animator = animator;
         animator.Pose(null, 0);   // posed at once: a new animator's bones are all zero until its first pose (MEMM 0.37.37)
@@ -536,6 +539,8 @@ sealed partial class Preview3D : UserControl
         if (fxPlayer != null) { view.Effects = fxPlayer.Quads(); view.EffectTris = fxPlayer.Tris(); }
         else if (view.Effects.Count > 0 || view.EffectTris.Count > 0) { view.Effects = []; view.EffectTris = []; }
         rig.At(anim == null || seconds <= 0 ? 0 : Math.Min(playTime, seconds));
+        FollowLock();
+        if (props != null) view.GroundZ = anim == null ? 0 : props.GroundAt(Math.Min(playTime, seconds));   // (a high-flying power's floor: rising, held, falling)
         rig.Update(view, animator);
         view.Markers = PreviewViews.Pivots ? rig.ShownFrames(animator) : [];
         view.DragPart = PreviewViews.SizeRef ? rig.RangeOf("size_reference", animator.Positions.Length) : null;
@@ -578,6 +583,72 @@ sealed partial class Preview3D : UserControl
             if (size > own * 1.25f) view.Aim((b.Lo + b.Hi) * 0.5f, size * 1.42f * view.FocalLength / ModelView.ReferenceFocalLength, 0, 0.08f);
         }
         ViewChanged?.Invoke();   // (kept as a drag's view is)
+    }
+
+    // --- the view locked to a part of the character (Kurt, 2026-11-02: in the quad view a lowered or moving animation took the
+    // character off screen): right-click Head / Bust / Full Body; every pose moves the camera's target by as much as that part
+    // moved, so turning and zoom stay as set; the locked button has a blue border
+    Framing.Shot? lockShot;
+    System.Numerics.Vector3? lockAt;
+
+    void LockMenu(Button b, Framing.Shot shot, string part)
+    {
+        Ui.Tip(b, (shot switch { Framing.Shot.HeadShoulders => "Frame the head and shoulders.", Framing.Shot.Bust => "Frame head and chest.", _ => "Frame the whole character." })
+            + $" Right-click: lock the view to the {part.ToLowerInvariant()}, so the camera follows it while the animation plays (a blue border while locked).");
+        // (in the buttons' right-click menu, above its shortcut items: ShortcutsUi shows that menu for every button)
+        ShortcutsUi.MenuItems.AddOrUpdate(b, () =>
+        {
+            var item = new ToolStripMenuItem($"Lock View to the {part}") { Checked = lockShot == shot, ToolTipText = $"The camera follows the {part.ToLowerInvariant()} while the animation plays (in every pane of the quad view); turning and zooming still work." };
+            item.Click += (_, _) => LockTo(lockShot == shot ? null : shot);
+            var list = new List<ToolStripItem> { item };
+            if (lockShot != null && lockShot != shot) list.Add(new ToolStripMenuItem("Unlock View", null, (_, _) => LockTo(null)) { ToolTipText = "The camera stays where it is again." });
+            return list;
+        });
+        // (through the button's icon painter, which the rounded button calls last: a Paint handler added here ran before the
+        // rounded drawing and was painted over)
+        Ui.IconPainters.TryGetValue(b, out var icon);
+        Ui.IconPainters.AddOrUpdate(b, (g, r, c) =>
+        {
+            icon?.Invoke(g, r, c);
+            if (lockShot != shot) return;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            float w = Math.Max(2, 2 * S), rad = 5 * S;
+            var box = new RectangleF(w / 2, w / 2, r.Width - w - 0.5f, r.Height - w - 0.5f);
+            using var pen = new Pen(Ui.TagTeam, w);
+            using var path = new System.Drawing.Drawing2D.GraphicsPath();
+            float d = Math.Min(2 * rad, Math.Min(box.Width, box.Height));
+            path.AddArc(box.X, box.Y, d, d, 180, 90); path.AddArc(box.Right - d, box.Y, d, d, 270, 90);
+            path.AddArc(box.Right - d, box.Bottom - d, d, d, 0, 90); path.AddArc(box.X, box.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            g.DrawPath(pen, path);
+        });
+    }
+
+    /// <summary>Locks the view to a part (framed first) or unlocks it (null).</summary>
+    void LockTo(Framing.Shot? shot)
+    {
+        lockShot = shot;
+        lockAt = null;
+        if (shot is Framing.Shot s) FrameShot(s);
+        lockAt = shot == null ? null : LockPoint();
+        frameHead.Invalidate(); frameBust.Invalidate(); frameFull.Invalidate();
+    }
+
+    /// <summary>The locked part's place now: the head bone (Head, Bust), else the middle of the character's body.</summary>
+    System.Numerics.Vector3? LockPoint()
+    {
+        if (lockShot == null || animator == null || animator.Positions.Length == 0) return null;
+        if (lockShot != Framing.Shot.Full && Framing.HeadBone(animator) is int h) return animator.BonePosition(h);
+        var lo = animator.Positions.Aggregate(System.Numerics.Vector3.Min); var hi = animator.Positions.Aggregate(System.Numerics.Vector3.Max);
+        return (lo + hi) * 0.5f;
+    }
+
+    /// <summary>A locked view follows its part (kept across animations: the camera goes where the next one starts).</summary>
+    void FollowLock()
+    {
+        if (LockPoint() is not { } p) return;
+        if (lockAt is { } was && was != p) view.MoveTarget(p - was);
+        lockAt = p;
     }
 
     readonly PreviewControls.FullScreen full = new();

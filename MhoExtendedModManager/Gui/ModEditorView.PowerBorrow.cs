@@ -503,6 +503,7 @@ sealed partial class ModEditorView
             powerList.Invalidate();
             if (powerPreview != null) { powerPreview.OverrideFiles = PreviewOverrides; powerPreview.ReloadOverrides(); }
             if (powerList.SelectedItem is Fx.PowerList.Power s) ShowBorrow(s);
+            if (animGrid != null) LoadAnimations();   // (the Animations tab: the borrowed sets as built now; the Height strip waits for this)
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 

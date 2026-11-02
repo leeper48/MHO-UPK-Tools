@@ -62,7 +62,16 @@ sealed partial class ModEditorView
             host.Controls.Add(animPreview);
             animPreview.Mod = editing;
         };
-        page.Panel1.Controls.Add(host);
+        // the 3D view over the Height section (keys for a changed animation)
+        var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
+        left.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        left.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        host.Margin = Padding.Empty;
+        left.Controls.Add(host, 0, 0);
+        var heights = HeightSection();
+        heights.Dock = DockStyle.Top; heights.Height = (int)(140 * S);
+        left.Controls.Add(heights, 0, 1);
+        page.Panel1.Controls.Add(left);
 
         animGrid = Ui.Grid(S, false, ("Animation", 250), ("Kind", 110), ("Power", 170), ("From", 250), ("Replaces", 0));
         foreach (var (c, name) in animGrid.Columns.Cast<DataGridViewColumn>().Zip(new[] { "anim", "kind", "power", "from", "replaces" })) c.Name = name;
@@ -74,6 +83,7 @@ sealed partial class ModEditorView
             if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
             if (animChange != null) animChange.Enabled = a != null && a.From.Alias == null;   // (a form's set: not changeable yet)
             ShowAnimFit();   // (the prop's In This Animation follows the row)
+            ShowHeights();
             if (a == null || animPreview == null) return;
             // A change not saved yet is in a work copy: played from there (the 3D view shows the saved mod).
             // (a form's animation: always from its own set, the 3D view's list holds the normal one of that name)
@@ -120,7 +130,12 @@ sealed partial class ModEditorView
         int req = ++animRequest;
         var mod = editing; string cooked = game.Cooked;
         animCount.Text = "Reading…";
-        Task.Run(() => { try { return CostumeAnims.Read(path, file, CostumeAnims.FilesFor(mod, cooked)); } catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { return null; } })
+        // the draft's copies of the other packages first (a borrowed power's sets in the hero's package, height keys not saved yet)
+        var stock = CostumeAnims.FilesFor(mod, cooked);
+        var drafted = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        lock (draft.Packages) foreach (var p in draft.Packages) if (File.Exists(p.Source)) drafted[p.File] = p.Source;
+        Func<string, (string Path, bool FromMod)?> files = n => drafted.TryGetValue(n.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? n : n + ".upk", out var dp) ? (dp, true) : stock(n);
+        Task.Run(() => { try { return CostumeAnims.Read(path, file, files); } catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { return null; } })
             .ContinueWith(t =>
             {
                 if (IsDisposed || req != animRequest) return;
@@ -159,6 +174,7 @@ sealed partial class ModEditorView
         var a = SelectedAnim;
         if (animChange != null) animChange.Enabled = a != null && a.From.Alias == null;   // (a form's set: not changeable yet)
         if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
+        ShowHeights();
     }
 
     void FillAnimRows(string? keep)

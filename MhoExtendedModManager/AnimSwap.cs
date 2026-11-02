@@ -16,6 +16,11 @@ sealed class AnimSwapEntry
     public string Animation { get; set; } = "";
     /// <summary>"Storm", "Rescue (Team-Up)" …: the donor as the tab shows it.</summary>
     public string Title { get; set; } = "";
+    /// <summary>Height keys (the Animations tab's Height strip): [at 0..1 through the animation, game units up]; null = none.</summary>
+    public List<float[]>? Heights { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<(float At, float Z)> HeightKeys => Heights?.Where(h => h.Length >= 2).Select(h => (h[0], h[1])).OrderBy(h => h.Item1).ToList() ?? [];
 }
 
 /// <summary>
@@ -37,9 +42,11 @@ static class AnimSwap
     /// <paramref name="Lift"/> moves the whole animation up (down when negative) by its root bone.</summary>
     public sealed record Swap(string Slot, string DonorFile, int DonorSet, int DonorSequence, float Rate = 0, float Lift = 0, int Ramp = 0, float RampBy = 0, float RampPower = 1, IReadOnlyList<(float At, float Z)>? Heights = null);
 
-    /// <summary>A height curve's value at <paramref name="t"/> (0..1 through the animation): straight lines between its keys.</summary>
-    static float HeightAt(IReadOnlyList<(float At, float Z)> keys, float t)
+    /// <summary>A height curve's value at <paramref name="t"/> (0..1 through the animation): straight lines between its keys
+    /// (none: 0).</summary>
+    public static float HeightAt(IReadOnlyList<(float At, float Z)> keys, float t)
     {
+        if (keys.Count == 0) return 0;
         if (t <= keys[0].At) return keys[0].Z;
         for (int k = 1; k < keys.Count; k++)
             if (t <= keys[k].At) return keys[k - 1].Z + (keys[k].Z - keys[k - 1].Z) * (t - keys[k - 1].At) / Math.Max(1e-5f, keys[k].At - keys[k - 1].At);
@@ -386,6 +393,7 @@ static class AnimSwap
         IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton = null,
         IReadOnlyCollection<string>? noPositions = null)
     {
+        if (skeleton == null && swaps.Any(s => s.Heights is { Count: > 0 })) skeleton = PowerBorrow.HeroSkeleton(costumePath);   // (height keys need it)
         var body = BodyRoots(skeleton);
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
@@ -649,6 +657,43 @@ static class AnimSwap
             BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(z), BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(z)) + lift);
         }
         return true;
+    }
+
+    /// <summary>
+    /// Height keys on a changed animation (Kurt, 2026-11-02: the Animations tab's Height strip; tested in game first with
+    /// Spider-Punk on Planet Hulk: the whole body rose and fell, nothing sank or blinked out): the copy of <paramref name="slot"/>
+    /// in the costume's own changed sets (…_on_…) has its body moved by <paramref name="to"/> minus <paramref name="from"/>
+    /// (the keys it has now) through RampBodyInPlace: the bones under the root, never the root, only keys it already has.
+    /// Returns the edited package, or null with <paramref name="why"/>; <paramref name="check"/> only says whether it can.
+    /// </summary>
+    public static byte[]? ReHeight(string path, string slot, IReadOnlyList<(float At, float Z)> from, IReadOnlyList<(float At, float Z)> to,
+        IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton, out string why, bool check = false)
+    {
+        why = "";
+        var pkg = Package.Open(path);
+        skeleton ??= PowerBorrow.HeroSkeleton(path);
+        int seq = -1, set = -1;
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            var e = pkg.Exports[i];
+            if (e.OuterIndex <= 0 || !pkg.ClassOf(e).Equals("AnimSequence", StringComparison.OrdinalIgnoreCase)) continue;
+            var outer = pkg.Exports[e.OuterIndex - 1];
+            if (!outer.ObjectName.Contains("_on_", StringComparison.OrdinalIgnoreCase) || !pkg.ClassOf(outer).Equals("AnimSet", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] b = pkg.ReadExportBytes(e).ToArray();
+            if (TagWalker.Walk(pkg, b, 4)?.FirstOrDefault(x => x.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && x.Size == 8) is not { } sn) continue;
+            if (!TagWalker.NameAt(pkg, b, sn.ValueAt).Equals(slot, StringComparison.OrdinalIgnoreCase)) continue;
+            seq = i; set = e.OuterIndex - 1;
+        }
+        if (seq < 0) { why = "it isn't a changed animation of this package"; return null; }
+        byte[] sd = pkg.ReadExportBytes(pkg.Exports[set]).ToArray(), d = pkg.ReadExportBytes(pkg.Exports[seq]).ToArray();
+        var moved = RampBodyInPlace(pkg, sd, d, skeleton, (f, n) => { float t = f / Math.Max(1, n - 1); return check ? 0 : HeightAt(to, t) - HeightAt(from, t); }, out why);
+        if (moved.Count == 0) return null;
+        if (check) return [];
+        var replace = new Dictionary<int, Func<long, byte[]>> { [seq] = _ => d };
+        byte[] output = PackageRebuilder.Rebuild(pkg, replace, [], out var written);
+        var problems = PackageRebuilder.Verify(pkg, output, replace.Keys.ToList(), [], written);
+        if (problems.Count > 0) { why = "the edited package didn't verify: " + string.Join("; ", problems.Take(3)); return null; }
+        return output;
     }
 
     /// <summary>

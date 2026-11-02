@@ -96,12 +96,20 @@ static class ShortcutsUi
         }
     }
 
+    /// <summary>A button's own right-click items, shown above the shortcut items (the 3D views' framing buttons: Lock View).</summary>
+    public static readonly ConditionalWeakTable<Button, Func<IEnumerable<ToolStripItem>>> MenuItems = new();
+
     static void ShowMenu(Button b, Form owner)
     {
         string id = attached.TryGetValue(b, out var cid) ? cid : ButtonId(b);
         var cmd = Shortcuts.Find(id) ?? Shortcuts.ButtonCommand(id, ButtonName(b));
         string now = Shortcuts.Text(id);
         var menu = new ContextMenuStrip();
+        if (MenuItems.TryGetValue(b, out var own))
+        {
+            foreach (var item in own()) menu.Items.Add(item);
+            if (menu.Items.Count > 0) menu.Items.Add(new ToolStripSeparator());
+        }
         menu.Items.Add(now.Length > 0 ? $"Change Shortcut ({now})" : "Assign Shortcut", null, (_, _) =>
         {
             if (Capture(owner, cmd) is string nb) { Store(id, nb); Ui.Tip(b, null); }

@@ -257,6 +257,40 @@ static class PowerPreview
         public static Switches None => new([], 0, [], new(StringComparer.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// How fast the game raises a hero to a high-flying power's height and lowers it again (units per second): the hero class
+    /// default's flyingZSpeed / landingZSpeed, else MarvelEntity's (MarvelGame.upk: 600 / 600). Read from the game files
+    /// (Kurt, 2026-11-02: the preview put Hawkeye's start at full height, the game lifts him over most of a second): Hawkeye
+    /// 170, Thor and Spider-Man 300, Green Goblin 140, Kitty Pryde 100, Captain America, Cyclops and Hulk the default; no
+    /// hero sets its own landing speed.
+    /// </summary>
+    public static (float Rise, float Fall) FlyingSpeeds(string? heroPackage, string hero)
+    {
+        const float Default = 600;
+        if (heroPackage == null || !File.Exists(heroPackage)) return (Default, Default);
+        string key = heroPackage + "|" + File.GetLastWriteTimeUtc(heroPackage).Ticks;
+        lock (speeds) if (speeds.TryGetValue(key, out var known)) return known;
+        float rise = Default, fall = Default;
+        try
+        {
+            var p = MhoPackageModifier.Package.Open(heroPackage);
+            string path = $"marvelgamecontent.default__marvelplayer_{hero}";
+            if (p.Exports.FirstOrDefault(e => p.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase)) is { } e)
+            {
+                byte[] d = p.ReadExportBytes(e).ToArray();
+                foreach (var t in MhoPackageModifier.TagWalker.Walk(p, d, 4) ?? [])
+                    if (t.Size == 4 && t.Name.Equals("flyingZSpeed", StringComparison.OrdinalIgnoreCase)) rise = BitConverter.ToSingle(d, t.ValueAt);
+                    else if (t.Size == 4 && t.Name.Equals("landingZSpeed", StringComparison.OrdinalIgnoreCase)) fall = BitConverter.ToSingle(d, t.ValueAt);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+        if (!(rise > 0)) rise = Default;
+        if (!(fall > 0)) fall = Default;
+        lock (speeds) speeds[key] = (rise, fall);
+        return (rise, fall);
+    }
+    static readonly Dictionary<string, (float, float)> speeds = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The prop switches for <paramref name="anim"/> (call off the UI thread).</summary>
     /// <param name="formRules">A form's own prop rules (its condition: Jean Grey's Phoenix wings on, cape off), always on.</param>
     /// <param name="formFiles">Where the form's props are looked for when the character doesn't have them.</param>

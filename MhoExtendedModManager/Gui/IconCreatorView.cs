@@ -1016,7 +1016,7 @@ static class Framing
     }
 
     /// <summary>The head bone ("head", not "headwear" / "hair"), else null.</summary>
-    static int? HeadBone(MeshAnimator animator)
+    internal static int? HeadBone(MeshAnimator animator)
     {
         int i = 0;
         foreach (string n in animator.BoneNames)

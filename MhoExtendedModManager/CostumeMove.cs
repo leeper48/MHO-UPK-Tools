@@ -448,7 +448,7 @@ static class CostumeMove
             KeepPowerColors(d, mod, replace, sameHero: true);
             // Swapped animations are inside the package, which moves whole (renamed): the entries follow it.
             d.MovedFrom = plan.Source.Short.Replace(".prototype", "");
-            d.AnimSwaps = built.Count == 1 ? [.. d.AnimSwaps.Select(a => new AnimSwapEntry { Package = Path.GetFileName(built[0]), Slot = a.Slot, Donor = a.Donor, Animation = a.Animation, Title = a.Title })] : [];
+            d.AnimSwaps = built.Count == 1 ? [.. d.AnimSwaps.Select(a => new AnimSwapEntry { Package = Path.GetFileName(built[0]), Slot = a.Slot, Donor = a.Donor, Animation = a.Animation, Title = a.Title, Heights = a.Heights })] : [];
             if (replace != null) d = UpdateDraft(d, replace, built.Select(f => Path.GetFileName(f)), null);
             return ModWriter.Save(lib, d, replace, out error);
         }

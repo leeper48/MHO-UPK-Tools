@@ -1,6 +1,18 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.295
+- 3D views: right-click Head, Bust or Full Body to lock the view to the head, torso or body. The camera follows that part while the animation plays (all four panes of the quad view), so the character stays on screen; turning and zooming still work. The locked button has a blue border.
+
+0.60.293
+- 3D view: a high-flying travel power's floor now moves as in the game files: during the start it drops away at the hero's own climb speed (Hawkeye 170 units a second, Thor and Spider-Man 300, Green Goblin 140, Kitty Pryde 100, everyone else 600), during the end it comes back at 600 a second. It used to sit at the full flying height for the whole power, so starts looked far too high.
+
+0.60.292
+- Height strip: works on a borrowed power's animations too (a travel power's run or flight from another hero, Powers tab → Borrow Look). Their keys are kept with the borrow and made again each time the borrows are rebuilt.
+
+0.60.291
+- Animations tab: a Height strip under the 3D view. On a changed animation, keys raise or lower the body at chosen moments (click to add, drag to move, right-click to remove; Add Key at Frame, Clear Keys). The body moves from the hips and spine, never the root, so the hero stays on its spot in game. Saved with the mod.
+
 0.60.290
 - Apply Changes: a Don't Ask Again box. Ticked, Apply Changes writes right away and the status line says how it went. The window still opens when the checks find something or an apply stops. Settings → Ask Before Applying turns the window back on.
 

@@ -47,6 +47,27 @@ sealed class PreviewProps
 
     public PreviewProps(PropRig rig, Control owner) { this.rig = rig; this.owner = owner; }
 
+    float lift, rise = 600, fall = 600;
+    int phase;
+
+    /// <summary>
+    /// Where the floor is under the character <paramref name="seconds"/> into the playing animation (the view's GroundZ): a
+    /// high-flying travel power lifts the hero by Globals' HighFlyingHeight, moving at the hero's flyingZSpeed on the way up
+    /// (from the start animation's first frame) and landingZSpeed on the way down (from the end's), as the game's files set
+    /// them (PowerPreview.FlyingSpeeds; Kurt, 2026-11-02: a constant floor at full height showed Hawkeye's start far too
+    /// high). The loop is at full height; 0 for anything else. Constant speeds are a reading of the property names, to be
+    /// checked against the game.
+    /// </summary>
+    public float GroundAt(double seconds)
+    {
+        if (lift <= 0) return 0;
+        float t = (float)Math.Max(0, seconds);
+        return -(phase > 0 ? Math.Min(lift, rise * t) : phase < 0 ? Math.Max(0, lift - fall * t) : lift);
+    }
+
+    /// <summary>The playing power's lift (HighFlyingHeight) and the hero's speeds (null: not a high-flying power).</summary>
+    public (float Lift, float Rise, float Fall)? Flight => lift > 0 ? (lift, rise, fall) : null;
+
     /// <summary>
     /// The character's props (none when <paramref name="on"/> is false), loaded in the background and held on their bones;
     /// then <paramref name="switches"/> reads the playing power's switches again: read before the props, the animated props
@@ -109,6 +130,7 @@ sealed class PreviewProps
         int req = ++switchRequest;
         if (!on || cooked == null || hero == null)
         {
+            lift = 0;
             if (Shown() is { } sh0) sh0.View.GroundZ = 0;
             if (rules.Count > 0 || powerProps.Count > 0) { rules = []; bool had = powerProps.Count > 0; powerProps = []; if (had) Rebuild(); else { rig.SetRules(rules, 0, 0); ShowPose(); } }
             return;
@@ -119,13 +141,21 @@ sealed class PreviewProps
         var idxTask = PowerPreview.PowerIndex(hero, cooked, modFiles);
         float secs = Seconds();
         string? entity = Entity?.Invoke();
-        Task.WhenAll(idxTask, dbTask).ContinueWith(done => idxTask.Status != TaskStatus.RanToCompletion ? PowerPreview.Switches.None
-                : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, anim, cooked, have, motionRefs, secs, formRules, formFiles, entity))
-            .ContinueWith(t =>
+        // the hero's base package (the mod's copy first): its rise / fall speeds for a high-flying power
+        string baseFile = $"UC__MarvelPlayer_{hero}_SF.upk";
+        string basePath = modFiles.FirstOrDefault(f => Path.GetFileName(f).Equals(baseFile, StringComparison.OrdinalIgnoreCase)) ?? StockFiles.For(cooked, baseFile);
+        Task.WhenAll(idxTask, dbTask).ContinueWith(done => (S: idxTask.Status != TaskStatus.RanToCompletion ? PowerPreview.Switches.None
+                : PowerPreview.SwitchesFor(dbTask.Status == TaskStatus.RanToCompletion ? dbTask.Result : null, idxTask.Result, anim, cooked, have, motionRefs, secs, formRules, formFiles, entity),
+                Speeds: PowerPreview.FlyingSpeeds(basePath, hero)))
+            .ContinueWith(t0 =>
             {
-                if (owner.IsDisposed || req != switchRequest || t.Status != TaskStatus.RanToCompletion) return;
+                if (owner.IsDisposed || req != switchRequest || t0.Status != TaskStatus.RanToCompletion) return;
+                var t = Task.FromResult(t0.Result.S);
                 (rules, contact) = (t.Result.Rules, t.Result.Contact);
-                if (Shown() is { } sh) sh.View.GroundZ = -t.Result.Lift;
+                // the floor under a high-flying power (GroundAt, drawn by the preview's ShowPose): rising, held, falling
+                lift = t.Result.Lift;
+                (rise, fall) = t0.Result.Speeds;
+                phase = anim != null && anim.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : anim != null && anim.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
                 seqs = t.Result.Seqs;
                 bool rebuild = powerProps.Count > 0 || t.Result.Extra.Count > 0;
                 powerProps = t.Result.Extra;

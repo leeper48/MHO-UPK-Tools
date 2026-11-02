@@ -1298,12 +1298,56 @@ sealed partial class MainForm
             var a = ca?.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
             return (a != null && a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase), m.Manifest.AnimSwaps?.Count ?? 0, a?.From.Path ?? "none");
         }
+        if (Environment.GetEnvironmentVariable("MHO_TEST_BORROW_HEIGHTS") is string bv)
+        {
+            // (Kurt, 2026-11-02) height keys on a borrowed travel power's animation: the Powers tab builds the borrows, the
+            // strip sets keys, Save rebuilds the borrows from scratch (the keys must come back from the borrow), reopen clears
+            async Task<(ModEditorView? Ed, string? Slot)> OpenBorrow(string name)
+            {
+                var m0 = lib == null ? null : ModLibrary.Load(lib.DataFolder).Find(name);
+                if (m0 == null) return (null, null);
+                OpenEditor(m0);
+                pages.Select(1);
+                var e0 = editor!;
+                for (int i = 0; i < e0.TabCount; i++) if (e0.TabTitle(i) == "Powers") e0.SelectTab(i);
+                string? s0 = await e0.BorrowSlotForTest();
+                for (int i = 0; i < e0.TabCount; i++) if (e0.TabTitle(i) == "Animations") e0.SelectTab(i);
+                await Task.Delay(6000);
+                return (e0, s0);
+            }
+            var (be, bslot) = await OpenBorrow(modName);
+            if (be == null || bslot == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), $"no mod or no borrowed animation ({be != null})"); return; }
+            lines.Add($"borrowed animation {bslot}: " + await be.HeightTest(bslot, float.Parse(bv, System.Globalization.CultureInfo.InvariantCulture)));
+            Shot("borrow_heights.png");
+            string? bs = await be.SaveForTest();
+            await Task.Delay(1500);
+            var bm = ModLibrary.Load(lib!.DataFolder).Find(bs ?? modName);
+            lines.Add("saved: borrow height keys " + (bm?.Manifest.PowerBorrows?.Sum(b => b.HeightKeys(bslot).Count) ?? -1));
+            var (be2, _) = await OpenBorrow(bs ?? modName);
+            if (be2 != null) { lines.Add("reopened (the save rebuilt the borrows), " + await be2.HeightTest(bslot, 0)); Shot("borrow_cleared.png"); }
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
         var ed = await Open(modName);
         if (ed == null) { File.WriteAllText(Path.Combine(dir, "result.txt"), "no such mod"); return; }
         await ed.AnimPickerSnapshot(slot, donor, Path.Combine(dir, "picker.png"));
         lines.Add("change: " + await ed.AnimTestChange(slot, donor, anim));
         await Task.Delay(2500);
         Shot("tab_changed.png");
+        if (Environment.GetEnvironmentVariable("MHO_TEST_HEIGHTS") is string hv)
+        {
+            // (Kurt, 2026-11-02) the Height strip: keys up to <hv> and back, then cleared; a save keeps them in the manifest
+            lines.Add("heights: " + await ed.HeightTest(slot, float.Parse(hv, System.Globalization.CultureInfo.InvariantCulture)));
+            Shot("tab_heights.png");
+            string? hs = await ed.SaveForTest();
+            await Task.Delay(1500);
+            var hm = ModLibrary.Load(lib!.DataFolder).Find(hs ?? modName);
+            lines.Add("saved: manifest height keys " + (hm?.Manifest.AnimSwaps?.FirstOrDefault(x => x.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase))?.HeightKeys.Count ?? -1));
+            var he = await Open(hs ?? modName);
+            if (he != null) { lines.Add("reopened, " + await he.HeightTest(slot, 0)); Shot("tab_cleared.png"); }
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
         string? saved = await ed.SaveForTest();
         await Task.Delay(1500);
         var c1 = Check(saved ?? modName);
