@@ -1,6 +1,30 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.327
+- Borrowed travel rides on Hawkeye: Kate Bishop heard the borrowed motorcycle while riding her Sky-Cycle. The borrowed sounds play on everyone except costumes of their own class again, and those get their own ride's sounds back. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.326
+- Kate Bishop's Sky-Cycle stayed after release with a borrowed travel ride. In the game, her stock power's "show the Sky-Cycle while flying" part hides it again when the power ends. That part can't come along, because on Hawkeye it would show his own Sky-Cycle. A copy of it now only hides the Sky-Cycle when the ride ends; on costumes without one it does nothing. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.325
+- The fix in 0.60.323 didn't work: it read the name from the game folder, where an earlier Apply had already renamed the file to lower case. Package names now come from the game's stock file list, so Kate Bishop's package is UC__MarvelPlayer_KateBishop_SF.upk again. Open the mod in the Editor and save it once, then Apply.
+
+0.60.324
+- Travel borrows bringing a vehicle, on a hero with costumes of their own class (Hawkeye and Kate Bishop): the power no longer limits its parts to some costumes, because in this power such limits stop the part from running for anyone. That's why the borrowed ride's own animation never played, and why Kate's Sky-Cycle never faded out after release and stayed at her feet. The borrowed parts now run for everyone, Kate gets her own ride under the borrowed animations' names, and her Sky-Cycle's fade-in and fade-out stay. The travel condition still shows the Sky-Cycle only on Kate and the bike only on the others. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.323
+- A costume package a travel borrow adds (Kate Bishop's) carries the game's own file name (UC__MarvelPlayer_KateBishop_SF.upk), not an all-lower-case one.
+
+0.60.322
+- Borrowed vehicles shown by a travel condition: costumes kept stock (Kate Bishop) rode their own Sky-Cycle in the reference pose (A-pose), because the condition plays the borrowed ride's names, which they don't have. Their own ride animations now also go under those names, on them and on their own vehicle. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.321
+- Borrowed vehicles shown by a travel condition: back to 0.60.319 (the condition plays the borrowed ride). 0.60.320 left Hawkeye and Kate Bishop in the reference pose (A-pose) while riding: Hawkeye's flight power doesn't play its own animations during the ride; the condition does. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.320
+- Borrowed vehicles shown by a travel condition (Hawkeye with Cyclops's bike): the condition no longer plays animations of its own; the borrowed power plays the ride. (Withdrawn in 0.60.321: it left the riders in the reference pose.)
+
 0.60.319
 - Borrowed vehicles shown by a travel condition get paths of their own: the bike's class becomes, for example, "marvelattachmentanimated_cyclopsbike_on_hawkeye", and its animations' group "cyclops_anim_on_hawkeye". The game finds a class and its animations by path and uses the copy it loaded first. After riding Cyclops in the same session, Hawkeye's bike was Cyclops's own stock bike, without the start Hawkeye's condition plays, so it sat still under him. Open the mod in the Editor and save it once to rebuild it.
 

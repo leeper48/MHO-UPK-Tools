@@ -963,6 +963,19 @@ static partial class Program
                 Console.WriteLine($"written: {rest[2]}");
                 return 0;
             }
+            case "--slot-fades-test":
+            {
+                // --slot-fades-test <power.upk> <out.upk> <class default path> <stock power.upk>: what a travel borrow with a
+                // vehicle does to the power's component list (SlotFadesForAll: the stock slot fades kept, the slot hidden at
+                // the power's end). Writes only <out.upk>.
+                if (rest.Count < 5) { Console.WriteLine("--slot-fades-test <power.upk> <out.upk> <class default path> <stock power.upk>"); return 1; }
+                var flog = new List<string>();
+                byte[] fo = PowerBorrow.SlotFadesForAllTest(File.ReadAllBytes(rest[1]), rest[3], rest[4], rest.Skip(5).ToList(), flog);
+                flog.ForEach(Console.WriteLine);
+                File.WriteAllBytes(rest[2], fo);
+                Console.WriteLine($"written: {rest[2]}");
+                return 0;
+            }
             case "--power-borrow":
             {
                 // --power-borrow <out dir> <target pkg>|<target default>=<donor pkg>|<donor default> ... [--anims <hero pkg> <hero class> <donor hero pkg>]

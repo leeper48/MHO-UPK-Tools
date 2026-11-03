@@ -133,6 +133,23 @@ static partial class PowerBorrow
                         {
                             conds[cf] = UniqueVehicle(cv.Condition, vclasses, "on_" + th.ToLowerInvariant(), Path.GetFileName(cf), log);
                             built[pf] = pb = UniqueVehicle(cv.Power, vclasses, "on_" + th.ToLowerInvariant(), pf, log);
+                            // the costumes kept stock (Kate Bishop) play the renamed condition animations too: their own ride
+                            // under those names (OwnRideNames)
+                            // ... and the borrowed power's animation names (it plays for them too: SlotFadesForAll), from their own
+                            // animation of the same part (_start, _loop, _end)
+                            var ownNames = cv.Anims.ToList();
+                            foreach (string slot in slots)
+                                if (cv.Anims.FirstOrDefault(a => new[] { "_start", "_loop", "_end" }.Any(s => slot.EndsWith(s, StringComparison.OrdinalIgnoreCase) && a.From.EndsWith(s, StringComparison.OrdinalIgnoreCase))) is { From: { } from }
+                                    && !ownNames.Any(a => a.To.Equals(slot, StringComparison.OrdinalIgnoreCase)))
+                                    ownNames.Add((from, slot));
+                            if (cv.Anims.Count > 0)
+                                foreach (string oc in ownClass)
+                                {
+                                    // (the game's own spelling, from the stock list: the class name is lower case, the file
+                                    // UC__MarvelPlayer_KateBishop_SF.upk)
+                                    string of = game.StockName($"UC__{oc}_SF.upk") ?? $"UC__{oc}_SF.upk";
+                                    if (Start(of) is { } ofile && OwnRideNames(ofile, oc, ownNames, log) is { } ob) built[of] = ob;
+                                }
                         }
                 foreach (var (f, bytes) in conds) built[f] = bytes;
             }
@@ -691,7 +708,10 @@ static partial class PowerBorrow
                 var vehicleClasses = (spawn ?? []).Where(x => x.Vehicle).Select(x => Package.Open(x.File).Exports[x.Export].ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 done[tf] = FitProps(done[tf], td, vehicleClasses, vscale, props, log, spawnedHere);
             }
-            if (ownClassCostumes is { Count: > 0 }) done[tf] = KeepStockFor(done[tf], td, pr.TargetFile, ownClassCostumes, log);
+            // a travel power bringing a vehicle: no entity lists in the power (they don't work there, see SlotFadesForAll);
+            // the costumes kept stock get their ride through the condition and their own animations under the borrowed names
+            if (ownClassCostumes is { Count: > 0 } && ownTracks && pr.Role == "power" && spawn?.Any(x => x.Vehicle) == true) done[tf] = SlotFadesForAll(done[tf], td, pr.TargetFile, ownClassCostumes, log);
+            else if (ownClassCostumes is { Count: > 0 }) done[tf] = KeepStockFor(done[tf], td, pr.TargetFile, ownClassCostumes, log);
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
@@ -1275,6 +1295,115 @@ static partial class PowerBorrow
     }
 
     /// <summary>
+    /// A travel power bringing a vehicle, on a hero with costumes of their own class (Kate Bishop): the borrowed components for
+    /// everyone, no entity lists, plus the stock fades of a weapon slot (PowerFxAttachmentMaterialParameter: her Sky-Cycle's
+    /// bike_fadein / bike_fadeout), which find nothing to fade on the others. Evidence (trace.anims, Kurt 2026-11-03):
+    /// with entity lists, neither the borrowed animation (EntityExcluded Kate) nor Kate's stock one (EntityRequired Kate)
+    /// ever played, and her Sky-Cycle never faded out after release (stock Kate: the power plays the ride, and bike_fadeout
+    /// takes the Sky-Cycle away; it's never hidden or destroyed). The client's UMarvelFX::powerUserIsAnyEntity fails when the
+    /// component has no power user ("EntityRequired/Excluded ... may not be supported for this activation point"). The
+    /// condition's own entity lists work (the Sky-Cycle only on Kate, the bike only on Hawkeye).
+    /// </summary>
+    static byte[] SlotFadesForAll(byte[] package, string targetDefault, string stockFile, IReadOnlyList<string> classes, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        if (Find(p, targetDefault) < 0) return package;
+        var sp = Package.Open(stockFile);
+        int sd = Find(sp, targetDefault);
+        var stockComps = sd < 0 ? [] : Components(sp, sd, out _, out _).Where(r => r > 0).Select(r => sp.PathOf(sp.Exports[r - 1])).ToList();
+        string? ClassAt(string path) => Find(p, path) is int i && i >= 0 ? p.ClassOf(p.Exports[i]) : null;
+        var fadePaths = stockComps.Where(x => ClassAt(x)?.Equals("PowerFxAttachmentMaterialParameter", StringComparison.OrdinalIgnoreCase) == true).ToList();
+        if (fadePaths.Count == 0) return package;
+        // The slot's own hide at the power's end: in stock the power's skycycleattach (show the slot while active) hides it
+        // when the power ends. Evidence (trace.anims, stock Kate, 2026-11-03): SetWeaponAttachVisibleOrSkip(skycycle, 1) at the
+        // power's start, again 0.3 s later from the condition, and (skycycle, 0) at release, the instant the end animation
+        // starts; no fade-out, no hide or destroy of the actor. That component can't come along (on Hawkeye it would show his
+        // own Sky-Cycle), so a copy of it hides the slot instead, once, at the end of the loop (its slot property renamed
+        // WeaponSlotToHideOnActivate, plus bike_fadeout's ActivationPoint = power_on_loop_end tag byte for byte). On a costume
+        // without that vehicle it hides nothing.
+        var addNames = new List<string>();
+        string? hideNote = null;
+        string? showPath = stockComps.FirstOrDefault(x => ClassAt(x)?.Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase) == true
+            && SlotProp(p, x, "WhileActivatedShowWeaponSlot") is { } slot && fadePaths.Any(f => SlotProp(p, f, "WeaponSlot")?.Equals(slot, StringComparison.OrdinalIgnoreCase) == true));
+        string? atPath = fadePaths.FirstOrDefault(f => Tags(p, f)?.Any(t => t.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase)
+            && TagWalker.NameAt(p, p.ReadExportBytes(p.Exports[Find(p, f)]).ToArray(), t.ValueAt).Equals("power_on_loop_end", StringComparison.OrdinalIgnoreCase)) == true);
+        int hideRef = 0;
+        if (showPath != null && atPath != null && CrossMove.Quiet(() => ExportCopy.Copy(p, Find(p, showPath), p, [], "borrowed_slot_hide_at_end"), out _) is { } hc)
+        {
+            var hp = Package.FromBytes(hc.Output);
+            int he = hc.RootRef - 1;
+            byte[] hd = hp.ReadExportBytes(hp.Exports[he]).ToArray();
+            byte[] ad = hp.ReadExportBytes(hp.Exports[Find(hp, atPath)]).ToArray();
+            var htags = TagWalker.Walk(hp, hd, 16);
+            var atag = TagWalker.Walk(hp, ad, 16)?.First(t => t.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase));
+            var stag = htags?.FirstOrDefault(t => t.Name.Equals("WhileActivatedShowWeaponSlot", StringComparison.OrdinalIgnoreCase));
+            if (htags != null && atag != null && stag != null)
+            {
+                int ni = Array.FindIndex(hp.Names, x => x.Equals("weaponslottohideonactivate", StringComparison.OrdinalIgnoreCase));
+                if (ni < 0) { addNames.Add("weaponslottohideonactivate"); ni = hp.Names.Length; }
+                byte[] slotTag = hd.AsSpan(stag.Start, stag.End - stag.Start).ToArray();
+                BinaryPrimitives.WriteInt32LittleEndian(slotTag, ni);
+                BinaryPrimitives.WriteInt32LittleEndian(slotTag.AsSpan(4), 0);
+                byte[] nh = [.. hd.AsSpan(0, 16), .. slotTag, .. ad.AsSpan(atag.Start, atag.End - atag.Start), .. hd.AsSpan(htags.NoneAt)];
+                var hrep = new Dictionary<int, Func<long, byte[]>> { [he] = _ => nh };
+                byte[] ho = PackageRebuilder.Rebuild(hp, hrep, [], out var hw, addNames);
+                var hprob = PackageRebuilder.Verify(hp, ho, hrep.Keys.ToList(), [], hw, addNames);
+                if (hprob.Count == 0) { p = Package.FromBytes(ho); hideRef = he + 1; hideNote = $"; {SlotProp(p, showPath, "WhileActivatedShowWeaponSlot")} hidden at the power's end (borrowed_slot_hide_at_end)"; }
+                else log.Add($"  {targetDefault}: the slot's hide at the end didn't verify ({string.Join("; ", hprob.Take(2))})");
+                addNames.Clear();
+            }
+        }
+        int td = Find(p, targetDefault);
+        var now = Components(p, td, out var tag, out byte[] d);
+        var fades = fadePaths.Select(x => Find(p, x) + 1).Where(r => r > 0 && !now.Contains(r)).ToList();
+        var list = now.Concat(fades).ToList();
+        if (hideRef > 0 && !list.Contains(hideRef)) list.Add(hideRef);
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        // Sounds keep their entity lists: the borrowed ones not on the costumes kept stock, their own stock ones only on them.
+        // Evidence (Kurt 2026-11-03): with the lists on (0.60.322 / 0.60.323) Kate heard no motorcycle; with every list taken
+        // off (0.60.325 / 0.60.326) she did. The lists fail on the animation (no power user at its activation point:
+        // SlotFadesForAll above), not on the sounds. A hypothesis for the sounds until heard in game.
+        string? soundNote = null;
+        if (classes.Count > 0)
+        {
+            bool IsSound(int r) => p.ClassOf(p.Exports[r - 1]).Equals("PowerFxSound", StringComparison.OrdinalIgnoreCase);
+            var stockRefs = stockComps.Select(x => Find(p, x) + 1).Where(r => r > 0).ToHashSet();
+            var mine = new List<string>(); var theirs = new List<string>();
+            foreach (int r in list.Where(r => r > 0 && IsSound(r) && !stockRefs.Contains(r)).ToList())
+                if (WithEntityLists(p, r - 1, classes, require: false, addNames) is { } cd) { rep[r - 1] = _ => cd; mine.Add(p.Exports[r - 1].ObjectName); }
+            foreach (int r in stockRefs.Where(IsSound).ToList())
+                if (WithEntityLists(p, r - 1, classes, require: true, addNames) is { } cd) { rep[r - 1] = _ => cd; if (!list.Contains(r)) list.Add(r); theirs.Add(p.Exports[r - 1].ObjectName); }
+            if (mine.Count + theirs.Count > 0) soundNote = $"; sounds: {string.Join(", ", mine)} not on {string.Join(", ", classes)}, {string.Join(", ", theirs)} only on them";
+        }
+        var value = new byte[4 + 4 * list.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
+        for (int k = 0; k < list.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * k), list[k]);
+        byte[] nd = [.. d.AsSpan(0, tag.ValueAt), .. value, .. d.AsSpan(tag.ValueAt + tag.Size)];
+        BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
+        rep[td] = _ => nd;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  {targetDefault}: the stock fades couldn't be kept ({string.Join("; ", problems.Take(2))})"); return package; }
+        log.Add($"  {targetDefault}: the borrowed components for every costume (no entity lists on the animation: they don't work there); the stock fades kept: {string.Join(", ", fades.Select(r => p.Exports[r - 1].ObjectName))}{hideNote}{soundNote}");
+        return output;
+    }
+
+    /// <summary>For --slot-fades-test (writes nothing itself).</summary>
+    public static byte[] SlotFadesForAllTest(byte[] package, string targetDefault, string stockFile, IReadOnlyList<string> classes, List<string> log) => SlotFadesForAll(package, targetDefault, stockFile, classes, log);
+
+    /// <summary>The properties of the export at <paramref name="path"/> (a component: from 16), or null.</summary>
+    static TagWalker? Tags(Package p, string path) => Find(p, path) is int i && i >= 0 ? TagWalker.Walk(p, p.ReadExportBytes(p.Exports[i]).ToArray(), 16) : null;
+
+    /// <summary>A name property's value on the component at <paramref name="path"/>, or null.</summary>
+    static string? SlotProp(Package p, string path, string prop)
+    {
+        int i = Find(p, path);
+        if (i < 0) return null;
+        byte[] d = p.ReadExportBytes(p.Exports[i]).ToArray();
+        return TagWalker.Walk(p, d, 16)?.FirstOrDefault(t => t.Name.Equals(prop, StringComparison.OrdinalIgnoreCase) && t.Size == 8) is { } t ? TagWalker.NameAt(p, d, t.ValueAt) : null;
+    }
+
+    /// <summary>
     /// The power on <paramref name="classes"/> (the hero's costumes of their own class) as stock: every component the borrow
     /// listed excluded from them, and the class default's stock components (by path, from the stock file) listed again, only
     /// for them.
@@ -1481,7 +1610,11 @@ static partial class PowerBorrow
                 var nt = TagWalker.Walk(pkg, qd, 4)?.FirstOrDefault(t => t.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && t.Size == 8);
                 if (nt == null || !TagWalker.NameAt(pkg, qd, nt.ValueAt).Equals(from, StringComparison.OrdinalIgnoreCase)) continue;
                 string setPath = pkg.PathOf(pkg.Exports[set - 1]);
-                var cc = CrossMove.Quiet(() => ExportCopy.Copy(pkg, seq - 1, pkg, [], pkg.Exports[seq - 1].ObjectName + ConditionStartSuffix, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [setPath] = setPath }), out string said);
+                // (a name of its own per copy: one sequence can be copied under two names, Kate's Sky-Cycle start as both the
+                // condition's and the power's start)
+                string copyName = $"{pkg.Exports[seq - 1].ObjectName}_{to}";
+                for (int u = 2; pkg.Exports.Any(x => x.ObjectName.Equals(copyName, StringComparison.OrdinalIgnoreCase)); u++) copyName = $"{pkg.Exports[seq - 1].ObjectName}_{to}_{u}";
+                var cc = CrossMove.Quiet(() => ExportCopy.Copy(pkg, seq - 1, pkg, [], copyName, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [setPath] = setPath }), out string said);
                 if (cc == null) { log.Add($"  the vehicle's {from} couldn't be copied as {to}: it stays still in the condition's start"); return pkg; }
                 var np = Package.FromBytes(cc.Output);
                 int ns = cc.RootRef - 1, si = Find(np, setPath);
@@ -1568,7 +1701,7 @@ static partial class PowerBorrow
         return false;
     }
 
-    static (byte[] Condition, byte[] Power)? ConditionVehicle(byte[] condition, byte[] power, string powerDefault, IReadOnlySet<string> vehicleClasses,
+    static (byte[] Condition, byte[] Power, List<(string From, string To)> Anims)? ConditionVehicle(byte[] condition, byte[] power, string powerDefault, IReadOnlySet<string> vehicleClasses,
         IReadOnlyList<string> slots, IReadOnlyList<string> ownClass, string cooked, List<string> log, bool condStart = false)
     {
         var pp = Package.FromBytes(power);
@@ -1645,7 +1778,7 @@ static partial class PowerBorrow
         for (int j = 0; j < list.Count; j++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * j), list[j]);
         byte[] nd = [.. dd.AsSpan(0, tag.ValueAt), .. value, .. dd.AsSpan(tag.ValueAt + tag.Size)];
         BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
-        var anims = new List<string>();
+        var anims = new List<(string From, string To)>();
         if (TagWalker.Walk(cp, nd, 4)?.FirstOrDefault(t => t.Name.Equals("ConditionAnimNames", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)) is { } at)
         {
             int n = BinaryPrimitives.ReadInt32LittleEndian(nd.AsSpan(at.ValueAt));
@@ -1657,7 +1790,7 @@ static partial class PowerBorrow
                 if (condStart && suffix == "_start") slot += ConditionStartSuffix;
                 BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(at.ValueAt + 4 + 8 * k), NameIdx(slot));
                 BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(at.ValueAt + 8 + 8 * k), 0);
-                anims.Add($"{old} → {slot}");
+                anims.Add((old, slot));
             }
         }
         rep[cd] = _ => nd;
@@ -1687,8 +1820,38 @@ static partial class PowerBorrow
                 pk = VehicleSequenceCopy(pk, "marvelgamecontent.default__" + cls, powerStart, powerStart + ConditionStartSuffix, log);
             pout = pk.RawFile;
         }
-        log.Add($"  {condDefault}: shows the borrowed vehicle ({string.Join(", ", shown)}){(ownClass.Count > 0 ? $", not on {string.Join(", ", ownClass)}" : "")}; plays {(anims.Count > 0 ? string.Join(", ", anims) : "its own animations")}; the power's spawn taken out");
-        return (cout, pout);
+        log.Add($"  {condDefault}: shows the borrowed vehicle ({string.Join(", ", shown)}){(ownClass.Count > 0 ? $", not on {string.Join(", ", ownClass)}" : "")}; plays {(anims.Count > 0 ? string.Join(", ", anims.Select(a => $"{a.From} → {a.To}")) : "its own animations")}; the power's spawn taken out");
+        return (cout, pout, anims);
+    }
+
+    /// <summary>
+    /// A costume of its own class (Kate Bishop) with its own animations also under the names the travel condition now plays
+    /// (ConditionVehicle's renames: movement_rideskycycle_start → movement_ridebike_start_cond …), on her and on her own
+    /// vehicle: the condition's animations apply to everyone it's on, and she has no sequences of those names. Evidence
+    /// (trace.anims, Kurt 2026-11-03, 0.60.321): Kate's condition played movement_ridebike_start_cond / _loop / _end, which
+    /// her set lacks, and she rode her Sky-Cycle in the reference pose (A-pose). Null when there's nothing to add.
+    /// </summary>
+    static byte[]? OwnRideNames(string costumeFile, string costumeClass, IReadOnlyList<(string From, string To)> renames, List<string> log)
+    {
+        var pkg = Package.Open(costumeFile);
+        var swaps = new List<AnimSwap.Swap>();
+        foreach (var (from, to) in renames)
+        {
+            int seq = Array.FindIndex(pkg.Exports, x => pkg.ClassOf(x).Equals("AnimSequence", StringComparison.OrdinalIgnoreCase)
+                && TagWalker.Walk(pkg, pkg.ReadExportBytes(x).ToArray(), 4)?.FirstOrDefault(t => t.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && t.Size == 8) is { } nt
+                && TagWalker.NameAt(pkg, pkg.ReadExportBytes(x).ToArray(), nt.ValueAt).Equals(from, StringComparison.OrdinalIgnoreCase));
+            if (seq < 0) { log.Add($"  {Path.GetFileName(costumeFile)}: no {from} of its own: it plays {to} as nothing"); continue; }
+            swaps.Add(new AnimSwap.Swap(to, costumeFile, pkg.Exports[seq].OuterIndex - 1, seq));
+        }
+        if (swaps.Count == 0) return null;
+        byte[] built = AnimSwap.Build(costumeFile, costumeClass, swaps, log);
+        // its own vehicle (the Sky-Cycle, an animated attachment of its package) plays the same names
+        var bp = Package.FromBytes(built);
+        foreach (var e in bp.Exports.Where(x => x.ObjectName.StartsWith("default__marvelattachmentanimated_", StringComparison.OrdinalIgnoreCase)).ToList())
+            foreach (var (from, to) in renames)
+                bp = VehicleSequenceCopy(bp, bp.PathOf(e), from, to, log);
+        log.Add($"  {Path.GetFileName(costumeFile)}: its own {string.Join(", ", renames.Select(r => r.From))} also as {string.Join(", ", renames.Select(r => r.To))} (the travel condition plays those names)");
+        return bp.RawFile;
     }
 
     public static List<(string File, int Export, string Slot, bool Vehicle)> ConditionAttachments(Fx.GameData db, Fx.FxGame game, string donorPower, string donorHeroPackage, List<string> log)

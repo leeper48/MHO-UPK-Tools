@@ -52,6 +52,11 @@ sealed class GameState
 
     public bool IsStockName(string file) => stock.ContainsKey(file);
 
+    /// <summary>A game file's name as the stock list spells it (UC__MarvelPlayer_KateBishop_SF.upk), whatever the case asked
+    /// for; null when it isn't a stock file. The game folder can't answer this: replacing a file through a name of other case
+    /// renames it to that case (2026-11-03: Kate's package had become UC__marvelplayer_katebishop_SF.upk).</summary>
+    public string? StockName(string file) => stock.ContainsKey(file) ? stock.Keys.First(k => k.Equals(file, StringComparison.OrdinalIgnoreCase)) : null;
+
     public uint CrcOf(byte[] bytes) => Crc32.HashToUInt32(bytes);
 
     /// <summary>Does the file at <paramref name="path"/> have the stock CRC of package <paramref name="file"/>?</summary>
