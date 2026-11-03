@@ -1308,6 +1308,12 @@ sealed partial class MainForm
             var fe = editor!;
             for (int i = 0; i < fe.TabCount; i++) if (fe.TabTitle(i) == "Animations") fe.SelectTab(i);
             await Task.Delay(8000);
+            if (Environment.GetEnvironmentVariable("MHO_TEST_REBUILD") == "1")
+            {
+                lines.Add("rebuilt: " + await fe.RebuildTest(floorSlots.Split(',')[0]));
+                File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+                return;
+            }
             if (Environment.GetEnvironmentVariable("MHO_TEST_PARTS") == "1")
             {
                 lines.Add(await fe.PartStepTest(floorSlots.Split(',')[0]));

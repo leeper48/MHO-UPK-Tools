@@ -950,6 +950,19 @@ static partial class Program
                 Console.WriteLine($"warning: {PowerBorrow.Mismatch(tk, dk, Path.GetFileNameWithoutExtension(rest[1]), Path.GetFileNameWithoutExtension(rest[2])) ?? "none (built alike)"}");
                 return 0;
             }
+            case "--strip-entity-lists":
+            {
+                // --strip-entity-lists <in.upk> <out.upk> <export path> ...: those components' EntityRequired / EntityExcluded
+                // taken off (a split test: does a list on a spawn component stop it in game?). Writes only <out.upk>.
+                if (rest.Count < 4) { Console.WriteLine("--strip-entity-lists <in.upk> <out.upk> <export path> ..."); return 1; }
+                var slog = new List<string>();
+                byte[]? stripped = PowerBorrow.StripEntityLists(File.ReadAllBytes(rest[1]), rest.Skip(3).ToList(), slog);
+                slog.ForEach(Console.WriteLine);
+                if (stripped == null) return 1;
+                File.WriteAllBytes(rest[2], stripped);
+                Console.WriteLine($"written: {rest[2]}");
+                return 0;
+            }
             case "--power-borrow":
             {
                 // --power-borrow <out dir> <target pkg>|<target default>=<donor pkg>|<donor default> ... [--anims <hero pkg> <hero class> <donor hero pkg>]

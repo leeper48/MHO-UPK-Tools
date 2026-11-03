@@ -1029,10 +1029,25 @@ sealed partial class ModelView : UserControl
         // (a view closed while a redraw was still due: its frame is disposed, and reading its size threw "Parameter is not
         // valid" in the quad view, Kurt 2026-10-30)
         if (IsDisposed) return;
-        cams.Clear();
-        if (quad) RenderQuad();
-        else { Flat(ortho, () => Render(0, 0)); cams.Add((lastCam, -1)); }
+        // (a redraw asked for from inside a redraw runs after it: the quad view's whole-frame size (2134 × 1246) was set by a
+        // nested redraw while a quarter (1067 × 623) was being drawn, and its buffers no longer fitted: Bloom and the ground
+        // crashed, Kurt 2026-11-02 / 03, the bloom log)
+        if (rendering) { renderAgain = true; return; }
+        rendering = true;
+        try
+        {
+            for (int pass = 0; pass < 2; pass++)
+            {
+                renderAgain = false;
+                cams.Clear();
+                if (quad) RenderQuad();
+                else { Flat(ortho, () => Render(0, 0)); cams.Add((lastCam, -1)); }
+                if (!renderAgain || IsDisposed) break;
+            }
+        }
+        finally { rendering = false; }
     }
+    bool rendering, renderAgain;
 
     Point downAt;
     /// <summary>The quad view's pane a drag started in (0 this camera, 1 Top, 2 Front, 3 Side), -1 outside the quad view.</summary>

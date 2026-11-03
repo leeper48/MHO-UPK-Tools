@@ -656,6 +656,19 @@ sealed partial class ModEditorView
         return $"{heightParts.Count} part(s), active {heightStrip.Active} ({heightParts[heightStrip.Active].Name}); " + string.Join("; ", lines) + (heightClimb.Visible ? " | climb: " + heightClimbNote.Text : " | no climb row");
     }
 
+    /// <summary>Test hook: the borrows built again (MHO_BORROW_LOG gets the build's log); then the strip as HeightChainTest reports it.</summary>
+    public async Task<string> RebuildTest(string slot)
+    {
+        if (!await WaitAnims()) return "no animations";
+        var tcs = new TaskCompletionSource();
+        void Done() { animLoaded -= Done; tcs.TrySetResult(); }
+        animLoaded += Done;
+        RebuildBorrows();
+        await Task.WhenAny(tcs.Task, Task.Delay(180000));
+        await Task.Delay(500);
+        return await HeightChainTest(slot);
+    }
+
     /// <summary>Test hook: End → The Donor's Loop, Landing picked; once the borrows are built again, the strip as HeightChainTest reports it.</summary>
     public async Task<string> HeightEndTest(string slot)
     {

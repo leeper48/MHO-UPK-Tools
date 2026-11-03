@@ -34,9 +34,17 @@ static partial class PowerBorrow
         {
             if (current.TryGetValue(f, out var c)) return c;
             string kept = Path.Combine(baseDir, f);
-            if (File.Exists(kept)) return kept;
+            if (File.Exists(kept))
+            {
+                // a kept copy that is itself a borrow's output (Kurt, 2026-11-02: the travel tests, built before a borrow named
+                // its packages, kept the built power package as the start: every build added the bike again, as
+                // borrowed_bike_spawn_2, and the bike didn't show in game): dropped, the build starts from the stock original
+                if (!HoldsBorrow(kept)) return kept;
+                File.Delete(kept);
+                log.Add($"{f}: the kept starting copy already held a borrow (an earlier build): starting from the game's original");
+            }
             int k = draft.Packages.FindIndex(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase));
-            if (k >= 0 && !before.Contains(f))
+            if (k >= 0 && !before.Contains(f) && !HoldsBorrow(draft.Packages[k].Source))
             {
                 Directory.CreateDirectory(baseDir);
                 File.Copy(draft.Packages[k].Source, kept, true);
@@ -93,12 +101,15 @@ static partial class PowerBorrow
             // the hero's costumes built as characters of their own (Kate Bishop for Hawkeye): the power stays stock on them
             var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
             if (ownClass.Count > 0) log.Add($"stock look kept for {string.Join(", ", ownClass)} (costumes of their own class)");
+            // a vehicle on a hero whose travel condition plays his ride (Hawkeye): the condition shows it and plays the borrowed
+            // ride (ConditionVehicle), its start a copy of its own lowered on the condition's clock
+            bool condStart = !e.KeepTiming && travel && flightNow != null && spawn.Any(x => x.Vehicle) && ConditionPlaysAnims(db, fx, e.Power);
             var built = Build(plan, Start(heroFile) ?? throw new InvalidDataException($"no {heroFile}"), $"MarvelPlayer_{th}", donorHero, log, e.Fit, e.KeepTiming, Start, game.Cooked, spawn, lift,
                 e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass, keepWeapons: e.KeepWeapons,
                 held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
                 heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
                 heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots,
-                flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart, fallSpeed) : null, endFromLoop: e.End == PowerBorrowEntry.EndLoop, canChooseEnd: v => e.EndChoosable = v);
+                flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart, fallSpeed) : null, endFromLoop: e.End == PowerBorrowEntry.EndLoop, canChooseEnd: v => e.EndChoosable = v, conditionStart: condStart);
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
             // the user's climb speed into the hero's class (the package the borrow ships already)
@@ -108,7 +119,23 @@ static partial class PowerBorrow
             // own components, which the borrow replaces, so it stayed under him after the power ended (Kurt, 2026-10-22):
             // the condition's vehicle attachments go
             if (!e.KeepTiming && travel)
-                foreach (var (f, bytes) in DropConditionVehicles(db, fx, e.Power, Start, log, ownClass)) built[f] = bytes;
+            {
+                var conds = DropConditionVehicles(db, fx, e.Power, Start, log, ownClass);
+                // ... and the borrowed vehicle goes into that condition instead of the power (Kurt, 2026-11-03: Cyclops' bike on
+                // Hawkeye never showed, nor did his own Sky-Cycle when the power alone showed it: on a hero whose travel
+                // condition shows his ride, the condition is what shows a vehicle, and it plays its own animations, Hawkeye's
+                // high Sky-Cycle ride, over the borrowed ones)
+                string? pf = tp == null ? null : Path.GetFileName(tp.TargetFile);
+                var vclasses = spawn.Where(x => x.Vehicle).Select(x => Package.Open(x.File).Exports[x.Export].ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (pf != null && vclasses.Count > 0 && built.TryGetValue(pf, out var pb))
+                    foreach (string cf in conds.Keys.ToList())
+                        if (ConditionVehicle(conds[cf], pb, $"marvelgamecontent.default__{tp!.TargetClass}".ToLowerInvariant(), vclasses, slots, ownClass, game.Cooked, log, condStart) is { } cv)
+                        {
+                            conds[cf] = UniqueVehicle(cv.Condition, vclasses, "on_" + th.ToLowerInvariant(), Path.GetFileName(cf), log);
+                            built[pf] = pb = UniqueVehicle(cv.Power, vclasses, "on_" + th.ToLowerInvariant(), pf, log);
+                        }
+                foreach (var (f, bytes) in conds) built[f] = bytes;
+            }
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -516,6 +543,21 @@ static partial class PowerBorrow
     /// Hawkeye's flight 0.75 × 0.35 = 0.26 s, the flight default 0.75 s. Returns when it applies (seconds after activation) and
     /// the height; null when the power isn't high-flying.
     /// </summary>
+    /// <summary>A package holding a borrow's output: a power's default with borrowed components (borrowed_…) under it. Only
+    /// power defaults count: the hero's own package may carry the mod's other edits and is never judged by this.</summary>
+    static bool HoldsBorrow(string path)
+    {
+        try
+        {
+            var p = Package.Open(path);
+            for (int i = 0; i < p.Exports.Length; i++)
+                if (p.Exports[i].ObjectName.StartsWith("borrowed_", StringComparison.OrdinalIgnoreCase)
+                    && p.PathOf(p.Exports[i]).StartsWith("marvelgamecontent.default__power", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+        return false;
+    }
+
     /// <summary>
     /// A borrow's climb as its build sets it (PowerBorrowEntry.Climb), without building: for the Height panel before the
     /// borrows were built this session. Null when the borrow isn't lifted (its timing kept, the target doesn't fly high, the
@@ -611,7 +653,8 @@ static partial class PowerBorrow
         IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
         IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false,
         (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null,
-        IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null)
+        IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null,
+        bool conditionStart = false)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -721,9 +764,33 @@ static partial class PowerBorrow
                 if (liftDone < w) model.Add((liftDone / w, -h));
                 model.Add((1, -LiftAt(w, fl.ApplyAt, fl.Rise, h)));
                 swaps.Add(found with { Model = model });
+                // the travel condition plays the start too, from its own first frame when it applies, at the start's own
+                // speed (Kurt's recording, 2026-11-03: Clint stood, then Cyclops' bike rolled in from its first frame and
+                // high): a copy of its own (ConditionStartSuffix), lowered on that clock: the lift from its first frame
+                if (conditionStart)
+                {
+                    var cmodel = new List<(float At, float Z)> { (0, 0) };
+                    float up = h / Math.Max(1, fl.Rise);
+                    cmodel.Add(up < donorLen ? (up / donorLen, -h) : (1, -fl.Rise * donorLen));
+                    if (up < donorLen) cmodel.Add((1, -h));
+                    swaps.Add(found with { Slot = an + ConditionStartSuffix, Model = cmodel });
+                    log.Add($"anims: {an}{ConditionStartSuffix} (the travel condition's start, {donorLen:0.##} s from when it applies): lowered as the game lifts from its first frame, all {h:0} after {Math.Min(up, donorLen):0.##} s");
+                }
                 float atLoop = LiftAt(w, fl.ApplyAt, fl.Rise, h);
                 log.Add($"anims: {an} plays over the {w:0.##} s wind-up, lowered as the game lifts: from {fl.ApplyAt:0.##} s (the power applies) at {fl.Rise:0} a second, {atLoop:0} by the loop"
                         + (atLoop < h - 0.5f ? $"; the loop starts {h - atLoop:0} low and is level after {(h - atLoop) / fl.Rise:0.##} s (the climb is still going)" : ""));
+                continue;
+            }
+            // the donor's own end (Cyclops's ride on Hawkeye's Sky-Cycle; Kurt, 2026-11-02: it rose 57 above the floor on the
+            // old tuned ramp): lowered by exactly the game's descent, from the flying height at the hero's landingZSpeed from the
+            // end's first frame, as the End choice does for a donor without one
+            if (ramp < 0 && flight is { } fe0 && donorLen > 0.01f)
+            {
+                float h = Math.Abs(lift), playLen = donorLen / (rate > 0 ? rate : 1), down = h / Math.Max(1, fe0.Fall);
+                var model = new List<(float At, float Z)> { (0, -h), down < playLen ? (down / playLen, 0) : (1, -Math.Max(0, h - fe0.Fall * playLen)) };
+                if (down < playLen) model.Add((1, 0));
+                swaps.Add(found with { Rate = rate, Model = model });
+                log.Add($"anims: {an} ({playLen:0.##} s) lowered as the game lands: from {h:0} at {fe0.Fall:0} a second ({down:0.##} s)");
                 continue;
             }
             float atStart = lift * 3f / 140f, atEnd = lift * 151f / 140f;   // (Kurt, in game: 0.60.44's end (151) "ends really well"; its beginning (13) still dipped: 10 units up)
@@ -760,8 +827,8 @@ static partial class PowerBorrow
         // the Animations tab's height keys, on top of the lift (the bones under the root, never the root: AnimSwap.Build)
         if (heights is { Count: > 0 })
             for (int i = 0; i < swaps.Count; i++)
-                if (heights.TryGetValue(swaps[i].Slot, out var hk) && hk.Count > 0) { swaps[i] = swaps[i] with { Heights = hk }; log.Add($"anims: {swaps[i].Slot}: {hk.Count} height key(s)"); }
-        slotsOut?.AddRange(swaps.Select(s => s.Slot));
+                if (heights.TryGetValue(swaps[i].Slot.EndsWith(ConditionStartSuffix, StringComparison.OrdinalIgnoreCase) ? swaps[i].Slot[..^ConditionStartSuffix.Length] : swaps[i].Slot, out var hk) && hk.Count > 0) { swaps[i] = swaps[i] with { Heights = hk }; log.Add($"anims: {swaps[i].Slot}: {hk.Count} height key(s)"); }
+        slotsOut?.AddRange(swaps.Select(s => s.Slot).Where(s => !s.EndsWith(ConditionStartSuffix, StringComparison.OrdinalIgnoreCase)));
         if (swaps.Count > 0)
         {
             string hf = Path.GetFileName(targetHeroPackage);
@@ -1178,6 +1245,35 @@ static partial class PowerBorrow
         return m.ToArray();
     }
 
+    /// <summary>The components at <paramref name="paths"/> with their EntityRequired / EntityExcluded taken off (--strip-entity-lists,
+    /// a split test); null when one isn't found or the rebuild doesn't verify.</summary>
+    public static byte[]? StripEntityLists(byte[] package, IReadOnlyList<string> paths, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        foreach (string path in paths)
+        {
+            int e = Find(p, path);
+            if (e < 0) { log.Add($"not found: {path}"); return null; }
+            byte[] d = p.ReadExportBytes(p.Exports[e]).ToArray();
+            if (TagWalker.Walk(p, d, 16) is not { } tags) { log.Add($"properties not read: {path}"); return null; }
+            var m = new MemoryStream();
+            m.Write(d, 0, 16);
+            int dropped = 0;
+            foreach (var t in tags)
+                if (t.Name.Equals("EntityRequired", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("EntityExcluded", StringComparison.OrdinalIgnoreCase)) dropped++;
+                else m.Write(d, t.Start, t.End - t.Start);
+            m.Write(d, tags.NoneAt, d.Length - tags.NoneAt);
+            byte[] nd = m.ToArray();
+            rep[e] = _ => nd;
+            log.Add($"{path}: {dropped} list(s) taken off ({d.Length} → {nd.Length} bytes)");
+        }
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, []);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, []);
+        if (problems.Count > 0) { log.Add("not verified: " + string.Join("; ", problems.Take(3))); return null; }
+        return output;
+    }
+
     /// <summary>
     /// The power on <paramref name="classes"/> (the hero's costumes of their own class) as stock: every component the borrow
     /// listed excluded from them, and the class default's stock components (by path, from the stock file) listed again, only
@@ -1348,6 +1444,251 @@ static partial class PowerBorrow
             log.Add($"  {a.Class}: this hero's own ride no longer shows ({string.Join(", ", gone)})");
         }
         return done;
+    }
+
+    /// <summary>
+    /// A borrowed vehicle shown by the target's travel condition, as the game's own Fantasticar is (Thing's travel condition
+    /// carries the vehicle class and spawns it, WhileActivatedAttachmentClass, and plays animations its AnimSet has, with
+    /// ConditionAnimIncludeAttachments): the vehicle class the power spawns is copied into <paramref name="condition"/> with
+    /// a spawn component of its own (a copy of the Fantasticar's car_attach; not on <paramref name="ownClass"/>), the
+    /// condition's animations become the borrowed ones (<paramref name="slots"/>, by start / loop / end) and the power's
+    /// spawn goes. Evidence (Kurt, 2026-11-03, Hawkeye): with the Kate lists off, neither Cyclops' bike nor the Sky-Cycle
+    /// showed from the power; the Sky-Cycle showed once the condition's list was off. Null when there's nothing to move.
+    /// </summary>
+    /// <summary>
+    /// <paramref name="pkg"/> with the sequence named <paramref name="from"/> in the AnimSets of the attachment class default
+    /// <paramref name="classDefault"/> copied as <paramref name="to"/> (same keys) and added to its set; unchanged when there's none.
+    /// </summary>
+    static Package VehicleSequenceCopy(Package pkg, string classDefault, string from, string to, List<string> log)
+    {
+        int cd = Find(pkg, classDefault);
+        if (cd < 0) return pkg;
+        byte[] dd = pkg.ReadExportBytes(pkg.Exports[cd]).ToArray();
+        if (TagWalker.Walk(pkg, dd, 4)?.FirstOrDefault(t => t.Name.Equals("AnimationSet", StringComparison.OrdinalIgnoreCase)) is not { } at) return pkg;
+        for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(dd.AsSpan(at.ValueAt)); k < n; k++)
+        {
+            int set = BinaryPrimitives.ReadInt32LittleEndian(dd.AsSpan(at.ValueAt + 4 + 4 * k));
+            if (set <= 0) continue;
+            byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
+            var st = TagWalker.Walk(pkg, sd, 4)?.FirstOrDefault(t => t.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase));
+            if (st == null) continue;
+            int count = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(st.ValueAt));
+            for (int q = 0; q < count; q++)
+            {
+                int seq = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(st.ValueAt + 4 + 4 * q));
+                if (seq <= 0) continue;
+                byte[] qd = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
+                var nt = TagWalker.Walk(pkg, qd, 4)?.FirstOrDefault(t => t.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && t.Size == 8);
+                if (nt == null || !TagWalker.NameAt(pkg, qd, nt.ValueAt).Equals(from, StringComparison.OrdinalIgnoreCase)) continue;
+                string setPath = pkg.PathOf(pkg.Exports[set - 1]);
+                var cc = CrossMove.Quiet(() => ExportCopy.Copy(pkg, seq - 1, pkg, [], pkg.Exports[seq - 1].ObjectName + ConditionStartSuffix, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [setPath] = setPath }), out string said);
+                if (cc == null) { log.Add($"  the vehicle's {from} couldn't be copied as {to}: it stays still in the condition's start"); return pkg; }
+                var np = Package.FromBytes(cc.Output);
+                int ns = cc.RootRef - 1, si = Find(np, setPath);
+                var addNames = new List<string>();
+                int toIdx = Array.FindIndex(np.Names, x => x.Equals(to, StringComparison.OrdinalIgnoreCase));
+                if (toIdx < 0) { addNames.Add(to); toIdx = np.Names.Length; }
+                byte[] nq = np.ReadExportBytes(np.Exports[ns]).ToArray();
+                var nnt = TagWalker.Walk(np, nq, 4)!.First(t => t.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && t.Size == 8);
+                BinaryPrimitives.WriteInt32LittleEndian(nq.AsSpan(nnt.ValueAt), toIdx);
+                BinaryPrimitives.WriteInt32LittleEndian(nq.AsSpan(nnt.ValueAt + 4), 0);
+                byte[] nsd = np.ReadExportBytes(np.Exports[si]).ToArray();
+                var nst = TagWalker.Walk(np, nsd, 4)!.First(t => t.Name.Equals("Sequences", StringComparison.OrdinalIgnoreCase));
+                int nc = BinaryPrimitives.ReadInt32LittleEndian(nsd.AsSpan(nst.ValueAt));
+                var v = new byte[4 + 4 * (nc + 1)];
+                BinaryPrimitives.WriteInt32LittleEndian(v, nc + 1);
+                nsd.AsSpan(nst.ValueAt + 4, 4 * nc).CopyTo(v.AsSpan(4));
+                BinaryPrimitives.WriteInt32LittleEndian(v.AsSpan(4 + 4 * nc), ns + 1);
+                byte[] nsd2 = [.. nsd.AsSpan(0, nst.ValueAt), .. v, .. nsd.AsSpan(nst.ValueAt + nst.Size)];
+                BinaryPrimitives.WriteInt32LittleEndian(nsd2.AsSpan(nst.Start + 16), v.Length);
+                var rep = new Dictionary<int, Func<long, byte[]>> { [ns] = _ => nq, [si] = _ => nsd2 };
+                byte[] o = PackageRebuilder.Rebuild(np, rep, [], out var w, addNames);
+                var prob = PackageRebuilder.Verify(np, o, rep.Keys.ToList(), [], w, addNames);
+                if (prob.Count > 0) { log.Add($"  the vehicle's {to} didn't verify ({string.Join("; ", prob.Take(2))}): it stays still in the condition's start"); return pkg; }
+                log.Add($"  {setPath}: {from} also as {to} (the condition's start)");
+                return Package.FromBytes(o);
+            }
+        }
+        return pkg;
+    }
+
+    /// <summary>
+    /// <paramref name="bytes"/> with the borrowed vehicle's class (and its default) and the content group of its AnimSets
+    /// renamed <c>&lt;name&gt;_&lt;tag&gt;</c> (only names added: CostumeMove.RenameAndSplit, as Make Unique). A class and its
+    /// animations are found by path, and the package loaded first wins. Evidence (trace.anims in the game, Kurt 2026-11-03):
+    /// with Cyclops ridden first, Hawkeye's bike was Cyclops' stock class (mesh wolverine_bike, not the borrow's
+    /// wolverine_bike_x104) and its stock AnimSet, without the condition's start, so the bike had no sequence and sat in
+    /// its rest pose. Unchanged when there's nothing to rename or it's renamed already.
+    /// </summary>
+    static byte[] UniqueVehicle(byte[] bytes, IReadOnlySet<string> vehicleClasses, string tag, string file, List<string> log)
+    {
+        var pkg = Package.FromBytes(bytes);
+        var renames = new Dictionary<int, string>();
+        int Top(int i) { for (int g = 0; g < 64 && pkg.Exports[i].OuterIndex > 0; g++) i = pkg.Exports[i].OuterIndex - 1; return i; }
+        foreach (string cls in vehicleClasses)
+        {
+            int c = Array.FindIndex(pkg.Exports, x => x.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase));
+            int d = Array.FindIndex(pkg.Exports, x => x.ObjectName.Equals("default__" + cls, StringComparison.OrdinalIgnoreCase));
+            if (c < 0 || d < 0) continue;
+            renames[c] = $"{cls}_{tag}";
+            renames[d] = $"default__{cls}_{tag}";
+            byte[] dd = pkg.ReadExportBytes(pkg.Exports[d]).ToArray();
+            if (TagWalker.Walk(pkg, dd, 4)?.FirstOrDefault(t => t.Name.Equals("AnimationSet", StringComparison.OrdinalIgnoreCase)) is { } at)
+                for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(dd.AsSpan(at.ValueAt)); k < n; k++)
+                {
+                    int set = BinaryPrimitives.ReadInt32LittleEndian(dd.AsSpan(at.ValueAt + 4 + 4 * k));
+                    if (set <= 0) continue;
+                    int g = Top(set - 1);
+                    if (g != set - 1 && pkg.ClassOf(pkg.Exports[g]).Equals("Package", StringComparison.OrdinalIgnoreCase) && !pkg.Exports[g].ObjectName.EndsWith("_" + tag, StringComparison.OrdinalIgnoreCase))
+                        renames[g] = $"{pkg.Exports[g].ObjectName}_{tag}";
+                }
+        }
+        if (renames.Count == 0) return bytes;
+        var problems = new List<string>();
+        byte[] o = CostumeMove.RenameAndSplit(pkg, renames, [], problems);
+        if (problems.Count > 0) throw new InvalidDataException($"{file}: the borrowed vehicle's own paths: " + string.Join("; ", problems.Take(3)));
+        log.Add($"  {file}: the borrowed vehicle under its own paths ({string.Join(", ", renames.Select(r => $"{pkg.Exports[r.Key].ObjectName} → {r.Value}"))}), so a stock copy loaded first can't stand in for it");
+        return o;
+    }
+
+    /// <summary>The travel condition's own copy of a borrowed start (Build's conditionStart): "movement_ridebike_start_cond".</summary>
+    public const string ConditionStartSuffix = "_cond";
+
+    /// <summary>Whether <paramref name="power"/> sets off a condition that plays animations of its own (ConditionAnimEffect custom
+    /// with ConditionAnimNames: Hawkeye's Sky-Cycle condition plays his ride).</summary>
+    static bool ConditionPlaysAnims(Fx.GameData db, Fx.FxGame game, string power)
+    {
+        foreach (var a in Fx.PowerClosure.Of(db, power).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)))
+        {
+            string def = $"marvelgamecontent.default__{a.Class}".ToLowerInvariant();
+            if (game.PackagesOf(a.Class).Select(game.FileFor).OfType<string>().Select(f => (P: Package.Open(f), F: f)).FirstOrDefault(x => Find(x.P, def) >= 0) is not { P: { } p }) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[Find(p, def)]).ToArray();
+            if (TagWalker.Walk(p, d, 4)?.Any(t => t.Name.Equals("ConditionAnimNames", StringComparison.OrdinalIgnoreCase)) == true) return true;
+        }
+        return false;
+    }
+
+    static (byte[] Condition, byte[] Power)? ConditionVehicle(byte[] condition, byte[] power, string powerDefault, IReadOnlySet<string> vehicleClasses,
+        IReadOnlyList<string> slots, IReadOnlyList<string> ownClass, string cooked, List<string> log, bool condStart = false)
+    {
+        var pp = Package.FromBytes(power);
+        int pd = Find(pp, powerDefault);
+        if (pd < 0) return null;
+        var spawns = new List<(int Comp, int Class)>();
+        foreach (int r in Components(pp, pd, out _, out _))
+        {
+            if (r <= 0 || !pp.ClassOf(pp.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d = pp.ReadExportBytes(pp.Exports[r - 1]).ToArray();
+            if (TagWalker.Walk(pp, d, 16)?.FirstOrDefault(t => t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is not { } ct) continue;
+            int c = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ct.ValueAt));
+            if (c > 0 && vehicleClasses.Contains(pp.Exports[c - 1].ObjectName)) spawns.Add((r, c));
+        }
+        if (spawns.Count == 0) return null;
+        var cp = Package.FromBytes(condition);
+        int cd = Array.FindIndex(cp.Exports, x => x.ObjectName.StartsWith("default__marvelconditioneffect", StringComparison.OrdinalIgnoreCase)
+            && cp.PathOf(x).Count(ch => ch == '.') == 1);
+        if (cd < 0) return null;
+        string condDefault = cp.PathOf(cp.Exports[cd]);
+        string tplFile = StockFiles.For(cooked, "UC__MarvelConditionEffect_ThingFantasticar_SF.upk");
+        const string tplDefault = "marvelgamecontent.default__marvelconditioneffect_thingfantasticar", tplComp = tplDefault + ".car_attach";
+        var tpk = File.Exists(tplFile) ? Package.Open(tplFile) : null;
+        int ti = tpk == null ? -1 : Find(tpk, tplComp);
+        if (tpk == null || ti < 0) { log.Add("  the condition's vehicle template (Fantasticar) isn't found: the vehicle stays in the power"); return null; }
+        // 1: the vehicle class and its spawn component copied in
+        var comps = new List<int>();
+        var shown = new List<string>();
+        foreach (int cls in spawns.Select(s => s.Class).Distinct())
+        {
+            var cc = CrossMove.Quiet(() => ExportCopy.Copy(pp, cls - 1, cp, []), out string csaid)
+                ?? throw new InvalidDataException($"{pp.Exports[cls - 1].ObjectName} couldn't be copied into the condition: " + string.Join(" ", csaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL")).Select(l => l.Trim())));
+            cp = Package.FromBytes(cc.Output);
+            int classRef = cc.RootRef;
+            string name = "borrowed_vehicle_attach";
+            for (int n2 = 2; Find(cp, condDefault + "." + name) >= 0; n2++) name = $"borrowed_vehicle_attach_{n2}";
+            var sc = CrossMove.Quiet(() => ExportCopy.Copy(tpk, ti, cp, ["whileactivatedattachmentclass"], name, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = condDefault }), out string ssaid)
+                ?? throw new InvalidDataException("the condition's vehicle component couldn't be copied: " + string.Join(" ", ssaid.Split(Environment.NewLine).Select(l => l.Trim()).Where(l => l.Length > 0).TakeLast(3)));
+            cp = Package.FromBytes(sc.Output);
+            int comp = sc.RootRef - 1;
+            byte[] d = cp.ReadExportBytes(cp.Exports[comp]).ToArray();
+            var ct = TagWalker.Walk(cp, d, 16)?.FirstOrDefault(t => t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase))
+                     ?? throw new InvalidDataException("the condition's vehicle component has no WhileActivatedAttachmentClass");
+            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(ct.ValueAt), classRef);
+            var r1 = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => d };
+            byte[] o1 = PackageRebuilder.Rebuild(cp, r1, [], out var w1);
+            var p1 = PackageRebuilder.Verify(cp, o1, r1.Keys.ToList(), [], w1);
+            if (p1.Count > 0) throw new InvalidDataException("the condition's vehicle component didn't verify: " + string.Join("; ", p1.Take(2)));
+            cp = Package.FromBytes(o1);
+            comps.Add(comp + 1);
+            shown.Add(cp.Exports[classRef - 1].ObjectName);
+            // the vehicle's own animation under the condition's start name too (it plays what the rider plays, by name)
+            if (condStart && slots.FirstOrDefault(s => s.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) is { } startSlot)
+                cp = VehicleSequenceCopy(cp, "marvelgamecontent.default__" + cp.Exports[classRef - 1].ObjectName, startSlot, startSlot + ConditionStartSuffix, log);
+        }
+        // 2: listed by the condition, not on the costumes kept stock; the condition's animations the borrowed ones
+        cd = Find(cp, condDefault);
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(cp.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return cp.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        if (ownClass.Count > 0)
+            foreach (int r in comps)
+                if (WithEntityLists(cp, r - 1, ownClass, require: false, addNames) is { } ld) rep[r - 1] = _ => ld;
+        var list = Components(cp, cd, out var tag, out byte[] dd);
+        list.AddRange(comps);
+        var value = new byte[4 + 4 * list.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
+        for (int j = 0; j < list.Count; j++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * j), list[j]);
+        byte[] nd = [.. dd.AsSpan(0, tag.ValueAt), .. value, .. dd.AsSpan(tag.ValueAt + tag.Size)];
+        BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
+        var anims = new List<string>();
+        if (TagWalker.Walk(cp, nd, 4)?.FirstOrDefault(t => t.Name.Equals("ConditionAnimNames", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)) is { } at)
+        {
+            int n = BinaryPrimitives.ReadInt32LittleEndian(nd.AsSpan(at.ValueAt));
+            for (int k = 0; k < n; k++)
+            {
+                string old = TagWalker.NameAt(cp, nd, at.ValueAt + 4 + 8 * k);
+                string? suffix = new[] { "_start", "_loop", "_end" }.FirstOrDefault(s => old.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+                if (suffix == null || slots.FirstOrDefault(s => s.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) is not { } slot) continue;
+                if (condStart && suffix == "_start") slot += ConditionStartSuffix;
+                BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(at.ValueAt + 4 + 8 * k), NameIdx(slot));
+                BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(at.ValueAt + 8 + 8 * k), 0);
+                anims.Add($"{old} → {slot}");
+            }
+        }
+        rep[cd] = _ => nd;
+        byte[] cout = PackageRebuilder.Rebuild(cp, rep, [], out var cw, addNames);
+        var cprob = PackageRebuilder.Verify(cp, cout, rep.Keys.ToList(), [], cw, addNames);
+        if (cprob.Count > 0) throw new InvalidDataException("the condition with the vehicle didn't verify: " + string.Join("; ", cprob.Take(2)));
+        // 3: the power no longer spawns it
+        var plist = Components(pp, pd, out var ptag, out byte[] pdd).Where(r => !spawns.Any(s => s.Comp == r)).ToList();
+        var pv = new byte[4 + 4 * plist.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(pv, plist.Count);
+        for (int j = 0; j < plist.Count; j++) BinaryPrimitives.WriteInt32LittleEndian(pv.AsSpan(4 + 4 * j), plist[j]);
+        byte[] pnd = [.. pdd.AsSpan(0, ptag.ValueAt), .. pv, .. pdd.AsSpan(ptag.ValueAt + ptag.Size)];
+        BinaryPrimitives.WriteInt32LittleEndian(pnd.AsSpan(ptag.Start + 16), pv.Length);
+        var prep = new Dictionary<int, Func<long, byte[]>> { [pd] = _ => pnd };
+        byte[] pout = PackageRebuilder.Rebuild(pp, prep, [], out var pw);
+        var pprob = PackageRebuilder.Verify(pp, pout, prep.Keys.ToList(), [], pw);
+        if (pprob.Count > 0) throw new InvalidDataException("the power without its vehicle spawn didn't verify: " + string.Join("; ", pprob.Take(2)));
+        // The power keeps its copy of the vehicle class and its AnimSet under the same paths, and it loads before the condition,
+        // so the game uses the power's set: the condition's start copy must be there too. Evidence (trace.anims in the game,
+        // Kurt 2026-11-03, 0.60.316): the bike's sequence nodes had no sequence (time 0.000 / 0.000 the whole ride), so the bike
+        // sat in its rest pose under the rider's loop (rider "too low and forward"); the power's cyclops_bike_as had 3 sequences,
+        // the condition's 4.
+        if (condStart && slots.FirstOrDefault(s => s.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) is { } powerStart)
+        {
+            var pk = Package.FromBytes(pout);
+            foreach (string cls in spawns.Select(s => pp.Exports[s.Class - 1].ObjectName).Distinct(StringComparer.OrdinalIgnoreCase))
+                pk = VehicleSequenceCopy(pk, "marvelgamecontent.default__" + cls, powerStart, powerStart + ConditionStartSuffix, log);
+            pout = pk.RawFile;
+        }
+        log.Add($"  {condDefault}: shows the borrowed vehicle ({string.Join(", ", shown)}){(ownClass.Count > 0 ? $", not on {string.Join(", ", ownClass)}" : "")}; plays {(anims.Count > 0 ? string.Join(", ", anims) : "its own animations")}; the power's spawn taken out");
+        return (cout, pout);
     }
 
     public static List<(string File, int Export, string Slot, bool Vehicle)> ConditionAttachments(Fx.GameData db, Fx.FxGame game, string donorPower, string donorHeroPackage, List<string> log)

@@ -1,6 +1,25 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.319
+- Borrowed vehicles shown by a travel condition get paths of their own: the bike's class becomes, for example, "marvelattachmentanimated_cyclopsbike_on_hawkeye", and its animations' group "cyclops_anim_on_hawkeye". The game finds a class and its animations by path and uses the copy it loaded first. After riding Cyclops in the same session, Hawkeye's bike was Cyclops's own stock bike, without the start Hawkeye's condition plays, so it sat still under him. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.318
+- Borrowed vehicles shown by a travel condition (Hawkeye with Cyclops's bike): the bike sat still in its rest pose under the rider, so the rider looked too low and too far forward. The power package keeps its own copy of the bike's animations, and the game reads that copy first. The start for the condition was only added to the condition's copy, so the game couldn't find it for the bike. Both copies get it now. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.317
+- 3D views: the quad view crashed ("Index was outside the bounds of the array" in the ground, before that in Bloom) when a redraw started inside another one and changed the frame's size mid-draw. A redraw asked for during a redraw now runs right after it.
+
+0.60.316
+- Borrowed vehicles shown by a travel condition (Hawkeye with Cyclops's bike): the condition plays the start from its own first frame when it applies, so it now gets a copy of the start of its own, lowered from that moment as the game lifts the hero, and the bike gets a matching copy. Before, the bike rolled in high. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.315
+- Borrowed vehicles on a hero whose travel power keeps his ride up through a condition (Hawkeye's Sky-Cycle): the borrowed vehicle (Cyclops's bike) is now shown by that condition, as the game's own Fantasticar is, instead of by the power, where it never appeared. The condition also plays the borrowed ride instead of the hero's own high Sky-Cycle ride. Costumes kept stock (Kate Bishop) still get the Sky-Cycle. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.314
+- Borrowed looks: a mod whose kept starting copy of a power package was itself an earlier build (the travel tests) added the borrow again on every save: two bike spawns on Hawkeye's Sky-Cycle with Cyclops's ride, and no bike in game. Such a copy is now dropped and the build starts from the game's original. Open the mod in the Editor and save it once to rebuild it clean.
+- Borrowed high-flying powers: the donor's own end animation (Cyclops's ride) is lowered by the game's landing rule, as the End choice is, instead of the old tuned ramp that left the hero up to 57 units above the floor at the end.
+
 0.60.313
 - 3D views: a crash in Bloom ("Index was outside the bounds of the array") when a frame's size and its glow buffer disagreed, seen in the quad view on clicking an animation. That frame is now drawn without the glow instead.
 

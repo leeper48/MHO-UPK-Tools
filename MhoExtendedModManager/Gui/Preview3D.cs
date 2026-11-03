@@ -572,7 +572,7 @@ sealed partial class Preview3D : UserControl
     }
 
     /// <summary>Tests: the floor's inputs and the loop count.</summary>
-    internal string FloorStateForTest => $"{props?.FloorStateForTest} loopPass {loopPass}";
+    internal string FloorStateForTest => $"{props?.FloorStateForTest} loopPass {loopPass} props {rig.Count}";
 
     static readonly string[] ChainSuffixes = ["_start", "_loop", "_end"];
 
