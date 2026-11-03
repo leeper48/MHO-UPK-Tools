@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.333
+- Borrowed vehicles: the bike's dust cloud on sharp turns now shows (Hawkeye with Cyclops's bike). The borrowed hero's own copy of the effect names the dust; before, the game used another package's copy, which picked none for him. The dust is always the dirt kind, whatever the ground. Resave the mod (right-click → Resave) to rebuild it.
+
+0.60.332
+- Borrowed vehicles shown by a travel condition (Hawkeye with Cyclops's bike): the donor's ride effects come along too: the bike's wheel trails, its exhaust and its fade-in. Costumes kept stock (Kate Bishop) don't get them. Resave the mod (right-click → Resave) to rebuild it.
+- Test: the bike's dust on sharp turns uses the dirt dust directly instead of choosing it by the ground under it, to find out whether that choice is what keeps it from showing on a flying hero.
+
 0.60.331
 - Resave runs in the background in a few seconds, without opening the Editor, and gives the same result as Edit, then Save. A mod with dodge ghosts or added props still needs Edit, then Save, and says so. There's also a command for it: --resave <mod>.
 

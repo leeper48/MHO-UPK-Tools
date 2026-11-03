@@ -131,8 +131,10 @@ static partial class PowerBorrow
                     foreach (string cf in conds.Keys.ToList())
                         if (ConditionVehicle(conds[cf], pb, $"marvelgamecontent.default__{tp!.TargetClass}".ToLowerInvariant(), vclasses, slots, ownClass, game.Cooked, log, condStart) is { } cv)
                         {
-                            conds[cf] = UniqueVehicle(cv.Condition, vclasses, "on_" + th.ToLowerInvariant(), Path.GetFileName(cf), log);
-                            built[pf] = pb = UniqueVehicle(cv.Power, vclasses, "on_" + th.ToLowerInvariant(), pf, log);
+                            byte[] cb = cv.Condition;
+                            foreach (var (dfile, ddef) in DonorRideConditions(db, fx, e.Donor)) cb = ConditionExtras(cb, dfile, ddef, ownClass, game.Cooked, log);
+                            conds[cf] = UniqueVehicle(cb, vclasses, "on_" + th.ToLowerInvariant(), Path.GetFileName(cf), log);
+                            built[pf] = pb = PivotFixedParticles(UniqueVehicle(cv.Power, vclasses, "on_" + th.ToLowerInvariant(), pf, log), log);
                             // the costumes kept stock (Kate Bishop) play the renamed condition animations too: their own ride
                             // under those names (OwnRideNames)
                             // ... and the borrowed power's animation names (it plays for them too: SlotFadesForAll), from their own
@@ -1692,6 +1694,200 @@ static partial class PowerBorrow
         if (problems.Count > 0) throw new InvalidDataException($"{file}: the borrowed vehicle's own paths: " + string.Join("; ", problems.Take(3)));
         log.Add($"  {file}: the borrowed vehicle under its own paths ({string.Join(", ", renames.Select(r => $"{pkg.Exports[r.Key].ObjectName} → {r.Value}"))}), so a stock copy loaded first can't stand in for it");
         return o;
+    }
+
+    /// <summary>
+    /// The donor's ride conditions: the conditions its power sets off whose class default shows a vehicle
+    /// (ConditionFxMeshAttachment): (stock package, class default path). Cyclops: MarvelConditionEffect_CyclopsRideBike.
+    /// </summary>
+    static List<(string File, string Default)> DonorRideConditions(Fx.GameData db, Fx.FxGame game, string donorPower)
+    {
+        var list = new List<(string, string)>();
+        foreach (var a in Fx.PowerClosure.Of(db, donorPower).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)))
+        {
+            string def = $"marvelgamecontent.default__{a.Class}".ToLowerInvariant();
+            if (game.PackagesOf(a.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), def) >= 0) is not string file) continue;
+            var p = Package.Open(file);
+            if (Components(p, Find(p, def), out _, out _).Any(r => r > 0 && p.ClassOf(p.Exports[r - 1]).Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase)))
+                list.Add((file, def));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// The donor ride condition's other effects into the travel condition (everything but its vehicle attachment, which
+    /// ConditionVehicle puts in): with their templates, not on the costumes kept stock. Evidence (trace, 2026-11-03): stock
+    /// Cyclops' ride condition starts vfx_motorcycle_trail (x2) and vfx_wolverine_bike_exhaust when he gets on, and fades
+    /// the bike in (bikefadein); Hawkeye with the borrowed bike had none of them (the borrow copied only the power's).
+    /// Unchanged when there's nothing to add.
+    /// </summary>
+    static byte[] ConditionExtras(byte[] condition, string donorFile, string donorDefault, IReadOnlyList<string> ownClass, string cooked, List<string> log)
+    {
+        var dst = Package.FromBytes(condition);
+        int cd = Array.FindIndex(dst.Exports, x => x.ObjectName.StartsWith("default__marvelconditioneffect", StringComparison.OrdinalIgnoreCase) && dst.PathOf(x).Count(ch => ch == '.') == 1);
+        var src = Package.Open(donorFile);
+        int sd = Find(src, donorDefault);
+        if (cd < 0 || sd < 0) return condition;
+        string condDefault = dst.PathOf(dst.Exports[cd]);
+        var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [donorDefault] = condDefault };
+        var added = new List<int>();
+        var names = new List<string>();
+        foreach (int r in Components(src, sd, out _, out _))
+        {
+            if (r <= 0) continue;
+            var e = src.Exports[r - 1];
+            string cls = src.ClassOf(e);
+            if (cls.Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;   // (the vehicle: ConditionVehicle's)
+            string name = "borrowed_" + e.ObjectName;
+            if (Find(dst, condDefault + "." + name) >= 0) continue;
+            // its settings from a template in the shared ride condition's package, which isn't loaded for this hero (as Graft)
+            if (Template(src, r - 1) is string tpl && Find(dst, tpl) < 0 && TemplatePackage(cooked, tpl) is string tf)
+            {
+                var tp = Package.Open(tf);
+                int ti = Find(tp, tpl);
+                if (ti >= 0 && CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, []), out _) is { } tc) dst = Package.FromBytes(tc.Output);
+                else
+                {
+                    // the template can't come along under its own path (its class default, marvelconditioneffect_shared_
+                    // ridemotorcycle, has compiled code): a component with no settings of its own (Cyclops' bikefadein,
+                    // wheeltrailsvfx) is the template itself, so the template is copied under the component's name instead
+                    byte[] own = src.ReadExportBytes(e).ToArray();
+                    bool empty = TagWalker.Walk(src, own, 16) is { Count: 0 };
+                    string tplOuter = tpl[..tpl.LastIndexOf('.')];
+                    var flat = ti >= 0 && empty
+                        ? CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, [], name, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplOuter] = condDefault }), out _)
+                        : null;
+                    if (flat == null) { log.Add($"  {e.ObjectName}: its template {tpl} couldn't be copied, left out"); continue; }
+                    dst = Package.FromBytes(flat.Output);
+                    added.Add(flat.RootRef);
+                    names.Add(e.ObjectName + " (its template's settings)");
+                    continue;
+                }
+            }
+            if (Template(src, r - 1) is string tpl2 && Find(dst, tpl2) >= 0) replace[tpl2] = tpl2;
+            var copy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out string said);
+            if (copy == null) { log.Add($"  {e.ObjectName} ({cls}): couldn't be copied, left out"); continue; }
+            dst = Package.FromBytes(copy.Output);
+            added.Add(copy.RootRef);
+            names.Add(e.ObjectName);
+        }
+        if (added.Count == 0) return condition;
+        cd = Find(dst, condDefault);
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var addNames = new List<string>();
+        if (ownClass.Count > 0)
+            foreach (int r in added)
+                if (WithEntityLists(dst, r - 1, ownClass, require: false, addNames) is { } ld) rep[r - 1] = _ => ld;
+        var list = Components(dst, cd, out var tag, out byte[] dd);
+        list.AddRange(added);
+        var value = new byte[4 + 4 * list.Count];
+        BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
+        for (int k = 0; k < list.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(value.AsSpan(4 + 4 * k), list[k]);
+        byte[] nd = [.. dd.AsSpan(0, tag.ValueAt), .. value, .. dd.AsSpan(tag.ValueAt + tag.Size)];
+        BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(tag.Start + 16), value.Length);
+        rep[cd] = _ => nd;
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the condition's borrowed effects didn't verify: " + string.Join("; ", problems.Take(2)));
+        log.Add($"  {condDefault}: the donor ride's effects too ({string.Join(", ", names)}){(ownClass.Count > 0 ? $", not on {string.Join(", ", ownClass)}" : "")}");
+        return output;
+    }
+
+    /// <summary>
+    /// Borrowed pivot dust (confirmed in game 2026-11-03, 0.60.333: Hawkeye on Cyclops's bike gets the turn dust). These
+    /// effects pick their particle by the ground material under them (GroundMaterialOverrideList); for Hawkeye the lookup
+    /// gave vfx_null (ride21 telemetry: Cyclops agmdirt, Hawkeye vfx_null at the same turns). Editing the template copy
+    /// alone did nothing: the power's own borrowed_* components inherit from marvelgamecontent.default__powershared_ridebike,
+    /// a path the stock bike packages share (first loaded wins). So the template copies and the borrowed components both
+    /// name the dirt particle directly, the borrowed ones with an empty list of their own. Always dirt, whatever the
+    /// ground. Unchanged when there's nothing to change.
+    /// </summary>
+    static byte[] PivotFixedParticles(byte[] power, List<string> log)
+    {
+        var p = Package.FromBytes(power);
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var done = new List<string>();
+        var fixedBy = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < p.Exports.Length; i++)
+        {
+            if (!p.ClassOf(p.Exports[i]).Equals("PowerFxParticle", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[i]).ToArray();
+            var tags = TagWalker.Walk(p, d, 16);
+            var gl = tags?.FirstOrDefault(t => t.Name.Equals("GroundMaterialOverrideList", StringComparison.OrdinalIgnoreCase));
+            var pt = tags?.FirstOrDefault(t => t.Name.Equals("ParticleSystemTemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
+            if (tags == null || gl == null || pt == null) continue;
+            // the list's particle systems (export refs inside it), the dirt one preferred
+            int dirt = 0, any = 0;
+            for (int at = gl.ValueAt; at + 4 <= gl.ValueAt + gl.Size; at++)
+            {
+                int v = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at));
+                if (v <= 0 || v > p.Exports.Length || !p.ClassOf(p.Exports[v - 1]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) continue;
+                any = any == 0 ? v : any;
+                if (p.Exports[v - 1].ObjectName.EndsWith("agmdirt", StringComparison.OrdinalIgnoreCase)) { dirt = v; break; }
+            }
+            int use = dirt != 0 ? dirt : any;
+            if (use == 0) continue;
+            var m = new MemoryStream();
+            m.Write(d, 0, 16);
+            foreach (var t in tags)
+            {
+                if (t == gl) continue;
+                byte[] tb = d.AsSpan(t.Start, t.End - t.Start).ToArray();
+                if (t == pt) BinaryPrimitives.WriteInt32LittleEndian(tb.AsSpan(t.ValueAt - t.Start), use);
+                m.Write(tb);
+            }
+            m.Write(d, tags.NoneAt, d.Length - tags.NoneAt);
+            byte[] nd = m.ToArray();
+            rep[i] = _ => nd;
+            done.Add($"{p.Exports[i].ObjectName} → {p.Exports[use - 1].ObjectName}");
+            fixedBy[p.Exports[i].ObjectName] = use;
+        }
+        // 0.60.333 (ride21): the game never used the edited copies. The power's own components (borrowed_pivotwheelvfx …)
+        // inherit from marvelgamecontent.default__powershared_ridebike's, a path the stock bike packages have too (the
+        // first one loaded wins), and that stock copy's ground lookup gave vfx_null for Hawkeye while Cyclops got dirt.
+        // So the borrowed components carry the particle and an empty list themselves: whichever copy loads, theirs win.
+        int Name(string n) => Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        int nPst = Name("ParticleSystemTemplate"), nObj = Name("ObjectProperty"), nGl = Name("GroundMaterialOverrideList"), nArr = Name("ArrayProperty");
+        if (fixedBy.Count > 0 && nPst >= 0 && nObj >= 0 && nGl >= 0 && nArr >= 0)
+            for (int i = 0; i < p.Exports.Length; i++)
+            {
+                string on = p.Exports[i].ObjectName;
+                if (!on.StartsWith("borrowed_", StringComparison.OrdinalIgnoreCase) || !fixedBy.TryGetValue(on["borrowed_".Length..], out int use)
+                    || !p.ClassOf(p.Exports[i]).Equals("PowerFxParticle", StringComparison.OrdinalIgnoreCase)) continue;
+                byte[] d = p.ReadExportBytes(p.Exports[i]).ToArray();
+                var tags = TagWalker.Walk(p, d, 16);
+                if (tags == null) continue;
+                byte[] Tag(int name, int type, byte[] value)
+                {
+                    var t = new byte[24 + value.Length];
+                    BinaryPrimitives.WriteInt32LittleEndian(t, name);
+                    BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(8), type);
+                    BinaryPrimitives.WriteInt32LittleEndian(t.AsSpan(16), value.Length);
+                    value.CopyTo(t, 24);
+                    return t;
+                }
+                var refv = new byte[4];
+                BinaryPrimitives.WriteInt32LittleEndian(refv, use);
+                var m = new MemoryStream();
+                m.Write(d, 0, 16);
+                foreach (var t in tags)
+                {
+                    if (t.Name.Equals("ParticleSystemTemplate", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("GroundMaterialOverrideList", StringComparison.OrdinalIgnoreCase)) continue;
+                    m.Write(d, t.Start, t.End - t.Start);
+                }
+                m.Write(Tag(nPst, nObj, refv));
+                m.Write(Tag(nGl, nArr, new byte[4]));   // an empty array: count 0
+                m.Write(d, tags.NoneAt, d.Length - tags.NoneAt);
+                byte[] nd = m.ToArray();
+                rep[i] = _ => nd;
+                done.Add($"{on} → {p.Exports[use - 1].ObjectName} (own, empty list)");
+            }
+        if (rep.Count == 0) return power;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) { log.Add("  the fixed pivot particles didn't verify: " + string.Join("; ", problems.Take(2))); return power; }
+        log.Add($"  experiment: ground-material particles fixed ({string.Join(", ", done)})");
+        return output;
     }
 
     /// <summary>The travel condition's own copy of a borrowed start (Build's conditionStart): "movement_ridebike_start_cond".</summary>
