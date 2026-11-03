@@ -388,68 +388,7 @@ sealed partial class ModEditorView : UserControl
     /// stock copy loaded first can't show instead (a Model tab build into Jessica's team-up is jessica_jones.jessicajones_tv,
     /// like her agent's and NPC's). A package already unique, or one that ships every copy, is left as it is. The work folder.
     /// </summary>
-    string? MakeDraftUnique(List<string> log)
-    {
-        if (game == null || draft.KeepShared) return null;   // (Overview → Keep Shared Paths)
-        var files = draft.Packages.Where(p => UniqueNames.Covers(p.File) && File.Exists(p.Source)).ToList();
-        if (files.Count == 0) return null;
-        var shared = UniqueNames.Shared(UniqueNames.Folder(game.Cooked));
-        var shipped = draft.Packages.Select(p => p.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        string tag = UniqueNames.Tag(draft.Name), work = Path.Combine(lib.DataFolder, "make-unique-" + Guid.NewGuid().ToString("N")[..8]);
-        bool any = false;
-        foreach (var (file, source) in files)
-        {
-            string src = source;
-            var own = UniqueNames.OwnFiles(file, game.Cooked);
-            // groups an earlier Make Unique renamed that today's rules keep shared go back first (0.50.19)
-            var backNotes = new List<string>();
-            if (UniqueNames.Reshare(src, StockFiles.For(game.Cooked, file), file, shared, shipped, own, draft.Name, backNotes, game.Cooked) is byte[] reshared)
-            {
-                Directory.CreateDirectory(work);
-                string back = Path.Combine(work, "reshared_" + file);
-                File.WriteAllBytes(back, reshared);
-                log.AddRange(backNotes.Select(n => $"unique: {file}: {n}"));
-                int kb = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
-                draft.Packages[kb] = (file, back);
-                src = back;
-                any = true;
-            }
-            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag, own, game.Cooked);
-            string final = src;
-            if (plan.Changes)
-            {
-                Directory.CreateDirectory(work);
-                string dst = Path.Combine(work, file);
-                byte[] built = UniqueNames.Build(src, plan);
-                File.WriteAllBytes(dst, built);
-                draft.BeforeUnique[file] = (src, UniqueNames.Sha(built));   // (Make Unique's undo copy: the package before this rename)
-                int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
-                draft.Packages[k] = (file, dst);
-                log.AddRange(plan.Notes.Select(n => $"unique: {file}: {n}"));
-                final = dst;
-                any = true;
-            }
-            // the summons kept showing the mod's model (Jean's illusions): their materials and scale fitted to it (0.50.22)
-            if (!file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) continue;
-            // (every model of it the hero's own summons share, the ones the mod ships already too: Make Unique leaves those out)
-            var kept = SummonLooks.SharedWith(final, file, shared, own);
-            if (kept.Count == 0) continue;
-            var fixNotes = new List<string>();
-            var fixes = SummonLooks.Fix(file, final, StockFiles.For(game.Cooked, file), kept, game.Cooked,
-                f => draft.Packages.FirstOrDefault(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source, draft.Packages.Select(p => p.Source), fixNotes);
-            log.AddRange(fixNotes.Select(n => $"summons: {n}"));
-            foreach (var (sumFile, bytes) in fixes)
-            {
-                Directory.CreateDirectory(work);
-                string dst = Path.Combine(work, sumFile);
-                File.WriteAllBytes(dst, bytes);
-                int k = draft.Packages.FindIndex(p => p.File.Equals(sumFile, StringComparison.OrdinalIgnoreCase));
-                if (k >= 0) draft.Packages[k] = (sumFile, dst); else draft.Packages.Add((sumFile, dst));
-                any = true;
-            }
-        }
-        return any ? work : null;
-    }
+    string? MakeDraftUnique(List<string> log) => SaveSteps.MakeUnique(draft, lib, game, log);
 
     /// <summary>A new mod saved with an author while no author name is set: offers to keep it for new mods (once per name).</summary>
     void OfferAuthorName()

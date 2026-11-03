@@ -963,6 +963,13 @@ static partial class Program
                 Console.WriteLine($"written: {rest[2]}");
                 return 0;
             }
+            case "--component-templates":
+            {
+                // --component-templates <package.upk> <class default path>: each component's archetype and template (read only)
+                if (rest.Count < 3) { Console.WriteLine("--component-templates <package.upk> <class default path>"); return 1; }
+                PowerBorrow.TemplateReport(rest[1], rest[2]).ForEach(Console.WriteLine);
+                return 0;
+            }
             case "--slot-fades-test":
             {
                 // --slot-fades-test <power.upk> <out.upk> <class default path> <stock power.upk>: what a travel borrow with a

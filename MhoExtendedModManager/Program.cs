@@ -28,6 +28,7 @@ static partial class Program
         ("--migrate", "--migrate <old folder> [--to <lib>]", "Copy MHModManager's mods, order, verified stock backups and settings into a new library (default %LOCALAPPDATA%\\MhoExtendedModManager\\library). The old folder is left as it is."),
         ("--install", "--install <archive.zip|.7z|folder> [--replace]", "Add the mod(s) in an archive or folder to the library (top of the list, disabled). --replace updates a mod of the same name in place (keeps its place, on/off, lock, tags and note)."),
         ("--export", "--export <mod> <out.zip> [--legacy]", "Save a mod from the library as a .zip (installable here and in MHModManager; --legacy also leaves out the other-icon-package extension)."),
+        ("--resave", "--resave <mod>", "Build the mod again with this version and save it, as right-click → Resave does (the Editor's Save steps, without the Editor). Changes only the mod in the library; Apply Changes afterwards updates the game."),
         ("--remove", "--remove <mod> [--dry-run]", "Remove a disabled mod from the library (to the discarded copies). Refused while its own files are still modded in the game (Apply first). --dry-run only says whether it could be removed."),
         ("--enable", "--enable <mod>", "Enable a mod (library state only; run --apply to change the game)."),
         ("--disable", "--disable <mod>", "Disable a mod (library state only; run --apply to change the game)."),
@@ -468,6 +469,18 @@ static partial class Program
                 foreach (var c in cleaned) Console.WriteLine($"{(dry ? "would clear" : "cleared")}: {c.What}: {c.Files} file(s)/folder(s), {c.Bytes / 1048576.0:0.0} MB");
                 if (cleaned.Count == 0) Console.WriteLine("nothing to clear");
                 return 0;
+            }
+            case "--resave":
+            {
+                if (IsOldManager(data)) { Console.WriteLine(OldManagerRefusal); return 1; }
+                var rm = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                string? rgr = settings.ResolvedGameRoot(data);
+                if (rm == null || rgr == null || !Settings.IsGameRoot(rgr)) { Console.WriteLine("--resave <mod> (needs the game folder set)"); return 1; }
+                var rlog = new List<string>();
+                string? rsaved = ModResave.Run(lib, new GameState(rgr, data), rm, rlog, out string? rerr);
+                rlog.ForEach(l => Console.WriteLine("  " + l));
+                Console.WriteLine(rsaved != null ? $"resaved: {rsaved}" : $"not resaved: {rerr}");
+                return rsaved != null ? 0 : 1;
             }
             case "--remove":
             {

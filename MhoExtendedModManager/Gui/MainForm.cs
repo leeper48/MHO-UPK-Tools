@@ -1288,6 +1288,37 @@ sealed partial class MainForm : Form
         pages.Select(1);
     }
 
+    /// <summary>
+    /// A card's Resave (Kurt, 2026-11-03: after each new version the travel tests needed Edit, then Save, by hand; opening
+    /// the Editor and waiting for its tabs defeated the purpose): Save's build steps on the saved mod, in the background,
+    /// without the Editor (ModResave). The mod open in the Editor is closed first (asked when it has unsaved changes),
+    /// because the save swaps the mod's folder under it.
+    /// </summary>
+    async Task ResaveMod(Mod m)
+    {
+        if (readOnly || lib == null) return;
+        if (game == null) { Dialog.Show(this, "The game folder isn't set (Settings → Change Game Folder).", "Not Resaved", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (editor?.Editing?.FolderName == m.FolderName)
+        {
+            if (editor.IsDirty && Dialog.Show(this, $"\"{m.Name}\" is open in the Editor with changes that aren't saved. Close it (those changes are lost) and resave it as it was saved?", "Resave", MessageBoxButtons.OKCancel) != DialogResult.OK) { pages.Select(1); return; }
+            CloseEditor();
+        }
+        status.Text = Ui.TitleCase($"Resaving \"{m.Name}\"…");
+        var log = new List<string>();
+        string? error = null;
+        var (rlib, rgame) = (lib, game);
+        string? saved = await Task.Run(() => ModResave.Run(rlib, rgame, m, log, out error));
+        if (saved == null)
+        {
+            status.Text = Ui.TitleCase($"\"{m.Name}\" Wasn't Resaved");
+            Dialog.Show(this, (error ?? "") + (log.Count > 0 ? "\n\n" + string.Join("\n", log.TakeLast(12)) : ""), "Not Resaved", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        Reload();
+        SelectMod(saved);
+        status.Text = Ui.TitleCase($"Resaved \"{m.Name}\"") + (m.Enabled ? "  ·  Apply Changes to Update the Game" : "");
+    }
+
     void OpenEditor(Mod? m)
     {
         CloseEditor();

@@ -1,6 +1,18 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.331
+- Resave runs in the background in a few seconds, without opening the Editor, and gives the same result as Edit, then Save. A mod with dodge ghosts or added props still needs Edit, then Save, and says so. There's also a command for it: --resave <mod>.
+
+0.60.330
+- Right-click a mod → Resave: opens the mod in the Editor and saves it as it is, so the current version of the Mod Manager builds it again. It's the same as Edit, then Save. If the Editor has unsaved changes, it asks first.
+
+0.60.329
+- Borrowed travel rides on Hawkeye: the borrowed bike's dirt sparks on sharp turns are back for Hawkeye (0.60.328 kept them off Kate Bishop, which stopped them for everyone). Kate gets them too now, because the game can't limit sparks that fire on a turn to some costumes. Open the mod in the Editor and save it once to rebuild it.
+
+0.60.328
+- Borrowed travel rides on Hawkeye: Kate Bishop's Sky-Cycle now shows from the start of her ride (it came 0.3 s late), her bow is hidden while she rides, and her Sky-Cycle's thrusters are back. The borrowed bike's wheel effects no longer play on her. Open the mod in the Editor and save it once to rebuild it.
+
 0.60.327
 - Borrowed travel rides on Hawkeye: Kate Bishop heard the borrowed motorcycle while riding her Sky-Cycle. The borrowed sounds play on everyone except costumes of their own class again, and those get their own ride's sounds back. Open the mod in the Editor and save it once to rebuild it.
 

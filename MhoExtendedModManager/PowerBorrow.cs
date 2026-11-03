@@ -1363,17 +1363,27 @@ static partial class PowerBorrow
         // Evidence (Kurt 2026-11-03): with the lists on (0.60.322 / 0.60.323) Kate heard no motorcycle; with every list taken
         // off (0.60.325 / 0.60.326) she did. The lists fail on the animation (no power user at its activation point:
         // SlotFadesForAll above), not on the sounds. A hypothesis for the sounds until heard in game.
+        // Particles and the costumes' own slot shows / hides likewise (stock Kate against the borrow, compare.py 2026-11-03:
+        // her Sky-Cycle showed 0.32 s late, only from the condition; her bow wasn't hidden, both hands; her exhaust
+        // thrusters were gone). Their own (stock) ones only on them; the borrowed particles (Cyclops' wheel sparks) not on
+        // them. A borrowed slot hide stays for everyone. If a list doesn't work on one of these, the trace's FxConsider
+        // without FxActivate shows it.
         string? soundNote = null;
         if (classes.Count > 0)
         {
-            bool IsSound(int r) => p.ClassOf(p.Exports[r - 1]).Equals("PowerFxSound", StringComparison.OrdinalIgnoreCase);
+            static bool Is(string c, params string[] names) => names.Any(n => c.Equals(n, StringComparison.OrdinalIgnoreCase));
+            string Cls(int r) => p.ClassOf(p.Exports[r - 1]);
             var stockRefs = stockComps.Select(x => Find(p, x) + 1).Where(r => r > 0).ToHashSet();
             var mine = new List<string>(); var theirs = new List<string>();
-            foreach (int r in list.Where(r => r > 0 && IsSound(r) && !stockRefs.Contains(r)).ToList())
+            // (the borrowed particles stay without lists: Cyclops' pivot sparks fire on a turn, where the list check has no
+            // power user and fails for everyone. Evidence, trace 2026-11-03 with sharp turns: stock Cyclops fired the pivot
+            // sound and 2 pivot particle systems per turn; Hawkeye with "not on Kate" lists fired the sound 3 times and the
+            // particles never. Sounds' lists and Kate's own thrusters (at the power's start) worked.)
+            foreach (int r in list.Where(r => r > 0 && !stockRefs.Contains(r) && Is(Cls(r), "PowerFxSound")).ToList())
                 if (WithEntityLists(p, r - 1, classes, require: false, addNames) is { } cd) { rep[r - 1] = _ => cd; mine.Add(p.Exports[r - 1].ObjectName); }
-            foreach (int r in stockRefs.Where(IsSound).ToList())
+            foreach (int r in stockRefs.Where(r => Is(Cls(r), "PowerFxSound", "PowerFxParticle", "PowerFxMeshAttachment")).ToList())
                 if (WithEntityLists(p, r - 1, classes, require: true, addNames) is { } cd) { rep[r - 1] = _ => cd; if (!list.Contains(r)) list.Add(r); theirs.Add(p.Exports[r - 1].ObjectName); }
-            if (mine.Count + theirs.Count > 0) soundNote = $"; sounds: {string.Join(", ", mine)} not on {string.Join(", ", classes)}, {string.Join(", ", theirs)} only on them";
+            if (mine.Count + theirs.Count > 0) soundNote = $"; {string.Join(", ", mine)} not on {string.Join(", ", classes)}; {string.Join(", ", theirs)} only on them";
         }
         var value = new byte[4 + 4 * list.Count];
         BinaryPrimitives.WriteInt32LittleEndian(value, list.Count);
@@ -3665,6 +3675,29 @@ static partial class PowerBorrow
         if (problems.Count > 0) { log.Add($"  the power's end animation couldn't be set ({string.Join("; ", problems.Take(2))})"); return package; }
         log.Add($"  the power's empty end slot plays {endName}");
         return output;
+    }
+
+    /// <summary>Each component of a class default with its class, its archetype's full path (export or import chain) and what
+    /// Template() makes of it (--component-templates). Read only.</summary>
+    internal static List<string> TemplateReport(string package, string defaultPath)
+    {
+        var p = Package.Open(package);
+        int d = Find(p, defaultPath);
+        if (d < 0) return [$"{defaultPath} not found"];
+        var lines = new List<string>();
+        foreach (int r in Components(p, d, out _, out _))
+        {
+            if (r <= 0) continue;
+            int arch = BinaryPrimitives.ReadInt32LittleEndian(p.Body.AsSpan(p.ExportEntryStart[r - 1] + 20));
+            var parts = new List<string>();
+            for (int a = arch, guard = 0; a != 0 && guard < 16; guard++)
+            {
+                if (a > 0) { parts.Insert(0, p.PathOf(p.Exports[a - 1]) + " (export)"); break; }
+                var im = p.Imports[-a - 1]; parts.Insert(0, im.ObjectName); a = im.OuterIndex;
+            }
+            lines.Add($"{p.Exports[r - 1].ObjectName} ({p.ClassOf(p.Exports[r - 1])}): archetype {(arch == 0 ? "none" : string.Join(".", parts))} → template {Template(p, r - 1) ?? "none"}");
+        }
+        return lines;
     }
 
     /// <summary>Each animation component of a power with its AnimName / PowerAnims entries in order, None included (--power-anim-list).</summary>

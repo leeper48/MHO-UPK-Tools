@@ -187,6 +187,7 @@ sealed partial class MainForm
         int at = 0;
         menu.Items.Insert(at++, new ToolStripMenuItem(m.Enabled ? "Turn Off" : "Turn On", null, (_, _) => Toggle(m)) { Enabled = !readOnly });
         menu.Items.Insert(at++, new ToolStripMenuItem("Edit", null, (_, _) => EditMod(m)) { Enabled = !readOnly });
+        menu.Items.Insert(at++, new ToolStripMenuItem("Resave", null, (_, _) => _ = ResaveMod(m)) { Enabled = !readOnly, ToolTipText = "Builds this mod again with this version of the Mod Manager and saves it, in a few seconds, without opening the Editor: the same as Edit, then Save (borrowed powers, colors, parts, sounds …). If it's on, Apply Changes afterwards." });
         menu.Items.Insert(at++, new ToolStripMenuItem("Export to ZIP", null, (_, _) => ExportMod()));
         menu.Items.Insert(at++, new ToolStripMenuItem("Duplicate", null, (_, _) => DuplicateMod(m)) { Enabled = !readOnly, ToolTipText = "A copy of this mod under a new name (all its files, Model work and settings), added at the top of the list, off: a start to experiment from while this one stays as it is." });
         menu.Items.Insert(at++, new ToolStripMenuItem("Update from a File", null, (_, _) => UpdateFromFile(m)) { Enabled = !readOnly });

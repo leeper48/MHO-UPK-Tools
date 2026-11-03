@@ -125,13 +125,17 @@ sealed partial class ModEditorView
     /// <summary>A top tab's title (Overview, Icons … Powers), by its place (TabPosition.Top).</summary>
     public string TopTabTitle(int i) => i >= 0 && i < tabs.Count ? tabs.TitleAt(i) : "";
 
-    /// <summary>Test hook (--editor-save-test): visits every tab so each page loads, then saves as the Save button does.</summary>
-    public async Task<string?> SaveForTest()
+    /// <summary>Visits every tab so each page loads, then saves as the Save button does (the mod list's Resave, and the
+    /// --editor-save-test hook). The saved folder name, or null when Save stopped (it said why).</summary>
+    public async Task<string?> SaveAfterLoading()
     {
         for (int i = 0; i < pages.Count; i++) { pages[i].Show(); await Task.Delay(pages[i].Title is "Packages" or "Icons" or "Store Images" ? 5000 : 500); }
         Save();
         return SavedName;
     }
+
+    /// <summary>Test hook (--editor-save-test).</summary>
+    public Task<string?> SaveForTest() => SaveAfterLoading();
 
     /// <summary>Test hook (--keep-editing-test): Save and Keep Editing, without the questions Save can ask.</summary>
     internal void SaveStayForTest() { KeepEditing = true; Save(); }
