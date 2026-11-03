@@ -64,17 +64,32 @@ sealed class PreviewProps
     /// <param name="firstPass">The loop's first play after its start: the climb goes on where the start left off (Kurt,
     /// 2026-11-02: Cap's 0.27 s start on Hawkeye, who climbs 140 at 170 a second, left his loop sunk for half a second in
     /// game; the floor held at full height hid it here). Its repeats are at full height.</param>
-    public float GroundAt(double seconds, bool firstPass = false)
+    public float GroundAt(double seconds, bool firstPass = false) => FloorAt(phase, (float)seconds, firstPass, lift, rise, fall, applyAt, startSeconds);
+
+    /// <summary>
+    /// The game's floor under a high-flying power's part (PowerBorrow.FlightLift, from the client's code, 2026-11-02), shared by
+    /// the 3D view and the Height strip: nothing until the power applies (<paramref name="applyAt"/> after activation, which is
+    /// the start's first frame), then up in a straight line at the hero's flyingZSpeed (<paramref name="rise"/>); a loop's
+    /// first play after its start goes on from where the start left off (<paramref name="startSeconds"/>: the start's play
+    /// time, the wind-up); the end comes down at landingZSpeed. <paramref name="phase"/>: 1 start, 0 loop, -1 end. 0 when
+    /// <paramref name="lift"/> is 0 (not a high-flying power).
+    /// </summary>
+    public static float FloorAt(int phase, float seconds, bool firstPass, float lift, float rise, float fall, float applyAt, float startSeconds)
     {
         if (lift <= 0) return 0;
-        float t = (float)Math.Max(0, seconds);
-        // the game's lift (PowerBorrow.FlightLift, from the client's code, 2026-11-02): nothing until the power applies (applyAt
-        // after activation, which is the start's first frame), then up in a straight line at the hero's flyingZSpeed; a loop's
-        // first play goes on from where its start left off; the end comes down at landingZSpeed
+        float t = Math.Max(0, seconds);
         if (phase > 0) return -PowerBorrow.LiftAt(t, applyAt, rise, lift);
         if (phase == 0 && firstPass && startSeconds > 0) return -PowerBorrow.LiftAt(startSeconds + t, applyAt, rise, lift);
         return -(phase < 0 ? Math.Max(0, lift - fall * t) : lift);
     }
+
+    /// <summary>The loop played on into its end (Preview3D's chain): the floor comes down at once, before the end's own
+    /// settings have loaded.</summary>
+    public void BeginEnd() { if (lift > 0 && phase == 0) { phase = -1; chained = true; } }
+
+    /// <summary>The chain moved to the next part of a high-flying power: its flight is kept when that part's own settings name
+    /// none (an end the borrow filled but not saved yet isn't in the power index the preview reads).</summary>
+    bool chained;
 
     /// <summary>The length (seconds, at its play rate) of a loop's start animation, by name; 0 when there's none.</summary>
     public Func<string, float>? StartSeconds { get; init; }
@@ -83,9 +98,9 @@ sealed class PreviewProps
     /// <summary>Tests: the floor's inputs.</summary>
     internal string FloorStateForTest => $"lift {lift} rise {rise} applyAt {applyAt} windUp {windUp} phase {phase} startSeconds {startSeconds}";
 
-    /// <summary>The start played on into its loop (Preview3D.ChainToLoop): the floor goes on as the loop's first play at once,
+    /// <summary>The start played on into its loop (Preview3D's chain): the floor goes on as the loop's first play at once,
     /// before the loop's own settings have loaded.</summary>
-    public void BeginLoop() { if (lift > 0 && phase > 0) { phase = 0; startSeconds = windUp > 0 ? windUp : startSeconds; } }
+    public void BeginLoop() { if (lift > 0 && phase > 0) { phase = 0; startSeconds = windUp > 0 ? windUp : startSeconds; chained = true; } }
 
     /// <summary>The playing power's lift (HighFlyingHeight) and the hero's speeds (null: not a high-flying power).</summary>
     public (float Lift, float Rise, float Fall)? Flight => lift > 0 ? (lift, rise, fall) : null;
@@ -175,10 +190,16 @@ sealed class PreviewProps
                 var t = Task.FromResult(t0.Result.S);
                 (rules, contact) = (t.Result.Rules, t.Result.Contact);
                 // the floor under a high-flying power (GroundAt, drawn by the preview's ShowPose): rising, held, falling
-                lift = t.Result.Lift;
-                applyAt = t.Result.ApplyAt;
-                windUp = t.Result.ChannelStart;
-                (rise, fall) = t0.Result.Speeds;
+                // (a chain's next part that names no power keeps the flight it came from)
+                bool keep = chained && t.Result.Lift <= 0 && lift > 0;
+                chained = false;
+                if (!keep)
+                {
+                    lift = t.Result.Lift;
+                    applyAt = t.Result.ApplyAt;
+                    windUp = t.Result.ChannelStart;
+                    (rise, fall) = t0.Result.Speeds;
+                }
                 phase = anim != null && anim.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : anim != null && anim.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
                 // (the game plays a high-flying power's start over its wind-up, whatever the start's own length: the loop's first
                 // play begins when the wind-up ends, and a start shown now is played over it: Retime)

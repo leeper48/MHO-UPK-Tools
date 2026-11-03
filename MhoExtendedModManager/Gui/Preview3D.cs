@@ -53,7 +53,8 @@ sealed partial class Preview3D : UserControl
     /// <summary>Show the warning over the view (the Model tab's preview doesn't: its package isn't the mod's final one).</summary>
     public bool WarnUnlisted { get; init; } = true;
     readonly DropDown anims = new() { Dock = DockStyle.Fill };
-    readonly Button play, loop, reset, look, frameHead, frameBust, frameFull, quadButton, fullScreen, powersButton;
+    readonly Button partPrev, partNext;
+    readonly Button play, loop, chain, reset, look, frameHead, frameBust, frameFull, quadButton, fullScreen, powersButton;
     readonly LightSlider frame = new() { Dock = DockStyle.Fill, Label = "Frame", Min = 0, Max = 1, Step = 0, Mark = null, Height = 26 };
     readonly LightSlider light = new() { Label = "Light", Height = 26 };
     readonly LightSlider glowSlider = new() { Label = "Glow", Min = 0f, Max = 2f, Height = 26 };
@@ -75,8 +76,9 @@ sealed partial class Preview3D : UserControl
     AnimPlayer? player;
     AnimPlayer Player => player ??= new AnimPlayer
     {
-        Loop = () => prefs.Loop,
-        Moved = (f, ended) => { if (playTime + 1e-3f < lastMoved) loopPass++; lastMoved = playTime; if (ChainToLoop(ended)) return; FxAdvance(playTime, ended); Pose(f); },
+        // (in a chain every part runs on past its last frame: the chain moves on when it wraps)
+        Loop = () => prefs.Loop || ChainParts() != null,
+        Moved = (f, ended) => { if (playTime + 1e-3f < lastMoved) loopPass++; lastMoved = playTime; if (ChainStep(ended)) return; FxAdvance(playTime, ended); Pose(f); },
         StateChanged = () => { play.Text = IsPlaying ? "❚❚" : "▶"; view.Moving = IsPlaying; if (!IsPlaying) PlaybackMoved?.Invoke(); },   // smaller frames while playing (ModelView.Moving)
         CanRun = () => CanRun?.Invoke() ?? true,
     };
@@ -84,9 +86,9 @@ sealed partial class Preview3D : UserControl
     /// carries on its start's climb), and the time last moved to.</summary>
     int loopPass;
     float lastMoved;
-    /// <summary>The loop showing was reached from its start (Start Into Loop): its first play carries on the climb, as in game;
-    /// a loop picked on its own shows the steady flight.</summary>
-    bool fromStart, chainingToLoop;
+    /// <summary>The loop showing was reached from its start (Chain): its first play carries on the climb, as in game; a loop
+    /// picked on its own shows the steady flight.</summary>
+    bool fromStart, chainingToLoop, chainSwitching;
     BoneAnimation? anim => player?.Anim;
     float frames => player?.Frames ?? 0;
     float seconds => player?.Seconds ?? 0;
@@ -130,6 +132,18 @@ sealed partial class Preview3D : UserControl
         BackColor = Color.Transparent;
         play = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses).");
         loop = Ui.FlatButton("⟳ Loop", () => { prefs.Loop = !prefs.Loop; prefs.Save(); Ui.Lit(loop!, prefs.Loop); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
+        chain = Ui.FlatButton("Chain", ToggleChain, "Play a power's parts one after another, as the game does: its start, its loop (played twice; right-click to change how many times), then its end. Pick any part to begin there. With Loop on the chain starts over, else it stops on the end's last frame. Off: each part plays on its own. Lit when on; remembered.");
+        ShortcutsUi.MenuItems.AddOrUpdate(chain, () =>
+        {
+            var list = new List<ToolStripItem>();
+            foreach (int n in new[] { 1, 2, 3, 5 })
+            {
+                var item = new ToolStripMenuItem(n == 1 ? "Loop Plays Once" : $"Loop Plays {n} Times") { Checked = PreviewViews.ChainLoops == n, ToolTipText = "How many times the loop plays in a chain before its end." };
+                item.Click += (_, _) => { PreviewViews.ChainLoops = n; if (!PreviewViews.Chain) ToggleChain(); };
+                list.Add(item);
+            }
+            return list;
+        });
         reset = Ui.FlatButton("Reset View", () => { if (ResetViewAction != null) ResetViewAction(); else view.ResetView(); }, "Frame the whole model again. Drag to turn, right-drag to move, wheel to zoom (Shift: finer), double-click to centre.");
         look = Ui.FlatButton("Look ▾", ShowLookMenu, "How the model is shown: Spec, Reflect, Glow, Bloom, Props, Power FXs and Ground on or off, and the Light, Glow and Lens sliders. Remembered.");
         // Shift+click locks the view to that part, or unlocks it (Kurt, 2026-11-02), as the right-click menu's Lock View does
@@ -141,6 +155,7 @@ sealed partial class Preview3D : UserControl
         ShortcutsUi.Attach(play, "view.play");
         powersButton = Ui.FlatButton("Power FXs", () => { prefs.Powers = !prefs.Powers; prefs.Save(); ApplyLook(); LoadEffects(); }, "Play the effects of the power an animation belongs to with it (lightning, shockwaves, trails …, read from the game's power packages). Lit when on; remembered.");
         Icons.Make(loop, "Loop", Icons.Loop, S);
+        Icons.Make(chain, "Chain", Icons.Link, S);
         Icons.Make(look, "Look", Icons.Look, S);
         Icons.Make(reset, "Reset View", Icons.ResetView, S);
         Ui.Tip(anims, "The character's animations (from its base package, in the game's order). Rest Pose = the bind pose the mesh is built in. A power button below shows only that power's.");
@@ -173,6 +188,7 @@ sealed partial class Preview3D : UserControl
         frame.Enabled = false; frame.Format = _ => "–";
         anims.SelectedIndexChanged += (_, _) => AnimationChosen();
         Ui.Lit(loop, prefs.Loop);
+        Ui.Lit(chain, PreviewViews.Chain);
         ApplyLook();
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent, Margin = new Padding(0) };
@@ -190,9 +206,19 @@ sealed partial class Preview3D : UserControl
         unlistedWarn.Click += (_, _) => ShowUnlistedHelp();
         // one row (Kurt, 2026-10-04: the animation list was twice as wide as it needs; Look, Reset View, the framing and full
         // screen buttons beside it): the list takes what the buttons leave
-        bar = Strip(anims, [play, loop, .. barButtons, look, reset, frameHead, frameBust, frameFull, quadButton, fullScreen]);
+        bar = Strip(anims, [play, loop, chain, .. barButtons, look, reset, frameHead, frameBust, frameFull, quadButton, fullScreen]);
         root.Controls.Add(bar, 0, 1);
-        root.Controls.Add(frame, 0, 2);
+        // ◀ / ▶ beside the frame slider: the chain's previous / next part (Kurt, 2026-11-02)
+        partPrev = Ui.FlatButton("◀", () => StepPart(-1), "The previous part of this power's chain (its start before its loop, its loop before its end; from the start, its end), from its first frame. Playing stays playing.");
+        partNext = Ui.FlatButton("▶", () => StepPart(1), "The next part of this power's chain (its loop after its start, its end after its loop; after the end, its start again), from its first frame, as the game goes on from one to the next. Playing stays playing.");
+        partPrev.Enabled = partNext.Enabled = false;
+        var frameRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, BackColor = Color.Transparent, Margin = Padding.Empty };
+        frameRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        frameRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        frameRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        partPrev.Margin = new Padding(0, 2, 4, 0); partNext.Margin = new Padding(4, 2, 0, 0);
+        frameRow.Controls.Add(partPrev, 0, 0); frameRow.Controls.Add(frame, 1, 0); frameRow.Controls.Add(partNext, 2, 0);
+        root.Controls.Add(frameRow, 0, 2);
         powerBlock = PowerBlock();
         root.Controls.Add(powerBlock, 0, 3);   // Power FXs + the power buttons
         rootTable = root;
@@ -218,6 +244,7 @@ sealed partial class Preview3D : UserControl
         glowSlider.Value = prefs.GlowStrength; view.GlowStrength = prefs.GlowStrength;
         effectsSlider.Value = PreviewViews.FxPower; view.EffectStrength = PreviewViews.FxPower;
         Ui.Lit(loop, prefs.Loop);
+        Ui.Lit(chain, PreviewViews.Chain);
         ApplyLook();
     }
 
@@ -242,7 +269,6 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
             items.Add(new("Barrel Size Reference", "A 55-gallon oil drum from the game (Brooklyn's docks) on the floor beside the character, to judge sizes by. Drag it to move it along the floor (in any pane); double-click it to put it back beside the character. Remembered for every 3D view.", () => PreviewViews.SizeRef, () => { PreviewViews.SizeRef = !PreviewViews.SizeRef; Props.Rebuild(); }));
             items.Add(new("Prop Pivots", "Each prop's pivot: the point its model is placed and turned around (its bone, the attachment's offset and its own move and turn), with its axes (X red, Y green, Z blue). Prop Fit moves and turns the prop about it. Remembered for every 3D view.", () => PreviewViews.Pivots, () => { PreviewViews.Pivots = !PreviewViews.Pivots; ShowPose(); }));
-            items.Add(new("Start Into Loop", "A high-flying travel power's start plays on into its loop, as the game plays them, so the moment the loop takes over shows (off: the start loops on its own, to look at it). Remembered for every 3D view.", () => PreviewViews.StartIntoLoop, () => PreviewViews.StartIntoLoop = !PreviewViews.StartIntoLoop));
             items.Add(new("Axis Gizmo", "The game's axes in the view's corner, as Blender's: X red (the way the character faces), Y green, Z blue (up). Remembered for every 3D view.", () => PreviewViews.Gizmo, () => PreviewViews.Gizmo = !PreviewViews.Gizmo));
             items.AddRange(ExtraLook);
             lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });
@@ -424,7 +450,7 @@ sealed partial class Preview3D : UserControl
     {
         Player.Stop();
         loopPass = 0; lastMoved = 0;
-        fromStart = chainingToLoop; chainingToLoop = false;
+        fromStart = chainingToLoop; chainingToLoop = chainSwitching = false;
         int i = anims.SelectedIndex - 1;
         BoneAnimation? a = null;
         if (i >= 0 && i < animList.Count)
@@ -443,6 +469,7 @@ sealed partial class Preview3D : UserControl
         LoadPropSwitches();
         Pose(frames > 0 && seconds > 0 ? playTime / seconds * frames : 0);
         RefreshPowerButtons();
+        UpdatePartButtons();
         AnimationPicked?.Invoke(CurrentAnimation, !quietPick);
         if (autoPlay) { autoPlay = false; if (a != null) TogglePlay(); }
     }
@@ -544,24 +571,111 @@ sealed partial class Preview3D : UserControl
         Pose(frames > 0 && seconds > 0 ? playTime / seconds * frames : 0);
     }
 
-    /// <summary>
-    /// A high-flying power's start played on into its loop, as the game plays them (PowerFXAnimationLooping: the start over
-    /// the wind-up, then the loop; Kurt, 2026-11-02: the dip at the handover showed in game but never here, where the start
-    /// and the loop played on their own). The loop's first play then carries on the climb (PreviewProps.GroundAt). The
-    /// handover is a cut: the game blends it, over a time it doesn't state. True when it switched.
-    /// </summary>
     /// <summary>Tests: the floor's inputs and the loop count.</summary>
     internal string FloorStateForTest => $"{props?.FloorStateForTest} loopPass {loopPass}";
 
-    bool ChainToLoop(bool ended)
+    static readonly string[] ChainSuffixes = ["_start", "_loop", "_end"];
+
+    /// <summary>The parts of the chain <paramref name="name"/> belongs to, in play order (its _start, _loop and _end that the
+    /// list has), else null: not a part, or only one part.</summary>
+    public List<string>? ChainOf(string? name)
     {
-        if (!PreviewViews.StartIntoLoop || !(ended || loopPass > 0) || props?.Flight == null || CurrentAnimation is not string name || !name.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) return false;
-        string loopName = name[..^"_start".Length] + "_loop";
-        if (!animList.Any(a => a.Name.Equals(loopName, StringComparison.OrdinalIgnoreCase))) return false;
-        props.BeginLoop();
-        chainingToLoop = true;
-        BeginInvoke(() => PlayAnimation(loopName, true));
+        if (name == null || ChainSuffixes.FirstOrDefault(s => name.EndsWith(s, StringComparison.OrdinalIgnoreCase)) is not string suffix) return null;
+        string stem = name[..^suffix.Length];
+        var parts = ChainSuffixes.Select(s => ChainRef?.Invoke(stem + s)?.Name ?? animList.FirstOrDefault(a => a.Name.Equals(stem + s, StringComparison.OrdinalIgnoreCase))?.Name).OfType<string>().ToList();
+        return parts.Count > 1 ? parts : null;
+    }
+
+    /// <summary>A chain part by name as the host has it now (the editor's Animations tab: a borrowed look built but not saved
+    /// yet lives in a work copy, which the 3D view's own list doesn't have), else null: the list's.</summary>
+    public Func<string, AnimRef?>? ChainRef { get; set; }
+
+    /// <summary>The chain playing now (Chain on and the animation is a part of one), else null.</summary>
+    List<string>? ChainParts() => PreviewViews.Chain ? ChainOf(CurrentAnimation) : null;
+
+    /// <summary>
+    /// The Chain button (Kurt, 2026-11-02): a power's start, loop and end played one after another, as the game plays them
+    /// (PowerFXAnimationLooping: the start over the wind-up, the loop while the power runs, then the end; the dip at the
+    /// handover showed in game but never here, where each played on its own). The loop plays <see cref="PreviewViews.ChainLoops"/>
+    /// times; after the end, the chain starts over with Loop on, else stops on the end's last frame. A loop reached from its
+    /// start carries on the climb (PreviewProps.GroundAt); the end comes down from full height. The handovers are cuts: the
+    /// game blends them, over a time it doesn't state. True when it moved on (or stopped).
+    /// </summary>
+    bool ChainStep(bool ended)
+    {
+        if (chainSwitching || !(ended || loopPass > 0) || ChainParts() is not { } parts || CurrentAnimation is not string name) return false;
+        int i = parts.FindIndex(p => p.Equals(name, StringComparison.OrdinalIgnoreCase));
+        bool isLoop = name.EndsWith("_loop", StringComparison.OrdinalIgnoreCase);
+        if (isLoop && loopPass < PreviewViews.ChainLoops) return false;   // (the loop plays on)
+        string? next = i + 1 < parts.Count ? parts[i + 1] : null;
+        if (isLoop && next == null) return false;   // (a start and a loop only: the loop goes on)
+        if (next == null)
+        {
+            if (!prefs.Loop)
+            {
+                chainSwitching = true;   // (the end's last frame, held)
+                BeginInvoke(() => { Player.Pause(); Time = seconds; chainSwitching = false; });
+                return true;
+            }
+            next = parts[0];
+        }
+        if (next.EndsWith("_loop", StringComparison.OrdinalIgnoreCase)) { props?.BeginLoop(); chainingToLoop = name.EndsWith("_start", StringComparison.OrdinalIgnoreCase); }
+        else if (next.EndsWith("_end", StringComparison.OrdinalIgnoreCase)) props?.BeginEnd();
+        chainSwitching = true;
+        BeginInvoke(() => ChainTo(next));
         return true;
+    }
+
+    /// <summary>◀ / ▶ by the frame slider: the chain's previous or next part, from its first frame; going forward hands over as
+    /// the chain does (a loop after its start carries the climb on, an end brings the floor down). Playing stays playing.</summary>
+    void StepPart(int by)
+    {
+        if (ChainOf(CurrentAnimation) is not { } parts || CurrentAnimation is not string name) return;
+        int at = parts.FindIndex(p => p.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (at < 0) return;
+        // round and round (Kurt, 2026-11-02): past the end back to the start, before the start to the end
+        string next = parts[((at + by) % parts.Count + parts.Count) % parts.Count];
+        if (by > 0 && next.EndsWith("_loop", StringComparison.OrdinalIgnoreCase)) { props?.BeginLoop(); chainingToLoop = name.EndsWith("_start", StringComparison.OrdinalIgnoreCase); }
+        else if (by > 0 && next.EndsWith("_end", StringComparison.OrdinalIgnoreCase)) props?.BeginEnd();
+        ChainTo(next, IsPlaying);
+    }
+
+    /// <summary>Tests: ◀ (-1) or ▶ (1) pressed; then what shows, whether it plays, and which arrows are on.</summary>
+    internal async Task<string> StepPartForTest(int by)
+    {
+        (by < 0 ? partPrev : partNext).PerformClick();
+        await Task.Delay(1500);
+        return $"{CurrentAnimation} {(IsPlaying ? "playing" : "paused")} at {Time:0.00} floor {view.GroundZ:0} [◀ {(partPrev.Enabled ? "on" : "off")} ▶ {(partNext.Enabled ? "on" : "off")}]";
+    }
+
+    /// <summary>◀ / ▶ on when the animation showing is a part of a chain (they go round it).</summary>
+    void UpdatePartButtons() => partPrev.Enabled = partNext.Enabled = ChainOf(CurrentAnimation) != null;
+
+    /// <summary>The chain's next part picked and played (the power filter and the rest of the list kept).</summary>
+    void ChainTo(string name, bool play = true)
+    {
+        if (ChainRef?.Invoke(name) is { } r && !animList.Any(a => ReferenceEquals(a, r)))
+        {
+            // (the host's version first in the list, as PlayRef puts one; the rest kept)
+            animList = [r, .. animList.Where(a => !a.Name.Equals(name, StringComparison.OrdinalIgnoreCase))];
+            bool fromStartNext = chainingToLoop;   // (a refill may pick nothing on the way: that pick mustn't use it up)
+            quietPick = true;
+            try { FillAnims(); } finally { quietPick = false; }
+            chainingToLoop = fromStartNext; chainSwitching = true;
+        }
+        int i = animList.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (i < 0) { chainSwitching = false; return; }
+        autoPlay = play;
+        quietPick = true;   // (the chain's pick, not the user's)
+        try { if (anims.SelectedIndex == i + 1) AnimationChosen(); else anims.SelectedIndex = i + 1; }
+        finally { quietPick = false; }
+    }
+
+    /// <summary>Chain on or off (the bar's Chain button), remembered for every 3D view.</summary>
+    void ToggleChain()
+    {
+        PreviewViews.Chain = !PreviewViews.Chain;
+        Ui.Lit(chain, PreviewViews.Chain);
     }
 
     void Pose(float f)

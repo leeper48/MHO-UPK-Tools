@@ -31,10 +31,27 @@ sealed partial class ModEditorView
         animPreview?.Viewer3D?.View.Invalidate();
     }
 
+    /// <summary>The strip's segment of the animation the 3D view plays (a chain's part), else -1.</summary>
+    int PlayingSeg()
+    {
+        string? now = animPreview?.Viewer3D?.CurrentAnimation;
+        return now == null ? -1 : heightParts.FindIndex(p => p.Name.Equals(now, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The segment showing in the 3D view made the strip's active one (the gizmo and Add Key at Frame key what shows);
+    /// false when the view plays none of the strip's parts, or that part can't take keys.</summary>
+    bool ActivatePlaying()
+    {
+        int s = PlayingSeg();
+        if (s < 0 || heightStrip == null || s >= heightTargets.Count || heightTargets[s] == null) return false;
+        heightStrip.SetActive(s);
+        return true;
+    }
+
     /// <summary>The Height gizmo where it is now (null: off, or the animation can't take keys).</summary>
     ModelView.TransformGizmo? HeightGizmoNow()
     {
-        if (!heightGizmoOn || heightStrip == null || heightStrip.Message != null || heightBusy || animPreview?.Viewer3D is not { Animator: { } an }) return null;
+        if (!heightGizmoOn || heightStrip == null || heightStrip.Message != null || heightBusy || PlayingSeg() is var ps && (ps < 0 || heightTargets[ps] == null) || animPreview?.Viewer3D is not { Animator: { } an }) return null;
         int b = an.BoneIndex("g_pelvis");
         if (b < 0) b = an.BoneIndex("g_spine01");
         if (b < 0) return null;
@@ -49,7 +66,7 @@ sealed partial class ModEditorView
         if (axis != 2 || heightStrip == null || animPreview?.Viewer3D is not { } p3) return false;
         if (heightDrag == null)
         {
-            if (HeightGizmoNow() == null) return false;
+            if (HeightGizmoNow() == null || !ActivatePlaying()) return false;
             p3.Pause();
             float at0 = p3.Fraction;
             var keys0 = heightStrip.Keys.ToList();
@@ -84,8 +101,8 @@ sealed partial class ModEditorView
         heightStrip = new HeightStrip { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 0) };
         heightStrip.Committed += CommitHeights;
         heightStrip.Dragging += (at, z) => heightStatus.Text = $"Key at {at * 100:0} % · {(z >= 0 ? "+" : "")}{z:0.#} Units";
-        Ui.Tip(heightStrip, "Height keys for this changed animation: left to right is the animation, up raises the body (game units; the middle line is the animation as it is). Click to add a key, drag a key to move it (Shift: tenths), right-click a key to remove it. Look → Ground in the 3D view shows the floor.");
-        heightAdd = Ui.FlatButton("Add Key at Frame", () => { if (animPreview?.Viewer3D is { } v) heightStrip.AddAt(v.Fraction); }, "A key where the animation is now (pause it on the frame first), at the height the curve has there.");
+        Ui.Tip(heightStrip, "Height keys for this changed animation: left to right is the animation, up raises the body (game units; the middle line is the animation as it is). Click to add a key, drag a key to move it (Shift: tenths), right-click a key to remove it.\n\nA power's start, loop and end show side by side, each as wide as it plays in game, with their own keys. The blue Feet line is the body's lowest point above the game's floor (the middle line): bring it to the middle line to put the feet on the floor. Chain in the 3D view plays the parts in a row.");
+        heightAdd = Ui.FlatButton("Add Key at Frame", () => { if (animPreview?.Viewer3D is { } v && ActivatePlaying()) heightStrip.AddAt(v.Fraction); }, "A key where the animation is now (pause it on the frame first), at the height the curve has there.");
         heightClear = Ui.FlatButton("Clear Keys", () => { if (heightStrip.Keys.Count > 0) { heightStrip.SetKeys([]); heightLabel = "Clear Keys"; CommitHeights(); } },"Take every height key off this animation: it plays at its own height again.");
         heightGizmo = Ui.FlatButton("Height Gizmo", ToggleHeightGizmo, "A blue up arrow at the hips in the 3D view (every pane of the quad view): drag it up or down to raise or lower the body at the frame showing (Shift: tenths). Letting go puts a key there (or moves the one at that frame) and plays the animation from there. Pause on the frame first. Lit when it's on.");
         Icons.Make(heightGizmo, "Height Gizmo", Icons.Gizmo, S);
@@ -98,22 +115,118 @@ sealed partial class ModEditorView
         Icons.Make(heightUndoButton, "Undo", Icons.Undo, S); Icons.Make(heightRedoButton, "Redo", Icons.Redo, S); Icons.Make(heightHistoryButton, "History", Icons.History, S);
         UpdateHeightButtons();
         bar.Controls.AddRange([caption, heightGizmo, heightAdd, heightClear, heightUndoButton, heightRedoButton, heightHistoryButton, heightStatus]);
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = new Padding(0, 6, 0, 0) };
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Margin = new Padding(0, 6, 0, 0) };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        t.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(100 * S)));
+        t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, (int)(110 * S)));
         t.Controls.Add(bar, 0, 0);
-        t.Controls.Add(heightStrip, 0, 1);
+        t.Controls.Add(HeightClimbRow(), 0, 1);
+        t.Controls.Add(heightStrip, 0, 2);
         heightTimer = new System.Windows.Forms.Timer { Interval = 50 };
         heightTimer.Tick += (_, _) =>
         {
             if (heightStrip == null || !heightStrip.Visible) return;
-            heightStrip.Playhead = animPreview?.Viewer3D is { Playing: not null } v && v.CurrentAnimation?.Equals(SelectedAnim?.Name, StringComparison.OrdinalIgnoreCase) == true ? v.Fraction : null;
+            int seg = PlayingSeg();
+            heightStrip.Playhead = animPreview?.Viewer3D is { Playing: not null } v && seg >= 0 ? (seg, v.Fraction) : null;
+            if (heightFeetPending && animPreview?.Viewer3D?.Mesh != null) { heightFeetPending = false; MeasureFeet(heightRequest); }
         };
         heightTimer.Start();
         Disposed += (_, _) => heightTimer?.Dispose();
+        heightSection = t;
         ShowHeights();
         return t;
+    }
+
+    // --- Climb Speed beside the keys (Kurt, 2026-11-02: one place for a travel power's height, not a slider on the Powers tab
+    // and keys here): how fast the game lifts the hero for a borrowed high-flying power (PowerBorrowEntry.ClimbSpeed, written
+    // into the hero's class); the only fix for the dip when the loop takes over, which keys can't reach (the loop repeats)
+    readonly FlowLayoutPanel heightClimb = new() { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true, Visible = false, Margin = Padding.Empty };
+    LightSlider? heightClimbSlider;
+    Button? heightLevel, heightGameSpeed;
+    readonly Label heightClimbNote = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(8, 6, 0, 0) };
+    Control? heightSection;
+
+    Control HeightClimbRow()
+    {
+        heightClimbSlider = new LightSlider { Label = "Climb Speed", Min = 50, Max = 1500, Step = 10, Format = v => $"{v:0} / s", Width = (int)(300 * S), Height = (int)(28 * S) };
+        Ui.Tip(heightClimbSlider, "How fast the game lifts the hero to the flying height once the power applies (units a second; the hero's own, from the game, until you change it; double-click: the game's). The borrowed start is lowered to match, and the Feet line and the 3D view's floor follow it. Fast enough to be fully up when the loop starts, the loop begins on the floor; slower, it starts low and catches up: keys can't fix that, because the loop repeats.\n\nIt's set on the hero, so while the mod is on it applies to every flying power of his, in every costume.");
+        heightClimbSlider.ValueChanged += () => { if (HeightBorrow() is { } e) heightClimbNote.Text = ClimbNoteText(e, heightClimbSlider.Value); };
+        heightClimbSlider.Committed += () => SetClimbSpeed(heightClimbSlider.Value);
+        heightLevel = Ui.FlatButton("Stabilize Ground Contact", () =>
+        {
+            if (HeightBorrow() is { Climb: { } c } && LevelSpeed(c) is float need) SetClimbSpeed(need);
+        }, "Sets the slowest climb speed that has the hero fully up when the loop starts, so the loop begins with his feet on the floor instead of dipping under it as it takes over. Then key the body for the look.");
+        Icons.Make(heightLevel, "Stabilize Ground Contact", Icons.GroundContact, S);
+        heightGameSpeed = Ui.FlatButton("Game's Climb Speed", () => { if (HeightBorrow() is { Climb: { } c }) SetClimbSpeed(c.OwnSpeed); }, "Puts the climb speed back to the hero's own, as the game has it (double-click the slider does the same).");
+        Icons.Make(heightGameSpeed, "Game's Climb Speed", Icons.Reset, S);
+        heightEnd = new DropDown { Width = (int)(260 * S) };
+        heightEnd.Items.AddRange(["End: Nothing Borrowed", "End: The Donor's Loop, Landing"]);
+        heightEnd.SelectedIndexChanged += (_, _) =>
+        {
+            if (heightEndShowing || borrowBuilding || HeightBorrow() is not { } e) return;
+            string? want = heightEnd.SelectedIndex == 1 ? PowerBorrowEntry.EndLoop : null;
+            if (want == e.End) return;
+            e.End = want;
+            heightClimbNote.Text = "Building the borrowed look with the new end…";
+            RebuildBorrows();
+        };
+        Ui.Tip(heightEnd, "What the power ends with when the borrowed look has no end animation of its own (Cap's run on Hawkeye's Sky-Cycle).\n\nNothing Borrowed: the game plays what the power has (the Sky-Cycle's own end).\nThe Donor's Loop, Landing: the borrowed loop plays once more as the end, lowered by the game's own landing (down from the flying height at the hero's landing speed), so the feet stay on the floor; it gets an End part on the strip for keys.");
+        heightClimb.Controls.AddRange([heightClimbSlider, heightLevel, heightGameSpeed, heightEnd, heightClimbNote]);
+        return heightClimb;
+    }
+
+    DropDown? heightEnd;
+    bool heightEndShowing;
+
+    /// <summary>The climb speed that has the hero fully up as the loop starts (rounded up to tens), else null (no wind-up after the power applies).</summary>
+    static float? LevelSpeed((float OwnSpeed, float ApplyAt, float LoopAt, float Height, float Fall) c)
+        => c.LoopAt > c.ApplyAt + 0.01f ? MathF.Ceiling(c.Height / (c.LoopAt - c.ApplyAt) / 10) * 10 : null;
+
+    /// <summary>When the hero is fully up at <paramref name="speed"/>, against when the loop starts (the Height panel and the Powers tab).</summary>
+    static string ClimbNoteText(PowerBorrowEntry e, float speed)
+    {
+        if (e.Climb is not { } c) return "";
+        float up = c.ApplyAt + c.Height / Math.Max(1, speed);
+        return $"Fully up {up:0.00} s after activation; the loop starts at {c.LoopAt:0.00} s"
+            + (up <= c.LoopAt + 0.005f ? " (it begins on the floor)." : $" (it begins {c.Height - PowerBorrow.LiftAt(c.LoopAt, c.ApplyAt, speed, c.Height):0} low).")
+            + (LevelSpeed(c) is float need ? $" Level at {need:0} or more." : "") + $" The game's: {c.OwnSpeed:0}.";
+    }
+
+    /// <summary>The borrow's climb speed set (null when it's the hero's own) and the borrows built again.</summary>
+    void SetClimbSpeed(float v)
+    {
+        if (borrowBuilding || HeightBorrow() is not { Climb: { } c } e) return;
+        float? want = Math.Abs(v - c.OwnSpeed) < 0.5f ? null : v;
+        if (want == e.ClimbSpeed) { ShowHeightClimb(); return; }
+        e.ClimbSpeed = want;
+        heightClimbNote.Text = "Building the borrowed look at the new climb speed…";
+        RebuildBorrows();
+    }
+
+    /// <summary>The climb row shown for a borrowed high-flying power, with its speed and note.</summary>
+    void ShowHeightClimb()
+    {
+        var e = HeightBorrow();
+        heightClimb.Visible = e != null;
+        if (heightSection != null) heightSection.Height = (int)((e != null ? 196 : 160) * S);
+        if (e?.Climb is not { } c || heightClimbSlider == null) return;
+        heightClimbSlider.Home = () => c.OwnSpeed; heightClimbSlider.Mark = c.OwnSpeed;
+        heightClimbSlider.Value = e.ClimbNow;
+        heightClimbSlider.Enabled = heightLevel!.Enabled = heightGameSpeed!.Enabled = !borrowBuilding;
+        // the End choice: a borrowed look whose chain has no end of its own (else the one it chose)
+        if (heightEnd != null)
+        {
+            heightEnd.Visible = e.End != null || e.EndChoosable || !heightParts.Any(p => p.Name.EndsWith("_end", StringComparison.OrdinalIgnoreCase));
+            heightEndShowing = true;
+            try { heightEnd.SelectedIndex = e.End == PowerBorrowEntry.EndLoop ? 1 : 0; } finally { heightEndShowing = false; }
+            heightEnd.Enabled = !borrowBuilding;
+        }
+        string note = ClimbNoteText(e, e.ClimbNow);
+        // the loop's first frame as measured (the Feet line): what the handover looks like in game
+        int loop = heightParts.FindIndex(p => p.Name.EndsWith("_loop", StringComparison.OrdinalIgnoreCase));
+        if (loop >= 0 && heightStrip?.FeetAt(loop, 0) is float f) note += $" Feet at the handover: {(f >= 0 ? "+" : "")}{f:0}.";
+        heightClimbNote.Text = note;
     }
 
     /// <summary>What an animation's height keys belong to: an Animations-tab change (its AnimSwapEntry) or a borrowed power's
@@ -152,40 +265,149 @@ sealed partial class ModEditorView
         return null;
     }
 
-    /// <summary>The strip for the selected animation: its keys, or why it can't have any.</summary>
+    /// <summary>The strip's parts (the selected animation, or every part of its power's chain) and what each one's keys go on
+    /// (null: that part can't take keys).</summary>
+    List<CostumeAnims.Anim> heightParts = [];
+    List<HeightTarget?> heightTargets = [];
+    /// <summary>The Feet lines wait for the 3D view's model.</summary>
+    bool heightFeetPending;
+
+    static readonly string[] ChainSuffixes = ["_start", "_loop", "_end"];
+    static readonly string[] ChainLabels = ["Start", "Loop", "End"];
+
+    /// <summary>The parts of <paramref name="a"/>'s chain in the list (its _start, _loop, _end), else just <paramref name="a"/>.</summary>
+    List<CostumeAnims.Anim> ChainRows(CostumeAnims.Anim a)
+    {
+        if (animData == null || ChainSuffixes.FirstOrDefault(s => a.Name.EndsWith(s, StringComparison.OrdinalIgnoreCase)) is not string suffix) return [a];
+        string stem = a.Name[..^suffix.Length];
+        var all = a.From.Alias != null ? animData.FormAnims : animData.Anims;
+        var parts = ChainSuffixes.Select(s => s.Equals(suffix, StringComparison.OrdinalIgnoreCase) ? a : all.FirstOrDefault(x => x.Name.Equals(stem + s, StringComparison.OrdinalIgnoreCase))).OfType<CostumeAnims.Anim>().ToList();
+        return parts.Count > 1 ? parts : [a];
+    }
+
+    /// <summary>The borrow of the strip's parts with a lift (a high-flying power's), else null.</summary>
+    PowerBorrowEntry? HeightBorrow() => heightTargets.FirstOrDefault(t => t?.Borrow?.Climb != null)?.Borrow;
+
+    /// <summary>The strip for the selected animation and the rest of its chain: their keys, or why they can't have any.</summary>
     void ShowHeights()
     {
         if (heightStrip == null || heightBusy) return;
         int req = ++heightRequest;
         var a = SelectedAnim;
-        void Off(string why) { heightStrip.SetKeys([]); heightStrip.Message = why; heightAdd!.Enabled = heightClear!.Enabled = false; }
+        void Off(string why) { heightParts = []; heightTargets = []; heightStrip.SetSegments([], [], 0); heightStrip.Message = why; heightAdd!.Enabled = heightClear!.Enabled = false; ShowHeightClimb(); }
         heightStatus.Text = "";
-        if (HeightTargetOf(a, out string whyNot) is not { } target) { Off(whyNot); return; }
+        if (a == null) { Off("Pick an animation in the list."); return; }
+        var parts = ChainRows(a);
+        string whyNot = "";
+        var targets = parts.Select(p => { var t = HeightTargetOf(p, out string w); if (ReferenceEquals(p, a)) whyNot = w; return t; }).ToList();
+        if (targets.All(x => x == null)) { Off(whyNot.Length > 0 ? whyNot : "These animations can't take height keys."); return; }
         if (borrowBuilding) { Off("The borrowed looks are being built: one moment."); return; }
-        if (DraftPath(target.File) is not string path) { Off("The package isn't found."); return; }
         Off("Checking…");
-        string slot = target.Slot;
-        Task.Run(() => { AnimSwap.ReHeight(path, slot, [], [], null, out string why, check: true); return why; }).ContinueWith(t =>
+        var paths = targets.Select(x => x != null ? DraftPath(x.File) : null).ToList();
+        // a borrow's climb (known after a build; else read from the game data, as its build does)
+        var unclimbed = targets.Select(x => x?.Borrow).OfType<PowerBorrowEntry>().Distinct().Where(b => b.Climb == null).ToList();
+        var g = game;
+        Task.Run(() =>
+        {
+            if (unclimbed.Count > 0 && g != null)
+                try
+                {
+                    powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
+                    foreach (var b in unclimbed) b.Climb ??= PowerBorrow.ClimbOf(powerDb, g.Cooked, b);
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException) { }
+            return targets.Select((x, i) =>
+            {
+                if (x == null) return "it isn't changed";
+                if (paths[i] is not string path) return "the package isn't found";
+                try { AnimSwap.ReHeight(path, x.Slot, [], [], null, out string why, check: true); return why; }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException) { return ex.Message; }
+            }).ToList();
+        }).ContinueWith(t =>
         {
             if (IsDisposed || req != heightRequest || heightStrip == null) return;
-            string why = t.IsFaulted ? t.Exception?.InnerException?.Message ?? "it doesn't read" : t.Result;
-            if (why.Length > 0) { Off($"This animation can't take height keys: {why}."); return; }
+            var whys = t.Status == TaskStatus.RanToCompletion ? t.Result : [.. targets.Select(_ => "it doesn't read")];
+            for (int i = 0; i < targets.Count; i++) if (whys[i].Length > 0) targets[i] = null;
+            int sel = parts.IndexOf(a);
+            if (targets[sel] == null && parts.Count == 1) { Off($"This animation can't take height keys: {whys[sel]}."); return; }
+            if (targets.All(x => x == null)) { Off($"These animations can't take height keys: {whys[sel]}."); return; }
+            heightParts = parts; heightTargets = targets;
+            bool chain = parts.Count > 1;
+            var climb = HeightBorrow()?.Climb;
+            var segs = parts.Select((p, i) => new HeightStrip.Segment(
+                chain ? ChainLabels[Array.FindIndex(ChainSuffixes, s => p.Name.EndsWith(s, StringComparison.OrdinalIgnoreCase))] : p.Name,
+                PartSeconds(p, climb), targets[i] == null ? $"Can't take keys: {whys[i]}" : null)).ToList();
             heightStrip.Message = null;
-            heightStrip.SetKeys(target.Keys);
+            heightStrip.SetSegments(segs, [.. targets.Select(x => x?.Keys ?? [])], targets[sel] != null ? sel : targets.FindIndex(x => x != null));
             heightAdd!.Enabled = heightClear!.Enabled = true;
-            if (target.Borrow != null) { heightStatus.Text = "Borrowed Power"; Ui.Tip(heightStatus, $"This animation comes with the borrowed look of {target.Borrow.DonorName}. Its keys are kept with the borrow and made again whenever the borrows are rebuilt (a change on the Powers tab, Save)."); }
+            var borrow = targets.FirstOrDefault(x => x?.Borrow != null)?.Borrow;
+            if (borrow != null) { heightStatus.Text = chain ? "Borrowed Power · Its Start, Loop and End" : "Borrowed Power"; Ui.Tip(heightStatus, $"These animations come with the borrowed look of {borrow.DonorName}. Their keys are kept with the borrow and made again whenever the borrows are rebuilt (a change on the Powers tab, Climb Speed, Save)."); }
+            ShowHeightClimb();
+            heightFeetPending = true;   // (measured once the 3D view has the model: the timer)
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>How long a part plays in game: a high-flying power's start over its wind-up (the client re-times it), else its own length.</summary>
+    static float PartSeconds(CostumeAnims.Anim p, (float OwnSpeed, float ApplyAt, float LoopAt, float Height, float Fall)? climb)
+    {
+        if (climb is { LoopAt: > 0 } c && p.Name.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) return c.LoopAt;
+        return ModAnimations.Load(p.Ref) is { } ba ? Math.Max(0.05f, MeshAnimator.Span(ba).Seconds) : 1;
+    }
+
+    /// <summary>
+    /// Each part's Feet line in the background: the 3D view's model posed through the part as the game plays it, its lowest
+    /// point measured against the game's floor there (PreviewProps.FloorAt, the rule the 3D view draws the floor by: a
+    /// high-flying power's climb at the Climb Speed, the loop's first play after its start carrying the climb on, the end
+    /// coming down).
+    /// </summary>
+    void MeasureFeet(int req)
+    {
+        if (heightStrip == null || animPreview?.Viewer3D?.Mesh is not { } mesh) return;
+        var parts = heightParts.ToList();
+        var keysNow = heightTargets.Select(x => x?.Keys ?? []).ToList();
+        var b = HeightBorrow();
+        var climb = b?.Climb;
+        float rise = b?.ClimbNow ?? 0;
+        bool hasStart = parts.Any(p => p.Name.EndsWith("_start", StringComparison.OrdinalIgnoreCase));
+        Task.Run(() =>
+        {
+            var an = new MeshAnimator(mesh.Bones, mesh.Positions, mesh.Normals, mesh.Influences);
+            return parts.Select(p =>
+            {
+                if (ModAnimations.Load(p.Ref) is not { } ba) return null;
+                var (frames, secs) = MeshAnimator.Span(ba);
+                int phase = p.Name.EndsWith("_start", StringComparison.OrdinalIgnoreCase) ? 1 : p.Name.EndsWith("_end", StringComparison.OrdinalIgnoreCase) ? -1 : 0;
+                bool chained = climb != null && ChainSuffixes.Any(s => p.Name.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+                float playSecs = PartSeconds(p, climb);
+                const int n = 48;
+                var line = new float[n + 1];
+                for (int k = 0; k <= n; k++)
+                {
+                    an.Pose(ba, frames * k / n);
+                    float lo = float.MaxValue;
+                    foreach (var v in an.Positions) lo = Math.Min(lo, v.Z);
+                    float floor = chained && climb is { } c ? PreviewProps.FloorAt(phase, playSecs * k / n, hasStart, c.Height, rise, c.Fall, c.ApplyAt, c.LoopAt) : 0;
+                    line[k] = lo - floor;
+                }
+                return line;
+            }).ToList();
+        }).ContinueWith(t =>
+        {
+            if (IsDisposed || req != heightRequest || heightStrip == null || t.Status != TaskStatus.RanToCompletion) return;
+            for (int i = 0; i < t.Result.Count; i++) { heightStrip.SetFeetBase(i, keysNow[i]); heightStrip.SetFeet(i, t.Result[i]); }
+            ShowHeightClimb();
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     /// <summary>The next commit's step name, when it isn't the strip's own (the gizmo, Clear Keys).</summary>
     string? heightLabel;
 
-    /// <summary>The strip's keys put on the selected animation (SetHeights), as an Undo step.</summary>
+    /// <summary>The strip's active part's keys put on its animation (SetHeights), as an Undo step.</summary>
     async void CommitHeights()
     {
         if (heightStrip == null) return;
         if (heightBusy) { heightAgain = true; return; }
-        if (HeightTargetOf(SelectedAnim, out _) is not { } target || borrowBuilding) return;
+        if (heightStrip.Active >= heightTargets.Count || heightTargets[heightStrip.Active] is not { } target || borrowBuilding) return;
         string label = heightLabel ?? heightStrip.LastAction;
         heightLabel = null;
         await SetHeights(target, heightStrip.Keys.ToList(), label);
@@ -341,28 +563,124 @@ sealed partial class ModEditorView
         return $"{slot} ({p3.Seconds:0.00} s, playing {p3.CurrentAnimation}): floor " + string.Join(" · ", line);
     }
 
-    /// <summary>Test hook: Start Into Loop on, <paramref name="start"/> played from its first frame into the loop, then paused
-    /// in the loop's first play; the floor at 0.1 s steps there.</summary>
+    /// <summary>Test hook: Chain on, <paramref name="start"/> played from its first frame into the loop, then paused in the
+    /// loop's first play (the floor at 0.1 s steps there); then on into the end, and what plays after it.</summary>
     public async Task<string> ChainFloorTest(string start)
     {
         if (!await WaitAnims()) return "no animations";
-        bool was = PreviewViews.StartIntoLoop;
-        PreviewViews.StartIntoLoop = false;
+        bool was = PreviewViews.Chain;
+        int wasLoops = PreviewViews.ChainLoops;
+        PreviewViews.Chain = false;
         try
         {
             RestoreRow(start);
             await Task.Delay(6000);
             if (animPreview?.Viewer3D is not { } p3 || p3.Playing == null) return "nothing playing";
             p3.Pause(); p3.Time = 0;
-            PreviewViews.StartIntoLoop = true;
+            PreviewViews.Chain = true;
+            PreviewViews.ChainLoops = 1;
             p3.Play();
             for (int i = 0; i < 40 && p3.CurrentAnimation?.EndsWith("_start", StringComparison.OrdinalIgnoreCase) == true; i++) await Task.Delay(50);
             p3.Pause();
             var line = new List<string>();
             for (float t = 0; t <= Math.Min(0.6f, p3.Seconds) + 1e-3f; t += 0.1f) { p3.Time = t; line.Add($"{t:0.0}s {p3.View.GroundZ:0}"); }
-            return $"after {start}: playing {p3.CurrentAnimation}; its first play's floor " + string.Join(" · ", line) + " | " + p3.FloorStateForTest;
+            string loopPart = $"after {start}: playing {p3.CurrentAnimation}; its first play's floor " + string.Join(" · ", line) + " | " + p3.FloorStateForTest;
+            // on into the end (the loop plays once)
+            p3.Time = 0; p3.Play();
+            for (int i = 0; i < 100 && p3.CurrentAnimation?.EndsWith("_loop", StringComparison.OrdinalIgnoreCase) == true; i++) await Task.Delay(50);
+            await Task.Delay(100);
+            string endPart = $"then {p3.CurrentAnimation}";
+            if (p3.CurrentAnimation?.EndsWith("_end", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                p3.Pause();
+                var fl = new List<string>();
+                for (float t = 0; t <= Math.Min(0.4f, p3.Seconds) + 1e-3f; t += 0.1f) { p3.Time = t; fl.Add($"{t:0.0}s {p3.View.GroundZ:0}"); }
+                endPart += ": floor " + string.Join(" · ", fl);
+                p3.Time = 0; p3.Play();
+            }
+            for (int i = 0; i < 100 && p3.CurrentAnimation?.EndsWith("_end", StringComparison.OrdinalIgnoreCase) == true; i++) await Task.Delay(50);
+            await Task.Delay(150);
+            return $"{loopPart} || {endPart} || after the end: {p3.CurrentAnimation} {(p3.IsPlaying ? "playing" : "paused")}";
         }
-        finally { PreviewViews.StartIntoLoop = was; }
+        finally { PreviewViews.Chain = was; PreviewViews.ChainLoops = wasLoops; }
+    }
+
+    /// <summary>Test hook (Kurt, 2026-11-02: "not playing" with Chain on): Chain and Loop on, <paramref name="slot"/>'s row
+    /// clicked as a user does; what plays every half second, then the same after ▶ from a pause.</summary>
+    public async Task<string> ChainPlayTest(string slot)
+    {
+        if (!await WaitAnims() || animPreview?.Viewer3D is not { } p3) return "no animations";
+        bool was = PreviewViews.Chain, wasQuad = PreviewViews.Quad;
+        PreviewViews.Chain = true;
+        if (Environment.GetEnvironmentVariable("MHO_TEST_QUAD") == "1") { PreviewViews.Quad = true; p3.View.Quad = true; p3.View.ShowBloom = true; }
+        try
+        {
+            // (another row first, then the start: the Height panel changes size under the view, as a click does)
+            if (animData?.Anims.FirstOrDefault(x => !ChainSuffixes.Any(s => x.Name.EndsWith(s, StringComparison.OrdinalIgnoreCase))) is { } other) { RestoreRow(other.Name); await Task.Delay(2500); }
+            RestoreRow(slot);
+            var lines = new List<string>();
+            for (int i = 0; i < 12; i++) { await Task.Delay(500); lines.Add($"{p3.CurrentAnimation} {(p3.IsPlaying ? "▶" : "❚❚")} {p3.Time:0.00}/{p3.Seconds:0.00}"); }
+            p3.Pause(); p3.Time = 0;
+            p3.TogglePlayback();
+            for (int i = 0; i < 6; i++) { await Task.Delay(500); lines.Add($"after ▶: {p3.CurrentAnimation} {(p3.IsPlaying ? "▶" : "❚❚")} {p3.Time:0.00}/{p3.Seconds:0.00}"); }
+            return string.Join(" | ", lines);
+        }
+        finally { PreviewViews.Chain = was; PreviewViews.Quad = wasQuad; }
+    }
+
+    /// <summary>Test hook: <paramref name="slot"/> picked and paused, then ▶ ▶ ◀ beside the frame slider; what shows after each.</summary>
+    public async Task<string> PartStepTest(string slot)
+    {
+        if (!await WaitAnims() || animPreview?.Viewer3D is not { } p3) return "no animations";
+        RestoreRow(slot);
+        await Task.Delay(5000);
+        p3.Pause(); p3.Time = 0;
+        var lines = new List<string> { $"{p3.CurrentAnimation} paused" };
+        foreach (int by in new[] { 1, 1, -1 }) lines.Add((by > 0 ? "▶: " : "◀: ") + await p3.StepPartForTest(by));
+        return string.Join(" | ", lines);
+    }
+
+    /// <summary>Test hook: <paramref name="slot"/> picked; once its Feet lines are measured, the strip's parts (label, seconds,
+    /// why not), the active one, the Feet line at 0 / 25 / 50 / 75 / 100 % of each, and the climb row's note.</summary>
+    public async Task<string> HeightChainTest(string slot)
+    {
+        if (!await WaitAnims()) return "no animations";
+        RestoreRow(slot);
+        await Task.Delay(1500);   // (the strip of the row picked before has gone)
+        if (heightStrip == null) return "no strip";
+        for (int i = 0; i < 150 && (heightStrip.Message != null || heightParts.Count == 0 || heightStrip.FeetAt(0, 0) == null && heightStrip.FeetAt(heightStrip.SegmentCount - 1, 0) == null); i++) await Task.Delay(200);
+        if (heightStrip.Message != null) return "strip off: " + heightStrip.Message;
+        var lines = new List<string>();
+        for (int s = 0; s < heightParts.Count; s++)
+            lines.Add($"{heightParts[s].Name}{(heightTargets[s] == null ? " (no keys)" : "")} feet " + string.Join(" ", new[] { 0f, 0.25f, 0.5f, 0.75f, 1f }.Select(a => heightStrip.FeetAt(s, a) is float f ? $"{f:0}" : "-")));
+        return $"{heightParts.Count} part(s), active {heightStrip.Active} ({heightParts[heightStrip.Active].Name}); " + string.Join("; ", lines) + (heightClimb.Visible ? " | climb: " + heightClimbNote.Text : " | no climb row");
+    }
+
+    /// <summary>Test hook: End → The Donor's Loop, Landing picked; once the borrows are built again, the strip as HeightChainTest reports it.</summary>
+    public async Task<string> HeightEndTest(string slot)
+    {
+        await HeightChainTest(slot);
+        if (heightEnd is not { Visible: true }) return "no End choice";
+        var tcs = new TaskCompletionSource();
+        void Done() { animLoaded -= Done; tcs.TrySetResult(); }
+        animLoaded += Done;
+        heightEnd.SelectedIndex = 1;
+        await Task.WhenAny(tcs.Task, Task.Delay(120000));
+        await Task.Delay(500);
+        return $"end {HeightBorrow()?.End ?? "none"}: " + await HeightChainTest(slot);
+    }
+
+    /// <summary>Test hook: the climb row's Stabilize Ground Contact pressed; once the borrows are built again, the strip as HeightChainTest reports it.</summary>
+    public async Task<string> HeightLevelTest(string slot)
+    {
+        if (heightLevel == null || !heightClimb.Visible) return "no climb row";
+        var tcs = new TaskCompletionSource();
+        void Done() { animLoaded -= Done; tcs.TrySetResult(); }
+        animLoaded += Done;
+        heightLevel.PerformClick();
+        await Task.WhenAny(tcs.Task, Task.Delay(120000));
+        await Task.Delay(500);
+        return $"speed {HeightBorrow()?.ClimbSpeed?.ToString("0") ?? "the game's"}: " + await HeightChainTest(slot);
     }
 
     /// <summary>Test hook: the Height gizmo on, the animation paused half way, its arrow dragged 40 pixels up; the keys after.</summary>

@@ -72,9 +72,24 @@ sealed class PowerBorrowEntry
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public float? ClimbSpeed { get; set; }
     /// <summary>Set by the last build (not saved): the hero's own climb speed, when the power applies and when the loop starts
-    /// (seconds after activation), and the lift height; null when this borrow isn't lifted (not high-flying, or the donor flies).</summary>
+    /// (seconds after activation), the lift height and the hero's landing speed; null when this borrow isn't lifted (not
+    /// high-flying, or the donor flies).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public (float OwnSpeed, float ApplyAt, float LoopAt, float Height)? Climb { get; set; }
+    public (float OwnSpeed, float ApplyAt, float LoopAt, float Height, float Fall)? Climb { get; set; }
+
+    /// <summary>What a borrowed high-flying power ends with when the donor has no end animation (Cap's Stride on Hawkeye's
+    /// Sky-Cycle; Kurt, 2026-11-02): null = nothing borrowed (the game plays what it has), <see cref="EndLoop"/> = the
+    /// donor's loop, lowered by the game's landing.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? End { get; set; }
+    public const string EndLoop = "DonorLoop";
+    /// <summary>Set by the last build (not saved): the End choice applies (the donor has no end, the target's power has one).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool EndChoosable { get; set; }
+
+    /// <summary>The climb speed the build uses: the user's, else the hero's own (0 when not built yet).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float ClimbNow => ClimbSpeed is float cs && cs > 1 ? cs : Climb?.OwnSpeed ?? 0;
 
     public List<(float At, float Z)> HeightKeys(string slot) =>
         Heights?.FirstOrDefault(h => h.Key.Equals(slot, StringComparison.OrdinalIgnoreCase)).Value?.Where(h => h.Length >= 2).Select(h => (h[0], h[1])).OrderBy(h => h.Item1).ToList() ?? [];

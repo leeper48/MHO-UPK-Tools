@@ -88,6 +88,21 @@ static class Icons
         g.FillPolygon(br, new[] { new PointF(tip.X + s * 0.25f, tip.Y - s * 0.75f), new PointF(tip.X + s * 0.55f, tip.Y + s * 0.35f), new PointF(tip.X - s * 0.55f, tip.Y + s * 0.05f) });
     }
 
+    /// <summary>Stabilize Ground Contact: an arrow coming down onto the floor (a line, hatched under it).</summary>
+    public static void GroundContact(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float w = b.Width, h = b.Height, cx = b.X + w / 2, floor = b.Y + h * 0.72f, s = w * 0.24f;
+        g.DrawLine(p, cx, b.Y, cx, floor - s * 1.1f);
+        g.FillPolygon(br, new[] { new PointF(cx, floor - h * 0.06f), new PointF(cx - s, floor - s * 1.2f), new PointF(cx + s, floor - s * 1.2f) });
+        g.DrawLine(p, b.X, floor, b.Right, floor);
+        using var thin = new Pen(p.Color, p.Width * 0.75f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        for (int k = 0; k < 4; k++)
+        {
+            float x = b.X + w * (0.12f + k * 0.26f);
+            g.DrawLine(thin, x, floor + h * 0.06f, x - w * 0.14f, b.Bottom);
+        }
+    }
+
     /// <summary>Gizmo: three arrows from a centre (up, right, toward the viewer) and a ring around it (move / turn).</summary>
     public static void Gizmo(Graphics g, RectangleF b, Pen p, Brush br)
     {

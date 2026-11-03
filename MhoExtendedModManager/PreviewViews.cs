@@ -30,8 +30,10 @@ static class PreviewViews
         public bool Pivots { get; set; }
         /// <summary>A 55-gallon oil drum beside the character in the 3D views (Kurt, 2026-10-23).</summary>
         public bool SizeRef { get; set; }
-        /// <summary>Look ▾ → Start Into Loop: a high-flying power's start plays on into its loop, as in game (off: the start loops on its own).</summary>
-        public bool StartIntoLoop { get; set; }
+        /// <summary>The Chain button: a power's start, loop and end play one after another, as in game (off: each part on its own).</summary>
+        public bool Chain { get; set; }
+        /// <summary>How many times the loop plays in a chain before its end.</summary>
+        public int ChainLoops { get; set; } = 2;
         /// <summary>Where the drum stands (engine X, Y of its middle; dragged there), null: beside the character.</summary>
         public float[]? SizeRefAt { get; set; }
         /// <summary>The Animations tab's split: the 3D view's share of the width (Kurt, 2026-10-23: draggable).</summary>
@@ -206,7 +208,8 @@ static class PreviewViews
     public static bool Gizmo { get => D.Gizmo; set { if (D.Gizmo == value) return; D.Gizmo = value; Save(); } }
     public static bool Pivots { get => D.Pivots; set { if (D.Pivots == value) return; D.Pivots = value; Save(); } }
     public static bool SizeRef { get => D.SizeRef; set { if (D.SizeRef == value) return; D.SizeRef = value; Save(); } }
-    public static bool StartIntoLoop { get => D.StartIntoLoop; set { if (D.StartIntoLoop == value) return; D.StartIntoLoop = value; Save(); } }
+    public static bool Chain { get => D.Chain; set { if (D.Chain == value) return; D.Chain = value; Save(); } }
+    public static int ChainLoops { get => Math.Clamp(D.ChainLoops, 1, 9); set { if (D.ChainLoops == value) return; D.ChainLoops = value; Save(); } }
     public static float[]? SizeRefAt { get => D.SizeRefAt; set { D.SizeRefAt = value; Save(); } }
     public static float AnimSplit { get => D.AnimSplit; set { if (Math.Abs(D.AnimSplit - value) < 0.002f) return; D.AnimSplit = value; Save(); } }
     public static bool Props { get => D.Props; set { if (D.Props == value) return; D.Props = value; Save(); } }

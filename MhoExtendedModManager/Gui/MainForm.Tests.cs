@@ -1308,8 +1308,31 @@ sealed partial class MainForm
             var fe = editor!;
             for (int i = 0; i < fe.TabCount; i++) if (fe.TabTitle(i) == "Animations") fe.SelectTab(i);
             await Task.Delay(8000);
+            if (Environment.GetEnvironmentVariable("MHO_TEST_PARTS") == "1")
+            {
+                lines.Add(await fe.PartStepTest(floorSlots.Split(',')[0]));
+                File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+                return;
+            }
+            if (Environment.GetEnvironmentVariable("MHO_TEST_END") == "1")
+            {
+                // End → The Donor's Loop, Landing, then the chain played through it (the floor coming down)
+                lines.Add("end: " + await fe.HeightEndTest(floorSlots.Split(',')[0]));
+                lines.Add(await fe.ChainFloorTest(floorSlots.Split(',')[0]));
+                File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+                return;
+            }
+            if (Environment.GetEnvironmentVariable("MHO_TEST_CHAINPLAY") == "1")
+            {
+                lines.Add(await fe.ChainPlayTest(floorSlots.Split(',')[0]));
+                File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+                return;
+            }
             foreach (string sl in floorSlots.Split(',')) lines.Add(await fe.FloorTest(sl));
             lines.Add(await fe.ChainFloorTest(floorSlots.Split(',')[0]));
+            // the Height panel's chain strip (its Feet lines), then Level the Handover (MHO_TEST_LEVEL=1: rebuilds the borrow)
+            lines.Add("strip: " + await fe.HeightChainTest(floorSlots.Split(',')[0]));
+            if (Environment.GetEnvironmentVariable("MHO_TEST_LEVEL") == "1") lines.Add("level: " + await fe.HeightLevelTest(floorSlots.Split(',')[0]));
             File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
             return;
         }

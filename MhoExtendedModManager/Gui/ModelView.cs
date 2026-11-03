@@ -1604,6 +1604,15 @@ sealed partial class ModelView : UserControl
     /// </summary>
     void Bloom(bool modelOnly)
     {
+        // the frame's size and buffers as they are now, held for the whole pass (Kurt, 2026-11-02: the quad view crashed here,
+        // the light buffer smaller than W × H; what changed the size mid-frame isn't known): a mismatch skips the bloom
+        int W = this.W, H = this.H;
+        var over = this.over; var color = this.color; var gTri = this.gTri;
+        if (over.Length < W * H * 3 || color.Length < W * H || gTri.Length < W * H)
+        {
+            try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "mhoextmm_bloom.log"), $"{DateTime.Now:s} bloom skipped: {W}x{H}, light {over.Length / 3}, color {color.Length}, quad {quad}{Environment.NewLine}{Environment.StackTrace}{Environment.NewLine}"); } catch (IOException) { }
+            return;
+        }
         int qw = (W + 3) / 4, qh = (H + 3) / 4;
         var q = new float[qw * qh * 3];
         Parallel.For(0, qh, qy =>

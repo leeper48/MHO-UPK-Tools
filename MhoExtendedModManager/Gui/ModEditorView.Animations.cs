@@ -57,7 +57,13 @@ sealed partial class ModEditorView
             animPreview = new StorePreview { Dock = DockStyle.Fill, CookedFolder = game.Cooked, Catalog = catalog, PowerStrip = false, Always3D = true };
             animPreview.ControlAdded += (_, _) => Ui.RestyleButtons(animPreview);
             animPreview.HeroPowersLoaded += FillAnimGrid;   // the Power column
-            animPreview.AnimationShown += () => { HookAnimGizmo(); animGizmoHooked?.View.Invalidate(); };
+            animPreview.AnimationShown += () =>
+            {
+                HookAnimGizmo(); animGizmoHooked?.View.Invalidate();
+                // a chain's parts as the list has them (a borrowed look built but not saved yet: its work copy)
+                if (animPreview.Viewer3D is { ChainRef: null } v3)
+                    v3.ChainRef = n => animData?.Anims.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase) && x.From.Alias == null)?.Ref;
+            };
             animPreview.OverrideFiles = PreviewOverrides;   // (added props not saved yet)
             host.Controls.Add(animPreview);
             animPreview.Mod = editing;
@@ -69,7 +75,7 @@ sealed partial class ModEditorView
         host.Margin = Padding.Empty;
         left.Controls.Add(host, 0, 0);
         var heights = HeightSection();
-        heights.Dock = DockStyle.Top; heights.Height = (int)(140 * S);
+        heights.Dock = DockStyle.Top; heights.Height = (int)(160 * S);   // (taller with the climb row: ShowHeightClimb)
         left.Controls.Add(heights, 0, 1);
         page.Panel1.Controls.Add(left);
 

@@ -87,9 +87,9 @@ static partial class PowerBorrow
             var slots = new List<string>();
             // the game's lift for this power (FlightLift) and the hero's climb speed: his own, or the user's (Climb Speed)
             var flightNow = lift != 0 ? FlightLift(db, e.Power) : null;
-            float ownSpeed = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th).Rise;
+            var (ownSpeed, fallSpeed) = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th);
             float climbSpeed = e.ClimbSpeed is float cs && cs > 1 ? cs : ownSpeed;
-            e.Climb = flightNow is { } fc ? (ownSpeed, fc.ApplyAt, fc.ChannelStart, fc.Height) : null;
+            e.Climb = flightNow is { } fc ? (ownSpeed, fc.ApplyAt, fc.ChannelStart, fc.Height, fallSpeed) : null;
             // the hero's costumes built as characters of their own (Kate Bishop for Hawkeye): the power stays stock on them
             var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
             if (ownClass.Count > 0) log.Add($"stock look kept for {string.Join(", ", ownClass)} (costumes of their own class)");
@@ -98,7 +98,7 @@ static partial class PowerBorrow
                 held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
                 heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
                 heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots,
-                flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart) : null);
+                flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart, fallSpeed) : null, endFromLoop: e.End == PowerBorrowEntry.EndLoop, canChooseEnd: v => e.EndChoosable = v);
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
             // the user's climb speed into the hero's class (the package the borrow ships already)
@@ -516,6 +516,18 @@ static partial class PowerBorrow
     /// Hawkeye's flight 0.75 × 0.35 = 0.26 s, the flight default 0.75 s. Returns when it applies (seconds after activation) and
     /// the height; null when the power isn't high-flying.
     /// </summary>
+    /// <summary>
+    /// A borrow's climb as its build sets it (PowerBorrowEntry.Climb), without building: for the Height panel before the
+    /// borrows were built this session. Null when the borrow isn't lifted (its timing kept, the target doesn't fly high, the
+    /// donor flies high itself) or its hero isn't known yet.
+    /// </summary>
+    public static (float OwnSpeed, float ApplyAt, float LoopAt, float Height, float Fall)? ClimbOf(Fx.GameData db, string cooked, PowerBorrowEntry e)
+    {
+        if (e.KeepTiming || string.IsNullOrEmpty(e.Hero) || Field(db, e.Donor, "HighFlying", 'B') is 1 || FlightLift(db, e.Power) is not { } fc) return null;
+        var (own, fall) = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(cooked, $"UC__MarvelPlayer_{e.Hero}_SF.upk"), e.Hero);
+        return (own, fc.ApplyAt, fc.ChannelStart, fc.Height, fall);
+    }
+
     public static (float ApplyAt, float Height, float ChannelStart)? FlightLift(Fx.GameData db, string power)
     {
         if (Field(db, power, "HighFlying", 'B') is not 1) return null;
@@ -599,7 +611,7 @@ static partial class PowerBorrow
         IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)>? spawn = null, float lift = 0, float? vehicleScale = null, AnimSwap.RiderFit? rider = null, bool ownTracks = false,
         IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false,
         (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null,
-        IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart)? flight = null)
+        IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -717,41 +729,33 @@ static partial class PowerBorrow
             float atStart = lift * 3f / 140f, atEnd = lift * 151f / 140f;   // (Kurt, in game: 0.60.44's end (151) "ends really well"; its beginning (13) still dipped: 10 units up)
             swaps.Add(ramp != 0 ? found with { Rate = rate, Lift = atStart, Ramp = ramp, RampBy = atEnd - atStart } : found with { Rate = rate, Lift = lift });
         }
-        // a ground run with no end animation on a flyer whose own power lands with one (Hawkeye's Sky-Cycle: Kurt, 2026-10-29,
-        // Cap's run popped him up about 3 ft at the end, Spider-Man's swing didn't): the empty end slot gets the donor's loop,
-        // lowered and easing back up to the ground over the target's landing, the start's mirror. TEST: MHO_BORROW_END_FROM_LOOP=1
-        if (Environment.GetEnvironmentVariable("MHO_BORROW_END_FROM_LOOP") == "1" && lift != 0 && powerFile != null
+        // a ground run with no end animation on a flyer whose own power lands with one (Hawkeye's Sky-Cycle with Cap's Stride):
+        // the user's End choice (Kurt, 2026-11-02; PowerBorrowEntry.End). The Donor's Loop, Landing: the empty end slot plays
+        // the donor's loop at its own speed, its body lowered by exactly the game's descent (from the flying height at the
+        // hero's landingZSpeed, from the end's first frame: when the descent begins is a reading to check in game), so the feet
+        // stay on the floor, as the start is lowered by the climb
+        bool endable = lift != 0 && powerFile != null && flight != null
             && !donorAnims.Any(a => a.EndsWith("_end", StringComparison.OrdinalIgnoreCase))
-            && targetAnims.FirstOrDefault(a => a.EndsWith("_end", StringComparison.OrdinalIgnoreCase)) is string targetEnd
-            && swaps.FirstOrDefault(s => s.Slot.EndsWith("_loop", StringComparison.OrdinalIgnoreCase)) is { } loopSwap)
+            && targetAnims.Any(a => a.EndsWith("_end", StringComparison.OrdinalIgnoreCase))
+            && swaps.Any(s => s.Slot.EndsWith("_loop", StringComparison.OrdinalIgnoreCase));
+        canChooseEnd?.Invoke(endable);
+        if (endable && endFromLoop && flight is { } fe && swaps.FirstOrDefault(s => s.Slot.EndsWith("_loop", StringComparison.OrdinalIgnoreCase)) is { } endLoop)
         {
-            string endName = loopSwap.Slot[..^"_loop".Length] + "_end";
-            // (Kurt, 2026-10-29: with Cap's 0.27 s start he sank to his armpits right away, and after a 0.33 s end he popped up
-            // once standing: Hawkeye's lift comes on and goes off over about his own 1.07 s start, so both play over that)
-            float liftLen = targetAnims.FirstOrDefault(a => a.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) is string targetStart ? Length(targetHeroPackage, targetStart) : 0;
-            int si = swaps.FindIndex(s => s.Slot.EndsWith("_start", StringComparison.OrdinalIgnoreCase));
-            if (si >= 0 && swaps[si].Model == null && liftLen > 0.01f && Length(donorHeroPackage, swaps[si].Slot) is float sl && sl > 0.01f)
+            string endName = endLoop.Slot[..^"_loop".Length] + "_end";
+            var pairE = pairs.First(p => p.Role == "power");
+            byte[] filled = FillEndSlot(done[powerFile!], $"marvelgamecontent.default__{pairE.TargetClass}".ToLowerInvariant(), endName, log);
+            float len = Length(donorHeroPackage, endLoop.Slot);
+            if (!ReferenceEquals(filled, done[powerFile!]) && len > 0.01f)
             {
-                // (Kurt: over 1.07 s he still sank right away, to his waist: the lowering eases in, MHO_BORROW_START_EASE, default 3)
-                float ease = float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_START_EASE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ev) && ev > 0 ? ev : 3;   // (t^2 brought him from his waist to his shins: t^3)
-                // (Kurt, t^3: the beginning right, then a dip to the knees as the shield goes behind his back, gone once he runs:
-                // the start ended lower (151) than his lift by then; it ends at MHO_BORROW_START_TO, default 95 for 140)
-                float startTo = float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_START_TO"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float st) && st > 0 ? st : 95;   // (115: mid-shin; Kurt 2026-10-29)
-                float to = lift * startTo / 140f;
-                swaps[si] = swaps[si] with { Rate = sl / liftLen, RampPower = ease, RampBy = to - swaps[si].Lift };
-                log.Add($"anims: {swaps[si].Slot} played ×{sl / liftLen:0.##} to last {liftLen:0.##} s like the target's start (its lift)");
+                done[powerFile!] = filled;
+                float h = Math.Abs(lift), down = h / Math.Max(1, fe.Fall);
+                var model = new List<(float At, float Z)> { (0, -h) };
+                model.Add(down < len ? (down / len, 0) : (1, -Math.Max(0, h - fe.Fall * len)));
+                if (down < len) model.Add((1, 0));
+                swaps.Add(endLoop with { Slot = endName, Rate = 0, Lift = 0, Ramp = 0, RampBy = 0, RampPower = 1, Model = model });
+                log.Add($"anims: {endName} = the donor's {endLoop.Slot} ({len:0.##} s), lowered as the game lands: from {h:0} at {fe.Fall:0} a second ({down:0.##} s)");
             }
-            var pairTd = pairs.First(p => p.Role == "power");
-            byte[] filled = FillEndSlot(done[powerFile], $"marvelgamecontent.default__{pairTd.TargetClass}".ToLowerInvariant(), endName, log);
-            if (!ReferenceEquals(filled, done[powerFile]))
-            {
-                done[powerFile] = filled;
-                float donorLen = Length(donorHeroPackage, loopSwap.Slot), endLen = liftLen > 0.01f ? liftLen : Length(targetHeroPackage, targetEnd);
-                float rate = donorLen > 0.01f && endLen > 0.01f ? donorLen / endLen : 1;
-                float atStart = lift * 3f / 140f, atEnd = lift * 151f / 140f;
-                swaps.Add(loopSwap with { Slot = endName, Rate = rate, Lift = atStart, Ramp = -1, RampBy = atEnd - atStart });
-                log.Add($"anims: {endName} = the donor's {loopSwap.Slot}, played ×{rate:0.##} to last {endLen:0.##} s (the target's lift), lowered from {atEnd:0} back to {atStart:0}");
-            }
+            else log.Add($"anims: the end couldn't be filled with the donor's {endLoop.Slot} (its slot isn't empty, or the loop has no length)");
         }
         // the Animations tab's height keys, on top of the lift (the bones under the root, never the root: AnimSwap.Build)
         if (heights is { Count: > 0 })

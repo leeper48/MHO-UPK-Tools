@@ -290,47 +290,31 @@ sealed partial class ModEditorView
         RebuildBorrows();
     }
 
-    // --- Climb Speed (Kurt, 2026-11-02: a manual control rather than a rule per combination): how fast the game lifts the hero
-    // for this high-flying power (his class's flyingZSpeed, written into his base package); the build lowers the borrowed start
-    // and the 3D view's floor by the same lift, so what shows is what the game does
+    // --- Climb Speed: set on the Animations tab's Height panel beside the keys (Kurt, 2026-11-02: one place for a travel
+    // power's height); here only what it is now and the way there
     readonly FlowLayoutPanel climbBox = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Visible = false, Margin = new Padding(0, 6, 0, 0) };
-    LightSlider? climbSlider;
     readonly Label climbNote = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 2, 0, 2), MaximumSize = new Size(560, 0) };
 
     Control ClimbControls()
     {
-        climbSlider = new LightSlider { Label = "Climb Speed", Min = 50, Max = 1500, Step = 10, Format = v => $"{v:0} / s", Width = (int)(320 * S), Height = (int)(30 * S) };
-        Ui.Tip(climbSlider, "How fast the game lifts the hero to the flying height for this power (units a second; the hero's own, from the game, until you change it). The lift starts when the power applies; the borrowed start is lowered to match and the 3D view's floor follows it. Fast enough to be fully up before the loop starts, the loop begins on the floor; slower, it starts low and catches up (Look → Start Into Loop shows it).");
-        climbSlider.ValueChanged += () => ShowClimbNote(climbSlider.Value);
-        climbSlider.Committed += () =>
-        {
-            if (vShowing || borrowBuilding || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { Climb: { } c } e) return;
-            float v = climbSlider.Value;
-            float? want = Math.Abs(v - c.OwnSpeed) < 0.5f ? null : v;
-            if (want == e.ClimbSpeed) return;
-            e.ClimbSpeed = want;
-            RebuildBorrows();
-        };
-        var reset = Ui.FlatButton("Game's Speed", () =>
-        {
-            if (borrowBuilding || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e || e.ClimbSpeed == null) return;
-            e.ClimbSpeed = null;
-            RebuildBorrows();
-        }, "The hero's own climb speed, as the game has it.");
-        climbBox.Controls.AddRange([climbSlider, climbNote, reset]);
+        var go = Ui.FlatButton("Climb and Height", GoToHeights, "The climb speed and the height keys of this power's start, loop and end, together on the Animations tab's Height panel, with the feet against the game's floor.");
+        climbBox.Controls.AddRange([climbNote, go]);
         return climbBox;
     }
 
-    /// <summary>When the hero is fully up at <paramref name="speed"/>, against when the loop starts.</summary>
-    void ShowClimbNote(float speed)
+    /// <summary>The Animations tab with the selected borrow's start (else its first animation) picked: its Height panel.</summary>
+    void GoToHeights()
     {
-        if (powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { Climb: { } c }) { climbNote.Text = ""; return; }
-        float up = c.ApplyAt + c.Height / Math.Max(1, speed);
-        float need = c.LoopAt > c.ApplyAt + 0.01f ? c.Height / (c.LoopAt - c.ApplyAt) : 0;
-        climbNote.Text = $"Fully up {up:0.00} s after activation; the loop starts at {c.LoopAt:0.00} s"
-            + (up <= c.LoopAt + 0.005f ? " (on the floor when the loop starts)." : $" (the loop starts {c.Height - PowerBorrow.LiftAt(c.LoopAt, c.ApplyAt, speed, c.Height):0} low).")
-            + (need > 0 ? $" Fully up by then at {Math.Ceiling(need / 10) * 10:0} or more." : "") + $" The game's: {c.OwnSpeed:0}.";
+        if (powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e) return;
+        string? slot = e.Slots?.FirstOrDefault(s => s.EndsWith("_start", StringComparison.OrdinalIgnoreCase)) ?? e.Slots?.FirstOrDefault();
+        SelectTab(pages.FindIndex(x => x.Title == "Animations"));
+        if (slot == null) return;
+        if (animData != null) RestoreRow(slot);
+        else { void Once() { animLoaded -= Once; RestoreRow(slot); } animLoaded += Once; }
     }
+
+    /// <summary>The climb speed and when the hero is fully up, against when the loop starts.</summary>
+    void ShowClimbNote(PowerBorrowEntry e) => climbNote.Text = $"Climb Speed {e.ClimbNow:0}" + (e.ClimbSpeed == null ? " (the game's)" : "") + ". " + ClimbNoteText(e, e.ClimbNow);
 
     PowerBorrowEntry? BorrowOf(string proto) => draft.PowerBorrows.FirstOrDefault(e => e.Power.Equals(proto, StringComparison.OrdinalIgnoreCase));
 
@@ -346,13 +330,7 @@ sealed partial class ModEditorView
         {
             keepWeapons.Visible = e != null && !e.KeepTiming; keepWeapons.Checked = e?.KeepWeapons == true; keepWeapons.Enabled = !borrowBuilding;
             climbBox.Visible = e?.Climb != null;
-            if (e?.Climb is { } c && climbSlider != null)
-            {
-                climbSlider.Home = () => c.OwnSpeed; climbSlider.Mark = c.OwnSpeed;
-                climbSlider.Value = e.ClimbSpeed ?? c.OwnSpeed;
-                climbSlider.Enabled = !borrowBuilding;
-                ShowClimbNote(climbSlider.Value);
-            }
+            if (e?.Climb != null) ShowClimbNote(e);
         }
         finally { vShowing = false; }
         ShowNameIcon(e);

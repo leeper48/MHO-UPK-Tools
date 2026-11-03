@@ -1,6 +1,24 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.313
+- 3D views: a crash in Bloom ("Index was outside the bounds of the array") when a frame's size and its glow buffer disagreed, seen in the quad view on clicking an animation. That frame is now drawn without the glow instead.
+
+0.60.312
+- Height panel: Level the Handover is now Stabilize Ground Contact, an icon button (an arrow onto the floor), and Game's Speed is a reset icon (Game's Climb Speed).
+
+0.60.310
+- 3D views: ◀ and ▶ on either side of the frame slider step to the previous or next part of a power's chain (start, loop, end), from its first frame; playing stays playing, paused stays paused. They go round: past the end back to the start, and back from the start to the end. They work with Chain on or off.
+
+0.60.309
+- Height panel, a borrowed high-flying power whose donor has no end animation (Cap's run on Hawkeye's Sky-Cycle): an End choice. Nothing Borrowed plays what the power has (the Sky-Cycle's own end); The Donor's Loop, Landing plays the borrowed loop once more as the end, lowered by the game's landing (down from the flying height at the hero's landing speed, 600 a second: about 0.23 s), so the feet stay on the floor. It gets its own End part on the strip, and Chain plays it after the loop. This replaces an older test-only setting with tuned numbers.
+- 3D view: Chain plays the parts of a borrowed look built but not saved yet (it played the saved ones), and the floor keeps coming down through an end the borrow filled.
+
+0.60.308
+- 3D views: a Chain button beside Loop plays a power's start, loop and end one after another, as the game plays them (the loop twice; right-click Chain for how many times). Pick any part to begin there. With Loop on the chain starts over; off, it stops on the end's last frame. It replaces Look ▾ → Start Into Loop.
+- Animations tab, Height panel: a power's start, loop and end show side by side on one strip, each as wide as it plays in game, each with its own keys. A blue Feet line shows the body's lowest point above the game's floor with your keys applied: bring it to the middle line to put the feet on the floor.
+- Height panel, a borrowed high-flying power: Climb Speed now sits here beside the keys, with Level the Handover (the slowest speed that has the hero fully up when the loop starts) and Game's Speed. The note also says where the feet are when the loop takes over. The Powers tab shows the speed and a Climb and Height button that opens this panel.
+
 0.60.307
 - Powers tab, a borrowed high-flying power: Climb Speed, how fast the game lifts the hero (his own from the game until you change it; Game's Speed puts it back). A note says when he's fully up against when the loop starts, and the speed that finishes in time. The build writes it into the hero's base package and lowers the borrowed start to match; the 3D view follows it.
 
