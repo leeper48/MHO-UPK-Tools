@@ -788,8 +788,11 @@ static class AnimSwap
         }
         void Ease(int bone, int tOff, int tKeys)
         {
-            // the root's up in the parent's frame
+            // the root's up in the parent's frame (through every bone between the parent and the root, at rest: a rider
+            // skeleton hangs the body from g_mountgroundaim > g_mountattach, which the borrowed animations don't key)
             var pq = System.Numerics.Quaternion.Normalize(skeleton[skeleton[bone].ParentIndex].Orientation);
+            for (int a = skeleton[skeleton[bone].ParentIndex].ParentIndex, guard = 0; a > 0 && guard < 16; a = skeleton[a].ParentIndex, guard++)
+                pq = System.Numerics.Quaternion.Normalize(System.Numerics.Quaternion.Concatenate(pq, System.Numerics.Quaternion.Normalize(skeleton[a].Orientation)));
             var up = System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, conj ? System.Numerics.Quaternion.Conjugate(pq) : pq);
             int timesAt = variable ? streamAt + ((tOff + 12 * tKeys + 3) & ~3) : 0;
             for (int k = 0; k < tKeys; k++)
@@ -805,13 +808,29 @@ static class AnimSwap
         // Each bone under the root, attach points too: itself when it has a key per frame (Cyclops' g_throwable_attach_offset
         // rolls his bike in; skipped, a borrowed bike rose about 8 ft with the game's lift while the body was eased down:
         // Kurt, 2026-10-22, Spider-Man with Cyclops' ride), else its keyed children (the body's offsets have one key each)
-        for (int i = 1; i < skeleton.Count; i++)
+        // ... and through unkeyed mount bones (g_mountgroundaim, g_mountattach: Green Goblin's rider skeleton, 2026-11-03)
+        bool IsMount(int i) => skeleton[i].Name.StartsWith("g_mount", StringComparison.OrdinalIgnoreCase) && Keyed(skeleton[i].Name) == null;
+        void Body(int i)   // a bone the body hangs from: itself when keyed, else its keyed children
         {
-            if (skeleton[i].ParentIndex != 0) continue;
-            if (Keyed(skeleton[i].Name) is { } own) { Ease(i, own.Off, own.Keys); continue; }
+            if (Keyed(skeleton[i].Name) is { } own) { Ease(i, own.Off, own.Keys); return; }
             for (int c = 1; c < skeleton.Count; c++)
                 if (skeleton[c].ParentIndex == i && Keyed(skeleton[c].Name) is { } k) Ease(c, k.Off, k.Keys);
         }
+        void Mount(int i, int depth)   // an unkeyed mount bone: its children are the body's bones (or further mount bones)
+        {
+            for (int c = 1; c < skeleton.Count; c++)
+                if (skeleton[c].ParentIndex == i)
+                {
+                    if (depth < 4 && IsMount(c)) Mount(c, depth + 1);
+                    else Body(c);
+                }
+        }
+        for (int i = 1; i < skeleton.Count; i++)
+            if (skeleton[i].ParentIndex == 0)
+            {
+                if (IsMount(i)) Mount(i, 0);
+                else Body(i);
+            }
         if (done.Count == 0) why = "no keyed bones under the root's children";
         return done;
     }

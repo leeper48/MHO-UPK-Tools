@@ -2939,6 +2939,24 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--flight-lift":
+            {
+                // Read-only: a travel power's lift as the game does it (PowerBorrow.FlightLift) and heroes' climb / landing speeds.
+                // --flight-lift <power prototype path> [hero ...]
+                if (rest.Count < 2) { Console.WriteLine("--flight-lift <power prototype> [hero ...]"); return 1; }
+                string? lgr0 = settings.ResolvedGameRoot(data);
+                if (lgr0 == null || !Settings.IsGameRoot(lgr0)) { Console.WriteLine("no game folder"); return 1; }
+                var ldb0 = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(lgr0, "Data", "Game", "Calligraphy.sip")));
+                string lc = Settings.Cooked(lgr0);
+                var fl = PowerBorrow.FlightLift(ldb0, rest[1]);
+                Console.WriteLine(fl is { } f0 ? $"{rest[1]}: high-flying; applies {f0.ApplyAt:0.###} s after activation (wind-up {f0.ChannelStart:0.###} s), lifts to {f0.Height:0}" : $"{rest[1]}: not high-flying (or not found)");
+                foreach (string hero in rest.Skip(2))
+                {
+                    var (rise, fall) = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(lc, $"UC__MarvelPlayer_{hero}_SF.upk"), hero);
+                    Console.WriteLine($"  {hero}: climbs {rise:0} a second, lands {fall:0} a second" + (fl is { } f1 ? $"; fully up {f1.ApplyAt + f1.Height / Math.Max(1, rise):0.##} s after activation" : ""));
+                }
+                return 0;
+            }
             case "--parent-census":
             {
                 // Read-only: bones whose parent differs between heroes' main meshes (PowerBorrow.ParentCensus).

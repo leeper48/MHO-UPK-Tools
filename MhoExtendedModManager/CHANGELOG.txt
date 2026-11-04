@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.338
+- Borrowed flight from a hero who launches later than yours (Thor's flight on Kitty Pryde or Green Goblin): the takeoff now follows the other hero's. The game starts lifting Kitty and Goblin right away, but Thor only after 0.68 s, so they used to float upward while Thor's crouch-and-jump played. Now they stay on the floor through the crouch and launch with Thor's jump. After that they climb at their own speed (Climb Speed changes it). Resave the mod to rebuild it.
+- Green Goblin: borrowed starts and ends are now lowered with the game's lift on him too. His body hangs from his glider bones, which kept that step from finding his spine and hips before.
+- New command that changes nothing: --flight-lift shows when a travel power lifts the hero, how high, and how fast each hero climbs and lands.
+
 0.60.337
 - Borrowed powers that hide the hero's own gear: effects that go with it are hidden too. Green Goblin's glider exhaust flames stayed burning under his hidden glider during Thor's flight. The flames are their own attachment, which the game hides by name (as Goblin's own revive power does), and the borrow now hides them the same way. Resave the mod to rebuild it.
 

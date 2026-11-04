@@ -97,6 +97,14 @@ static partial class PowerBorrow
             var flightNow = lift != 0 ? FlightLift(db, e.Power) : null;
             var (ownSpeed, fallSpeed) = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th);
             float climbSpeed = e.ClimbSpeed is float cs && cs > 1 ? cs : ownSpeed;
+            // both powers fly high (Thor's flight on Kitty Pryde): the start follows the donor's takeoff (Build: takeoff)
+            ((float, float, float) Target, float Rise, float DonorApplyAt, float DonorChannelStart)? takeoffNow = null;
+            if (!e.KeepTiming && Environment.GetEnvironmentVariable("MHO_BORROW_NO_TAKEOFF") != "1" && FlightLift(db, e.Power) is { } tf0 && FlightLift(db, e.Donor) is { } df0)
+            {
+                var (ownT, _) = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th);
+                takeoffNow = (tf0, e.ClimbSpeed is float cs2 && cs2 > 1 ? cs2 : ownT, df0.ApplyAt, df0.ChannelStart);
+                if (df0.ApplyAt <= tf0.ApplyAt + 0.01f) takeoffNow = null;   // the donor launches no later: nothing to hold
+            }
             e.Climb = flightNow is { } fc ? (ownSpeed, fc.ApplyAt, fc.ChannelStart, fc.Height, fallSpeed) : null;
             // the hero's costumes built as characters of their own (Kate Bishop for Hawkeye): the power stays stock on them
             var ownClass = e.KeepTiming ? [] : OwnClassCostumes(game.Root, th);
@@ -109,7 +117,8 @@ static partial class PowerBorrow
                 held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
                 heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
                 heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots,
-                flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart, fallSpeed) : null, endFromLoop: e.End == PowerBorrowEntry.EndLoop, canChooseEnd: v => e.EndChoosable = v, conditionStart: condStart);
+                flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart, fallSpeed) : null, endFromLoop: e.End == PowerBorrowEntry.EndLoop, canChooseEnd: v => e.EndChoosable = v, conditionStart: condStart,
+                takeoff: takeoffNow);
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
             // the user's climb speed into the hero's class (the package the borrow ships already)
@@ -673,7 +682,8 @@ static partial class PowerBorrow
         IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false,
         (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null,
         IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null,
-        bool conditionStart = false)
+        bool conditionStart = false,
+        ((float ApplyAt, float Height, float ChannelStart) Target, float Rise, float DonorApplyAt, float DonorChannelStart)? takeoff = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -779,6 +789,25 @@ static partial class PowerBorrow
             // The client plays the start over exactly the power's wind-up, whatever its own length or RateScale
             // (PowerFXAnimationLooping.Activate: startAnimRate = length / ChannelStartTime), then the loop: so the start is
             // lowered on that clock (a frame at fraction f plays at f × the wind-up) and its own speed is left alone.
+            // a high-flying donor on a high-flying target (Thor's flight on Kitty Pryde: Thor's lift applies at 0.675 s, Kitty's at
+            // 0; 2026-11-03 telemetry: she rose from the first frame while his crouch-and-launch start played): the start keeps the
+            // body on the floor until the donor's launch moment (the game's lift taken off), then rises to meet the lift by the
+            // start's end, where the loop takes over at the game's height (the loop is shared by every repeat: never keyed)
+            if (ramp > 0 && takeoff is { } tk && tk.Target.ChannelStart > 0.01f && donorLen > 0.01f)
+            {
+                float w = tk.Target.ChannelStart, h = tk.Target.Height;
+                float launch = Math.Clamp(tk.DonorApplyAt / Math.Max(0.01f, tk.DonorChannelStart), 0, 0.98f);
+                float TL(float f) => LiftAt(f * w, tk.Target.ApplyAt, tk.Rise, h);
+                var model = new List<(float At, float Z)> { (0, -TL(0)) };
+                float applyF = Math.Clamp(tk.Target.ApplyAt / w, 0, 1);
+                if (applyF > 0 && applyF < launch) model.Add((applyF, -TL(applyF)));
+                model.Add((launch, -TL(launch)));
+                model.Add((1, 0));
+                swaps.Add(found with { Model = model });
+                log.Add($"anims: {an} plays over the {w:0.##} s wind-up: on the floor until the other hero's launch ({launch * w:0.##} s, its power applies {tk.DonorApplyAt:0.##} s in), "
+                        + $"then up to the game's lift ({TL(1):0} at the loop; this hero climbs {tk.Rise:0} a second{(TL(1) < h - 0.5f ? $", level {(h - TL(1)) / tk.Rise:0.##} s into the loop" : "")})");
+                continue;
+            }
             if (ramp > 0 && flight is { } fl && fl.ChannelStart > 0.01f && donorLen > 0.01f)
             {
                 float h = Math.Abs(lift), w = fl.ChannelStart;
