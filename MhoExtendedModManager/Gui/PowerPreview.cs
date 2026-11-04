@@ -254,6 +254,7 @@ static class PowerPreview
                 if (dbt.Result is not { } db) return result;
                 var idx = PowerIndex(hero, cooked, modFiles).Result;
                 var byClass = Fx.PowerIndex.PrototypesByClass(db);
+                Dictionary<string, (float Time, float Length)>? contacts = null;   // (this hero's, read when first needed)
                 foreach (var (anim, refs) in idx)
                 {
                     string a = anim.ToLowerInvariant();
@@ -262,12 +263,57 @@ static class PowerPreview
                     if (proto == null || proto.Contains(@"\TravelPower\", StringComparison.OrdinalIgnoreCase)) continue;
                     long Ms(string f) => PowerBorrow.Field(db, proto, f, 'L') is long v ? v : 0;
                     long ms = a.EndsWith("_start") ? Ms("ChannelStartTimeMS") : a.EndsWith("_end") ? Ms("ChannelEndTimeMS") : 0;
-                    if (ms <= 0 && !a.EndsWith("_end")) ms = Ms("AnimationTimeMS");
-                    if (ms >= 50) result.TryAdd(anim, ms / 1000f);
+                    bool powerTime = ms <= 0 && !a.EndsWith("_end");
+                    if (powerTime) ms = Ms("AnimationTimeMS");
+                    if (ms < 50) continue;
+                    // the animation's hit marker (MarvelAnimNotify_ContactFrame) put on the power's contact moment: the game plays
+                    // it at marker / contact (Thor's Hammer Smash: 0.921 s / (857 ms × 0.48) = ×2.24, as measured; without the
+                    // marker, over the power's time)
+                    float secs = ms / 1000f;
+                    if (powerTime && (contacts ??= ContactFrames(hero, cooked, modFiles)).TryGetValue(anim, out var cf)
+                        && PowerBorrow.Field(db, proto, "AnimationContactTimePercent", 'D') is double pct && pct > 0.01)
+                        secs = (float)(cf.Length * (secs * pct) / cf.Time);
+                    result.TryAdd(anim, secs);
                 }
                 return result;
             });
         }
+    }
+
+    /// <summary>
+    /// The hit marker in each of a hero's animations: the time of its MarvelAnimNotify_ContactFrame notify and the sequence's
+    /// length (animation name → seconds), from the hero's base package (the mod's copy first).
+    /// </summary>
+    static Dictionary<string, (float Time, float Length)> ContactFrames(string hero, string cooked, IReadOnlyList<string> modFiles)
+    {
+        var result = new Dictionary<string, (float, float)>(StringComparer.OrdinalIgnoreCase);
+        string file = $"UC__MarvelPlayer_{hero}_SF.upk";
+        string path = modFiles.FirstOrDefault(f => Path.GetFileName(f).Equals(file, StringComparison.OrdinalIgnoreCase)) ?? StockFiles.For(cooked, file);
+        MhoPackageModifier.Package p;
+        try { p = MhoPackageModifier.Package.Open(path); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { return result; }
+        for (int i = 0; i < p.Exports.Length; i++)
+        {
+            if (!p.ClassOf(p.Exports[i]).Equals("AnimSequence", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[i]).ToArray();
+            var tags = MhoPackageModifier.TagWalker.Walk(p, d, 4);
+            if (tags == null) continue;
+            string? name = tags.FirstOrDefault(t => t.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && t.Size == 8) is { } sn ? MhoPackageModifier.TagWalker.NameAt(p, d, sn.ValueAt) : null;
+            float length = tags.FirstOrDefault(t => t.Name.Equals("SequenceLength", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } sl ? BitConverter.ToSingle(d, sl.ValueAt) : 0;
+            if (name == null || length <= 0 || tags.FirstOrDefault(t => t.Name.Equals("Notifies", StringComparison.OrdinalIgnoreCase)) is not { } nt) continue;
+            // the notify list: structs { Time, Notify (object), Comment, Duration }, each ending at its None
+            int n = BitConverter.ToInt32(d, nt.ValueAt), at = nt.ValueAt + 4;
+            for (int k = 0; k < n && at < nt.ValueAt + nt.Size; k++)
+            {
+                var st = MhoPackageModifier.TagWalker.Walk(p, d, at);
+                if (st == null) break;
+                float time = st.FirstOrDefault(t => t.Name.Equals("Time", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } tt ? BitConverter.ToSingle(d, tt.ValueAt) : -1;
+                int obj = st.FirstOrDefault(t => t.Name.Equals("Notify", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } no ? BitConverter.ToInt32(d, no.ValueAt) : 0;
+                if (time >= 0 && obj > 0 && p.ClassOf(p.Exports[obj - 1]).Equals("MarvelAnimNotify_ContactFrame", StringComparison.OrdinalIgnoreCase))
+                    result.TryAdd(name, (time, length));
+                at = st.NoneAt + 8;
+            }
+        }
+        return result;
     }
 
     static readonly Dictionary<string, Task<Dictionary<string, List<Fx.PowerIndex.PowerRef>>>> indexes = new(StringComparer.OrdinalIgnoreCase);

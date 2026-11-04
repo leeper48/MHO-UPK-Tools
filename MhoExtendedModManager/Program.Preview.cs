@@ -2989,7 +2989,12 @@ static partial class Program
                 var player = new Fx.PowerEffects.Player(pfx, PSock, new System.Numerics.Vector3(250, 0, pld.Positions.Min(q => q.Z)),
                     Fx.PowerEffects.Player.PhaseFor(pba.Name, pidx.Where(kv => kv.Value.Any(p => p.Class == ppcls)).Select(kv => kv.Key))) { AnimSeconds = Math.Max(0.1f, psecs), UsePowerTime = true };
                 // the animation played over the power's time, as the game does (Thor's Spinning Strike ×1.245, Leaping Smite ×1.334)
-                if (pfx.AnimationSeconds is float pps && pps > 0.05f && !pba.Name.Contains("_loop", StringComparison.OrdinalIgnoreCase)) psecs = pps;
+                // (the 3D view's own lookup: the hit marker on the power's contact, else the power's time; PowerPreview.GameAnimSeconds)
+                if (Gui.PowerPreview.GameAnimSeconds(phero, pc0, pmodFiles).Result.TryGetValue(pba.Name, out float pps) && pps > 0.05f)
+                {
+                    Console.WriteLine($"# played over {pps:0.###} s as in game (×{psecs / pps:0.###} its own {psecs:0.###} s)");
+                    psecs = pps; player.AnimSeconds = pps;
+                }
                 Console.WriteLine($"# {pmr.Name} in {pmr.Package}, {pba.Name} ({psecs:0.##} s), power {pproto}: {pfx.Effects.Count} effects; sockets not on the model: " +
                     string.Join(", ", pfx.Effects.SelectMany(e => e.Sockets).Distinct().Where(n => PSock(n) == null).DefaultIfEmpty("none")));
                 player.Started += (e, t, m, sock) =>

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.347
+- 3D view: attacks with a hit marker in their animation play at the game's speed too. The game speeds the animation up or slows it down so that its hit frame lands on the power's hit moment. Thor's Hammer Smash plays 2.24× faster, not the 1.75× the power's time alone gives, so the hammer now hits the ground as the impact appears. Checked against the game on four of Thor's attacks: all four play at the game's speed.
+
 0.60.346
 - 3D view: power effects that don't name when they start now start when the game starts them. A particle effect's default is the power's hit (contact) moment, not its start: Thor's Hammer Smash impact showed at once and now shows when the hammer lands. Effects at the hit moment are timed on the power's own clock (its animation time in the game data), as in game.
 - 3D view: attack animations play at the game's speed. The game fits a power's animation to the power's time (Thor's Spinning Strike plays 1.25× faster, Leaping Smite's start 1.33×), and the 3D view now does the same, so the hit effects line up with the swing. Loops and travel powers play as before.
