@@ -2483,13 +2483,20 @@ static partial class PowerBorrow
                 slots.Remove(TagWalker.NameAt(dst, od, hs.ValueAt));
         }
         if (slots.Count == 0) return package;
+        // the hero's particle attachments that go with a hidden slot (Green Goblin's glider exhaust: its own attachment class
+        // marvelattachment_greengoblinboard_vfx, Tag goblingliderexhaust, on sockets socket_glider_exhaust_*, burned on under the
+        // hidden glider in Thor's flight; 2026-11-03 telemetry). Hidden by tag as the game's own powers do (Goblin's revive:
+        // hideexhaust, WhileActivatedHideParticles).
+        var particleTags = ParticleTagsFor(targetHeroPackage, cooked, slots, log);
         string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
         const string tplDefault = "marvelgamecontent.default__powerantman_avatarswapin", tplComp = tplDefault + ".ant_outro";
         if (!File.Exists(tplFile)) { log.Add("  the hide component's template package isn't found: this hero's weapons stay shown"); return package; }
         var tp = Package.Open(tplFile);
         int ti = Find(tp, tplComp);
         if (ti < 0) { log.Add("  the hide component's template isn't found: this hero's weapons stay shown"); return package; }
-        foreach (string slot in slots.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
+        var hides = slots.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).Select(s => (Prop: "WhileActivatedHideWeaponSlot", Value: s))
+            .Concat(particleTags.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).Select(s => (Prop: "WhileActivatedHideParticles", Value: s))).ToList();
+        foreach (var (hideProp, slot) in hides)
         {
             var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplDefault] = targetDefault };
             string name = $"borrowed_hide_{slot}";
@@ -2513,7 +2520,7 @@ static partial class PowerBorrow
             body.Write(cd, 0, 16);
             foreach (var t in ctags.Where(t => !t.Name.Equals("WhileActivatedAttachmentClass", StringComparison.OrdinalIgnoreCase))) body.Write(cd, t.Start, t.End - t.Start);
             var tag = new byte[32];
-            BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx("WhileActivatedHideWeaponSlot"));
+            BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx(hideProp));
             BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("NameProperty"));
             BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 8);
             BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(24), NameIdx(slot));
@@ -2532,9 +2539,51 @@ static partial class PowerBorrow
             var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
             if (problems.Count > 0) throw new InvalidDataException("the hidden weapon slot: " + string.Join("; ", problems.Take(3)));
             dst = Package.FromBytes(output);
-            log.Add($"  {name}: hides this hero's {slot} weapons while the power runs (the other hero's animation doesn't hold them)");
+            log.Add(hideProp == "WhileActivatedHideParticles"
+                ? $"  {name}: hides this hero's {slot} particles while the power runs (they go with a hidden weapon)"
+                : $"  {name}: hides this hero's {slot} weapons while the power runs (the other hero's animation doesn't hold them)");
         }
         return dst.RawFile;
+    }
+
+    /// <summary>
+    /// The tags of a hero's particle attachments (attachment classes with PEffectTemplates and a Tag) whose spawn sockets
+    /// belong to one of <paramref name="slots"/> (the socket's name has the slot's: socket_glider_exhaust_l for glider), in
+    /// its base package and its costumes' (Goblin's exhaust is in UC__MarvelPlayer_GreenGoblin_Classic_SF).
+    /// </summary>
+    static HashSet<string> ParticleTagsFor(string heroPackage, string cooked, IReadOnlyCollection<string> slots, List<string> log)
+    {
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string stem = Path.GetFileNameWithoutExtension(heroPackage);                 // UC__MarvelPlayer_GreenGoblin_SF
+        string prefix = stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
+        var files = new List<string> { heroPackage };
+        try
+        {
+            files.AddRange(Directory.EnumerateFiles(cooked, prefix + "_*_SF.upk")
+                .Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase))
+                .Select(f => StockFiles.For(cooked, Path.GetFileName(f))));
+        }
+        catch (IOException) { }
+        foreach (string f in files.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            Package hp;
+            try { hp = Package.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { continue; }
+            for (int i = 0; i < hp.Exports.Length; i++)
+            {
+                if (!hp.Exports[i].ObjectName.StartsWith("default__marvelattachment", StringComparison.OrdinalIgnoreCase)) continue;
+                byte[] b = hp.ReadExportBytes(hp.Exports[i]).ToArray();
+                var t = TagWalker.Walk(hp, b, 4);
+                if (t == null || !t.Any(x => x.Name.Equals("PEffectTemplates", StringComparison.OrdinalIgnoreCase))) continue;
+                if (t.FirstOrDefault(x => x.Name.Equals("Tag", StringComparison.OrdinalIgnoreCase)) is not { } tg) continue;
+                if (t.FirstOrDefault(x => x.Name.Equals("SpawnSockets", StringComparison.OrdinalIgnoreCase)) is not { } ss) continue;
+                string tag = TagWalker.NameAt(hp, b, tg.ValueAt);
+                int n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ss.ValueAt));
+                var sockets = Enumerable.Range(0, Math.Clamp(n, 0, 64)).Select(k => TagWalker.NameAt(hp, b, ss.ValueAt + 4 + 8 * k)).ToList();
+                var slot = slots.FirstOrDefault(s => sockets.Any(sk => sk.Contains(s, StringComparison.OrdinalIgnoreCase)));
+                if (slot != null && tags.Add(tag)) log.Add($"  {hp.Exports[i].ObjectName[9..]} ({Path.GetFileName(f)}): its particles ({tag}, on {string.Join(", ", sockets)}) go with the {slot} slot");
+            }
+        }
+        return tags;
     }
 
     /// <summary>A hero's own model in its base package: the skeletal mesh named after the hero (UC__MarvelPlayer_Cyclops_SF →

@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.337
+- Borrowed powers that hide the hero's own gear: effects that go with it are hidden too. Green Goblin's glider exhaust flames stayed burning under his hidden glider during Thor's flight. The flames are their own attachment, which the game hides by name (as Goblin's own revive power does), and the borrow now hides them the same way. Resave the mod to rebuild it.
+
 0.60.336
 - Borrowed animations on another hero: a bone with a different parent bone now also sits where it does on the other hero, not only turns that way. Thor's flight places his palm in front of his chest, measured from his spine. On Kitty Pryde that distance was measured from her wrist, so the palm, and Thor's hammer on it, hung about 57 units beside her hand. Now the palm sits where Thor's sits against his wrist. Resave the mod to rebuild it.
 
