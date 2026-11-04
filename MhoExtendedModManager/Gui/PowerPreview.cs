@@ -234,6 +234,42 @@ static class PowerPreview
         foreach (var p in baseProps.Concat(powerProps)) rig.Add(p.Mesh, p.W.UseParentAnim ? -1 : PropRig.BoneFor(animator, p.W.Bone), p.W.Slots, p.W.OnDemand, p.W.Class, p.Anim, p.Refs, p.W.UseParentAnim, p.W.Offset, p.Sockets);
     }
 
+    static readonly Dictionary<string, Task<Dictionary<string, float>>> gameSeconds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// How long the game plays each of a hero's power animations (animation name → seconds): a power's animation over its
+    /// AnimationTimeMS, a _start over its ChannelStartTimeMS, an _end over its ChannelEndTimeMS; loops and travel powers at
+    /// their own speed (not listed). Measured in game 2026-11-03: Thor's Spinning Strike played ×1.245 (0.93 s over 750 ms),
+    /// Leaping Smite's start ×1.334 (0.53 s over 400 ms), Lightning Storm's start ×1.333 (0.47 s over 350 ms).
+    /// </summary>
+    public static Task<Dictionary<string, float>> GameAnimSeconds(string hero, string cooked, IReadOnlyList<string> modFiles)
+    {
+        string key = hero + "|" + cooked + "|" + string.Join("|", modFiles);
+        lock (gameSeconds)
+        {
+            if (gameSeconds.TryGetValue(key, out var t)) return t;
+            return gameSeconds[key] = GameDb(cooked).ContinueWith(dbt =>
+            {
+                var result = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+                if (dbt.Result is not { } db) return result;
+                var idx = PowerIndex(hero, cooked, modFiles).Result;
+                var byClass = Fx.PowerIndex.PrototypesByClass(db);
+                foreach (var (anim, refs) in idx)
+                {
+                    string a = anim.ToLowerInvariant();
+                    if (a.EndsWith("_loop")) continue;
+                    string? proto = refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).FirstOrDefault();
+                    if (proto == null || proto.Contains(@"\TravelPower\", StringComparison.OrdinalIgnoreCase)) continue;
+                    long Ms(string f) => PowerBorrow.Field(db, proto, f, 'L') is long v ? v : 0;
+                    long ms = a.EndsWith("_start") ? Ms("ChannelStartTimeMS") : a.EndsWith("_end") ? Ms("ChannelEndTimeMS") : 0;
+                    if (ms <= 0 && !a.EndsWith("_end")) ms = Ms("AnimationTimeMS");
+                    if (ms >= 50) result.TryAdd(anim, ms / 1000f);
+                }
+                return result;
+            });
+        }
+    }
+
     static readonly Dictionary<string, Task<Dictionary<string, List<Fx.PowerIndex.PowerRef>>>> indexes = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The hero's power index (animation → the powers playing it), read once per hero and set of packages.</summary>

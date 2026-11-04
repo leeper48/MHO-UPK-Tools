@@ -45,7 +45,20 @@ sealed class AnimPlayer : IDisposable
         Stop();
         Anim = anim;
         (Frames, Seconds) = anim != null ? MeshAnimator.Span(anim) : (0, 0);
+        if (anim != null && GameSeconds?.Invoke(anim.Name) is float gs && gs > 0.05f) { time *= gs / Math.Max(0.001f, Seconds); Seconds = gs; }
         Time = Math.Clamp(time, 0, Math.Max(0, Seconds));
+    }
+
+    /// <summary>How long the game plays an animation, when it differs from its own length (a power's: PowerPreview.GameAnimSeconds);
+    /// null: its own length.</summary>
+    public Func<string, float?>? GameSeconds { get; set; }
+
+    /// <summary>The animation playing now stretched to <paramref name="seconds"/>, at the same point of it.</summary>
+    public void Rescale(float seconds)
+    {
+        if (Anim == null || seconds <= 0.05f || Math.Abs(seconds - Seconds) < 1e-3f) return;
+        Time = Fraction * seconds;
+        Seconds = seconds;
     }
 
     /// <summary>Plays from where it is (from the start when a play-once animation already ended).</summary>

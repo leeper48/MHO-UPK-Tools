@@ -569,6 +569,30 @@ static partial class PowerBorrow
         return null;
     }
 
+    /// <summary>Read-only (--proto-fields): every simple field of a prototype and its parents, nearest first, as "name (type) = value".</summary>
+    internal static List<string> FieldList(Fx.GameData db, string path)
+    {
+        var list = new List<string>();
+        if (db.Find(path.Replace('/', '\\')) is not { } pe) return list;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        ulong id = pe.Id;
+        for (int guard = 0; guard < 32 && id != 0; guard++)
+        {
+            var d = db.Prototype(id).Data;
+            foreach (var gr in d.Groups)
+                foreach (var f in gr.Simple)
+                {
+                    string n = db.FieldName(gr.Blueprint, f.Id);
+                    if (!seen.Add(n)) continue;
+                    string v = f.Type switch { 'B' => (f.Value.Raw != 0).ToString(), 'D' => BitConverter.Int64BitsToDouble((long)f.Value.Raw).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture), 'L' => ((long)f.Value.Raw).ToString(), _ => $"0x{f.Value.Raw:X}" };
+                    list.Add($"{n} ({f.Type}) = {v}{(guard > 0 ? "  (inherited)" : "")}");
+                }
+            if (!d.HasParent) break;
+            id = d.Parent;
+        }
+        return list;
+    }
+
     /// <summary>
     /// The game's lift for a high-flying power (Kurt, 2026-11-02, from the 1.53 client's code: Power::applyInternal switches the
     /// locomotor to HighFlying when the power applies; AMarvelEntity::MoveTo / physCustom then raise the hero in a straight line

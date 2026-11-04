@@ -92,6 +92,10 @@ sealed class PowerEffects
     /// <summary>When the power makes contact, as a fraction of its animation (the game data's AnimationContactTimePercent;
     /// not read yet: the Hero Creator's default).</summary>
     public float ContactPercent = 0.4f;
+
+    /// <summary>The power's AnimationTimeMS in seconds (the game plays its animation over this and puts the contact at
+    /// ContactPercent of it: Thor's Hammer Smash 857 ms × 0.48 = 0.41 s, measured in game 2026-11-03); null when not set.</summary>
+    public float? AnimationSeconds;
     public bool Returning;
     public readonly List<Effect> Effects = new();
     public readonly List<string> Notes = new();
@@ -171,6 +175,7 @@ sealed class PowerEffects
                 foreach (var f in gr.Simple)
                     if (f.Type == 'D' && db.FieldName(gr.Blueprint, f.Id) == "AnimationContactTimePercent") { float v = (float)BitConverter.Int64BitsToDouble((long)f.Value.Raw); if (v >= 0 && v <= 1) fx.ContactPercent = v; }   // (0 = contact at the start: Iron Man's Signature lasers, Kurt 2026-10-02)
             fx.Returning = Contains(db, d, "IsReturningMissile");
+            if (MhoExtendedModManager.PowerBorrow.Field(db, powerPath, "AnimationTimeMS", 'L') is long atm && atm > 0) fx.AnimationSeconds = atm / 1000f;
         }
         else fx.Notes.Add("no power " + powerPath);
         // the power's own conditions (in its own package): the same rule, from the power's own lineage
@@ -471,7 +476,7 @@ sealed class PowerEffects
             int sysRef = P("BeamParticleSystemTemplate") is { Size: 4 } sp ? BitConverter.ToInt32(p.Bytes, sp.ValueAt) : 0;
             if (Resolve(p, sysRef, pkgs, g) is not { } at || ParticleData.Read(at.P, at.Export) is not { } data) { fx.Notes.Add($"{name}: its beam isn't found"); return true; }
             var sockets = P("SpawnSocket")?.Value is { } ss && !ss.Equals("None", StringComparison.OrdinalIgnoreCase) ? new List<string> { ss } : [];
-            fx.Effects.Add(new Effect(name, data, sockets, Fl("ActivationOffset", 0), Pt("ActivationPoint", "power_on_start"), false, P("DeactivatesOnEnd") is not { } de || p.Bytes[de.ValueAt] != 0, true)
+            fx.Effects.Add(new Effect(name, data, sockets, Fl("ActivationOffset", 0), Pt("ActivationPoint", g.DefaultActivationPoint(cname)), false, P("DeactivatesOnEnd") is not { } de || p.Bytes[de.ValueAt] != 0, true)
                 { BeamTarget = P("TargetSocket")?.Value ?? "target" });
             foreach (var em in data.Emitters)
                 try { fx.Looks[em] = Look(tex, em.Required.P, em.Required.Ref("Material"), false, g.Cooked); }
@@ -487,7 +492,7 @@ sealed class PowerEffects
             var shift = P("OffsetVector") is { Size: 12 } ov ? new Vector3(BitConverter.ToSingle(p.Bytes, ov.ValueAt), BitConverter.ToSingle(p.Bytes, ov.ValueAt + 4), BitConverter.ToSingle(p.Bytes, ov.ValueAt + 8)) : Vector3.Zero;
             string kind = cname.StartsWith("Entity", StringComparison.OrdinalIgnoreCase) ? "entity" : cname.StartsWith("Projectile", StringComparison.OrdinalIgnoreCase) ? "projectile" : "power";
             fx.Decals.Add(new Decal(name, look.Tex, look.Additive, Fl("Width", 100), Fl("Height", 100), shift, P("RandomRotation") is { } rr && p.Bytes[rr.ValueAt] != 0,
-                Fl("ActivationOffset", 0), Pt("ActivationPoint", "power_on_start"), kind));
+                Fl("ActivationOffset", 0), Pt("ActivationPoint", g.DefaultActivationPoint(cname)), kind));
             return true;
         }
         if ((cname.StartsWith("PowerFxAnimatedActor", StringComparison.OrdinalIgnoreCase) || cname.StartsWith("EntityFxAnimatedActor", StringComparison.OrdinalIgnoreCase))
@@ -508,7 +513,7 @@ sealed class PowerEffects
             Vector3 R(string n) => P(n) is { Size: 12 } v ? new Vector3(BitConverter.ToInt32(p.Bytes, v.ValueAt), BitConverter.ToInt32(p.Bytes, v.ValueAt + 4), BitConverter.ToInt32(p.Bytes, v.ValueAt + 8)) * (MathF.PI * 2 / 65536) : Vector3.Zero;
             string? anim = P("AnimName")?.Value is { } an && !an.Equals("None", StringComparison.OrdinalIgnoreCase) ? an : null;
             fx.Actors.Add(new Actor(name, meshFile, mesh.Export, setFile, set?.Export ?? -1, anim,
-                Pt("ActivationPoint", "power_on_start"), Fl("ActivationOffset", 0),
+                Pt("ActivationPoint", g.DefaultActivationPoint(cname)), Fl("ActivationOffset", 0),
                 P("DeactivationPoint") != null ? Pt("DeactivationPoint", "") : null, Fl("DeactivationOffset", 0),
                 P("DeactivatesOnEnd") is not { } de2 || p.Bytes[de2.ValueAt] != 0, Fl("DestroyOnAnimEndDelaySeconds", 0),
                 Pt("SpawnOn", "").Contains("target", StringComparison.OrdinalIgnoreCase), V("SpawnOffsetVector"), R("SpawnOffsetRotation"), Fl("Scale", 1),
@@ -534,7 +539,7 @@ sealed class PowerEffects
             if (!seen.Add(p.Name + "|" + epath)) return true;
             float scale = Fl("ActorScale", 1);
             if (Math.Abs(scale - 1) > 0.01f)
-                fx.Scales.Add(new MeshScale(name, scale, Math.Max(0.01f, Fl("TransitionTimeSecs", 0.25f)), Fl("ActivationOffset", 0), Pt("ActivationPoint", "power_on_start"),
+                fx.Scales.Add(new MeshScale(name, scale, Math.Max(0.01f, Fl("TransitionTimeSecs", 0.25f)), Fl("ActivationOffset", 0), Pt("ActivationPoint", g.DefaultActivationPoint(cname)),
                     cname.StartsWith("Condition", StringComparison.OrdinalIgnoreCase) ? "condition" : "power"));
             return true;
         }
@@ -542,7 +547,7 @@ sealed class PowerEffects
         {
             if (!seen.Add(p.Name + "|" + epath)) return true;
             string? N(string n) => P(n)?.Value is { } v && !v.Equals("None", StringComparison.OrdinalIgnoreCase) ? v : null;
-            fx.Slots.Add(new SlotChange(name, N("WhileActivatedShowWeaponSlot"), N("WhileActivatedHideWeaponSlot"), Pt("ActivationPoint", "power_on_start"),
+            fx.Slots.Add(new SlotChange(name, N("WhileActivatedShowWeaponSlot"), N("WhileActivatedHideWeaponSlot"), Pt("ActivationPoint", g.DefaultActivationPoint(cname)),
                 P("DeactivationPoint") != null ? Pt("DeactivationPoint", "") : null, Fl("ActivationOffset", 0)));
             return true;
         }
@@ -691,7 +696,7 @@ sealed class PowerEffects
                         foreach (var el in FxGame.StructArray(p.Bytes, p.T, op.ValueAt, op.Size))
                             foreach (var v in el.Values) if (!v.Equals("None", StringComparison.OrdinalIgnoreCase) && !sockets.Contains(v, StringComparer.OrdinalIgnoreCase)) sockets.Add(v);
                 }
-                string point = P("ActivationPoint")?.Value is { } ap ? ap[(ap.LastIndexOf('.') + 1)..] : "power_on_start";
+                string point = P("ActivationPoint")?.Value is { } ap ? ap[(ap.LastIndexOf('.') + 1)..] : g.DefaultActivationPoint(cname);   // (the class default: PowerFXParticle at the contact time)
                 float offset = P("ActivationOffset") is { Size: 4 } ao ? BitConverter.ToSingle(p.Bytes, ao.ValueAt) : 0;
                 bool atTarget = P("SpawnOn")?.Value?.EndsWith("loc_worldposition", StringComparison.OrdinalIgnoreCase) == true || kindName == "entity";
                 bool stop = P("StopEmittingOnEnd") is { } se && p.Bytes[se.ValueAt] != 0;
@@ -1089,7 +1094,10 @@ sealed class PowerEffects
 
         /// <summary>The animation's length in seconds: missiles leave and summons appear at the power's contact time in it.</summary>
         public float AnimSeconds { get; set; } = 1;
-        float ContactTime => fx.ContactPercent * AnimSeconds;
+        float ContactTime => fx.ContactPercent * (UsePowerTime && fx.AnimationSeconds is float ps ? ps : AnimSeconds);
+
+        /// <summary>The contact on the power's own clock (AnimationTimeMS, as the game) instead of the animation's length.</summary>
+        public bool UsePowerTime { get; set; }
 
         // Missiles in flight (by their particle system): where they left from, when, where they go (+X, the way the hero faces).
         readonly Dictionary<ParticleSim, (Vector3 From, float T0)> flights = new();

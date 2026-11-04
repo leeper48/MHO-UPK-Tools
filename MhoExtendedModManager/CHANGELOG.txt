@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.346
+- 3D view: power effects that don't name when they start now start when the game starts them. A particle effect's default is the power's hit (contact) moment, not its start: Thor's Hammer Smash impact showed at once and now shows when the hammer lands. Effects at the hit moment are timed on the power's own clock (its animation time in the game data), as in game.
+- 3D view: attack animations play at the game's speed. The game fits a power's animation to the power's time (Thor's Spinning Strike plays 1.25× faster, Leaping Smite's start 1.33×), and the 3D view now does the same, so the hit effects line up with the swing. Loops and travel powers play as before.
+- New commands that change nothing: --proto-fields <prototype> lists a power's game data fields; --fx-placement takes a game package as well as a mod.
+
 0.60.345
 - 3D view: a power whose start, loop and landing aren't named alike (Thor's flight: movement_run_flying_start, movement_run_flying, movement_landing) now plays each part's own effects. The start used to play every effect, so the landing dust showed at takeoff.
 - New command that changes nothing: --fx-placement <mod> <animation> lists where the 3D view places a power's effects, frame by frame, to compare with the game's.

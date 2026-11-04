@@ -155,6 +155,18 @@ sealed partial class Preview3D
         if (ctx is not { Cooked: string cooked, Hero: string hero } c) { PowersLoaded = true; return; }
         var names = allAnims.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var modFiles = c.ModPackages.Select(x => x.Path).ToList();
+        // the power animations' game speed: the one showing is stretched in place once it's known
+        gameAnimSeconds = null;
+        PowerPreview.GameAnimSeconds(hero, cooked, modFiles).ContinueWith(gt =>
+        {
+            if (IsDisposed || req != heroPowersRequest || gt.Status != TaskStatus.RanToCompletion) return;
+            gameAnimSeconds = gt.Result;
+            if (anim != null && gameAnimSeconds.TryGetValue(anim.Name, out float gs))
+            {
+                player?.Rescale(gs);
+                if (Effects.Player is { } fp) fp.AnimSeconds = gs;
+            }
+        }, TaskScheduler.FromCurrentSynchronizationContext());
         PowerPreview.GameDb(cooked).ContinueWith(dbt => Task.Run(() =>
         {
             using var busy = Busy.Begin("3D view: listing the powers");

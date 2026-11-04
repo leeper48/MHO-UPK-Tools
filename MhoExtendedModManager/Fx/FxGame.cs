@@ -88,6 +88,40 @@ sealed class FxGame
         return chains[cls] = list;
     }
 
+    readonly Dictionary<string, string> defaultPoints = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// When a power component with no ActivationPoint of its own starts: its class's default in MarvelGame.upk, else its
+    /// parent class's (Default__PowerFXParticle: POWER_AT_CONTACT_TIME; Default__PowerFXAnimation: POWER_ON_START), else
+    /// power_on_start. UE3 leaves a value equal to the default out (2026-11-03, --fx-placement against the game: Thor's
+    /// Hammer Smash impact, no ActivationPoint, started at +0.41 s in game, at once in the 3D view). Lower case, no enum prefix.
+    /// </summary>
+    public string DefaultActivationPoint(string componentClass)
+    {
+        if (defaultPoints.TryGetValue(componentClass, out var hit)) return hit;
+        string result = "power_on_start";
+        FxPkg? mg = null;
+        try { mg = Open("MarvelGame"); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+        if (mg != null)
+        {
+            string cur = componentClass;
+            for (int guard = 0; guard < 8; guard++)
+            {
+                // (MarvelGame.upk's own objects have no outer: Default__PowerFXParticle, PowerFXParticle)
+                int d = mg.Find("default__" + cur);
+                if (d >= 0 && FxProps.Find(mg.Bytes, mg.T, mg.T.Exports[d])?.Props.FirstOrDefault(x => x.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase)) is { Value: { } v })
+                { result = v[(v.LastIndexOf('.') + 1)..].ToLowerInvariant(); break; }
+                int ci = mg.Find(cur);
+                if (ci < 0) break;
+                int sr = BitConverter.ToInt32(mg.Bytes, mg.T.Exports[ci].EntryStart + 4);
+                if (sr <= 0) break;   // (a parent in another package: Engine's)
+                string sp = mg.T.PathOf(sr);
+                cur = sp.Contains('.') ? sp[(sp.LastIndexOf('.') + 1)..] : sp;
+            }
+        }
+        return defaultPoints[componentClass] = result;
+    }
+
     /// <summary>Whether a component's path belongs to one of the chain's class defaults.</summary>
     public static bool OfChain(string path, List<string> chain) => chain.Any(c => path.Contains("default__" + c + ".", StringComparison.OrdinalIgnoreCase));
 

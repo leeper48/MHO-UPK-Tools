@@ -2939,22 +2939,32 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--proto-fields":
+            {
+                // Read-only: a prototype's simple fields and its parents' (timing, contact percent ...).
+                string? fgr1 = settings.ResolvedGameRoot(data);
+                if (rest.Count < 2 || fgr1 == null || !Settings.IsGameRoot(fgr1)) { Console.WriteLine("--proto-fields <prototype path> [name part]"); return 1; }
+                var fdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(fgr1, "Data", "Game", "Calligraphy.sip")));
+                foreach (string l in PowerBorrow.FieldList(fdb, rest[1]).Where(l => rest.Count < 3 || l.Contains(rest[2], StringComparison.OrdinalIgnoreCase))) Console.WriteLine("  " + l);
+                return 0;
+            }
             case "--fx-placement":
             {
                 // Read-only: where the 3D preview places a power's effects as an animation plays, in the model's space, to set
                 // against the game's (tracer Fx lines; tools/telemetry/fx.py --preview <this output>).
                 // --fx-placement <mod> <animation> [seconds]   (MHO_FOOT_MESH = part of the mesh name)
-                var pm0 = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                // (a package file in place of the mod: a stock hero, UC__MarvelPlayer_Thor_Classic_SF.upk)
+                var pm0 = rest.Count > 2 && !File.Exists(rest[1]) ? lib.Find(rest[1]) : null;
                 string? pgr0 = settings.ResolvedGameRoot(data);
-                if (pm0 == null || pgr0 == null || !Settings.IsGameRoot(pgr0)) { Console.WriteLine("--fx-placement <mod> <animation> [seconds] (needs the game folder set)"); return 1; }
+                if (rest.Count < 3 || (pm0 == null && !File.Exists(rest[1])) || pgr0 == null || !Settings.IsGameRoot(pgr0)) { Console.WriteLine("--fx-placement <mod | package.upk> <animation> [seconds] (needs the game folder set)"); return 1; }
                 string pc0 = Settings.Cooked(pgr0);
                 StockFiles.Init(new GameState(pgr0, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
-                var pmeshes = ModMeshes.List(pm0);
+                var pfiles = pm0 != null ? pm0.Manifest.UpkReplacements.Select(f => (f, Path.Combine(pm0.Folder, f))).ToList() : [(Path.GetFileName(rest[1]), rest[1])];
+                var pmeshes = pm0 != null ? ModMeshes.List(pm0) : ModMeshes.List(pfiles, anyPackage: true);
                 var pmr = (Environment.GetEnvironmentVariable("MHO_FOOT_MESH") is { Length: > 0 } pmn ? pmeshes.FirstOrDefault(r => r.Name.Contains(pmn, StringComparison.OrdinalIgnoreCase)) : null) ?? pmeshes.FirstOrDefault();
                 if (pmr == null) { Console.WriteLine("no meshes"); return 1; }
                 var pld = ModMeshes.Load(pmr, pc0, out string pwhy);
                 if (pld == null) { Console.WriteLine("mesh: " + pwhy); return 1; }
-                var pfiles = pm0.Manifest.UpkReplacements.Select(f => (f, Path.Combine(pm0.Folder, f))).ToList();
                 var par = ModAnimations.For(pmr, pld.Bones, pfiles, pc0).FirstOrDefault(a => a.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
                 var pba = par == null ? null : ModAnimations.Load(par);
                 if (pba == null) { Console.WriteLine($"{pmr.Name}: no animation {rest[2]}"); return 1; }
@@ -2977,8 +2987,10 @@ static partial class Program
                     return psocks.TryGetValue(n, out var sk) && pani.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * pani.BoneMatrix(b) : pani.BoneIndex(n) is int bi && bi >= 0 ? pani.BoneMatrix(bi) : null;
                 }
                 var player = new Fx.PowerEffects.Player(pfx, PSock, new System.Numerics.Vector3(250, 0, pld.Positions.Min(q => q.Z)),
-                    Fx.PowerEffects.Player.PhaseFor(pba.Name, pidx.Where(kv => kv.Value.Any(p => p.Class == ppcls)).Select(kv => kv.Key))) { AnimSeconds = Math.Max(0.1f, psecs) };
-                Console.WriteLine($"# {pmr.Name} in {pmr.Package}, {pba.Name} ({psecs:0.##} s), power {Path.GetFileNameWithoutExtension(pproto)}: {pfx.Effects.Count} effects; sockets not on the model: " +
+                    Fx.PowerEffects.Player.PhaseFor(pba.Name, pidx.Where(kv => kv.Value.Any(p => p.Class == ppcls)).Select(kv => kv.Key))) { AnimSeconds = Math.Max(0.1f, psecs), UsePowerTime = true };
+                // the animation played over the power's time, as the game does (Thor's Spinning Strike ×1.245, Leaping Smite ×1.334)
+                if (pfx.AnimationSeconds is float pps && pps > 0.05f && !pba.Name.Contains("_loop", StringComparison.OrdinalIgnoreCase)) psecs = pps;
+                Console.WriteLine($"# {pmr.Name} in {pmr.Package}, {pba.Name} ({psecs:0.##} s), power {pproto}: {pfx.Effects.Count} effects; sockets not on the model: " +
                     string.Join(", ", pfx.Effects.SelectMany(e => e.Sockets).Distinct().Where(n => PSock(n) == null).DefaultIfEmpty("none")));
                 player.Started += (e, t, m, sock) =>
                 {

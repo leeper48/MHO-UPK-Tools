@@ -81,7 +81,11 @@ sealed partial class Preview3D : UserControl
         Moved = (f, ended) => { if (playTime + 1e-3f < lastMoved) loopPass++; lastMoved = playTime; if (ChainStep(ended)) return; FxAdvance(playTime, ended); Pose(f); },
         StateChanged = () => { play.Text = IsPlaying ? "❚❚" : "▶"; view.Moving = IsPlaying; if (!IsPlaying) PlaybackMoved?.Invoke(); },   // smaller frames while playing (ModelView.Moving)
         CanRun = () => CanRun?.Invoke() ?? true,
+        // a power's animation at the game's speed (its AnimationTimeMS / wind-up: PowerPreview.GameAnimSeconds)
+        GameSeconds = n => gameAnimSeconds != null && gameAnimSeconds.TryGetValue(n, out var s) ? s : null,
     };
+    /// <summary>How long the game plays the hero's power animations (null until read; LoadHeroPowers).</summary>
+    Dictionary<string, float>? gameAnimSeconds;
     /// <summary>How many times the animation has looped since it was picked (a high-flying loop's floor: its first play
     /// carries on its start's climb), and the time last moved to.</summary>
     int loopPass;
