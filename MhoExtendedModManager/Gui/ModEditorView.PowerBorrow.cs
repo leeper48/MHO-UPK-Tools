@@ -514,6 +514,7 @@ sealed partial class ModEditorView
         {
             powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
             try { return PowerBorrow.Rebuild(draft, editing, lib, g, powerDb, work, model, log); }
+            catch (Exception ex) { log.Add("FAILED: " + ex); throw; }   // (tests: where it stopped, in the build's log)
             finally { if (Environment.GetEnvironmentVariable("MHO_BORROW_LOG") is { Length: > 0 } bl) File.WriteAllLines(bl, log); }   // (tests: the build's log)
         }).ContinueWith(t =>
         {

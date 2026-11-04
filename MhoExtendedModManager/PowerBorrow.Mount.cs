@@ -29,6 +29,7 @@ static partial class PowerBorrow
             if (BoneIndex == 0) return Animator.BoneMatrix(0);   // (the root itself: against the model's origin)
             return Matrix4x4.Invert(Animator.BoneMatrix(0), out var inv) ? Animator.BoneMatrix(BoneIndex) * inv : Animator.BoneMatrix(BoneIndex);
         }
+
     }
 
     internal static MountMotionData? MountMotion(string donorHeroFile, string bone, string? cooked, List<string> log)

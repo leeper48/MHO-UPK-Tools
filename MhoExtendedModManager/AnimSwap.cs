@@ -237,7 +237,7 @@ static class AnimSwap
                 var dp = AnimExportCli.Packages.Package.Open(f.Donor);
                 var donorNames = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(dp).First(i => i.ExportIndex == f.DonorSet).TrackBoneNames;
                 byte[] d = pkg.ReadExportBytes(pkg.Exports[seq - 1]).ToArray();
-                d = FitTracks(pkg, d, donorNames, heroInfo.TrackBoneNames, original, log, f.Slot);
+                d = FitTracks(pkg, d, donorNames, heroInfo.TrackBoneNames, original, log, f.Slot, PowerBorrow.DonorModelBones(f.Donor));
                 var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(y => y.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && y.Size == 8)
                         ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
                 BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), NameIdx(f.Slot));
@@ -320,7 +320,7 @@ static class AnimSwap
     /// donor's bones the target lacks are left out. Per-track compression isn't handled yet.
     /// </summary>
     internal static byte[] FitTracks(Package pkg, byte[] d, IReadOnlyList<string> donorNames, IReadOnlyList<string> targetNames,
-        AnimExportCli.Animation.BoneAnimation? original, List<string> log, string label)
+        AnimExportCli.Animation.BoneAnimation? original, List<string> log, string label, IReadOnlySet<string>? donorBones = null)
     {
         var tags = TagWalker.Walk(pkg, d, 4) ?? throw new InvalidDataException($"{label}: the animation's properties don't read");
         string NameOf(string prop)
@@ -350,7 +350,18 @@ static class AnimSwap
         while (stream.Count % 4 != 0) stream.Add(0);
         void F(float v) { var b = new byte[4]; BinaryPrimitives.WriteSingleLittleEndian(b, v); stream.AddRange(b); }
         var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int k = 0; k < Math.Min(donorNames.Count, count / 4); k++) index.TryAdd(donorNames[k], k);
+        for (int k = 0; k < Math.Min(donorNames.Count, count / 4); k++)
+        {
+            // a mount bone the donor's own model doesn't have: its track is for another skeleton sharing the set (Hawkeye's
+            // Sky-Cycle set keys Kate Bishop's g_mountattach 16.6 up; Cyclops' and Green Goblin's models have that bone and
+            // sat 16 above the seat in game, telemetry ride41, Kurt 2026-11-04): left out, the target keeps its own
+            if (donorBones is { Count: > 0 } && donorNames[k].StartsWith("g_mount", StringComparison.OrdinalIgnoreCase) && !donorBones.Contains(donorNames[k]))
+            {
+                log.Add($"  {label}: the donor's {donorNames[k]} track left out (the donor's own model has no such bone)");
+                continue;
+            }
+            index.TryAdd(donorNames[k], k);
+        }
         var fitted = new List<int>();
         int held = 0, refPose = 0;
         foreach (string bone in targetNames)

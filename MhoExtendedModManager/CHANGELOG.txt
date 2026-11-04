@@ -1,6 +1,30 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.356
+- Borrowed travel powers: sounds and effects that repeat with the travel loop keep the other hero's timing. Spider-Man's web shots fired every half second on Captain America, because Cap's own run loop, kept for other characters sharing his run power, set the timing. A borrowed travel power now keeps none of the hero's own parts, so characters sharing it get the borrowed look too.
+
+0.60.355
+- Borrowed travel powers: another hero's always-held weapon comes along only when the power's effects come out of it. Thor's hammer still comes with his flight; Kitty Pryde's sword no longer comes with her Air Walk.
+
+0.60.354
+- Borrowed travel powers: a ground ride on a hero who flies high (Cyclops' ride on Kitty Pryde) no longer dips under the floor when the loop starts. The game was still lifting the hero when the start ended. Unless you set a climb speed, the hero now climbs fast enough to be up by then.
+- Borrowed travel powers: Green Goblin no longer leans back on another hero's ride. Cyclops' ride switches on his bike-tilt control, and Goblin has a control of that name for his glider. On heroes like Goblin, the other hero's control switches are left out.
+
+0.60.353
+- Borrowed travel powers: Cyclops rode two of Green Goblin's gliders. A rebuild started from a ride condition an earlier build had already changed, so the power kept its own glider too. Such a condition now starts from the game's original.
+- Borrowed travel powers: on heroes without Goblin's mount bone (Captain America, Kitty Pryde) the glider sat at their feet's level while they stood above it. It's now raised by the height of Goblin's mount bone over his root in his flight (the root already rises with the borrowed animation).
+- Borrowed travel powers: a vehicle the power shows gets paths of its own, as one shown by a ride condition already did. Once Green Goblin had been played, the borrowed glider used his own copy.
+
+0.60.351
+- Borrowed travel powers: a weapon the other hero puts away during the power isn't brought along. Hawkeye's bow and arrow stayed out on everyone riding his Sky-Cycle.
+- Borrowed travel powers: Cyclops and Green Goblin sat about 16 units above the Sky-Cycle's seat. Hawkeye's ride animations include a mount-bone track for Kate Bishop's skeleton, which their models also have. A mount-bone track the other hero's own model doesn't use is left out now.
+- Borrowed travel powers: the hero's own animated companions keep moving. Kitty Pryde's Lockheed hung still under Hawkeye's ride, because he has no animations by its names; his own flight animations now play under them too.
+
+0.60.350
+- Borrowed vehicles: Hawkeye's Sky-Cycle on Cyclops's ride couldn't be borrowed ("the .tfc couldn't find it"). The Sky-Cycle's group holds textures the game streams and finds by their path, so those keep it now; the bike's other parts still get paths of their own.
+- Borrowing Green Goblin's flight onto a ride (Cyclops) stopped with "has no Components list": his flight's condition only plays animations and shows no vehicle, so it's skipped now.
+
 0.60.349
 - 3D view: a thrown weapon flies at its power's own speed from the game data. Thor's Hammer of Storms flies at 1,300 units a second; the view used 900 for everything, so the hammer came back late.
 - 3D view: an attack whose animation is named like the end of a channeled power, but isn't one, plays like any other attack. Thor's Hammer of Storms only plays its …_end animation, at the game's speed (0.7 s), with its throw at the right moment. Whether a power is channeled now comes from its game data, not the animation's name.
