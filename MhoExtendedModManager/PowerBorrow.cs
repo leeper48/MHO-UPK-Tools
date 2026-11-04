@@ -702,13 +702,13 @@ static partial class PowerBorrow
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
             // a prop the costumes in heldBy hold now (added to them): its spawn left out for them, so the power throws the held one
             if (crossHero && pr.Role == "power" && held is { Classes.Count: > 0 } hc && heldBy is { Count: > 0 }) done[tf] = NotForHolders(done[tf], td, hc.Classes, heldBy, log);
-            if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log);
+            if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log, spawn?.Where(x => !x.Vehicle).Select(x => x.Slot));
             else if (crossHero && pr.Role == "power" && keepWeapons) log.Add("  this hero's weapons stay shown while the power runs (Keep This Hero's Weapons)");
             // every prop the power now brings (a spawned vehicle or weapon, the donor's own shown ones): its fit
             if (crossHero && pr.Role == "power")
             {
                 var vehicleClasses = (spawn ?? []).Where(x => x.Vehicle).Select(x => Package.Open(x.File).Exports[x.Export].ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                done[tf] = FitProps(done[tf], td, vehicleClasses, vscale, props, log, spawnedHere);
+                done[tf] = FitProps(done[tf], td, vehicleClasses, vscale, props, log, spawnedHere, ReparentedBones(donorHeroPackage, targetHeroPackage));
             }
             // a travel power bringing a vehicle: no entity lists in the power (they don't work there, see SlotFadesForAll);
             // the costumes kept stock get their ride through the condition and their own animations under the borrowed names
@@ -864,7 +864,8 @@ static partial class PowerBorrow
             // Pivot on the Hand: the props' bones the borrowed animations stop moving (they still turn them)
             var pinned = (props ?? []).Where(f => f.PinPivot).SelectMany(f => spawnedHere.Where(s => s.Class.Equals(f.Class, StringComparison.OrdinalIgnoreCase)).SelectMany(s => s.Bones ?? []))
                 .Where(b => !b.Equals("none", StringComparison.OrdinalIgnoreCase) && !b.Equals("root", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider, skeleton: HeroSkeleton(targetHeroPackage), noPositions: pinned);
+            done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider, skeleton: HeroSkeleton(targetHeroPackage), noPositions: pinned,
+                donorSkeleton: crossHero ? HeroSkeleton(donorHeroPackage) : null);
             // the target's own animated bones the donor's animations don't move (Thor's cape in Kitty's Air Walking) get the
             // target's own run's keys, looped (travel borrows; tested on Thor's six, Kurt 2026-10-20 / 21)
             if (crossHero && (ownTracks || Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1"))
@@ -2461,9 +2462,14 @@ static partial class PowerBorrow
     /// where the donor holds something too: its weapon is held its own way; Kitty's katana pose put the hammer in his chest) while the power runs (a component of its own: a copy of Ant-Man's ant_outro, the spawn
     /// components' form, with WhileActivatedHideWeaponSlot instead of a class). Slots the borrowed parts hide already are left.
     /// </summary>
-    public static byte[] HideHeldWeapons(byte[] package, string targetDefault, string targetHeroPackage, string donorHeroPackage, string cooked, List<string> log)
+    public static byte[] HideHeldWeapons(byte[] package, string targetDefault, string targetHeroPackage, string donorHeroPackage, string cooked, List<string> log, IEnumerable<string>? spawnedSlots = null)
     {
         var slots = HeldSlots(targetHeroPackage);
+        // a slot the borrowed power spawns a prop into stays shown: hiding it hid the prop too (Kitty Pryde with Thor's
+        // flight, 2026-11-03 telemetry: the hammer attached to g_r_palm, then WeaponSlotVisible(RightHand, 0) hid it; Kitty's
+        // katana sits in RightHand, katana and kittyprydeswords, so the other two still hide it)
+        foreach (string s in spawnedSlots ?? [])
+            if (slots.Remove(s)) log.Add($"  this hero's {s} slot isn't hidden: the borrowed power's prop is held there");
         if (slots.Count == 0) return package;
         var dst = Package.FromBytes(package);
         int td0 = Find(dst, targetDefault);
@@ -2558,6 +2564,59 @@ static partial class PowerBorrow
         if (Rest(donorHeroPackage) is not { } d || Rest(targetHeroPackage) is not { } t) return null;
         System.Numerics.Matrix4x4.Invert(t, out var ti);
         return d * ti;
+    }
+
+    /// <summary>Read-only (--hold-turn): a bone's chain up to the root in a hero's main mesh, each with its rest turn
+    /// relative to its parent (what AnimSwap.RestTurns compares) as quaternion x y z w.</summary>
+    internal static List<string> HoldChain(string heroPackage, string bone)
+    {
+        var lines = new List<string>();
+        var bones = MainMesh(heroPackage)?.Bones;
+        if (bones == null) return lines;
+        int i = bones.ToList().FindIndex(b => b.Name.Equals(bone, StringComparison.OrdinalIgnoreCase));
+        for (int k = i; k >= 0; k = k == 0 ? -1 : bones[k].ParentIndex)
+        {
+            var q = System.Numerics.Quaternion.Normalize(bones[k].Orientation);
+            lines.Add($"{bones[k].Name} ({q.X:0.000} {q.Y:0.000} {q.Z:0.000} {q.W:0.000})");
+            if (k == 0) break;
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// Read-only census (--parent-census, 2026-11-03): every bone that hangs from different parents in different heroes'
+    /// main meshes (Thor's g_r_palm under g_spine03_offset, Kitty Pryde's under g_r_wrist). An animation stores each bone's
+    /// turn relative to its parent, so a borrowed key for such a bone means something else on the other hero; RestTurns
+    /// compares rest turns relative to the parent and can't fix it. Per bone: the parents and the heroes using each.
+    /// </summary>
+    internal static List<string> ParentCensus(IEnumerable<string> heroPackages, out int heroes)
+    {
+        // bone -> parent -> heroes
+        var map = new Dictionary<string, Dictionary<string, List<string>>>(StringComparer.OrdinalIgnoreCase);
+        heroes = 0;
+        foreach (string f in heroPackages)
+        {
+            AnimExportCli.Meshes.SkeletalMesh? m;
+            try { m = MainMesh(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or AnimExportCli.Packages.InvalidPackageException) { continue; }
+            if (m?.Bones is not { Count: > 1 } bones) continue;
+            heroes++;
+            string hero = Path.GetFileNameWithoutExtension(f).Split('_', StringSplitOptions.RemoveEmptyEntries) is [_, _, var h, ..] ? h : f;
+            for (int i = 1; i < bones.Count; i++)
+            {
+                string parent = bones[i].ParentIndex >= 0 && bones[i].ParentIndex < bones.Count ? bones[bones[i].ParentIndex].Name : "?";
+                if (!map.TryGetValue(bones[i].Name, out var byParent)) map[bones[i].Name] = byParent = new(StringComparer.OrdinalIgnoreCase);
+                if (!byParent.TryGetValue(parent, out var list)) byParent[parent] = list = [];
+                list.Add(hero);
+            }
+        }
+        var lines = new List<string>();
+        foreach (var (bone, byParent) in map.Where(kv => kv.Value.Count > 1).OrderByDescending(kv => kv.Value.Values.Sum(v => v.Count)).ThenBy(kv => kv.Key))
+        {
+            lines.Add($"{bone}: {byParent.Values.Sum(v => v.Count)} heroes, {byParent.Count} parents");
+            foreach (var (parent, list) in byParent.OrderByDescending(kv => kv.Value.Count))
+                lines.Add($"    under {parent} ({list.Count}): {string.Join(", ", list.OrderBy(x => x))}");
+        }
+        return lines;
     }
 
     static AnimExportCli.Meshes.SkeletalMesh? MainMesh(string heroPackage)
@@ -2694,6 +2753,18 @@ static partial class PowerBorrow
         return System.Numerics.Matrix4x4.CreateScale(scale) * ModMeshes.Rotator(Units(f.TurnY), Units(tz), Units(f.TurnX)) * System.Numerics.Matrix4x4.CreateTranslation(f.X, f.Y, f.Z);
     }
 
+    /// <summary>Bones that hang from another parent on the target's skeleton than on the donor's (AnimSwap.Reparent fixes their keys).</summary>
+    internal static HashSet<string>? ReparentedBones(string donorHeroPackage, string targetHeroPackage)
+    {
+        if (HeroSkeleton(donorHeroPackage) is not { Count: > 1 } d || HeroSkeleton(targetHeroPackage) is not { Count: > 1 } t) return null;
+        static string Parent(IReadOnlyList<AnimExportCli.Meshes.MeshBone> sk, int i) => i > 0 && sk[i].ParentIndex >= 0 && sk[i].ParentIndex < sk.Count ? sk[sk[i].ParentIndex].Name : "";
+        var dp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i < d.Count; i++) dp.TryAdd(d[i].Name, Parent(d, i));
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i < t.Count; i++) if (dp.TryGetValue(t[i].Name, out var p) && !p.Equals(Parent(t, i), StringComparison.OrdinalIgnoreCase)) set.Add(t[i].Name);
+        return set;
+    }
+
     internal static float DefaultTurnZ(string cls) => cls.StartsWith("marvelattachment_thorhammer", StringComparison.OrdinalIgnoreCase) ? -170 : 0;
 
     /// <summary>
@@ -2701,7 +2772,7 @@ static partial class PowerBorrow
     /// target power's parts spawn (WhileActivatedAttachmentClass), drawn at its fit (FitModel): a vehicle sized for the hero
     /// by default (<paramref name="vehicleAuto"/>), anything else as made; listed in <paramref name="spawnedOut"/>.
     /// </summary>
-    static byte[] FitProps(byte[] package, string targetDefault, IReadOnlySet<string> vehicleClasses, float vehicleAuto, IReadOnlyList<PropFit>? fits, List<string> log, List<SpawnedProp>? spawnedOut)
+    static byte[] FitProps(byte[] package, string targetDefault, IReadOnlySet<string> vehicleClasses, float vehicleAuto, IReadOnlyList<PropFit>? fits, List<string> log, List<SpawnedProp>? spawnedOut, IReadOnlySet<string>? reparented = null)
     {
         var dst = Package.FromBytes(package);
         int td = Find(dst, targetDefault);
@@ -2719,8 +2790,11 @@ static partial class PowerBorrow
         {
             bool vehicle = vehicleClasses.Contains(cls);
             float auto = vehicle ? vehicleAuto : 1;
-            float turnAuto = DefaultTurnZ(cls);
-            spawnedOut?.Add(new SpawnedProp(cls, vehicle, auto, turnAuto, AttachBones(dst, "marvelgamecontent.default__" + cls)));
+            var bones = AttachBones(dst, "marvelgamecontent.default__" + cls);
+            // a prop on a bone the borrowed animations now turn as in the donor's body (AnimSwap.Reparent: Thor's palm) is held
+            // as the donor holds it: no default turn (the -170 made up for that palm; 2026-11-03)
+            float turnAuto = reparented != null && bones?.Any(reparented.Contains) == true ? 0 : DefaultTurnZ(cls);
+            spawnedOut?.Add(new SpawnedProp(cls, vehicle, auto, turnAuto, bones));
             var fit = fits?.FirstOrDefault(f => f.Class.Equals(cls, StringComparison.OrdinalIgnoreCase));
             float scale = fit?.Scale is float fs && fs > 0 ? fs : auto;
             var move = fit == null ? default : new System.Numerics.Vector3(fit.X, fit.Y, fit.Z);

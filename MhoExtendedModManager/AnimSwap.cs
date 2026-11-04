@@ -396,7 +396,7 @@ static class AnimSwap
     /// (RestTurns), for bones whose rest differs; their rotation keys in the copies are turned by it.</param>
     public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1,
         IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton = null,
-        IReadOnlyCollection<string>? noPositions = null)
+        IReadOnlyCollection<string>? noPositions = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? donorSkeleton = null)
     {
         if (skeleton == null && swaps.Any(s => s.Heights is { Count: > 0 } || s.Model is { Count: > 0 })) skeleton = PowerBorrow.HeroSkeleton(costumePath);   // (height keys need it)
         var body = BodyRoots(skeleton);
@@ -549,11 +549,19 @@ static class AnimSwap
                     if (FitRider(pkg, sd, d, rider with { Forward = body.Count > 0 ? 0 : rider.Forward, Up = body.Count > 0 ? 0 : rider.Up }, out string fwhy)) riderMoved = true;
                     else log.Add($"  {slot}: the rider isn't leaned ({fwhy})");
                 }
+                var turnedNow = new List<string>();
                 if (retarget is { Count: > 0 })
                 {
                     var turned = Retarget(pkg, sd, d, retarget, out string rwhy);
+                    turnedNow = turned;
                     if (turned.Count > 0) log.Add($"  {slot}: turned to this skeleton's rest: {string.Join(", ", turned)}");
                     if (rwhy.Length > 0) log.Add($"  {slot}: not turned: {rwhy}");
+                }
+                if (sw != null && donorSkeleton is { Count: > 1 } && skeleton is { Count: > 1 } && Environment.GetEnvironmentVariable("MHO_BORROW_NO_REPARENT") != "1")
+                {
+                    var fixedBones = Reparent(pkg, sd, d, sw, donorSkeleton, skeleton, retarget, turnedNow, out string pwhy);
+                    if (fixedBones.Count > 0) log.Add($"  {slot}: turned as in the other hero's body (another parent here): {string.Join(", ", fixedBones)}");
+                    if (pwhy.Length > 0) log.Add($"  {slot}: not re-parented: {pwhy}");
                 }
                 var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && x.Size == 8)
                         ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
@@ -1040,6 +1048,180 @@ static class AnimSwap
         a.W * b.Y - a.X * b.Z + a.Y * b.W + a.Z * b.X,
         a.W * b.Z + a.X * b.Y - a.Y * b.X + a.Z * b.W,
         a.W * b.W - a.X * b.X - a.Y * b.Y - a.Z * b.Z);
+
+    /// <summary>
+    /// Bones that hang from another parent on this skeleton than on the donor's (Thor's g_r_palm under g_spine03_offset,
+    /// every other hero's under g_r_wrist: --parent-census, 2026-11-03). An animation keys each bone's turn relative to its
+    /// parent, so the donor's key read under another parent points the bone elsewhere (telemetry: Kitty Pryde's palm in
+    /// Thor's flight 100+ degrees off his, the hammer out of her hand). Each key of such a bone (<paramref name="d"/>, edited
+    /// in place: values only, Float96NoW) becomes the turn that gives it, under this skeleton's parent chain as the copy
+    /// poses it (the donor's keys, turned by <paramref name="turns"/> where Retarget turned them, else this skeleton's
+    /// rest), the turn it has in the donor's body at that moment. Returns the bones set; <paramref name="why"/> names those
+    /// left as they were.
+    /// </summary>
+    static List<string> Reparent(Package pkg, byte[] set, byte[] d, Swap sw, IReadOnlyList<AnimExportCli.Meshes.MeshBone> donor, IReadOnlyList<AnimExportCli.Meshes.MeshBone> target,
+        IReadOnlyDictionary<string, System.Numerics.Quaternion>? turns, ICollection<string> turned, out string why)
+    {
+        why = "";
+        var done = new List<string>();
+        static string ParentName(IReadOnlyList<AnimExportCli.Meshes.MeshBone> sk, int i) => i > 0 && sk[i].ParentIndex >= 0 && sk[i].ParentIndex < sk.Count ? sk[sk[i].ParentIndex].Name : "";
+        static int Index(IReadOnlyList<AnimExportCli.Meshes.MeshBone> sk, string n) { for (int i = 0; i < sk.Count; i++) if (sk[i].Name.Equals(n, StringComparison.OrdinalIgnoreCase)) return i; return -1; }
+        var moved = new List<(string Bone, int Di, int Ti)>();
+        for (int ti = 1; ti < target.Count; ti++)
+        {
+            int di = Index(donor, target[ti].Name);
+            if (di > 0 && !ParentName(donor, di).Equals(ParentName(target, ti), StringComparison.OrdinalIgnoreCase)) moved.Add((target[ti].Name, di, ti));
+        }
+        if (moved.Count == 0) return done;
+        // the donor's animation, decoded (rotations as the engine uses them)
+        AnimExportCli.Animation.BoneAnimation? anim;
+        HashSet<string>? posBones = null;   // the donor set's bones that take positions (null: every bone)
+        try
+        {
+            var ap = AnimExportCli.Packages.Package.Open(sw.DonorFile);
+            var info = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap).FirstOrDefault(x => x.ExportIndex == sw.DonorSet);
+            anim = info == null ? null : AnimExportCli.Animation.AnimObjectReader.TryRead(ap, sw.DonorSequence, info.TrackBoneNames);
+            if (info is { RotationOnly: true }) posBones = new HashSet<string>(info.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or AnimExportCli.Packages.InvalidPackageException) { why = "the donor's animation doesn't read: " + ex.Message; return done; }
+        if (anim == null) { why = "the donor's animation doesn't read"; return done; }
+        static System.Numerics.Quaternion Unit(System.Numerics.Quaternion q) => q.Length() > 0.0001f ? System.Numerics.Quaternion.Normalize(q) : System.Numerics.Quaternion.Identity;
+        static System.Numerics.Quaternion Sample(IReadOnlyList<AnimExportCli.Animation.BoneRotationKey> keys, float f)
+        {
+            if (keys.Count == 1 || f <= keys[0].TimeFrame) return keys[0].Rotation;
+            if (f >= keys[^1].TimeFrame) return keys[^1].Rotation;
+            for (int i = 1; i < keys.Count; i++)
+                if (f <= keys[i].TimeFrame) { var a = keys[i - 1]; var c = keys[i]; float s = c.TimeFrame - a.TimeFrame; return System.Numerics.Quaternion.Slerp(a.Rotation, c.Rotation, s > 0 ? (f - a.TimeFrame) / s : 0); }
+            return keys[^1].Rotation;
+        }
+        // a bone's turn at frame f as the game poses it (MeshAnimator.Pose: a single key on the root / an *_offset bone is the
+        // decoded key or its conjugate, whichever is nearer the rest; any other single key as stored)
+        System.Numerics.Quaternion Local(IReadOnlyList<AnimExportCli.Meshes.MeshBone> sk, int i, float f, bool onTarget)
+        {
+            var rest = Unit(sk[i].Orientation);
+            if (!anim.Tracks.TryGetValue(sk[i].Name, out var t) || t.RotationKeys.Count == 0) return rest;
+            var q = t.RotationKeys.Count == 1 ? t.RotationKeys[0].Rotation : Sample(t.RotationKeys, f);
+            if (onTarget && turned.Contains(sk[i].Name) && turns != null && turns.TryGetValue(sk[i].Name, out var turn)) q = Mul(q, turn);
+            if (t.RotationKeys.Count == 1 && (i == 0 || sk[i].ParentIndex < 0 || sk[i].Name.EndsWith("_offset", StringComparison.OrdinalIgnoreCase)))
+            {
+                var conj = new System.Numerics.Quaternion(-q.X, -q.Y, -q.Z, q.W);
+                q = MathF.Abs(System.Numerics.Quaternion.Dot(conj, rest)) > MathF.Abs(System.Numerics.Quaternion.Dot(q, rest)) ? conj : q;
+            }
+            return Unit(q);
+        }
+        System.Numerics.Matrix4x4 Model(IReadOnlyList<AnimExportCli.Meshes.MeshBone> sk, int i, float f, bool onTarget)
+        {
+            var m = System.Numerics.Matrix4x4.Identity;
+            for (int k = i, guard = 0; k >= 0 && guard < 256; guard++)
+            {
+                m *= System.Numerics.Matrix4x4.CreateFromQuaternion(Local(sk, k, f, onTarget));   // posed = local * posed[parent]
+                if (k == 0 || sk[k].ParentIndex < 0) break;
+                k = sk[k].ParentIndex;
+            }
+            return m;
+        }
+        // the donor's bones posed with positions too (MeshAnimator.Pose: a track's position only for the set's listed bones
+        // and the root, else the rest position)
+        System.Numerics.Vector3 Pos(int i, float f)
+        {
+            var b = donor[i];
+            if (!anim.Tracks.TryGetValue(b.Name, out var t) || t.PositionKeys.Count == 0 || !(i == 0 || posBones == null || posBones.Contains(b.Name))) return b.Position;
+            var keys = t.PositionKeys;
+            if (keys.Count == 1 || f <= keys[0].TimeFrame) return keys[0].Position;
+            if (f >= keys[^1].TimeFrame) return keys[^1].Position;
+            for (int k = 1; k < keys.Count; k++)
+                if (f <= keys[k].TimeFrame) { var a = keys[k - 1]; var c = keys[k]; float s = c.TimeFrame - a.TimeFrame; return System.Numerics.Vector3.Lerp(a.Position, c.Position, s > 0 ? (f - a.TimeFrame) / s : 0); }
+            return keys[^1].Position;
+        }
+        System.Numerics.Matrix4x4 DonorPosed(int i, float f)
+        {
+            var m = System.Numerics.Matrix4x4.Identity;
+            for (int k = i, guard = 0; k >= 0 && guard < 256; guard++)
+            {
+                m *= System.Numerics.Matrix4x4.CreateFromQuaternion(Local(donor, k, f, false)) * System.Numerics.Matrix4x4.CreateTranslation(Pos(k, f));
+                if (k == 0 || donor[k].ParentIndex < 0) break;
+                k = donor[k].ParentIndex;
+            }
+            return m;
+        }
+        // the copy's key layout (as Retarget reads it)
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tb == null || tags == null) { why = "the animation doesn't read"; return done; }
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string rf = Enum("RotationCompressionFormat"), kf = Enum("KeyEncodingFormat"), tfmt = Enum("TranslationCompressionFormat");
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return done; }
+        bool float96 = rf.Length == 0 || rf.Equals("acf_float96now", StringComparison.OrdinalIgnoreCase);
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt));
+        if (ot == null || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * nb) { why = "the track offsets don't match the bones"; return done; }
+        int p = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        if (raw < 0 || raw > 100000) { why = "the raw tracks don't read"; return done; }
+        for (int k = 0; k < raw; k++)
+        {
+            p += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+            p += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+        }
+        int len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        var skipped = new List<string>();
+        foreach (var (bone, di, ti) in moved)
+        {
+            int track = -1;
+            for (int i = 0; i < nb && track < 0; i++)
+                if (pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * i))].Equals(bone, StringComparison.OrdinalIgnoreCase)) track = i;
+            if (track < 0 || !anim.Tracks.TryGetValue(bone, out var dt) || dt.RotationKeys.Count == 0) continue;   // not keyed: nothing to fix
+            int at = ot.ValueAt + 4 + 16 * track;
+            int rOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 8)), rKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 12));
+            if (rOff < 0 || rKeys < 1) continue;
+            if (rKeys > 1 && !float96) { skipped.Add($"{bone} ({rf})"); continue; }
+            if (rKeys != dt.RotationKeys.Count) { skipped.Add($"{bone} ({rKeys} keys, {dt.RotationKeys.Count} decoded)"); continue; }
+            if (rOff + 12 * rKeys > len) { skipped.Add($"{bone} (past the data)"); continue; }
+            int tParent = target[ti].ParentIndex;
+            for (int k = 0; k < rKeys; k++)
+            {
+                float f = dt.RotationKeys[k].TimeFrame;
+                var inBody = Model(donor, di, f, false);                       // the bone in the donor's body
+                var parent = tParent >= 0 ? Model(target, tParent, f, true) : System.Numerics.Matrix4x4.Identity;
+                if (!System.Numerics.Matrix4x4.Invert(parent, out var pinv)) continue;
+                var nq = Unit(System.Numerics.Quaternion.CreateFromRotationMatrix(inBody * pinv));
+                if (nq.W < 0) nq = -nq;
+                int q = p + rOff + 12 * k;
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q), -nq.X);       // stored: the conjugate
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 4), -nq.Y);
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 8), -nq.Z);
+            }
+            // its position, when the set applies it: as far from this skeleton's parent as the donor has it from the bone of
+            // that name (Thor's palm is keyed 57 units from his spine, 14 ahead of his wrist: on Kitty Pryde the 57 were read from
+            // her wrist and the palm, and the hammer on it, hung beside her hand; 2026-11-03 telemetry)
+            int tOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at)), tKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
+            int dParentSame = tParent >= 0 ? Index(donor, target[tParent].Name) : -1;
+            bool posApplied = posBones == null || posBones.Contains(bone);
+            if (posApplied && tOff >= 0 && tKeys >= 1 && dt.PositionKeys.Count == tKeys)
+            {
+                if (tfmt.Length > 0 && !tfmt.Equals("acf_none", StringComparison.OrdinalIgnoreCase)) skipped.Add($"{bone} position ({tfmt})");
+                else if (dParentSame < 0) skipped.Add($"{bone} position (the other hero has no {target[tParent].Name})");
+                else if (tOff + 12 * tKeys > len) skipped.Add($"{bone} position (past the data)");
+                else
+                    for (int k = 0; k < tKeys; k++)
+                    {
+                        float f = dt.PositionKeys[k].TimeFrame;
+                        var bm = DonorPosed(di, f); var pm = DonorPosed(dParentSame, f);
+                        var rot = pm with { M41 = 0, M42 = 0, M43 = 0 };
+                        if (!System.Numerics.Matrix4x4.Invert(rot, out var rinv)) continue;
+                        var local = System.Numerics.Vector3.TransformNormal(bm.Translation - pm.Translation, rinv);
+                        int q = p + tOff + 12 * k;
+                        BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q), local.X);
+                        BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 4), local.Y);
+                        BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 8), local.Z);
+                    }
+            }
+            done.Add(bone);
+        }
+        if (skipped.Count > 0) why = string.Join(", ", skipped);
+        return done;
+    }
 
     /// <summary>
     /// Turns a copied sequence's rotation keys (<paramref name="d"/>, edited in place) for the bones in <paramref name="turns"/>:

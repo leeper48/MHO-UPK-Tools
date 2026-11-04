@@ -2939,6 +2939,20 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--parent-census":
+            {
+                // Read-only: bones whose parent differs between heroes' main meshes (PowerBorrow.ParentCensus).
+                // --parent-census <CookedPCConsole folder> (reads each hero's base package UC__MarvelPlayer_<Hero>_SF.upk)
+                if (rest.Count < 2 || !Directory.Exists(rest[1])) { Console.WriteLine("--parent-census <CookedPCConsole folder>"); return 1; }
+                var heroFiles = Directory.EnumerateFiles(rest[1], "UC__MarvelPlayer_*_SF.upk")
+                    .Where(f => Path.GetFileNameWithoutExtension(f).Split('_', StringSplitOptions.RemoveEmptyEntries).Length == 4)   // UC, MarvelPlayer, <Hero>, SF
+                    .Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+                var census = PowerBorrow.ParentCensus(heroFiles, out int heroCount);
+                Console.WriteLine($"{heroCount} heroes read ({heroFiles.Count} base packages); bones with more than one parent:");
+                foreach (string l in census) Console.WriteLine(l);
+                return 0;
+            }
             case "--hold-turn":
             {
                 // Read-only: the turn that keeps a held prop facing as in the donor's hand (PowerBorrow.HoldTurn).
@@ -2949,6 +2963,9 @@ static partial class Program
                 float ang = 2 * MathF.Acos(Math.Clamp(hq.W, -1, 1)) * 180 / MathF.PI, sn = MathF.Sqrt(Math.Max(1e-9f, 1 - hq.W * hq.W));
                 Console.WriteLine($"turn {ang:0.0} degrees about ({hq.X / sn:0.00}, {hq.Y / sn:0.00}, {hq.Z / sn:0.00})");
                 Console.WriteLine($"rows: ({ht.M11:0.00} {ht.M12:0.00} {ht.M13:0.00}) ({ht.M21:0.00} {ht.M22:0.00} {ht.M23:0.00}) ({ht.M31:0.00} {ht.M32:0.00} {ht.M33:0.00})");
+                // the chains (rest turn relative to the parent, as AnimSwap.RestTurns compares them)
+                Console.WriteLine("donor:  " + string.Join(" < ", PowerBorrow.HoldChain(rest[1], rest[3]).Take(6)));
+                Console.WriteLine("target: " + string.Join(" < ", PowerBorrow.HoldChain(rest[2], rest[3]).Take(6)));
                 return 0;
             }
             case "--set-anim-tree":
@@ -3735,6 +3752,54 @@ static partial class Program
                     var d = ld.Positions.Select((p, i) => Vector3.Distance(p, anim8.Positions[i])).ToList();
                     Vector3 lo = anim8.Positions.Aggregate(Vector3.Min), hi = anim8.Positions.Aggregate(Vector3.Max);
                     Console.WriteLine($"  {a.Name}: {frames:0} frames, {secs:0.00} s, tracks for {covered} of {ld.Bones.Count} bones; mid-frame moves vertices avg {d.Average():0.0} / max {d.Max():0.0}; size {hi.X - lo.X:0} x {hi.Y - lo.Y:0} x {hi.Z - lo.Z:0}");
+                }
+                return 0;
+            }
+            case "--bone-turn":
+            {
+                // Read-only: one bone's turn in the body (yaw pitch roll, degrees) over animations, as the preview poses it.
+                // --bone-turn <mod | package.upk> <bone> <animation name part...>   (MHO_FOOT_MESH = part of the mesh name)
+                if (rest.Count < 4) { Console.WriteLine("--bone-turn <mod | package.upk> <bone> <animation name part...>"); return 1; }
+                string? bgr = settings.ResolvedGameRoot(data);
+                string? bc = bgr != null && Settings.IsGameRoot(bgr) ? Settings.Cooked(bgr) : null;
+                List<(string File, string Path)> bpk;
+                if (File.Exists(rest[1])) bpk = [(Path.GetFileName(rest[1]), rest[1])];
+                else if (lib.Find(rest[1]) is { } bm0) bpk = [.. bm0.Manifest.UpkReplacements.Select(f => (f, Path.Combine(bm0.Folder, f)))];
+                else { Console.WriteLine("no such mod or package: " + rest[1]); return 1; }
+                var bmeshes = ModMeshes.List(bpk, anyPackage: true);
+                var br = (Environment.GetEnvironmentVariable("MHO_FOOT_MESH") is { Length: > 0 } bmn ? bmeshes.FirstOrDefault(r => r.Name.Contains(bmn, StringComparison.OrdinalIgnoreCase)) : null) ?? bmeshes.FirstOrDefault();
+                if (br == null) { Console.WriteLine("no meshes"); return 1; }
+                var bl = ModMeshes.Load(br, bc, out string bwhy);
+                if (bl == null) { Console.WriteLine("mesh: " + bwhy); return 1; }
+                var ban = new MeshAnimator(bl.Bones, bl.Positions, bl.Normals, bl.Influences);
+                int bi = ban.BoneIndex(rest[2]);
+                if (bi < 0) { Console.WriteLine($"{br.Name} has no {rest[2]}"); return 1; }
+                static string Ypr(Matrix4x4 m)
+                {
+                    var x = Vector3.Normalize(new Vector3(m.M11, m.M12, m.M13)); var y = Vector3.Normalize(new Vector3(m.M21, m.M22, m.M23)); var z = Vector3.Normalize(new Vector3(m.M31, m.M32, m.M33));
+                    float pitch = MathF.Atan2(x.Z, MathF.Sqrt(x.X * x.X + x.Y * x.Y)), yaw = MathF.Atan2(x.Y, x.X);
+                    var sy0 = new Vector3(-MathF.Sin(yaw), MathF.Cos(yaw), 0);
+                    float roll = MathF.Atan2(Vector3.Dot(z, sy0), Vector3.Dot(y, sy0));
+                    return $"{yaw * 180 / MathF.PI,7:0.0} {pitch * 180 / MathF.PI,7:0.0} {roll * 180 / MathF.PI,7:0.0}";
+                }
+                Console.WriteLine($"{br.Name} in {br.Package}: {rest[2]} in the body (yaw pitch roll)");
+                var banims = ModAnimations.For(br, bl.Bones, bpk, bc);
+                foreach (var a in banims.Where(a => rest.Skip(3).Any(w => a.Name.Equals(w, StringComparison.OrdinalIgnoreCase))).Take(6))
+                {
+                    var ba = ModAnimations.Load(a); if (ba == null) continue;
+                    var (bN, _) = MeshAnimator.Span(ba);
+                    var parts = new List<string>();
+                    int pi = bl.Bones[bi].ParentIndex;
+                    for (int k = 0; k <= 4; k++)
+                    {
+                        float f = bN * k / 4; ban.Pose(ba, f);
+                        var bp = ban.BonePosition(bi); var pp = pi >= 0 ? ban.BonePosition(pi) : Vector3.Zero;
+                        parts.Add($"f{f:0}: {Ypr(ban.BoneMatrix(bi))} at ({bp.X:0} {bp.Y:0} {bp.Z:0}), {Vector3.Distance(bp, pp):0} from {(pi >= 0 ? bl.Bones[pi].Name : "-")}");
+                    }
+                    var tbs = ModAnimations.TranslationBones(ba);
+                    bool keyedPos = ba.Tracks.TryGetValue(rest[2], out var btr) && btr.PositionKeys.Count > 0;
+                    Console.WriteLine($"  {a.Name} ({a.Package}): position {(tbs == null ? "applied (not rotation-only)" : tbs.Contains(rest[2]) ? "applied (listed)" : "not applied")}, {(keyedPos ? btr!.PositionKeys.Count + " position key(s)" : "no position keys")}");
+                    foreach (string ln in parts) Console.WriteLine("    " + ln);
                 }
                 return 0;
             }

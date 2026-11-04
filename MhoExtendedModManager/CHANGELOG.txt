@@ -1,6 +1,17 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.336
+- Borrowed animations on another hero: a bone with a different parent bone now also sits where it does on the other hero, not only turns that way. Thor's flight places his palm in front of his chest, measured from his spine. On Kitty Pryde that distance was measured from her wrist, so the palm, and Thor's hammer on it, hung about 57 units beside her hand. Now the palm sits where Thor's sits against his wrist. Resave the mod to rebuild it.
+
+0.60.335
+- Borrowed animations on another hero: a bone that hangs from a different parent bone on this hero now turns as it does on the other hero. For example, Thor's palm hangs from his spine but every other hero's hangs from the wrist. Before, Thor's hand turns pointed Kitty Pryde's hand, and Thor's hammer in it, the wrong way during his flight. Resave the mod (right-click → Resave) to rebuild it.
+- Thor's hammer on another hero no longer starts turned -170 degrees when the hand is fixed this way: it's held as Thor holds it. A Prop Fit you saved before is kept as it is, and may now need resetting.
+- New commands that change nothing: --parent-census lists the bones whose parent differs between heroes; --bone-turn shows one bone's turn in the body over animations.
+
+0.60.334
+- Borrowed powers that bring the other hero's weapon (Kitty Pryde with Thor's flight): the weapon shows again. Hiding Kitty's own katana also hid its right-hand slot, which is where Thor's hammer is held. That slot now stays shown; her katana is still hidden through its other slots. Resave the mod (right-click → Resave) to rebuild it.
+
 0.60.333
 - Borrowed vehicles: the bike's dust cloud on sharp turns now shows (Hawkeye with Cyclops's bike). The borrowed hero's own copy of the effect names the dust; before, the game used another package's copy, which picked none for him. The dust is always the dirt kind, whatever the ground. Resave the mod (right-click → Resave) to rebuild it.
 

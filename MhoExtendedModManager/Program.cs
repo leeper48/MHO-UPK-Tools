@@ -75,6 +75,8 @@ static partial class Program
         ("--power-loop-mod", "--power-loop-mod <hero> <mod name> <volume> <robot> <part of an event name> ...", "Test: a new mod (off) with a hero's looping sounds changed."),
         ("--voice-text-check", "--voice-text-check [samples per set]", "How many lines of the game's voice sets have their text in the Voice tab. Changes nothing."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
+        ("--bone-turn", "--bone-turn <mod | package.upk> <bone> <animation...>", "One bone's turn in the body over animations, as the 3D preview poses it. Changes nothing."),
+        ("--parent-census", "--parent-census <CookedPCConsole folder>", "Bones that hang from different parents in different heroes' skeletons (a borrowed animation's key means something else there). Changes nothing."),
         ("--trim-loop", "--trim-loop <package.upk> <set suffix> <sequence>=<frame> ... <out.upk>", "Ends borrowed sequences at a frame (key counts and length only, the keys untouched), written to <out>. For tests."),
         ("--power-anim-list", "--power-anim-list <power package.upk> <power class>", "Each animation component of a power with its PowerAnims entries in order (start, loop, end), None included. Changes nothing."),
         ("--mount-cut", "--mount-cut <hero package.upk>", "Where a borrow ends each of the hero's loops before its mount bone turns (Green Goblin's barrel roll), with the mount's turn frame by frame. Changes nothing."),
