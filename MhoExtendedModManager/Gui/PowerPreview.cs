@@ -234,6 +234,10 @@ static class PowerPreview
         foreach (var p in baseProps.Concat(powerProps)) rig.Add(p.Mesh, p.W.UseParentAnim ? -1 : PropRig.BoneFor(animator, p.W.Bone), p.W.Slots, p.W.OnDemand, p.W.Class, p.Anim, p.Refs, p.W.UseParentAnim, p.W.Offset, p.Sockets);
     }
 
+    /// <summary>A channeled power's start or end part (…_start / …_end): its effect offsets run in real time (Thor's Lightning
+    /// Storm: ActivationOffset 1.2 came 1.20 s in though the start played ×1.333), a single attack's on the animation's clock.</summary>
+    public static bool IsChannelPart(string anim) => anim.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || anim.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
+
     static readonly Dictionary<string, Task<Dictionary<string, float>>> gameSeconds = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>

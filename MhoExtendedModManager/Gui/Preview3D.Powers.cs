@@ -164,7 +164,7 @@ sealed partial class Preview3D
             if (anim != null && gameAnimSeconds.TryGetValue(anim.Name, out float gs))
             {
                 player?.Rescale(gs);
-                if (Effects.Player is { } fp) fp.AnimSeconds = gs;
+                if (Effects.Player is { } fp) { fp.AnimSeconds = gs; float own = MeshAnimator.Span(anim).Seconds; if (own > 0.05f && !PowerPreview.IsChannelPart(anim.Name)) fp.OffsetScale = gs / own; }
             }
         }, TaskScheduler.FromCurrentSynchronizationContext());
         PowerPreview.GameDb(cooked).ContinueWith(dbt => Task.Run(() =>

@@ -2993,6 +2993,7 @@ static partial class Program
                 if (Gui.PowerPreview.GameAnimSeconds(phero, pc0, pmodFiles).Result.TryGetValue(pba.Name, out float pps) && pps > 0.05f)
                 {
                     Console.WriteLine($"# played over {pps:0.###} s as in game (×{psecs / pps:0.###} its own {psecs:0.###} s)");
+                    if (!Gui.PowerPreview.IsChannelPart(pba.Name)) player.OffsetScale = pps / Math.Max(0.05f, psecs);
                     psecs = pps; player.AnimSeconds = pps;
                 }
                 Console.WriteLine($"# {pmr.Name} in {pmr.Package}, {pba.Name} ({psecs:0.##} s), power {pproto}: {pfx.Effects.Count} effects; sockets not on the model: " +

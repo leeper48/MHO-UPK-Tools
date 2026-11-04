@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.348
+- 3D view: an effect timed a set delay into a sped-up attack now comes as much earlier as the attack is faster, as in game. Thor's Spinning Strike arc waits 0.5 s in the attack's own time, but the attack plays 1.25× faster, so it comes 0.40 s in. A channeled power's delays (Lightning Storm) stay in real time, as the game has them.
+
 0.60.347
 - 3D view: attacks with a hit marker in their animation play at the game's speed too. The game speeds the animation up or slows it down so that its hit frame lands on the power's hit moment. Thor's Hammer Smash plays 2.24× faster, not the 1.75× the power's time alone gives, so the hammer now hits the ground as the impact appears. Checked against the game on four of Thor's attacks: all four play at the game's speed.
 

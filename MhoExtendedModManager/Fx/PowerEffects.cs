@@ -1096,6 +1096,11 @@ sealed class PowerEffects
         public float AnimSeconds { get; set; } = 1;
         float ContactTime => fx.ContactPercent * (UsePowerTime && fx.AnimationSeconds is float ps ? ps : AnimSeconds);
 
+        /// <summary>Activation offsets on the animation's clock: the game's time over the animation's own length (the game counts
+        /// them in animation time: Thor's Spinning Strike arc, ActivationOffset 0.5 at ×1.245, came 0.40 s in; Hammer Smash's
+        /// camera shakes 0.05 / 0.15 after contact at ×2.239 came 0.022 / 0.066 s after it; 2026-11-03). 1 = as stored.</summary>
+        public float OffsetScale { get; set; } = 1;
+
         /// <summary>The contact on the power's own clock (AnimationTimeMS, as the game) instead of the animation's length.</summary>
         public bool UsePowerTime { get; set; }
 
@@ -1123,7 +1128,7 @@ sealed class PowerEffects
 
         /// <summary>When a component starts: its activation point (the contact time for "…contact…" points, and for summons' and
         /// missiles' components) plus its offset.</summary>
-        float StartOf(string point, float offset, string kind) => (point.Contains("contact", StringComparison.OrdinalIgnoreCase) || kind is "entity" or "projectile" ? ContactTime : 0) + offset
+        float StartOf(string point, float offset, string kind) => (point.Contains("contact", StringComparison.OrdinalIgnoreCase) || kind is "entity" or "projectile" ? ContactTime : 0) + offset * OffsetScale
             + (kind == "projectile" && point.Contains("explode", StringComparison.OrdinalIgnoreCase) ? Math.Max(0, target.X - 30) / MissileSpeed : 0);
         static bool Explodes(Effect e) => e.Point.Contains("explode", StringComparison.OrdinalIgnoreCase);
 
