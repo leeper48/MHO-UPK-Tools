@@ -96,6 +96,36 @@ sealed class PowerEffects
     /// <summary>The power's AnimationTimeMS in seconds (the game plays its animation over this and puts the contact at
     /// ContactPercent of it: Thor's Hammer Smash 857 ms × 0.48 = 0.41 s, measured in game 2026-11-03); null when not set.</summary>
     public float? AnimationSeconds;
+
+    /// <summary>The power's ProjectileSpeed (units a second; its formula's constant), else null: the thrown missile's speed.
+    /// Thor's Hammer of Storms: 1300, measured in game 2026-11-03 at about 1,250 out and back.</summary>
+    public float? MissileSpeed;
+
+    /// <summary>A formula field's constant (Eval\Constants\LoadInt / LoadFloat: its Value), along the prototype's parents; null
+    /// when the formula isn't a plain constant.</summary>
+    static double? EvalConstant(GameData db, string path, string field)
+    {
+        if (db.Find(path) is not { } pe) return null;
+        ulong id = pe.Id;
+        for (int guard = 0; guard < 32 && id != 0; guard++)
+        {
+            var d = db.Prototype(id).Data;
+            foreach (var gr in d.Groups)
+                foreach (var f in gr.Simple)
+                    if (f.Type == 'R' && db.FieldName(gr.Blueprint, f.Id) == field)
+                    {
+                        if (f.Value.Struct is not { } st) return null;
+                        foreach (var g2 in st.Groups)
+                            foreach (var v in g2.Simple)
+                                if (db.FieldName(g2.Blueprint, v.Id) == "Value")
+                                    return v.Type switch { 'L' => (double)(long)v.Value.Raw, 'D' => BitConverter.Int64BitsToDouble((long)v.Value.Raw), _ => null };
+                        return null;
+                    }
+            if (!d.HasParent) break;
+            id = d.Parent;
+        }
+        return null;
+    }
     public bool Returning;
     public readonly List<Effect> Effects = new();
     public readonly List<string> Notes = new();
@@ -176,6 +206,7 @@ sealed class PowerEffects
                     if (f.Type == 'D' && db.FieldName(gr.Blueprint, f.Id) == "AnimationContactTimePercent") { float v = (float)BitConverter.Int64BitsToDouble((long)f.Value.Raw); if (v >= 0 && v <= 1) fx.ContactPercent = v; }   // (0 = contact at the start: Iron Man's Signature lasers, Kurt 2026-10-02)
             fx.Returning = Contains(db, d, "IsReturningMissile");
             if (MhoExtendedModManager.PowerBorrow.Field(db, powerPath, "AnimationTimeMS", 'L') is long atm && atm > 0) fx.AnimationSeconds = atm / 1000f;
+            if (EvalConstant(db, powerPath, "ProjectileSpeed") is double psp && psp > 50) fx.MissileSpeed = (float)psp;
         }
         else fx.Notes.Add("no power " + powerPath);
         // the power's own conditions (in its own package): the same rule, from the power's own lineage
@@ -1106,7 +1137,9 @@ sealed class PowerEffects
 
         // Missiles in flight (by their particle system): where they left from, when, where they go (+X, the way the hero faces).
         readonly Dictionary<ParticleSim, (Vector3 From, float T0)> flights = new();
-        const float MissileRange = 300, MissileSpeed = 900;
+        const float MissileRange = 300;
+        /// <summary>The missile's speed: the power's ProjectileSpeed, else 900.</summary>
+        float MissileSpeed => fx.MissileSpeed ?? 900;
 
         /// <summary>A missile's place after <paramref name="t"/> seconds: out <see cref="MissileRange"/> units, back again when it
         /// returns; null when its flight is over.</summary>
@@ -1255,7 +1288,9 @@ sealed class PowerEffects
                     // the missile's explosion: where its flight reaches the target (Kurt, 2026-10-06: Kate's Nerve Gas Arrow
                     // burst on her own chest), when it gets there (StartOf adds the flight time)
                     var from0 = e.Sockets.Select(n => socket(n)).FirstOrDefault(m => m != null)?.Translation ?? new Vector3(0, 0, target.Z + 60);
-                    running.Add((e, new ParticleSim(e.System) { Origin = Matrix4x4.CreateTranslation(new Vector3(Math.Max(from0.X, target.X), target.Y, Math.Max(target.Z, from0.Z - 30))) }, null));
+                    var boom = new ParticleSim(e.System) { Origin = Matrix4x4.CreateTranslation(new Vector3(Math.Max(from0.X, target.X), target.Y, Math.Max(target.Z, from0.Z - 30))) };
+                    running.Add((e, boom, null));
+                    Started?.Invoke(e, time, boom.Origin, null);
                     continue;
                 }
                 if (e.Kind == "projectile")
@@ -1265,6 +1300,7 @@ sealed class PowerEffects
                     var sim = new ParticleSim(e.System) { Origin = Matrix4x4.CreateTranslation(from) };
                     flights[sim] = (from, time);
                     running.Add((e, sim, null));
+                    Started?.Invoke(e, time, sim.Origin, null);
                     continue;
                 }
                 // on the one hit: the target point, raised to the height its socket has on the caster above its feet (else 60)

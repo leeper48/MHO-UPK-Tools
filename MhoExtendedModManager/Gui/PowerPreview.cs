@@ -236,7 +236,12 @@ static class PowerPreview
 
     /// <summary>A channeled power's start or end part (…_start / …_end): its effect offsets run in real time (Thor's Lightning
     /// Storm: ActivationOffset 1.2 came 1.20 s in though the start played ×1.333), a single attack's on the animation's clock.</summary>
-    public static bool IsChannelPart(string anim) => anim.EndsWith("_start", StringComparison.OrdinalIgnoreCase) || anim.EndsWith("_end", StringComparison.OrdinalIgnoreCase);
+    public static bool IsChannelPart(string anim) { lock (channelParts) return channelParts.Contains(anim); }
+
+    /// <summary>The power animations that are a channeled power's start or end (its power has ChannelStartTimeMS /
+    /// ChannelEndTimeMS), filled by GameAnimSeconds. A _start / _end of a power without them (Thor's Hammer of Storms plays
+    /// only absattack_flymjolnir_end, ×0.714 over its 700 ms) is a plain attack.</summary>
+    static readonly HashSet<string> channelParts = new(StringComparer.OrdinalIgnoreCase);
 
     static readonly Dictionary<string, Task<Dictionary<string, float>>> gameSeconds = new(StringComparer.OrdinalIgnoreCase);
 
@@ -266,8 +271,12 @@ static class PowerPreview
                     string? proto = refs.SelectMany(r => byClass.TryGetValue(r.Class, out var l) ? l : []).FirstOrDefault();
                     if (proto == null || proto.Contains(@"\TravelPower\", StringComparison.OrdinalIgnoreCase)) continue;
                     long Ms(string f) => PowerBorrow.Field(db, proto, f, 'L') is long v ? v : 0;
-                    long ms = a.EndsWith("_start") ? Ms("ChannelStartTimeMS") : a.EndsWith("_end") ? Ms("ChannelEndTimeMS") : 0;
-                    bool powerTime = ms <= 0 && !a.EndsWith("_end");
+                    long chStart = Ms("ChannelStartTimeMS"), chEnd = Ms("ChannelEndTimeMS");
+                    bool channel = (chStart > 0 || chEnd > 0) && (a.EndsWith("_start") || a.EndsWith("_end"));
+                    if (channel) lock (channelParts) channelParts.Add(anim);
+                    long ms = !channel ? 0 : a.EndsWith("_start") ? chStart : chEnd;
+                    if (channel && ms <= 0) continue;   // (a channel's part with no time of its own: its own speed)
+                    bool powerTime = !channel;
                     if (powerTime) ms = Ms("AnimationTimeMS");
                     if (ms < 50) continue;
                     // the animation's hit marker (MarvelAnimNotify_ContactFrame) put on the power's contact moment: the game plays

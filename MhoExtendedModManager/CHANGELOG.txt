@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.349
+- 3D view: a thrown weapon flies at its power's own speed from the game data. Thor's Hammer of Storms flies at 1,300 units a second; the view used 900 for everything, so the hammer came back late.
+- 3D view: an attack whose animation is named like the end of a channeled power, but isn't one, plays like any other attack. Thor's Hammer of Storms only plays its …_end animation, at the game's speed (0.7 s), with its throw at the right moment. Whether a power is channeled now comes from its game data, not the animation's name.
+
 0.60.348
 - 3D view: an effect timed a set delay into a sped-up attack now comes as much earlier as the attack is faster, as in game. Thor's Spinning Strike arc waits 0.5 s in the attack's own time, but the attack plays 1.25× faster, so it comes 0.40 s in. A channeled power's delays (Lightning Storm) stay in real time, as the game has them.
 
