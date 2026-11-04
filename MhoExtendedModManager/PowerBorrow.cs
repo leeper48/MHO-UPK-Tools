@@ -118,7 +118,11 @@ static partial class PowerBorrow
                 heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
                 heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots,
                 flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart, fallSpeed) : null, endFromLoop: e.End == PowerBorrowEntry.EndLoop, canChooseEnd: v => e.EndChoosable = v, conditionStart: condStart,
-                takeoff: takeoffNow);
+                takeoff: takeoffNow,
+                // costume packages a costume mod (one without borrows) replaces: the borrow doesn't ship them (AddBorrowedSockets)
+                costumeModPackages: lib.Mods.Where(m => m.Folder != editing?.Folder && m.Manifest.PowerBorrows is not { Count: > 0 })
+                    .SelectMany(m => m.Manifest.UpkReplacements.Select(f => (File: f, Mod: m.Manifest.Name))).GroupBy(x => x.File, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First().Mod, StringComparer.OrdinalIgnoreCase));
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
             // the user's climb speed into the hero's class (the package the borrow ships already)
@@ -683,7 +687,8 @@ static partial class PowerBorrow
         (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null,
         IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null,
         bool conditionStart = false,
-        ((float ApplyAt, float Height, float ChannelStart) Target, float Rise, float DonorApplyAt, float DonorChannelStart)? takeoff = null)
+        ((float ApplyAt, float Height, float ChannelStart) Target, float Rise, float DonorApplyAt, float DonorChannelStart)? takeoff = null,
+        IReadOnlyDictionary<string, string>? costumeModPackages = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -900,6 +905,39 @@ static partial class PowerBorrow
             if (crossHero && (ownTracks || Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1"))
                 done[hf] = AddOwnTracks(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), targetHeroPackage, targetAnims, log);
             if (loopCuts.Count > 0) done[hf] = TrimLoops(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), loopCuts, log);
+            // the sockets the borrowed effects spawn on that this hero's model lacks (Thor's socket_hammer on Kitty Pryde)
+            if (crossHero && powerFile != null && pairs.FirstOrDefault(x => x.Role == "power") is { } pp
+                && SpawnSocketNames(done[powerFile], $"marvelgamecontent.default__{pp.TargetClass}".ToLowerInvariant()) is { Count: > 0 } wanted)
+            {
+                string? heroName = targetHeroClass.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase) ? targetHeroClass["MarvelPlayer_".Length..] : null;
+                done[hf] = AddBorrowedSockets(done[hf], donorHeroPackage, wanted, cooked, log, heroName);
+                // ... and on the hero's costumes with a model of their own (Cyclops 90s X-Men: Kurt chose to ship those packages,
+                // 2026-11-03; naming the bone instead didn't work in game). A costume package a costume mod replaces is left out.
+                if (cooked != null)
+                {
+                    string stem = Path.GetFileNameWithoutExtension(hf), cprefix = stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
+                    var costumeFiles = new List<string>();
+                    try
+                    {
+                        costumeFiles.AddRange(Directory.EnumerateFiles(cooked, cprefix + "_*_SF.upk").Select(Path.GetFileName).OfType<string>()
+                            .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
+                            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
+                    }
+                    catch (IOException) { }
+                    var leftOut = new List<string>();
+                    foreach (string cf in costumeFiles)
+                    {
+                        if (costumeModPackages != null && costumeModPackages.TryGetValue(cf, out var other)) { leftOut.Add($"{cf} ({other})"); continue; }
+                        byte[] start;
+                        if (done.TryGetValue(cf, out var cb)) start = cb;
+                        else if ((startFrom?.Invoke(cf) ?? StockFiles.For(cooked, cf)) is { } sp && File.Exists(sp)) start = File.ReadAllBytes(sp);
+                        else continue;
+                        byte[] withSockets = AddBorrowedSockets(start, donorHeroPackage, wanted, cooked, log, heroName);
+                        if (!ReferenceEquals(withSockets, start)) done[cf] = withSockets;
+                    }
+                    if (leftOut.Count > 0) log.Add($"  not given the borrowed effects' sockets (a costume mod replaces them): {string.Join(", ", leftOut)}");
+                }
+            }
             log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {hf} ({targetHeroClass})");
             // costumes with an animation list of their own don't play the hero's: the borrowed sets are imported into theirs
             if (cooked != null)
@@ -2829,6 +2867,192 @@ static partial class PowerBorrow
         float tz = f.TurnZ == 0 && f.IsIdentity ? DefaultTurnZ(e.Class.ToLowerInvariant()) : f.TurnZ;
         static int Units(float deg) => (int)MathF.Round(deg / 360f * 65536f);
         return System.Numerics.Matrix4x4.CreateScale(scale) * ModMeshes.Rotator(Units(f.TurnY), Units(tz), Units(f.TurnX)) * System.Numerics.Matrix4x4.CreateTranslation(f.X, f.Y, f.Z);
+    }
+
+    /// <summary>The socket names a power's components spawn on (SpawnSockets of every component of <paramref name="powerDefault"/>).</summary>
+    static HashSet<string> SpawnSocketNames(byte[] package, string powerDefault)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var p = Package.FromBytes(package);
+        int td = Find(p, powerDefault);
+        if (td < 0) return names;
+        foreach (int r in Components(p, td, out _, out _))
+        {
+            if (r <= 0) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
+            if (TagWalker.Walk(p, d, 16)?.FirstOrDefault(t => t.Name.Equals("SpawnSockets", StringComparison.OrdinalIgnoreCase)) is not { } ss) continue;
+            // a list of tagged structs (108 bytes for one): every name value in it that's a socket's
+            for (int at = ss.ValueAt + 4; at + 8 <= ss.ValueAt + ss.Size; at += 4)
+            {
+                int ni = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at));
+                if (ni <= 0 || ni >= p.Names.Length) continue;
+                string s = p.Names[ni];
+                if (s.StartsWith("socket_", StringComparison.OrdinalIgnoreCase)) names.Add(s);
+            }
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// The donor's sockets in <paramref name="wanted"/> that this hero's models (in <paramref name="heroPackage"/>) lack, on
+    /// bones they have, copied onto them (bone, place and turn as the donor has them) and appended to their Sockets lists;
+    /// verified. A borrowed effect on a socket the model lacks never spawns (2026-11-03 telemetry: Thor's vfx_fly and
+    /// vfx_plowthrough_hammer_01 on his socket_hammer, g_r_palm; on Kitty Pryde the components activated and nothing showed).
+    /// </summary>
+    static byte[] AddBorrowedSockets(byte[] heroPackage, string donorHeroPackage, IReadOnlyCollection<string> wanted, string? cooked, List<string> log, string? hero = null)
+    {
+        // the donor's sockets by name: its base package, then its costumes' (Thor's socket_hammer is on thor_classic in
+        // UC__MarvelPlayer_Thor_Classic_SF; his base package has only the hammer's own)
+        var donorSockets = new Dictionary<string, (Package Pkg, int Export, string Bone)>(StringComparer.OrdinalIgnoreCase);
+        var files = new List<string> { donorHeroPackage };
+        string stem = Path.GetFileNameWithoutExtension(donorHeroPackage), prefix = stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
+        if (cooked != null)
+            try
+            {
+                files.AddRange(Directory.EnumerateFiles(cooked, prefix + "_*_SF.upk").OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                    .Where(f => !Path.GetFileName(f).Contains("bak", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Contains("copy", StringComparison.OrdinalIgnoreCase))
+                    .Select(f => StockFiles.For(cooked, Path.GetFileName(f))));
+            }
+            catch (IOException) { }
+        foreach (string f in files)
+        {
+            if (wanted.All(donorSockets.ContainsKey)) break;
+            Package sp;
+            try { sp = Package.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { continue; }
+            foreach (var (sock, name, bone) in MeshSockets(sp)) donorSockets.TryAdd(name, (sp, sock, bone));
+        }
+        var need = wanted.Where(donorSockets.ContainsKey).ToList();
+        if (need.Count == 0) return heroPackage;
+        var dst = Package.FromBytes(heroPackage);
+        var ap = AnimExportCli.Packages.Package.Read(dst.RawFile);
+        var meshes = new List<int>();
+        for (int i = 0; i < dst.Exports.Length; i++)
+            if (dst.ClassOf(dst.Exports[i]).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) meshes.Add(i);
+        var added = new List<string>();
+        foreach (int mi0 in meshes)
+        {
+            int mi = mi0;
+            var bones = AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, mi)?.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (bones == null || !bones.Contains("g_spine01")) continue;   // a character's model, not a prop's
+            if (hero is { Length: > 0 } && !dst.Exports[mi].ObjectName.StartsWith(hero, StringComparison.OrdinalIgnoreCase)) continue;   // the hero's, not a pet's or a summon's (Lockheed, Angel)
+            var have = MeshSockets(dst).Where(x => dst.Exports[x.Export].OuterIndex == mi + 1).Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            string meshPath = dst.PathOf(dst.Exports[mi]);
+            foreach (string s in need)
+            {
+                if (have.Contains(s) || !bones.Contains(donorSockets[s].Bone)) continue;
+                var src = donorSockets[s].Pkg;
+                int se = donorSockets[s].Export;
+                string donorMesh = src.PathOf(src.Exports[src.Exports[se].OuterIndex - 1]);
+                var sc = CrossMove.Quiet(() => ExportCopy.Copy(src, se, dst, [], $"borrowed_{s}", new Dictionary<string, string> { [donorMesh] = meshPath }), out string said);
+                if (sc == null) { log.Add($"  {s}: the socket couldn't be copied onto {dst.Exports[mi].ObjectName}"); continue; }
+                dst = Package.FromBytes(sc.Output);
+                // the mesh's Sockets array: the new socket appended
+                byte[] md = dst.ReadExportBytes(dst.Exports[mi]).ToArray();
+                if (TagWalker.Walk(dst, md, 4)?.FirstOrDefault(t => t.Name.Equals("Sockets", StringComparison.OrdinalIgnoreCase)) is not { } arr) { log.Add($"  {s}: {dst.Exports[mi].ObjectName} has no socket list"); continue; }
+                int count = BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(arr.ValueAt)), end = arr.ValueAt + 4 + 4 * count;
+                byte[] nd = [.. md.AsSpan(0, end), .. BitConverter.GetBytes(sc.RootRef), .. md.AsSpan(end)];
+                BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(arr.ValueAt), count + 1);
+                BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(arr.Start + 16), arr.Size + 4);
+                var rep = new Dictionary<int, Func<long, byte[]>> { [mi] = _ => nd };
+                byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
+                var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+                if (problems.Count > 0) throw new InvalidDataException("the borrowed socket: " + string.Join("; ", problems.Take(3)));
+                dst = Package.FromBytes(output);
+                added.Add($"{s} ({donorSockets[s].Bone}) on {dst.Exports[mi].ObjectName}");
+            }
+        }
+        if (added.Count == 0) return heroPackage;
+        log.Add($"  sockets the borrowed effects spawn on, added: {string.Join(", ", added)}");
+        return dst.RawFile;
+    }
+
+    /// <summary>
+    /// Right-click → Add Borrowed Power Sockets (Kurt, 2026-11-03): a costume mod's own costume packages get the sockets that
+    /// the library's borrow mods for the same hero spawn effects on (a borrow leaves a costume package a costume mod replaces
+    /// alone, so on that costume the effect never spawned: Cyclops' 90s X-Men Brown Jacket under Thor's flight). Returns the
+    /// changed packages (file name, new bytes, verified by AddBorrowedSockets); writes nothing. Notes say what was found.
+    /// </summary>
+    public static List<(string File, byte[] Bytes)> SocketsForCostumeMod(ModLibrary lib, Mod costume, string cooked, List<string> notes)
+    {
+        var changed = new List<(string, byte[])>();
+        var rx = new System.Text.RegularExpressions.Regex(@"^UC__MarvelPlayer_([A-Za-z0-9]+)(_.+)?_SF\.upk$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var byHero = costume.Manifest.UpkReplacements.Select(f => (File: f, M: rx.Match(f))).Where(x => x.M.Success)
+            .GroupBy(x => x.M.Groups[1].Value, StringComparer.OrdinalIgnoreCase);
+        foreach (var hg in byHero)
+        {
+            string hero = hg.Key;
+            // the borrows for this hero: (donor hero package, the socket names its borrowed effects spawn on)
+            var borrows = new List<(string Donor, HashSet<string> Sockets, string Mod)>();
+            foreach (var bm in lib.Mods.Where(x => x.Folder != costume.Folder && x.Manifest.PowerBorrows is { Count: > 0 }))
+                foreach (var e in bm.Manifest.PowerBorrows!.Where(e => hero.Equals(e.Hero, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(e.DonorHero)))
+                {
+                    var socks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string pf in (e.Packages ?? []).Where(f => f.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        string path = Path.Combine(bm.Folder, pf);
+                        if (!File.Exists(path)) continue;
+                        var pp = Package.Open(path);
+                        for (int i = 0; i < pp.Exports.Length; i++)
+                        {
+                            if (!pp.Exports[i].ObjectName.StartsWith("borrowed_", StringComparison.OrdinalIgnoreCase)) continue;
+                            byte[] d = pp.ReadExportBytes(pp.Exports[i]).ToArray();
+                            if (TagWalker.Walk(pp, d, 16)?.FirstOrDefault(t => t.Name.Equals("SpawnSockets", StringComparison.OrdinalIgnoreCase)) is not { } ss) continue;
+                            for (int at = ss.ValueAt + 4; at + 8 <= ss.ValueAt + ss.Size; at += 4)
+                            {
+                                int ni = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at));
+                                if (ni > 0 && ni < pp.Names.Length && pp.Names[ni].StartsWith("socket_", StringComparison.OrdinalIgnoreCase)) socks.Add(pp.Names[ni]);
+                            }
+                        }
+                    }
+                    if (socks.Count > 0) borrows.Add((StockFiles.For(cooked, $"UC__MarvelPlayer_{e.DonorHero}_SF.upk"), socks, bm.Manifest.Name));
+                }
+            if (borrows.Count == 0) { notes.Add($"No borrow mod in the library gives {hero} effects on sockets."); continue; }
+            notes.Add($"{hero}: {borrows.Count} borrow(s) checked ({string.Join(", ", borrows.Select(b => b.Mod).Distinct())}).");
+            foreach (var (file, _) in hg)
+            {
+                string path = Path.Combine(costume.Folder, file);
+                if (!File.Exists(path)) continue;
+                byte[] start = File.ReadAllBytes(path), cur = start;
+                var log = new List<string>();
+                foreach (var b in borrows.GroupBy(b => b.Donor, StringComparer.OrdinalIgnoreCase))
+                    cur = AddBorrowedSockets(cur, b.Key, b.SelectMany(x => x.Sockets).ToHashSet(StringComparer.OrdinalIgnoreCase), cooked, log, hero);
+                if (!ReferenceEquals(cur, start)) { changed.Add((file, cur)); notes.AddRange(log.Select(l => $"{file}: {l.Trim()}")); }
+            }
+        }
+        if (changed.Count == 0) notes.Add("Its models already have every socket those borrows use: nothing to add.");
+        return changed;
+    }
+
+    /// <summary>Writes <see cref="SocketsForCostumeMod"/>'s packages into the mod's folder: each to a temp file beside it,
+    /// opened again as a package, then put in place. Returns the files written.</summary>
+    public static List<string> WriteCostumeModSockets(Mod costume, List<(string File, byte[] Bytes)> changes)
+    {
+        var done = new List<string>();
+        foreach (var (file, bytes) in changes)
+        {
+            string path = Path.Combine(costume.Folder, file), tmp = path + ".sockets.tmp";
+            File.WriteAllBytes(tmp, bytes);
+            var check = Package.Open(tmp);
+            if (check.Exports.Length == 0) { File.Delete(tmp); throw new InvalidDataException($"{file}: the new package doesn't read"); }
+            File.Move(tmp, path, true);
+            done.Add(file);
+        }
+        return done;
+    }
+
+    /// <summary>Every SkeletalMeshSocket in a package whose outer is a mesh: (export, SocketName, BoneName).</summary>
+    static List<(int Export, string Name, string Bone)> MeshSockets(Package p)
+    {
+        var list = new List<(int, string, string)>();
+        for (int i = 0; i < p.Exports.Length; i++)
+        {
+            if (!p.ClassOf(p.Exports[i]).Equals("SkeletalMeshSocket", StringComparison.OrdinalIgnoreCase) || p.Exports[i].OuterIndex <= 0) continue;
+            byte[] sd = p.ReadExportBytes(p.Exports[i]).ToArray();
+            var props = TagWalker.Walk(p, sd, 4);
+            string? Nm(string n) => props?.FirstOrDefault(t => t.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t ? TagWalker.NameAt(p, sd, t.ValueAt) : null;
+            if (Nm("SocketName") is string sn && Nm("BoneName") is string bn) list.Add((i, sn, bn));
+        }
+        return list;
     }
 
     /// <summary>Bones that hang from another parent on the target's skeleton than on the donor's (AnimSwap.Reparent fixes their keys).</summary>

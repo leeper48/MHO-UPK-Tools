@@ -28,6 +28,7 @@ static partial class Program
         ("--migrate", "--migrate <old folder> [--to <lib>]", "Copy MHModManager's mods, order, verified stock backups and settings into a new library (default %LOCALAPPDATA%\\MhoExtendedModManager\\library). The old folder is left as it is."),
         ("--install", "--install <archive.zip|.7z|folder> [--replace]", "Add the mod(s) in an archive or folder to the library (top of the list, disabled). --replace updates a mod of the same name in place (keeps its place, on/off, lock, tags and note)."),
         ("--export", "--export <mod> <out.zip> [--legacy]", "Save a mod from the library as a .zip (installable here and in MHModManager; --legacy also leaves out the other-icon-package extension)."),
+        ("--add-borrow-sockets", "--add-borrow-sockets <mod> [--dry-run]", "Adds to a costume mod's own costume models the sockets that the library's borrowed powers for that hero spawn effects on (Thor's hammer glows on a costume another mod replaces), as right-click → Add Borrowed Power Sockets does. Changes only that mod's files; --dry-run lists them."),
         ("--resave", "--resave <mod>", "Build the mod again with this version and save it, as right-click → Resave does (the Editor's Save steps, without the Editor). Changes only the mod in the library; Apply Changes afterwards updates the game."),
         ("--remove", "--remove <mod> [--dry-run]", "Remove a disabled mod from the library (to the discarded copies). Refused while its own files are still modded in the game (Apply first). --dry-run only says whether it could be removed."),
         ("--enable", "--enable <mod>", "Enable a mod (library state only; run --apply to change the game)."),
@@ -483,6 +484,25 @@ static partial class Program
                 rlog.ForEach(l => Console.WriteLine("  " + l));
                 Console.WriteLine(rsaved != null ? $"resaved: {rsaved}" : $"not resaved: {rerr}");
                 return rsaved != null ? 0 : 1;
+            }
+            case "--add-borrow-sockets":
+            {
+                // right-click → Add Borrowed Power Sockets: a costume mod's costume packages get the sockets the library's borrows
+                // for that hero spawn effects on. --dry-run lists them, writing nothing.
+                if (IsOldManager(data)) { Console.WriteLine(OldManagerRefusal); return 1; }
+                var am = rest.Count > 1 ? lib.Find(rest[1]) : null;
+                string? agr = settings.ResolvedGameRoot(data);
+                if (am == null || agr == null || !Settings.IsGameRoot(agr)) { Console.WriteLine("--add-borrow-sockets <mod> [--dry-run] (needs the game folder set)"); return 1; }
+                var agame = new GameState(agr, data);
+                StockFiles.Init(agame, settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                var anotes = new List<string>();
+                var achanges = PowerBorrow.SocketsForCostumeMod(lib, am, agame.Cooked, anotes);
+                anotes.ForEach(l => Console.WriteLine("  " + l));
+                if (achanges.Count == 0 || rest.Any(a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase))) { Console.WriteLine(achanges.Count == 0 ? "nothing to add" : $"dry run: {achanges.Count} package(s) would change"); return 0; }
+                var awritten = PowerBorrow.WriteCostumeModSockets(am, achanges);
+                ModHistory.Add(lib, am, "Add Borrowed Power Sockets", string.Join(", ", awritten));
+                Console.WriteLine($"written: {string.Join(", ", awritten)}");
+                return 0;
             }
             case "--remove":
             {

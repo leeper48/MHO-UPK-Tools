@@ -1,6 +1,18 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.343
+- Right-click a costume mod → Add Borrowed Power Sockets: for a costume the borrow leaves alone because a costume mod replaces it (Cyclops' 90's X-Men Brown Jacket under Thor's flight), this adds the points the borrowed effects sit on to that mod's own costume models, for the borrow mods in your library for the same hero. It asks first. Then Apply Changes.
+
+0.60.342
+- Borrowed effects on a point of the other hero's body now show on every costume. The point is added to each costume's own model too, so the mod includes the hero's costume packages (Cyclops: 11, mostly under half a MB each). A costume package that a costume mod in your library replaces is left out and named in the log, so the borrow never overrides your costume mods. A costume included in the borrow mod itself gets the point. Resave the mod to rebuild it.
+
+0.60.341
+- Test withdrawn: naming a bone instead of a missing point on the body doesn't work in the game (the effect doesn't appear at all), so borrowed effects go back to 0.60.339's way: the point is added to the hero's own model. Costumes with a model of their own, such as Cyclops' 90s X-Men, still don't show those effects. Resave the mod to rebuild it.
+
+0.60.339
+- Borrowed powers: effects that sit on a point of the other hero's body that this hero's model doesn't have now show. Thor's flight puts its hammer glows on a point at his palm (socket_hammer); Kitty Pryde, Green Goblin and Cyclops had no such point, so those glows never appeared. The point is now added to their models, where Thor has it. Resave the mod to rebuild it.
+
 0.60.338
 - Borrowed flight from a hero who launches later than yours (Thor's flight on Kitty Pryde or Green Goblin): the takeoff now follows the other hero's. The game starts lifting Kitty and Goblin right away, but Thor only after 0.68 s, so they used to float upward while Thor's crouch-and-jump played. Now they stay on the floor through the crouch and launch with Thor's jump. After that they climb at their own speed (Climb Speed changes it). Resave the mod to rebuild it.
 - Green Goblin: borrowed starts and ends are now lowered with the game's lift on him too. His body hangs from his glider bones, which kept that step from finding his spine and hips before.

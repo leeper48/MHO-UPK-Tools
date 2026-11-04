@@ -1319,6 +1319,40 @@ sealed partial class MainForm : Form
         status.Text = Ui.TitleCase($"Resaved \"{m.Name}\"") + (m.Enabled ? "  ·  Apply Changes to Update the Game" : "");
     }
 
+    /// <summary>Right-click → Add Borrowed Power Sockets (PowerBorrow.SocketsForCostumeMod): asks, then writes.</summary>
+    async Task AddBorrowSockets(Mod m)
+    {
+        if (readOnly || lib == null) return;
+        if (game == null) { Dialog.Show(this, "The game folder isn't set (Settings → Change Game Folder).", "Nothing Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (editor?.Editing?.FolderName == m.FolderName) { Dialog.Show(this, $"\"{m.Name}\" is open in the Editor. Close it first.", "Nothing Added", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        status.Text = Ui.TitleCase($"Checking \"{m.Name}\"…");
+        var notes = new List<string>();
+        var (rlib, cooked) = (lib, game.Cooked);
+        List<(string File, byte[] Bytes)> changes;
+        try { changes = await Task.Run(() => PowerBorrow.SocketsForCostumeMod(rlib, m, cooked, notes)); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException)
+        {
+            status.Text = "";
+            Dialog.Show(this, ex.Message, "Nothing Added", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        status.Text = "";
+        if (changes.Count == 0) { Dialog.Show(this, string.Join("\n", notes), "Nothing to Add", MessageBoxButtons.OK); return; }
+        if (Dialog.Show(this, $"These packages of \"{m.Name}\" get the points the borrowed effects sit on:\n\n{string.Join("\n", changes.Select(c => "• " + c.File))}\n\nDetails:\n{string.Join("\n", notes)}\n\nChange the mod's files?",
+                "Add Borrowed Power Sockets", MessageBoxButtons.OKCancel) != DialogResult.OK) return;
+        List<string> written;
+        try { written = PowerBorrow.WriteCostumeModSockets(m, changes); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or MhoPackageModifier.PackageFormatException)
+        {
+            Dialog.Show(this, ex.Message, "Not Added", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        ModHistory.Add(lib, m, "Add Borrowed Power Sockets", string.Join(", ", written));
+        Reload();
+        SelectMod(m.FolderName);
+        status.Text = Ui.TitleCase($"Sockets Added to \"{m.Name}\"") + (m.Enabled ? "  ·  Apply Changes to Update the Game" : "");
+    }
+
     void OpenEditor(Mod? m)
     {
         CloseEditor();
