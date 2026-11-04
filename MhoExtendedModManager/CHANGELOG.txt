@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.344
+- Borrowed effects' points on costumes: a costume package the borrow mod already includes (for the costume's own animation list) now always gets them, even when a costume mod also replaces it. Cyclops' Astonishing costume was in the Thor Fly mod without the point, so Thor's hammer glows didn't show on it. Resave the mod to rebuild it.
+
 0.60.343
 - Right-click a costume mod → Add Borrowed Power Sockets: for a costume the borrow leaves alone because a costume mod replaces it (Cyclops' 90's X-Men Brown Jacket under Thor's flight), this adds the points the borrowed effects sit on to that mod's own costume models, for the borrow mods in your library for the same hero. It asks first. Then Apply Changes.
 

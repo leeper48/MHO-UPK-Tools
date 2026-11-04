@@ -122,7 +122,9 @@ static partial class PowerBorrow
                 // costume packages a costume mod (one without borrows) replaces: the borrow doesn't ship them (AddBorrowedSockets)
                 costumeModPackages: lib.Mods.Where(m => m.Folder != editing?.Folder && m.Manifest.PowerBorrows is not { Count: > 0 })
                     .SelectMany(m => m.Manifest.UpkReplacements.Select(f => (File: f, Mod: m.Manifest.Name))).GroupBy(x => x.File, StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.First().Mod, StringComparer.OrdinalIgnoreCase));
+                    .ToDictionary(g => g.Key, g => g.First().Mod, StringComparer.OrdinalIgnoreCase),
+                // the packages this mod ships already (a costume the borrow carries for its animation list: gets the sockets too)
+                modPackages: draft.Packages.Select(x => x.File).ToHashSet(StringComparer.OrdinalIgnoreCase));
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
             // the user's climb speed into the hero's class (the package the borrow ships already)
@@ -688,7 +690,7 @@ static partial class PowerBorrow
         IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null,
         bool conditionStart = false,
         ((float ApplyAt, float Height, float ChannelStart) Target, float Rise, float DonorApplyAt, float DonorChannelStart)? takeoff = null,
-        IReadOnlyDictionary<string, string>? costumeModPackages = null)
+        IReadOnlyDictionary<string, string>? costumeModPackages = null, IReadOnlySet<string>? modPackages = null)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -890,6 +892,7 @@ static partial class PowerBorrow
             string hf = Path.GetFileName(targetHeroPackage);
             string heroPath = startFrom?.Invoke(hf) ?? targetHeroPackage;
             var temps = new List<string>();
+            (HashSet<string> Wanted, string? Hero)? costumeSockets = null;
             try
             {
             if (done.TryGetValue(hf, out var hb)) temps.Add(heroPath = WriteTemp(hf, hb));
@@ -911,32 +914,7 @@ static partial class PowerBorrow
             {
                 string? heroName = targetHeroClass.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase) ? targetHeroClass["MarvelPlayer_".Length..] : null;
                 done[hf] = AddBorrowedSockets(done[hf], donorHeroPackage, wanted, cooked, log, heroName);
-                // ... and on the hero's costumes with a model of their own (Cyclops 90s X-Men: Kurt chose to ship those packages,
-                // 2026-11-03; naming the bone instead didn't work in game). A costume package a costume mod replaces is left out.
-                if (cooked != null)
-                {
-                    string stem = Path.GetFileNameWithoutExtension(hf), cprefix = stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
-                    var costumeFiles = new List<string>();
-                    try
-                    {
-                        costumeFiles.AddRange(Directory.EnumerateFiles(cooked, cprefix + "_*_SF.upk").Select(Path.GetFileName).OfType<string>()
-                            .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
-                            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
-                    }
-                    catch (IOException) { }
-                    var leftOut = new List<string>();
-                    foreach (string cf in costumeFiles)
-                    {
-                        if (costumeModPackages != null && costumeModPackages.TryGetValue(cf, out var other)) { leftOut.Add($"{cf} ({other})"); continue; }
-                        byte[] start;
-                        if (done.TryGetValue(cf, out var cb)) start = cb;
-                        else if ((startFrom?.Invoke(cf) ?? StockFiles.For(cooked, cf)) is { } sp && File.Exists(sp)) start = File.ReadAllBytes(sp);
-                        else continue;
-                        byte[] withSockets = AddBorrowedSockets(start, donorHeroPackage, wanted, cooked, log, heroName);
-                        if (!ReferenceEquals(withSockets, start)) done[cf] = withSockets;
-                    }
-                    if (leftOut.Count > 0) log.Add($"  not given the borrowed effects' sockets (a costume mod replaces them): {string.Join(", ", leftOut)}");
-                }
+                costumeSockets = (wanted, heroName);   // (the costumes' models: after their animation lists, below)
             }
             log.Add($"anims: {string.Join(", ", swaps.Select(x => x.Slot))} added to {hf} ({targetHeroClass})");
             // costumes with an animation list of their own don't play the hero's: the borrowed sets are imported into theirs
@@ -959,6 +937,35 @@ static partial class PowerBorrow
                     if (!File.Exists(start)) continue;
                     if (AnimSwap.AddImportedSets(start, cf[4..^7], sets, log) is { } costume) done[cf] = costume;
                 }
+            }
+            // ... and the sockets on the hero's costumes with a model of their own (Cyclops 90s X-Men: Kurt chose to ship those
+            // packages, 2026-11-03; naming the bone instead didn't work in game). A costume package a costume mod replaces is left
+            // out, unless the borrow ships it anyway (a costume with its own animation list, above: Kurt, 2026-11-03, Cyclops'
+            // Astonishing came without the socket while the borrow carried it for its list)
+            if (cooked != null && costumeSockets is var (cwanted, cheroName))
+            {
+                string stem = Path.GetFileNameWithoutExtension(hf), cprefix = stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? stem[..^3] : stem;
+                var costumeFiles = new List<string>();
+                try
+                {
+                    costumeFiles.AddRange(Directory.EnumerateFiles(cooked, cprefix + "_*_SF.upk").Select(Path.GetFileName).OfType<string>()
+                        .Where(f => !f.Contains("bak", StringComparison.OrdinalIgnoreCase) && !f.Contains("copy", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
+                }
+                catch (IOException) { }
+                var leftOut = new List<string>();
+                foreach (string cf in costumeFiles)
+                {
+                    bool shipped = done.ContainsKey(cf) || modPackages?.Contains(cf) == true;
+                    if (!shipped && costumeModPackages != null && costumeModPackages.TryGetValue(cf, out var other)) { leftOut.Add($"{cf} ({other})"); continue; }
+                    byte[] start;
+                    if (done.TryGetValue(cf, out var cb)) start = cb;
+                    else if ((startFrom?.Invoke(cf) ?? StockFiles.For(cooked, cf)) is { } sp && File.Exists(sp)) start = File.ReadAllBytes(sp);
+                    else continue;
+                    byte[] withSockets = AddBorrowedSockets(start, donorHeroPackage, cwanted, cooked, log, cheroName);
+                    if (!ReferenceEquals(withSockets, start)) done[cf] = withSockets;
+                }
+                if (leftOut.Count > 0) log.Add($"  not given the borrowed effects' sockets (a costume mod replaces them): {string.Join(", ", leftOut)}");
             }
             }
             finally { foreach (string t in temps) try { File.Delete(t); } catch (IOException) { } }
