@@ -77,6 +77,7 @@ static partial class Program
         ("--voice-text-check", "--voice-text-check [samples per set]", "How many lines of the game's voice sets have their text in the Voice tab. Changes nothing."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
         ("--bone-turn", "--bone-turn <mod | package.upk> <bone> <animation...>", "One bone's turn in the body over animations, as the 3D preview poses it. Changes nothing."),
+        ("--fx-placement", "--fx-placement <mod> <animation> [seconds]", "Where the 3D preview places a power's effects as the animation plays (start time, template, place and turn in the model's space), to compare with the game's (tools\telemetry\fx.py --preview). Changes nothing."),
         ("--parent-census", "--parent-census <CookedPCConsole folder>", "Bones that hang from different parents in different heroes' skeletons (a borrowed animation's key means something else there). Changes nothing."),
         ("--trim-loop", "--trim-loop <package.upk> <set suffix> <sequence>=<frame> ... <out.upk>", "Ends borrowed sequences at a frame (key counts and length only, the keys untouched), written to <out>. For tests."),
         ("--power-anim-list", "--power-anim-list <power package.upk> <power class>", "Each animation component of a power with its PowerAnims entries in order (start, loop, end), None included. Changes nothing."),

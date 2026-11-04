@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.345
+- 3D view: a power whose start, loop and landing aren't named alike (Thor's flight: movement_run_flying_start, movement_run_flying, movement_landing) now plays each part's own effects. The start used to play every effect, so the landing dust showed at takeoff.
+- New command that changes nothing: --fx-placement <mod> <animation> lists where the 3D view places a power's effects, frame by frame, to compare with the game's.
+
 0.60.344
 - Borrowed effects' points on costumes: a costume package the borrow mod already includes (for the costume's own animation list) now always gets them, even when a costume mod also replaces it. Cyclops' Astonishing costume was in the Thor Fly mod without the point, so Thor's hammer glows didn't show on it. Resave the mod to rebuild it.
 

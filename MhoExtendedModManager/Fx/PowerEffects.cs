@@ -1080,6 +1080,13 @@ sealed class PowerEffects
         readonly HashSet<Effect> started = new();
         float time;
 
+        /// <summary>An effect placed (--fx-placement: the preview's placements against the game's, tools/telemetry/fx.py):
+        /// the effect, the player's time, its place (model space) and the socket it follows.</summary>
+        public event Action<Effect, float, Matrix4x4, string?>? Started;
+
+        /// <summary>The running effects and where each is now (model space): --fx-placement's per-frame paths.</summary>
+        public IEnumerable<(Effect E, Matrix4x4 Origin, string? Socket, int Id)> LivePlaces => running.Select(r => (r.E, r.Sim.Origin, r.Socket, System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(r.Sim)));
+
         /// <summary>The animation's length in seconds: missiles leave and summons appear at the power's contact time in it.</summary>
         public float AnimSeconds { get; set; } = 1;
         float ContactTime => fx.ContactPercent * AnimSeconds;
@@ -1251,7 +1258,7 @@ sealed class PowerEffects
                 var places = e.OnHit ? [(Matrix4x4.CreateTranslation(target + new Vector3(0, 0, (e.Sockets.Count > 0 ? socket(e.Sockets[0]) : null) is { } hs ? Math.Max(0, hs.Translation.Z - target.Z) : 60)), (string?)null)]
                     : e.AtTarget ? [(Matrix4x4.CreateTranslation(target), (string?)null)]
                     : e.Sockets.Count == 0 ? [(Matrix4x4.Identity, null)] : e.Sockets.Select(n => BoneOrigin(e, n) is string bn ? (Place(e, socket(bn) ?? Matrix4x4.Identity, bn), (string?)bn) : (Place(e, socket(n) ?? Matrix4x4.Identity, n), (string?)n)).ToList();
-                foreach (var (pl, sock) in places) running.Add((e, new ParticleSim(e.System) { Origin = pl }, sock));
+                foreach (var (pl, sock) in places) { running.Add((e, new ParticleSim(e.System) { Origin = pl }, sock)); Started?.Invoke(e, time, pl, sock); }
             }
             for (int k = 0; k < running.Count; k++)
             {
@@ -1458,8 +1465,15 @@ sealed class PowerEffects
         {
             static string Stem(string n) => n.EndsWith("_start") ? n[..^6] : n.EndsWith("_loop") ? n[..^5] : n.EndsWith("_end") ? n[..^4] : n;
             string a = animation.ToLowerInvariant(), stem = Stem(a);
-            int phases = powerAnimations.Select(x => x.ToLowerInvariant()).Where(x => x != stem && Stem(x) == stem).Distinct().Count();
-            return phases > 1 ? PhaseOf(animation) : _ => true;
+            var all = powerAnimations.Select(x => x.ToLowerInvariant()).Distinct().ToList();
+            int phases = all.Where(x => x != stem && Stem(x) == stem).Count();
+            if (phases > 1) return PhaseOf(animation);
+            // a start, a loop and an end not named alike (Thor's flight: movement_run_flying_start, movement_run_flying,
+            // movement_landing): the start by its name, the landing / _end as the end, the rest the loop (2026-11-03,
+            // --fx-placement: the landing dust played at takeoff, every effect ran as if the power had no phases)
+            if (all.Count > 1 && all.Any(x => x.EndsWith("_start")))
+                return PhaseOf(a.EndsWith("_start") ? a : a.EndsWith("_end") || a.Contains("landing") ? a + "_end" : a + "_loop");
+            return _ => true;
         }
 
         /// <summary>The effect runs on by itself: one of its emitters loops for good (EmitterLoops 0) or for a long time.</summary>

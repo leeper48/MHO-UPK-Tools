@@ -2939,6 +2939,64 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--fx-placement":
+            {
+                // Read-only: where the 3D preview places a power's effects as an animation plays, in the model's space, to set
+                // against the game's (tracer Fx lines; tools/telemetry/fx.py --preview <this output>).
+                // --fx-placement <mod> <animation> [seconds]   (MHO_FOOT_MESH = part of the mesh name)
+                var pm0 = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                string? pgr0 = settings.ResolvedGameRoot(data);
+                if (pm0 == null || pgr0 == null || !Settings.IsGameRoot(pgr0)) { Console.WriteLine("--fx-placement <mod> <animation> [seconds] (needs the game folder set)"); return 1; }
+                string pc0 = Settings.Cooked(pgr0);
+                StockFiles.Init(new GameState(pgr0, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                var pmeshes = ModMeshes.List(pm0);
+                var pmr = (Environment.GetEnvironmentVariable("MHO_FOOT_MESH") is { Length: > 0 } pmn ? pmeshes.FirstOrDefault(r => r.Name.Contains(pmn, StringComparison.OrdinalIgnoreCase)) : null) ?? pmeshes.FirstOrDefault();
+                if (pmr == null) { Console.WriteLine("no meshes"); return 1; }
+                var pld = ModMeshes.Load(pmr, pc0, out string pwhy);
+                if (pld == null) { Console.WriteLine("mesh: " + pwhy); return 1; }
+                var pfiles = pm0.Manifest.UpkReplacements.Select(f => (f, Path.Combine(pm0.Folder, f))).ToList();
+                var par = ModAnimations.For(pmr, pld.Bones, pfiles, pc0).FirstOrDefault(a => a.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                var pba = par == null ? null : ModAnimations.Load(par);
+                if (pba == null) { Console.WriteLine($"{pmr.Name}: no animation {rest[2]}"); return 1; }
+                var pani = new MeshAnimator(pld.Bones, pld.Positions, pld.Normals, pld.Influences);
+                var (pframes, psecs) = MeshAnimator.Span(pba);
+                float pwindow = rest.Count > 3 && float.TryParse(rest[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float pw0) ? pw0 : psecs;
+                string phero = pmr.Package.Split('_', StringSplitOptions.RemoveEmptyEntries)[2];
+                var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr0, "Data", "Game", "Calligraphy.sip")));
+                var pmodFiles = pfiles.Select(x => x.Item2).ToList();
+                var pidx = Fx.PowerIndex.For(phero, pc0, pmodFiles, pdb);
+                if (!pidx.TryGetValue(pba.Name, out var ppw) || ppw.SelectMany(p => Fx.PowerIndex.PrototypesByClass(pdb).TryGetValue(p.Class, out var l) ? l : []).FirstOrDefault() is not string pproto)
+                { Console.WriteLine($"no power plays {pba.Name}"); return 1; }
+                string ppcls = ppw.First(p => Fx.PowerIndex.PrototypesByClass(pdb).TryGetValue(p.Class, out var l2) && l2.Contains(pproto)).Class;
+                var pfx = Fx.PowerEffects.For(new Fx.FxGame(pc0, pmodFiles), pdb, pproto, phero);
+                var psocks = Fx.FxSockets.Of(pmr.File, pmr.Name);
+                System.Numerics.Matrix4x4? PSock(string n)
+                {
+                    if (n.EndsWith("@bone", StringComparison.Ordinal) && psocks.TryGetValue(n[..^5], out var sb) && pani.BoneIndex(sb.Bone) is int bb && bb >= 0)
+                    { var turn = sb.Local; turn.Translation = System.Numerics.Vector3.Zero; return turn * pani.BoneMatrix(bb); }
+                    return psocks.TryGetValue(n, out var sk) && pani.BoneIndex(sk.Bone) is int b && b >= 0 ? sk.Local * pani.BoneMatrix(b) : pani.BoneIndex(n) is int bi && bi >= 0 ? pani.BoneMatrix(bi) : null;
+                }
+                var player = new Fx.PowerEffects.Player(pfx, PSock, new System.Numerics.Vector3(250, 0, pld.Positions.Min(q => q.Z)),
+                    Fx.PowerEffects.Player.PhaseFor(pba.Name, pidx.Where(kv => kv.Value.Any(p => p.Class == ppcls)).Select(kv => kv.Key))) { AnimSeconds = Math.Max(0.1f, psecs) };
+                Console.WriteLine($"# {pmr.Name} in {pmr.Package}, {pba.Name} ({psecs:0.##} s), power {Path.GetFileNameWithoutExtension(pproto)}: {pfx.Effects.Count} effects; sockets not on the model: " +
+                    string.Join(", ", pfx.Effects.SelectMany(e => e.Sockets).Distinct().Where(n => PSock(n) == null).DefaultIfEmpty("none")));
+                player.Started += (e, t, m, sock) =>
+                {
+                    string M(System.Numerics.Matrix4x4 x) => string.Join(" ", new[] { x.M11, x.M12, x.M13, x.M14, x.M21, x.M22, x.M23, x.M24, x.M31, x.M32, x.M33, x.M34, x.M41, x.M42, x.M43, x.M44 }.Select(v => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)));
+                    Console.WriteLine($"PreviewFx {e.System.Name} comp={e.Name} t={t.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} socket={sock ?? "-"} l2w=[{M(m)}]");
+                };
+                const float pdt = 1f / 30;
+                for (float t = 0; t < pwindow; t += pdt)
+                {
+                    pani.Pose(pba, Math.Min(pframes, t / Math.Max(0.01f, psecs) * pframes));
+                    player.Step(pdt, t >= psecs);
+                    // every running effect's place this frame, and how far through the animation (f: 0..1)
+                    foreach (var (e, o, sock, id) in player.LivePlaces)
+                        Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                            $"PreviewFxAt {e.System.Name} comp={e.Name} id={id} t={t + pdt:0.###} f={Math.Min(1, (t + pdt) / Math.Max(0.01f, psecs)):0.###} at={o.M41:0.##} {o.M42:0.##} {o.M43:0.##}"));
+                }
+                return 0;
+            }
             case "--flight-lift":
             {
                 // Read-only: a travel power's lift as the game does it (PowerBorrow.FlightLift) and heroes' climb / landing speeds.
