@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.372
+- Manual: walkthroughs for raising or lowering the body during an animation (Height strip and Gizmo) and for rebuilding a mod after an update (Resave), with new pictures for Apply Changes, moves to a costume of its own class and Not in This Voice.
+
 0.60.371
 - Voice → Use Another Voice keeps silent every situation the new voice has no line for (a team-up's voice has no death or level-up line, for example), as a move to another hero already did. Before, the hero's own lines played there, so two voices were heard. Those rows show as Not in This Voice.
 - Model tab: Source Parts has a grip under it. Drag it down to make the list taller; double-click it to go back to the height of its rows. The height is remembered.

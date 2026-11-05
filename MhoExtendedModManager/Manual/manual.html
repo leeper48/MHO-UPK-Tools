@@ -142,6 +142,7 @@ function mhoNext(dir) {
 <p>Step-by-step guides for the things people do most. Each links to its full section for the details. Most buttons are icons: point at one to see its name.</p>
 <ul class="toc">
 <li><a href="#w-install">Install a Mod and Put It in the Game</a></li>
+<li><a href="#w-resave">Rebuild a Mod After Updating the Mod Manager</a></li>
 <li><a href="#w-removemany">Remove Several Mods at Once</a></li>
 <li><a href="#w-order">Decide Which Mod Wins</a></li>
 <li><a href="#w-unique">Keep a Mod's Look Near Other Players</a></li>
@@ -155,6 +156,7 @@ function mhoNext(dir) {
 <li><a href="#w-parts">Switch Off a Power's Sound, Effect or a Character's Hover</a></li>
 <!-- HIDDEN until Borrowed Look is released (WhatsNew.PowerBorrowReleased): <li><a href="#w-borrow">Give a Power Another Hero's Look</a></li> -->
 <li><a href="#w-anims">Give a Costume Another Character's Animations</a></li>
+<li><a href="#w-height">Raise or Lower the Body During an Animation</a></li>
 <li><a href="#w-voice">Give a Costume Another Voice, Shift It or Add Effects</a></li>
 <li><a href="#w-lines">Replace Voice Lines with Your Own Audio</a></li>
 <li><a href="#w-sounds">Change or Silence a Power's Sounds</a></li>
@@ -186,7 +188,18 @@ function mhoNext(dir) {
 <li>To take it out again: untick it and Apply Changes. The game's original files go back.</li>
 </ol>
 <figure><img src="img/main.jpg" alt="The Mods tab: the mod list (left), the preview with its 3D view and power buttons (middle), the selected mod's details and note (right), and Apply Changes (bottom right)."><figcaption>The Mods tab: the mod list (left), the preview with its 3D view and power buttons (middle), the selected mod's details and note (right), and Apply Changes (bottom right).</figcaption></figure>
+<figure><img src="img/apply-dont-ask.jpg" alt="Don't Ask Again beside Cancel and Apply: ticked, Apply Changes writes at once from then on."><figcaption>Don't Ask Again beside Cancel and Apply: ticked, Apply Changes writes at once from then on (Settings → Ask Before Applying turns the window back on).</figcaption></figure>
 <figure><img src="img/apply.jpg" alt="Apply Changes shows the plan first; nothing is written until you click Apply."><figcaption>Apply Changes shows the plan first; nothing is written until you click Apply.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-resave">Rebuild a Mod After Updating the Mod Manager</h3>
+<p>A new version of the Mod Manager can build a mod's files better (a fix to power colors, for example). Mods you made before keep their old files until they're built again.</p>
+<ol class="steps">
+<li>On the Mods tab, right-click the mod's card → <b>Resave</b>. It builds the mod again with this version and saves it, in a few seconds and without opening the Editor (the same as <b>Edit</b>, then <b>Save</b>).</li>
+<li>If the mod is on, click <b>Apply Changes</b> to put the rebuilt files in the game.</li>
+</ol>
+<p>A mod with dodge ghosts or added props still needs <b>Edit</b>, then <b>Save</b>; Resave says so.</p>
 </div>
 
 <div class="walk">
@@ -258,6 +271,7 @@ function mhoNext(dir) {
 <li>On the Mods tab, select a costume mod. The preview in the middle shows its model in 3D (click the <b>3D</b> picture in the strip if it shows a picture).</li>
 <li>At the bottom of the preview, click one of the hero's <b>power buttons</b>. Its animation plays with the power's effects: beams reach toward a target in front of the hero at the height they aim, missiles fly there and burst where they land, and what a power does to the one it hits (a stun, a burn, an impact) plays there.</li>
 <li>Press <kbd>P</kbd> to pause. The <b>Frame</b> slider takes the focus, so the arrow keys step through the animation one frame at a time; <kbd>P</kbd> again plays on from there.</li>
+<li>Under the view, <b>Chain</b> (the link, beside Loop) plays a power's start, loop and end one after another, as the game plays them; right-click it for how many times the loop repeats. <b>◀</b> and <b>▶</b> beside the Frame slider step to the previous or next part. Right-click <b>Head</b>, <b>Bust</b> or <b>Full Body</b> (or Shift+click) to lock the camera to that part while the animation plays; do it again to unlock.</li>
 <li>Turn the effects off and on with <b>Power FXs</b> above the buttons. Click the power again to see all the hero's animations.</li>
 <li>An effect too faint to see? Open <b>Look ▾</b> (the eye) and raise <b>Effects</b> (10 % by default; remembered for every 3D preview).</li>
 <li>Powers with effects but no animation (procs, passives, Doctor Doom's The Will of Doom) have buttons too: their effects play over the idle (with Power FXs on). A power that changes the character's materials for a moment (Doom's force field) shows it on the model.</li>
@@ -312,10 +326,11 @@ function mhoNext(dir) {
 <ol class="steps">
 <li>Select the mod. Its header shows <b>Costume: … ▾</b>; click it (or right-click the card → <b>Move to Another Costume</b>).</li>
 <li>Pick a costume of the same hero, or <b>Another Hero</b> at the bottom of the list to choose a hero and then one of their costumes.</li>
-<li>The Move window shows what moves and what doesn't. Click <b>Create Mod</b>.</li>
+<li>The Move window shows what moves and what doesn't. Click <b>Create Mod</b>. (A few costumes are a class of their own rather than their hero's, such as Captain America's American Dream. They're in the same list and move the way a move to another hero does: the costume's own package with your model put in.)</li>
 <li>The new mod "Name (on Costume)" is at the top of the list, turned on, with the original turned off. Apply Changes.</li>
 </ol>
 <figure><img src="img/move-costume.jpg" alt="Moving Unworthy Thor onto Thor Classic: what moves, and the new mod it makes."><figcaption>Moving Unworthy Thor onto Thor Classic: what moves, and the new mod it makes.</figcaption></figure>
+<figure><img src="img/move-own-class.jpg" alt="Moving a Captain America mod onto American Dream, a costume of its own class: the costume's own package gets the model."><figcaption>Moving a Captain America mod onto American Dream, a costume of its own class: the costume's own package gets the model.</figcaption></figure>
 <figure><img src="img/hero-picker.jpg" alt="Another Hero: pick the hero, then one of their costumes."><figcaption>Another Hero: pick the hero, then one of their costumes.</figcaption></figure>
 <p>On another hero, the model and voice come along, while the target hero's animations and powers stay. See <a href="#costume">Move to Another Costume</a>.</p>
 </div>
@@ -388,15 +403,32 @@ function mhoNext(dir) {
 </div>
 
 <div class="walk">
+<h3 id="w-height">Raise or Lower the Body During an Animation</h3>
+<p>An animation taken from another character can sink into the floor or float above it on this costume. The Height strip moves the whole body up or down at the moments you choose.</p>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Animations</b>. Select a changed animation (an amber row).</li>
+<li>Under the 3D view, the <b>HEIGHT</b> strip shows the animation from left to right; the blue <b>Feet Above the Floor</b> line shows how high the feet are.</li>
+<li>Click the strip to add a key, drag a key up or down (or sideways to move it in time), right-click a key to remove it. <b>Add Key at Frame</b> puts one at the frame showing; <b>Clear Keys</b> takes them all off. The body moves between keys smoothly.</li>
+<li>Or switch on the <b>Height Gizmo</b> (the first button in the bar): a blue up arrow sits at the hips in the 3D view. Drag it to raise or lower the body at the frame showing; letting go puts a key there.</li>
+<li>Undo, Redo and History (in the bar, or <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) step back through every change to the keys.</li>
+<li>Save Changes, then Apply Changes.</li>
+</ol>
+<figure><img src="img/editor-height.jpg" alt="The Height strip under the 3D view: three keys lift Captain America's borrowed idle by 25 in the middle; the Height Gizmo's arrow sits at his hips."><figcaption>The Height strip under the 3D view: three keys lift the idle by 25 in the middle; the Height Gizmo's arrow sits at the hips.</figcaption></figure>
+<p>See <a href="#animations">Animations</a>.</p>
+</div>
+
+<div class="walk">
 <h3 id="w-voice">Give a Costume Another Voice, Shift It or Add Effects</h3>
 <ol class="steps">
 <li>Open the mod in the Editor and go to <b>Audio → Voice</b>. If no lines show, use the button above the list to put the hero's voice in.</li>
 <li>Press ▶ on a line to hear it; untick a line to turn it off.</li>
 <li><b>Use Another Voice</b> gives the costume a whole voice from the game (another costume's, or another hero's). <b>Team-ups</b> work the same way: a mod's team-up package (<i>UC__MarvelTeamUp_…</i>) gets the Voice tab too (list, play, turn off, shift, or replace its voice), and the <b>Team-Ups</b> submenu offers 44 team-ups' voices (Angel, Jessica Jones, Beta Ray Bill …) for a costume or another team-up.</li>
+<li>When the new voice has no line for a situation (a team-up's voice has no death or level-up line, for example), that situation is kept silent, so the hero's own line doesn't play there. Those rows show as <b>Not in This Voice</b>.</li>
 <li>To make the voice higher or lower, start from <b>Female → Male</b> or <b>Male → Female</b>, adjust <b>Pitch</b>, <b>Formant</b> and <b>Warmth</b> while playing lines. For an effect, move the <b>EFFECTS</b> sliders (Reverb, Echo, Distortion, Lo-Fi, Chorus, Robot). Then click <b>Apply to This Voice</b>.</li>
 <li>Save Changes, then Apply Changes.</li>
 </ol>
 <figure><img src="img/editor-voice.jpg" alt="The Voice tab: each situation the hero speaks in, its sound, and the Voice Shift and Effects sliders above."><figcaption>The Voice tab: each situation the hero speaks in, its sound, and the Voice Shift and Effects sliders above.</figcaption></figure>
+<figure><img src="img/voice-not-in-this-voice.jpg" alt="Angel's team-up voice on Storm: the situations it has no line for are kept silent and listed as Not in This Voice."><figcaption>Angel's team-up voice on Storm: the situations it has no line for are kept silent and listed as Not in This Voice.</figcaption></figure>
 <p>See <a href="#voice">Voice lines</a>.</p>
 </div>
 
@@ -449,7 +481,7 @@ function mhoNext(dir) {
 <li>Open the mod in the Editor and go to <b>Model</b>. (The first time, <b>Settings → Model</b> sets the folders it reads.)</li>
 <li>Under <b>Source</b>, choose <b>MFF Repository</b> and pick a character from your MFF rip, or <b>Single Model</b> and <b>Browse for a Model</b>: an FBX, OBJ, DAE (Collada), STL, Blender file (.blend) or XNALara / XPS model (.xps, .mesh, .mesh.ascii). It can be rigged with the game's bones, Mixamo's or another skeleton, or not rigged at all (it's rigged for you in Blender). An MFF character's model is recognized and read with its folder. Its textures are found beside it, in its subfolders, or in folders next to its folder (such as <code>Textures</code>). Or choose <b>From the Game</b> and pick a hero costume, team-up or NPC from the game: its model and maps are taken as the source.</li>
 <li>Under <b>Target</b>, pick the costume package it goes on. (While something loads or builds in the background, the ring beside the status line turns; the one in the top bar shows anything running in the app. Point at it to see what.) The preview shows your model on the hero's skeleton; play animations to check it moves well.</li>
-<li>Untick parts you don't want under <b>Parts</b> (SOURCE PARTS; the target's props are listed under them, THE TARGET'S PROPS). When several parts share one material (a body and its clothes on one texture sheet), tick <b>Own Material</b> on a part to give it a material of its own: it shows on the Materials tab as <i>&lt;material&gt; @ &lt;part&gt;</i>, with its own maps (Replace File), game material and slot. Under the parts, <b>The Target's Props</b> lists the costume's own props (a belt, a weapon, a whip), which stay on whatever model is built onto it: untick one to leave it off (Save sets its mesh to none in that costume's package only; tick it again for the game's). If something bends wrongly, the <b>Bone Map</b> says which hero bone drives what. <b>Materials</b> lists each material's maps.</li>
+<li>Untick parts you don't want under <b>Parts</b> (SOURCE PARTS; the target's props are listed under them, THE TARGET'S PROPS). When several parts share one material (a body and its clothes on one texture sheet), tick <b>Own Material</b> on a part to give it a material of its own: it shows on the Materials tab as <i>&lt;material&gt; @ &lt;part&gt;</i>, with its own maps (Replace File), game material and slot. Under the parts, <b>The Target's Props</b> lists the costume's own props (a belt, a weapon, a whip), which stay on whatever model is built onto it: untick one to leave it off (Save sets its mesh to none in that costume's package only; tick it again for the game's). A long parts list: drag the grip under SOURCE PARTS down to make it taller (double-click the grip for the height of its rows). If something bends wrongly, the <b>Bone Map</b> says which hero bone drives what. <b>Materials</b> lists each material's maps.</li>
 <li>To make the character bigger or smaller in game, move <b>Size in Game</b> (under Material).</li>
 <li>Click <b>Build into Mod</b>, then Save Changes, then turn the mod on and Apply Changes. (If you change something and forget to build, leaving the Model tab or Save Changes asks: <b>Build Now</b> / <b>Build and Save</b>.)</li>
 </ol>
@@ -778,8 +810,10 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <ul>
 <li><b>Install Mod</b> (or drag an archive onto the window) takes a .zip, .7z, .rar or a folder. An archive can hold several mods. New mods go to the top of the list, turned off: tick them, then Apply Changes. A mod made for the older <b>MH Texture Manager</b> (a <code>.json</code> and a <code>.tfc</code> instead of a <code>manifest.json</code>) is converted as it's installed: its textures go into the game packages that use them (from the game's stock copies, the new mip levels stored in the package), so it becomes an ordinary mod that turns on and off like any other and leaves the game's texture caches alone. Its name and version come from the Nexus file name when there is one, and its author from that mod's Nexus page (public information; only the page's number is sent; without a connection the author is left as Unknown).</li>
 <li><b>Updating:</b> installing a mod whose name you already have asks to replace it. Right-click a card → <b>Update from a File</b> replaces that mod with an archive's mod under any name. Either way the mod keeps its place, on/off, lock, tags and note.</li>
-<li><b>Resave:</b> right-click a card → <b>Resave</b> builds the mod again with this version of the Mod Manager and saves it, in a few seconds and without opening the Editor. The result is the same as <b>Edit</b>, then <b>Save</b> (borrowed powers, power colors, parts, power sounds …): use it after an update of the Mod Manager. If the mod is open in the Editor, the Editor closes first (it asks when there are unsaved changes, which are lost). A mod with dodge ghosts or added props still needs <b>Edit</b>, then <b>Save</b>: only the Editor builds those. If the mod is on, use <b>Apply Changes</b> afterwards.</li>
+<li><b>Resave:</b> right-click a card → <b>Resave</b> builds the mod again with this version of the Mod Manager and saves it, in a few seconds and without opening the Editor. The result is the same as <b>Edit</b>, then <b>Save</b> (power colors, parts, power sounds, models …): use it after an update of the Mod Manager. If the mod is open in the Editor, the Editor closes first (it asks when there are unsaved changes, which are lost). A mod with dodge ghosts or added props still needs <b>Edit</b>, then <b>Save</b>: only the Editor builds those. If the mod is on, use <b>Apply Changes</b> afterwards.</li>
+<!-- HIDDEN until Borrowed Look is released (WhatsNew.PowerBorrowReleased):
 <li><b>Add Borrowed Power Sockets:</b> some borrowed effects sit on a named point of the other hero's body, such as the glows on Thor's hammer at his palm. A borrow adds that point to every costume of the hero, except costumes that a costume mod in your library replaces, so it never overrides your costume mods. On such a costume those effects don't show. Right-click the costume mod → <b>Add Borrowed Power Sockets</b> adds the points to that mod's own costume models, for the borrow mods in your library for the same hero. It shows what will change and asks first. It changes the costume mod's files, and the costume mod still works on its own. If the mod is on, use <b>Apply Changes</b> afterwards. The item only shows on mods without borrowed powers that replace a hero's packages.</li>
+-->
 <li><b>Duplicate:</b> right-click a card → <b>Duplicate</b> makes a copy of the mod under a new name (it asks for one: "<i>Name</i> (Copy)" to start): every file comes along, the Model tab's work and the editor's settings too, and your tags, note and picture picks. The copy goes at the top of the list, off, so you can experiment from it while the original stays as it is (turn one on at a time: both change the same game files).</li>
 <li><b>Export to ZIP</b> saves the mod as <code>Name - vVersion.zip</code>; a mod with a saved post (Create Post → Save to Mod) also gets its post and images in a folder beside it. If the mod uses features MHModManager doesn't know, you can export a <b>legacy</b> copy without them.</li>
 </ul>

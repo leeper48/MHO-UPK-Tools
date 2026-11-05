@@ -507,6 +507,13 @@ sealed partial class ModEditorView
 
     /// <summary>Test (--voice-swap-tab-test): Use Another Voice on the draft's costume package through the tab; the Voice
     /// list's rows (all, and those shown as Not in This Voice) and the status line. Nothing is saved.</summary>
+    internal void ShowFirstMissingForTest()
+    {
+        if (voice == null) return;
+        var r = voice.Rows.Cast<DataGridViewRow>().FirstOrDefault(x => x.Tag is VoiceLine { Missing: true });
+        if (r != null) { voice.FirstDisplayedScrollingRowIndex = Math.Max(0, r.Index - 2); voice.ClearSelection(); r.Selected = true; }
+    }
+
     internal async Task<(int Rows, int Missing, int OffEntries, string Status)> UseVoiceForTest(string title)
     {
         for (int i = 0; i < 100 && voice == null; i++) await Task.Delay(100);

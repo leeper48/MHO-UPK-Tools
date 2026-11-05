@@ -41,7 +41,29 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.371 (Kurt, 2026-11-05): the Height strip, 3D view controls, Resave, and fixes from user reports.</summary>
+    static Notice HeightAndFixes() => new(
+        "0.60.372-height-fixes", "0.60.372",
+        "[!]Fixed: A power recolor could crash the game" + nl +
+        "  • Recoloring Magneto's powers crashed the game once Magnetic Eruption was on the power bar." + nl +
+        "  • If a mod of yours recolors powers, right-click it → Resave, then Apply Changes." + nl + nl +
+        "[!]Animations: Raise or lower the body" + nl +
+        "  • The Height strip under the 3D view lifts or lowers a changed animation at the moments you pick." + nl +
+        "  • The Height Gizmo puts an arrow at the hips to drag instead; Undo, Redo and History cover every change." + nl + nl +
+        "[!]3D views" + nl +
+        "  • Attacks play at the game's speed, and their effects start when the game starts them." + nl +
+        "  • Chain plays a power's start, loop and end in a row; ◀ ▶ step between the parts." + nl +
+        "  • Right-click Head, Bust or Full Body to keep the camera on that part while it plays." + nl + nl +
+        "[!]Moves and voices" + nl +
+        "  • Costumes of their own class (Captain America's American Dream) are now in the Move list." + nl +
+        "  • Use Another Voice keeps silent what the new voice has no line for, so two voices are never heard." + nl + nl +
+        "[!]Also" + nl +
+        "  • Right-click a mod → Resave builds it again with this version in a few seconds." + nl +
+        "  • Apply Changes has Don't Ask Again; the Model tab's Source Parts has a grip to make it taller." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-height");
 
     /// <summary>0.60.284 (Kurt, 2026-10-31): Power Sounds, What's Said, Replace Lines, Audio undo, more import formats.</summary>
     static Notice AudioSettings() => new(

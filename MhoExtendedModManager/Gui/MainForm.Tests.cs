@@ -1117,6 +1117,15 @@ sealed partial class MainForm
         editor!.SelectTab(Enumerable.Range(0, editor.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Voice"));
         var (rows, missing, offs, status) = await editor.UseVoiceForTest(voiceTitle);
         say($"rows {rows}, shown as Not in This Voice {missing}, turned-off entries {offs}; status \"{status}\"");
+        if (Environment.GetEnvironmentVariable("MHO_TEST_SHOT") is { Length: > 0 } shot)
+        {
+            // (the manual's picture: the list scrolled to the first Not in This Voice row)
+            editor.ShowFirstMissingForTest();
+            await Task.Delay(1500);
+            using var b = new Bitmap(Width, Height);
+            DrawToBitmap(b, new Rectangle(0, 0, Width, Height));
+            b.Save(shot);
+        }
         CloseEditor();
         return missing > 0 && missing == offs ? 0 : 1;
     }
