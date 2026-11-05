@@ -469,6 +469,12 @@ static class PowerRecolor
             foreach (int i in picked)
             {
                 string path = t.PathOf(i + 1);
+                // a cube map's face (basematerials.textures.ambientcubetex: the engine's ambient lighting cube, not an effect's
+                // color): left alone. Recolored, one face went under the recolor group and the stock cube pointed at it, so its
+                // six faces no longer matched (a user, 2026-11-03: Magneto's Magnetic Eruption crashed the game as soon as it was
+                // on the power bar, after a recolor of his other powers)
+                if (pkg.Exports[i].OuterIndex > 0 && t.ClassOf(t.Exports[pkg.Exports[i].OuterIndex - 1]).Equals("TextureCube", StringComparison.OrdinalIgnoreCase))
+                { log($"note: {path}: a face of a cube map (lighting, not an effect's color), its colors stay"); continue; }
                 var props = FxProps.Find(pkg.Body, t, t.Exports[i])?.Props ?? [];
                 string fmt = props.FirstOrDefault(x => x.Name.Equals("Format", StringComparison.OrdinalIgnoreCase))?.Value?.ToLowerInvariant() ?? "";
                 string? want = fmt.EndsWith("pf_dxt1") ? "dxt1" : fmt.EndsWith("pf_dxt5") ? "dxt5" : null;

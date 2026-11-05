@@ -668,7 +668,10 @@ static class VoiceSet
     /// A costume package with another voice set: the source's (a stock voice from Sources) copied in with its sound events,
     /// replacing the costume's own (empty = its hero's). Verified package bytes; throws InvalidDataException with the reason.
     /// </summary>
-    public static byte[] Replace(string costumePackage, string sourcePackage, List<string> log)
+    /// <param name="cooked">The game's packages: with it, the situations the hero's own voice has and the copied one doesn't are
+    /// set to none (AddMissing), as a move to another hero does, and listed in <paramref name="autoOff"/> (a user, 2026-11-04: a
+    /// team-up's voice on a hero still played the hero's banter for Hulk, where the team-up has none).</param>
+    public static byte[] Replace(string costumePackage, string sourcePackage, List<string> log, string? cooked = null, List<VoiceOffEntry>? autoOff = null, string? packageFile = null)
     {
         // spare components an earlier copy left with another hero's archetype put right first (they stay in the package)
         var pkg = Package.FromBytes(RepairSpares(File.ReadAllBytes(costumePackage), log));
@@ -680,12 +683,44 @@ static class VoiceSet
         int vc = Find(vp);
         if (vc < 0) throw new InvalidDataException($"{Path.GetFileName(sourcePackage)} has no voice set");
         var got = CopyInto(pkg, targetDefault, vp, vc, log) ?? throw new InvalidDataException(log.LastOrDefault() ?? "the voice couldn't be copied");
-        var replaceData = new Dictionary<int, Func<long, byte[]>> { [got.Comp] = _ => got.Data };
-        byte[] output = PackageRebuilder.Rebuild(got.Pkg, replaceData, [], out var written);
-        var problems = PackageRebuilder.Verify(got.Pkg, output, [got.Comp], [], written);
+        byte[] voiceData = got.Data;
+        var addNames = new List<string>();
+        string file = packageFile ?? Path.GetFileName(costumePackage);
+        if (cooked != null && HeroSetPackage(cooked, file) is string heroVoice
+            && !Path.GetFileName(heroVoice).Equals(Path.GetFileName(sourcePackage), StringComparison.OrdinalIgnoreCase))   // (the hero's own voice: nothing missing)
+        {
+            var gp = got.Pkg;
+            int NameIdx(string n)
+            {
+                int i = Array.FindIndex(gp.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) return i;
+                int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+                return gp.Names.Length + j;
+            }
+            voiceData = AddMissing(gp, voiceData, heroVoice, file, NameIdx, autoOff ?? [], log);
+        }
+        var replaceData = new Dictionary<int, Func<long, byte[]>> { [got.Comp] = _ => voiceData };
+        byte[] output = PackageRebuilder.Rebuild(got.Pkg, replaceData, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(got.Pkg, output, [got.Comp], [], written, addNames);
         if (problems.Count > 0) throw new InvalidDataException(string.Join("; ", problems));
         log.Add($"voice: {vp.PathOf(vp.Exports[vc])} from {Path.GetFileName(sourcePackage)} ({vp.Exports[vc].SerialSize:N0} bytes) → {compPath}");
         return output;
+    }
+
+    /// <summary>
+    /// The hero's own voice set's package for a costume package (UC__MarvelPlayer_&lt;Hero&gt;_…): the hero's base package when
+    /// its set has lines, else the hero's default voice package (Spider-Man's UC__MarvelPlayerAudio_Spiderman_Default_SF), as a
+    /// move to another hero finds it (CrossMove). Null for other packages (team-ups: their own set is the whole voice).
+    /// </summary>
+    public static string? HeroSetPackage(string cooked, string costumeFile)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(costumeFile, @"^UC__MarvelPlayer_([^_]+)_", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+        string hero = m.Groups[1].Value;
+        return new[] { $"UC__MarvelPlayer_{hero}_SF.upk", $"UC__MarvelPlayerAudio_{hero}_Default_SF.upk" }
+            .Select(f => StockFiles.For(cooked, f))
+            .FirstOrDefault(f => { try { return File.Exists(f) && Find(Package.Open(f)) >= 0; } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return false; } });
     }
 
     /// <summary>

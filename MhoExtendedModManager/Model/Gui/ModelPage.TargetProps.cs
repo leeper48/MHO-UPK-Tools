@@ -16,6 +16,9 @@ sealed partial class ModelPage
     readonly Label targetPropsCap = new() { Text = "THE TARGET'S PROPS  ·  untick one to leave it off this costume (a belt, a weapon)", AutoSize = true, ForeColor = Ui.Subtle, Font = Ui.Bold(8.5f), Margin = new Padding(2, 8, 0, 4) };
     List<AddedPropEntry> addedRows = [];
     TableLayoutPanel? partsPage;
+    readonly Panel partsGrip = new();
+    (int Y, int Height)? gripDrag;
+    float partsUserHeight;   // (at 96 dpi; 0 = as tall as its rows)
     readonly Label partsCap = new() { Text = "SOURCE PARTS", AutoSize = true, ForeColor = Ui.Subtle, Font = Ui.Bold(8.5f) };
     List<PowerParts.Switch> propSwitches = [];
     int targetPropsRun;
@@ -108,9 +111,9 @@ sealed partial class ModelPage
         // the list: SOURCE PARTS and its table, THE TARGET'S PROPS and its table, each as tall as its rows
         // (in a scrolling panel, the table as tall as its content: Kurt, 2026-10-28, a user's parts were cut off with no
         // scrollbar; a table with a fill row lays itself out to the panel's height, so it never overflowed and never scrolled)
-        var list = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, RowCount = 4, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var list = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, RowCount = 5, BackColor = Color.Transparent, Margin = new Padding(0) };
         list.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int r = 0; r < 4; r++) list.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int r = 0; r < 5; r++) list.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         scroller.Controls.Add(list);
         MhoExtendedModManager.Gui.Modern.DarkScrollbars(scroller);   // (the app's dark scrollbars)
@@ -118,7 +121,37 @@ sealed partial class ModelPage
         parts.Dock = DockStyle.None; parts.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; parts.Margin = new Padding(0);
         targetProps.Dock = DockStyle.None; targetProps.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top; targetProps.Margin = new Padding(0);
         targetPropsCap.Text = "THE TARGET'S PROPS  ·  untick one to leave it off this costume (a belt, a weapon)";
-        list.Controls.Add(partsCap, 0, 0); list.Controls.Add(parts, 0, 1); list.Controls.Add(targetPropsCap, 0, 2); list.Controls.Add(targetProps, 0, 3);
+        // a grip under Source Parts: drag it down to make the table taller than its rows (a user, 2026-11-03: the space under the
+        // target's props couldn't be used for the parts); never shorter than its rows; remembered (Layout "partsHeight")
+        partsGrip.Dock = DockStyle.None; partsGrip.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+        partsGrip.Height = (int)(7 * Ui.Dpi(DeviceDpi)); partsGrip.Margin = new Padding(0); partsGrip.Cursor = Cursors.SizeNS; partsGrip.BackColor = Color.Transparent;
+        partsGrip.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Color.FromArgb(gripDrag != null || partsGrip.ClientRectangle.Contains(partsGrip.PointToClient(Cursor.Position)) ? 150 : 70, Ui.Subtle));
+            int y = partsGrip.Height / 2, mid = partsGrip.Width / 2;
+            e.Graphics.DrawLine(pen, mid - 18, y - 1, mid + 18, y - 1); e.Graphics.DrawLine(pen, mid - 18, y + 1, mid + 18, y + 1);
+        };
+        partsGrip.MouseEnter += (_, _) => partsGrip.Invalidate();
+        partsGrip.MouseLeave += (_, _) => partsGrip.Invalidate();
+        partsGrip.MouseDown += (_, e) => { if (e.Button == MouseButtons.Left) gripDrag = (Cursor.Position.Y, parts.Height); };
+        partsGrip.MouseMove += (_, _) =>
+        {
+            if (gripDrag is not var (y0, h0)) return;
+            partsUserHeight = Math.Max(0, (h0 + Cursor.Position.Y - y0) / Ui.Dpi(DeviceDpi));
+            SizePropsBox();
+        };
+        partsGrip.MouseUp += (_, _) =>
+        {
+            if (gripDrag == null) return;
+            gripDrag = null;
+            Settings.Current.Layout["partsHeight"] = partsUserHeight;
+            Settings.Current.Save();
+            partsGrip.Invalidate();
+        };
+        partsGrip.DoubleClick += (_, _) => { partsUserHeight = 0; Settings.Current.Layout.Remove("partsHeight"); Settings.Current.Save(); SizePropsBox(); };
+        Ui.Tip(partsGrip, "Drag to make Source Parts taller (double-click: as tall as its rows).");
+        partsUserHeight = Settings.Current.Layout.TryGetValue("partsHeight", out float ph) ? ph : 0;
+        list.Controls.Add(partsCap, 0, 0); list.Controls.Add(parts, 0, 1); list.Controls.Add(partsGrip, 0, 2); list.Controls.Add(targetPropsCap, 0, 3); list.Controls.Add(targetProps, 0, 4);
         foreach (var g in new[] { parts, targetProps })
         {
             g.ScrollBars = ScrollBars.None;   // (the list scrolls)
@@ -309,11 +342,11 @@ sealed partial class ModelPage
         bool costume = ChosenPackage is CharacterList.Item c && new[] { "UC__MarvelPlayer_", "UC__MarvelAgent_", "UC__MarvelTeamUp_" }.Any(x => c.Key.StartsWith(x, StringComparison.OrdinalIgnoreCase));   // (enemies, bosses and team-ups hold props too)
         bool showProps = count > 0 || costume, showParts = parts.Rows.Count > 0;
         static int Tall(DataGridView g) => g.ColumnHeadersHeight + g.Rows.Cast<DataGridViewRow>().Where(r => r.Visible).Sum(r => r.Height) + 2;
-        partsCap.Visible = showParts; parts.Visible = showParts;
+        partsCap.Visible = showParts; parts.Visible = showParts; partsGrip.Visible = showParts;
         targetPropsCap.Visible = showProps; targetProps.Visible = showProps;
-        if (showParts) parts.Height = Tall(parts);
+        if (showParts) parts.Height = Math.Max(Tall(parts), (int)(partsUserHeight * Ui.Dpi(DeviceDpi)));
         if (showProps) targetProps.Height = Tall(targetProps);
-        targetPropsCap.Margin = new Padding(2, showParts ? 12 : 2, 0, 4);
+        targetPropsCap.Margin = new Padding(2, showParts ? 5 : 2, 0, 4);
     }
 
     /// <summary>Test hook: the target's props listed (labels) and one kept or left off by label.</summary>

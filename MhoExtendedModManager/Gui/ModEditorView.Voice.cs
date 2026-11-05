@@ -205,8 +205,10 @@ sealed partial class ModEditorView
             string from = voiceBefore.TryGetValue(file, out string? b) ? b : draft.Packages[k].Source;
             voiceStatus.ForeColor = Ui.Subtle; voiceStatus.Text = "Copying " + v.Title + "…";
             var log = new List<string>();
+            var missing = new List<VoiceOffEntry>();
+            string? cookedNow = game?.Cooked;
             byte[] bytes;
-            try { bytes = await Task.Run(() => VoiceSet.Replace(from, v.File, log)); }
+            try { bytes = await Task.Run(() => VoiceSet.Replace(from, v.File, log, cookedNow, missing, file)); }
             catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException)
             { voiceStatus.Text = ""; Dialog.Show(this, $"{v.Title}'s voice couldn't be copied into {file}: {ex.Message}", "Voice Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             if (IsDisposed) return;
@@ -216,7 +218,8 @@ sealed partial class ModEditorView
             File.WriteAllBytes(path, bytes);
             voiceBefore.TryAdd(file, from);
             draft.Packages[k] = (file, path);
-            voiceStatus.Text = "Voice: " + v.Title;
+            voiceStatus.Text = "Voice: " + v.Title + (missing.Count > 0 ? $" · {missing.Select(x => x.Situation).Distinct().Count()} Situation(s) It Has No Line for Kept Silent" : "");
+            voiceMissing = missing;
         }
         // A shift was made from the voice that's gone: dropped.
         draft.VoiceShifts.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
@@ -224,12 +227,16 @@ sealed partial class ModEditorView
         ShowShiftNote(); RefreshSounds();
         // The lines are new: what was turned off applied to the old set.
         draft.VoiceOff.RemoveAll(o => o.Package.Equals(file, StringComparison.OrdinalIgnoreCase));
+        // ... and the situations the new voice has no line for, kept silent (shown as Not in This Voice)
+        if (v != null && voiceMissing is { Count: > 0 } vm) draft.VoiceOff.AddRange(vm);
+        voiceMissing = null;
         foreach (var key in voiceWanted.Keys.Where(x => x.Item1.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList()) voiceWanted.Remove(key);
         voiceWavs.Clear();
         RefreshPackages();
         AudioRecord(v == null ? "Back to This Mod's Voice" : "Voice: " + v.Title, audioWas);
     }
 
+    List<VoiceOffEntry>? voiceMissing;
     readonly Label voiceStatus = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(14, 8, 0, 0) };
     readonly Dictionary<string, byte[]> voiceWavs = new(StringComparer.OrdinalIgnoreCase);
     int voicePlayId;
@@ -497,6 +504,22 @@ sealed partial class ModEditorView
         return hint;
     }
     internal string ShiftNote => voiceShiftNote.Text;
+
+    /// <summary>Test (--voice-swap-tab-test): Use Another Voice on the draft's costume package through the tab; the Voice
+    /// list's rows (all, and those shown as Not in This Voice) and the status line. Nothing is saved.</summary>
+    internal async Task<(int Rows, int Missing, int OffEntries, string Status)> UseVoiceForTest(string title)
+    {
+        for (int i = 0; i < 100 && voice == null; i++) await Task.Delay(100);
+        string? file = draft.Packages.Select(p => p.File).FirstOrDefault(f => f.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase));
+        if (file == null || game == null) return (-1, -1, -1, "no costume package or game");
+        var src = VoiceSet.Sources(game.Cooked).FirstOrDefault(x => x.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+        if (src == null) return (-1, -1, -1, "no voice " + title);
+        UseVoice(file, src);
+        for (int i = 0; i < 600 && !voiceStatus.Text.StartsWith("Voice:", StringComparison.Ordinal); i++) await Task.Delay(100);
+        await Task.Delay(500);
+        int rows = voice?.Rows.Count ?? -1, missing = voice?.Rows.Cast<DataGridViewRow>().Count(r => r.Tag is VoiceLine { Missing: true }) ?? -1;
+        return (rows, missing, draft.VoiceOff.Count(o => o.Package.Equals(file, StringComparison.OrdinalIgnoreCase)), voiceStatus.Text);
+    }
 
     /// <summary>Test (--voice-shape-test): a line's own settings and the whole voice through the tab, with builds; nothing is saved.</summary>
     internal async Task<int> TestVoiceShape(Action<string> say)

@@ -341,6 +341,7 @@ static partial class Program
                 {
                     Console.WriteLine($"{src.Costume.Short} ({src.Costume.Class}); the hero's other costumes:");
                     foreach (var t in targets) Console.WriteLine($"  {t.Short,-34} {t.Class}{(t.IsDefault ? "   (default)" : "")}");
+                    foreach (var t in CostumeMove.CopyTargets(src.Costume, costumes, cooked)) Console.WriteLine($"  {t.Short,-34} {t.Class}{(t.IsDefault ? "   (default)" : "")}   (another class family: the copy route, --cross-move)");
                     if (costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c)) is { } bd)
                         Console.WriteLine($"  {bd.Short,-34} {bd.Class}   (default; in the hero's main package: can't be a target)");
                     return want == null ? 0 : 1;
@@ -1674,8 +1675,10 @@ static partial class Program
                 var src = srcs.FirstOrDefault(s => s.Title.Equals(rest[2], StringComparison.OrdinalIgnoreCase) || Path.GetFileName(s.File).Equals(rest[2], StringComparison.OrdinalIgnoreCase));
                 if (src == null) { Console.WriteLine("no voice set " + rest[2]); return 1; }
                 var vlog = new List<string>();
-                File.WriteAllBytes(rest[3], VoiceSet.Replace(rest[1], src.File, vlog));
+                var vmiss = new List<VoiceOffEntry>();
+                File.WriteAllBytes(rest[3], VoiceSet.Replace(rest[1], src.File, vlog, Settings.Cooked(vgr), vmiss, Path.GetFileName(rest[1])));
                 foreach (string l in vlog) Console.WriteLine(l);
+                foreach (var g in vmiss.GroupBy(x => x.Situation)) Console.WriteLine($"  kept silent: {g.Key} ({g.Count()} hero line(s): {string.Join(", ", g.Select(x => x.Detail).Where(x => x.Length > 0).Distinct().Take(6))})");
                 var got = VoiceSet.Read(Path.GetFileName(rest[3]), rest[3], []);
                 Console.WriteLine($"wrote {rest[3]}: {got.Count} line(s)");
                 return got.Count > 0 ? 0 : 1;
@@ -1698,13 +1701,22 @@ static partial class Program
                 string uwork = Path.Combine(lib.DataFolder, "voice-work-test");
                 Directory.CreateDirectory(uwork);
                 string upath = Path.Combine(uwork, ufile);
-                File.WriteAllBytes(upath, VoiceSet.Replace(Path.Combine(um.Folder, ufile), uv.File, ulog));
+                var umiss = new List<VoiceOffEntry>();
+                File.WriteAllBytes(upath, VoiceSet.Replace(Path.Combine(um.Folder, ufile), uv.File, ulog, ucooked, umiss, ufile));
                 var ud = ModDraft.From(um);
                 int uk = ud.Packages.FindIndex(p => p.File.Equals(ufile, StringComparison.OrdinalIgnoreCase));
                 ud.Packages[uk] = (ufile, upath);
+                // (as the editor's Use Another Voice: the situations the new voice has no line for, listed as off)
+                ud.VoiceOff.RemoveAll(o => o.Package.Equals(ufile, StringComparison.OrdinalIgnoreCase));
+                ud.VoiceOff.AddRange(umiss);
+                int shownBefore = VoiceSet.Read(ufile, upath, ud.VoiceOff).Count(l => l.Missing);
+                Console.WriteLine($"     kept silent: {umiss.Count} hero line(s); listed as Not in This Voice before saving: {shownBefore}");
                 string? usaved = ModWriter.Save(lib, ud, um, out string? uerr);
                 Directory.Delete(uwork, true);
                 if (usaved == null) { Console.WriteLine("FAIL save: " + uerr); return 1; }
+                var usavedMod = ModLibrary.Load(data).Find(usaved);
+                int shownAfter = VoiceSet.Read(ufile, Path.Combine(lib.DataFolder, "mods", usaved, ufile), usavedMod?.Manifest.VoiceOff ?? []).Count(l => l.Missing);
+                Console.WriteLine($"{(shownAfter == shownBefore ? "ok  " : "FAIL")} listed as Not in This Voice after saving: {shownAfter} (manifest VoiceOff: {usavedMod?.Manifest.VoiceOff?.Count ?? 0})");
                 var ulines = VoiceSet.Read(ufile, Path.Combine(lib.DataFolder, "mods", usaved, ufile), []);
                 Console.WriteLine($"{(ulines.Count > 0 ? "ok  " : "FAIL")} {ufile}: {before} line(s) before, {ulines.Count} after ({uv.Title})");
                 int uok = 0;

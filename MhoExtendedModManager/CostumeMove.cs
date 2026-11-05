@@ -88,6 +88,18 @@ static class CostumeMove
                            && File.Exists(Path.Combine(cooked, c.Package)))
                .GroupBy(c => c.Class, StringComparer.OrdinalIgnoreCase).Select(g => g.OrderByDescending(c => c.IsDefault).First()).OrderBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];
 
+    /// <summary>
+    /// The hero's costumes (the game data's UsableBy) whose class is of another family than the source's, so a rename can't
+    /// move onto them (a user, 2026-11-03: Captain America's American Dream is MarvelPlayer_CapnAmerica_AmericanDream, a class
+    /// extending MarvelPlayer, not MarvelPlayer_CaptainAmerica; renamed, Cap Classic's package would lose Cap's class).
+    /// They take the copy route (CrossMove: the target's stock package with the mod's model copied in), as another hero does.
+    /// </summary>
+    public static List<Costume> CopyTargets(Costume source, List<Costume> all, string cooked) =>
+        [.. all.Where(c => c.Hero != null && c.Hero == source.Hero && !c.Class.Equals(source.Class, StringComparison.OrdinalIgnoreCase)
+                           && !IsBase(c) && !c.IsTeamUp && !c.Class.StartsWith(HeroPrefix(source), StringComparison.OrdinalIgnoreCase)
+                           && File.Exists(Path.Combine(cooked, c.Package)))
+               .GroupBy(c => c.Class, StringComparer.OrdinalIgnoreCase).Select(g => g.OrderByDescending(c => c.IsDefault).First()).OrderBy(c => c.Title, StringComparer.OrdinalIgnoreCase)];
+
     /// <summary>The one costume a mod is for (its packages render exactly one costume that can move), or null.</summary>
     /// <param name="allowBase">A costume in the hero's main package too (Star-Lord Infinity War replaces UC__MarvelPlayer_StarLord_SF):
     /// it can't be renamed onto another costume, but the copy route (CrossMove: the target's stock package with the mod's

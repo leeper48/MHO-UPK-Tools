@@ -3203,6 +3203,46 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--drop-translation":
+            {
+                // Writes only <out.upk>: an AnimSet's UseTranslationBoneNames without the given bones (the game then only turns them).
+                // --drop-translation <in.upk> <animset path> <out.upk> <bone> [bone ...]
+                if (rest.Count < 5) { Console.WriteLine("--drop-translation <in.upk> <animset path> <out.upk> <bone> [bone ...]"); return 1; }
+                var dp = MhoPackageModifier.Package.Open(Path.GetFullPath(rest[1]));
+                int ds = Array.FindIndex(dp.Exports, e => dp.PathOf(e).Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (ds < 0) { Console.WriteLine("no export " + rest[2]); return 1; }
+                byte[] sd = dp.ReadExportBytes(dp.Exports[ds]).ToArray();
+                foreach (string b in rest.Skip(4))
+                {
+                    if (AnimSwap.WithoutTranslationBone(dp, sd, b) is { } nd) { sd = nd; Console.WriteLine($"{b}: taken out"); }
+                    else Console.WriteLine($"{b}: not listed");
+                }
+                byte[] final = sd;
+                var drep = new Dictionary<int, Func<long, byte[]>> { [ds] = _ => final };
+                byte[] dout = MhoPackageModifier.PackageRebuilder.Rebuild(dp, drep, [], out var dw);
+                var dprob = MhoPackageModifier.PackageRebuilder.Verify(dp, dout, drep.Keys.ToList(), [], dw);
+                if (dprob.Count > 0) { Console.WriteLine("FAILED: " + string.Join("; ", dprob)); return 1; }
+                File.WriteAllBytes(rest[3], dout);
+                Console.WriteLine($"written {rest[3]} ({dout.Length:N0} bytes)");
+                return 0;
+            }
+            case "--summon-look":
+            {
+                // Writes only <out.upk>: a summon's package with another summon's look (SummonLook.Build).
+                // --summon-look <target.upk> <targetClass> <donor.upk> <donorMesh> <out.upk> [slot=donorAnim ...]
+                if (rest.Count < 6) { Console.WriteLine("--summon-look <target.upk> <targetClass> <donor.upk> <donorMesh> <out.upk> [slot=donorAnim ...]"); return 1; }
+                var slots = rest.Skip(6).Where(x => x.Contains('=')).ToDictionary(x => x.Split('=')[0], x => x.Split('=')[1], StringComparer.OrdinalIgnoreCase);
+                var slog = new List<string>();
+                try
+                {
+                    byte[] sb = SummonLook.Build(Path.GetFullPath(rest[1]), rest[2], Path.GetFullPath(rest[3]), rest[4], slots, slog);
+                    File.WriteAllBytes(rest[5], sb);
+                    foreach (string l in slog) Console.WriteLine(l);
+                    Console.WriteLine($"written {rest[5]} ({sb.Length:N0} bytes)");
+                    return 0;
+                }
+                catch (InvalidDataException ex) { foreach (string l in slog) Console.WriteLine(l); Console.WriteLine("FAILED: " + ex.Message); return 1; }
+            }
             case "--borrow-costume-check":
             {
                 // Read-only: enabled mods whose copy of a hero's costume has an animation list of its own (hides borrowed animations).

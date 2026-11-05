@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.371
+- Voice → Use Another Voice keeps silent every situation the new voice has no line for (a team-up's voice has no death or level-up line, for example), as a move to another hero already did. Before, the hero's own lines played there, so two voices were heard. Those rows show as Not in This Voice.
+- Model tab: Source Parts has a grip under it. Drag it down to make the list taller; double-click it to go back to the height of its rows. The height is remembered.
+- Move to Another Costume lists the hero's costumes whose class is of another kind (Captain America's American Dream is its own class, not Cap's). They were missing from the costume list and left out of Another Hero, so a move had to go through another hero and back. They now move the way a move to another hero does: the target costume's own package with the mod's model put in.
+- Power colors no longer recolor a face of the game's lighting cube map (it isn't an effect's color). Recolored, its six faces no longer matched, and Magneto's Magnetic Eruption crashed the game as soon as it was on the power bar.
+
 0.60.369
 - Borrowed powers: when the other hero's socket for an effect points another way than this hero's (most heroes' head socket points sideways, Emma Frost's and a dozen others' forward), the borrowed effects get the other hero's socket under its own name. Emma's Psychic Blast on Blade came out of the side of his head; it now fires forward. The hero's own powers keep his socket.
 

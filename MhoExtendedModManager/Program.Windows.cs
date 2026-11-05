@@ -728,6 +728,23 @@ static partial class Program
             Application.Run(main);
             return code == 0 ? 0 : 1;
         }
+        if (args.Length == 3 && args[0].Equals("--voice-swap-tab-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --voice-swap-tab-test <mod> <voice title> (scratch MHO_EXTMM_HOME; MHO_EXTMM_SNAP_SIZE keeps it off screen): nothing saved
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            AttachConsole(-1);
+            var main = new Gui.MainForm();
+            int code = 1;
+            main.Shown += (_, _) => main.BeginInvoke(async () =>
+            {
+                try { code = await main.VoiceSwapTabTest(args[1], args[2], Console.WriteLine); }
+                catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                main.Close();
+            });
+            Application.Run(main);
+            return code;
+        }
         if (args.Length == 6 && args[0].Equals("--voice-shift-tab-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only

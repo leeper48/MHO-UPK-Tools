@@ -37,9 +37,12 @@ sealed partial class MainForm
         items.Add(new ToolStripMenuItem($"\"{m.Name}\" Is for {src.Costume.Title}. Move It To:") { Enabled = false });
         // A costume in the hero's main package (Star-Lord Infinity War) can't be renamed onto another costume: its model is
         // copied into the target's own package instead (as for another hero).
-        bool copy = CostumeMove.IsBase(src.Costume);
-        foreach (var target in CostumeMove.Targets(src.Costume, costumes, game.Cooked))
+        bool baseCopy = CostumeMove.IsBase(src.Costume);
+        // (the hero's costumes of another class family, American Dream for Cap: the copy route too)
+        var copyOnly = CostumeMove.CopyTargets(src.Costume, costumes, game.Cooked);
+        foreach (var target in CostumeMove.Targets(src.Costume, costumes, game.Cooked).Concat(copyOnly).OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase))
         {
+            bool copy = baseCopy || copyOnly.Contains(target);
             var made = lib.Mods.FirstOrDefault(x => x.Name.Equals(copy ? CrossMove.NewName(m, target) : CostumeMove.NewName(m, target), StringComparison.OrdinalIgnoreCase));
             var others = lib.Mods.Where(x => x != m && x != made && x.Manifest.UpkReplacements.Contains(target.Package, StringComparer.OrdinalIgnoreCase)).ToList();
             string text = target.Title + (target.IsDefault ? "  ·  Default" : "") + (made != null ? "  ·  Already Made (Select It)" : others.Count > 0 ? $"  ·  {others.Count} Other Mod(s)" : "");

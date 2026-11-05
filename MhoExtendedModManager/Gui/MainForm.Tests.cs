@@ -1109,6 +1109,18 @@ sealed partial class MainForm
         CloseEditor();
     }
 
+    /// <summary>--voice-swap-tab-test: Use Another Voice through the editor's Voice tab (ModEditorView.UseVoiceForTest); nothing is saved.</summary>
+    public async Task<int> VoiceSwapTabTest(string modName, string voiceTitle, Action<string> say)
+    {
+        if (lib?.Find(modName) is not Mod m) { say("no mod " + modName); return 1; }
+        OpenEditor(m); pages.Select(1);
+        editor!.SelectTab(Enumerable.Range(0, editor.TabCount).FirstOrDefault(i => editor.TabTitle(i) == "Voice"));
+        var (rows, missing, offs, status) = await editor.UseVoiceForTest(voiceTitle);
+        say($"rows {rows}, shown as Not in This Voice {missing}, turned-off entries {offs}; status \"{status}\"");
+        CloseEditor();
+        return missing > 0 && missing == offs ? 0 : 1;
+    }
+
     public async Task VoiceShiftTabTest(string dir, string modName, float pitch, float formant, float warmth)
     {
         Directory.CreateDirectory(dir);
