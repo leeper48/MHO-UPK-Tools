@@ -18,6 +18,7 @@ sealed class BorrowPowerForm : Form
     readonly Dictionary<string, PowerBorrow.PowerKind?> kindOf = new(StringComparer.OrdinalIgnoreCase);
     PowerBorrow.PowerKind? targetKind;
     readonly string targetName;
+    readonly Label costumeNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Label enemyNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Fx.GameData db;
     readonly string cooked, target;
@@ -46,7 +47,7 @@ sealed class BorrowPowerForm : Form
     /// <summary>The chosen donor power (prototype, display name), the mode and the fit.</summary>
     public PowerBorrowEntry? Result { get; private set; }
 
-    public BorrowPowerForm(Fx.GameData db, string cooked, string targetPower, string targetName, PowerBorrowEntry? current)
+    public BorrowPowerForm(Fx.GameData db, string cooked, string targetPower, string targetName, PowerBorrowEntry? current, string? costumeWarning = null)
     {
         this.db = db; this.cooked = cooked; target = targetPower; this.targetName = targetName;
         Text = "Borrow a Power's Look";
@@ -70,7 +71,7 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
-        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, useName, nameBox, useIcon]);
+        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, costumeNote, useName, nameBox, useIcon]);
         Ui.Tip(useName, "The power's name in game becomes this (the borrowed power's, or type your own). It goes into the Strings tab (English), where you can change it; Game's Look takes it off again.");
         Ui.Tip(nameBox, "The new name of this power in game.");
         Ui.Tip(useIcon, "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Game's Look takes them off again.");
@@ -101,7 +102,8 @@ sealed class BorrowPowerForm : Form
         Ui.Tip(whole, "The other power's animation, its effects and sounds, and its projectile's look (when both powers fire one). For powers built alike: a projectile from a projectile, a beam from a beam.");
         Ui.Tip(fit, "Plays the borrowed animation faster or slower so it lasts as long as this power's own (the game repeats the power at its own pace; an animation longer than that is cut off).");
         Ui.Tip(look, "This power keeps its own animation, timing and sounds; its beams and effects draw the other power's instead (and the other power's hand effects are added when this one has none). For powers built differently: a channeled beam's look on a quick beam.");
-        whole.CheckedChanged += (_, _) => fit.Enabled = whole.Checked;
+        whole.CheckedChanged += (_, _) => { fit.Enabled = whole.Checked; costumeNote.Visible = costumeWarning != null && whole.Checked; };
+        costumeNote.Text = costumeWarning ?? "";
 
         // the heroes: every hero base package in the game
         var heroes = Directory.EnumerateFiles(cooked, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileNameWithoutExtension).OfType<string>()
@@ -222,6 +224,8 @@ sealed class BorrowPowerForm : Form
             mismatchNote.Visible = mm != null;
             mismatchNote.ForeColor = enemyNote.ForeColor = Color.FromArgb(240, 185, 70);   // (the theme recolors labels: set again here)
             mismatchNote.Text = mm ?? "";
+            costumeNote.ForeColor = Color.FromArgb(240, 185, 70);
+            costumeNote.Visible = costumeNote.Text.Length > 0 && whole.Checked;
             enemyNote.Visible = enemies.Count > 0;
             enemyNote.Text = enemies.Count == 0 ? "" : "Enemies use this power's look too: " + string.Join(", ", enemies.Select(e => Path.GetFileNameWithoutExtension(e))) +
                 ". Borrowing changes how they look as well (the game shares the power's package with them).";

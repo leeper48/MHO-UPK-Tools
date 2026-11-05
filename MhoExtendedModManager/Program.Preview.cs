@@ -3181,6 +3181,49 @@ static partial class Program
                     }
                 return 0;
             }
+            case "--power-progression":
+            {
+                // Read-only: a hero's avatar prototype(s) and their dump lines about power progression (which powers sit on the
+                // power panel, at what level), for picking base powers.
+                if (rest.Count < 2) { Console.WriteLine("--power-progression <hero> [line filter]"); return 1; }
+                string? pgr = settings.ResolvedGameRoot(data);
+                if (pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("game folder not found"); return 1; }
+                var pdb2 = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
+                string pcls = "MarvelPlayer_" + rest[1];
+                var prx = new System.Text.RegularExpressions.Regex(rest.Count > 2 ? rest[2] : @"Progression|Level|Power \(P\)|Powers\\", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                foreach (var (pid, pe2) in pdb2.Prototypes)
+                {
+                    if (!pe2.Path.Replace('/', '\\').StartsWith(@"Entity\Characters\Avatars", StringComparison.OrdinalIgnoreCase)) continue;
+                    Fx.Calligraphy.Data pd;
+                    try { pd = pdb2.Prototype(pid).Data; } catch (Exception) { continue; }
+                    var lines = pdb2.Dump(pd, 400).ToList();
+                    if (!lines.Any(l => l.Contains("UnrealClass", StringComparison.OrdinalIgnoreCase) && l.Contains(pcls + " ", StringComparison.OrdinalIgnoreCase) || l.TrimEnd().EndsWith(pcls, StringComparison.OrdinalIgnoreCase))) continue;
+                    Console.WriteLine($"== {pe2.Path}");
+                    foreach (string l in lines.Where(l => prx.IsMatch(l))) Console.WriteLine(l);
+                }
+                return 0;
+            }
+            case "--borrow-costume-check":
+            {
+                // Read-only: enabled mods whose copy of a hero's costume has an animation list of its own (hides borrowed animations).
+                if (rest.Count < 2) { Console.WriteLine("--borrow-costume-check <hero> [--all]"); return 1; }
+                string? bgr = settings.ResolvedGameRoot(data);
+                var blib = ModLibrary.Load(data);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var hid = PowerBorrow.CostumeListsHiding(blib, null, rest[1], bgr != null ? Settings.Cooked(bgr) : null, rest.Contains("--all"));
+                foreach (var (m, f, sh) in hid) Console.WriteLine($"{m}: {f}{(sh ? " (the borrow ships it too)" : "")}");
+                Console.WriteLine(PowerBorrow.CostumeListsNote(hid, rest[1]) ?? "none");
+                Console.WriteLine($"{sw.ElapsedMilliseconds} ms");
+                return 0;
+            }
+            case "--contact-frames":
+            {
+                // Read-only: each animation's hit marker (MarvelAnimNotify_ContactFrame) time and length in a package.
+                if (rest.Count < 2) { Console.WriteLine("--contact-frames <package.upk> [name part]"); return 1; }
+                foreach (var (n, (t, l)) in Gui.PowerPreview.ContactFramesIn(rest[1]).OrderBy(x => x.Key))
+                    if (rest.Count < 3 || n.Contains(rest[2], StringComparison.OrdinalIgnoreCase)) Console.WriteLine($"{n}: contact {t:0.###} of {l:0.###} s");
+                return 0;
+            }
             case "--held-on-hand":
             {
                 // Read-only: the hand a donor's animations hold a weapon bone still against (PowerBorrow.HeldOnHand), over the named

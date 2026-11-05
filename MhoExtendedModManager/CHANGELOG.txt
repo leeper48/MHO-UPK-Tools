@@ -1,6 +1,21 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.369
+- Borrowed powers: when the other hero's socket for an effect points another way than this hero's (most heroes' head socket points sideways, Emma Frost's and a dozen others' forward), the borrowed effects get the other hero's socket under its own name. Emma's Psychic Blast on Blade came out of the side of his head; it now fires forward. The hero's own powers keep his socket.
+
+0.60.368
+- Borrow a Power's Look warns when another mod you have on replaces one of the hero's costumes with an animation list of its own. In those costumes the borrowed animations aren't found, and the hero stands in his rest pose for that power (Black Bolt under the Havok conversion mods).
+
+0.60.367
+- Borrowed attacks: an animation with a hit marker is no longer fitted to this power's length. The game already times it to the hit, and the fit sped it up a second time (Deadpool's Real Armor Buster on Doctor Strange ran almost four times too fast, and his hands left the cannon).
+
+0.60.365
+- Saved and exported mods no longer carry the Dodge Ghosts' preview builds (Model\ghost_build). They could add tens of MB to a mod. The ghosts themselves are saved in the mod as before.
+- Borrowed attacks: a channeled power's look on a single-shot power (Vision's Channeled Solar Beam on Cyclops' Optic Blast) now shows. Its parts timed on the channel's loop run at the attack's contact and end instead.
+- Borrowed attacks: a weapon spawned for the power no longer disappears when the hero has weapon slots of the same name (Punisher's M60 on Nick Fury).
+- Borrowed attacks: weapons the other hero puts away for the whole attack no longer come along (Deadpool's pistols in Real Armor Buster).
+
 0.60.364
 - Borrowed attacks: a prop that follows its wearer's animation by bones this hero lacks (Hawkeye's bow on Thor) is held in the hand instead. It didn't show at all before. The hand is the one the prop's own bones hang from.
 - Borrowed attacks: a weapon the other hero's power hides for part of the attack (Hawkeye's arrow at the shot) comes along. Only travel powers leave out a weapon the hero puts away for the whole ride.

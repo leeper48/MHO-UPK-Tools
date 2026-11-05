@@ -428,6 +428,9 @@ static class ModelWork
         {
             string rel = Path.GetRelativePath(from, f);
             if (rel.StartsWith("builds" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            // (the dodge ghosts' preview builds: Save puts the chosen one into the mod itself, so these are scratch; a user's
+            // export carried 25 MB of them, 2026-11-04. ghost_base stays: Game's Ghosts puts it back)
+            if (rel.StartsWith("ghost_build" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
             if (rel.StartsWith("rigs" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
                 var parts = rel.Split(Path.DirectorySeparatorChar);

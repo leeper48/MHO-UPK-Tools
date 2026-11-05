@@ -345,7 +345,11 @@ sealed partial class ModEditorView
         if (powerList.SelectedItem is not Fx.PowerList.Power p || game == null) return;
         var g = game;
         powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
-        using var f = new BorrowPowerForm(powerDb, g.Cooked, p.Prototype, p.Name, BorrowOf(p.Prototype));
+        // other mods' costumes with animation lists of their own hide the borrowed animations (Black Bolt under the Havok mods)
+        string? costumeWarning = null;
+        if (PowerBorrow.HeroOf(p.Prototype) is string hero && File.Exists(Path.Combine(g.Cooked, $"UC__MarvelPlayer_{hero}_SF.upk")))
+            costumeWarning = PowerBorrow.CostumeListsNote(PowerBorrow.CostumeListsHiding(lib, editing?.Folder, hero, g.Cooked), hero);
+        using var f = new BorrowPowerForm(powerDb, g.Cooked, p.Prototype, p.Name, BorrowOf(p.Prototype), costumeWarning);
         if (f.ShowDialog(this) != DialogResult.OK || f.Result is not { } chosen) return;
         if (chosen.Donor.Equals(p.Prototype, StringComparison.OrdinalIgnoreCase)) { borrowCaption.Text = "That's this power's own look"; return; }
         if (BorrowOf(p.Prototype) is { } old) TakeOffNameAndIcon(old);

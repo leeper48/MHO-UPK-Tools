@@ -302,6 +302,13 @@ static class PowerPreview
         var result = new Dictionary<string, (float, float)>(StringComparer.OrdinalIgnoreCase);
         string file = $"UC__MarvelPlayer_{hero}_SF.upk";
         string path = modFiles.FirstOrDefault(f => Path.GetFileName(f).Equals(file, StringComparison.OrdinalIgnoreCase)) ?? StockFiles.For(cooked, file);
+        return ContactFramesIn(path);
+    }
+
+    /// <summary>The hit marker (MarvelAnimNotify_ContactFrame time) and length of each animation in one package.</summary>
+    public static Dictionary<string, (float Time, float Length)> ContactFramesIn(string path)
+    {
+        var result = new Dictionary<string, (float, float)>(StringComparer.OrdinalIgnoreCase);
         MhoPackageModifier.Package p;
         try { p = MhoPackageModifier.Package.Open(path); } catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { return result; }
         for (int i = 0; i < p.Exports.Length; i++)

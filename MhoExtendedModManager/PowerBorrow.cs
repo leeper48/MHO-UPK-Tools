@@ -75,13 +75,16 @@ static partial class PowerBorrow
             // the other hero's always-held weapons (Thor's hammer in his flight): its animations hold them (Kurt, 2026-10-21)
             // ... except those the donor's own power hides while it runs (Hawkeye puts his bow and arrow away on the Sky-Cycle:
             // hidebow / hidearrow; brought along, the bow stayed out on every rider, Kurt 2026-11-04)
-            var donorHides = tp == null ? [] : PowerHiddenSlots(tp.DonorFile, $"marvelgamecontent.default__{tp.DonorClass}".ToLowerInvariant());
+            var donorHides = tp == null ? [] : PowerHiddenSlots(tp.DonorFile, $"marvelgamecontent.default__{tp.DonorClass}".ToLowerInvariant(), wholeOnly: !travel);
             if (!e.KeepTiming && !th.Equals(dh, StringComparison.OrdinalIgnoreCase))
                 foreach (var w in HeldAttachments(donorHero, log, HeroBones(StockFiles.For(game.Cooked, heroFile))))
                 {
                     // (travel only: an attack hides its arrow for part of the shot; Kurt, 2026-11-04: Thor with Hawkeye's Nerve Gas
                     // Arrow had no arrow)
-                    if (travel && donorHides.Contains(w.Slot)) { log.Add($"  {Package.Open(w.File).Exports[w.Export].ObjectName}: not brought (the donor's power hides its slot {w.Slot})"); continue; }
+                    // (attacks too when hidden for the whole power: Kurt, 2026-11-04, Doctor Strange with Deadpool's Real Armor
+                    // Buster held two pistols that power puts away)
+                    // (any of its slots: Deadpool's guns fill lefthand / righthand and pistol, and his power hides pistol)
+                    if (ClassSlots(w.File, w.Export).Prepend(w.Slot).FirstOrDefault(donorHides.Contains) is string hid) { log.Add($"  {Package.Open(w.File).Exports[w.Export].ObjectName}: not brought (the donor's power hides its slot {hid})"); continue; }
                     // ... and only a weapon the power's effects come out of (Kurt, 2026-11-04: Thor's flight comes from his
                     // hammer, its effects spawn on socket_hammer on the hammer's g_r_palm; Kitty Pryde's katana has nothing to
                     // do with her Air Walk, whose effects are at her feet, and every borrower carried it)
@@ -155,6 +158,7 @@ static partial class PowerBorrow
                 modPackages: draft.Packages.Select(x => x.File).ToHashSet(StringComparer.OrdinalIgnoreCase));
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
+            if (!e.KeepTiming && CostumeListsNote(CostumeListsHiding(lib, editing?.Folder, th, game.Cooked), th) is { } hidden) log.Add("warning: " + hidden);
             // the hero's own animated attachments (Kitty Pryde's Lockheed) play the power's animation names too: their own
             // travel animations also under the borrowed names (Lockheed hung still, no wing flaps, under Hawkeye's
             // movement_rideskycycle_*: he has only movement_run_flying_*; Kurt 2026-11-04, telemetry ride41)
@@ -276,6 +280,10 @@ static partial class PowerBorrow
         if (sd < 0) throw new InvalidDataException($"no {donorDefault} in {Path.GetFileName(donorPackage)}");
         if (td < 0) throw new InvalidDataException($"no {targetDefault} in the target package");
         var donorComps = Components(src, sd, out _, out _);
+        // (does the target power loop? a looping animation, or any part timed on a loop phase)
+        bool targetLoops = Components(dst, td, out _, out _).Any(r => r > 0 && (dst.ClassOf(dst.Exports[r - 1]).Equals("PowerFxAnimationLooping", StringComparison.OrdinalIgnoreCase)
+            || TagWalker.Walk(dst, dst.ReadExportBytes(dst.Exports[r - 1]).ToArray(), 16) is { } tt && tt.Any(t => (t.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("DeactivationPoint", StringComparison.OrdinalIgnoreCase))
+                && TagWalker.NameAt(dst, dst.ReadExportBytes(dst.Exports[r - 1]).ToArray(), t.ValueAt).Contains("loop", StringComparison.OrdinalIgnoreCase))));
         var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [src.PathOf(src.Exports[sd])] = dst.PathOf(dst.Exports[td]) };
         var refs = new List<int>();
         // (Tested in game 2026-10-10, Cosmic Haymaker on Daredevil: the donor's FxSetIndex sets and its PowerFxPhysicsWeight
@@ -328,6 +336,55 @@ static partial class PowerBorrow
         var now = Components(back, Find(back, targetDefault), out _, out _);
         if (!now.SequenceEqual(refs)) throw new InvalidDataException("the target's component list didn't read back");
         log.Add($"{targetDefault}: {refs.Count} component(s) from {donorDefault} (its own {donorComps.Count} listed; the target's old ones kept, unused)");
+        return Unloop(output, targetDefault, targetLoops, refs, log);
+    }
+
+    /// <summary>
+    /// A channeled donor on a single-shot target: the target never reaches power_on_loop_start / _loop_end, so parts timed
+    /// there never show (Kurt 2026-11-04, Cyclops' Optic Blast with Vision's Channeled Solar Beam: the trace shows only the
+    /// start sound and the start animation firing, no beam). Those parts move to the target's own clock: loop start →
+    /// power_at_contact_time (where Cyclops' own beam starts), loop end → power_on_end. A hypothesis until seen in game.
+    /// </summary>
+    static byte[] Unloop(byte[] package, string targetDefault, bool targetLoops, List<int> refs, List<string> log)
+    {
+        if (targetLoops) return package;
+        var p = Package.FromBytes(package);
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        { ["power_on_loop_start"] = "power_at_contact_time", ["power_on_loop_end"] = "power_on_end" };
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return p.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        var moved = new List<string>();
+        foreach (int r in refs)
+        {
+            if (r <= 0) continue;
+            byte[] b = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
+            var tags = TagWalker.Walk(p, b, 16);
+            if (tags == null) continue;
+            bool changed = false;
+            foreach (var t in tags)
+            {
+                if (!(t.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("DeactivationPoint", StringComparison.OrdinalIgnoreCase))) continue;
+                string at = TagWalker.NameAt(p, b, t.ValueAt);
+                if (!map.TryGetValue(at, out string? to)) continue;
+                BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(t.ValueAt), NameIdx(to));
+                BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(t.ValueAt + 4), 0);
+                moved.Add($"{p.Exports[r - 1].ObjectName} {t.Name.ToLowerInvariant()} {at} → {to}");
+                changed = true;
+            }
+            if (changed) { byte[] nb = b; rep[r - 1] = _ => nb; }
+        }
+        if (rep.Count == 0) return package;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the loop timings: " + string.Join("; ", problems.Take(3)));
+        log.Add($"  {targetDefault}: the target doesn't loop, so the donor's loop parts run on its clock: {string.Join("; ", moved)}");
         return output;
     }
 
@@ -555,6 +612,53 @@ static partial class PowerBorrow
         var parts = power.Replace('/', '\\').Split('\\');
         int i = Array.FindIndex(parts, x => x.Equals("Player", StringComparison.OrdinalIgnoreCase));
         return i >= 0 && i + 1 < parts.Length - 1 ? parts[i + 1] : null;
+    }
+
+    /// <summary>
+    /// Other enabled mods whose copy of one of <paramref name="hero"/>'s costume packages sets an animation list of its own
+    /// without the borrowed sets: on that costume the borrowed animations aren't found, so the character stands in the rest pose
+    /// for the borrowed power (Kurt, 2026-11-05: Black Bolt with Squirrel Girl's It's Raining Rodents A-posed; Havok Full
+    /// Conversion and X-Factor Havok for Conversion replace his ANAD and Classic costumes with lists of their own; with both off
+    /// the borrow played). Shipped: the stock costume has a list of its own too, so the borrow ships that package as well. Returns (mod name, costume package, shipped).
+    /// </summary>
+    public static List<(string Mod, string File, bool Shipped)> CostumeListsHiding(ModLibrary lib, string? editingFolder, string hero, string? cooked, bool includeOff = false)
+    {
+        var res = new List<(string, string, bool)>();
+        string prefix = $"UC__MarvelPlayer_{hero}_";
+        foreach (var m in lib.Mods.Where(m => (m.Enabled || includeOff) && m.Folder != editingFolder))
+            foreach (string f in m.Manifest.UpkReplacements.Where(f => f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && f.EndsWith("_SF.upk", StringComparison.OrdinalIgnoreCase)
+                && !f.Equals(prefix + "SF.upk", StringComparison.OrdinalIgnoreCase)))
+            {
+                string path = Path.Combine(m.Folder, f);
+                if (!File.Exists(path)) continue;
+                CostumeAnims? ca;
+                try { ca = CostumeAnims.Read(path, f, CostumeAnims.FilesFor(m, cooked)); }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { continue; }
+                if (ca == null || ca.Inherited || ca.Sets.Any(s => s.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase))) continue;
+                // the stock costume has a list of its own too: the borrow ships its own copy of it (Build), so the two mods carry
+                // the same package and the higher one in the list wins
+                bool shipped = false;
+                if (cooked != null && StockFiles.For(cooked, f) is var st && File.Exists(st))
+                    try { shipped = CostumeAnims.Read(st, f, CostumeAnims.FilesFor(null, cooked)) is { Inherited: false }; }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+                res.Add((m.Manifest.Name, f, shipped));
+            }
+        return res;
+    }
+
+    /// <summary>The warning for <see cref="CostumeListsHiding"/>, else null.</summary>
+    public static string? CostumeListsNote(List<(string Mod, string File, bool Shipped)> hiding, string hero)
+    {
+        if (hiding.Count == 0) return null;
+        string Costume(string f) => f[$"UC__MarvelPlayer_{hero}_".Length..^"_SF.upk".Length];
+        string List(IEnumerable<(string Mod, string File, bool Shipped)> h) => string.Join(", ", h.GroupBy(x => x.Mod).Select(g => $"\"{g.Key}\" ({string.Join(", ", g.Select(x => Costume(x.File)))})"));
+        string name = AutoTags.DisplayName(hero) ?? hero;
+        var parts = new List<string>();
+        if (hiding.Where(h => !h.Shipped).ToList() is { Count: > 0 } hidden)
+            parts.Add($"Other mods you have on replace some of {name}'s costumes with an animation list of their own: {List(hidden)}. In those costumes the borrowed animations aren't found, and the character stands still in the rest pose for this power.");
+        if (hiding.Where(h => h.Shipped).ToList() is { Count: > 0 } both)
+            parts.Add($"This borrow and other mods you have on both carry some of {name}'s costumes: {List(both)}. The mod higher in the list wins: if it's this one, those costumes lose the other mod's look; if it's the other, they stand still in the rest pose for this power.");
+        return string.Join(" ", parts);
     }
 
     static readonly Dictionary<string, string?> heroByAnims = new(StringComparer.OrdinalIgnoreCase);
@@ -807,7 +911,7 @@ static partial class PowerBorrow
             float vscale = vehicleScale is float vs && vs > 0 ? vs : HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
             // (MHO_BORROW_VEHICLE_SCALE_FORCE=<n>: that scale instead, to see whether it reaches the vehicle at all)
             if (float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE_FORCE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vforce) && vforce > 0) vscale = vforce;
-            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), holdAnims: donorAnims);
+            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), holdAnims: donorAnims, heroSlots: HeroSlots(targetHeroPackage));
             // a prop the costumes in heldBy hold now (added to them): its spawn left out for them, so the power throws the held one
             if (crossHero && pr.Role == "power" && held is { Classes.Count: > 0 } hc && heldBy is { Count: > 0 }) done[tf] = NotForHolders(done[tf], td, hc.Classes, heldBy, log);
             if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log, spawn?.Where(x => !x.Vehicle).Select(x => x.Slot));
@@ -836,6 +940,8 @@ static partial class PowerBorrow
         if (fit && donorLoops) { fit = false; log.Add("anims: the donor's animation loops, so it keeps its own speed"); }
         // the target's own power animation: the length the borrowed ones are fitted to (its longest, when it has several)
         float targetLen = targetAnims.Select(a => Length(targetHeroPackage, a)).DefaultIfEmpty(0).Max();
+        // the donor's animations with a hit marker (see the fit below)
+        var contactsAt = new Lazy<Dictionary<string, (float Time, float Length)>>(() => Gui.PowerPreview.ContactFramesIn(donorHeroPackage));
         var ap = AnimExportCli.Packages.Package.Open(donorHeroPackage);
         var swaps = new List<AnimSwap.Swap>();
         var mountSkeleton = crossHero ? HeroSkeleton(donorHeroPackage) : null;
@@ -870,7 +976,13 @@ static partial class PowerBorrow
                 else log.Add($"anims: {an}: the donor's g_mountattach turns {turned:0}° in it; {why}");
             }
             float donorLen = Length(donorHeroPackage, an);
-            float rate = fit && targetLen > 0.01f && donorLen > 0.01f ? donorLen / targetLen : 1;
+            // ... not one with a hit marker (MarvelAnimNotify_ContactFrame): the game already plays it so the marker lands on the
+            // power's contact, and multiplies that by the sequence's RateScale (telemetry ride62, Kurt 2026-11-05: Deadpool's Real
+            // Armor Buster fitted ×3.73 to Doctor Strange's 0.37 s bolts played at 2.575 × 3.727 = 9.6, done in 0.14 s; the hands
+            // went back to his spell pose and his spawned cannon, played at the body's 9.6 too, finished as early)
+            bool marked = contactsAt.Value.ContainsKey(an);
+            float rate = fit && !marked && targetLen > 0.01f && donorLen > 0.01f ? donorLen / targetLen : 1;
+            if (fit && marked && targetLen > 0.01f && Math.Abs(donorLen / targetLen - 1) > 0.01f) log.Add($"anims: {an} has a hit marker: the game times it to this power's contact, so it isn't fitted");
             log.Add($"anims: {an} {donorLen:0.##} s{(Math.Abs(rate - 1) > 0.01f ? $", played ×{rate:0.##} to last {targetLen:0.##} s like the target's {string.Join(" / ", targetAnims)}" : "")}");
             // the high-flying lift comes on while the start plays (Kurt, 2026-10-22: Spider-Man with Cap's run sank below the
             // ground during the shield-to-back start, then popped up): only the loop is lowered
@@ -1012,6 +1124,14 @@ static partial class PowerBorrow
                 && SpawnSocketNames(done[powerFile], $"marvelgamecontent.default__{pp.TargetClass}".ToLowerInvariant()) is { Count: > 0 } wanted)
             {
                 string? heroName = targetHeroClass.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase) ? targetHeroClass["MarvelPlayer_".Length..] : null;
+                // sockets the donor turns another way than this hero (Emma's socket_head forward, Blade's sideways): the borrowed
+                // effects spawn on the donor's, added under its own name
+                string ppDefault = $"marvelgamecontent.default__{pp.TargetClass}".ToLowerInvariant();
+                if (TurnedSockets(donorHeroPackage, targetHeroPackage, wanted, log) is { Count: > 0 } turned)
+                {
+                    done[powerFile] = UseBorrowedSockets(done[powerFile], ppDefault, turned, log);
+                    wanted = SpawnSocketNames(done[powerFile], ppDefault);
+                }
                 done[hf] = AddBorrowedSockets(done[hf], donorHeroPackage, wanted, cooked, log, heroName);
                 costumeSockets = (wanted, heroName);   // (the costumes' models: after their animation lists, below)
             }
@@ -2504,6 +2624,7 @@ static partial class PowerBorrow
         var slots = new List<string>();
         // a slot a condition shows is a vehicle (a ride's bike, the Sky-Cycle); one the power itself shows is a weapon (webbing)
         var vehicles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hiddenWhole = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in Fx.PowerClosure.Of(db, donorPower).Where(a => a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase) || a.IsPower && a.Depth == 0))
         {
             string? file = game.PackagesOf(a.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), $"marvelgamecontent.default__{a.Class}".ToLowerInvariant()) >= 0);
@@ -2512,6 +2633,10 @@ static partial class PowerBorrow
             List<int> comps;
             try { comps = Components(p, Find(p, $"marvelgamecontent.default__{a.Class}".ToLowerInvariant()), out _, out _); }
             catch (InvalidDataException) { continue; }
+            // (the power's own: slots it hides from start to end; Deadpool's Real Armor Buster shows his pistols on activation
+            // and hides them the whole attack, so they come back after it; spawned, they stayed in Doctor Strange's hands,
+            // Kurt 2026-11-04)
+            if (a.IsPower) hiddenWhole.UnionWith(PowerHiddenSlots(file, $"marvelgamecontent.default__{a.Class}".ToLowerInvariant(), wholeOnly: true));
             foreach (int r in comps)
             {
                 if (r <= 0 || !(p.ClassOf(p.Exports[r - 1]).Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase) || p.ClassOf(p.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase))) continue;
@@ -2526,6 +2651,8 @@ static partial class PowerBorrow
                 if (slot != null && a.Class.StartsWith("MarvelConditionEffect", StringComparison.OrdinalIgnoreCase)) vehicles.Add(slot);
             }
         }
+        foreach (string hs in slots.Where(x => hiddenWhole.Contains(x) && !vehicles.Contains(x)).ToList())
+        { slots.Remove(hs); log.Add($"  the donor's power hides slot {hs} the whole time: not spawned"); }
         var found = new List<(string, int, string, bool)>();
         if (slots.Count == 0) return found;
         var hp = Package.Open(donorHeroPackage);
@@ -2552,7 +2679,7 @@ static partial class PowerBorrow
     /// <summary>The weapon slot a mesh attachment component shows (WhileActivatedShowWeaponSlot / WeaponSlotToShowOnActivate), its own; else null.</summary>
     /// <summary>The weapon slots a power's own mesh-attachment components hide while it runs (WhileActivatedHideWeaponSlot;
     /// "bothhands" = lefthand and righthand).</summary>
-    static HashSet<string> PowerHiddenSlots(string file, string powerDefault)
+    static HashSet<string> PowerHiddenSlots(string file, string powerDefault, bool wholeOnly = false)
     {
         var slots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
@@ -2564,7 +2691,12 @@ static partial class PowerBorrow
             {
                 if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
                 byte[] b = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
-                foreach (var t in TagWalker.Walk(p, b, 16) ?? [])
+                var tags = TagWalker.Walk(p, b, 16) ?? [];
+                // (wholeOnly: hidden from the power's start to its end, no timing of its own; Hawkeye's attacks hide the arrow
+                // from contact time, Deadpool's Real Armor Buster hides his pistols the whole time)
+                if (wholeOnly && tags.Any(t => t.Name.Equals("ActivationOffset", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("DeactivationPoint", StringComparison.OrdinalIgnoreCase)
+                    || t.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase) && !TagWalker.NameAt(p, b, t.ValueAt).Equals("power_on_start", StringComparison.OrdinalIgnoreCase))) continue;
+                foreach (var t in tags)
                     if (t.Name.Equals("WhileActivatedHideWeaponSlot", StringComparison.OrdinalIgnoreCase) && TagWalker.NameAt(p, b, t.ValueAt) is { } s)
                     {
                         if (s.Equals("bothhands", StringComparison.OrdinalIgnoreCase)) { slots.Add("lefthand"); slots.Add("righthand"); }
@@ -2634,7 +2766,7 @@ static partial class PowerBorrow
     /// runs (WhileActivatedAttachmentClass). The component is a copy of a stock one (Ant-Man's ant_outro, the same form) with
     /// its class pointed at the copy.
     /// </summary>
-    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null, float scale = 1, IReadOnlyCollection<string>? holdAnims = null)
+    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null, float scale = 1, IReadOnlyCollection<string>? holdAnims = null, IReadOnlySet<string>? heroSlots = null)
     {
         var dst = Package.FromBytes(package);
         string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
@@ -2661,6 +2793,7 @@ static partial class PowerBorrow
                 foreach (string bn in AttachmentBoneNames(dst, clsDef).Where(x => !x.Equals("none", StringComparison.OrdinalIgnoreCase) && !targetBones.Contains(x) && !x.StartsWith("g_mount", StringComparison.OrdinalIgnoreCase)))
                     if (HeldOnHand(file, bn, cooked, targetBones, log, holdAnims) is { } hh) { onHand[bn] = hh.Hand; hold = hh.Rel; break; }
             if (!vehicle && targetBones is { Count: > 0 } && ParentAnimToHand(dst, clsDef, targetBones, log) is { } pa) { dst = pa.Pkg; hold = pa.Bake; }
+            if (heroSlots is { Count: > 0 }) dst = OwnSlots(dst, clsDef, heroSlots, log);
             if (targetBones is { Count: > 0 }) dst = RootMissingBones(dst, clsDef, targetBones, log, out rooted, onHand);
             if (hold is { } hm && FitModel(dst, clsDef, 1, default, default, log, hm) is { } held2) dst = held2;
             // a ridden prop on the donor's mount bone, held at root here: up by that bone's height over the donor's root in
@@ -2979,6 +3112,69 @@ static partial class PowerBorrow
     /// <summary>The weapon slots a hero always holds something in (attachments not shown on demand: Thor's hammer in
     /// righthand), from its base package.</summary>
     /// <summary>Every weapon slot a hero's attachments fill (on demand ones too), from its base package; null when unread.</summary>
+    /// <summary>
+    /// The spawned copy's WeaponSlot names the hero fills too get borrowed-only names ("borrowed_m60"): the borrow hides the
+    /// hero's own weapons by slot, and that hid the copy as well (Kurt 2026-11-04, Nick Fury's Covering Fire with Punisher's
+    /// Full Auto: Nick has his own m60, hasweaponsight and righthand slots, and the M60 never showed). Slots the hero doesn't
+    /// have keep their names. The copy is spawned by its own component, so nothing needs to show it by slot.
+    /// </summary>
+    static Package OwnSlots(Package dst, string clsDef, IReadOnlySet<string> heroSlots, List<string> log)
+    {
+        int d = Find(dst, clsDef);
+        if (d < 0) return dst;
+        byte[] b = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var tag = TagWalker.Walk(dst, b, 4)?.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase));
+        if (tag == null) return dst;
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return dst.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        var at = new List<int>();
+        if (tag.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase))
+            for (int j = 0, n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(tag.ValueAt)); j < n; j++) at.Add(tag.ValueAt + 4 + 8 * j);
+        else if (tag.Type.Equals("NameProperty", StringComparison.OrdinalIgnoreCase)) at.Add(tag.ValueAt);
+        var renamed = new List<string>();
+        foreach (int o in at)
+        {
+            string s = TagWalker.NameAt(dst, b, o);
+            if (!heroSlots.Contains(s)) continue;
+            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(o), NameIdx("borrowed_" + s));
+            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(o + 4), 0);
+            renamed.Add(s);
+        }
+        if (renamed.Count == 0) return dst;
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => b };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  {clsDef}: its slots couldn't be renamed ({string.Join("; ", problems.Take(2))})"); return dst; }
+        log.Add($"  {dst.Exports[d].ObjectName}: slots the hero fills too get borrowed names ({string.Join(", ", renamed)}), so hiding the hero's own weapons leaves it alone");
+        return Package.FromBytes(output);
+    }
+
+    /// <summary>Every WeaponSlot name of an attachment class (its default's list) in a package.</summary>
+    static List<string> ClassSlots(string file, int classExport)
+    {
+        var slots = new List<string>();
+        try
+        {
+            var p = Package.Open(file);
+            int d = Find(p, "marvelgamecontent.default__" + p.Exports[classExport].ObjectName);
+            if (d < 0) return slots;
+            byte[] b = p.ReadExportBytes(p.Exports[d]).ToArray();
+            var ws = TagWalker.Walk(p, b, 4)?.FirstOrDefault(t => t.Name.Equals("WeaponSlot", StringComparison.OrdinalIgnoreCase));
+            if (ws == null) return slots;
+            if (ws.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase))
+                for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ws.ValueAt)); k < n; k++) slots.Add(TagWalker.NameAt(p, b, ws.ValueAt + 4 + 8 * k));
+            else slots.Add(TagWalker.NameAt(p, b, ws.ValueAt));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+        return slots;
+    }
+
     static HashSet<string>? HeroSlots(string heroPackage)
     {
         try
@@ -3405,6 +3601,100 @@ static partial class PowerBorrow
         return false;
     }
 
+    /// <summary>The ending of a socket a borrow adds under its own name (the donor's socket, turned as the donor has it).</summary>
+    const string BorrowedSocket = "_borrowed";
+    static string DonorSocket(string s) => s.EndsWith(BorrowedSocket, StringComparison.OrdinalIgnoreCase) ? s[..^BorrowedSocket.Length] : s;
+
+    /// <summary>
+    /// The sockets in <paramref name="wanted"/> that both heroes' main models have but turned more than 30 degrees apart in the
+    /// rest pose (Kurt, 2026-11-05: Emma Frost's Psychic Blast on Blade came out of the side of his head. Her socket_head
+    /// points forward, his sideways: 52 of 66 heroes' socket_head points sideways, 13 forward (Emma, Jean Grey, Thor, Doom,
+    /// Vision ...); a cone or beam spawned there fires along the socket). Those get the donor's socket under their own name
+    /// (socket_head_borrowed), so the hero's own powers keep the hero's.
+    /// </summary>
+    static List<string> TurnedSockets(string donorHeroPackage, string targetHeroPackage, IEnumerable<string> wanted, List<string> log)
+    {
+        var res = new List<string>();
+        foreach (string s in wanted)
+        {
+            if (s.EndsWith(BorrowedSocket, StringComparison.OrdinalIgnoreCase) || s.Equals("socket_hit", StringComparison.OrdinalIgnoreCase)) continue;   // (the enemy's)
+            if (SocketFacing(donorHeroPackage, s) is not { } d || SocketFacing(targetHeroPackage, s) is not { } t) continue;
+            float deg = MathF.Acos(Math.Clamp(System.Numerics.Vector3.Dot(d, t), -1, 1)) * 180 / MathF.PI;
+            if (deg <= 30) continue;
+            res.Add(s);
+            log.Add($"  {s}: the donor's points {deg:0} degrees from this hero's: the borrowed effects use the donor's as {s}{BorrowedSocket}");
+        }
+        return res;
+    }
+
+    /// <summary>A socket's direction (its X axis) in the rest pose of a hero's main model, else null.</summary>
+    internal static System.Numerics.Vector3? SocketFacing(string heroPackage, string socket)
+    {
+        try
+        {
+            if (MainMesh(heroPackage) is not { } m || !Fx.FxSockets.Of(heroPackage, m.Name).TryGetValue(socket, out var so)) return null;
+            var mats = new System.Numerics.Matrix4x4[m.Bones.Count];
+            for (int i = 0; i < mats.Length; i++)
+            {
+                var b = m.Bones[i];
+                var local = System.Numerics.Matrix4x4.CreateFromQuaternion(System.Numerics.Quaternion.Normalize(b.Orientation)) * System.Numerics.Matrix4x4.CreateTranslation(b.Position);
+                mats[i] = b.ParentIndex >= 0 && b.ParentIndex < i ? local * mats[b.ParentIndex] : local;
+                if (b.Name.Equals(so.Bone, StringComparison.OrdinalIgnoreCase))
+                {
+                    var w = so.Local * mats[i];
+                    return System.Numerics.Vector3.Normalize(new(w.M11, w.M12, w.M13));
+                }
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
+    }
+
+    /// <summary>The power's components' SpawnSockets naming one of <paramref name="sockets"/> switched to its _borrowed name.</summary>
+    static byte[] UseBorrowedSockets(byte[] package, string powerDefault, IReadOnlyCollection<string> sockets, List<string> log)
+    {
+        var p = Package.FromBytes(package);
+        int td = Find(p, powerDefault);
+        if (td < 0 || sockets.Count == 0) return package;
+        var addNames = new List<string>();
+        int NameOf(string n)
+        {
+            int i = Array.FindIndex(p.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return p.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        var rep = new Dictionary<int, Func<long, byte[]>>();
+        int changed = 0;
+        foreach (int r in Components(p, td, out _, out _).Distinct())
+        {
+            if (r <= 0) continue;
+            byte[] d = p.ReadExportBytes(p.Exports[r - 1]).ToArray();
+            var tags = TagWalker.Walk(p, d, 16);
+            if (tags?.FirstOrDefault(t => t.Name.Equals("SpawnSockets", StringComparison.OrdinalIgnoreCase)) is not { } ss) continue;
+            // (an effect on the one hit, timed by the hit, plays on the enemy's socket: left alone, the enemy has no _borrowed one)
+            if (tags.FirstOrDefault(t => t.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase)) is { Size: 8 } apt
+                && TagWalker.NameAt(p, d, apt.ValueAt).Contains("target_result", StringComparison.OrdinalIgnoreCase)) continue;
+            bool any = false;
+            // (as SpawnSocketNames reads them: every name value in the list that's one of these sockets)
+            for (int at = ss.ValueAt + 4; at + 8 <= ss.ValueAt + ss.Size; at += 4)
+            {
+                int ni = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at));
+                if (ni <= 0 || ni >= p.Names.Length || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4)) != 0) continue;
+                if (sockets.FirstOrDefault(x => x.Equals(p.Names[ni], StringComparison.OrdinalIgnoreCase)) is not { } hit) continue;
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(at), NameOf(hit + BorrowedSocket));
+                any = true; changed++;
+            }
+            if (any) { byte[] nd = d; rep[r - 1] = _ => nd; }
+        }
+        if (rep.Count == 0) return package;
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) throw new InvalidDataException("the borrowed sockets: " + string.Join("; ", problems.Take(3)));
+        log.Add($"  {powerDefault}: {changed} effect socket(s) switched to the donor's ({string.Join(", ", sockets.Select(x => x + BorrowedSocket))})");
+        return output;
+    }
+
     /// <summary>The socket names a power's components spawn on (SpawnSockets of every component of <paramref name="powerDefault"/>).</summary>
     static HashSet<string> SpawnSocketNames(byte[] package, string powerDefault)
     {
@@ -3452,12 +3742,12 @@ static partial class PowerBorrow
             catch (IOException) { }
         foreach (string f in files)
         {
-            if (wanted.All(donorSockets.ContainsKey)) break;
+            if (wanted.Select(DonorSocket).All(donorSockets.ContainsKey)) break;
             Package sp;
             try { sp = Package.Open(f); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { continue; }
             foreach (var (sock, name, bone) in MeshSockets(sp)) donorSockets.TryAdd(name, (sp, sock, bone));
         }
-        var need = wanted.Where(donorSockets.ContainsKey).ToList();
+        var need = wanted.Where(w => donorSockets.ContainsKey(DonorSocket(w))).ToList();
         if (need.Count == 0) return heroPackage;
         var dst = Package.FromBytes(heroPackage);
         var ap = AnimExportCli.Packages.Package.Read(dst.RawFile);
@@ -3475,9 +3765,10 @@ static partial class PowerBorrow
             string meshPath = dst.PathOf(dst.Exports[mi]);
             foreach (string s in need)
             {
-                if (have.Contains(s) || !bones.Contains(donorSockets[s].Bone)) continue;
-                var src = donorSockets[s].Pkg;
-                int se = donorSockets[s].Export;
+                var ds = donorSockets[DonorSocket(s)];
+                if (have.Contains(s) || !bones.Contains(ds.Bone)) continue;
+                var src = ds.Pkg;
+                int se = ds.Export;
                 string donorMesh = src.PathOf(src.Exports[src.Exports[se].OuterIndex - 1]);
                 var sc = CrossMove.Quiet(() => ExportCopy.Copy(src, se, dst, [], $"borrowed_{s}", new Dictionary<string, string> { [donorMesh] = meshPath }), out string said);
                 if (sc == null) { log.Add($"  {s}: the socket couldn't be copied onto {dst.Exports[mi].ObjectName}"); continue; }
@@ -3490,11 +3781,25 @@ static partial class PowerBorrow
                 BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(arr.ValueAt), count + 1);
                 BinaryPrimitives.WriteInt32LittleEndian(nd.AsSpan(arr.Start + 16), arr.Size + 4);
                 var rep = new Dictionary<int, Func<long, byte[]>> { [mi] = _ => nd };
-                byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written);
-                var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written);
+                // a socket under its own name (socket_head_borrowed: the donor's turns another way than the hero's own, see
+                // TurnedSockets): the copy's SocketName set to it
+                var addNames = new List<string>();
+                if (!s.Equals(DonorSocket(s), StringComparison.OrdinalIgnoreCase))
+                {
+                    int sx = sc.RootRef - 1;
+                    byte[] sd = dst.ReadExportBytes(dst.Exports[sx]).ToArray();
+                    if (TagWalker.Walk(dst, sd, 4)?.FirstOrDefault(t => t.Name.Equals("SocketName", StringComparison.OrdinalIgnoreCase)) is not { } sn) { log.Add($"  {s}: the copied socket has no name"); continue; }
+                    int ni = Array.FindIndex(dst.Names, x => x.Equals(s, StringComparison.OrdinalIgnoreCase));
+                    if (ni < 0) { addNames.Add(s); ni = dst.Names.Length; }
+                    BinaryPrimitives.WriteInt32LittleEndian(sd.AsSpan(sn.ValueAt), ni);
+                    BinaryPrimitives.WriteInt32LittleEndian(sd.AsSpan(sn.ValueAt + 4), 0);
+                    rep[sx] = _ => sd;
+                }
+                byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+                var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
                 if (problems.Count > 0) throw new InvalidDataException("the borrowed socket: " + string.Join("; ", problems.Take(3)));
                 dst = Package.FromBytes(output);
-                added.Add($"{s} ({donorSockets[s].Bone}) on {dst.Exports[mi].ObjectName}");
+                added.Add($"{s} ({ds.Bone}) on {dst.Exports[mi].ObjectName}");
             }
         }
         if (added.Count == 0) return heroPackage;
