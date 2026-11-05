@@ -1,6 +1,28 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.364
+- Borrowed attacks: a prop that follows its wearer's animation by bones this hero lacks (Hawkeye's bow on Thor) is held in the hand instead. It didn't show at all before. The hand is the one the prop's own bones hang from.
+- Borrowed attacks: a weapon the other hero's power hides for part of the attack (Hawkeye's arrow at the shot) comes along. Only travel powers leave out a weapon the hero puts away for the whole ride.
+
+0.60.362
+- Borrowed powers from Magik, Human Torch and Ghost Rider could fail with "couldn't be copied". Their always-held attachments have socket and effect lists the copier now reads.
+- Borrowed attacks: an always-on effect attachment (Human Torch's body flames) comes along only when the power's effects come out of it. Weapons with a model (Magik's soul sword) still come.
+
+0.60.361
+- Make Unique no longer renames effect materials. A renamed material lost its shaders and drew as flat blue and grey squares, like the muzzle flash and smoke of Punisher's Full Auto borrowed by Blade. Materials keep their paths now, like streamed textures.
+- Borrowed powers: a hero whose biggest model is a prop (Blade's motorcycle) is no longer read as having that prop's skeleton. The borrowed M60 stood between Blade's legs because the bike has no hands.
+- Borrowed powers: a weapon on a bone the hero lacks goes on the hand the other hero's animations hold it in.
+
+0.60.360
+- Borrowed attacks: a weapon the other hero's power switches to now shows. A weapon slot the hero has nothing in is no longer hidden, because that hid the borrowed gun too. Blade borrowing Punisher's Full Auto held no gun: the power swaps Punisher's weapons in slots only he has. The other hero's weapon is now spawned while the power runs.
+
+0.60.358
+- Borrowed attacks: the hero's own extra bones (cloth, hair, ribbons, capes, extra knee bones) follow the hero's own power while the other hero's animation plays. Angela borrowing Cyclops' tumble locked into an A-pose: his animation moves 82 of her 176 bones.
+
+0.60.357
+- Borrowed attacks bring the other hero's held weapon again: Scarlet Witch borrowing Angela's sword combo swung no sword. Only travel powers leave out a held weapon that their effects don't come out of.
+
 0.60.356
 - Borrowed travel powers: sounds and effects that repeat with the travel loop keep the other hero's timing. Spider-Man's web shots fired every half second on Captain America, because Cap's own run loop, kept for other characters sharing his run power, set the timing. A borrowed travel power now keeps none of the hero's own parts, so characters sharing it get the borrowed look too.
 

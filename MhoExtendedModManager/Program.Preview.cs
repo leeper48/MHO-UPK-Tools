@@ -2526,6 +2526,15 @@ static partial class Program
                 {
                     var ic = pw.Icon == null ? null : Fx.PowerList.Icon(pw.Icon, hcook);
                     Console.WriteLine($"  {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): icon {pw.Icon ?? "none"}{(ic == null ? "" : $" {ic.Width}×{ic.Height}")}; {(pw.Animations.Count == 0 ? "(no animation: effects only)" : string.Join(", ", pw.Animations))}");
+                    // MHO_POWER_CENSUS=1: the prototype's path, the borrow's kind and the data lines that tell melee, area, dash and
+                    // channeled powers apart (picking borrow pairs by type; Kurt, 2026-11-04)
+                    if (Environment.GetEnvironmentVariable("MHO_POWER_CENSUS") == "1" && db.Find(pw.Prototype) is { } cpe)
+                    {
+                        var ckind = PowerBorrow.KindOf(db, new Fx.FxGame(hcook, []), pw.Prototype);
+                        Console.WriteLine($"    path {pw.Prototype}; kind {ckind?.Label ?? "?"}");
+                        var crx = new System.Text.RegularExpressions.Regex(@"<parent|TargetingShape|Shape \(|Radius|Range|Movement|Teleport|Channel|Keywords|PowerCategory|Melee|Dash|Charge|Leap|Projectile|Beam|IsToggled|Activation", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        foreach (string l in db.Dump(db.Prototype(cpe.Id).Data, 6).Where(l => crx.IsMatch(l)).Take(14)) Console.WriteLine("      " + l.Trim());
+                    }
                     // MHO_POWER_FIELDS=1: every asset (A) field of the power, to see which icons it names.
                     if (Environment.GetEnvironmentVariable("MHO_POWER_FIELDS") == "1" && db.Find(pw.Prototype) is { } pe)
                         foreach (var grp in db.Prototype(pe.Id).Data.Groups)
@@ -3170,6 +3179,19 @@ static partial class Program
                         int? cut = PowerBorrow.MountCut(cap, set, sq.ExportIndex, msk, out string why);
                         Console.WriteLine($"{nm}: turns {turned:0}°: {(cut is int c ? $"cut at {c}" : "not cut")} ({why})");
                     }
+                return 0;
+            }
+            case "--held-on-hand":
+            {
+                // Read-only: the hand a donor's animations hold a weapon bone still against (PowerBorrow.HeldOnHand), over the named
+                // animations (all that move it when none named).
+                if (rest.Count < 3) { Console.WriteLine("--held-on-hand <hero package.upk> <bone> [animation...]"); return 1; }
+                string? hgr2 = settings.ResolvedGameRoot(data);
+                var hlog = new List<string>();
+                var hands = new HashSet<string>(["g_r_palm", "g_l_palm", "g_r_wrist", "g_l_wrist"], StringComparer.OrdinalIgnoreCase);
+                var hh = PowerBorrow.HeldOnHand(rest[1], rest[2], hgr2 != null && Settings.IsGameRoot(hgr2) ? Settings.Cooked(hgr2) : null, hands, hlog, rest.Skip(3).ToList());
+                foreach (var l in hlog) Console.WriteLine(l);
+                Console.WriteLine(hh is { } r ? $"{r.Hand}: at {r.Rel.Translation}" : "none");
                 return 0;
             }
             case "--mount-motion":

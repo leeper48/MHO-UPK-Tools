@@ -258,9 +258,16 @@ static class UniqueNames
         // streamed textures (big mips in a .tfc, found by path) keep the stock path: their group is split
         var streamed = new HashSet<int>();
         for (int i = 0; i < pkg.Exports.Length; i++)
-            if (groups.ContainsKey(Top(i)) && pkg.ClassOf(pkg.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!groups.ContainsKey(Top(i))) continue;
+            // ... and so do materials (not their instances): a material's compiled shaders go with it, and one renamed drew as the
+            // engine's default material (Kurt, 2026-11-04: Blade borrowing Punisher's Full Auto showed blue and grey squares for
+            // the muzzle flash and smoke; with the paths kept, they drew right)
+            if (pkg.ClassOf(pkg.Exports[i]).Equals("Material", StringComparison.OrdinalIgnoreCase)) { streamed.Add(i); continue; }
+            if (pkg.ClassOf(pkg.Exports[i]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase))
                 try { if (TextureInfo.Read(pkg, pkg.Exports[i]).Mips.Any(m => m.InSeparateFile)) streamed.Add(i); }
                 catch (Exception ex) when (ex is PackageFormatException or InvalidDataException or ArgumentOutOfRangeException) { }
+        }
         // An object another game file imports by path, that no other package exports, must keep its path: renamed, the
         // import finds nothing (2026-10-14: Nova's Richard Rider effects import their materials from the base effect package;
         // moved, they drew black). A group holding one is left as it is.
@@ -291,10 +298,10 @@ static class UniqueNames
             if (pkg.Exports.Any(x => x.OuterIndex == 0 && x.ObjectName.Equals(to, StringComparison.OrdinalIgnoreCase))) { notes.Add($"group {name}: {to} is already there (made unique before)"); continue; }
             var inGroup = streamed.Where(i => Top(i) == g).ToList();
             if (inGroup.Count == 0) { renames.Add(new(g, name, to, "holds changed shared objects")); notes.Add($"group {name} → {to}: {string.Join("; ", why)}"); continue; }
-            if (inGroup.Any(i => pkg.Exports[i].OuterIndex != g + 1)) { notes.Add($"group {name}: a streamed texture sits in a subgroup; left as it is (can't split it)"); continue; }
+            if (inGroup.Any(i => pkg.Exports[i].OuterIndex != g + 1)) { notes.Add($"group {name}: a streamed texture or a material sits in a subgroup; left as it is (can't split it)"); continue; }
             var moved = Enumerable.Range(0, pkg.Exports.Length).Where(j => pkg.Exports[j].OuterIndex == g + 1 && !streamed.Contains(j)).ToList();
             splits.Add(new(g, name, to, moved, inGroup.Count));
-            notes.Add($"group {name}: its {inGroup.Count} streamed texture(s) keep their path; the other {moved.Count} object(s) move to {to}: {string.Join("; ", why)}");
+            notes.Add($"group {name}: its {inGroup.Count} streamed texture(s) and material(s) keep their path; the other {moved.Count} object(s) move to {to}: {string.Join("; ", why)}");
         }
         return new(file, renames, splits, notes) { Shared = found, Kept = kept };
     }

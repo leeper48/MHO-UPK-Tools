@@ -79,11 +79,17 @@ static partial class PowerBorrow
             if (!e.KeepTiming && !th.Equals(dh, StringComparison.OrdinalIgnoreCase))
                 foreach (var w in HeldAttachments(donorHero, log, HeroBones(StockFiles.For(game.Cooked, heroFile))))
                 {
-                    if (donorHides.Contains(w.Slot)) { log.Add($"  {Package.Open(w.File).Exports[w.Export].ObjectName}: not brought (the donor's power hides its slot {w.Slot})"); continue; }
+                    // (travel only: an attack hides its arrow for part of the shot; Kurt, 2026-11-04: Thor with Hawkeye's Nerve Gas
+                    // Arrow had no arrow)
+                    if (travel && donorHides.Contains(w.Slot)) { log.Add($"  {Package.Open(w.File).Exports[w.Export].ObjectName}: not brought (the donor's power hides its slot {w.Slot})"); continue; }
                     // ... and only a weapon the power's effects come out of (Kurt, 2026-11-04: Thor's flight comes from his
                     // hammer, its effects spawn on socket_hammer on the hammer's g_r_palm; Kitty Pryde's katana has nothing to
                     // do with her Air Walk, whose effects are at her feet, and every borrower carried it)
-                    if (tp != null && !EffectsUseWeapon(tp.DonorFile, $"marvelgamecontent.default__{tp.DonorClass}".ToLowerInvariant(), donorHero, w, game.Cooked, out string why))
+                    // (travel powers only: an attack's animation is made holding the weapon; Kurt, 2026-11-04: Scarlet Witch with
+                    // Angela's Hunter's Blades, a sword combo, swung no sword)
+                    // (an always-held attachment with no model, effects only: an aura, not a weapon (Human Torch's body flames came
+                    // with Searing Arcfire onto Gambit): as for travel, only when the power's effects spawn on it)
+                    if ((travel || !HasModel(w.File, w.Export)) && tp != null && !EffectsUseWeapon(tp.DonorFile, $"marvelgamecontent.default__{tp.DonorClass}".ToLowerInvariant(), donorHero, w, game.Cooked, out string why))
                     { log.Add($"  {Package.Open(w.File).Exports[w.Export].ObjectName}: not brought ({why})"); continue; }
                     if (!spawn.Any(x => x.File.Equals(w.File, StringComparison.OrdinalIgnoreCase) && x.Export == w.Export)) spawn.Add(w);
                 }
@@ -795,13 +801,13 @@ static partial class PowerBorrow
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); powerFile = tf; }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
             if (pr.Role == "projectile") done[tf] = ProjectileSlots(done[tf], td, pr.DonorFile, dd, log);
-            if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log, held);
+            if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log, held, HeroSlots(targetHeroPackage));
             // a spawned vehicle sized for this hero: the Vehicle Fit's size, else the two heroes' heights (Kurt, 2026-10-20:
             // Cyclops' bike looked small under Thor; x1.14 by the heights looked right in game)
             float vscale = vehicleScale is float vs && vs > 0 ? vs : HeroHeight(targetHeroPackage) is float th0 && HeroHeight(donorHeroPackage) is float dh0 && dh0 > 1 ? th0 / dh0 : 1;
             // (MHO_BORROW_VEHICLE_SCALE_FORCE=<n>: that scale instead, to see whether it reaches the vehicle at all)
             if (float.TryParse(Environment.GetEnvironmentVariable("MHO_BORROW_VEHICLE_SCALE_FORCE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float vforce) && vforce > 0) vscale = vforce;
-            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage));
+            if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), holdAnims: donorAnims);
             // a prop the costumes in heldBy hold now (added to them): its spawn left out for them, so the power throws the held one
             if (crossHero && pr.Role == "power" && held is { Classes.Count: > 0 } hc && heldBy is { Count: > 0 }) done[tf] = NotForHolders(done[tf], td, hc.Classes, heldBy, log);
             if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log, spawn?.Where(x => !x.Vehicle).Select(x => x.Slot));
@@ -995,8 +1001,11 @@ static partial class PowerBorrow
                 donorSkeleton: crossHero ? HeroSkeleton(donorHeroPackage) : null);
             // the target's own animated bones the donor's animations don't move (Thor's cape in Kitty's Air Walking) get the
             // target's own run's keys, looped (travel borrows; tested on Thor's six, Kurt 2026-10-20 / 21)
-            if (crossHero && (ownTracks || Environment.GetEnvironmentVariable("MHO_BORROW_OWN_TRACKS") == "1"))
-                done[hf] = AddOwnTracks(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), targetHeroPackage, targetAnims, log);
+            // ... and an attack too, from the target's own power animation, every bone it poses (Kurt, 2026-11-04: Angela with
+            // Cyclops' Tactical Disengage locked to an A-pose: his set drives 82 of her 176 bones; her ribbons, dress, cape,
+            // hair and extra knee bones sat at rest)
+            if (crossHero)
+                done[hf] = AddOwnTracks(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), targetHeroPackage, targetAnims, log, attack: !ownTracks);
             if (loopCuts.Count > 0) done[hf] = TrimLoops(done[hf], "_on_" + targetHeroClass.ToLowerInvariant(), loopCuts, log);
             // the sockets the borrowed effects spawn on that this hero's model lacks (Thor's socket_hammer on Kitty Pryde)
             if (crossHero && powerFile != null && pairs.FirstOrDefault(x => x.Role == "power") is { } pp
@@ -1204,7 +1213,10 @@ static partial class PowerBorrow
     /// </summary>
     /// <param name="held">Props this hero now holds (added to the costume: Thor's hammer in Cap's hand) and their slots: a
     /// component showing only those is left as it is, so the power uses the held one (as the other hero's own power does).</param>
-    public static byte[] SpawnBorrowedAttachments(byte[] package, string targetDefault, List<string> log, (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null)
+    /// <param name="heroSlots">The weapon slots the hero's own attachments fill (any, shown on demand too); a slot outside
+    /// them isn't hidden: the hero has nothing there, and the spawned weapon of that slot would be hidden too (Kurt,
+    /// 2026-11-04: Blade with Punisher's Full Auto hid the M60 it spawned, slot m60).</param>
+    public static byte[] SpawnBorrowedAttachments(byte[] package, string targetDefault, List<string> log, (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlySet<string>? heroSlots = null)
     {
         var p = Package.FromBytes(package);
         int td = Find(p, targetDefault);
@@ -1240,14 +1252,15 @@ static partial class PowerBorrow
             if (tags == null) continue;
             var show = tags.FirstOrDefault(t => t.Name.Equals("AttachmentsToShowOnActivate", StringComparison.OrdinalIgnoreCase));
             var slot = tags.FirstOrDefault(t => t.Name.Equals("WeaponSlotToShowOnActivate", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("WhileActivatedShowWeaponSlot", StringComparison.OrdinalIgnoreCase));
-            if (show == null && slot == null) continue;
+            var swt = tags.FirstOrDefault(t => t.Name.Equals("SwitchAttachments", StringComparison.OrdinalIgnoreCase));
+            if (show == null && slot == null && swt == null) continue;
             var classes = new List<int>();
             if (show != null)
             {
                 int n = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(show.ValueAt));
                 for (int k = 0; k < n; k++) { int c = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(show.ValueAt + 4 + 4 * k)); if (c != 0) classes.Add(c); }
             }
-            string? slotName = slot != null ? TagWalker.NameAt(p, d, slot.ValueAt) : null;
+            string? slotName = slot != null ? TagWalker.NameAt(p, d, slot.ValueAt) : swt != null ? SwitchTo(p, d, swt) : null;
             // a prop the hero holds now (an added prop): shown as the other hero's power shows its own, not spawned
             string ClassName(int c) => c > 0 ? p.Exports[c - 1].ObjectName : p.RefName(c);
             if (held is { } h && (classes.Count > 0 ? classes.All(c => h.Classes.Contains(ClassName(c))) : slotName != null && h.Slots.Contains(slotName)))
@@ -1256,7 +1269,7 @@ static partial class PowerBorrow
                 continue;
             }
             // the component's other properties (timing, conditions) stay; the show / hide lists and slots go
-            string[] drop = ["AttachmentsToShowOnActivate", "AttachmentsToHideOnActivate", "WeaponSlotToShowOnActivate", "WhileActivatedShowWeaponSlot", "WhileActivatedAttachmentClass", "WhileActivatedHideWeaponSlot"];
+            string[] drop = ["AttachmentsToShowOnActivate", "AttachmentsToHideOnActivate", "WeaponSlotToShowOnActivate", "WhileActivatedShowWeaponSlot", "WhileActivatedAttachmentClass", "WhileActivatedHideWeaponSlot", "SwitchAttachments"];
             byte[] head = d[..16];
             var keep = new MemoryStream();
             foreach (var t in tags) if (!drop.Any(x => t.Name.Equals(x, StringComparison.OrdinalIgnoreCase))) keep.Write(d, t.Start, t.End - t.Start);
@@ -1266,7 +1279,7 @@ static partial class PowerBorrow
                 var m = new MemoryStream();
                 m.Write(head); m.Write(kept);
                 if (cls != 0) { var v = new byte[4]; BinaryPrimitives.WriteInt32LittleEndian(v, cls); m.Write(Tag("WhileActivatedAttachmentClass", "ObjectProperty", v)); }
-                if (hide && slotName != null && !slotName.Equals("None", StringComparison.OrdinalIgnoreCase)) m.Write(Tag("WhileActivatedHideWeaponSlot", "NameProperty", NameValue(slotName)));
+                if (hide && slotName != null && !slotName.Equals("None", StringComparison.OrdinalIgnoreCase) && (heroSlots == null || heroSlots.Contains(slotName))) m.Write(Tag("WhileActivatedHideWeaponSlot", "NameProperty", NameValue(slotName)));
                 m.Write(NameValue("None")); m.Write(tail);
                 return m.ToArray();
             }
@@ -1849,6 +1862,140 @@ static partial class PowerBorrow
         var problems = PackageRebuilder.Verify(pkg, output, rep.Keys.ToList(), [], written);
         if (problems.Count > 0) throw new InvalidDataException("leaving out another skeleton's mount tracks: " + string.Join("; ", problems.Take(3)));
         return output;
+    }
+
+    /// <summary>
+    /// A prop that follows its wearer's animation (bAttachUseParentAnim: Hawkeye's bow, its own g_bow / g_bowstring bones
+    /// driven by name from his skeleton) on a hero without those bones: it got no pose and didn't show (Kurt, 2026-11-04,
+    /// Thor with Hawkeye's Nerve Gas Arrow). It's held on the hand its first such bone hangs from instead (g_bow under
+    /// g_l_palm): bAttachUseParentAnim off, AttachmentBones that hand, and the bake that moves its model into that hand's space
+    /// (the hand's rest model-to-bone matrix). Null when it isn't such a prop or the hero has its bones.
+    /// </summary>
+    static (Package Pkg, System.Numerics.Matrix4x4 Bake)? ParentAnimToHand(Package dst, string classDefault, IReadOnlySet<string> targetBones, List<string> log)
+    {
+        int d = Find(dst, classDefault);
+        if (d < 0) return null;
+        byte[] b = dst.ReadExportBytes(dst.Exports[d]).ToArray();
+        var tags = TagWalker.Walk(dst, b, 4);
+        var pa = tags?.FirstOrDefault(t => t.Name.Equals("bAttachUseParentAnim", StringComparison.OrdinalIgnoreCase));
+        var mm = tags?.FirstOrDefault(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase));
+        if (tags == null || pa == null || b[pa.ValueAt] == 0 || mm == null || BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(mm.ValueAt)) < 1) return null;
+        int mesh = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(mm.ValueAt + 4));
+        if (mesh <= 0) return null;
+        var ap = AnimExportCli.Packages.Package.Read(dst.RawFile);
+        var sm = AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, mesh - 1);
+        var bones = sm?.Bones;
+        if (sm == null || bones == null) return null;
+        // the bones its own vertices hang on (the bow's g_bow / g_bowstring ...; its skeleton is all of Hawkeye's, and the first
+        // bone Thor lacks in skeleton order was a sash bone under the pelvis: 0.60.363 hung the bow on Thor's pelvis)
+        var skinned = new HashSet<int>();
+        foreach (var inf in sm.HighestDetail?.Influences ?? [])
+            for (int k = 0; k < inf.Bones.Count; k++) if (inf.Weights[k] > 0) skinned.Add(inf.Bones[k]);
+        int first = -1;
+        foreach (int i in skinned.Order())
+            if (i > 0 && i < bones.Count && !targetBones.Contains(bones[i].Name)) { first = i; break; }
+        if (first < 0) return null;
+        // up from it to the nearest bone the hero has (g_bow → g_l_palm)
+        int handIx = bones[first].ParentIndex;
+        while (handIx > 0 && !targetBones.Contains(bones[handIx].Name)) handIx = bones[handIx].ParentIndex;
+        if (handIx < 0) return null;
+        string hand = bones[handIx].Name;
+        var bake = AnimExportCli.Fbx.SkeletonPose.Rest(bones).ModelToBone[handIx];
+        // the default: bAttachUseParentAnim out, AttachmentBones [hand] in (or set)
+        var addNames = new List<string>();
+        int NameIdx(string n)
+        {
+            int i = Array.FindIndex(dst.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+            if (i >= 0) return i;
+            if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+            return dst.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+        }
+        var ms = new MemoryStream();
+        ms.Write(b, 0, 4);
+        var ab = tags.FirstOrDefault(t => t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase));
+        foreach (var t in tags)
+        {
+            if (t == pa || t == ab) continue;
+            ms.Write(b, t.Start, t.End - t.Start);
+        }
+        var v = new byte[4 + 8];
+        BinaryPrimitives.WriteInt32LittleEndian(v, 1);
+        BinaryPrimitives.WriteInt32LittleEndian(v.AsSpan(4), NameIdx(hand));
+        var tag = new byte[24];
+        BinaryPrimitives.WriteInt32LittleEndian(tag, NameIdx("AttachmentBones"));
+        BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("ArrayProperty"));
+        BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), v.Length);
+        ms.Write(tag); ms.Write(v);
+        ms.Write(b, tags.NoneAt, b.Length - tags.NoneAt);
+        byte[] nb = ms.ToArray();
+        var rep = new Dictionary<int, Func<long, byte[]>> { [d] = _ => nb };
+        byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  {dst.Exports[d].ObjectName}: couldn't be put on a hand ({string.Join("; ", problems.Take(2))})"); return null; }
+        log.Add($"  {dst.Exports[d].ObjectName}: follows its wearer's animation by bones this hero lacks ({bones[first].Name}): held on {hand} instead");
+        return (Package.FromBytes(output), bake);
+    }
+
+    /// <summary>Whether an attachment class's default names a model (ModelMesh, or a mesh component).</summary>
+    static bool HasModel(string file, int classExport)
+    {
+        try
+        {
+            var p = Package.Open(file);
+            int d = Find(p, "marvelgamecontent.default__" + p.Exports[classExport].ObjectName);
+            if (d < 0) return true;
+            byte[] b = p.ReadExportBytes(p.Exports[d]).ToArray();
+            return TagWalker.Walk(p, b, 4)?.Any(t => t.Name.Equals("ModelMesh", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase)) ?? true;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return true; }
+    }
+
+    /// <summary>A class default's AttachmentBones names.</summary>
+    static List<string> AttachmentBoneNames(Package p, string classDefault)
+    {
+        var list = new List<string>();
+        int d = Find(p, classDefault);
+        if (d < 0) return list;
+        byte[] b = p.ReadExportBytes(p.Exports[d]).ToArray();
+        if (TagWalker.Walk(p, b, 4)?.FirstOrDefault(t => t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase)) is { } ab)
+            for (int k = 0, n = BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(ab.ValueAt)); k < n; k++) list.Add(TagWalker.NameAt(p, b, ab.ValueAt + 4 + 8 * k));
+        return list;
+    }
+
+    /// <summary>
+    /// The hand (palm, else wrist) the donor's animations hold <paramref name="bone"/> still against, and the bone's place in
+    /// that hand's space (row vectors: point in the bone's space × Rel = point in the hand's), from the frames of every donor
+    /// animation that moves the bone; the hand it stays steadiest on (spread under 3 units). Null when none holds it.
+    /// </summary>
+    internal static (string Hand, System.Numerics.Matrix4x4 Rel)? HeldOnHand(string donorHeroFile, string bone, string? cooked, IReadOnlySet<string> targetBones, List<string> log, IReadOnlyCollection<string>? anims = null)
+    {
+        var mm = MountMotion(donorHeroFile, bone, cooked, []);
+        if (mm == null || mm.Anims.Count == 0) return null;
+        // the borrowed power's own animations (Punisher moves g_gun_body in 14, each weapon held its own way)
+        var use = mm.Anims.Where(a => anims == null || anims.Count == 0 || anims.Contains(a.Key, StringComparer.OrdinalIgnoreCase)).Select(a => a.Value).ToList();
+        if (use.Count == 0) { log.Add($"  {bone}: the borrowed animations don't move it: left at root"); return null; }
+        (string Hand, System.Numerics.Matrix4x4 Rel, float Spread)? best = null;
+        foreach (string hand in new[] { "g_r_palm", "g_l_palm", "g_r_wrist", "g_l_wrist" })
+        {
+            int hi = mm.Animator.BoneIndex(hand);
+            if (hi < 0 || !targetBones.Contains(hand)) continue;
+            var rels = new List<System.Numerics.Matrix4x4>();
+            foreach (var (a, frames, _) in use)
+                for (float f = 0; f <= frames; f += Math.Max(1, frames / 12))
+                {
+                    mm.Animator.Pose(a, f);
+                    if (System.Numerics.Matrix4x4.Invert(mm.Animator.BoneMatrix(hi), out var inv)) rels.Add(mm.Animator.BoneMatrix(mm.BoneIndex) * inv);
+                }
+            if (rels.Count == 0) continue;
+            var mean = rels.Aggregate(System.Numerics.Vector3.Zero, (acc, r) => acc + r.Translation) / rels.Count;
+            float spread = rels.Average(r => System.Numerics.Vector3.Distance(r.Translation, mean));
+            var pick = rels.OrderBy(r => System.Numerics.Vector3.Distance(r.Translation, mean)).First();
+            if (best == null || spread < best.Value.Spread) best = (hand, pick, spread);
+        }
+        if (Environment.GetEnvironmentVariable("MHO_HOLD_DEBUG") == "1") Console.WriteLine($"hold {bone}: best {best?.Hand} spread {best?.Spread}");
+        if (best is not { } b || b.Spread > 3) { if (best != null) log.Add($"  {bone}: no hand holds it still (steadiest {best.Value.Hand}, {best.Value.Spread:0.#} units): left at root"); return null; }
+        log.Add($"  {bone}: held in {b.Hand} in the donor's animations ({use.Count} of them, spread {b.Spread:0.##}): the weapon goes on that hand, {b.Rel.Translation.Length():0.#} from it");
+        return (b.Hand, b.Rel);
     }
 
     /// <summary>An attachment class default's AnimSet refs: its own AnimationSet list (the Sky-Cycle), else its mesh
@@ -2465,8 +2612,21 @@ static partial class PowerBorrow
     static string? ShownSlot(Package p, int export)
     {
         byte[] b = p.ReadExportBytes(p.Exports[export]).ToArray();
-        var t = TagWalker.Walk(p, b, 16)?.FirstOrDefault(x => x.Name.Equals("WhileActivatedShowWeaponSlot", StringComparison.OrdinalIgnoreCase) || x.Name.Equals("WeaponSlotToShowOnActivate", StringComparison.OrdinalIgnoreCase));
-        return t == null ? null : TagWalker.NameAt(p, b, t.ValueAt);
+        var tags = TagWalker.Walk(p, b, 16);
+        var t = tags?.FirstOrDefault(x => x.Name.Equals("WhileActivatedShowWeaponSlot", StringComparison.OrdinalIgnoreCase) || x.Name.Equals("WeaponSlotToShowOnActivate", StringComparison.OrdinalIgnoreCase));
+        if (t != null) return TagWalker.NameAt(p, b, t.ValueAt);
+        // a weapon switch (Punisher's Full Auto: SwitchAttachments { From, To }) shows its To slot (Kurt, 2026-11-04: Blade with it
+        // showed no gun: the switch named a slot only Punisher fills)
+        return tags?.FirstOrDefault(x => x.Name.Equals("SwitchAttachments", StringComparison.OrdinalIgnoreCase)) is { } sw ? SwitchTo(p, b, sw) : null;
+    }
+
+    /// <summary>A SwitchAttachments value's (first) To slot: one struct, or an array of them.</summary>
+    static string? SwitchTo(Package p, byte[] b, TagWalker.Tag sw)
+    {
+        string? One(int at) => TagWalker.Walk(p, b, at)?.FirstOrDefault(x => x.Name.Equals("To", StringComparison.OrdinalIgnoreCase)) is { } to ? TagWalker.NameAt(p, b, to.ValueAt) : null;
+        if (sw.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase)) return One(sw.ValueAt);
+        if (sw.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase) && BinaryPrimitives.ReadInt32LittleEndian(b.AsSpan(sw.ValueAt)) > 0) return One(sw.ValueAt + 4);
+        return null;
     }
 
     /// <summary>
@@ -2474,7 +2634,7 @@ static partial class PowerBorrow
     /// runs (WhileActivatedAttachmentClass). The component is a copy of a stock one (Ant-Man's ant_outro, the same form) with
     /// its class pointed at the copy.
     /// </summary>
-    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null, float scale = 1)
+    public static byte[] SpawnAttachments(byte[] package, string targetDefault, IReadOnlyList<(string File, int Export, string Slot, bool Vehicle)> classes, string cooked, List<string> log, IReadOnlySet<string>? targetBones = null, float scale = 1, IReadOnlyCollection<string>? holdAnims = null)
     {
         var dst = Package.FromBytes(package);
         string tplFile = StockFiles.For(cooked, "UC__PowerAntMan_AvatarSwapIn_SF.upk");
@@ -2492,7 +2652,17 @@ static partial class PowerBorrow
             dst = Package.FromBytes(cc.Output);
             int classRef = cc.RootRef;
             var rooted = new List<string>();
-            if (targetBones is { Count: > 0 }) dst = RootMissingBones(dst, "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName, targetBones, log, out rooted);
+            // a weapon on a bone this hero lacks that the donor's animations hold in a hand (Punisher's M60 on g_gun_body;
+            // Kurt, 2026-11-04: on Blade it stood between his legs, pointing up): onto that hand, the hold baked into its model
+            var onHand = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            System.Numerics.Matrix4x4? hold = null;
+            string clsDef = "marvelgamecontent.default__" + dst.Exports[classRef - 1].ObjectName;
+            if (!vehicle && targetBones is { Count: > 0 } && !dst.Exports[classRef - 1].ObjectName.Contains("animated", StringComparison.OrdinalIgnoreCase))
+                foreach (string bn in AttachmentBoneNames(dst, clsDef).Where(x => !x.Equals("none", StringComparison.OrdinalIgnoreCase) && !targetBones.Contains(x) && !x.StartsWith("g_mount", StringComparison.OrdinalIgnoreCase)))
+                    if (HeldOnHand(file, bn, cooked, targetBones, log, holdAnims) is { } hh) { onHand[bn] = hh.Hand; hold = hh.Rel; break; }
+            if (!vehicle && targetBones is { Count: > 0 } && ParentAnimToHand(dst, clsDef, targetBones, log) is { } pa) { dst = pa.Pkg; hold = pa.Bake; }
+            if (targetBones is { Count: > 0 }) dst = RootMissingBones(dst, clsDef, targetBones, log, out rooted, onHand);
+            if (hold is { } hm && FitModel(dst, clsDef, 1, default, default, log, hm) is { } held2) dst = held2;
             // a ridden prop on the donor's mount bone, held at root here: up by that bone's height over the donor's root in
             // his flight loop (Green Goblin: 4.8). The root itself rides up with the borrowed animation (31.6 on Captain
             // America), so the prop does too; its height over the model's origin (36.5) put the glider at their waist
@@ -2565,7 +2735,7 @@ static partial class PowerBorrow
     /// rest. Written as the borrowed sequence stores its tracks (Float96NoW rotation, plain float positions; frame
     /// numbers after the keys for VariableKeyLerp, each part aligned to 4). Other formats: left as they were.
     /// </summary>
-    static byte[] AddOwnTracks(byte[] package, string setSuffix, string targetHeroPackage, IReadOnlyList<string> targetAnims, List<string> log)
+    static byte[] AddOwnTracks(byte[] package, string setSuffix, string targetHeroPackage, IReadOnlyList<string> targetAnims, List<string> log, bool attack = false)
     {
         // the target's own animation and skeleton
         var ap = AnimExportCli.Packages.Package.Open(targetHeroPackage);
@@ -2576,7 +2746,8 @@ static partial class PowerBorrow
                 string n = AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex);
                 // the target's run (MHO_BORROW_OWN_ANIM: another), else its own power's longest (Kurt 2026-10-20: the flight
                 // loop's cape drifted left, its body banks; the run's kept the cape centered on all six Thor travel tests)
-                string pick = Environment.GetEnvironmentVariable("MHO_BORROW_OWN_ANIM") is { Length: > 0 } env ? env : "movement_run";
+                // (an attack: its own power's longest animation, not the run)
+                string pick = Environment.GetEnvironmentVariable("MHO_BORROW_OWN_ANIM") is { Length: > 0 } env ? env : attack ? "" : "movement_run";
                 bool isPick = n.Equals(pick, StringComparison.OrdinalIgnoreCase);
                 if (!isPick && (havePick || !targetAnims.Contains(n, StringComparer.OrdinalIgnoreCase))) continue;
                 var pr = ap.TryReadProperties(seq.ExportIndex);
@@ -2611,7 +2782,7 @@ static partial class PowerBorrow
             int nb = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(tb.ValueAt));
             var have = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int k = 0; k < nb; k++) have.Add(TagWalker.NameAt(p, sd, tb.ValueAt + 4 + 8 * k));
-            var bones = own.Tracks.Where(t => t.Value.RotationKeys.Count > 1 && !have.Contains(t.Key) && rest.ContainsKey(t.Key)).Select(t => t.Key).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+            var bones = own.Tracks.Where(t => t.Value.RotationKeys.Count > (attack ? 0 : 1) && !have.Contains(t.Key) && rest.ContainsKey(t.Key)).Select(t => t.Key).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
             if (bones.Count == 0) continue;
             // each sequence of the set: the new tracks appended
             int ns = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(sq.ValueAt));
@@ -2807,6 +2978,20 @@ static partial class PowerBorrow
 
     /// <summary>The weapon slots a hero always holds something in (attachments not shown on demand: Thor's hammer in
     /// righthand), from its base package.</summary>
+    /// <summary>Every weapon slot a hero's attachments fill (on demand ones too), from its base package; null when unread.</summary>
+    static HashSet<string>? HeroSlots(string heroPackage)
+    {
+        try
+        {
+            var slots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in ModMeshes.Attachments(heroPackage))
+                foreach (string s in a.Slots.Count > 0 ? a.Slots : a.Slot is { } one ? [one] : [])
+                    if (!s.Equals("none", StringComparison.OrdinalIgnoreCase)) slots.Add(s);
+            return slots;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
+    }
+
     static HashSet<string> HeldSlots(string heroPackage)
     {
         var slots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -3040,8 +3225,11 @@ static partial class PowerBorrow
         foreach (int i in ap.FindExportsOfClass("skeletalmesh"))
             if (AnimExportCli.Meshes.SkeletalMeshReader.TryRead(ap, i) is { } m) meshes.Add(m);
         int Verts(AnimExportCli.Meshes.SkeletalMesh m) => m.HighestDetail?.Positions.Count ?? 0;
-        return meshes.Where(m => hero.Length > 0 && m.Name.StartsWith(hero, StringComparison.OrdinalIgnoreCase)).OrderByDescending(Verts).FirstOrDefault()
-            ?? meshes.OrderByDescending(Verts).FirstOrDefault();
+        // a character's model (its skeleton has a spine) before a prop's: Blade's motorcycle has more vertices than he does, and
+        // its 21 bones made the borrow think he had no hands (Kurt, 2026-11-04: Punisher's M60 stood between his legs)
+        static bool Body(AnimExportCli.Meshes.SkeletalMesh m) => m.Bones.Any(b => b.Name.Equals("g_spine01", StringComparison.OrdinalIgnoreCase));
+        return meshes.Where(m => hero.Length > 0 && m.Name.StartsWith(hero, StringComparison.OrdinalIgnoreCase)).OrderByDescending(Body).ThenByDescending(Verts).FirstOrDefault()
+            ?? meshes.OrderByDescending(Body).ThenByDescending(Verts).FirstOrDefault();
     }
 
     /// <summary>
@@ -3073,7 +3261,12 @@ static partial class PowerBorrow
     static void BakeMoveTurn(byte[] md, List<AnimExportCli.Meshes.SkeletalMeshReader.PositionSpot> where, System.Numerics.Vector3 move, System.Numerics.Vector3 turn)
     {
         static int Units(float deg) => (int)MathF.Round(deg / 360f * 65536f);
-        var rot = ModMeshes.Rotator(Units(turn.Y), Units(turn.Z), Units(turn.X));
+        BakeMoveTurn(md, where, ModMeshes.Rotator(Units(turn.Y), Units(turn.Z), Units(turn.X)), move);
+    }
+
+    /// <summary>The same with the turn as a rotation matrix (row vectors: a point becomes point × rot + move).</summary>
+    static void BakeMoveTurn(byte[] md, List<AnimExportCli.Meshes.SkeletalMeshReader.PositionSpot> where, System.Numerics.Matrix4x4 rot, System.Numerics.Vector3 move)
+    {
         System.Numerics.Vector3 P(System.Numerics.Vector3 v) => System.Numerics.Vector3.Transform(v, rot) + move;
         float F(int at) => BinaryPrimitives.ReadSingleLittleEndian(md.AsSpan(at));
         void W(int at, float v) => BinaryPrimitives.WriteSingleLittleEndian(md.AsSpan(at), v);
@@ -4319,8 +4512,11 @@ static partial class PowerBorrow
         return h;
     }
 
-    static Package? FitModel(Package dst, string classDefault, float scale, System.Numerics.Vector3 move, System.Numerics.Vector3 turn, List<string> log)
+    static Package? FitModel(Package dst, string classDefault, float scale, System.Numerics.Vector3 move, System.Numerics.Vector3 turn, List<string> log, System.Numerics.Matrix4x4? bakeMatrix = null)
     {
+        // (bakeMatrix: the whole transform baked into a plain prop's points: a weapon moved from a bone the hero lacks onto
+        // his hand; its translation stands in for move in the copy's name)
+        if (bakeMatrix is { } bm0) move = bm0.Translation + new System.Numerics.Vector3(0.01f, 0, 0);
         int d = Find(dst, classDefault);
         if (d < 0) return null;
         byte[] db = dst.ReadExportBytes(dst.Exports[d]).ToArray();
@@ -4389,7 +4585,8 @@ static partial class PowerBorrow
                     BinaryPrimitives.WriteInt32LittleEndian(md.AsSpan(w.At + 8), BinaryPrimitives.ReadInt32LittleEndian(md.AsSpan(w.At + 8)) + Units(turn.X));
                     break;
             }
-        if (bake && moved) BakeMoveTurn(md, where, move, turn);
+        if (bake && bakeMatrix is { } bm) { var r = bm; r.Translation = System.Numerics.Vector3.Zero; BakeMoveTurn(md, where, r, bm.Translation); }
+        else if (bake && moved) BakeMoveTurn(md, where, move, turn);
         // the attachment's model (ModelMesh's first, or its mesh component's SkeletalMesh): the copy (the copy went to the
         // end, so the holder's index is unchanged)
         db = dst.ReadExportBytes(dst.Exports[holder]).ToArray();
@@ -4497,7 +4694,7 @@ static partial class PowerBorrow
     /// </summary>
     static Package RootMissingBones(Package dst, string classDefault, IReadOnlySet<string> bones, List<string> log) => RootMissingBones(dst, classDefault, bones, log, out _);
 
-    static Package RootMissingBones(Package dst, string classDefault, IReadOnlySet<string> bones, List<string> log, out List<string> movedBones)
+    static Package RootMissingBones(Package dst, string classDefault, IReadOnlySet<string> bones, List<string> log, out List<string> movedBones, IReadOnlyDictionary<string, string>? instead = null)
     {
         movedBones = [];
         int d = Find(dst, classDefault);
@@ -4515,7 +4712,13 @@ static partial class PowerBorrow
             int at = t.ValueAt + 4 + 8 * k;
             string bone = TagWalker.NameAt(dst, b, at);
             if (bone.Equals("none", StringComparison.OrdinalIgnoreCase) || bones.Contains(bone)) continue;
-            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(at), root);
+            int to = root;
+            if (instead != null && instead.TryGetValue(bone, out var hand))
+            {
+                to = Array.FindIndex(dst.Names, x => x.Equals(hand, StringComparison.OrdinalIgnoreCase));
+                if (to < 0) { if (!addNames.Contains(hand, StringComparer.OrdinalIgnoreCase)) addNames.Add(hand); to = dst.Names.Length + addNames.FindIndex(x => x.Equals(hand, StringComparison.OrdinalIgnoreCase)); }
+            }
+            BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(at), to);
             BinaryPrimitives.WriteInt32LittleEndian(b.AsSpan(at + 4), 0);
             moved.Add(bone);
         }
@@ -4525,7 +4728,7 @@ static partial class PowerBorrow
         byte[] output = PackageRebuilder.Rebuild(dst, rep, [], out var written, addNames);
         var problems = PackageRebuilder.Verify(dst, output, rep.Keys.ToList(), [], written, addNames);
         if (problems.Count > 0) throw new InvalidDataException("the spawned attachment's bone: " + string.Join("; ", problems.Take(3)));
-        log.Add($"  {dst.Exports[d].ObjectName}: held at root (this hero has no {string.Join(", ", moved)})");
+        log.Add($"  {dst.Exports[d].ObjectName}: " + string.Join("; ", moved.GroupBy(m => instead != null && instead.TryGetValue(m, out var h) ? h : "root").Select(g => $"held at {g.Key} (this hero has no {string.Join(", ", g)})")));
         return Package.FromBytes(output);
     }
 
