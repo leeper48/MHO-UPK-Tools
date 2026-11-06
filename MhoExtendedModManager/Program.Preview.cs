@@ -2654,6 +2654,33 @@ static partial class Program
                 Console.WriteLine($"{seen} packages, {lines.Count} with the humanoid skeleton → {rest[2]}");
                 return 0;
             }
+            case "--pet-census":
+            {
+                // Read-only (2026-11-06, the Model tab's Pets tab): every vanity pet package with a skeletal mesh of its own (the
+                // recolors have none), and whether it has the humanoid skeleton (--target-census's rule; only those are targets).
+                // Writes "file<TAB>core<TAB>bones<TAB>mesh<TAB>target(1/0)". --pet-census <CookedPCConsole> <out.txt>
+                if (rest.Count < 3) { Console.WriteLine("--pet-census <CookedPCConsole> <out.txt>"); return 1; }
+                var refSk = MhoExtendedModManager.Model.MhoSkeleton.Load(Path.Combine(rest[1], "UC__MarvelPlayer_Storm_SF.upk"));
+                var core = refSk.Bones.Select(b => b.Name).Where(n => n.StartsWith("g_") && !n.Contains("cape") && !n.Contains("hair") && !n.Contains("wing")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var lines = new List<string> { "# Vanity pet packages with a skeletal mesh of their own (--pet-census on the stock packages): file, core bones of " + core.Count + ", bones, mesh, 1 = humanoid skeleton (a Model tab target)" };
+                int seen = 0, targets = 0;
+                foreach (string f in Directory.EnumerateFiles(rest[1], "UC__MarvelVanityPet_*_SF.upk").OrderBy(x => x))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    seen++;
+                    MhoExtendedModManager.Model.MhoSkeleton sk;
+                    try { sk = MhoExtendedModManager.Model.MhoSkeleton.Load(f); } catch (Exception) { continue; }
+                    var names = sk.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    int have = names.Count(core.Contains);
+                    bool ok = have * 10 >= core.Count * 9 && new[] { "g_pelvis", "g_head", "g_l_hip", "g_r_hip" }.All(names.Contains);
+                    if (ok) targets++;
+                    lines.Add($"{fn}	{have}	{sk.Bones.Count}	{sk.Mesh.Name}	{(ok ? 1 : 0)}");
+                }
+                File.WriteAllLines(rest[2], lines);
+                Console.WriteLine($"{seen} pet packages, {lines.Count - 1} with a mesh, {targets} with the humanoid skeleton → {rest[2]}");
+                return 0;
+            }
             case "--skeleton-census":
             {
                 // Read-only (2026-10-05, Model tab targets beyond player characters): each matching package's skeletal meshes,

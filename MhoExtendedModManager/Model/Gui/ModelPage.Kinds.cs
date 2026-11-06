@@ -10,21 +10,22 @@ namespace MhoExtendedModManager.Model.Gui;
 /// </summary>
 sealed partial class ModelPage
 {
-    static readonly string[] KindTitles = ["Heroes", "Team-Ups", "NPCs"];
+    static readonly string[] KindTitles = ["Heroes", "Team-Ups", "NPCs", "Pets"];
     static readonly string[] KindTips =
     [
         "Heroes' costume packages, with each hero's summons and power models under the hero.",
         "Team-up packages.",
         "NPCs, enemies and bosses (the ones with the heroes' skeleton).",
+        "The game's vanity pets. As a target, a model fits best on the pets with the heroes' skeleton (Iron Buddies, Ultrons, sentinels, Vision, Spider-Ham …); on four-legged pets and robots the pet's own animations bend it into their pose.",
     ];
 
     int sourceKindTab, targetKindTab;
     readonly List<Label> sourceKindTabs = [], targetKindTabs = [];
     Control sourceKindStrip = null!, targetKindStrip = null!;
 
-    /// <summary>A From the Game package's tab: 0 heroes (and their summons), 1 team-ups, 2 NPCs, enemies and bosses.</summary>
+    /// <summary>A From the Game package's tab: 0 heroes (and their summons), 1 team-ups, 2 NPCs, enemies and bosses, 3 pets.</summary>
     static int KindOf(string file) =>
-        IsSummon(file) || (file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) ? 0
+        IsPet(file) ? 3 : IsSummon(file) || (file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) ? 0
         : file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
 
     Control KindStrip(List<Label> labels, Func<int> current, Action<int> pick)

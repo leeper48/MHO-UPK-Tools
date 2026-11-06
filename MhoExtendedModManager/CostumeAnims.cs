@@ -95,7 +95,10 @@ sealed class CostumeAnims
         Package pkg;
         try { pkg = Package.Open(packagePath); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
         string own = Path.GetFileNameWithoutExtension(packageFile);
-        string heroBase = own.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) ? $"UC__MarvelPlayer_{own["UC__MarvelPlayer_".Length..].Split('_')[0]}_SF" : "";
+        // A team-up's base: only Thor's team-ups have one (UC__MarvelTeamUp_Thor_Base_SF holds thor_as; Old Man Thor's and
+        // Classic's components name no AnimSets: Kurt 2026-11-06, moving Odin from the Old Man Thor team-up to a pet failed).
+        string heroBase = own.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) ? $"UC__MarvelPlayer_{own["UC__MarvelPlayer_".Length..].Split('_')[0]}_SF"
+            : own.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) ? $"UC__MarvelTeamUp_{own["UC__MarvelTeamUp_".Length..].Split('_')[0]}_Base_SF" : "";
         string cls = className ?? (own.StartsWith("UC__", StringComparison.OrdinalIgnoreCase) && own.EndsWith("_SF", StringComparison.OrdinalIgnoreCase) ? own[4..^3] : own);
         // A costume that doesn't set AnimSets on its component inherits its hero's (the costume class extends the hero's,
         // whose class default component in the base package is the template): 374 of 562 stock character packages.

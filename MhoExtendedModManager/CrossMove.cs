@@ -40,12 +40,16 @@ static class CrossMove
     /// mod's copy, else the game's) for step 1, or null. Returns the verified package bytes; throws with the reason.
     /// </summary>
     public static byte[] Build(string modPackage, string meshName, string targetStock, string targetClass, string? baseHero, List<string> log, bool sounds = true,
-        string? sourceClass = null, string? cooked = null, List<VoiceOffEntry>? autoOff = null)
+        string? sourceClass = null, string? cooked = null, List<VoiceOffEntry>? autoOff = null, bool voice = true, float? scale = null)
     {
         MeshCopy.Register();
         var src = Package.Open(modPackage);
         var dst = Package.Open(targetStock);
-        int mesh = Array.FindIndex(src.Exports, e => e.ObjectName.Equals(meshName, StringComparison.OrdinalIgnoreCase) && src.ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
+        // meshName is a path (group.mesh) or a bare name. A path is exact (Kurt, 2026-11-06: Odin moved from the Old Man Thor
+        // team-up to a pet came out as stock Old Man Thor: the moved team-up package holds thor_oldmanthor.thor_oldthor, the stock
+        // mesh, beside Odin's thor_oldmanthor_odinoveroldtho8aae7d.thor_oldthor, and the name matched the stock one first).
+        int mesh = Array.FindIndex(src.Exports, e => src.ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && src.PathOf(e).Equals(meshName, StringComparison.OrdinalIgnoreCase));
+        if (mesh < 0) mesh = Array.FindIndex(src.Exports, e => e.ObjectName.Equals(meshName, StringComparison.OrdinalIgnoreCase) && src.ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
         if (mesh < 0) throw new InvalidDataException($"no skeletal mesh '{meshName}' in {Path.GetFileName(modPackage)}");
 
         // (1) Imported materials / textures from the source hero's base package, copied in under their own paths.
@@ -88,7 +92,7 @@ static class CrossMove
         // and becomes the target costume's, so the target hero's powers play the source's lines.
         int voiceComp = -1;
         byte[]? voiceData = null;
-        if (sourceClass != null)
+        if (sourceClass != null && voice)
         {
             string lower = sourceClass.ToLowerInvariant(), heroClass = "marvelplayer_" + lower.Split('_')[1];
             var candidates = new List<(string Path, string Comp, string Default)>
@@ -253,6 +257,32 @@ static class CrossMove
             log.Add($"component: AnimTreeTemplate → {tree.Outer}.{tree.Name} (the source's)");
         }
 
+        // Scale (pets, Kurt 2026-11-06: a full-size hero as a vanity pet): the component's Scale, set or added before None.
+        // Mini pets are shrunk here (Vision's pet 0.5, Bamf 0.8, Old Lace 0.5), not by a smaller mesh.
+        if (scale is float sc)
+        {
+            if (tags.FirstOrDefault(t => t.Name.Equals("Scale", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } st)
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(st.ValueAt), sc);
+            else
+            {
+                int NameIdx5(string n)
+                {
+                    int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                    if (i >= 0) return i;
+                    if (!addNames.Contains(n, StringComparer.OrdinalIgnoreCase)) addNames.Add(n);
+                    return pkg.Names.Length + addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                }
+                var tag = new byte[28];
+                BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), NameIdx5("Scale"));
+                BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx5("FloatProperty"));
+                BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), 4);
+                BinaryPrimitives.WriteSingleLittleEndian(tag.AsSpan(24), sc);
+                d = [.. d.AsSpan(0, noneAt), .. tag, .. d.AsSpan(noneAt)];
+                noneAt += tag.Length;
+            }
+            log.Add($"component: Scale {sc}");
+        }
+
         // PhysicsWeight (Kurt, 2026-09-30: the cape stayed static with the physics asset alone): Doctor Strange's base component
         // sets 1.0, Colossus's leaves the default 0, and that was the only difference between them besides their own meshes
         // and assets. The source's value (its costume component, else its hero's base component) goes to the target's
@@ -326,6 +356,8 @@ static class CrossMove
         byte[] output = PackageRebuilder.Rebuild(pkg, replaceData, socketAdds, out var written, addNames, addImports);
         var problems = PackageRebuilder.Verify(pkg, output, replaceData.Keys.ToList(), socketAdds, written, addNames, addImports);
         if (problems.Count > 0) throw new InvalidDataException(string.Join("; ", problems));
+        // Pets and team-ups stream their textures (a hero's own are always loaded): cache-less mod textures must say NeverStream.
+        if (!targetClass.StartsWith("MarvelPlayer_", StringComparison.OrdinalIgnoreCase) && TextureResidency.KeepLoaded(output, log) is { } kept) output = kept;
         // The GUID stays the target's (the game checks it): the target stock package's summary is kept as it was.
         var t0 = Package.Open(targetStock);
         if (!File.ReadAllBytes(targetStock).AsSpan(t0.GenerationsAt - 16, 16).SequenceEqual(output.AsSpan(Package.FromBytes(output).GenerationsAt - 16, 16)))
@@ -487,7 +519,7 @@ static class CrossMove
                 var d = p.ReadExportBytes(p.Exports[ci]);
                 if (TagWalker.Walk(p, d, 16) is { } tags && tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } sm
                     && BitConverter.ToInt32(d, sm.ValueAt) is int r && r > 0 && r <= p.Exports.Length && listed.Contains(p.Exports[r - 1].ObjectName, StringComparer.OrdinalIgnoreCase))
-                    return p.Exports[r - 1].ObjectName;
+                    return p.PathOf(p.Exports[r - 1]);   // the path, not the name: two meshes can share it (a moved package keeps the target's stock one)
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException or IndexOutOfRangeException) { }
@@ -507,8 +539,10 @@ static class CrossMove
                     && BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(t.ValueAt)) is int r && r > 0) return r - 1;
             }
         }
+        // In the mesh's group (iceman_original.iceman_original_physics beside iceman_original.iceman_original); a bare name is the group's name.
+        string group = meshName.Contains('.') ? meshName[..meshName.LastIndexOf('.')] : meshName;
         return Array.FindIndex(src.Exports, e => src.ClassOf(e).Equals("PhysicsAsset", StringComparison.OrdinalIgnoreCase)
-            && src.PathOf(e).StartsWith(meshName + ".", StringComparison.OrdinalIgnoreCase));
+            && src.PathOf(e).StartsWith(group + ".", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>"She-Hulk (on Storm Modern)": a move to another hero names the hero too.</summary>

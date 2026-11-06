@@ -201,6 +201,54 @@ sealed partial class ModelPage
         say($"loaded: {loaded}; game folder: {Settings.Current.GameFolder ?? "none"}; cooked: {Settings.Current.CookedFolder ?? "none"}; MFF: {Settings.Current.MffSource ?? "none"}; stock: {Settings.Current.StockFolder ?? "none"}");
         say($"source kind: {sourceKind.SelectedIndex} ({(sourceKind.SelectedIndex >= 0 ? sourceKind.Items[sourceKind.SelectedIndex] : "-")}); game packages: {allPackages.Count}; source rows: {characters.Items.Count}; target rows: {packages.Items.Count}");
         say("log: " + log.Text.Replace("\r\n", " | ").Replace("\n", " | "));
+        // the Pets tab (Kurt, 2026-11-06): every pet with a mesh as a source, the humanoid ones as targets
+        int petSources = allPackages.Count(p => IsPet(p.File)), petTargets = allPackages.Count(p => IsPet(p.File) && CanTarget(p.File));
+        say($"pets: {petSources} sources, {petTargets} targets");
+        if (Environment.GetEnvironmentVariable("MHO_TEST_PETSHOT") is { Length: > 0 } petShot)
+        {
+            int game = Enumerable.Range(0, sourceKind.Items.Count).FirstOrDefault(i => sourceKind.Items[i]?.ToString()?.Contains("Game", StringComparison.OrdinalIgnoreCase) == true, -1);
+            if (game >= 0) sourceKind.SelectedIndex = game;
+            await Task.Delay(1500);
+            sourceKindTab = 3; FillCharacters();
+            gameList = true; targetKindTab = 3; FillPackages();
+            await Task.Delay(8000);   // (the rows' pictures are made in the background)
+            characters.Invalidate(); packages.Invalidate();
+            await Task.Delay(500);
+            say($"pets tab: source rows {characters.Items.Count}, target rows {packages.Items.Count}");
+            var form = FindForm()!; using var bmp = new Bitmap(form.Width, form.Height); form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size)); bmp.Save(petShot);
+            if (petSources == 0 || petTargets == 0 || characters.Items.Count == 0 || packages.Items.Count == 0) return 1;
+            // right-click a pet source: the same pet picked as the target (Kurt, 2026-11-06: it didn't)
+            foreach (string pet in new[] { "UC__MarvelVanityPet_Vision_SF.upk", "UC__MarvelVanityPet_Cosmo_SF.upk" })
+            {
+                int row = Enumerable.Range(0, characters.Items.Count).FirstOrDefault(i => characters.Items[i] is CharacterList.Item it && it.Key.Equals(GameSrc + pet, StringComparison.OrdinalIgnoreCase), -1);
+                if (row >= 0) SourceBoth(row, pet);
+                await Task.Delay(3000);
+                say($"right-click {pet}: row {row}; target tab {targetKindTab}; target picked: {ChosenPackage?.Key ?? "none"}; target rows {packages.Items.Count}; gameList {gameList}");
+                if (ChosenPackage?.Key.Equals(pet, StringComparison.OrdinalIgnoreCase) != true) return 1;
+            }
+            // Cosmo onto Baby Groot: Build asks Whole Pet or Fit (Kurt, 2026-11-06: no pop-up showed)
+            if (Environment.GetEnvironmentVariable("MHO_TEST_PETBUILD") == "1")
+            {
+                gameList = true; packageFilter.Text = ""; FillPackages();
+                Reselect(packages, "UC__MarvelVanityPet_BabyGroot_SF.upk");
+                for (int i = 0; i < 100 && !HasSource; i++) await Task.Delay(100);
+                await Task.Delay(1000);
+                say($"build test: source {chosenKey}; has source {HasSource}; target {ChosenPackage?.Key}; building {building}");
+                await Task.Delay(6000);   // (the preview of the choice)
+                { var bf = FindForm()!; using var pb = new Bitmap(bf.Width, bf.Height); bf.DrawToBitmap(pb, new Rectangle(Point.Empty, bf.Size)); pb.Save(Path.ChangeExtension(petShot, ".build.png")); }
+                // ◀ / ▶ with Chain off step through the animation list (Kurt, 2026-11-06)
+                bool chainWas = MhoExtendedModManager.PreviewViews.Chain;
+                MhoExtendedModManager.PreviewViews.Chain = false;
+                try
+                {
+                    say($"arrows: start {preview.CurrentAnimationName ?? "rest pose"}");
+                    foreach (int by in new[] { 1, 1, -1, -1, -1 }) say($"arrows: {(by > 0 ? "▶" : "◀")} → " + await preview.StepForTest(by));
+                }
+                finally { MhoExtendedModManager.PreviewViews.Chain = chainWas; }
+                bool built0 = await BuildAsync();
+                say($"build test: built {built0}; log: " + log.Text.Replace("\r\n", " | ").Replace("\n", " | "));
+            }
+        }
         // MHO_TEST_LISTSHOT=<png> [MHO_TEST_LISTSOURCE=<game package>]: that source picked, the Parts tab shot (its scrolling)
         if (Environment.GetEnvironmentVariable("MHO_TEST_LISTSHOT") is { Length: > 0 } shot)
         {

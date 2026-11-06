@@ -83,6 +83,43 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
+        if (args.Length == 4 && args[0].Equals("--pet-picker-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: the Move to a Pet window for a mod, with a pet picked (by name; "-" for none), as a PNG.
+            // --pet-picker-snapshot <mod> <pet | -> <out.png>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            var st = Settings.Load();
+            var plib = ModLibrary.Load(Settings.LibraryData(st.LibraryPath)!);
+            string? pgr = st.ResolvedGameRoot(plib.DataFolder);
+            var pm = plib.Find(args[1]);
+            var all = pgr == null ? null : Costume.All(pgr);
+            if (pm == null || pgr == null || all == null) { Console.WriteLine("no mod / game data"); return 1; }
+            var pgame = new GameState(pgr, plib.DataFolder);
+            var pcat = new StockCatalog(plib, pgame);
+            var pets = PetMove.All(pgame, pcat);
+            // A costume mod, else a pet mod (Move to Another Pet).
+            var one = CostumeMove.Single(pm, all, allowBase: true);
+            var fromPet = one == null ? PetMove.SourcePet(pm, pets) : null;
+            if (one == null && fromPet == null) { Console.WriteLine("not a single-costume or pet mod"); return 1; }
+            ulong nameId = one?.Costume.DisplayName ?? fromPet!.NameId;
+            string text = pm.Strings.FirstOrDefault(x => x.Id == nameId && x.Language.Equals("eng", StringComparison.OrdinalIgnoreCase))?.Text
+                ?? (one != null ? pcat.Strings("eng").FirstOrDefault(x => x.Id == nameId).Text ?? "" : "");
+            using var f = new Gui.PetPickerForm(pm, one?.Costume.Title ?? fromPet!.Name, CostumeMove.PlainName(text), fromPet == null ? pets : [.. pets.Where(p => p != fromPet)], plib.Mods, pgr, pcat, fromPet != null) { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(300);
+                if (Gui.PetPickerForm.Tiles(f).FirstOrDefault(x => x.Pet.Name.Equals(args[2], StringComparison.OrdinalIgnoreCase)) is { Pet: not null } hit) f.Pick(hit.Pet);
+                await Task.Delay(3000);
+                using var bmp = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+                bmp.Save(args[3]);
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
         if (args.Length == 4 && args[0].Equals("--hero-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Test: the Another Hero picker for a mod, with a hero's costumes shown, as a PNG. --hero-snapshot <mod> <hero | @teamups> <out.png>

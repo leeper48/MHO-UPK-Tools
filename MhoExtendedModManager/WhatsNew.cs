@@ -41,10 +41,25 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.386 (Kurt, 2026-11-05): Borrow Power released; faster 3D views (pants on a tiger).</summary>
     /// <summary>0.60.388 (Kurt, 2026-11-06): costume moves onto team-ups are easy to find; the Move window's Name in Game.</summary>
+    static Notice PetMoves() => new(
+        "0.60.407-pet-moves", "0.60.407",
+        "[!]New: any costume as a pet" + nl +
+        "  • A costume's Costume ▾ menu has Pet: pick one of the game's vanity pets (Iceman as Spider-Ham, Odin as Baby Groot …)." + nl +
+        "  • The pet takes the costume's model with its idle, run and fidgets, its icon and portrait. Full Size keeps the hero's size, and Name in Game names the pet." + nl +
+        "  • Team-ups can become pets too." + nl + nl +
+        "[!]Pet onto pet" + nl +
+        "  • Right-click a pet mod → Move to Another Pet: the pet as it is, with its own skeleton and animations, on another pet (Cosmo on Baby Groot)." + nl +
+        "  • Editor → Model has a Pets tab in Source and Target. Pet onto pet asks Whole Pet or Fit when you pick the target." + nl + nl +
+        "[!]Also" + nl +
+        "  • 3D views: with Chain off, the arrows beside the frame slider step through the animations." + nl +
+        "  • Fixed: mod textures showing flat colors on a pet or team-up." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-pet");
+
     static Notice TeamUpMoves() => new(
         "0.60.388-teamup-moves", "0.60.388",
         "[!]Wear a costume mod on a team-up" + nl +

@@ -214,8 +214,8 @@ sealed partial class Preview3D : UserControl
         bar = Strip(anims, [play, loop, chain, .. barButtons, look, reset, frameHead, frameBust, frameFull, quadButton, fullScreen]);
         root.Controls.Add(bar, 0, 1);
         // ◀ / ▶ beside the frame slider: the chain's previous / next part (Kurt, 2026-11-02)
-        partPrev = Ui.FlatButton("◀", () => StepPart(-1), "The previous part of this power's chain (its start before its loop, its loop before its end; from the start, its end), from its first frame. Playing stays playing.");
-        partNext = Ui.FlatButton("▶", () => StepPart(1), "The next part of this power's chain (its loop after its start, its end after its loop; after the end, its start again), from its first frame, as the game goes on from one to the next. Playing stays playing.");
+        partPrev = Ui.FlatButton("◀", () => StepPart(-1), PrevPartTip);
+        partNext = Ui.FlatButton("▶", () => StepPart(1), NextPartTip);
         partPrev.Enabled = partNext.Enabled = false;
         var frameRow = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, BackColor = Color.Transparent, Margin = Padding.Empty };
         frameRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -426,6 +426,7 @@ sealed partial class Preview3D : UserControl
         // an animation replaced by an FBX: marked ✎, in gold
         anims.Format = o => o is string n && IsOverridden?.Invoke(n) == true ? n + "  ✎" : o?.ToString() ?? "";
         anims.ItemColor = i => i > 0 && i < anims.Items.Count && anims.Items[i] is string n && IsOverridden?.Invoke(n) == true ? Color.FromArgb(240, 200, 90) : null;
+        UpdatePartButtons();
     }
 
     /// <summary>The animation read again (an edit imported or reverted), at the same place in it.</summary>
@@ -635,6 +636,7 @@ sealed partial class Preview3D : UserControl
     /// the chain does (a loop after its start carries the climb on, an end brings the floor down). Playing stays playing.</summary>
     void StepPart(int by)
     {
+        if (!PreviewViews.Chain) { StepAnimation(by); return; }
         if (ChainOf(CurrentAnimation) is not { } parts || CurrentAnimation is not string name) return;
         int at = parts.FindIndex(p => p.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (at < 0) return;
@@ -648,13 +650,42 @@ sealed partial class Preview3D : UserControl
     /// <summary>Tests: ◀ (-1) or ▶ (1) pressed; then what shows, whether it plays, and which arrows are on.</summary>
     internal async Task<string> StepPartForTest(int by)
     {
+        UpdatePartButtons();   // (a test may have set Chain directly)
         (by < 0 ? partPrev : partNext).PerformClick();
         await Task.Delay(1500);
         return $"{CurrentAnimation} {(IsPlaying ? "playing" : "paused")} at {Time:0.00} floor {view.GroundZ:0} [◀ {(partPrev.Enabled ? "on" : "off")} ▶ {(partNext.Enabled ? "on" : "off")}]";
     }
 
-    /// <summary>◀ / ▶ on when the animation showing is a part of a chain (they go round it).</summary>
-    void UpdatePartButtons() => partPrev.Enabled = partNext.Enabled = ChainOf(CurrentAnimation) != null;
+    /// <summary>
+    /// Chain off (Kurt, 2026-11-06): ◀ / ▶ step through the animation list instead, the one before / after in the drop-down
+    /// (round from the last to the first), from its start; playing stays playing. From Rest Pose: ▶ the first, ◀ the last.
+    /// </summary>
+    void StepAnimation(int by)
+    {
+        int n = animList.Count;
+        if (n == 0) return;
+        int i = anims.SelectedIndex - 1;
+        int next = i < 0 ? (by > 0 ? 0 : n - 1) : ((i + by) % n + n) % n;
+        autoPlay = IsPlaying;
+        playTime = 0;
+        if (anims.SelectedIndex == next + 1) AnimationChosen(); else anims.SelectedIndex = next + 1;
+    }
+
+    /// <summary>◀ / ▶: with Chain on, when the animation showing is a part of a chain (they go round it); with Chain off, when
+    /// the list has more than one animation (they step through it). Their tips say which.</summary>
+    void UpdatePartButtons()
+    {
+        if (partPrev == null || partNext == null) return;   // (the list filled before the bar is made)
+        bool chainOn = PreviewViews.Chain;
+        partPrev.Enabled = partNext.Enabled = chainOn ? ChainOf(CurrentAnimation) != null : animList.Count > 1;
+        if (partTipsChain == chainOn) return;
+        partTipsChain = chainOn;
+        Ui.Tip(partPrev, chainOn ? PrevPartTip : "The animation before this one in the list (from the first, the last), from its start. Playing stays playing. (With Chain on: the previous part of a power's chain.)");
+        Ui.Tip(partNext, chainOn ? NextPartTip : "The next animation in the list (after the last, the first), from its start. Playing stays playing. (With Chain on: the next part of a power's chain.)");
+    }
+    bool? partTipsChain = true;
+    const string PrevPartTip = "The previous part of this power's chain (its start before its loop, its loop before its end; from the start, its end), from its first frame. Playing stays playing.";
+    const string NextPartTip = "The next part of this power's chain (its loop after its start, its end after its loop; after the end, its start again), from its first frame, as the game goes on from one to the next. Playing stays playing.";
 
     /// <summary>The chain's next part picked and played (the power filter and the rest of the list kept).</summary>
     void ChainTo(string name, bool play = true)
@@ -681,6 +712,7 @@ sealed partial class Preview3D : UserControl
     {
         PreviewViews.Chain = !PreviewViews.Chain;
         Ui.Lit(chain, PreviewViews.Chain);
+        UpdatePartButtons();   // (◀ / ▶: the chain's parts, or the whole list)
     }
 
     void Pose(float f)

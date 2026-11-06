@@ -33,6 +33,15 @@ sealed partial class ModelPage
         }
         if (ChosenPackage is CharacterList.Item only && !HasSource && !building) return await BuildSizeOnly(only);
         if (!HasSource || ChosenPackage is not CharacterList.Item pkg || building) return false;
+        // a pet onto a pet (Kurt, 2026-11-06: Cosmo fitted onto Baby Groot stood up in Groot's poses; "pet to pet should probably
+        // copy animation set over from source … you can notify via pop-up"): the whole pet, its own skeleton and animations
+        // (asked when the target was picked, Kurt 2026-11-06: "better making that decision earlier"; here only if not answered)
+        if (PetPair(pkg.Key) is string pair)
+        {
+            bool? whole = petWhole.TryGetValue(pair, out bool w) ? w : AskPetMode(pkg.Key, pkg.Title, false);
+            if (whole == null) return false;
+            if (whole == true) return await BuildWholePet(pkg, SplitGameKey(chosenKey!).File);
+        }
         var picked = SelectedParts();
         if (picked.Count == 0) { Log("Tick at least one part."); return false; }
         string? print = Fingerprint();
@@ -143,6 +152,54 @@ sealed partial class ModelPage
         building = false; UpdateStatus();
         if (built.ContainsKey(pkg.Key)) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
         if (ok && !buildingPartners) await OfferSummonPartners(pkg.Key);   // (Strike Team: the tumble's model and the summoned Beast's)
+        return ok;
+    }
+
+    /// <summary>A pet onto a pet as the whole pet (PetMove.Build, the Mod Manager's Move to Another Pet): the source pet's model
+    /// with its skeleton, physics, idle, run and fidgets, at its own size, in the target pet's package (its class, GUID, item).</summary>
+    async Task<bool> BuildWholePet(CharacterList.Item pkg, string srcFile)
+    {
+        using var busy = Busy.Begin($"Model: {srcFile} as the whole pet in {pkg.Key}");
+        building = true; UpdateStatus();
+        log.Clear();
+        bool ok = false;
+        try
+        {
+            string src = MhoExtendedModManager.Model.GameSource.Modded?.Invoke(srcFile) ?? BasePackage.Resolve(srcFile);
+            string start = StartPackage(pkg.Key);
+            string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{Path.GetFileNameWithoutExtension(srcFile)} on {Path.GetFileNameWithoutExtension(pkg.Key)}"));
+            Log($"Building {srcFile} as the whole pet on {pkg.Key} (from {StartLabel(pkg.Key)}) → {outDir}");
+            string cooked = Settings.Current.CookedFolder ?? throw new InvalidOperationException("the game folder isn't set");
+            string? built0 = await Task.Run(() =>
+            {
+                var lines = new List<string>();
+                string cls = PetMove.Characters(MhoPackageModifier.Package.Open(src)).FirstOrDefault(c => c.Class.StartsWith("marvelvanitypet_", StringComparison.OrdinalIgnoreCase)).Class;
+                float size = cls == null ? 1f : PetMove.ScaleOf(src, cls);
+                try
+                {
+                    var res = PetMove.Build(src, cls, start, CostumeAnims.FilesFor(null, cooked), cooked, size, lines);
+                    Directory.CreateDirectory(outDir);
+                    string file = Path.Combine(outDir, pkg.Key);
+                    Protected.CheckWrite(file);
+                    File.WriteAllBytes(file, res.Package);
+                    return file;
+                }
+                finally { BeginInvoke(() => { foreach (string l in lines) Log(l); }); }
+            });
+            if (built0 != null)
+            {
+                host.SetPackage(pkg.Key, built0);
+                RememberBuild(pkg.Key, built0);
+                built[pkg.Key] = built0;
+                takenOff.Remove(pkg.Key);
+                SaveState();
+                ok = true;
+                Log($"Done: {pkg.Key} is in the mod now, with {srcFile}'s whole pet (Save Changes keeps it; Apply Changes puts it into the game).");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or MhoPackageModifier.PackageFormatException or FileNotFoundException) { Log("ERROR: " + ex.Message); }
+        building = false; UpdateStatus();
+        if (ok) { status.Text = "Built into the mod: Save Changes keeps it."; status.ForeColor = Ui.Enabled; }
         return ok;
     }
 

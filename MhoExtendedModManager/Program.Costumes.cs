@@ -376,6 +376,98 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--pets":
+            {
+                // Every vanity pet with the name, icon and store image the Pet window uses (PetMove.All). Changes nothing.
+                string? lgr = settings.ResolvedGameRoot(data);
+                if (lgr == null || !Settings.IsGameRoot(lgr)) { Console.WriteLine("no game folder"); return 1; }
+                foreach (var p in PetMove.All(new GameState(lgr, data), null))
+                    Console.WriteLine($"{p.File,-48} {p.Class,-40} {p.Name,-32} icon {p.Icon ?? "-",-40} store {p.Store ?? "-"}");
+                return 0;
+            }
+            case "--pet-move":
+            {
+                // Any character as a vanity pet (PetMove): the pet's stock package with the source's model and its idle / run /
+                // fidgets. --pet-move <mod | package.upk | game package name> <pet, e.g. Cosmo> --build <folder> [--scale <s>]
+                // [--class <source class>]. Writes the package to the folder only (never the game's).
+                string? pgr = settings.ResolvedGameRoot(data);
+                int pb = rest.IndexOf("--build");
+                if (rest.Count < 3 || pgr == null || !Settings.IsGameRoot(pgr) || pb < 0 || pb + 1 >= rest.Count) { Console.WriteLine("--pet-move <mod | package> <pet> --build <folder> [--scale <s>] [--class <class>]"); return 1; }
+                string pout = Path.GetFullPath(rest[pb + 1]);
+                if (pout.StartsWith(Path.GetFullPath(pgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                var pgame = new GameState(pgr, data);
+                string? petFile = PetMove.PetFile(pgame.Cooked, rest[2]);
+                if (petFile == null) { Console.WriteLine($"no vanity pet '{rest[2]}'; pets: " + string.Join(", ", PetMove.Pets(pgame.Cooked).Select(f => f[PetMove.Prefix.Length..^7]))); return 1; }
+                string? petStock = new Originals(lib.DataFolder, pgame).Find(petFile);
+                if (petStock == null) { Console.WriteLine($"no stock copy of {petFile}"); return 1; }
+                // The source: a library mod (its first character package), else a package file or a game package by name.
+                Mod? pm = lib.Find(rest[1]);
+                string? psrc = null;
+                if (pm != null)
+                    psrc = pm.Manifest.UpkReplacements.Where(f => f.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || f.StartsWith(PetMove.Prefix, StringComparison.OrdinalIgnoreCase) || f.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase))
+                        .Select(f => Path.Combine(pm.Folder, f)).FirstOrDefault(File.Exists);
+                else if (File.Exists(rest[1])) psrc = Path.GetFullPath(rest[1]);
+                else if (StockFiles.For(pgame.Cooked, rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? rest[1] : rest[1] + ".upk") is var sf && File.Exists(sf)) psrc = sf;
+                if (psrc == null) { Console.WriteLine($"no mod or package '{rest[1]}'"); return 1; }
+                int ps = rest.IndexOf("--scale");
+                float? pscale = ps >= 0 && ps + 1 < rest.Count && float.TryParse(rest[ps + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float pv) ? pv : null;
+                int pc = rest.IndexOf("--class");
+                var plog = new List<string>();
+                // A costume mod with --create: the same route as Costume ▾ → Pet (PetMove.CreateMod: icons, name, unique paths).
+                if (pm != null && rest.Contains("--create") && Costume.All(pgr) is { } pall && CostumeMove.Single(pm, pall, allowBase: true) is { } pone)
+                {
+                    var pcat = new StockCatalog(lib, pgame);
+                    var pet = PetMove.All(pgame, pcat).First(x => x.File.Equals(petFile, StringComparison.OrdinalIgnoreCase));
+                    int pnm = rest.IndexOf("--name");
+                    string? made = PetMove.CreateMod(lib, pm, pone.File, pone.Costume, pet, pscale, pnm >= 0 && pnm + 1 < rest.Count ? rest[pnm + 1] : null, pgame, pcat, plog, out string? perr,
+                        lib.Mods.FirstOrDefault(x => x.Name.Equals(PetMove.NewName(pm, pet), StringComparison.OrdinalIgnoreCase)));
+                    foreach (var l in plog) Console.WriteLine("  " + l);
+                    Console.WriteLine(made != null ? $"mod folder '{made}'" : "not created: " + perr);
+                    return made != null ? 0 : 1;
+                }
+                // A pet mod with --create: Move to Another Pet's route (--scale given = that size, else the source pet's size).
+                if (pm != null && rest.Contains("--create"))
+                {
+                    var pcat2 = new StockCatalog(lib, pgame);
+                    var petsAll = PetMove.All(pgame, pcat2);
+                    if (PetMove.SourcePet(pm, petsAll) is { } fromPet)
+                    {
+                        var pet = petsAll.First(x => x.File.Equals(petFile, StringComparison.OrdinalIgnoreCase));
+                        int pnm = rest.IndexOf("--name");
+                        float size = pscale ?? PetMove.ScaleOf(Path.Combine(pm.Folder, fromPet.File), fromPet.Class);
+                        string? made = PetMove.CreateMod(lib, pm, fromPet.File, fromPet, pet, size, pnm >= 0 && pnm + 1 < rest.Count ? rest[pnm + 1] : null, pgame, pcat2, plog, out string? perr,
+                            lib.Mods.FirstOrDefault(x => x.Name.Equals(PetMove.NewName(pm, pet), StringComparison.OrdinalIgnoreCase)));
+                        foreach (var l in plog) Console.WriteLine("  " + l);
+                        Console.WriteLine(made != null ? $"mod folder '{made}'" : "not created: " + perr);
+                        return made != null ? 0 : 1;
+                    }
+                }
+                try
+                {
+                    var res = PetMove.Build(psrc, pc >= 0 && pc + 1 < rest.Count ? rest[pc + 1] : null, petStock, CostumeAnims.FilesFor(pm, pgame.Cooked), pgame.Cooked, pscale, plog);
+                    foreach (var l in plog) Console.WriteLine("  " + l);
+                    Directory.CreateDirectory(pout);
+                    string f = Path.Combine(pout, petFile);
+                    File.WriteAllBytes(f, res.Package);
+                    Console.WriteLine($"built and verified: {f} ({res.Package.Length:N0} bytes)");
+                    if (rest.Contains("--create"))
+                    {
+                        // As a new mod at the top of the library, off (test mods for Kurt; the GUI comes later).
+                        int pn = rest.IndexOf("--name");
+                        string name = pn >= 0 && pn + 1 < rest.Count ? rest[pn + 1] : $"{(pm?.Name ?? Path.GetFileNameWithoutExtension(psrc))} (Pet: {petFile[PetMove.Prefix.Length..^7]})";
+                        var d = new ModDraft { Name = name, Author = settings.AuthorName?.Trim() ?? "", Packages = [(petFile, f)], Notes = $"Pet built from {Path.GetFileName(psrc)}" + (pscale is float sv ? $", scale {sv}" : "") + "." };
+                        string? made = ModWriter.Save(lib, d, lib.Mods.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)), out string? perr);
+                        Console.WriteLine(made != null ? $"mod folder '{made}'" : "not created: " + perr);
+                    }
+                    return 0;
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
+                {
+                    foreach (var l in plog) Console.WriteLine("  " + l);
+                    Console.WriteLine("FAILED: " + ex.Message);
+                    return 1;
+                }
+            }
             case "--cross-move":
             {
                 // Test (cross-hero move, phase 2): the target costume's stock package with the mod's main mesh in it, written to a

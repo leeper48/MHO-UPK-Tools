@@ -24,6 +24,11 @@ static class GamePortraits
         string stem = Path.GetFileNameWithoutExtension(packageFile);
         if (!stem.StartsWith("UC__", StringComparison.OrdinalIgnoreCase) || !stem.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) return null;
         string cls = stem[4..^3];
+        // a vanity pet (the Pets tab, Kurt 2026-11-06): its item's store image, else its icon (MhoExtendedModManager.GamePictures:
+        // the pet item's pictures, placeholders another pet owns left out)
+        if (cls.StartsWith("MarvelVanityPet_", StringComparison.OrdinalIgnoreCase))
+            return Settings.Current.GameFolder is string root && MhoExtendedModManager.GamePictures.For(root, packageFile) is { } pet
+                ? MhoExtendedModManager.GamePictures.Split(pet.Store ?? pet.Icon) : null;
         var map = Map();
         return map != null && map.TryGetValue(cls, out var t) ? t : null;
     }

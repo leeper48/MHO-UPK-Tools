@@ -1,6 +1,17 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.407
+- Move to a Pet: a costume's Costume menu has Pet under Team-Up. Pick one of the game's vanity pets and it takes the costume's model with its idle, run and fidgets, the costume icon as the pet's item icon and the hero portrait as its store image. Full Size keeps the hero's size (most pets are shrunk), and Name in Game sets the pet's name. The costume and the pet can both be on.
+- Move to Another Pet: right-click a pet mod to put that pet on another of the game's pets, with its own skeleton and animations (a four-legged pet stays four-legged on a two-legged one).
+- Team-ups can be moved to pets too, including Thor's team-ups, whose animations live in a shared package.
+- Pet mods show the pet's icon on their card in the mod list.
+- Model tab: a Pets tab in Source and Target. Every pet with a model of its own is listed; a model fits best on the pets with the heroes' skeleton (Iron Buddies, Ultrons, sentinels, Vision, Spider-Ham). With a pet as the source and another pet as the target, picking the target asks Whole Pet (the source pet as it is, with its own skeleton and animations) or Fit, and the preview shows what that builds.
+- 3D views: with Chain off, the arrows beside the frame slider step through the animation list.
+- Fix: a mod's textures that the game streams no longer show flat colors on a pet or team-up (Luna Snow as Baby Groot drew plain lilac and grey).
+- Fix: a move from a team-up copy took the stock model left in its package instead of the mod's (Odin moved to a pet came out as Old Man Thor).
+- Fix: some pets borrow another pet's picture in the game's data (Baby Groot names Old Lace's store image); the Pet window shows each pet's own, and a move can't change another pet's picture.
+
 0.60.388
 - The Move window has a Name in Game row: the name the costume or team-up will show, ready to edit. On a team-up it suggests the costume's name made plain ("ENHANCED Odin Costume" becomes "Odin"; the team-up unlock window shows color tags as raw text). It says whether anything else in the game shows the same name, since a new name changes theirs too. Unticked, the game's name stays.
 

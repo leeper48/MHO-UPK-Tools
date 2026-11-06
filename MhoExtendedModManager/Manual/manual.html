@@ -152,6 +152,7 @@ function mhoNext(dir) {
 <li><a href="#w-icon">Make a Costume's Icons from the 3D Model</a></li>
 <li><a href="#w-text">Change a Costume's Name or Text</a></li>
 <li><a href="#w-move">Wear a Mod on Another Costume or Hero</a></li>
+<li><a href="#w-pet">Turn a Costume into a Pet</a></li>
 <li><a href="#w-colors">Recolor a Hero's Powers</a></li>
 <li><a href="#w-dark">Make a Power Dark</a></li>
 <li><a href="#w-parts">Switch Off a Power's Sound, Effect or a Character's Hover</a></li>
@@ -164,7 +165,7 @@ function mhoNext(dir) {
 <li><a href="#w-audio-set">Change the Volume or Effects of a Whole Set or Just Some Rows</a></li>
 <li><a href="#w-model">Put Your Own Model on a Costume</a></li>
 <li><a href="#w-size">Make a Character Bigger or Smaller</a></li>
-<li><a href="#w-npc">Put a Model on an NPC, Enemy or Team-Up</a></li>
+<li><a href="#w-npc">Put a Model on an NPC, Enemy, Team-Up or Pet</a></li>
 <li><a href="#w-rigs">Give a Model a Moving Coat, Dress, Tail or Wings</a></li>
 <li><a href="#w-prop">Swap a Costume's Weapon or Shield</a></li>
 <li><a href="#w-own">Recolor or Hide a Character's Own Effects</a></li>
@@ -272,7 +273,7 @@ function mhoNext(dir) {
 <li>On the Mods tab, select a costume mod. The preview in the middle shows its model in 3D (click the <b>3D</b> picture in the strip if it shows a picture).</li>
 <li>At the bottom of the preview, click one of the hero's <b>power buttons</b>. Its animation plays with the power's effects: beams reach toward a target in front of the hero at the height they aim, missiles fly there and burst where they land, and what a power does to the one it hits (a stun, a burn, an impact) plays there.</li>
 <li>Press <kbd>P</kbd> to pause. The <b>Frame</b> slider takes the focus, so the arrow keys step through the animation one frame at a time; <kbd>P</kbd> again plays on from there.</li>
-<li>Under the view, <b>Chain</b> (the link, beside Loop) plays a power's start, loop and end one after another, as the game plays them; right-click it for how many times the loop repeats. <b>◀</b> and <b>▶</b> beside the Frame slider step to the previous or next part. Right-click <b>Head</b>, <b>Bust</b> or <b>Full Body</b> (or Shift+click) to lock the camera to that part while the animation plays; do it again to unlock.</li>
+<li>Under the view, <b>Chain</b> (the link, beside Loop) plays a power's start, loop and end one after another, as the game plays them; right-click it for how many times the loop repeats. <b>◀</b> and <b>▶</b> beside the Frame slider step to the previous or next part; with Chain off they step through the animation list instead (from the last back to the first), each from its start. Right-click <b>Head</b>, <b>Bust</b> or <b>Full Body</b> (or Shift+click) to lock the camera to that part while the animation plays; do it again to unlock.</li>
 <li>Turn the effects off and on with <b>Power FXs</b> above the buttons. Click the power again to see all the hero's animations.</li>
 <li>An effect too faint to see? Open <b>Look ▾</b> (the eye) and raise <b>Effects</b> (10 % by default; remembered for every 3D preview).</li>
 <li>Powers with effects but no animation (procs, passives, Doctor Doom's The Will of Doom) have buttons too: their effects play over the idle (with Power FXs on). A power that changes the character's materials for a moment (Doom's force field) shows it on the model.</li>
@@ -337,6 +338,20 @@ function mhoNext(dir) {
 <figure><img src="img/teamup-picker.jpg" alt="Team-Up: the picker shows only the team-ups."><figcaption>Team-Up: the picker shows only the team-ups.</figcaption></figure>
 <figure><img src="img/move-teamup.jpg" alt="Moving Unworthy Thor onto the King Thor team-up, with the name the team-up will show."><figcaption>Moving Unworthy Thor onto the King Thor team-up, with the name the team-up will show.</figcaption></figure>
 <p>On another hero, the model and voice come along, while the target hero's animations and powers stay. See <a href="#costume">Move to Another Costume</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-pet">Turn a Costume into a Pet</h3>
+<p>Any costume or team-up mod can become one of the game's vanity pets: Iceman following you as Spider-Ham, Odin as Potted Groot. The pet stays a pet in the game (its item, its summon); only how it looks changes.</p>
+<ol class="steps">
+<li>Select the mod and click <b>Costume: … ▾</b> in its header (or right-click the card → <b>Move to Another Costume</b>), then <b>Pet</b>.</li>
+<li>Pick a pet. <b>Filter</b> narrows the list; the line under the choices names other mods for that pet (the one higher in the list wins).</li>
+<li><b>Full Size</b> (ticked) keeps the hero's size; unticked, the model takes the pet's own size (most pets are half size or less).</li>
+<li><b>Name in Game</b> is the pet's name in the inventory, ready to edit: it suggests the costume's name. The line under it says whether anything else shows that name.</li>
+<li>Click <b>Create Mod</b>. The new mod "Name <span style="color:#f2aa3c">(on Pet …)</span>" is at the top of the list, turned on (the original stays on: the costume and the pet use different packages). Apply Changes, then summon the pet in the game.</li>
+</ol>
+<figure><img src="img/pet-picker.jpg" alt="Move to a Pet: Unworthy Thor onto Potted Groot, at full size and named after the costume."><figcaption>Move to a Pet: Unworthy Thor onto Potted Groot, at full size and named after the costume.</figcaption></figure>
+<p>The pet takes the costume's model with its idle, run and fidgets; the costume icon becomes the pet's item icon and the hero portrait its store image. A pet mod can move on: right-click it → <b>Move to Another Pet</b> puts that pet on another one, whole (its own skeleton and animations, so Cosmo stays four-legged on Baby Groot). On the Editor's Model tab, the <b>Pets</b> tab does the same with any model: see <a href="#w-npc">Put a Model on an NPC, Enemy, Team-Up or Pet</a>.</p>
 </div>
 
 <div class="walk">
@@ -504,10 +519,11 @@ function mhoNext(dir) {
 </div>
 
 <div class="walk">
-<h3 id="w-npc">Put a Model on an NPC, Enemy or Team-Up</h3>
+<h3 id="w-npc">Put a Model on an NPC, Enemy, Team-Up or Pet</h3>
 <ol class="steps">
 <li>On the Model tab, pick <b>From the Game</b> in the Target's dropdown and pick a team-up, an <b>NPC</b> or one of <b>Enemies and Bosses</b> (the ones with the heroes' skeleton). It's added to the mod.</li>
 <li>Pick a source as for a costume. The preview plays that character's own animations.</li>
+<li><b>Pets</b> is a tab of its own, in both Source and Target: every vanity pet with a model of its own. A model fits best on the pets with the heroes' skeleton (Iron Buddies, Ultrons, sentinels, Vision, Spider-Ham …); on a four-legged pet or a robot, the pet's own animations bend it into their poses. With a pet as the source and another pet as the target, picking the target asks how: <b>Whole Pet</b> brings the source pet as it is, with its own skeleton, idle, run and fidgets and its own size, into the target pet's package (the preview shows it so); <b>Fit</b> fits it to the target's skeleton like any model. It asks each time the target is picked, and Build uses the last answer. Right-click a source to pick the same character as the target.</li>
 <li>Any other package with a character in it (a pet, a vehicle, another mod's package) works too: <b>Browse for a Package</b> in the Target's dropdown. It has to be named like a game package, since the mod replaces that file; picked from the game folder, the game's stock copy is used. When a package holds several characters (a hero's base package can hold props or another hero's model), the model selector under the preview (<b>◀ ▶</b>; click the name for the list) picks the one the model is fitted to and replaces; <b>Automatic</b> takes the costume's own model.</li>
 <li><b>Summons and power models</b> are in <b>From the Game</b> too (both Source and Target): in each hero's group, after its costumes, under <b>SUMMONS AND POWER MODELS</b>, with the icon of the power that brings them in: Squirrel Girl's squirrels, Magik's demons and N'astirh, Colossus's Fastball Special Wolverine, Cyclops's Strike Team (Beast, Jean, Iceman) and more, every costume's version. Talents' and uniques' summons are the hero's too, for every costume (Squirrel Special Forces' camo squirrel, Tippy Toe's Itty Bitty Bow's Tippy Toe), named after the talent or the item. Some powers show one model and summon another (Strike Team - Beast tumbles in as the power's own Beast, then stays as the summoned Ultimate Beast): a build onto either offers the other (<b>Build onto It Too</b>), so the swap is whole; artifacts' summons (Latverian Regalia's Doombot, Wundagore Clay's raptor, the A.I.M. Robot Dispenser's spiders …) are under <b>Artifacts</b>, a row of its own in the Heroes tab whose summons the panel lists. The <b>Summons</b> button beside the filter lists only those, for every hero. A summon has its own package; a power model (Strike Team's Beast) is one of the models in the power's package, picked for you (<b>the model selector (◀ ▶ under the preview)</b> picks another). To change one:
 <ol>
@@ -522,6 +538,7 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <figure><img src="img/remove-target.jpg" alt="Removing a target that is one of the mod's own packages: put the mod's copy back, or take the package out of the mod."><figcaption>Removing a target that is one of the mod's own packages: put the mod's copy back, or take the package out of the mod.</figcaption></figure>
 <p>Team-ups and many NPCs store their animations so that they set every bone's position; the build changes them to work like a hero's, so the new model keeps its own shape (the log's <code>anim:</code> line).</p>
 <figure><img src="img/editor-model-character.jpg" alt="Captain America Classic's package holds Cap and his shield: the model selector (◀ ▶ under the preview) picks which one a build replaces (here Cap; the shield is marked Prop)."><figcaption>Captain America Classic's package holds Cap and his shield: the model selector (◀ ▶ under the preview) picks which one a build replaces (here Cap; the shield is marked Prop).</figcaption></figure>
+<figure><img src="img/model-pets.jpg" alt="The Pets tab: Cosmo as the whole pet onto Baby Groot, shown with his own model and animations."><figcaption>The Pets tab: Cosmo as the whole pet onto Baby Groot, shown with his own model and animations.</figcaption></figure>
 <figure><img src="img/editor-model-npc.jpg" alt="The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider."><figcaption>The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider.</figcaption></figure>
 </div>
 
@@ -846,6 +863,8 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <p>The voice moves too. Where the moved voice has no line for a situation the target hero has (a team-up's voice has no "can't do that yet", no death line …), that situation is turned off, so the target hero's own line doesn't play there. The Editor's Audio → Voice tab lists those lines as <b>Not in This Voice</b>; they can't be turned on, since their sounds aren't in the mod.</p>
 <p><b>Team-ups</b> work the same way, in both directions: a team-up mod (Rescue, say) can move onto a hero's costume or another team-up, and a costume mod can move onto a team-up. <b>Team-Up</b>, under Another Hero in the costume list, opens a picker with only the team-ups (in Another Hero's picker they're the first tile, <b>Team-Ups</b>). The team-up's costume icon, portrait and store image take the mod's images. The moved model gets the target's sockets it lacks (where effects attach), and the sockets both have are turned to face the target's way (so a beam fires straight ahead); its animations and powers stay the target's.</p>
 <figure><img src="img/move-hero.jpg" alt="Moving a costume to another hero: the model and voice move, the target hero's animations and powers stay."><figcaption>Moving a costume to another hero: the model and voice move, the target hero's animations and powers stay.</figcaption></figure>
+<h3>To a Pet</h3>
+<p><b>Pet</b>, the last item of the costume list, puts the costume on one of the game's vanity pets (a team-up mod too). The picker shows the pets with their store images and names; <b>Full Size</b> keeps the hero's size (unticked: the pet's own, most are shrunk), <b>Name in Game</b> sets the pet's name, and <b>Turn the new mod on</b> turns the copy on without turning the original off. The pet's package gets the model, its physics, its idle, run and fidgets (and the walk and out-of-combat run a hero's animation tree asks for), the costume icon as the pet's item icon and the hero portrait as its store image. Textures the mod stores in its package are kept loaded, as a pet's textures are streamed otherwise. A pet mod's right-click menu has <b>Move to Another Pet</b>: the same picker, with <b>Same Size as …</b> in place of Full Size. Some pets have no picture of their own in the game's data (Mini Kronan names Dragon Man's): the picker shows none, and a move leaves the other pet's picture alone.</p>
 <p>Capes and coats simulated with APEX cloth move along with the model, together with the model's own physics setup (the cloth needs it). A few models can't move to another hero yet, for example ones with an animated material. The Move window says so.</p>
 <p><b>Sound packs</b> come along when every sound they play belongs to the costume (as with Miles Morales' voice pack). If the original and its moved copy are both on, the pack is only added once.</p>
 <div class="note">How it works: the game finds a costume by its class name and its icons by name, so the moved package is the mod's own package with the costume's class renamed to the target's, the model and materials given their own names (so they can't mix with the original costume's), and the target costume's package ID. Textures the game streams from its texture caches keep their names, as the caches find them by name. A costume that lives in a hero's main package (for example Vision Classic, or a mod that replaces Star-Lord's main package) can't be a target, but it can be moved from: its model is copied into the target costume's own package instead, as for a move to another hero.</div>

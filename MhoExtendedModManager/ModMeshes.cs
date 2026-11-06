@@ -38,12 +38,15 @@ static class ModMeshes
         try
         {
             var p = Package.Open(path);
+            // A player class first; else a pet's or team-up's (Kurt, 2026-11-06: a pet with Iceman's model showed the pet's
+            // old Spider-Ham model, which stays in the package unused).
+            foreach (string head in new[] { "marvelgamecontent.default__marvelplayer", "marvelgamecontent.default__marvelvanitypet_", "marvelgamecontent.default__marvelteamup_" })
             for (int i = 0; i < p.Exports.Length; i++)
             {
                 var e = p.Exports[i];
                 if (!e.ObjectName.Equals("initialskeletalmesh", StringComparison.OrdinalIgnoreCase)) continue;
                 string at = p.PathOf(e);
-                if (!at.StartsWith("marvelgamecontent.default__marvelplayer", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!at.StartsWith(head, StringComparison.OrdinalIgnoreCase)) continue;
                 var d = p.ReadExportBytes(e);
                 if (TagWalker.Walk(p, d, 16) is { } tags && tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)) is { Size: 4 } sm
                     && BitConverter.ToInt32(d, sm.ValueAt) is int r && r > 0 && r <= p.Exports.Length)

@@ -568,7 +568,7 @@ static class CostumeMove
         return outDds;
     }
 
-    static (int W, int H)? DdsSize(string path)
+    internal static (int W, int H)? DdsSize(string path)
     {
         try
         {

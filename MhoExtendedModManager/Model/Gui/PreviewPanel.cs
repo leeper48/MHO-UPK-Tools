@@ -70,6 +70,8 @@ sealed partial class PreviewPanel : UserControl
         return d;
     }
 
+    /// <summary>Tests: ◀ (-1) or ▶ (1) beside the frame slider pressed; what shows then.</summary>
+    internal Task<string> StepForTest(int by) => p3.StepPartForTest(by);
     /// <summary>The animation playing (tests).</summary>
     public string? CurrentAnimationName => p3.CurrentAnimation;
     /// <summary>Where the animation playing comes from (tests): its package file and the set it's in.</summary>

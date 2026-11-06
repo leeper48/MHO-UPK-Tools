@@ -63,10 +63,92 @@ sealed partial class MainForm
             team.ToolTipText = "Move the model and voice onto a team-up (the team-up's animations and powers stay).";
             items.Add(team);
         }
+        // A pet (Kurt, 2026-11-06): the costume's model as one of the game's vanity pets.
+        var petItem = new ToolStripMenuItem("Pet", null, (_, _) => PickPet(m, src.File, src.Costume));
+        petItem.ToolTipText = "Make one of the game's vanity pets look like this costume: its model, idle, run and fidgets (the pet stays a pet).";
+        items.Add(petItem);
         // The hero's default costume when it lives in the hero's main package (Thor Modern): shown, but it can't be a target.
         var def = costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c));
         if (def != null && !def.Class.Equals(src.Costume.Class, StringComparison.OrdinalIgnoreCase))
             items.Add(new ToolStripMenuItem($"{def.Title}  ·  Default (Can't Move Here: Its Package Holds the Hero's Animations)") { Enabled = false, Tag = Ui.Enabled });
+    }
+
+    /// <summary>Pet: the pet picker (with Full Size, Name in Game), then PetMove.CreateMod.</summary>
+    void PickPet(Mod m, string file, Costume source) =>
+        PickPetFor(m, source.Title, source.DisplayName, true, null, (l, pet, scale, name, g, catalog, log, made0) =>
+        {
+            string? made = PetMove.CreateMod(l, m, file, source, pet, scale, name, g, catalog, log, out string? error, made0);
+            return (made, error);
+        });
+
+    /// <summary>Right-click → Move to Another Pet (Kurt, 2026-11-06): a pet mod onto another of the game's pets.</summary>
+    async void MoveToAnotherPet(Mod m)
+    {
+        if (readOnly || lib == null || game == null) return;
+        var (g, catalog) = (game, list.Catalog);
+        UseWaitCursor = true;
+        PetMove.Pet? from;
+        try { from = await Task.Run(() => PetMove.SourcePet(m, PetMove.All(g, catalog))); }
+        finally { UseWaitCursor = false; }
+        if (from == null) { Dialog.Show(this, "This mod isn't for one of the game's vanity pets.", "Not a Pet Mod", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        float size = PetMove.ScaleOf(Path.Combine(m.Folder, from.File), from.Class);
+        PickPetFor(m, from.Name, from.NameId, false, from, (l, pet, scale, name, gg, cat, log, made0) =>
+        {
+            // Same Size = the source pet's size now (its component's Scale); unticked = the new pet's own.
+            string? made = PetMove.CreateMod(l, m, from.File, from, pet, scale == null ? null : size, name, gg, cat, log, out string? error, made0);
+            return (made, error);
+        });
+    }
+
+    delegate (string? Made, string? Error) PetCreate(ModLibrary lib, PetMove.Pet pet, float? scale, string name, GameState game, StockCatalog catalog, List<string> log, Mod? made0);
+
+    /// <summary>The pet picker, then the move. <paramref name="gameName"/>: suggest the game's own name when the mod has none
+    /// (a costume's); <paramref name="fromPet"/>: the source pet (left out of the list), or null for a costume.</summary>
+    async void PickPetFor(Mod m, string sourceTitle, ulong nameId, bool gameName, PetMove.Pet? fromPet, PetCreate create)
+    {
+        if (readOnly || lib == null || game == null) return;
+        var (l, g) = (lib, game);
+        var catalog = list.Catalog;
+        UseWaitCursor = true;
+        List<PetMove.Pet> pets;
+        string suggested;
+        try
+        {
+            (pets, suggested) = await Task.Run(() =>
+            {
+                var all = PetMove.All(g, catalog);
+                // The suggested name: the mod's own name for it, else (a costume) the game's, made plain ("Iceman Luna Snow").
+                string text = m.Strings.FirstOrDefault(x => x.Id == nameId && x.Language.Equals("eng", StringComparison.OrdinalIgnoreCase))?.Text
+                    ?? (gameName ? catalog.Strings("eng").FirstOrDefault(x => x.Id == nameId).Text : null) ?? "";
+                return (fromPet == null ? all : [.. all.Where(p => !p.File.Equals(fromPet.File, StringComparison.OrdinalIgnoreCase))], CostumeMove.PlainName(text));
+            });
+        }
+        finally { UseWaitCursor = false; }
+        if (pets.Count == 0) { Dialog.Show(this, "No vanity pets were found in the game folder.", "No Pets", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        PetMove.Pet pet;
+        bool full, turnOn;
+        string name;
+        using (var f = new PetPickerForm(m, sourceTitle, suggested, pets, l.Mods, g.Root, catalog, fromPet != null))
+        {
+            if (f.ShowDialog(this) != DialogResult.OK || f.Chosen == null) return;
+            (pet, full, turnOn, name) = (f.Chosen, f.FullSize, f.TurnOn, f.NameChoice);
+        }
+        var made0 = l.Mods.FirstOrDefault(x => x.Name.Equals(PetMove.NewName(m, pet), StringComparison.OrdinalIgnoreCase));
+        if (made0 != null && !RebuildCopy(m, made0)) return;
+        UseWaitCursor = true;
+        status.Text = Ui.TitleCase($"Moving \"{m.Name}\" to the pet {pet.Name}…");
+        (string? Made, string? Error) r;
+        var log = new List<string>();
+        try { r = await Task.Run(() => create(l, pet, full ? 1f : null, name, g, catalog, log, made0)); }
+        finally { UseWaitCursor = false; }
+        if (r.Made == null) { Dialog.Show(this, r.Error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); Reload(); return; }
+        if (log.Where(x => x.StartsWith("resized ")).Select(x => x[8..]).ToList() is { Count: > 0 } resizedImages)
+            Dialog.Show(this, "These images weren't the pet's size and were resized for the move:\n\n" + string.Join("\n", resizedImages), "Moved, Images Resized", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        Reload();
+        if (turnOn && lib?.Mods.FirstOrDefault(x => x.FolderName == r.Made) is Mod nm && !nm.Enabled)
+            Change($"turn on \"{nm.Name}\"", () => { nm.Enabled = true; return true; });
+        SelectMod(r.Made);
+        status.Text = Ui.TitleCase($"Made \"{PetMove.NewName(m, pet)}\"") + (turnOn ? "  ·  Apply Changes to Put It in the Game" : "");
     }
 
     /// <summary>Another Hero: the hero / costume picker, then the Move window and CrossMove.CreateMod.</summary>

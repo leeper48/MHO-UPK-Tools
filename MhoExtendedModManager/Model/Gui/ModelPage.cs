@@ -431,6 +431,9 @@ sealed partial class ModelPage : UserControl
         { bool mff0 = sourceKind.SelectedIndex == 0; heroesOnly.Visible = mff0; smooth.Enabled = mff0; sourceKindStrip.Visible = GameMode; summonsSource.Visible = false; UseModded(); }
         packageFilter.TextChanged += (_, _) => FillPackages();
         packages.SelectedIndexChanged += (_, _) => PackagePicked();   // first: "From the Game" and the game list's picks
+        // (a pick by the user, not a restore: the Pet onto Pet question only follows one)
+        packages.MouseDown += (_, _) => lastTargetClick = Environment.TickCount64;
+        packages.KeyDown += (_, _) => lastTargetClick = Environment.TickCount64;
         characters.SelectedIndexChanged += (_, _) => CharacterChosen();
         characters.MouseUp += (_, e) =>
         {
@@ -648,7 +651,7 @@ sealed partial class ModelPage : UserControl
             {
                 string n = Path.GetFileName(f);
                 if (n.Contains("bak", StringComparison.OrdinalIgnoreCase) || n.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
-                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(n) || Summons.ContainsKey(n))) continue;
+                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(n) || Summons.ContainsKey(n) || PetSources.Contains(n))) continue;
                 if (n.StartsWith("UC__MarvelPlayerAudio", StringComparison.OrdinalIgnoreCase) || !seen.Add(n)) continue;
                 var (t, det) = DescribePackage(n);
                 allPackages.Add((n, t, det));
@@ -661,9 +664,10 @@ sealed partial class ModelPage : UserControl
         FillPackages();
         UpdateStatus();
         LoadDefaultCostumes();
-        int others = allPackages.Count(p => OtherTargets.Contains(p.File) && !Summons.ContainsKey(p.File)), summons = allPackages.Count(p => Summons.ContainsKey(p.File));
+        int others = allPackages.Count(p => OtherTargets.Contains(p.File) && !Summons.ContainsKey(p.File)), summons = allPackages.Count(p => Summons.ContainsKey(p.File)),
+            pets = allPackages.Count(p => IsPet(p.File)), petTargets = allPackages.Count(p => IsPet(p.File) && PetTargets.Contains(p.File));
         // (Kurt, 2026-10-06: a user found the old wording unclear)
-        Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others - summons:N0} hero and team-up packages, {others:N0} NPCs, enemies and bosses{(summons > 0 ? $", and {summons:N0} summons and power models (under their hero)" : "")}.");
+        Log($"Source: {allCharacters.Count:N0} models in your MFF folder. Target: the mod's own packages, or From the Game: {allPackages.Count - others - summons - pets:N0} hero and team-up packages, {others:N0} NPCs, enemies and bosses{(summons > 0 ? $", {summons:N0} summons and power models (under their hero)" : "")}, and {pets:N0} pets ({petTargets:N0} with the heroes' skeleton; on the others, four-legged ones and robots, the pet's animations bend the model into their pose).");
         if (!stateLoaded) { stateLoaded = true; LoadState(); }
     }
 
@@ -694,6 +698,41 @@ sealed partial class ModelPage : UserControl
     /// <summary>The NPC and enemy / boss packages offered as targets (Kurt, 2026-10-05): those whose character has the humanoid
     /// skeleton models are fitted to (Model\StockData\model_targets.txt, from --target-census on the stock packages).</summary>
     static readonly HashSet<string> OtherTargets = LoadOtherTargets();
+
+    /// <summary>The vanity pets (Kurt, 2026-11-06: "Pets as a tab"), Model\StockData\model_pets.txt from --pet-census on the
+    /// stock packages: every pet package with a skeletal mesh of its own (a source; the recolors have none), and the ones with
+    /// the humanoid skeleton (13 of 43: the Iron Buddies, Ultrons, sentinels, Vision …; also targets). Spider-Ham's cartoon
+    /// skeleton has 69 of the 81 core bones, under --target-census's 90 %.</summary>
+    static readonly (HashSet<string> Sources, HashSet<string> Targets) Pets = LoadPets();
+    static HashSet<string> PetSources => Pets.Sources;
+    static HashSet<string> PetTargets => Pets.Targets;
+
+    static (HashSet<string>, HashSet<string>) LoadPets()
+    {
+        HashSet<string> all = new(StringComparer.OrdinalIgnoreCase), targets = new(StringComparer.OrdinalIgnoreCase);
+        using var s = typeof(ModelPage).Assembly.GetManifestResourceStream("MhoMffImporter.StockData.model_pets.txt");
+        if (s == null) return (all, targets);
+        using var r = new StreamReader(s);
+        for (string? line; (line = r.ReadLine()) != null;)
+        {
+            if (line.Length == 0 || line[0] == '#') continue;
+            var c = line.Split('\t');
+            all.Add(c[0]);
+            if (c.Length > 4 && c[4] == "1") targets.Add(c[0]);
+        }
+        return (all, targets);
+    }
+
+    /// <summary>A vanity pet's package.</summary>
+    static bool IsPet(string file) => Path.GetFileName(file).StartsWith("UC__MarvelVanityPet_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a From the Game package can be a target. Every pet with a model of its own (Kurt, 2026-11-06: the target
+    /// listed 13, the source 42): a build onto Spider-Ham (69 of 81 core bones) fits well; onto a four-legged pet (Cosmo, 23)
+    /// it builds and verifies, and the pet's own animations bend the model into their pose (on all fours).</summary>
+    static bool CanTarget(string file) => !IsPet(file) || PetSources.Contains(Path.GetFileName(file));
+
+    /// <summary>A pet whose skeleton isn't the heroes' (four-legged, robots): the model takes its pose.</summary>
+    static bool OddPet(string file) => IsPet(file) && !PetTargets.Contains(Path.GetFileName(file));
 
     static HashSet<string> LoadOtherTargets()
     {
@@ -818,6 +857,13 @@ sealed partial class ModelPage : UserControl
             string powers = string.Join(", ", sums.Select(y => y.Power).Distinct(StringComparer.OrdinalIgnoreCase));
             string names = string.Join(", ", sums.Select(SummonName).Distinct(StringComparer.OrdinalIgnoreCase));
             return (x.Hero, $"{(x.Kind == "summon" ? "Summon" : "Power Model")}: {names} ({powers}) · {stem}");
+        }
+        // a vanity pet: its name ("Iron Man Mk1"), "Pet · UC__MarvelVanityPet_IronManMk1_SF"
+        if (stem.StartsWith("UC__MarvelVanityPet_", StringComparison.OrdinalIgnoreCase))
+        {
+            string name = stem["UC__MarvelVanityPet_".Length..];
+            if (name.EndsWith("_SF", StringComparison.OrdinalIgnoreCase)) name = name[..^3];
+            return (Spaced(name), $"Pet · {stem}");
         }
         foreach (var (prefix, group) in new[] { ("UC__MarvelNPC_", "NPCs"), ("UC__MarvelAgent_", "Enemies and Bosses") })
             if (stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -1019,7 +1065,7 @@ sealed partial class ModelPage : UserControl
         string? keep = ChosenPackage?.Key;
         int top = packages.TopIndex;
         packages.BeginUpdate(); packages.Items.Clear();
-        var matching = allPackages.Where(p => (!summonsOnlyTarget || IsSummon(p.File)) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
+        var matching = allPackages.Where(p => CanTarget(p.File) && (!summonsOnlyTarget || IsSummon(p.File)) && (f.Length == 0 || new string((p.Title + p.Detail).Where(char.IsLetterOrDigit).ToArray()).Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
         if (summonsOnlyTarget) targetKindTab = 0;   // (summons are under their heroes)
         ShowKindTabs(targetKindTabs, targetKindTab, matching);
         var shown = matching.Where(p => KindOf(p.File) == targetKindTab);
@@ -1323,6 +1369,26 @@ sealed partial class ModelPage : UserControl
         }
         if (!HasSource) { preview.ShowMessage(FbxMode ? "Pick an FBX (left) and a target (right)" : "Pick a character (left) and a target (right)"); return; }
         if (ChosenPackage is not CharacterList.Item pkg) { preview.ShowMessage("Pick a target on the right"); return; }
+        // a pet onto a pet as the whole pet (Kurt, 2026-11-06: "I choose whole but still looks like fit"): what Build makes is the
+        // source pet as it is, so the preview shows that: its own model, skeleton and animations
+        if (PetPair(pkg.Key) is string wholePair && petWhole.TryGetValue(wholePair, out bool wholePet) && wholePet)
+        {
+            preview.ShowMessage("Loading…");
+            try
+            {
+                string srcFile = SplitGameKey(chosenKey!).File;
+                string srcPath = MhoExtendedModManager.Model.GameSource.Modded?.Invoke(srcFile) ?? BasePackage.Resolve(srcFile);
+                var tp = await Task.Run(() => PreviewPanel.PrepareTarget(srcPath));
+                if (id != previewId || IsDisposed) return;
+                preview.Show(tp);
+                Log($"Preview: {DescribePackage(srcFile).Title} as the whole pet (its own model and animations; Build puts it into {pkg.Title}'s package). " + tp.Note);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException)
+            {
+                if (id == previewId && !IsDisposed) { preview.ShowMessage("No preview: " + ex.Message); Log("Preview: " + ex.Message); }
+            }
+            return;
+        }
         var picked = SelectedParts();
         if (picked.Count == 0) { preview.ShowMessage("Tick at least one part"); return; }
         Remember(pkg.Key);

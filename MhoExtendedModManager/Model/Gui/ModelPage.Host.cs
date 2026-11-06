@@ -105,7 +105,7 @@ sealed partial class ModelPage
     // --- the package list: the mod's packages first ------------------------------------------------------------------------------
     static bool CharacterPackage(string file) =>
         (file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) && !file.StartsWith("UC__MarvelPlayerAudio", StringComparison.OrdinalIgnoreCase))
-        || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(file);
+        || file.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(file) || PetSources.Contains(file);
 
     /// <summary>The mod's character packages (Kurt: the base comes from the mod's packages; several = a choice), then "From the
     /// Game" to add one; or, after that, the game's base heroes with "Back to the Mod's Packages" on top.</summary>
@@ -164,9 +164,15 @@ sealed partial class ModelPage
         if (it.Key == "game:") { gameList = true; RememberTargetList(); packageFilter.Text = ""; FillPackages(); return; }
         if (it.Key == "back:") { gameList = false; RememberTargetList(); packageFilter.Text = ""; FillPackages(); return; }
         if (it.Key == "browse:") { BeginInvoke(BrowsePackage); return; }
-        if (!gameList) return;
+        if (!gameList) { if (Environment.TickCount64 - lastTargetClick < 1500) AskPetMode(it.Key, it.Title, false); return; }
         if (host.Packages.Any(p => p.File.Equals(it.Key, StringComparison.OrdinalIgnoreCase))) { gameList = false; FillPackages(); Reselect(packages, it.Key); return; }
-        if (Dialog.Show(this, $"Add {it.Key} ({it.Title}, {it.Detail.Split(" · ")[0]}) to this mod? The model is built onto it; until then it's the game's own package.",
+        if (PetPair(it.Key) != null)
+        {
+            // a pet source onto a pet (Kurt, 2026-11-06: "better making that decision earlier on when selecting target")
+            if (AskPetMode(it.Key, it.Title, true) == null) return;
+        }
+        else if (Dialog.Show(this, $"Add {it.Key} ({it.Title}, {it.Detail.Split(" · ")[0]}) to this mod? The model is built onto it; until then it's the game's own package."
+                + (OddPet(it.Key) ? $"\n\n{it.Title}'s skeleton isn't the heroes' (four-legged or a robot): a model fitted to it bends into its poses." : ""),
                 "Add a Package", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         string stock;
         try { stock = BasePackage.Resolve(it.Key); }
@@ -175,9 +181,43 @@ sealed partial class ModelPage
         added.Add(it.Key);
         Log($"Added {it.Key} to the mod (the game's stock copy, until it's built).");
         gameList = false; packageFilter.Text = "";
-        FillPackages();
-        Reselect(packages, it.Key);
+        skipPetAsk = true;
+        try { FillPackages(); Reselect(packages, it.Key); }
+        finally { skipPetAsk = false; }
         SaveState();
+    }
+
+    /// <summary>Pet onto pet: true = the whole source pet (its skeleton and animations), false = fitted to the target; by
+    /// "source|target", chosen when the target is picked (Build asks only when there's no answer for the pair).</summary>
+    readonly Dictionary<string, bool> petWhole = new(StringComparer.OrdinalIgnoreCase);
+    bool skipPetAsk;
+    long lastTargetClick;
+
+    /// <summary>"source|target" when the source is a game pet and the target another pet, else null.</summary>
+    string? PetPair(string target) =>
+        chosenKey?.StartsWith(GameSrc) == true && SplitGameKey(chosenKey) is var (src, mesh) && mesh == null && IsPet(src) && IsPet(target)
+            && !src.Equals(target, StringComparison.OrdinalIgnoreCase) ? $"{src}|{target}" : null;
+
+    /// <summary>Whole Pet or Fit for a pet target (null = cancelled, or not a pet pair: <paramref name="adding"/> adds the
+    /// package to the mod too, so its buttons say so). Asked once per pair unless adding.</summary>
+    bool? AskPetMode(string target, string targetTitle, bool adding)
+    {
+        if (PetPair(target) is not string pair) return null;
+        // asked each time a pet target is picked (Kurt: "It could vary"); not again for the list's own reselect after adding
+        if (skipPetAsk && petWhole.TryGetValue(pair, out bool had)) return had;
+        string src = SplitGameKey(chosenKey!).File, srcName = DescribePackage(src).Title;
+        bool odd = OddPet(src) || OddPet(target);
+        int pick = Dialog.Choose(this,
+            $"{srcName} onto {targetTitle}: How?\n\n" +
+            $"• Whole Pet (recommended): {srcName} as it is, with its own skeleton, idle, run and fidgets and its own size, in {targetTitle}'s package. {targetTitle} stays the pet in the game (its item, name and summon).\n\n" +
+            $"• Fit: the usual fit onto {targetTitle}'s skeleton; {targetTitle}'s own animations move it" + (odd ? " (their skeletons differ, so it bends into the other pet's poses)." : ".") +
+            (adding ? $"\n\nEither way {target} is added to this mod (the game's own package until it's built)." : ""),
+            "Pet onto Pet", adding ? "Add as Whole Pet" : "Whole Pet", adding ? "Add and Fit" : "Fit", "Cancel");
+        if (pick is < 0 or 2) return null;
+        petWhole[pair] = pick == 0;
+        Log($"{srcName} onto {targetTitle}: {(pick == 0 ? "the whole pet, with its own skeleton and animations" : "fitted to the target's skeleton")} (Build uses this).");
+        BeginInvoke(RefreshPreview);   // (the preview shows what that choice builds)
+        return pick == 0;
     }
 
     /// <summary>

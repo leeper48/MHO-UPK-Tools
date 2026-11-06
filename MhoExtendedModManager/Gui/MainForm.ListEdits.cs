@@ -208,6 +208,11 @@ sealed partial class MainForm
             FillCostumeItems(move.DropDownItems, m);
             menu.Items.Insert(at++, move);
         }
+        // A pet mod (Kurt, 2026-11-06: "move pet to another pet from right click like Move to costume").
+        else if (m.Manifest.UpkReplacements.Count(f => f.StartsWith(PetMove.Prefix, StringComparison.OrdinalIgnoreCase)) == 1
+            && !m.Manifest.UpkReplacements.Any(f => f.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || f.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase)))
+            menu.Items.Insert(at++, new ToolStripMenuItem("Move to Another Pet", null, (_, _) => MoveToAnotherPet(m))
+                { Enabled = !readOnly, ToolTipText = "Put this pet's model, idle, run and fidgets, its icon and store image on another of the game's vanity pets, as a new mod (this one isn't changed)." });
         menu.Items.Insert(at, new ToolStripSeparator());
         return menu;
     }
