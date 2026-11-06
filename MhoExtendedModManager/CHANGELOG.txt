@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.386
+- Borrow Power is out: in the Editor's Powers tab, give a power another hero's power look (its animation, effects, sounds and projectile, with the weapons, vehicles, thrown characters, summons and areas that come with it). Only the look changes, so it works on any server. Reset Power takes it back to the game's look. The manual has a walkthrough (Give a Power Another Hero's Look).
+
 0.60.385
 - Borrow Power (preview feature, hidden): the Powers tab's Borrowed Look is now Borrow Power, with icon buttons: Borrow Power (a lightning bolt with an arrow) and Reset Power (a circular arrow), which takes the power back to the game's look (was Game's Look).
 

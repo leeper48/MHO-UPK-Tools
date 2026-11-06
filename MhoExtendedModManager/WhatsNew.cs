@@ -24,7 +24,7 @@ static class WhatsNew
     /// still rebuilds them at Save. Releasing it: set this, uncomment the manual's two Borrowed Look parts, add the
     /// changelog lines and a notice.</summary>
     public static bool PowerBorrow => PowerBorrowReleased || Settings.Load().PreviewFeatures;
-    public const bool PowerBorrowReleased = false;
+    public const bool PowerBorrowReleased = true;   // (Kurt, 2026-11-05: release prep)
 
     /// <summary>The Model tab's summons and power models (From the Game lists, the Source's summons panel, the Target's Summons
     /// toggle, building a summon into its copies): parked 2026-10-26 (Kurt: another feature first), only with
@@ -41,7 +41,27 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.386 (Kurt, 2026-11-05): Borrow Power released; faster 3D views (pants on a tiger).</summary>
+    static Notice BorrowPower() => new(
+        "0.60.386-borrow-power", "0.60.386",
+        "[!]New: Borrow Power" + nl +
+        "  • Editor → Powers: pick a power, click Borrow Power (the lightning bolt) and choose another hero's power." + nl +
+        "  • Your power takes its animation, effects, sounds and projectile. What it does in the game stays the same, so it works on any server." + nl +
+        "  • Reset Power (the circular arrow) takes it back to the game's look." + nl +
+        "  • It's at an early, experimental stage: please tell us what works and what doesn't in the Mod Manager threads on Discord (links below)." + nl + nl +
+        "[!]What comes along" + nl +
+        "  • Weapons and props: Punisher's minigun, Deadpool's cannon, Thor's hammer." + nl +
+        "  • Thrown characters: Colossus's Fastball Special throws Wolverine from Captain America's Shield Toss." + nl +
+        "  • Stretching models: The Thing's Hammer Time, Stretch! brings Mr. Fantastic as the mallet." + nl +
+        "  • Charge and release: Human Torch's Extreme Combustion charges and bursts on a single attack or a held one." + nl +
+        "  • Summons and areas: Hawkeye's turret can become Squirrel Girl's squirrel, raining squirrels and all." + nl +
+        "  • Travel powers bring their vehicle or mount: Cyclops's bike, Hawkeye's Sky-Cycle, Green Goblin's glider." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ")." + nl + nl +
+        "[!]Faster 3D views" + nl +
+        "  • Characters animate faster, and a 3D view you can't see stops drawing. Thanks to pants on a tiger for these.",
+        "w-borrow");
 
     /// <summary>0.60.371 (Kurt, 2026-11-05): the Height strip, 3D view controls, Resave, and fixes from user reports.</summary>
     static Notice HeightAndFixes() => new(

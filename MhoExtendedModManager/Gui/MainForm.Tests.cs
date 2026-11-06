@@ -205,6 +205,15 @@ sealed partial class MainForm
             // (the Model tab's target props listed, for the manual's picture)
             if (editor.TabTitle(i) is "Model" && editor.ModelPageForTest is { } mpage) for (int w = 0; w < 600 && mpage.TargetPropLabels.Count == 0; w++) await Task.Delay(100);
             if (editor.TabTitle(i) is "Model") await Task.Delay(4000);
+            // (the manual's Powers shot, paused part way through the power: MHO_EXTMM_SNAP_FRAME = 0 … 1)
+            if (editor.TabTitle(i) is "Powers" && float.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_FRAME"), System.Globalization.CultureInfo.InvariantCulture, out float snapFrame)
+                && editor.PowerPreviewForTest is StorePreview sfp)
+            {
+                for (int w = 0; w < 100 && sfp.FrameForTest() == null; w++) await Task.Delay(100);
+                if ((sfp.P3ForTest as Preview3D)?.IsPlaying == true) (sfp.P3ForTest as Preview3D)!.TogglePlayForTest();
+                sfp.ScrubForTest(snapFrame);
+                await Task.Delay(4000);
+            }
             using var b = new Bitmap(Width, Height);
             DrawToBitmap(b, new Rectangle(0, 0, Width, Height));
             b.Save(Path.Combine(dir, $"editor_{i}_{editor.TabTitle(i).Replace(' ', '_')}.png"));
