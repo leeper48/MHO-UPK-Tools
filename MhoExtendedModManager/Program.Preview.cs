@@ -3203,6 +3203,30 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--copy-census":
+            {
+                // Read-only test: every export of <class> in the listed packages (file names, read from <stock folder>) copied in memory
+                // into <scratch.upk> with the Mod Manager's copier (MeshCopy registered), counted; the refused ones listed with why.
+                // --copy-census <class> <stock folder> <package list file> <scratch.upk>
+                if (rest.Count < 5) { Console.WriteLine("--copy-census <class> <stock folder> <package list file> <scratch.upk>"); return 1; }
+                MeshCopy.Register();
+                var cdst0 = MhoPackageModifier.Package.Open(Path.GetFullPath(rest[4]));
+                int cok = 0, cbad = 0;
+                foreach (string line in File.ReadAllLines(rest[3]).Select(l => l.Trim()).Where(l => l.Length > 0))
+                {
+                    var csrc = MhoPackageModifier.Package.Open(Path.Combine(rest[2], line));
+                    for (int i = 0; i < csrc.Exports.Length; i++)
+                    {
+                        if (!csrc.ClassOf(csrc.Exports[i]).Equals(rest[1], StringComparison.OrdinalIgnoreCase)) continue;
+                        int ii = i;
+                        var r = CrossMove.Quiet(() => MhoPackageModifier.ExportCopy.Copy(csrc, ii, cdst0, []), out string said);
+                        if (r != null) cok++;
+                        else { cbad++; Console.WriteLine($"  refused {line} {csrc.PathOf(csrc.Exports[i])}: {string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("unknown")).Take(2).Select(l => l.Trim()))}"); }
+                    }
+                }
+                Console.WriteLine($"{rest[1]}: {cok} copied and verified, {cbad} refused");
+                return cbad == 0 ? 0 : 1;
+            }
             case "--set-poweranims":
             {
                 // Writes only <out.upk>: a PowerFXAnimation(Looping) component's PowerAnims names replaced (a controlled test, Kurt

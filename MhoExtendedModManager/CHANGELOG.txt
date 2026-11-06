@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.383
+- Borrowed powers with morphing models: the Thing's Hammer Time, Stretch! (Mr. Fantastic as the mallet) and other powers whose models stretch or change shape can now be borrowed (their morph targets are copied along).
+
 0.60.382
 - A charge-up's look on a channel: its release animation now ends the channel's looping animation instead of being a separate animation part, which kept the charge from starting at all when you pressed (found with a controlled test against a borrow that worked).
 
