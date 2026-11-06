@@ -56,6 +56,13 @@ sealed partial class MainForm
         var other = new ToolStripMenuItem("Another Hero", null, (_, _) => PickOtherHero(m, src.File, src.Costume));
         other.ToolTipText = "Move the model and voice onto a costume of a different hero (that hero's animations and powers stay).";
         items.Add(other);
+        // A team-up (Kurt, 2026-11-06: its tile in the hero picker was easy to miss): the same picker, opened on the team-ups.
+        if (!src.Costume.IsTeamUp || costumes.Count(c => c.IsTeamUp) > 1)
+        {
+            var team = new ToolStripMenuItem("Team-Up", null, (_, _) => PickOtherHero(m, src.File, src.Costume, teamUps: true));
+            team.ToolTipText = "Move the model and voice onto a team-up (the team-up's animations and powers stay).";
+            items.Add(team);
+        }
         // The hero's default costume when it lives in the hero's main package (Thor Modern): shown, but it can't be a target.
         var def = costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c));
         if (def != null && !def.Class.Equals(src.Costume.Class, StringComparison.OrdinalIgnoreCase))
@@ -63,13 +70,13 @@ sealed partial class MainForm
     }
 
     /// <summary>Another Hero: the hero / costume picker, then the Move window and CrossMove.CreateMod.</summary>
-    async void PickOtherHero(Mod m, string file, Costume source)
+    async void PickOtherHero(Mod m, string file, Costume source, bool teamUps = false)
     {
         if (readOnly || lib == null || game == null || costumes == null) return;
         var (l, g, all) = (lib, game, costumes);
         var catalog = list.Catalog;
         Costume target;
-        using (var pick = new HeroPickerForm(m, source, all, g.Cooked, catalog))
+        using (var pick = new HeroPickerForm(m, source, all, g.Cooked, catalog, teamUps))
         {
             if (pick.ShowDialog(this) != DialogResult.OK || pick.Chosen == null) return;
             target = pick.Chosen;
@@ -88,20 +95,23 @@ sealed partial class MainForm
         if (made0 != null && !RebuildCopy(m, made0)) return;
         UseWaitCursor = true;
         CostumeMove.Plan plan;
-        try { plan = await Task.Run(() => CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog)); }
+        CostumeMove.NameInfo? naming;
+        try { (plan, naming) = await Task.Run(() => { var p = CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog); return (p, CostumeMove.Naming(p, catalog, g.Root)); }); }
         finally { UseWaitCursor = false; }
         var onTarget = l.Mods.Where(x => x.Manifest.UpkReplacements.Contains(target.Package, StringComparer.OrdinalIgnoreCase)).ToList();
         bool swap;
-        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget, crossHero: true))
+        string? name;
+        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget, crossHero: true, naming: naming))
         {
             if (f.ShowDialog(this) != DialogResult.OK) return;
             swap = f.SwapOn;
+            name = f.NameChoice;
         }
         UseWaitCursor = true;
         status.Text = Ui.TitleCase($"Moving \"{m.Name}\" to {target.Title}…");
         string? error = null, made;
         var log = new List<string>();
-        try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error, made0)); }
+        try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error, made0, name)); }
         finally { UseWaitCursor = false; }
         if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); Reload(); return; }
         if (log.Where(x => x.StartsWith("resized ")).Select(x => x[8..]).ToList() is { Count: > 0 } resizedImages)
@@ -140,19 +150,22 @@ sealed partial class MainForm
         if (copy != null && !RebuildCopy(m, copy)) return;
         UseWaitCursor = true;
         CostumeMove.Plan plan;
-        try { plan = await Task.Run(() => CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog)); }
+        CostumeMove.NameInfo? naming;
+        try { (plan, naming) = await Task.Run(() => { var p = CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog); return (p, CostumeMove.Naming(p, catalog, g.Root)); }); }
         finally { UseWaitCursor = false; }
         var onTarget = l.Mods.Where(x => x.Manifest.UpkReplacements.Any(f => plan.Packages.Any(p => p.TargetFile.Equals(f, StringComparison.OrdinalIgnoreCase)))).ToList();
         bool swap;
-        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget))
+        string? name;
+        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget, naming: naming))
         {
             if (f.ShowDialog(this) != DialogResult.OK) return;
             swap = f.SwapOn;
+            name = f.NameChoice;
         }
         UseWaitCursor = true;
         string? error = null, made;
         var resized = new List<string>();
-        try { made = await Task.Run(() => CostumeMove.CreateMod(l, m, plan, new Originals(l.DataFolder, g), out error, copy, catalog, resized)); }
+        try { made = await Task.Run(() => CostumeMove.CreateMod(l, m, plan, new Originals(l.DataFolder, g), out error, copy, catalog, resized, name)); }
         finally { UseWaitCursor = false; }
         if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (resized.Count > 0) Dialog.Show(this, "These images weren't the target's size and were resized for the move:\n\n" + string.Join("\n", resized), "Moved, Images Resized", MessageBoxButtons.OK, MessageBoxIcon.Information);

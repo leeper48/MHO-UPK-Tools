@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.388
+- The Move window has a Name in Game row: the name the costume or team-up will show, ready to edit. On a team-up it suggests the costume's name made plain ("ENHANCED Odin Costume" becomes "Odin"; the team-up unlock window shows color tags as raw text). It says whether anything else in the game shows the same name, since a new name changes theirs too. Unticked, the game's name stays.
+
+0.60.387
+- Moving a costume onto a team-up is easier to find: the Costume menu has Team-Up under Another Hero, which opens the picker on the team-ups (Angel, Jessica Jones …), and the Team-Ups tile now comes first in the hero picker. The model, voice and icons move as onto a hero's costume; the team-up window shows only team-ups.
+
 0.60.386
 - Borrow Power is out: in the Editor's Powers tab, give a power another hero's power look (its animation, effects, sounds and projectile, with the weapons, vehicles, thrown characters, summons and areas that come with it). Only the look changes, so it works on any server. Reset Power takes it back to the game's look. The manual has a walkthrough (Give a Power Another Hero's Look).
 

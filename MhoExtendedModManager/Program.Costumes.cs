@@ -379,7 +379,7 @@ static partial class Program
             case "--cross-move":
             {
                 // Test (cross-hero move, phase 2): the target costume's stock package with the mod's main mesh in it, written to a
-                // folder (never the game's). --cross-move <mod> <Hero/Costume, e.g. Storm/ClassicBlack> --build <folder>
+                // folder (never the game's). --cross-move <mod> <Hero/Costume, e.g. Storm/ClassicBlack> --build <folder> [--create | --update-copy] [--name <text>]
                 var xm = rest.Count > 2 ? lib.Find(rest[1]) : null;
                 string? xgr = settings.ResolvedGameRoot(data);
                 int xb = rest.IndexOf("--build");
@@ -416,7 +416,8 @@ static partial class Program
                         var existing = lib.Mods.FirstOrDefault(x => x.Name.Equals(CrossMove.NewName(xm, xt), StringComparison.OrdinalIgnoreCase));
                         if (rest.Contains("--update-copy") && existing == null) { Console.WriteLine($"no mod named \"{CrossMove.NewName(xm, xt)}\""); return 1; }
                         var clog = new List<string>();
-                        string? made = CrossMove.CreateMod(lib, xm, one.File, one.Costume, xt, xall, xgame, new StockCatalog(lib, xgame), clog, out string? merr, rest.Contains("--update-copy") ? existing : null);
+                        string? made = CrossMove.CreateMod(lib, xm, one.File, one.Costume, xt, xall, xgame, new StockCatalog(lib, xgame), clog, out string? merr, rest.Contains("--update-copy") ? existing : null,
+                            rest.IndexOf("--name") is int ni and >= 0 && ni + 1 < rest.Count ? rest[ni + 1] : null);   // (--name "<text>": the Move window's Name row; "" = the game's)
                         foreach (var l in clog.Where(l => l.StartsWith("icons") || l.StartsWith("sound"))) Console.WriteLine("  " + l);
                         Console.WriteLine(made != null ? $"{(existing != null && rest.Contains("--update-copy") ? "updated" : "created")} mod folder '{made}'" : "not created: " + merr);
                     }

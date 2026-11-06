@@ -41,9 +41,22 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.386 (Kurt, 2026-11-05): Borrow Power released; faster 3D views (pants on a tiger).</summary>
+    /// <summary>0.60.388 (Kurt, 2026-11-06): costume moves onto team-ups are easy to find; the Move window's Name in Game.</summary>
+    static Notice TeamUpMoves() => new(
+        "0.60.388-teamup-moves", "0.60.388",
+        "[!]Wear a costume mod on a team-up" + nl +
+        "  • A costume's Costume ▾ menu has Team-Up under Another Hero: pick Angel, King Thor, Jessica Jones …" + nl +
+        "  • The model, the voice and the team-up's icon, portrait and store image all move." + nl + nl +
+        "[!]Name in Game" + nl +
+        "  • The Move window shows the name the costume or team-up will have, ready to edit." + nl +
+        "  • On a team-up it suggests a plain name: \"ENHANCED Odin Costume\" becomes \"Odin\"." + nl +
+        "  • It also says if anything else in the game shows that name, since renaming changes it there too." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-move");
+
     static Notice BorrowPower() => new(
         "0.60.386-borrow-power", "0.60.386",
         "[!]New: Borrow Power" + nl +

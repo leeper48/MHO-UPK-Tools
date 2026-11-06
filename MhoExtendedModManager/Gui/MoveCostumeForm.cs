@@ -13,12 +13,23 @@ sealed class MoveCostumeForm : Form
     readonly CheckBox swap;
     public bool SwapOn => swap.Checked;
 
+    // The Name row (Kurt, 2026-11-06): the name the target shows in game, editable, with who else shows that string.
+    readonly CostumeMove.NameInfo? naming;
+    readonly CheckBox? setName;
+    readonly TextBox? nameBox;
+    /// <summary>For CreateMod: null = as planned (no Name row), "" = leave the game's name, else that name.</summary>
+    public string? NameChoice => naming == null || setName == null || nameBox == null ? null
+        : setName.Checked && nameBox.Text.Trim().Length > 0 && (naming.Planned || nameBox.Text.Trim() != naming.Current) ? nameBox.Text.Trim() : "";
+
     readonly bool cross;
 
     /// <param name="crossHero">A move to another hero (CrossMove): the model goes into the target costume's own package; sounds stay.</param>
-    public MoveCostumeForm(Mod mod, CostumeMove.Plan plan, StockCatalog? catalog, IReadOnlyList<Mod> onTarget, bool crossHero = false)
+    /// <param name="naming">The target's name (CostumeMove.Naming): adds the Name row.</param>
+    public MoveCostumeForm(Mod mod, CostumeMove.Plan plan, StockCatalog? catalog, IReadOnlyList<Mod> onTarget, bool crossHero = false, CostumeMove.NameInfo? naming = null)
     {
         cross = crossHero;
+        this.naming = naming;
+        Label? warnNote = null;
         Text = "Move to Another Costume";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this);
@@ -29,8 +40,8 @@ sealed class MoveCostumeForm : Form
         Padding = new Padding(14);
         float s = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
 
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5 };
-        for (int i = 0; i < 5; i++) t.RowStyles.Add(new RowStyle(i == 2 ? SizeType.Percent : SizeType.AutoSize, 100));
+        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6 };
+        for (int i = 0; i < 6; i++) t.RowStyles.Add(new RowStyle(i == 2 ? SizeType.Percent : SizeType.AutoSize, 100));
         string targetName = crossHero ? $"{HeroOf(plan.Target)} {plan.Target.Title}" : plan.Target.Title;
         t.Controls.Add(new Label { Text = Ui.TitleCase($"Move to {targetName}"), AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 8) }, 0, 0);
 
@@ -43,24 +54,48 @@ sealed class MoveCostumeForm : Form
         pics.Controls.Add(crossHero ? Card(plan.Target, catalog, s, null, null, $"{HeroOf(plan.Target)} {plan.Target.Title}") : Card(plan.Target, catalog, s));
         t.Controls.Add(pics, 0, 1);
 
-        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = crossHero ? CrossSummary(mod, plan, onTarget) : Summary(mod, plan, onTarget) };
+        // (with a Name row, the name isn't listed as moving text: the row says what it becomes)
+        var shown = naming == null ? plan : plan with { Strings = [.. plan.Strings.Where(x => x.To != plan.Target.DisplayName)] };
+        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = crossHero ? CrossSummary(mod, shown, onTarget) : Summary(mod, shown, onTarget) };
         t.Controls.Add(box, 0, 2);
+
+        if (naming != null)
+        {
+            string what = plan.Target.IsTeamUp ? "team-up" : "costume";
+            var row = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 2, Margin = new Padding(0, 8, 0, 0) };
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            setName = new CheckBox { Text = "Name in Game", AutoSize = true, Checked = naming.Planned, Anchor = AnchorStyles.Left, Margin = new Padding(0, 4, 8, 0) };
+            Ui.Tip(setName, $"Give the {what} this name in game. Unticked, it keeps the game's name (\"{CostumeMove.Untagged(naming.Current)}\").");
+            nameBox = new TextBox { Text = naming.Suggested, Dock = DockStyle.Fill, Enabled = setName.Checked };
+            setName.CheckedChanged += (_, _) => { nameBox.Enabled = setName.Checked; if (setName.Checked) nameBox.Focus(); };
+            var note = new Label { AutoSize = true, MaximumSize = new Size((int)(430 * s), 0), Margin = new Padding(0, 4, 0, 0) };
+            if (naming.AlsoUsedBy.Count == 0) { note.Text = $"Only this {what} shows this name (the game's: \"{CostumeMove.Untagged(naming.Current)}\")."; note.Tag = "subtle"; }
+            else
+            {
+                note.Text = $"The game also shows this name for {string.Join(", ", naming.AlsoUsedBy.Take(4))}{(naming.AlsoUsedBy.Count > 4 ? $" and {naming.AlsoUsedBy.Count - 4} more" : "")}: a new name changes theirs too.";
+                warnNote = note;
+            }
+            row.Controls.Add(setName, 0, 0); row.Controls.Add(nameBox, 1, 0);
+            row.Controls.Add(note, 1, 1);
+            t.Controls.Add(row, 0, 3);
+        }
 
         swap = new CheckBox { Text = $"Turn the new mod on and \"{mod.Name}\" off", AutoSize = true, Checked = true, Margin = new Padding(0, 8, 0, 0) };
         Ui.Tip(swap, "The costume then shows on its new slot after Apply Changes. Leave it unticked to decide later.");
-        t.Controls.Add(swap, 0, 3);
+        t.Controls.Add(swap, 0, 4);
 
         var bar = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 12, 0, 0) };
         var cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; }, "Change nothing (Esc).");
         var create = Ui.AccentButton("Create Mod", () => { DialogResult = DialogResult.OK; }, "Add the moved costume as a new mod at the top of the list; the original isn't changed (Enter).");
         create.Enabled = crossHero || (plan.Problems.Count == 0 && plan.Packages.Count > 0);
         bar.Controls.Add(cancel); bar.Controls.Add(create);
-        t.Controls.Add(bar, 0, 4);
+        t.Controls.Add(bar, 0, 5);
         Controls.Add(t);
         AcceptButton = create.Enabled ? create : cancel;
         CancelButton = cancel;
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
+        if (warnNote != null) warnNote.ForeColor = Ui.OverrideAmber;   // (after the theme, which recolors labels)
         Ui.FitToScreen(this, 620, 600);
         Shown += (_, _) => { box.SelectionLength = 0; ActiveControl = create.Enabled ? create : cancel; };
     }
@@ -102,16 +137,17 @@ sealed class MoveCostumeForm : Form
         var sb = new System.Text.StringBuilder();
         void Line(string x = "") => sb.Append(x).Append("\r\n");
         string hero = HeroOf(plan.Target), from = HeroOf(plan.Source);
+        string who = plan.Target.IsTeamUp ? plan.Target.Title : hero;   // (whose animations, powers, skeleton: "Old Man Thor's", not "Team-Up's")
         Line("What moves:");
         Line($"  • the model, with its materials and textures, into {plan.Target.Package}");
         if (plan.Icons.Count > 0) Line("  • " + string.Join(", ", plan.Icons.Select(i => i.Kind.ToLowerInvariant())) + $", under {hero} {plan.Target.Title}'s names");
         foreach (var st in plan.Strings) Line($"  • the costume text \"{st.Text}\" ({st.Language}), as {hero} {plan.Target.Title}'s");
         Line(mod.Manifest.AudioPacks.Count > 0
             ? $"  • the voice: the mod's own voice lines (its sound pack comes along)"
-            : $"  • the voice: {from}'s lines, played by {hero}'s powers");
+            : $"  • the voice: {from}'s lines, played by {who}'s powers");
         Line();
-        Line($"What stays {hero}'s:");
-        Line($"  • the animations and powers. Parts of the model {hero}'s skeleton doesn't move (hair, a cape) stay still.");
+        Line($"What stays {who}'s:");
+        Line($"  • the animations and powers. Parts of the model {who}'s skeleton doesn't move (hair, a cape) stay still.");
         Line();
         var others = onTarget.Where(m => m != mod).ToList();
         if (others.Count > 0)

@@ -18,11 +18,13 @@ sealed class HeroPickerForm : Form
     readonly List<(string Name, List<Costume> Costumes, Button Tile)> list = [];
     readonly StockCatalog? catalog;
     readonly float s;
+    bool teamUpMode;
 
-    public HeroPickerForm(Mod mod, Costume source, List<Costume> all, string cooked, StockCatalog? catalog)
+    /// <param name="teamUps">Open on the team-up list (Costume ▾ → A Team-Up; Kurt 2026-11-06: the Team-Ups tile was easy to miss).</param>
+    public HeroPickerForm(Mod mod, Costume source, List<Costume> all, string cooked, StockCatalog? catalog, bool teamUps = false)
     {
         this.catalog = catalog;
-        Text = "Move to Another Hero";
+        Text = teamUps ? "Move to a Team-Up" : "Move to Another Hero";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this);
         StartPosition = FormStartPosition.CenterParent;
@@ -70,19 +72,34 @@ sealed class HeroPickerForm : Form
             Ui.Tip(tile, g.Key == teamUpsKey ? $"Team-ups: {costumes.Count} a model can move to." : $"{name}: {costumes.Count} costume(s) a model can move to.");
             list.Add((name, costumes, tile));
         }
-        list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        // (the Team-Ups tile first, then the heroes A to Z)
+        list.Sort((a, b) => a.Name == "Team-Ups" ? (b.Name == "Team-Ups" ? 0 : -1) : b.Name == "Team-Ups" ? 1 : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         heroes.Controls.AddRange([.. list.Select(x => (Control)x.Tile)]);
         MhoPackageModifier.Gui.SearchBox.AddClear(filter);
         filter.TextChanged += (_, _) =>
         {
             heroes.SuspendLayout();
-            foreach (var (n, _, t) in list) t.Visible = n.Contains(filter.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+            if (teamUpMode)
+                foreach (Control t in costumesPanel.Controls) t.Visible = t.Text.Contains(filter.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+            else
+                foreach (var (n, _, t) in list) t.Visible = n.Contains(filter.Text.Trim(), StringComparison.OrdinalIgnoreCase);
             heroes.ResumeLayout();
         };
 
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         Ui.FitToScreen(this, 1000, 700);
+        // Team-up mode (Kurt: the heroes beside the team-ups looked odd): only the team-ups, the whole width, filtered by name.
+        if (teamUps && list.FirstOrDefault(x => x.Name == "Team-Ups") is { Costumes: not null } tu)
+        {
+            ShowHero(tu.Name, tu.Costumes);
+            heroes.Visible = false;
+            root.ColumnStyles[0] = new ColumnStyle(SizeType.Absolute, 0); root.ColumnStyles[1] = new ColumnStyle(SizeType.Percent, 100);
+            right.Padding = Padding.Empty;
+            teamUpMode = true;
+            Ui.Tip(filter, "Show only team-ups whose name has these letters.");
+            if (bar.Controls.OfType<Label>().FirstOrDefault() is { } note) note.Text = "The model and voice move; the team-up's own animations and powers stay.";
+        }
         // Portraits in the background (the hero's default costume's herohor image).
         Shown += (_, _) => Task.Run(() =>
         {
@@ -132,16 +149,17 @@ sealed class HeroPickerForm : Form
 
     void ShowHero(string name, List<Costume> costumes)
     {
-        costumeTitle.Text = $"{name}: Pick a Costume";
+        costumeTitle.Text = name == "Team-Ups" ? "Pick a Team-Up" : $"{name}: Pick a Costume";
         foreach (var c in costumesPanel.Controls.Cast<Control>().ToList()) c.Dispose();   // (a dispose removes it from the collection)
         costumesPanel.Controls.Clear();
         foreach (var c in costumes)
         {
-            var tile = Tile(c.Title + (c.IsDefault ? " (Default)" : ""), (int)(110 * s), (int)(170 * s));
-            if (c.IsDefault) tile.ForeColor = Ui.Enabled;
+            bool def = c.IsDefault && !c.IsTeamUp;   // (a team-up is its own only "costume": no Default mark)
+            var tile = Tile(c.Title + (def ? " (Default)" : ""), (int)(110 * s), (int)(170 * s));
+            if (def) tile.ForeColor = Ui.Enabled;
             var chosen = c;
             tile.Click += (_, _) => { Chosen = chosen; DialogResult = DialogResult.OK; };
-            Ui.Tip(tile, $"Move the model onto {name}'s {c.Title} costume ({c.Package}).");
+            Ui.Tip(tile, c.IsTeamUp ? $"Move the model onto the {c.Title} team-up ({c.Package})." : $"Move the model onto {name}'s {c.Title} costume ({c.Package}).");
             costumesPanel.Controls.Add(tile);
             Task.Run(() => Picture(chosen.Store, (int)(100 * s), (int)(140 * s))).ContinueWith(t =>
             {

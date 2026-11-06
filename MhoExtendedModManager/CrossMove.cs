@@ -520,7 +520,7 @@ static class CrossMove
     /// packs. Icons, text and sound-pack checks are CostumeMove's (they don't depend on the hero). Returns the folder or null.
     /// </summary>
     public static string? CreateMod(ModLibrary lib, Mod mod, string srcFile, Costume source, Costume target, List<Costume> all, GameState game,
-        StockCatalog? catalog, List<string> log, out string? error, Mod? replace = null)
+        StockCatalog? catalog, List<string> log, out string? error, Mod? replace = null, string? name = null)
     {
         error = null;
         var originals = new Originals(lib.DataFolder, game);
@@ -559,7 +559,7 @@ static class CrossMove
                 foreach (string r in resized) log.Add("resized " + r);
                 if (byPackage.TryGetValue(i.Package, out int k)) d.Textures[k].Add((i.To, srcDds)); else d.Extra.Add((i.Package, i.To, srcDds));
             }
-            d.Strings = [.. plan.Strings.Select(sm => mod.Strings.First(x => x.Id == sm.From && x.Language.Equals(sm.Language, StringComparison.OrdinalIgnoreCase)) with { Id = sm.To, File = sm.File, Variants = null })];
+            d.Strings = CostumeMove.MovedStrings(mod, plan, name);   // (name: the Move window's Name row)
             // The voice set moves with its events, so a mod's sound pack (the audio of its renamed events) goes along.
             d.SoundPacks = log.Any(l => l.StartsWith("voice: ")) ? [.. mod.Manifest.AudioPacks.Select(f => Path.Combine(mod.Folder, f))] : [];
             d.PreviewImage = null; d.PreviewViews = null; d.CardPicture = null;

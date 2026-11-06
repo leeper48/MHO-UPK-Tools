@@ -209,6 +209,55 @@ static class CostumeMove
     /// eng.all_3FFF…, Age of Ultron's 0x910B… in eng.all_BFFF…).</summary>
     internal static string StringFileFor(string lang, ulong id) => $"{lang}.all_{(id >> 62) switch { 0 => "3F", 1 => "7F", 2 => "BF", _ => "FF" }}FFFFFFFFFFFFFF.string";
 
+    /// <summary>
+    /// The target's name in game, for the Move window's Name row (Kurt, 2026-11-06: Odin's costume name "#EnhancedKeywordColor#
+    /// ENHANCED#/EnhancedKeywordColor# Odin Costume", moved onto the King Thor team-up, showed its raw color tags in the team-up's
+    /// unlock window). Current = the game's text; Suggested = what the move would write (for a team-up, the costume name made
+    /// plain: "Odin"); Planned = the mod renames the source, so the move writes a name; AlsoUsedBy = the game's other things that
+    /// show the same string (a team-up's name is its own: King Thor's is used by nothing else).
+    /// </summary>
+    public sealed record NameInfo(string Current, string Suggested, bool Planned, IReadOnlyList<string> AlsoUsedBy);
+
+    public static NameInfo? Naming(Plan plan, StockCatalog? catalog, string gameRoot)
+    {
+        ulong id = plan.Target.DisplayName;
+        if (id == 0) return null;
+        string current = catalog?.Strings("eng").FirstOrDefault(x => x.Id == id).Text ?? "";
+        var moved = plan.Strings.FirstOrDefault(x => x.To == id && x.Language.Equals("eng", StringComparison.OrdinalIgnoreCase));
+        string suggested = moved == null ? current : plan.Target.IsTeamUp ? PlainName(moved.Text) : moved.Text;
+        string self = plan.Target.Prototype.Replace("\\", "/");
+        if (self.EndsWith(".prototype", StringComparison.OrdinalIgnoreCase)) self = self[..^10];   // (StringUsage keeps paths without it)
+        var others = (StringUsage.Load(gameRoot)?.For(id) ?? [])
+            .Where(u => !u.Prototype.Replace("\\", "/").Equals(self, StringComparison.OrdinalIgnoreCase))
+            .Select(StringUsage.Describe).Distinct().ToList();
+        return new NameInfo(current, suggested, moved != null, others);
+    }
+
+    /// <summary>A costume name as a plain character name: color-tag decorations ("#EnhancedKeywordColor#ENHANCED#/…#") and other
+    /// markup dropped, and a trailing "Costume" ("ENHANCED Odin Costume" → "Odin").</summary>
+    public static string PlainName(string text)
+    {
+        string t = System.Text.RegularExpressions.Regex.Replace(text, @"#(\w+)#.*?#/\1#", "");
+        t = System.Text.RegularExpressions.Regex.Replace(t, @"#/?\w+#", "");
+        t = System.Text.RegularExpressions.Regex.Replace(t.Trim(), @"\s+Costume$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return System.Text.RegularExpressions.Regex.Replace(t, @"\s+", " ").Trim();
+    }
+
+    /// <summary>A name as the costume list shows it: the color tags dropped, their words kept ("ENHANCED Odin Costume").</summary>
+    public static string Untagged(string text) => System.Text.RegularExpressions.Regex.Replace(System.Text.RegularExpressions.Regex.Replace(text, @"#/?\w+#", ""), @"\s+", " ").Trim();
+
+    /// <summary>The moved mod's strings. name: null = as planned; "" = leave the target's name as the game has it; else that
+    /// text (English) as the target's name (other languages' moved names are dropped then).</summary>
+    public static List<StringReplacement> MovedStrings(Mod mod, Plan plan, string? name)
+    {
+        ulong id = plan.Target.DisplayName;
+        var list = plan.Strings.Where(sm => name == null || id == 0 || sm.To != id)
+            .Select(sm => mod.Strings.First(x => x.Id == sm.From && x.Language.Equals(sm.Language, StringComparison.OrdinalIgnoreCase)) with { Id = sm.To, File = sm.File, Variants = null })
+            .ToList();
+        if (!string.IsNullOrEmpty(name) && id != 0) list.Add(new StringReplacement("eng", StringFileFor("eng", id), id, name));
+        return list;
+    }
+
     static string CaseLike(string cls, string tok) => cls.Length >= tok.Length ? cls[^tok.Length..] : tok;
 
     /// <summary>Which exports get new names: the costume's class-level objects take the target's names; its content groups
@@ -429,7 +478,7 @@ static class CostumeMove
     }
 
     public static string? CreateMod(ModLibrary lib, Mod mod, Plan plan, Originals originals, out string? error, Mod? replace = null,
-        StockCatalog? catalog = null, List<string>? resized = null)
+        StockCatalog? catalog = null, List<string>? resized = null, string? name = null)
     {
         error = null;
         if (plan.Problems.Count > 0) { error = string.Join(Environment.NewLine, plan.Problems); return null; }
@@ -449,7 +498,7 @@ static class CostumeMove
                 if (byPackage.TryGetValue(i.Package, out int k)) d.Textures[k].Add((i.To, src));
                 else d.Extra.Add((i.Package, i.To, src));
             }
-            d.Strings = [.. plan.Strings.Select(sm => mod.Strings.First(x => x.Id == sm.From && x.Language.Equals(sm.Language, StringComparison.OrdinalIgnoreCase)) with { Id = sm.To, File = sm.File, Variants = null })];
+            d.Strings = MovedStrings(mod, plan, name);
             d.SoundPacks = [.. plan.SoundPacks.Select(f => Path.Combine(mod.Folder, f))];
             d.PreviewImage = null; d.PreviewViews = null; d.CardPicture = null;
             d.PostNexus = d.PostDiscord = null; d.PostImages = [];

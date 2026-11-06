@@ -70,7 +70,7 @@ static partial class Program
             if (tgt == null) { Console.WriteLine("no such target"); return 1; }
             var mcat = new StockCatalog(mlib, mgame);
             var plan = CostumeMove.Make(mm, one.File, one.Costume, tgt, all, mgame.Cooked, mcat);
-            using var f = new Gui.MoveCostumeForm(mm, plan, mcat, mlib.Mods.Where(x => x.Manifest.UpkReplacements.Contains(tgt.Package, StringComparer.OrdinalIgnoreCase)).ToList(), crossHero)
+            using var f = new Gui.MoveCostumeForm(mm, plan, mcat, mlib.Mods.Where(x => x.Manifest.UpkReplacements.Contains(tgt.Package, StringComparer.OrdinalIgnoreCase)).ToList(), crossHero, CostumeMove.Naming(plan, mcat, mgr))
                 { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
@@ -85,7 +85,7 @@ static partial class Program
         }
         if (args.Length == 4 && args[0].Equals("--hero-snapshot", StringComparison.OrdinalIgnoreCase))
         {
-            // Test: the Another Hero picker for a mod, with a hero's costumes shown, as a PNG. --hero-snapshot <mod> <hero> <out.png>
+            // Test: the Another Hero picker for a mod, with a hero's costumes shown, as a PNG. --hero-snapshot <mod> <hero | @teamups> <out.png>
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Gui.Ui.UseDarkTheme();
@@ -96,7 +96,7 @@ static partial class Program
             var all = hgr == null ? null : Costume.All(hgr);
             if (hm == null || hgr == null || all == null || CostumeMove.Single(hm, all) is not { } one) { Console.WriteLine("no single-costume mod / game data"); return 1; }
             var hgame = new GameState(hgr, hlib.DataFolder);
-            using var f = new Gui.HeroPickerForm(hm, one.Costume, all, hgame.Cooked, new StockCatalog(hlib, hgame)) { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
+            using var f = new Gui.HeroPickerForm(hm, one.Costume, all, hgame.Cooked, new StockCatalog(hlib, hgame), teamUps: args[2] == "@teamups") { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };   // (<hero> = @teamups: opened as Costume ▾ → A Team-Up does)
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
                 await Task.Delay(300);
