@@ -478,8 +478,15 @@ static partial class PowerBorrow
             var list = closure.Where(Projectile).ToList();
             if (File(power.Class) is not string pf) return list;
             var pk = Package.Open(pf);
-            foreach (var e in pk.Exports)
-                if (pk.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) && e.ObjectName.StartsWith("marvelprojectile", StringComparison.OrdinalIgnoreCase)
+            bool IsProjClass(ExportEntry e) => pk.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) && e.ObjectName.StartsWith("marvelprojectile", StringComparison.OrdinalIgnoreCase);
+            // a class the package holds only because another projectile class there extends it (Fastball Special keeps
+            // marvelprojectileanimated beside marvelprojectileanimated_fastballspecial, the one that flies: its fire_projectile
+            // names it) isn't one the power fires: its SuperIndex (4 bytes into the export entry) says which
+            var parents = new HashSet<int>();
+            for (int i = 0; i < pk.Exports.Length; i++)
+                if (IsProjClass(pk.Exports[i]) && BitConverter.ToInt32(pk.Body, pk.ExportEntryStart[i] + 4) is int sup && sup > 0) parents.Add(sup - 1);
+            for (int i = 0; i < pk.Exports.Length; i++)
+                if (pk.Exports[i] is var e && IsProjClass(e) && !parents.Contains(i)
                     && !list.Any(x => x.Class.Equals(e.ObjectName, StringComparison.OrdinalIgnoreCase)))
                 {
                     list.Add(new Fx.PowerClosure.Art(power.Prototype, e.ObjectName, false) { Depth = 1 });
@@ -960,7 +967,7 @@ static partial class PowerBorrow
             if (keepTiming && pr.Role == "power") { done[tf] = SwapLooks(cur, td, pr.DonorFile, dd, log); continue; }
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); powerFile = tf; }
             done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
-            if (pr.Role == "projectile") done[tf] = ProjectileSlots(done[tf], td, pr.DonorFile, dd, log);
+            if (pr.Role == "projectile") done[tf] = ProjectileMesh(ProjectileSlots(done[tf], td, pr.DonorFile, dd, log), td, pr.DonorFile, dd, log);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log, held, HeroSlots(targetHeroPackage));
             // a spawned vehicle sized for this hero: the Vehicle Fit's size, else the two heroes' heights (Kurt, 2026-10-20:
             // Cyclops' bike looked small under Thor; x1.14 by the heights looked right in game)
@@ -1813,6 +1820,49 @@ static partial class PowerBorrow
         var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
         if (problems.Count > 0) { log.Add($"  {targetDefault}: the stock look for {string.Join(", ", classes)} couldn't be kept ({string.Join("; ", problems.Take(2))})"); return package; }
         log.Add($"  {targetDefault}: {list.Count - kept} borrowed component(s) not on {string.Join(", ", classes)}; {kept} stock one(s) only on them");
+        return output;
+    }
+
+    /// <summary>
+    /// A borrowed projectile's model (2026-11-05, Shield Toss ← Fastball Special): an animated projectile (MarvelProjectileAnimated,
+    /// a content class of MarvelProjectile with nothing of its own but defaults) flies a skeletal mesh component named by its
+    /// default's Mesh, which its ProjectileFxAnimation plays (Wolverine's wolverine_bullet_bullet). The target's projectile is the
+    /// same native class, so its default gets Mesh = the borrowed copy of that component (borrowed_&lt;name&gt;). A donor
+    /// without one changes nothing.
+    /// </summary>
+    static byte[] ProjectileMesh(byte[] package, string targetDefault, string donorFile, string donorDefault, List<string> log)
+    {
+        var sp = Package.Open(donorFile);
+        int si = Find(sp, donorDefault);
+        if (si < 0) return package;
+        byte[] sd = sp.ReadExportBytes(sp.Exports[si]).ToArray();
+        if (TagWalker.Walk(sp, sd, 4) is not { } st) return package;
+        var sm = st.FirstOrDefault(t => t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase) && t.Type.Equals("ObjectProperty", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
+        if (sm == null) return package;
+        int r0 = BitConverter.ToInt32(sd, sm.ValueAt);
+        if (r0 <= 0) return package;
+        string leaf = sp.Exports[r0 - 1].ObjectName;
+        var p = Package.FromBytes(package);
+        int ti = Find(p, targetDefault);
+        int ci = Find(p, targetDefault + ".borrowed_" + leaf);
+        if (ti < 0) return package;
+        if (ci < 0) { log.Add($"  {targetDefault}: the other projectile's model ({leaf}) wasn't copied, so it won't fly"); return package; }
+        byte[] d = p.ReadExportBytes(p.Exports[ti]).ToArray();
+        if (TagWalker.Walk(p, d, 4) is not { } tt) { log.Add($"  {targetDefault}: its settings don't read, so the other projectile's model won't fly"); return package; }
+        var addNames = new List<string>();
+        foreach (string n in new[] { "Mesh", "ObjectProperty" })
+            if (!p.Names.Any(x => x.Equals(n, StringComparison.OrdinalIgnoreCase))) addNames.Add(n);
+        var w = new TagWriter(p, addNames);
+        var nd = new List<byte>(d.AsSpan(0, 4).ToArray());
+        foreach (var t in tt) if (!t.Name.Equals("Mesh", StringComparison.OrdinalIgnoreCase)) nd.AddRange(d.AsSpan(t.Start, t.End - t.Start).ToArray());
+        nd.AddRange(w.Tag("Mesh", "ObjectProperty", null, BitConverter.GetBytes(ci + 1)));
+        nd.AddRange(d.AsSpan(tt.NoneAt));
+        byte[] data = [.. nd];
+        var rep = new Dictionary<int, Func<long, byte[]>> { [ti] = _ => data };
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames);
+        if (problems.Count > 0) { log.Add($"  {targetDefault}: the other projectile's model couldn't be set ({string.Join("; ", problems.Take(2))})"); return package; }
+        log.Add($"  {targetDefault}: flies the other projectile's model (Mesh → borrowed_{leaf})");
         return output;
     }
 
