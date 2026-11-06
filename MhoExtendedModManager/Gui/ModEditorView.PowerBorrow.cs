@@ -99,9 +99,12 @@ sealed partial class ModEditorView
     Control BorrowSection()
     {
         var box = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Top, Padding = new Padding(0, 6, 0, 0) };
-        box.Controls.Add(new Label { Text = "BORROWED LOOK", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 2) });
-        borrowButton = Ui.FlatButton("Borrow Look", PickBorrow, tip: "Give this power another hero's power look: its animation, effects and projectile, or only what its effects draw while this power keeps its timing. Only the look changes (what the power does stays this one's), on this hero's power packages: every costume of the hero, anyone using this mod; the other hero stays as it is.");
-        borrowRemove = Ui.FlatButton("Game's Look", RemoveBorrow, tip: "Take this power back to its own look (the borrowed one comes out of the mod at Save).");
+        box.Controls.Add(new Label { Text = "BORROW POWER", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 2) });
+        borrowButton = Ui.FlatButton("Borrow Power", PickBorrow, tip: "Give this power another hero's power look: its animation, effects and projectile, or only what its effects draw while this power keeps its timing. Only the look changes (what the power does stays this one's), on this hero's power packages: every costume of the hero, anyone using this mod; the other hero stays as it is.");
+        borrowRemove = Ui.FlatButton("Reset Power", RemoveBorrow, tip: "Take this power back to the game's own look (the borrowed one comes out of the mod at Save).");
+        // (Kurt, 2026-11-05: icon buttons; Game's Look became a reset)
+        Icons.Make(borrowButton, "Borrow Power", Icons.Borrow, S);
+        Icons.Make(borrowRemove, "Reset Power", Icons.Reset, S);
         box.Controls.Add(Toolbar(borrowButton, borrowRemove));
         box.Controls.Add(borrowCaption);
         Ui.Tip(keepWeapons, "Keeps the weapons this hero always holds (Captain America's shield) shown while the borrowed power runs. Off: they're hidden then, since the other hero's animation isn't made to hold them (a weapon can stick out of the body).");
@@ -419,7 +422,7 @@ sealed partial class ModEditorView
         foreach (var tp in texturePages) tp.Refresh();
     }
 
-    /// <summary>The name and icons a borrow put in, taken off (Game's Look, or another borrow for the power).</summary>
+    /// <summary>The name and icons a borrow put in, taken off (Reset Power, or another borrow for the power).</summary>
     void TakeOffNameAndIcon(PowerBorrowEntry e) { TakeOffName(e); TakeOffIcons(e); }
 
     void TakeOffName(PowerBorrowEntry e)
@@ -460,9 +463,9 @@ sealed partial class ModEditorView
     {
         var box = nameIconBox;
         renameText.Width = (int)(300 * S);
-        Ui.Tip(renamePower, "The power's name in game becomes the one in the box (at first the borrowed power's; type your own). It's put in the Strings tab (English), and Game's Look takes it off again.");
+        Ui.Tip(renamePower, "The power's name in game becomes the one in the box (at first the borrowed power's; type your own). It's put in the Strings tab (English), and Reset Power takes it off again.");
         Ui.Tip(renameText, "The power's new name in game: Enter (or clicking away) puts it in.");
-        Ui.Tip(useIcon, "The power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it), converted to this power's icon size; it's put in the Icons tab, and Game's Look takes it off again.");
+        Ui.Tip(useIcon, "The power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it), converted to this power's icon size; it's put in the Icons tab, and Reset Power takes it off again.");
         renamePower.CheckedChanged += (_, _) =>
         {
             renameText.Enabled = renamePower.Checked;

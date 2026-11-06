@@ -88,6 +88,17 @@ static class Icons
         g.FillPolygon(br, new[] { new PointF(tip.X + s * 0.25f, tip.Y - s * 0.75f), new PointF(tip.X + s * 0.55f, tip.Y + s * 0.35f), new PointF(tip.X - s * 0.55f, tip.Y + s * 0.05f) });
     }
 
+    /// <summary>Borrow Power: a lightning bolt (a power) with an arrow coming in from the left (taken from another hero).</summary>
+    public static void Borrow(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float x = b.X, y = b.Y, w = b.Width, h = b.Height;
+        g.FillPolygon(br, new[] { new PointF(x + w * 0.66f, y), new PointF(x + w * 0.34f, y + h * 0.56f), new PointF(x + w * 0.56f, y + h * 0.56f),
+            new PointF(x + w * 0.44f, y + h), new PointF(x + w * 0.98f, y + h * 0.4f), new PointF(x + w * 0.74f, y + h * 0.4f), new PointF(x + w * 0.9f, y) });
+        float ay = y + h * 0.72f;
+        g.DrawLine(p, x - w * 0.08f, ay, x + w * 0.3f, ay);
+        g.DrawLines(p, new[] { new PointF(x + w * 0.14f, ay - h * 0.16f), new PointF(x + w * 0.3f, ay), new PointF(x + w * 0.14f, ay + h * 0.16f) });
+    }
+
     /// <summary>Stabilize Ground Contact: an arrow coming down onto the floor (a line, hatched under it).</summary>
     public static void GroundContact(Graphics g, RectangleF b, Pen p, Brush br)
     {

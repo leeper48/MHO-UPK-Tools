@@ -510,7 +510,7 @@ sealed partial class Preview3D : UserControl
         string name = CurrentAnimation ?? "this animation";
         Dialog.Show(FindForm() ?? (IWin32Window)this,
             $"WHY\n\n  • The preview plays \"{name}\" from {unlistedSet ?? "a set in another of the mod's packages"}.\n  • This costume's own animation list doesn't name that set, and the game only plays the sets the list names.\n  • So in game this costume stands in its rest pose (A pose) for it.\n\n"
-            + "HOW TO FIX\n\n  • A borrowed power's animation (Powers tab, Borrow Look): Open the mod in the Editor and save it (Ctrl+S). The save adds every borrowed power's set to the lists of the costumes that have one. Then Apply Changes.\n"
+            + "HOW TO FIX\n\n  • A borrowed power's animation (Powers tab, Borrow Power): Open the mod in the Editor and save it (Ctrl+S). The save adds every borrowed power's set to the lists of the costumes that have one. Then Apply Changes.\n"
             + "  • An animation changed in the Animations tab for another package: Pick this costume's package there and change the animation for it too.\n"
             + "  • Still shown after a save: The mod itself is missing it. Tell its author (or report it, if the Mod Manager built it).",
             "Not in the Costume's Animation List", MessageBoxButtons.OK, MessageBoxIcon.Warning);

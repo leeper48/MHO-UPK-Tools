@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.385
+- Borrow Power (preview feature, hidden): the Powers tab's Borrowed Look is now Borrow Power, with icon buttons: Borrow Power (a lightning bolt with an arrow) and Reset Power (a circular arrow), which takes the power back to the game's look (was Game's Look).
+
 0.60.384
 - Borrowed powers that throw a character: Colossus's Fastball Special (Wolverine flying, clawing) and other animated projectiles can now be borrowed: the thrown model and its flight animation come along.
 

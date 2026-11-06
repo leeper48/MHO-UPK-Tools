@@ -56,7 +56,7 @@ sealed class BorrowPowerForm : Form
     public BorrowPowerForm(Fx.GameData db, string cooked, string targetPower, string targetName, PowerBorrowEntry? current, string? costumeWarning = null)
     {
         this.db = db; this.cooked = cooked; target = targetPower; this.targetName = targetName;
-        Text = "Borrow a Power's Look";
+        Text = "Borrow Power";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this);
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
@@ -64,7 +64,7 @@ sealed class BorrowPowerForm : Form
         Padding = new Padding(14);
         var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        var head = new Label { Text = "Borrow a Power's Look for " + targetName, AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 4) };
+        var head = new Label { Text = "Borrow a Power for " + targetName, AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 4) };
         t.Controls.Add(head, 0, 0); t.SetColumnSpan(head, 2);
         var hint = new Label
         {
@@ -78,9 +78,9 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
         modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, costumeNote, summonLook, areaLook, useName, nameBox, useIcon]);
-        Ui.Tip(useName, "The power's name in game becomes this (the borrowed power's, or type your own). It goes into the Strings tab (English), where you can change it; Game's Look takes it off again.");
+        Ui.Tip(useName, "The power's name in game becomes this (the borrowed power's, or type your own). It goes into the Strings tab (English), where you can change it; Reset Power takes it off again.");
         Ui.Tip(nameBox, "The new name of this power in game.");
-        Ui.Tip(useIcon, "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Game's Look takes them off again.");
+        Ui.Tip(useIcon, "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Reset Power takes them off again.");
         useName.CheckedChanged += (_, _) => nameBox.Enabled = useName.Checked;
         if (current != null && current.NameId == null) useName.Checked = false;
         if (current != null && current.Icons == null) useIcon.Checked = false;
