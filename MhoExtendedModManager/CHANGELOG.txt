@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.376
+- Borrowed attacks: the other hero's weapons and props the borrow brings (Deadpool's cannon, Punisher's M60) get paths of their own, as borrowed vehicles already did. With the stock paths, once that other hero had been loaded in the game, his own copy could stand in for the borrowed one, with his own animations.
+
 0.60.375
 - Borrow a Power's Look: Its Area's Look Too. When the other power's look comes partly from an area it puts down (Squirrel Girl's rain of squirrels in It's Raining Rodents), those effects play at the target as part of this power: from the hit, for the effect's own length (one that loops plays 4 s). Areas only an ultimate, talent or signature puts down aren't brought. It's a look, not a real area: it doesn't follow a moving target.
 

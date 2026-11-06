@@ -237,6 +237,23 @@ static partial class PowerBorrow
                 if (!uniqued && pf != null && vclasses.Count > 0 && built.TryGetValue(pf, out var pb2))
                     built[pf] = UniqueVehicle(pb2, vclasses, "on_" + th.ToLowerInvariant(), pf, log);
             }
+            // the other hero's held weapons and props the borrow brought into the power package (Deadpool's cannon in Real
+            // Armor Buster, Punisher's M60 in Full Auto): under paths of their own too, as the vehicles above. A class is found by
+            // path and the package loaded first wins: once the other hero was loaded, his own copy (stock animations, his
+            // bones) would stand in for the borrowed one (as with Green Goblin's glider, telemetry ride43). Every attachment class
+            // in the built power package that the stock power doesn't have, not renamed yet.
+            if (!e.KeepTiming && crossHeroNow && tp != null && built.TryGetValue(Path.GetFileName(tp.TargetFile), out var hpk))
+            {
+                string pfh = Path.GetFileName(tp.TargetFile), tagh = "on_" + th.ToLowerInvariant();
+                var stockClasses = Package.Open(StockFiles.For(game.Cooked, pfh) is var sp0 && File.Exists(sp0) ? sp0 : tp.TargetFile).Exports
+                    .Select(x => x.ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var hp0 = Package.FromBytes(hpk);
+                var held = hp0.Exports.Where(x => hp0.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase)
+                        && x.ObjectName.StartsWith("marvelattachment", StringComparison.OrdinalIgnoreCase)
+                        && !stockClasses.Contains(x.ObjectName) && !x.ObjectName.EndsWith("_" + tagh, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => x.ObjectName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (held.Count > 0) built[pfh] = UniqueVehicle(hpk, held, tagh, pfh, log, "weapon or prop");
+            }
             // Its Summon's Look Too: each summon this power puts in the world (a model) takes the other power's summon's look,
             // in its own package (SummonLook; the first donor summon for every target summon past the donor's count)
             if (e.SummonLook)
@@ -2224,7 +2241,7 @@ static partial class PowerBorrow
     /// wolverine_bike_x104) and its stock AnimSet, without the condition's start, so the bike had no sequence and sat in
     /// its rest pose. Unchanged when there's nothing to rename or it's renamed already.
     /// </summary>
-    static byte[] UniqueVehicle(byte[] bytes, IReadOnlySet<string> vehicleClasses, string tag, string file, List<string> log)
+    static byte[] UniqueVehicle(byte[] bytes, IReadOnlySet<string> vehicleClasses, string tag, string file, List<string> log, string what = "vehicle")
     {
         var pkg = Package.FromBytes(bytes);
         var renames = new Dictionary<int, string>();
@@ -2273,8 +2290,8 @@ static partial class PowerBorrow
         if (renames.Count == 0 && splits.Count == 0) return bytes;
         var problems = new List<string>();
         byte[] o = CostumeMove.RenameAndSplit(pkg, renames, splits, problems);
-        if (problems.Count > 0) throw new InvalidDataException($"{file}: the borrowed vehicle's own paths: " + string.Join("; ", problems.Take(3)));
-        log.Add($"  {file}: the borrowed vehicle under its own paths ({string.Join(", ", renames.Select(r => $"{pkg.Exports[r.Key].ObjectName} → {r.Value}").Concat(splits.Where(s => s.Parent < 0).Select(s => $"{s.GroupName} → {s.NewName} (its streamed textures keep their path)")))}), so a stock copy loaded first can't stand in for it");
+        if (problems.Count > 0) throw new InvalidDataException($"{file}: the borrowed {what}'s own paths: " + string.Join("; ", problems.Take(3)));
+        log.Add($"  {file}: the borrowed {what} under its own paths ({string.Join(", ", renames.Select(r => $"{pkg.Exports[r.Key].ObjectName} → {r.Value}").Concat(splits.Where(s => s.Parent < 0).Select(s => $"{s.GroupName} → {s.NewName} (its streamed textures keep their path)")))}), so a stock copy loaded first can't stand in for it");
         return o;
     }
 
