@@ -3203,6 +3203,59 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--power-closure":
+            {
+                // Read-only: what a power sets off, as PowerClosure walks it (prototype, class, depth, power or not, via an entity).
+                if (rest.Count < 2) { Console.WriteLine("--power-closure <power prototype>"); return 1; }
+                string? cgr2 = settings.ResolvedGameRoot(data);
+                if (cgr2 == null || !Settings.IsGameRoot(cgr2)) { Console.WriteLine("game folder not found"); return 1; }
+                var cdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(cgr2, "Data", "Game", "Calligraphy.sip")));
+                foreach (var a in Fx.PowerClosure.Of(cdb, rest[1]).OrderBy(a => a.Depth))
+                    Console.WriteLine($"  {a.Depth} {(a.IsPower ? "power " : "entity")} {a.Class,-55} {a.Prototype}{(a.ViaEntity ? "  (via an entity)" : "")}{(a.AtCaster ? "  (at the caster)" : "")}");
+                return 0;
+            }
+            case "--summon-pair":
+            {
+                // Read-only unless a folder is given: the model summons of two powers (SummonLook.Of), the automatic animation
+                // mapping, and with <out dir> the target summon's package built with the donor summon's look.
+                // --summon-pair <target power prototype> <donor power prototype> [out dir]
+                if (rest.Count < 3) { Console.WriteLine("--summon-pair <target power prototype> <donor power prototype> [out dir]"); return 1; }
+                string? sgr = settings.ResolvedGameRoot(data);
+                if (sgr == null || !Settings.IsGameRoot(sgr)) { Console.WriteLine("game folder not found"); return 1; }
+                string scooked = Settings.Cooked(sgr);
+                var sdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(sgr, "Data", "Game", "Calligraphy.sip")));
+                var sgame = new Fx.FxGame(scooked, []);
+                List<SummonLook.Summon> Show(string power)
+                {
+                    var notes = new List<string>();
+                    var list = SummonLook.Of(sdb, sgame, power, PowerBorrow.HeroOf(power), notes);
+                    Console.WriteLine($"{power}: {list.Count} model summon(s)");
+                    foreach (var x in list) Console.WriteLine($"  {x.Class} in {Path.GetFileName(x.File)}: mesh {x.MeshName} ({Path.GetFileName(x.MeshFile)}), {x.Anims.Count} animation(s): {string.Join(" ", x.Anims.Select(a => a.Name).Take(20))}");
+                    foreach (string n in notes) Console.WriteLine("  left out: " + n);
+                    return list;
+                }
+                var tl = Show(rest[1]); var dl = Show(rest[2]);
+                if (tl.Count == 0 || dl.Count == 0) { Console.WriteLine("nothing to pair"); return 0; }
+                var slotMap = SummonLook.AutoSlots(tl[0].Anims.Select(a => a.Name), dl[0].Anims.Select(a => a.Name).ToList());
+                Console.WriteLine($"pair: {tl[0].Class} takes {dl[0].Class}'s look; animations: {string.Join(", ", slotMap.Select(kv => $"{kv.Key} ← {kv.Value}"))}");
+                if (rest.Count > 3)
+                {
+                    string sout = Path.GetFullPath(rest[3]);
+                    if (sout.StartsWith(Path.GetFullPath(sgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                    Directory.CreateDirectory(sout);
+                    var slog = new List<string>();
+                    try
+                    {
+                        byte[] sb = SummonLook.Build(StockFiles.For(scooked, Path.GetFileName(tl[0].File)), tl[0], dl[0], slog);
+                        string sf = Path.Combine(sout, Path.GetFileName(tl[0].File));
+                        File.WriteAllBytes(sf, sb);
+                        foreach (string l in slog.Where(l => !l.StartsWith("  "))) Console.WriteLine(l);
+                        Console.WriteLine($"written {sf} ({sb.Length:N0} bytes)");
+                    }
+                    catch (InvalidDataException ex) { foreach (string l in slog) Console.WriteLine(l); Console.WriteLine("FAILED: " + ex.Message); return 1; }
+                }
+                return 0;
+            }
             case "--drop-translation":
             {
                 // Writes only <out.upk>: an AnimSet's UseTranslationBoneNames without the given bones (the game then only turns them).

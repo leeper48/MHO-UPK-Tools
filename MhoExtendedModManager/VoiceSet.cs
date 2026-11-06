@@ -35,6 +35,15 @@ sealed class PowerBorrowEntry
     /// folder's name (Captain Marvel's is MsMarvel). Null: worked out at the build.</summary>
     public string? Hero { get; set; }
     public string? DonorHero { get; set; }
+    /// <summary>Its Summon's Look Too (Kurt, 2026-11-05): when both powers summon a model, the summon this power puts in the
+    /// world takes the other power's summon's model and animations (SummonLook; Hawkeye's Claymore Turret as Squirrel Girl's
+    /// squirrel, confirmed in game).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SummonLook { get; set; }
+    /// <summary>Its Area's Look Too (Kurt, 2026-11-05): the effects of the areas the other power puts down (Squirrel Girl's
+    /// rain of squirrels) play at the target as part of this power (PowerBorrow.AreaLooks).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AreaLook { get; set; }
     /// <summary>The packages it built (power, projectile, the hero's base package for its animations).</summary>
     public List<string> Packages { get; set; } = [];
     /// <summary>Vehicle Fit (a borrowed ride's vehicle, Kurt 2026-10-21): the vehicle's size (1 = as made; null: the two

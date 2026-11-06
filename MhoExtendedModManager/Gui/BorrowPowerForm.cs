@@ -18,6 +18,12 @@ sealed class BorrowPowerForm : Form
     readonly Dictionary<string, PowerBorrow.PowerKind?> kindOf = new(StringComparer.OrdinalIgnoreCase);
     PowerBorrow.PowerKind? targetKind;
     readonly string targetName;
+    // Its Summon's Look Too (Kurt, 2026-11-05): shown when both powers summon a model
+    readonly CheckBox summonLook = new() { Text = "Its Summon's Look Too", AutoSize = true, Checked = true, Visible = false, Margin = new Padding(0, 4, 0, 6) };
+    bool? summonWanted;
+    // Its Area's Look Too (Kurt, 2026-11-05): shown when the other power puts down an area with a look (Squirrel Girl's rain)
+    readonly CheckBox areaLook = new() { Text = "Its Area's Look Too", AutoSize = true, Checked = true, Visible = false, Margin = new Padding(0, 0, 0, 6) };
+    bool? areaWanted;
     readonly Label costumeNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Label enemyNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Fx.GameData db;
@@ -71,7 +77,7 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
-        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, costumeNote, useName, nameBox, useIcon]);
+        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, costumeNote, summonLook, areaLook, useName, nameBox, useIcon]);
         Ui.Tip(useName, "The power's name in game becomes this (the borrowed power's, or type your own). It goes into the Strings tab (English), where you can change it; Game's Look takes it off again.");
         Ui.Tip(nameBox, "The new name of this power in game.");
         Ui.Tip(useIcon, "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Game's Look takes them off again.");
@@ -98,6 +104,12 @@ sealed class BorrowPowerForm : Form
         Controls.Add(t);
 
         Ui.Tip(heroBox, "The hero whose power look to borrow.");
+        Ui.Tip(summonLook, "Both powers summon something. Ticked, what this power summons takes the other power's summon's model and animations (Hawkeye's turret as Squirrel Girl's squirrel); what it does in the game stays this power's.");
+        summonLook.CheckedChanged += (_, _) => { if (summonLook.Visible) summonWanted = summonLook.Checked; };
+        if (current != null) summonWanted = current.SummonLook;
+        Ui.Tip(areaLook, "The other power's look comes partly from an area it puts down (Squirrel Girl's rain of squirrels). Ticked, those effects play at the target as part of this power, from the hit, for the effect's own length (one that loops: " + PowerBorrow.AreaLoopSeconds + " s). It's a look, not a real area: it doesn't follow a moving target.");
+        areaLook.CheckedChanged += (_, _) => { if (areaLook.Visible) areaWanted = areaLook.Checked; };
+        if (current != null) areaWanted = current.AreaLook;
         Ui.Tip(powerBox, "The power whose look this power takes. Only powers with an animation of their own are listed; powers built like this one (thrown, beam, or melee and area) come first, the others are dimmed with what they are.");
         Ui.Tip(whole, "The other power's animation, its effects and sounds, and its projectile's look (when both powers fire one). For powers built alike: a projectile from a projectile, a beam from a beam.");
         Ui.Tip(fit, "Plays the borrowed animation faster or slower so it lasts as long as this power's own (the game repeats the power at its own pace; an animation longer than that is cut off).");
@@ -195,11 +207,22 @@ sealed class BorrowPowerForm : Form
             var g = new Fx.FxGame(c, []);
             var (keep, why) = PowerBorrow.Suggest(db, g, target, p.Prototype);
             float? vehicle = null;
-            return (keep, why, PowerBorrow.KeepTimingTakes(db, g, target, p.Prototype), PowerBorrow.EnemyUsers(db, g, root, target, p.Prototype), vehicle);
+            var ts = SummonLook.Of(db, g, target, PowerBorrow.HeroOf(target));
+            var ds = ts.Count == 0 ? [] : SummonLook.Of(db, g, p.Prototype, PowerBorrow.HeroOf(p.Prototype));
+            string? summons = ts.Count > 0 && ds.Count > 0 ? $"{Pretty(ts[0].Class)} as {Pretty(ds[0].Class)}" : null;
+            var areas = PowerBorrow.AreaLooks(db, g, p.Prototype);
+            string? areaNames = areas.Count > 0 ? string.Join(", ", areas.Select(a => Pretty(a.Name))) : null;
+            return (keep, why, PowerBorrow.KeepTimingTakes(db, g, target, p.Prototype), PowerBorrow.EnemyUsers(db, g, root, target, p.Prototype), vehicle, summons, areaNames);
         }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || t.Status != TaskStatus.RanToCompletion) return;
-            var (keep, why, takes, enemies, vehicle) = t.Result;
+            var (keep, why, takes, enemies, vehicle, summons, areaNames) = t.Result;
+            areaLook.Visible = areaNames != null;
+            areaLook.Text = areaNames != null ? $"Its Area's Look Too: {areaNames}" : "Its Area's Look Too";
+            areaLook.Checked = areaWanted ?? true;
+            summonLook.Visible = summons != null;
+            summonLook.Text = summons != null ? $"Its Summon's Look Too: {summons}" : "Its Summon's Look Too";
+            summonLook.Checked = summonWanted ?? true;
             // a power that brings a vehicle: its fit
             vehicleFit.Visible = vehicle != null;
             if (vehicle is float auto)
@@ -232,13 +255,20 @@ sealed class BorrowPowerForm : Form
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
+    /// <summary>A summon's class as words: MarvelAgent_SquirrelGirlTripleSquirrel → "Squirrel Girl Triple Squirrel".</summary>
+    static string Pretty(string cls)
+    {
+        string n = cls.StartsWith("MarvelAgent_", StringComparison.OrdinalIgnoreCase) ? cls["MarvelAgent_".Length..] : cls;
+        return System.Text.RegularExpressions.Regex.Replace(n.Replace('_', ' '), "(?<=[a-z])(?=[A-Z])", " ").Trim();
+    }
+
     void Choose()
     {
         if (powerBox.SelectedItem is not Fx.PowerList.Power p || heroBox.SelectedItem is not string hero) return;
         Result = new PowerBorrowEntry
         {
             Donor = p.Prototype, DonorName = $"{AutoTags.DisplayName(hero) ?? hero}: {p.Name}",
-            KeepTiming = look.Checked, Fit = fit.Checked, DonorHero = hero,
+            KeepTiming = look.Checked, Fit = fit.Checked, DonorHero = hero, SummonLook = summonLook.Visible && summonLook.Checked, AreaLook = areaLook.Visible && areaLook.Checked,
         };
         // the same power again: its Vehicle Fit (set in the Powers tab) stays
         if (keepFit is { } kf && kf.Donor.Equals(p.Prototype, StringComparison.OrdinalIgnoreCase))

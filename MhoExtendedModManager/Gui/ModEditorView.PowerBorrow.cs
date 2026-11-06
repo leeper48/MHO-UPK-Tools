@@ -336,7 +336,7 @@ sealed partial class ModEditorView
         ShowNameIcon(e);
         ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
-            : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")})"
+            : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")}{(e.SummonLook ? ", and its summon's look" : "")}{(e.AreaLook ? ", and its area's look" : "")})"
             : can ? "Its own look" : "Only a hero's powers with an animation can borrow a look";
     }
 

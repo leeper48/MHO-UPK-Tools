@@ -1,6 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.375
+- Borrow a Power's Look: Its Area's Look Too. When the other power's look comes partly from an area it puts down (Squirrel Girl's rain of squirrels in It's Raining Rodents), those effects play at the target as part of this power: from the hit, for the effect's own length (one that loops plays 4 s). Areas only an ultimate, talent or signature puts down aren't brought. It's a look, not a real area: it doesn't follow a moving target.
+
+0.60.374
+- Borrow a Power's Look: Its Summon's Look Too. When both powers summon a model (Hawkeye's Claymore Turret, Squirrel Girl's squirrels), what this power summons takes the other's model and animations: its spawn, idle, combat idle and attacks are matched by what they're for, and the places its effects come from are fitted to the new model's size. A summon that's only an invisible marker (Doctor Doom's Unthinkable orb, drawn with effects) isn't offered.
+
+0.60.373
+- Faster 3D views and steadier windows (performance changes contributed by pants on a tiger): characters animate about a quarter faster per frame, a 3D view on a tab you can't see stops drawing, fonts and brushes are shared instead of made on every paint, tables no longer flash while scrolling, and the Voice tab's Find waits until you stop typing. The pictures are exactly the same as before.
+
 0.60.372
 - Manual: walkthroughs for raising or lowering the body during an animation (Height strip and Gizmo) and for rebuilding a mod after an update (Resave), with new pictures for Apply Changes, moves to a costume of its own class and Not in This Voice.
 

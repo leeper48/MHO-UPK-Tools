@@ -237,6 +237,33 @@ static partial class PowerBorrow
                 if (!uniqued && pf != null && vclasses.Count > 0 && built.TryGetValue(pf, out var pb2))
                     built[pf] = UniqueVehicle(pb2, vclasses, "on_" + th.ToLowerInvariant(), pf, log);
             }
+            // Its Summon's Look Too: each summon this power puts in the world (a model) takes the other power's summon's look,
+            // in its own package (SummonLook; the first donor summon for every target summon past the donor's count)
+            if (e.SummonLook)
+            {
+                var tsum = SummonLook.Of(db, fx, e.Power, HeroOf(e.Power));
+                var dsum = SummonLook.Of(db, fx, e.Donor, HeroOf(e.Donor));
+                if (tsum.Count == 0 || dsum.Count == 0) log.Add($"summon look: {(tsum.Count == 0 ? "this power summons" : "the other power summons")} no model; nothing to change");
+                for (int i = 0; i < tsum.Count && dsum.Count > 0; i++)
+                {
+                    var t = tsum[i]; var d = dsum[Math.Min(i, dsum.Count - 1)];
+                    string sf = game.StockName(Path.GetFileName(t.File)) ?? Path.GetFileName(t.File);
+                    if (Start(sf) is not { } sstart) { log.Add($"summon look: {sf} has no clean copy to start from"); continue; }
+                    var slog = new List<string>();
+                    built[sf] = SummonLook.Build(sstart, t, d, slog);
+                    log.Add($"summon look: {t.Class} takes {d.Class}'s ({sf})");
+                    log.AddRange(slog.Where(l => !l.StartsWith("  ")).Select(l => "  " + l));
+                }
+            }
+            // Its Area's Look Too: the other power's area effects, as this power's own at the target
+            if (e.AreaLook && tp != null)
+            {
+                string pfile = built.Keys.FirstOrDefault(k => k.Equals(Path.GetFileName(tp.TargetFile), StringComparison.OrdinalIgnoreCase)) ?? "";
+                var looks = AreaLooks(db, fx, e.Donor, log);
+                if (looks.Count == 0) log.Add("area look: the other power puts down no area with a look of its own");
+                else if (pfile.Length == 0) log.Add("area look: this power's package wasn't built; left out");
+                else built[pfile] = AddAreaLooks(built[pfile], $"marvelgamecontent.default__{tp.TargetClass}".ToLowerInvariant(), looks, game.Cooked, log);
+            }
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
