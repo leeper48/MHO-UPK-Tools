@@ -38,6 +38,9 @@ static class ModSafety
         Check(m.Extra.Select(r => r.DdsFileName), InModFolder, "image");
         Check(m.AudioPacks, InModFolder, "sound pack");
         Check(m.Languages, LanguageCode, "language");
+        Check((m.DecalImages ?? []).Select(d => d.Image), InModFolder, "decal image");
+        Check((m.DecalImages ?? []).Select(d => d.Package), GameFileName, "decal package");
+        Check((m.DecalColors ?? []).Select(d => d.Package), GameFileName, "decal package");
         foreach (string? key in new[] { m.CardPicture, m.PreviewImage })
             if (key != null && key.StartsWith(ModPictures.Prefix, StringComparison.OrdinalIgnoreCase) && !InModFolder(key[ModPictures.Prefix.Length..]))
                 p.Add($"picture \"{key}\"");

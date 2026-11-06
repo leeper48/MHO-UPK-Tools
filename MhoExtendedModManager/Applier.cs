@@ -55,7 +55,9 @@ static class Applier
         // an edit or update, or a mod folder deleted by hand. It goes back to the original like a mod turned off; before
         // 0.37.72 it stayed changed for good (Kurt's Ms. Marvel power colors after Blue Marvel lost them).
         var named = lib.Mods.SelectMany(m => m.Manifest.UpkReplacements).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var leftOver = WrittenBefore(game).Where(f => !named.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // (MarvelGame.upk is FreeCam Options's: it writes it on top of Freecam and puts Freecam's back on Remove; Apply only
+        // manages it when a mod names it, or every Apply would undo the camera.)
+        var leftOver = WrittenBefore(game).Where(f => !named.Contains(f) && !f.Equals(FreeCam.FreeCamBuddy.File, StringComparison.OrdinalIgnoreCase) && !FreeCam.HudLabels.Owns(game.Root, f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var managed = named.Concat(leftOver).Where(f => !icons.Contains(f)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
         foreach (string file in managed)
         {
@@ -70,6 +72,8 @@ static class Applier
                 if (game.IsStock(file) != true) problems.Add($"{file}: should be stock again, but no clean original is available");
                 continue;
             }
+            // FreeCam Options built on top of this mod's Freecam MarvelGame.upk: left as it is (FreeCamBuddy.KeepsOver)
+            if (mod != null && (FreeCam.FreeCamBuddy.KeepsOver(game.Root, file, source) || FreeCam.HudLabels.KeepsOver(game.Root, file, source))) { upToDate++; continue; }
             uint want = game.Crc(source);
             // In step with the list: recorded as the state this app saw it in (Ledger).
             if (game.Crc(live) == want) { upToDate++; ledger.Set(file, want); continue; }

@@ -33,6 +33,11 @@ static class WhatsNew
     public static bool Summons => SummonsReleased || Settings.Load().PreviewFeatures;
     public const bool SummonsReleased = true;   // (Kurt, 2026-10-28: released with the props)
 
+    /// <summary>The FreeCam Options tab (options on top of Marvel Heroes FreeCam by MichaelMerc; started 2026-11-06): in
+    /// development, only with "PreviewFeatures": true. Releasing it: set this, add the changelog lines and a notice.</summary>
+    public static bool FreeCamTab => FreeCamTabReleased || Settings.Load().PreviewFeatures;
+    public const bool FreeCamTabReleased = true;
+
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
 
     static readonly string nl = Environment.NewLine;
@@ -41,10 +46,39 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.386 (Kurt, 2026-11-05): Borrow Power released; faster 3D views (pants on a tiger).</summary>
     /// <summary>0.60.388 (Kurt, 2026-11-06): costume moves onto team-ups are easy to find; the Move window's Name in Game.</summary>
+    static Notice FreeCamOptions() => new(
+        "0.60.426-freecam", "0.60.426",
+        "[!]New: FreeCam Options tab" + nl +
+        "  • Options on top of Marvel Heroes FreeCam (M.H.F.C.) by Michael (MichaelMerc on Nexus). It needs his mod installed with its Full option; the tab links to its Nexus page when it's missing." + nl +
+        "  • Camera Mode (F8): Free Orbit → Behind (the camera follows the way your hero faces) → Isometric (the game's own view)." + nl +
+        "  • Snap Behind (F4) and Selfie (F3): the camera jumps behind your hero, or in front facing them, with its own tilt, height and zoom." + nl +
+        "  • Keyboard keys and gamepad buttons of your choice; actions can share a button with a short, long or double press." + nl +
+        "  • Invert Y, more mouse-wheel zoom past the game's closest and farthest steps, tilt limits and orbit speed." + nl + nl +
+        "[!]Overhead labels" + nl +
+        "  • Hide Names, Hide Titles and Hide Guild Names take that text off the labels over characters. Health bars and markers stay." + nl + nl +
+        "[!]Also" + nl +
+        "  • Apply to Game changes only the game's own MarvelGame.upk (and MarvelHUD_SF.upk for labels) and your key settings; Remove puts Freecam's file and the labels back exactly as they were." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "freecam");
+
+    static Notice DecalsAndFixes() => new(
+        "0.60.426-decals", "0.60.426",
+        "[!]New: marks on the ground" + nl +
+        "  • A power's ground decals (Luke Cage's \"CAGE\", scorch marks, cracks) are on the Powers tab's Parts list as Decal. Untick one to switch it off." + nl +
+        "  • The ✎ beside it sets its color, or opens its image in your image editor (GIMP …): each save there shows in the 3D view at once. You can also replace or export it." + nl + nl +
+        "[!]Also" + nl +
+        "  • Install Mod takes a game package (.upk) on its own and makes it a mod." + nl +
+        "  • Model tab → Effects: effect models are named by the power that uses them." + nl +
+        "  • Fixed: a Voice Shift was lost when the mod also borrowed a power for the same hero. Saving such a mod once puts it back." + nl +
+        "  • Fixed: power previews showed characters a power only checks for (Misty Knight on Cage Was Here)." + nl +
+        "  • 3D views: shiny armor no longer turns white in strong reflections." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-decals");
+
     static Notice PetMoves() => new(
         "0.60.407-pet-moves", "0.60.407",
         "[!]New: any costume as a pet" + nl +

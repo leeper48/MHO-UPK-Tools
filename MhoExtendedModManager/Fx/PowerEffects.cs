@@ -38,6 +38,67 @@ sealed class PowerEffects
     public sealed record Decal(string Name, Gui.ModelView.Map? Tex, bool Additive, float W, float H, Vector3 Shift, bool RandomRotation, float Offset, string Point, string Kind)
     {
         public string? TriggeredBy { get; init; }
+        /// <summary>A decal drawn as the game blends it (Kurt, 2026-11-06: Cage Was Here's showed as a white square): the
+        /// darkening image (white = none, dark = darker ground), and a glow image added on top in the decal's color.</summary>
+        public Gui.ModelView.Map? Shade { get; init; }
+        public Gui.ModelView.Map? Glow { get; init; }
+        public Vector3 GlowColor { get; init; } = Vector3.One;
+    }
+
+    static readonly Dictionary<string, Gui.ModelView.Map?> shades = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The editor's decal images and colors not saved yet (Kurt, 2026-11-06: an edit taken in from GIMP didn't show):
+    /// (package file, texture path) → the image file; (package file, decal part path) → the color. Null: none.</summary>
+    public static Func<string, string, string?>? DecalImageFor { get; set; }
+    public static Func<string, string, Vector3?>? DecalColorFor { get; set; }
+
+    /// <summary>An image file's pixels as BGRA (top row first), or null.</summary>
+    static (byte[] Bgra, int W, int H)? Pixels(string png)
+    {
+        try
+        {
+            using var src = new System.Drawing.Bitmap(png);
+            using var bmp = src.Clone(new System.Drawing.Rectangle(0, 0, src.Width, src.Height), System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var data = bmp.LockBits(new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var o = new byte[bmp.Width * bmp.Height * 4];
+            for (int y = 0; y < bmp.Height; y++) System.Runtime.InteropServices.Marshal.Copy(data.Scan0 + y * data.Stride, o, y * bmp.Width * 4, bmp.Width * 4);
+            bmp.UnlockBits(data);
+            return (o, bmp.Width, bmp.Height);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or System.Runtime.InteropServices.ExternalException) { return null; }
+    }
+
+    /// <summary>Darkening mask from BGRA: white texels see-through, dark ones opaque (times the image's own alpha).</summary>
+    static Gui.ModelView.Map ShadeMap(byte[] bgra, int w, int h)
+    {
+        var o = new byte[bgra.Length];
+        for (int n = 0; n < bgra.Length; n += 4)
+        {
+            float lum = (bgra[n] * 0.114f + bgra[n + 1] * 0.587f + bgra[n + 2] * 0.299f) / 255f;
+            o[n] = o[n + 1] = o[n + 2] = 255;
+            o[n + 3] = (byte)Math.Clamp((1 - lum) * bgra[n + 3], 0, 255);
+        }
+        return new Gui.ModelView.Map(o, w, h);
+    }
+
+    /// <summary>A decal's darkening image as an alpha mask: white texels see-through, dark ones opaque (times the image's own
+    /// alpha), from its largest size (the game's texture cache too). Cached by file, texture and the file's date.</summary>
+    static Gui.ModelView.Map? ShadeOf(string file, string texture, string? cooked)
+    {
+        string key = file + "|" + texture + "|" + File.GetLastWriteTimeUtc(file).Ticks;
+        lock (shades) if (shades.TryGetValue(key, out var have)) return have;
+        Gui.ModelView.Map? map = null;
+        try
+        {
+            var pkg = MhoPackageModifier.Package.Open(file);
+            int i = MhoExtendedModManager.DecalImages.Resolve(pkg, texture);
+            if (i >= 0 && MhoPackageModifier.TextureExport.ReadBestMip(pkg, i, out _, cooked) is { } mip
+                && MhoPackageModifier.TextureDecode.ToBgra(mip.Format, mip.Width, mip.Height, mip.Pixels, out _) is { } bgra)
+                map = ShadeMap(bgra, mip.Width, mip.Height);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException or IndexOutOfRangeException) { }
+        lock (shades) shades[key] = map;
+        return map;
     }
 
     /// <summary>A power showing / hiding a weapon slot of the hero while it runs (PowerFxMeshAttachment).</summary>
@@ -522,8 +583,31 @@ sealed class PowerEffects
             try { look = tex.ParticleMaterial(p, mat, false); } catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentException or IOException) { }
             var shift = P("OffsetVector") is { Size: 12 } ov ? new Vector3(BitConverter.ToSingle(p.Bytes, ov.ValueAt), BitConverter.ToSingle(p.Bytes, ov.ValueAt + 4), BitConverter.ToSingle(p.Bytes, ov.ValueAt + 8)) : Vector3.Zero;
             string kind = cname.StartsWith("Entity", StringComparison.OrdinalIgnoreCase) ? "entity" : cname.StartsWith("Projectile", StringComparison.OrdinalIgnoreCase) ? "projectile" : "power";
+            // its layers as the game blends them: a darkening image and a glow in the decal's color (the material's own images:
+            // the mod's copy of the package when it has one, so an edited image or color shows once saved)
+            Gui.ModelView.Map? shade = null, glowMap = null; Vector3 glowColor = Vector3.One;
+            if (mat > 0 && g.FileFor(p.Name) is string decalFile)
+                try
+                {
+                    string matPath = p.T.PathOf(mat);
+                    foreach (string tp in MhoExtendedModManager.DecalImages.Textures(decalFile, matPath))
+                    {
+                        // (an image the editor has taken in but not saved: that one)
+                        var edited = DecalImageFor?.Invoke(p.Name, tp) is string png ? Pixels(png) : null;
+                        if (tp.Contains("glow", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (glowMap != null) continue;
+                            if (edited is { } ep) glowMap = new Gui.ModelView.Map(ep.Bgra, ep.W, ep.H);
+                            else if (p.Find(tp) is int gi && gi >= 0) glowMap = tex.Texture(p, gi);
+                        }
+                        else shade ??= edited is { } sp0 ? ShadeMap(sp0.Bgra, sp0.W, sp0.H) : ShadeOf(decalFile, tp, g.Cooked);
+                    }
+                    glowColor = DecalColorFor?.Invoke(p.Name, epath) is Vector3 ec ? ec : MhoExtendedModManager.DecalImages.CurrentColor(decalFile, matPath) ?? Vector3.One;
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException or IndexOutOfRangeException) { }
             fx.Decals.Add(new Decal(name, look.Tex, look.Additive, Fl("Width", 100), Fl("Height", 100), shift, P("RandomRotation") is { } rr && p.Bytes[rr.ValueAt] != 0,
-                Fl("ActivationOffset", 0), Pt("ActivationPoint", g.DefaultActivationPoint(cname)), kind));
+                Fl("ActivationOffset", 0), Pt("ActivationPoint", g.DefaultActivationPoint(cname)), kind) { Shade = shade, Glow = glowMap, GlowColor = glowColor });
+            if (Environment.GetEnvironmentVariable("MHO_FXDEBUG") == "1") Console.WriteLine($"decal {name}: shade {(shade != null ? $"{shade.W}x{shade.H}" : "none")}, glow {(glowMap != null ? $"{glowMap.W}x{glowMap.H}" : "none")}, color {glowColor}");
             return true;
         }
         if ((cname.StartsWith("PowerFxAnimatedActor", StringComparison.OrdinalIgnoreCase) || cname.StartsWith("EntityFxAnimatedActor", StringComparison.OrdinalIgnoreCase))
@@ -1333,8 +1417,19 @@ sealed class PowerEffects
             foreach (var (d, rot) in decals)
             {
                 float left = endedAt < 0 ? 9 : endedAt + 1.5f - time;
-                if (left <= 0 || d.Tex == null) continue;
+                if (left <= 0 || d.Tex == null && d.Shade == null && d.Glow == null) continue;
                 var pos = target + d.Shift + new Vector3(0, 0, 1);
+                float fade = Math.Min(1, left / 0.5f);
+                if (d.Shade != null || d.Glow != null)
+                {
+                    if (d.Shade != null)
+                        list.Add(new Gui.ModelView.FxQuad(pos, new Vector2(d.W, d.H), rot, new Vector4(0.04f, 0.04f, 0.04f, fade), Tex(d.Shade), 1, 1, 0, 0, false, false, Vector3.Zero)
+                            { PlaneRight = Vector3.UnitX, PlaneUp = Vector3.UnitY, KeepPlane = true });
+                    if (d.Glow != null)
+                        list.Add(new Gui.ModelView.FxQuad(pos + new Vector3(0, 0, 0.5f), new Vector2(d.W, d.H), rot, new Vector4(d.GlowColor, fade), Tex(d.Glow), 1, 1, 0, 0, false, true, Vector3.Zero)
+                            { PlaneRight = Vector3.UnitX, PlaneUp = Vector3.UnitY, KeepPlane = true });
+                    continue;
+                }
                 list.Add(new Gui.ModelView.FxQuad(pos, new Vector2(d.W, d.H), rot, new Vector4(1, 1, 1, Math.Min(1, left / 0.5f)), Tex(d.Tex), 1, 1, 0, 0, false, d.Additive, Vector3.Zero)
                     { PlaneRight = Vector3.UnitX, PlaneUp = Vector3.UnitY, KeepPlane = true });
             }

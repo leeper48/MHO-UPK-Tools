@@ -830,6 +830,31 @@ sealed partial class ModEditorView
         }
     }
 
+    /// <summary>
+    /// After the other package steps of Save: every package with a Voice Shift whose voice set no longer points at the shifted
+    /// lines gets the shift built again on the package as it is now (Kurt, 2026-11-06, a user's Thanos on Luke Cage: Save shifts
+    /// the voice first, then a borrowed power rebuilds the hero's base package from its copy from before the borrow, and the
+    /// shift was gone: the pack had the shifted sounds, the voice set played the originals). The pack's encoded lines are reused.
+    /// </summary>
+    void KeepVoiceShifts(List<string> log)
+    {
+        if (game == null) return;
+        foreach (var entry in draft.VoiceShifts.ToList())
+        {
+            string file = entry.Package;
+            if (draft.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source is not string source || !File.Exists(source)) continue;
+            if (!entry.Any && entry.Replaced is not { Count: > 0 } && entry.Lines is not { Count: > 0 }) continue;
+            var lines = VoiceSet.Read(file, source, draft.VoiceOff).Where(l => l.Sound && !l.Off).ToList();
+            if (lines.Count == 0 || lines.Any(l => l.Event.EndsWith(VoiceShiftBuild.Suffix, StringComparison.OrdinalIgnoreCase))) continue;
+            string? earlier = draft.SoundPacks.FirstOrDefault(x => Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase));
+            var packs = draft.SoundPacks.Where(x => !Path.GetFileName(x).Equals(VoiceShiftBuild.PackName(file), StringComparison.OrdinalIgnoreCase)).ToList();
+            voiceWork ??= Path.Combine(lib.DataFolder, "voice-work-" + Guid.NewGuid().ToString("N")[..8]);
+            var (pkg, pack, said) = VoiceShiftBuild.Build(source, file, draft.VoiceOff.ToList(), packs, game.Cooked, entry, Path.Combine(voiceWork, Guid.NewGuid().ToString("N")[..6]), null, null, earlier);
+            PutVoiceBuild(file, entry, pkg, pack);
+            log.Add($"{file}: the voice shift put back (a later step had rebuilt the package without it): {said[0]}");
+        }
+    }
+
     /// <summary>Remove Shift: the voice set back at the original lines, the shift's sound pack out (one package's, else all).</summary>
     void RemoveShift(string? only = null)
     {

@@ -1,6 +1,23 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.426
+- New FreeCam Options tab: options on top of Marvel Heroes FreeCam (M.H.F.C.) by Michael (MichaelMerc on Nexus); needs his mod installed with its Full option, and links to its Nexus page when it's missing.
+- Camera Mode key and button: Free Orbit, Behind (follows the way your hero faces) and Isometric (the game's own view).
+- Snap Behind and Selfie: the camera jumps behind your hero or in front facing them, each with its own tilt, height and zoom (or keeps the current zoom).
+- Keys and gamepad buttons of your choice; actions can share a button with a short, long (1 second) or double press.
+- Invert Y (off by default), more mouse-wheel zoom past the game's closest and farthest steps, tilt limits and orbit speed.
+- Overhead Labels: Hide Names, Hide Titles and Hide Guild Names take that text off the labels over characters.
+- Apply to Game changes only the game's own MarvelGame.upk and MarvelHUD_SF.upk and your key settings; Remove puts them back exactly as they were.
+- Ground decals: a power's marks on the ground (Luke Cage's "CAGE" from Cage Was Here, scorch marks, cracks) are on the Powers tab's Parts list as Decal. The ✎ beside one sets its color (its glow and fade keep their brightness) and, per image, opens it in your image editor (each save there is taken in and shows in the 3D view at once), replaces it with your own image, exports it, or puts the game's back. Untick it to switch it off. Save writes them into the power's package; the images travel with the mod.
+- Power Colors also tint a power's decal glow and its fade.
+- The 3D view draws ground decals as the game blends them (a darkening layer and a glow in the decal's color), with your unsaved changes.
+- Model tab: effect models are named by the power that uses them ("Cage Was Here · Chainfist Wrist"), grouped by power, and the filter finds them by power name.
+- Install Mod (and drag and drop) take a game package (.upk) on its own, or an archive or folder of them without a manifest, and make it a mod. Only the game's own package names are taken.
+- Fix: a Voice Shift was lost when the mod also borrowed a power for the same hero (Save rebuilt the hero's package without it; the voice played unshifted in game). Save keeps it now; saving such a mod once puts it back.
+- Fix: power previews showed characters a power only checks for (Luke Cage's Cage Was Here showed Misty Knight, whom only a talent brings).
+- 3D views: strong reflections no longer turn shiny armor white (blended, not added on).
+
 0.60.407
 - Move to a Pet: a costume's Costume menu has Pet under Team-Up. Pick one of the game's vanity pets and it takes the costume's model with its idle, run and fidgets, the costume icon as the pet's item icon and the hero portrait as its store image. Full Size keeps the hero's size (most pets are shrunk), and Name in Game sets the pet's name. The costume and the pet can both be on.
 - Move to Another Pet: right-click a pet mod to put that pet on another of the game's pets, with its own skeleton and animations (a four-legged pet stays four-legged on a two-legged one).

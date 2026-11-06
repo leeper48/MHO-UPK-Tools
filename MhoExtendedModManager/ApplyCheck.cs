@@ -40,6 +40,8 @@ static class ApplyCheck
             {
                 if (managed.Contains(f.Name) || !game.IsStockName(f.Name) || f.Name.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
                 if (game.IsStock(f.Name) != false) continue;   // re-dated but the game's own
+                // Freecam's (or FreeCam Options's) camera package: changed on purpose by that mod's installer / the FreeCam Options tab
+                if (f.Name.Equals(FreeCam.FreeCamBuddy.File, StringComparison.OrdinalIgnoreCase) && FreeCam.FreeCamBuddy.IsCameraMod(game.Root)) continue;
                 unexpected.Add((f.Name, originals.Find(f.Name) != null));
             }
         return unexpected;

@@ -328,6 +328,14 @@ sealed partial class ModEditorView : UserControl
             foreach (string? w in new[] { work, powerWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
             Dialog.Show(this, "The parts couldn't be switched off: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
+        // ground decal images (after the colors and parts above, which rebuild their packages)
+        string? decalsWork;
+        try { decalsWork = ApplyDecalImages(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            foreach (string? w in new[] { work, powerWork, partsWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+            Dialog.Show(this, "The decal images couldn't be put in: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         // (last of the package steps: the colors and borrows above build power packages from the game's)
         string? soundsWork;
         try { soundsWork = ApplyPowerSounds(powerLog); }
@@ -342,6 +350,13 @@ sealed partial class ModEditorView : UserControl
         {
             foreach (string? w in new[] { work, powerWork, partsWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
             Dialog.Show(this, "The voice components couldn't be put right: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
+        // the voice shift kept (a borrow above rebuilt the hero's base package from its copy from before the borrow)
+        try { KeepVoiceShifts(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            foreach (string? w in new[] { work, powerWork, partsWork }) if (w != null) try { Directory.Delete(w, true); } catch (IOException) { }
+            Dialog.Show(this, "The voice shift couldn't be kept: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
         string? uniqueWork;
         try { uniqueWork = MakeDraftUnique(powerLog); }
@@ -361,6 +376,7 @@ sealed partial class ModEditorView : UserControl
         if (voiceWork != null) try { Directory.Delete(voiceWork, true); } catch (IOException) { }
         if (propsWork != null) try { Directory.Delete(propsWork, true); } catch (IOException) { }
         if (soundsWork != null) try { Directory.Delete(soundsWork, true); } catch (IOException) { }
+        if (decalsWork != null) try { Directory.Delete(decalsWork, true); } catch (IOException) { }
         if (saved != null)
         {
             soundWavs.Clear();   // (their audio is in the mod's pack now)

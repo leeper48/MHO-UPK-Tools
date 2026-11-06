@@ -408,6 +408,23 @@ static class PowerRecolor
                 W(body, at, r.X); W(body, at + 4, r.Y); W(body, at + 8, r.Z);
                 tinted.Add(i);
             }
+            // a time-varying instance's color curves (a decal's fade): each point's color, and its tangents so the fade keeps its
+            // shape (the recolored point plus tangent, less the recolored point)
+            foreach (var (outAt, arrAt, leaveAt) in CurveColors(body, t, i))
+            {
+                var v = new Vector3(F(body, outAt), F(body, outAt + 4), F(body, outAt + 8));
+                var r = color.Apply(v);
+                foreach (int tanAt in new[] { arrAt, leaveAt })
+                {
+                    if (tanAt < 0) continue;
+                    var tan = new Vector3(F(body, tanAt), F(body, tanAt + 4), F(body, tanAt + 8));
+                    if (tan == Vector3.Zero) continue;
+                    var nt = color.Apply(v + tan) - r;
+                    W(body, tanAt, nt.X); W(body, tanAt + 4, nt.Y); W(body, tanAt + 8, nt.Z);
+                }
+                W(body, outAt, r.X); W(body, outAt + 4, r.Y); W(body, outAt + 8, r.Z);
+                tinted.Add(i);
+            }
         }
         log($"{tables} particle color table(s) and {objects} color value(s) recolored" + (left > 0 ? $"; {left} curve(s) left as they are" : "") +
             (tinted.Count > 0 ? $"; {tinted.Count} material instance(s)' color parameters" : ""));
@@ -660,6 +677,43 @@ static class PowerRecolor
             if (el.FirstOrDefault(x => x.Name.Equals("ParameterValue", StringComparison.OrdinalIgnoreCase)) is { Size: 16 } pv) o.Add((name, pv.ValueAt));
             var last = el[^1];
             at = last.ValueAt + (last.Type.Equals("BoolProperty", StringComparison.OrdinalIgnoreCase) ? 1 : last.Size) + 8;   // past its None
+        }
+        return o;
+    }
+
+    /// <summary>
+    /// A time-varying material instance's color curves (Kurt, 2026-11-06: Luke Cage's "CAGE" decal kept its orange under the
+    /// power's color: its MaterialInstanceTimeVarying fades the color over 8 seconds with a curve, which the game plays instead of
+    /// the plain ParameterValue). Each VectorParameterValues element's ParameterValueCurve (InterpCurveVector): every point's
+    /// OutVal, ArriveTangent and LeaveTangent (Vector: 3 floats), where they sit in the body (-1 when a point has none).
+    /// </summary>
+    public static List<(int Out, int Arrive, int Leave)> CurveColors(byte[] b, FxTables t, int export)
+    {
+        var o = new List<(int, int, int)>();
+        var arr = FxProps.Find(b, t, t.Exports[export])?.Props.FirstOrDefault(x => x.Name.Equals("VectorParameterValues", StringComparison.OrdinalIgnoreCase));
+        if (arr == null || !arr.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)) return o;
+        int n = BitConverter.ToInt32(b, arr.ValueAt), at = arr.ValueAt + 4, end = arr.ValueAt + arr.Size;
+        for (int k = 0; k < n && at < end; k++)
+        {
+            var el = FxProps.TryRead(b, t, at, end);
+            if (el == null || el.Count == 0) break;
+            if (el.FirstOrDefault(x => x.Name.Equals("ParameterValueCurve", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase)) is { } curve
+                && FxProps.TryRead(b, t, curve.ValueAt, curve.ValueAt + curve.Size) is { } cprops
+                && cprops.FirstOrDefault(x => x.Name.Equals("Points", StringComparison.OrdinalIgnoreCase) && x.Type.Equals("ArrayProperty", StringComparison.OrdinalIgnoreCase)) is { } pts)
+            {
+                int pn = BitConverter.ToInt32(b, pts.ValueAt), pat = pts.ValueAt + 4, pend = pts.ValueAt + pts.Size;
+                for (int j = 0; j < pn && pat < pend; j++)
+                {
+                    var pt = FxProps.TryRead(b, t, pat, pend);
+                    if (pt == null || pt.Count == 0) break;
+                    int At(string name) => pt.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && x.Size == 12) is { } v ? v.ValueAt : -1;
+                    if (At("OutVal") is int outAt and >= 0) o.Add((outAt, At("ArriveTangent"), At("LeaveTangent")));
+                    var lastP = pt[^1];
+                    pat = lastP.ValueAt + (lastP.Type.Equals("BoolProperty", StringComparison.OrdinalIgnoreCase) ? 1 : lastP.Size) + 8;
+                }
+            }
+            var last = el[^1];
+            at = last.ValueAt + (last.Type.Equals("BoolProperty", StringComparison.OrdinalIgnoreCase) ? 1 : last.Size) + 8;
         }
         return o;
     }

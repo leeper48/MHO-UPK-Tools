@@ -316,7 +316,8 @@ static partial class Program
             var anim8 = new MeshAnimator(ld.Bones, ld.Positions, ld.Normals, ld.Influences, ld.Tangents);
             float frames = ba == null ? 0 : MeshAnimator.Span(ba).Frames;
             using var f = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000), Size = Environment.GetEnvironmentVariable("MHO_RENDER_SIZE") is string rs && rs.Split('x') is [var rw, var rh] ? new Size(int.Parse(rw), int.Parse(rh)) : new Size(420, 560), ShowInTaskbar = false };   // MHO_RENDER_SIZE=WxH: time frames at the preview's size
-            var v = new Gui.ModelView { Dock = DockStyle.Fill, Background = Gui.Ui.Card, ShowGround = Environment.GetEnvironmentVariable("MHO_RENDER_GROUND") == "1" };   // (MHO_RENDER_GROUND=1: the ground plane)
+            var v = new Gui.ModelView { Dock = DockStyle.Fill, Background = Gui.Ui.Card, ShowGround = Environment.GetEnvironmentVariable("MHO_RENDER_GROUND") == "1",
+                ShowSpec = Environment.GetEnvironmentVariable("MHO_RENDER_LOOK") is not string lk0 || !lk0.Contains("nospec"), ShowReflections = Environment.GetEnvironmentVariable("MHO_RENDER_LOOK") is not string lk1 || !lk1.Contains("norefl") };   // (MHO_RENDER_LOOK=nospec,norefl: those parts off)   // (MHO_RENDER_GROUND=1: the ground plane)
             f.Controls.Add(v);
             var shots = new List<Bitmap>();
             f.Shown += (_, _) => f.BeginInvoke(async () =>
@@ -837,6 +838,16 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 4 && args[0].Equals("--decal-save-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --decal-save-test <mod> <package> <png> (scratch MHO_EXTMM_HOME only): the package's first decal gets the image, saved.
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { Console.WriteLine(await main.DecalSaveTest(args[1], args[2], Path.GetFullPath(args[3]))); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--editor-save-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
@@ -844,6 +855,26 @@ static partial class Program
             var main = new Gui.MainForm();
             main.Shown += (_, _) => main.BeginInvoke(async () => { await main.EditorSaveTest(args[1]); main.Close(); });
             Application.Run(main);
+            return 0;
+        }
+        if (args.Length is 3 && args[0].Equals("--freecam-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // --freecam-snapshot <out.png> <game folder>: the FreeCam Options tab in an off-screen window (reads only).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Gui.Ui.UseDarkTheme();
+            string root = args[2];
+            using var form = new Form { StartPosition = FormStartPosition.Manual, Location = new Point(-30000, -30000), Size = new Size(2300, 1800), FormBorderStyle = FormBorderStyle.None, ShowInTaskbar = false, BackColor = Gui.Ui.Back, ForeColor = Gui.Ui.Text };
+            var view = new Gui.FreeCamView(() => root, () => []);
+            form.Controls.Add(view);
+            MhoPackageModifier.Gui.Theme.ApplyTree(form, MhoPackageModifier.Gui.Palette.Dark);
+            Gui.Ui.Restyle(form, view.Bars);
+            view.ApplyColors();
+            form.Show();
+            Application.DoEvents();
+            using var bmp = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+            form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.ClientSize));
+            bmp.Save(args[1]);
+            Console.WriteLine($"Saved {args[1]}. Missing tooltips: {string.Join(", ", Gui.Ui.MissingTips(view).DefaultIfEmpty("none"))}");
             return 0;
         }
         if (args.Length is 2 or 3 && args[0].Equals("--extract-snapshot", StringComparison.OrdinalIgnoreCase))

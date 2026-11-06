@@ -1617,6 +1617,82 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--decal-image":
+            {
+                // A power package's ground decals and their images (DecalImages). --decal-image <package.upk> <folder> [<out.upk>
+                // --tint]: each decal's images as PNG in the folder; with <out.upk> --tint, a copy with each image tinted green
+                // (a stand-in for an edit), read back. Never writes the game folder.
+                if (rest.Count < 3) { Console.WriteLine("--decal-image <package.upk> <folder> [<out.upk> --tint]"); return 1; }
+                string din = Path.GetFullPath(rest[1]), dir = Path.GetFullPath(rest[2]);
+                string? dgr = Settings.Load().ResolvedGameRoot(lib.DataFolder), dck = dgr != null ? Settings.Cooked(dgr) : null;
+                Directory.CreateDirectory(dir);
+                var images = new List<(string Texture, string Png)>();
+                foreach (var s in PowerParts.List(Path.GetFileName(din), din).Where(s => s.Kind == "Decal" && s.Original.Length > 0))
+                {
+                    var texs = DecalImages.Textures(din, s.Original);
+                    Console.WriteLine($"{s.Label}: {s.Original} → {texs.Count} image(s)");
+                    // its color: the instance's color values and its fade curve's points
+                    var cpk = MhoPackageModifier.Package.Open(din);
+                    int mi = DecalImages.Resolve(cpk, s.Original);
+                    if (mi >= 0 && cpk.ClassOf(cpk.Exports[mi]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var ct = new Fx.FxTables(cpk); byte[] cb = cpk.Body;
+                        string V(int at) => $"({BitConverter.ToSingle(cb, at):0.##}, {BitConverter.ToSingle(cb, at + 4):0.##}, {BitConverter.ToSingle(cb, at + 8):0.##})";
+                        foreach (var (pn, at) in PowerRecolor.VectorParameters(cb, ct, mi)) Console.WriteLine($"  color {pn}: {V(at)}");
+                        foreach (var (o, a, l) in PowerRecolor.CurveColors(cb, ct, mi)) Console.WriteLine($"  curve point {V(o)}" + (a >= 0 ? $" in {V(a)}" : "") + (l >= 0 ? $" out {V(l)}" : ""));
+                    }
+                    foreach (string t in texs)
+                    {
+                        string png = Path.Combine(dir, t[(t.LastIndexOf('.') + 1)..] + ".png");
+                        string? err = DecalImages.ExportPng(din, t, png, dck);
+                        Console.WriteLine($"  {t}: {(err ?? "saved " + png)}");
+                        if (err == null) images.Add((t, png));
+                    }
+                }
+                if (rest.Count > 3 && rest.Contains("--tint") && images.Count > 0)
+                {
+                    string dout = Path.GetFullPath(rest[3]);
+                    if (dck != null && dout.StartsWith(Path.GetFullPath(dck), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: that's the game folder"); return 1; }
+                    var tinted = new List<(string, string)>();
+                    foreach (var (t, png) in images)
+                    {
+                        string tp = Path.Combine(dir, Path.GetFileNameWithoutExtension(png) + "_tint.png");
+                        using (var b = new Bitmap(png))
+                        {
+                            for (int y = 0; y < b.Height; y++)
+                                for (int x = 0; x < b.Width; x++) { var c = b.GetPixel(x, y); b.SetPixel(x, y, Color.FromArgb(c.A, c.R / 4, Math.Max(c.G, c.R), c.B / 4)); }
+                            b.Save(tp, System.Drawing.Imaging.ImageFormat.Png);
+                        }
+                        tinted.Add((t, tp));
+                    }
+                    var dlog = new List<string>();
+                    File.WriteAllBytes(dout, DecalImages.Apply(din, tinted, dlog));
+                    foreach (var l in dlog) Console.WriteLine("  " + l);
+                    foreach (var (t, _) in images)
+                    {
+                        string back = Path.Combine(dir, t[(t.LastIndexOf('.') + 1)..] + "_readback.png");
+                        Console.WriteLine($"  read back {t}: {DecalImages.ExportPng(dout, t, back, dck) ?? back}");
+                    }
+                }
+                return 0;
+            }
+            case "--parts-off":
+            {
+                // Test: a copy of a package with switches off as the Powers tab's Parts does it (PowerParts.Apply).
+                // --parts-off <package.upk> <out.upk> <part name> [kind]. Never writes the game folder.
+                if (rest.Count < 4) { Console.WriteLine("--parts-off <package.upk> <out.upk> <part name> [kind]"); return 1; }
+                string pin = Path.GetFullPath(rest[1]), pout = Path.GetFullPath(rest[2]);
+                if (Settings.Load().ResolvedGameRoot(lib.DataFolder) is string pgr0 && pout.StartsWith(Path.GetFullPath(Settings.Cooked(pgr0)), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: that's the game folder"); return 1; }
+                var sws = PowerParts.List(Path.GetFileName(pin), pin).Where(s => s.PartName.Equals(rest[3], StringComparison.OrdinalIgnoreCase) && (rest.Count < 5 || s.Kind.Equals(rest[4], StringComparison.OrdinalIgnoreCase))).ToList();
+                if (sws.Count == 0) { Console.WriteLine("no such part"); return 1; }
+                var plog = new List<string>();
+                byte[] outBytes = PowerParts.Apply(pin, [.. sws.Select(s => (new PartOffEntry { Package = s.Package, Part = s.Part, Switch = s.Key, Original = s.Original }, true))], plog);
+                File.WriteAllBytes(pout, outBytes);
+                foreach (var l in plog) Console.WriteLine("  " + l);
+                foreach (var s in PowerParts.List(Path.GetFileName(pin), pout).Where(s => s.PartName.Equals(rest[3], StringComparison.OrdinalIgnoreCase)))
+                    Console.WriteLine($"  now: {s.Kind} {s.Label}: {(s.Original.Length > 0 ? s.Original : "none")}");
+                return 0;
+            }
             case "--power-null":
             {
                 // Test (2026-10-17, Invisible Woman's hover): a power or condition package with parts switched off from inside.

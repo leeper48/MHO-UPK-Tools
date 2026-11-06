@@ -186,7 +186,9 @@ static class PowerClosure
         // Tooltips and synergy formulas only describe (Big Foot's name Antnado); other evals can start things (Thor's
         // OdinforceMechanics starts its glow manager in EvalOnCreate). Talents are left out in Follow (talent checks name them).
         static bool Skip(string field) => field.StartsWith("Tooltip", StringComparison.OrdinalIgnoreCase) || field.Equals("EvalPowerSynergies", StringComparison.OrdinalIgnoreCase);
-        static bool EvalStruct(Calligraphy.Data x) => false;
+        // A condition only tests (Kurt, 2026-11-06: Luke Cage's Cage Was Here asks "is Misty Knight summoned?" before telling her to
+        // fire; the preview showed Misty, whom only a talent brings): what an Eval\Conditionals\ struct names isn't set off.
+        bool EvalStruct(Calligraphy.Data x) => x.Groups.Any(g => db.Blueprints.TryGetValue(g.Blueprint, out var bp) && bp.Path.Replace('/', '\\').StartsWith(@"Eval\Conditionals\", StringComparison.OrdinalIgnoreCase));
         foreach (var g in d.Groups)
         {
             foreach (var f in g.Simple)

@@ -122,6 +122,7 @@ function mhoNext(dir) {
 <li><a href="#voice">Voice Lines</a></li>
 <li><a href="#icons">Icons and Create from 3D</a></li>
 <li><a href="#extract">Extract</a></li>
+<li><a href="#freecam">FreeCam Options</a></li>
 <li><a href="#nexus">Nexus</a></li>
 <li><a href="#settings">Settings</a></li>
 <li><a href="#keys">Keyboard Shortcuts</a></li>
@@ -156,6 +157,7 @@ function mhoNext(dir) {
 <li><a href="#w-colors">Recolor a Hero's Powers</a></li>
 <li><a href="#w-dark">Make a Power Dark</a></li>
 <li><a href="#w-parts">Switch Off a Power's Sound, Effect or a Character's Hover</a></li>
+<li><a href="#w-decals">Change a Power's Mark on the Ground (Luke Cage's "CAGE")</a></li>
 <li><a href="#w-borrow">Borrow Another Hero's Power</a></li>
 <li><a href="#w-anims">Give a Costume Another Character's Animations</a></li>
 <li><a href="#w-height">Raise or Lower the Body During an Animation</a></li>
@@ -175,6 +177,7 @@ function mhoNext(dir) {
 <li><a href="#w-materials">Choose How Each Part of a Model Looks in Game</a></li>
 <li><a href="#w-matcopy">Give a Costume Another Costume's Material Setup</a></li>
 <li><a href="#w-modded">Use a Modded Costume as the Source</a></li>
+<li><a href="#w-freecam">Set Up the Camera with FreeCam Options</a></li>
 <li><a href="#w-layout">Fit the App to Your Screen</a></li>
 <li><a href="#w-nexus">Update Your Mods from Nexus</a></li>
 <li><a href="#w-share">Share Your Mod</a></li>
@@ -184,7 +187,7 @@ function mhoNext(dir) {
 <h3 id="w-install">Install a Mod and Put It in the Game</h3>
 <ol class="steps">
 <li>Download the mod (a .zip, .7z or .rar). Close the game.</li>
-<li>Click <b>Install Mod</b> (the download arrow at the top left), or drag the archive onto the window. The mod appears at the top of the list, turned off. (Mods for the older MH Texture Manager, a .json and a .tfc, are converted into ordinary mods as they're installed.)</li>
+<li>Click <b>Install Mod</b> (the download arrow at the top left), or drag the archive onto the window. The mod appears at the top of the list, turned off. (Mods for the older MH Texture Manager, a .json and a .tfc, are converted into ordinary mods as they're installed.) A game package on its own (a .upk, or an archive or folder of them with no manifest.json) becomes a mod named after it; only the game's own package names are taken.</li>
 <li>Tick its checkbox. The status line at the bottom now says how many game files will change.</li>
 <li>Click <b>Apply Changes</b> at the bottom right (or press <kbd>Ctrl+Enter</kbd>). A window lists what will be written; click <b>Apply</b>. When it closes, the mod is in the game. Tick <b>Don't Ask Again</b> beside the buttons to skip this window from then on: Apply Changes writes right away and the status line says how it went. If the checks found something, the status line says so; click it to open the window with the details. Only an apply that stops shows a window. <b>Settings → Ask Before Applying</b> (or unticking the box) turns the window back on.</li>
 <li>To take it out again: untick it and Apply Changes. The game's original files go back.</li>
@@ -388,6 +391,18 @@ function mhoNext(dir) {
 <li>The <b>Parts</b> tab lists what it shows and plays: <b>Settings</b> (such as <b>Can Transition to Hover</b>), <b>Attachments</b> (props such as Invisible Woman's disc), <b>Effects</b> (▶ shows one in the 3D view over the idle: <b>Dodge Effect</b> shows the dodge's ghosts) and <b>Sounds</b> (▶ plays one). Untick the ones to switch off.</li>
 <li>A power's own effects play alone with ▶, on the character as the power shows it (Unleash the Phoenix: on her Phoenix form, with the wings). Pick the power again for all of them.</li>
 <li>Save Changes, then Apply Changes.</li>
+</ol>
+<h3 id="w-decals">Change a Power's Mark on the Ground (Luke Cage's "CAGE")</h3>
+<ol class="steps">
+<li>Make a mod with the power's package (<b>Packages</b> → <b>Add .UPK Files</b>: Cage Was Here is <i>UC__PowerLukeCage_PunchTheGround_SF.upk</i>), or open a mod that has the hero's costume, and go to <b>Powers</b>. Pick the power.</li>
+<li>On <b>Parts</b>, the power's marks on the ground are listed as <b>Decal</b>. Untick one to switch it off.</li>
+<li>Click <b>✎</b> beside it:
+<ul>
+<li><b>Decal Color</b>: pick a color. The mark's glow and fade keep their own brightness. <b>Game's Color</b> puts the game's back.</li>
+<li>For each of its images: <b>Edit in &lt;your image editor&gt;</b> opens it as a PNG in the program Windows uses for PNGs, such as GIMP. Each time you save it there, the 3D view shows the change. <b>Replace</b> uses an image file of your own, <b>Export</b> saves the game's image, and <b>Back to the Game's Image</b> forgets your change.</li>
+</ul></li>
+<li>Play the power in the 3D view. The mark is drawn the way the game blends it (a darker layer plus a glow in its color), with your changes.</li>
+<li>Save Changes, then Apply Changes. The images are kept in the mod's <i>Decals</i> folder and travel with it. Power Colors also tint a decal's glow and fade.</li>
 </ol>
 <p><b>Dodge ghosts from your model:</b> many heroes leave ghost copies of themselves when they dodge (54 of 66). The <b>Dodge</b> tile after <b>Char</b> in the power bar goes straight there (Parts, with the dodge playing; the hero's other own effects, such as level-up, get tiles of their own too). <b>Parts</b> shows <b>Dodge Ghosts</b> under the list: <b>Make Them From This Model</b> makes them from the mod's model, at the character's own size and where it stands: each in the hero's combat idle, leaning 10° another way (forward, back, left, right) to look like it's moving. <b>Lean ▾</b> changes a ghost's lean, and the <b>Lean</b> slider how far they all lean (10° at first). To choose a ghost's pose, select it, pick an animation in the preview and drag <b>Frame</b> to the moment you want, then <b>Use This Pose</b>; <b>Automatic</b> takes that ghost back to its automatic pose. <b>Show Pose</b> (or a double-click on a row) takes the preview to a ghost's animation and frame. <b>Exact Size, on the Ground</b> (on) undoes the effect's own 1.1× size and 5-unit drop, so the ghosts stand on the ground at the character's size; Look ▾ → <b>Ground</b> shows the floor (a grid of hexagons, 50 units across) to check it. For a high-flying travel power (a flight, a sky ride), the floor sits where the game puts it, by the game's own rule: nothing until the power applies (its wind-up times its contact point: Hawkeye 0.26 s after activation, most flights 0.75 s), then it drops away in a straight line at the hero's climb speed (Hawkeye 170 units a second, Thor and Spider-Man 300, Green Goblin 140, Kitty Pryde 100, everyone else 600) to the flying height of 140, where it stays through the loop; it comes back at 600 a second during the end. The game plays the power's start animation over the wind-up (0.75 s), whatever its own length, then the loop, and the 3D view does the same (the <b>Chain</b> button beside Loop plays the start, the loop and the end one after another, to see the handovers; right-click it for how many times the loop plays, twice at first; pick any part to begin there; with Loop on the chain starts over, else it stops on the end's last frame; <b>◀</b> and <b>▶</b> on either side of the frame slider step to the previous or next part, from its first frame, playing or paused as it was, and go round: past the end back to the start); if the climb isn't finished by then (Hawkeye climbs slowly), the loop's first play continues it, so its first moments sit a little low, as in game. A ground animation borrowed onto a high-flying power has its start lowered by exactly the lift on that clock, so the hero stays on the floor through the wind-up. On the Animations tab, the <b>Height</b> panel under the 3D view puts a power's start, loop and end side by side on one strip, each as wide as it plays in game and each with its own height keys. The blue <b>Feet</b> line is the body's lowest point above the game's floor with the keys applied (the loop as its first play after the start): bring it to the middle line to put the feet on the floor. For a borrowed high-flying power the panel also has <b>Climb Speed</b>, how fast the game lifts the hero: his own from the game until you change it, the round arrow (<b>Game's Climb Speed</b>) puts it back, and the arrow onto the floor (<b>Stabilize Ground Contact</b>) picks the slowest speed that has him fully up when the loop starts (the dip there can't be keyed away, because the loop repeats). The note beside it says when he's fully up against when the loop starts, and where the feet are when the loop takes over. The build writes the speed into the hero's base package (one the borrow ships already), so it applies to every flying power of that hero, in every costume, while the mod is on; it lowers the borrowed start to match, and the 3D view and the Feet line follow it. When the donor has no end animation of its own (Captain America's run has only a start and a loop) the panel has an <b>End</b> choice: <b>Nothing Borrowed</b> plays what the power has (a Sky-Cycle's own end), <b>The Donor's Loop, Landing</b> plays the borrowed loop once more as the end, lowered by the game's landing (down from the flying height at the hero's landing speed, 600 units a second, about 0.23 s), so the feet stay on the floor; it then has its own End part on the strip, and Chain plays it after the loop. The usual order: borrow the power, Stabilize Ground Contact, choose the End, then key the body for the look. On the Powers tab, <b>Climb and Height</b> under the borrowed look opens this panel. Right-click <b>Head</b>, <b>Bust</b> or <b>Full Body</b> under any 3D view to <b>Lock View</b> to the head, torso or body: the camera then follows that part while the animation plays, in every pane of the quad view, so a lowered or moving animation stays on screen (turning and zooming still work). The locked button has a blue border; right-click it again to unlock. <kbd>Shift</kbd>+click on the button does the same: it locks the view to that part, and unlocks it on the next Shift+click. The preview shows the ghosts at once (▶ on Dodge Effect plays them), and the Color tab recolors them. Save writes them into the hero's package, so every costume of the hero shows them. <b>Game's Ghosts</b> puts the game's back.</p>
 <figure><img src="img/editor-dodge-ghosts.jpg" alt="The Dodge tile: Captain Carter's dodge ghosts made from her model, each in the combat idle leaning another way, with Use This Pose, Show Pose, Automatic, Game's Ghosts, Exact Size, on the Ground and the Lean slider."><figcaption>The Dodge tile: Captain Carter's dodge ghosts made from her model, each in the combat idle leaning another way, with Use This Pose, Show Pose, Automatic, Game's Ghosts, Exact Size, on the Ground and the Lean slider.</figcaption></figure>
@@ -655,7 +670,7 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <div class="walk">
 <h3 id="w-effects">Change a Power's Effect Models (Squirrel Girl's Falling Squirrels)</h3>
 <ol class="steps">
-<li>On the Model tab, click the <b>Effects</b> tab at the top left (beside <b>Characters</b>). The list shows each hero's effect models: the meshes their powers draw as particles or carry on a projectile (It's Raining Rodents' falling squirrels, Squirrelpocalypse's squirrels, acorns, mines …). Filter by name or hero.</li>
+<li>On the Model tab, click the <b>Effects</b> tab at the top left (beside <b>Characters</b>). The list shows each hero's effect models: the meshes their powers draw as particles or carry on a projectile (It's Raining Rodents' falling squirrels, Squirrelpocalypse's squirrels, acorns, mines …), grouped and named by the power that uses them (<i>Cage Was Here · Chainfist Wrist</i>). Filter by name, power or hero.</li>
 <li>Pick one: the preview shows it, and <b>Packages</b> lists every package that holds a copy of it under the same path (the game shows whichever it loads first). The ticked ones are built: every power, hotspot, projectile and condition package, and the hero's own packages (Hulk's asteroid is in his own package too, which loads whenever he's played). Another character's package (an enemy, an NPC, another hero) is unticked: tick it to change that character's copy too. A model shared by several heroes says so: a change shows on all of them. See <a href="#sharedeffects">effect models and summons share on purpose</a>.</li>
 <li><b>Edit in Blender</b>: it opens with its textures in a new scene (the next time, the same scene opens again). Change it, or delete it and put another model in its place, and press <kbd>Ctrl+S</kbd>: the preview shows it as it will be built. Or <b>Import FBX</b> to use a model file as it is. Its parts go to the mesh's sections by material name, or all into its one section (most effect models have one); the mesh keeps its material.</li>
 <li><b>Build into Mod</b> (or tick <b>Build When Blender Saves</b>), then Save Changes and Apply Changes. <b>Back to the Game's</b> forgets the edit and takes the packages it added out of the mod. <b>Characters</b> goes back to fitting models onto characters.</li>
@@ -724,6 +739,21 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <li>Build into Mod, Save Changes, Apply Changes.</li>
 </ol>
 <figure><img src="img/editor-model-materials.jpg" alt="The Model tab's Materials page: Black Dwarf on Doctor Doom, with Preview Shows, All Materials and the slot note for Doom's force field."><figcaption>The Model tab's Materials page: Black Dwarf on Doctor Doom, with Preview Shows, All Materials and the slot note for Doom's force field.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-freecam">Set Up the Camera with FreeCam Options</h3>
+<p>FreeCam Options adds camera modes, a selfie view, more zoom and hidden overhead names on top of <a href="https://www.nexusmods.com/marvelheroesomega/mods/378">Marvel Heroes FreeCam (M.H.F.C.)</a> by Michael (MichaelMerc on Nexus). The orbit camera itself is his work, so install his mod first.</p>
+<ol class="steps">
+<li>Install Freecam from Nexus with its <b>Full</b> option (it adds the loader the game needs to start with a changed MarvelGame.upk). Then open the <b>FreeCam Options</b> tab and click <b>Check Again</b>: the status turns green, "Freecam 1.2 Installed". If it isn't installed, <b>Freecam on Nexus</b> opens its page.</li>
+<li>Under <b>Controls</b>, pick a key for <b>Camera Mode</b>, <b>Snap Behind</b> and <b>Selfie</b> (F8, F4 and F3 to start with), and a gamepad button if you play with one. Several actions can share one button with different presses: short, long (held for a second) or double. The line under each choice says what that key or button does now; yours overrides it until you click Remove.</li>
+<li>Tick <b>Inverted (Every Session)</b> if you want up and down flipped for the right stick and the mouse camera.</li>
+<li>Set the <b>Zoom</b>, <b>Camera</b> and <b>Behind Mode</b> sliders. On <b>Snap Behind</b> and <b>Selfie</b>, untick <b>Keep Current Zoom</b> to have the shortcut also set the zoom shown (1.50 × is half again as close as the game's closest view). Double-click a slider to put it back to its default; click its number to type a value.</li>
+<li>Under <b>Overhead Labels</b>, tick <b>Hide Names</b>, <b>Hide Titles</b> or <b>Hide Guild Names</b> to take that text off the labels over characters.</li>
+<li>Close the game and click <b>Apply to Game</b>. Start the game: F8 cycles Free Orbit, Behind and Isometric; F4 swings the camera behind your hero and F3 in front of them; the mouse wheel zooms past the usual steps.</li>
+</ol>
+<figure><img src="img/freecam.jpg" alt="The FreeCam Options tab: Freecam's status and Nexus link, the keys and gamepad buttons, the Zoom, Camera and Behind Mode settings, the Snap Behind and Selfie panels and Overhead Labels."><figcaption>The FreeCam Options tab: Freecam's status and Nexus link, the keys and gamepad buttons, the Zoom, Camera and Behind Mode settings, the Snap Behind and Selfie panels and Overhead Labels.</figcaption></figure>
+<p>Changed a setting? Apply to Game again (the game closed). <b>Remove</b> (the bin icon at the bottom left) puts Freecam's own MarvelGame.upk and the game's labels back exactly as they were and gives your keys back. Nothing on the server changes, and nothing is added to the game folder.</p>
 </div>
 
 <div class="walk">
@@ -1039,6 +1069,22 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <h2 id="extract">Extract</h2>
 <figure><img src="img/extract.jpg" alt="Extract: the game's images in a package, with a preview of the selected one."><figcaption>Extract: the game's images in a package, with a preview of the selected one.</figcaption></figure>
 <p><b>Extract</b> (the picture icon beside Install Mod in the top bar) saves the game's own images (as .dds or .png) and strings (as a language .json in the mod format), always from the clean originals, never from files mods have changed.</p>
+
+<h2 id="freecam">FreeCam Options</h2>
+<p><b>FreeCam Options</b> (the tab next to Editor) adds options to <a href="https://www.nexusmods.com/marvelheroesomega/mods/378">Marvel Heroes FreeCam (M.H.F.C.)</a> by Michael (MichaelMerc on Nexus). The orbit camera, RB height, the mouse camera and the visible walls are his work; FreeCam Options needs his mod installed with its <b>Full</b> option (it changes the game's MarvelGame.upk and adds the loader that lets the game start with it). The tab shows whether Freecam is installed; if it isn't, <b>Freecam on Nexus</b> opens his page.</p>
+<ul>
+<li><b>Camera Mode</b> (F8 by default): cycles Free Orbit (Freecam's camera) &rarr; Behind (the camera follows the way your hero faces) &rarr; Isometric (the game's own camera direction).</li>
+<li><b>Snap Behind</b> (F4 by default): swings the camera behind your hero once; Free Orbit stays free to turn again.</li>
+<li><b>Gamepad Button</b>: one button (with or without holding RT) for both actions; each picks how it is pressed: a short press (under a second), a long press (held a second; it acts while you hold) or a double press. A short press waits a moment for a second one only when an action uses the double press.</li>
+<li><b>Selfie</b> (F3 by default): like Snap Behind, from the front, facing your hero.</li>
+<li><b>Snap Behind</b> and <b>Selfie</b> panels: the tilt and camera height each one sets, and Keep Current Zoom (or a set zoom: the game's closest view times the factor shown).</li>
+<li><b>Invert Y</b>: a setting, remembered between sessions (no key).</li>
+<li>A key or button you pick overrides what it did; Remove gives it back. Under each choice: what it does now.</li>
+<li><b>Zoom</b>: the mouse wheel carries on past the game's closest and farthest steps, by the number of extra steps you allow; scrolling back takes the extra steps off first.</li>
+<li><b>Camera</b>: how far the camera may tilt down and up, and how fast it orbits. <b>Behind Mode</b>: the shoulder offset, how fast the camera swings behind your hero, and its tilt when you switch to it.</li>
+<li><b>Overhead Labels</b>: Hide Names, Hide Titles and Hide Guild Names take that text off the labels over characters (players too, yours included). Health bars and markers stay. This changes the game's MarvelHUD_SF.upk.</li>
+</ul>
+<p><b>Apply to Game</b> (game closed) builds MarvelGame.upk from your Freecam with these settings, checks it, writes it (with undo history) and sets the keys in the game's input settings; with a label hidden it also writes MarvelHUD_SF.upk (built from the copy it found there, which it keeps). <b>Remove</b> puts Freecam's own MarvelGame.upk back exactly as its installer left it (so Freecam's installer can still update or uninstall it), puts MarvelHUD_SF.upk back as it was and takes the keys out. Nothing else in the game changes, and nothing on the server. Apply Changes on the Mods tab leaves both files alone. See <a href="#w-freecam">Set Up the Camera with FreeCam Options</a>.</p>
 
 <h2 id="nexus">Nexus</h2>
 <p>The strip above the mod list links your mods to their Nexus pages and checks for updates, using Nexus's public data (no account needed). Signing in (optional) adds one-click updates for Premium members.</p>

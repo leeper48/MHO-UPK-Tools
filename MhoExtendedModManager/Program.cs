@@ -22,6 +22,9 @@ static partial class Program
     public static readonly (string Flag, string Syntax, string Summary)[] Commands =
     [
         ("--list", "--list", "Every mod in the library: priority, enabled, author, version, contents."),
+        ("--freecam-status", "--freecam-status [--game <folder>]", "FreeCam Options: is Marvel Heroes FreeCam (M.H.F.C., by Michael / MichaelMerc) installed, is FreeCam Options applied, is Freecam's loader there, and what the chosen keys do now. Read only."),
+        ("--freecam-apply", "--freecam-apply [--game <folder>] [--dry-run]", "FreeCam Options: build MarvelGame.upk from the installed Freecam with the settings chosen on the FreeCam Options tab, write it (checked, with undo history), write MarvelHUD_SF.upk when overhead labels are hidden, and add the key bindings to the game's input settings. Refused while the game runs."),
+        ("--freecam-remove", "--freecam-remove [--game <folder>] [--dry-run]", "FreeCam Options: put Freecam's own MarvelGame.upk and the game's MarvelHUD_SF.upk back and take the key bindings out."),
         ("--conflicts", "--conflicts", "What more than one enabled mod changes, and which mod wins (top of the order)."),
         ("--status", "--status", "For each enabled mod's packages: is its copy live? Plus modified game packages no enabled mod claims."),
         ("--check", "--check", "Mods with a broken manifest or files missing from their folder."),
@@ -278,6 +281,7 @@ static partial class Program
         if (PreviewCommand(cmd, rest, settings, data, lib) is int previewResult) return previewResult;
         if (CostumeCommand(cmd, rest, settings, data, lib) is int costumeResult) return costumeResult;
         if (TestCommand(cmd, rest, settings, data, lib) is int testResult) return testResult;
+        if (FreeCamCommand(cmd, rest, settings, data, lib) is int freeCamResult) return freeCamResult;
         if (ModelCommand(cmd, rest) is int modelResult) return modelResult;
         switch (rest[0].ToLowerInvariant())
         {

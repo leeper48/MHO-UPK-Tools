@@ -64,7 +64,8 @@ static class PowerParts
                 try { d = pkg.ReadExportBytes(e).ToArray(); } catch (PackageFormatException) { continue; }
                 string part = pkg.PathOf(e), cname = pkg.ClassOf(e);
                 var walk = Walk(pkg, d, t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase) || SoundProps.Contains(t.Name, StringComparer.OrdinalIgnoreCase)
-                    || t.Name.Equals("whileactivatedattachmentclass", StringComparison.OrdinalIgnoreCase) || Settings.ContainsKey(t.Name));
+                    || t.Name.Equals("whileactivatedattachmentclass", StringComparison.OrdinalIgnoreCase) || Settings.ContainsKey(t.Name)
+                    || t.Name.Equals("decalmat", StringComparison.OrdinalIgnoreCase));
                 if (walk == null) continue;
                 string Ref(TagWalker.Tag t) { int r = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt)); return r == 0 ? "" : RefPath(pkg, r); }
                 if (walk.FirstOrDefault(t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } pt)
@@ -76,6 +77,9 @@ static class PowerParts
                     string play = snd.Select(Ref).FirstOrDefault(x => x.Length > 0) ?? "";
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Sound", "sound", Words(e.ObjectName), Leaf(play), orig.Trim('|').Length == 0 ? "" : orig));
                 }
+                // a ground decal (Kurt, 2026-11-06: Luke Cage's "CAGE" mark from Cage Was Here): a PowerFXDecal's material
+                if (walk.FirstOrDefault(t => t.Name.Equals("decalmat", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } dm)
+                    list.Add(new(packageFile, part, e.ObjectName, cname, "Decal", "decal", Words(e.ObjectName), Leaf(Ref(dm)), Ref(dm)));
                 if (walk.FirstOrDefault(t => t.Name.Equals("whileactivatedattachmentclass", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } at)
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Attachment", "attachment", Words(e.ObjectName), Leaf(Ref(at)), Ref(at)));
                 foreach (var t in walk.Where(t => Settings.ContainsKey(t.Name) && t.Type.Equals("boolproperty", StringComparison.OrdinalIgnoreCase) && t.Start + 24 < d.Length))
@@ -235,6 +239,8 @@ static class PowerParts
                     {
                         string o = k < origs.Length ? origs[k] : "";
                         int r = off || o.Length == 0 ? 0 : RefOf(pkg, o) ?? throw new InvalidDataException($"{g.Key}: {o} isn't in the package any more");
+                        // a decal off: the game's own blank decal material when the package has it (it draws nothing), else none
+                        if (off && en.Switch == "decal" && NullDecal(pkg) is int nullDecal) r = nullDecal;
                         BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), r);
                     }
                 }
@@ -301,6 +307,7 @@ static class PowerParts
         "effect" => ["particlesystemtemplate"],
         "sound" => SoundProps,
         "attachment" => ["whileactivatedattachmentclass"],
+        "decal" => ["decalmat"],
         _ => [sw],
     };
 
@@ -308,6 +315,15 @@ static class PowerParts
     /// of the wanted properties.</summary>
     static TagWalker? Walk(Package pkg, byte[] d, Func<TagWalker.Tag, bool> wanted) =>
         new[] { 16, 8, 4 }.Select(s => TagWalker.Walk(pkg, d, s)).FirstOrDefault(w => w != null && w.Any(wanted));   // (4: a class default's)
+
+    /// <summary>The game's blank decal material (vfx_shared_materials.decalmaterials.decalmaterial_null, in many power
+    /// packages) as a reference in this package, or null.</summary>
+    static int? NullDecal(Package pkg)
+    {
+        foreach (string p in new[] { "vfx_shared_materials.decalmaterials.decalmaterial_null", "vfx_shared_materials.decalmaterials.decalmaterial_null_base" })
+            if (RefOf(pkg, p) is int r) return r;
+        return null;
+    }
 
     /// <summary>An object reference's full path (an import's through its outers).</summary>
     static string RefPath(Package pkg, int r)
@@ -339,7 +355,7 @@ static class PowerParts
     /// <summary>"hovervfxhands" → "Hover Vfx Hands" (good enough to tell parts apart; the game's names have no spaces).</summary>
     static string Words(string name)
     {
-        string s = System.Text.RegularExpressions.Regex.Replace(name, @"(vfx|sfx|fx)", " $1 ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        string s = System.Text.RegularExpressions.Regex.Replace(name.Replace('_', ' '), @"(vfx|sfx|fx)", " $1 ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);   // (ground_cracks: Ground Cracks)
         foreach (string w in new[] { "start", "end", "loop", "hover", "fly", "trail", "land", "takeoff", "hands", "palm", "glow", "streak", "trails", "death", "skull", "dodge", "throw", "vox", "level", "up", "anim" })
             s = System.Text.RegularExpressions.Regex.Replace(s, $"(?<=[a-z])({w})", " $1", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         var words = s.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(w => w.ToLowerInvariant() switch { "vfx" => "Effect", "sfx" => "Sound", "fx" => "Effect", "vox" => "Voice", _ => char.ToUpperInvariant(w[0]) + w[1..] });

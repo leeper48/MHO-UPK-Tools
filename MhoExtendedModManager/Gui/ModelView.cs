@@ -1584,9 +1584,14 @@ sealed partial class ModelView : UserControl
                 float u = 0.5f + MathF.Atan2(rv.Y, rv.X) / (2 * MathF.PI), v = MathF.Acos(Math.Clamp(rv.Z, -1, 1)) / MathF.PI;
                 var e = env.Sample(u, v, 0);
                 float fr = look.FresnelPower > 0 ? MathF.Pow(1 - Math.Clamp(Vector3.Dot(N, V), 0, 1), look.FresnelPower) : 1f;
-                var rc = new Vector3(e.X, e.Y, e.Z) * (rm * look.ReflectMult * fr * 0.5f);
+                // blended toward, not added on (Kurt, 2026-11-06: an Old Thor mod's armor, reflectionmult 14 with
+                // multiplyreflectionbydiffuse, blew out to white here and looks like polished silver in game): how far by the
+                // reflect mask, the strength and the fresnel, at most 30 % (80 % and 50 % were still too strong, Kurt), so a reflective surface takes the environment's light
+                // (tinted by its colour) instead of going past white
+                var rc = new Vector3(e.X, e.Y, e.Z) * 0.7f;   // (the environment a little dimmer than its image: still too bright at 50 %, Kurt)
                 if (look.ReflectByDiffuse) rc *= rgb;
-                outc += rc;
+                float w = Math.Clamp(rm * look.ReflectMult * fr * 0.15f, 0, 0.3f);
+                outc = outc * (1 - w * 0.5f) + rc * w;
             }
         }
         if (look.UseRim)

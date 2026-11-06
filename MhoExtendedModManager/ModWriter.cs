@@ -50,6 +50,10 @@ sealed class ModDraft
     public List<PowerSoundSet> PowerSoundSets = [];
     public List<PowerColorEntry> PowerColors = [];
     public List<PartOffEntry> PartsOff = [];
+    /// <summary>Ground decal images (Decals\…png); each image's file to copy in, by its name in the mod.</summary>
+    public List<DecalImageEntry> DecalImages = [];
+    public Dictionary<string, string> DecalFiles = new(StringComparer.OrdinalIgnoreCase);
+    public List<DecalColorEntry> DecalColors = [];
     public List<DodgeGhostEntry> DodgeGhosts = [];
     public List<PowerBorrowEntry> PowerBorrows = [];
     public List<AddedPropEntry> AddedProps = [];
@@ -116,6 +120,9 @@ sealed class ModDraft
         d.PowerSoundSets = m.Manifest.PowerSoundSets?.ToList() ?? [];
         d.PowerColors = m.Manifest.PowerColors?.ToList() ?? [];
         d.PartsOff = m.Manifest.PartsOff?.ToList() ?? [];
+        d.DecalImages = m.Manifest.DecalImages?.ToList() ?? [];
+        foreach (var di in d.DecalImages) d.DecalFiles[di.Image] = Path.Combine(m.Folder, di.Image);
+        d.DecalColors = m.Manifest.DecalColors?.ToList() ?? [];
         d.DodgeGhosts = m.Manifest.DodgeGhosts?.Select(g => new DodgeGhostEntry { Package = g.Package, Ghost = g.Ghost, ModelPackage = g.ModelPackage, ModelMesh = g.ModelMesh, Anim = g.Anim, Frame = g.Frame, KeepEffectSize = g.KeepEffectSize, Lean = g.Lean, LeanDegrees = g.LeanDegrees }).ToList() ?? [];
         d.PowerBorrows = m.Manifest.PowerBorrows?.ToList() ?? [];
         d.AddedProps = m.Manifest.AddedProps?.ToList() ?? [];
@@ -202,6 +209,8 @@ static class ModWriter
             manifest.PowerSoundSets = d.PowerSoundSets.Count > 0 ? d.PowerSoundSets : null;
             manifest.PowerColors = d.PowerColors.Count > 0 ? d.PowerColors : null;
             manifest.PartsOff = d.PartsOff.Count > 0 ? d.PartsOff : null;
+            manifest.DecalImages = d.DecalImages.Count > 0 ? d.DecalImages : null;
+            manifest.DecalColors = d.DecalColors.Count > 0 ? d.DecalColors : null;
             manifest.DodgeGhosts = d.DodgeGhosts.Count > 0 ? d.DodgeGhosts : null;
             manifest.PowerBorrows = d.PowerBorrows.Count > 0 ? d.PowerBorrows : null;
             manifest.AddedProps = d.AddedProps.Count > 0 ? d.AddedProps : null;
@@ -260,6 +269,14 @@ static class ModWriter
                     Directory.CreateDirectory(dir);
                     File.Copy(source, Path.Combine(dir, file), overwrite: true);
                     File.WriteAllText(Path.Combine(dir, file + ".sha256"), after);
+                }
+            // Ground decal images (Decals\), copied before the old folder goes away too.
+            foreach (var di in d.DecalImages)
+                if (d.DecalFiles.TryGetValue(di.Image, out var dsrc) && File.Exists(dsrc))
+                {
+                    string dest = Path.Combine(temp, di.Image.Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                    File.Copy(dsrc, dest, overwrite: true);
                 }
             // Custom pictures the preview or card uses (Pictures\), copied before the old folder goes away too.
             foreach (var (file, source) in d.Pictures)

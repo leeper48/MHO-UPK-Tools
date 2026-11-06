@@ -71,6 +71,8 @@ sealed partial class MainForm : Form
     ModEditorView? editor;
     ExtractView? extract;
     string? extractKey;
+    readonly Panel freeCamHost = new() { Dock = DockStyle.Fill };
+    FreeCamView? freeCam;
 
     bool wasMaximized = true;
 
@@ -566,12 +568,16 @@ sealed partial class MainForm : Form
         pages.Add("Editor", editorHost);
         pages.Add("Extract", extractHost);
         pages.SetTabVisible(2, false);
+        // FreeCam Options (index 3; Extract is hidden, so it shows next to Editor): only with PreviewFeatures until released
+        pages.Add("FreeCam Options", freeCamHost);
+        pages.SetTabVisible(3, WhatsNew.FreeCamTab);
         int lastPage = 0;
         pages.SelectedChanged += i =>
         {
             if (lastPage == 1 && i != 1) editor?.LeavingEditor();   // a Model tab change not built yet: asks (Kurt, 2026-10-06)
             lastPage = i;
             if (i == 2) EnsureExtract();
+            if (i == 3) EnsureFreeCam();
             if (extractButton != null) Ui.Lit(extractButton, i == 2);   // (lit while its page shows)
             // The Editor tab with nothing open: open the mod highlighted in the list (Kurt). A mod already open stays as it is.
             if (i == 1 && editor == null && !readOnly && Selected is Mod m) BeginInvoke(() => { if (editor == null) EditMod(m); });
@@ -647,7 +653,19 @@ sealed partial class MainForm : Form
         get { var cp = base.CreateParams; cp.ExStyle |= 0x02000000; return cp; }   // WS_EX_COMPOSITED: no flicker with the transparent layers
     }
 
-    void Restyle(Control root) => Ui.Restyle(root, [topBar!, bottomBar!, .. editor?.Bars ?? [], .. extract?.Bars ?? []]);
+    void Restyle(Control root) => Ui.Restyle(root, [topBar!, bottomBar!, .. editor?.Bars ?? [], .. extract?.Bars ?? [], .. freeCam?.Bars ?? []]);
+
+    /// <summary>The FreeCam Options tab, built on first view; later views re-check Freecam (installed or updated meanwhile).</summary>
+    void EnsureFreeCam()
+    {
+        if (freeCam != null) { freeCam.RefreshStatus(); return; }
+        freeCam = new FreeCamView(() => game?.Root,
+            () => lib?.Mods.Where(m => m.Enabled && m.Manifest.UpkReplacements.Contains(FreeCam.FreeCamBuddy.File, StringComparer.OrdinalIgnoreCase)).Select(m => (m.Name, Path.Combine(m.Folder, FreeCam.FreeCamBuddy.File))).ToList() ?? []);
+        freeCamHost.Controls.Add(freeCam);
+        Theme.ApplyTree(freeCamHost, Palette.Dark);   // not the whole form: see ShowDetails
+        Restyle(freeCamHost);
+        freeCam.ApplyColors();
+    }
 
     /// <summary>The Extract tab's content, made on first view and again only if the library or game folder changed.</summary>
     void EnsureExtract()
@@ -1223,7 +1241,7 @@ sealed partial class MainForm : Form
 
     void InstallMod()
     {
-        using var d = new OpenFileDialog { Title = "Install Mod", Filter = "Mod archives (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|All files|*.*", Multiselect = true };
+        using var d = new OpenFileDialog { Title = "Install Mod", Filter = "Mods (*.zip;*.7z;*.rar;*.upk)|*.zip;*.7z;*.rar;*.upk|All files|*.*", Multiselect = true };
         if (d.ShowDialog(this) == DialogResult.OK) Install(d.FileNames);
     }
 

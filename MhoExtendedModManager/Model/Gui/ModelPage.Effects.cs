@@ -187,23 +187,82 @@ sealed partial class ModelPage
         return body;
     }
 
+    // --- which power brings each effect model in (Kurt, 2026-11-06: a user couldn't find Luke Cage's Cage Was Here chain among
+    // his debris meshes; rows were named by file only) -----------------------------------------------------------------------
+    /// <summary>Per hero: package → the names of the hero's powers that bring it in (PowerRecolor.PackagesOf, as Power Colors).</summary>
+    static readonly Dictionary<string, Dictionary<string, List<string>>> effectPowers = new(StringComparer.OrdinalIgnoreCase);
+    static readonly HashSet<string> effectPowersLoading = new(StringComparer.OrdinalIgnoreCase);
+    static MhoExtendedModManager.Fx.GameData? effectDb;
+    static readonly object effectLoadGate = new();
+
+    /// <summary>The powers of the hero that bring this model in (empty while they're read, or none: debris, shared props).</summary>
+    static List<string> EffectPowers(EffectModels.Entry e)
+    {
+        lock (effectPowers)
+            return effectPowers.TryGetValue(e.Hero, out var map)
+                ? e.Packages.SelectMany(p => map.GetValueOrDefault(p) ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [];
+    }
+
+    /// <summary>"msh_lukecage_chainfist_wrist" (Luke Cage) → "Chainfist Wrist".</summary>
+    static string EffectLabel(EffectModels.Entry e)
+    {
+        string n = System.Text.RegularExpressions.Regex.Replace(e.Name, @"^(msh_|sm_|mesh_|vfx_)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (n.StartsWith(e.Hero + "_", StringComparison.OrdinalIgnoreCase)) n = n[(e.Hero.Length + 1)..];
+        var words = n.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(w => char.ToUpperInvariant(w[0]) + w[1..]);
+        string label = string.Join(" ", words);
+        return label.Length == 0 ? e.Name : label;
+    }
+
+    /// <summary>The hero's powers and their packages, read in the background once; the list is filled again when done.</summary>
+    void LoadEffectPowers(string hero)
+    {
+        lock (effectPowers) { if (effectPowers.ContainsKey(hero) || !effectPowersLoading.Add(hero)) return; }
+        string? root = Settings.Current.GameFolder, cooked = Settings.Current.CookedFolder;
+        if (root == null || cooked == null) return;
+        Task.Run(() =>
+        {
+            var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                lock (effectLoadGate)   // (one hero at a time: a filter opens many groups at once, all reading the one game data)
+                {
+                effectDb ??= new MhoExtendedModManager.Fx.GameData(MhoExtendedModManager.Fx.SipArchive.Load(Path.Combine(root, "Data", "Game", "Calligraphy.sip")));
+                foreach (var pw in MhoExtendedModManager.Fx.PowerList.For(effectDb, hero, cooked, [], effectOnly: true))
+                    foreach (string f in MhoExtendedModManager.PowerRecolor.PackagesOf(effectDb, pw.Prototype, hero, cooked))
+                    {
+                        if (!map.TryGetValue(f, out var names)) map[f] = names = [];
+                        if (!names.Contains(pw.Name, StringComparer.OrdinalIgnoreCase)) names.Add(pw.Name);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or KeyNotFoundException or IndexOutOfRangeException or ArgumentException) { }
+            lock (effectPowers) { effectPowers[hero] = map; effectPowersLoading.Remove(hero); }
+            if (!IsDisposed) BeginInvoke(FillEffects);
+        });
+    }
+
     void FillEffects()
     {
         string f = effectFilter.Text.Trim();
         string? keep = effectCurrent?.Key();
         effectList.BeginUpdate(); effectList.Items.Clear();
-        var shown = EffectModels.All.Where(e => f.Length == 0 || $"{e.Hero} {e.Name} {e.Path}".Contains(f, StringComparison.OrdinalIgnoreCase));
+        var shown = EffectModels.All.Where(e => f.Length == 0 || $"{e.Hero} {e.Name} {e.Path} {EffectLabel(e)} {string.Join(" ", EffectPowers(e))}".Contains(f, StringComparison.OrdinalIgnoreCase));
         foreach (var g in shown.GroupBy(e => e.Hero, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
             int edited = g.Count(e => effectEdits.ContainsKey(e.Path));
             bool open = f.Length > 0 || effectOpen.Contains(g.Key) || g.Any(e => e.Key() == keep);
             effectList.Items.Add(new CharacterList.Item("hero:" + g.Key, g.Key, $"{g.Count()} effect model{(g.Count() == 1 ? "" : "s")}{(edited > 0 ? $" · {edited} edited" : "")}", Header: true, Expanded: open));
             if (!open) continue;
-            foreach (var e in g.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
+            LoadEffectPowers(g.Key);
+            // by power ("Cage Was Here · Chainfist Wrist"), the ones no power of the hero brings in (debris, shared props) last
+            foreach (var (e, powers) in g.Select(e => (e, powers: EffectPowers(e)))
+                         .OrderBy(x => x.powers.Count == 0).ThenBy(x => x.powers.FirstOrDefault() ?? "", StringComparer.OrdinalIgnoreCase).ThenBy(x => EffectLabel(x.e), StringComparer.OrdinalIgnoreCase))
             {
                 int heroes = EffectModels.All.Count(x => x.Path.Equals(e.Path, StringComparison.OrdinalIgnoreCase));
                 string state = effectEdits.TryGetValue(e.Path, out var ed) ? (ed.Built ? " · Built" : " · Edited") : "";
-                effectList.Items.Add(new CharacterList.Item(e.Key(), e.Name, $"{e.Vertices:N0} vertices · {e.Packages.Count} package{(e.Packages.Count == 1 ? "" : "s")}{(heroes > 1 ? $" · shared by {heroes} heroes" : "")}{state}", Indent: 1));
+                string title = powers.Count > 0 ? $"{powers[0]} · {EffectLabel(e)}" : EffectLabel(e);
+                string also = powers.Count > 1 ? $"also {string.Join(", ", powers.Skip(1).Take(3))}{(powers.Count > 4 ? " …" : "")} · " : "";
+                effectList.Items.Add(new CharacterList.Item(e.Key(), title, $"{also}{e.Name} · {e.Vertices:N0} vertices · {e.Packages.Count} package{(e.Packages.Count == 1 ? "" : "s")}{(heroes > 1 ? $" · shared by {heroes} heroes" : "")}{state}", Indent: 1));
             }
         }
         effectList.EndUpdate();
@@ -214,7 +273,8 @@ sealed partial class ModelPage
     {
         effectCurrent = e;
         var sharers = EffectModels.All.Where(x => x.Path.Equals(e.Path, StringComparison.OrdinalIgnoreCase)).Select(x => x.Hero).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        effectTitle.Text = e.Name;
+        var powersOf = EffectPowers(e);
+        effectTitle.Text = powersOf.Count > 0 ? $"{EffectLabel(e)} ({string.Join(", ", powersOf)})" : e.Name;
         effectInfo.Text = $"{e.Path} · {e.Vertices:N0} vertices, {e.Sections} section{(e.Sections == 1 ? "" : "s")}" + (sharers.Count > 1 ? $"\nShared by {sharers.Count} heroes ({string.Join(", ", sharers.Take(6))}{(sharers.Count > 6 ? " …" : "")}): a change shows on all of them." : "");
         effectInfo.ForeColor = sharers.Count > 1 ? Color.FromArgb(240, 190, 90) : Ui.Subtle;
         fillingCopies = true;
@@ -439,6 +499,21 @@ sealed partial class ModelPage
         effectFilter.Text = e.Name;
         int row = effectList.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key == e.Key());
         Check(row >= 0, "the filter shows it under its hero");
+        // the power that brings it in, in its row (read in the background)
+        for (int i = 0; i < 600; i++) { lock (effectPowers) if (effectPowers.ContainsKey(e.Hero)) break; await Task.Delay(100); }
+        FillEffects();
+        row = effectList.Items.OfType<CharacterList.Item>().ToList().FindIndex(r => r.Key == e.Key());
+        var powersOf = EffectPowers(e);
+        Check(row >= 0 && powersOf.Count > 0 && ((CharacterList.Item)effectList.Items[row]).Title.StartsWith(powersOf[0]), $"its row names the power: {(row >= 0 ? ((CharacterList.Item)effectList.Items[row]).Title : "-")}");
+        if (Environment.GetEnvironmentVariable("MHO_TEST_EFFECTLIST") is { Length: > 0 } listShot)
+        {
+            effectFilter.Text = ""; effectOpen.Add(e.Hero); FillEffects();
+            Reselect(effectList, e.Key());
+            await Task.Delay(1500);
+            say("rows: " + string.Join(" | ", effectList.Items.OfType<CharacterList.Item>().SkipWhile(r => r.Key != "hero:" + e.Hero).Skip(1).TakeWhile(r => !r.Header).Select(r => r.Title)));
+            var form = FindForm()!; using var bmp = new Bitmap(form.Width, form.Height); form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size)); bmp.Save(listShot);
+            return fails;
+        }
         effectList.SelectedIndex = row;
         for (int i = 0; i < 100 && !effectViewer.HasMesh; i++) await Task.Delay(100);
         Check(effectViewer.HasMesh && effectCopies.Items.Count == e.Packages.Count && effectCopies.CheckedItems.Count == DefaultPackages(e).Count, $"the preview shows it and its {e.Packages.Count} packages are listed ({effectCopies.CheckedItems.Count} ticked)");

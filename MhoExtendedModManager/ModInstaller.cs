@@ -18,6 +18,48 @@ static class ModInstaller
     /// <summary>The stock sound packages' checksums (ours, made from a clean copy: --make-pck-checksums).</summary>
     public static string ShippedPckList => Path.Combine(AppContext.BaseDirectory, "StockData", "pck_checksums.json");
 
+    /// <summary>
+    /// Game packages with no manifest (a .upk dropped or picked on its own, or an archive / folder of them): a mod made around
+    /// them (MHModManager's format: its packages, nothing else), named after the package (one) or the archive / folder. Only
+    /// the game's own file names (a mod replaces a game file; nothing is ever added to the game). Returns the manifest, or null.
+    /// </summary>
+    static string? WrapPackages(string root, string source, string temp, List<string> log)
+    {
+        var upks = Directory.GetFiles(root, "*.upk", SearchOption.AllDirectories)
+            .Where(f => Path.GetRelativePath(root, f).Count(c => c == Path.DirectorySeparatorChar) <= 2).ToList();
+        if (upks.Count == 0) return null;
+        string? cooked = StockFiles.Cooked;
+        if (cooked == null) { log.Add("Game packages without a mod around them: set the game folder first (Settings), so their names can be checked."); return null; }
+        var keep = new List<string>();
+        foreach (string f in upks)
+        {
+            string n = Path.GetFileName(f);
+            if (!ModSafety.GameFileName(n) || !File.Exists(Path.Combine(cooked, n))) { log.Add($"{n}: not one of the game's packages (a mod can only replace the game's own files): left out."); continue; }
+            if (keep.Any(k => Path.GetFileName(k).Equals(n, StringComparison.OrdinalIgnoreCase))) { log.Add($"{n}: in it twice: the first one is used."); continue; }
+            if (!IsPackage(f)) { log.Add($"{n}: not a game package (it doesn't read as one): left out."); continue; }
+            keep.Add(f);
+        }
+        if (keep.Count == 0) return null;
+        string from = Path.GetFileName(source.TrimEnd('\\', '/'));
+        string name = keep.Count == 1 ? Path.GetFileNameWithoutExtension(keep[0]) : Path.GetFileNameWithoutExtension(from);
+        string dir = Path.Combine(temp, "wrapped", Sanitise(name));
+        Directory.CreateDirectory(dir);
+        foreach (string f in keep) File.Copy(f, Path.Combine(dir, Path.GetFileName(f)), overwrite: true);
+        var m = new ModManifest { Name = name, Author = "", Version = "1.0", Type = ModType.Upk, UpkReplacements = [.. keep.Select(f => Path.GetFileName(f))],
+            Notes = $"Made from {from} on install (game packages without a mod around them)." };
+        string path = Path.Combine(dir, "manifest.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(m, ModManifest.Json));
+        log.Add($"{name}: made into a mod from {keep.Count} game package(s): {string.Join(", ", keep.Select(Path.GetFileName))}.");
+        return path;
+    }
+
+    /// <summary>Whether a file reads as an Unreal package (its magic number).</summary>
+    static bool IsPackage(string file)
+    {
+        try { using var s = File.OpenRead(file); Span<byte> b = stackalloc byte[4]; return s.Read(b) == 4 && BitConverter.ToUInt32(b) == 0x9E2A83C1; }
+        catch (IOException) { return false; }
+    }
+
     public static void CreateEmptyLibrary(string library)
     {
         Directory.CreateDirectory(Path.Combine(library, "mods"));
@@ -39,6 +81,13 @@ static class ModInstaller
         {
             string root;
             if (Directory.Exists(source)) root = source;
+            else if (source.EndsWith(".upk", StringComparison.OrdinalIgnoreCase))
+            {
+                // a bare package (a user, 2026-11-06: "make a mod with a .upk file alone"): wrapped into a mod of its own below
+                root = Path.Combine(temp, "upk");
+                Directory.CreateDirectory(root);
+                File.Copy(source, Path.Combine(root, Path.GetFileName(source)));
+            }
             else
             {
                 Directory.CreateDirectory(temp);
@@ -61,7 +110,8 @@ static class ModInstaller
                 }
                 if (manifests.Count == 0) return installed;
             }
-            if (manifests.Count == 0) { log.Add("No manifest.json in it: not a mod in MHModManager's format (nor an MH Texture Manager mod)."); return installed; }
+            if (manifests.Count == 0 && WrapPackages(root, source, temp, log) is string wrapped) manifests.Add(wrapped);
+            if (manifests.Count == 0) { log.Add("No manifest.json in it: not a mod in MHModManager's format (nor an MH Texture Manager mod, nor game packages)."); return installed; }
             if (into != null && manifests.Count != 1) { log.Add($"It holds {manifests.Count} mods: to update '{into.Name}' it has to hold exactly one."); return installed; }
             var updated = new List<string>();
             foreach (string manifestPath in manifests)
@@ -106,7 +156,7 @@ static class ModInstaller
                 CopyDirectory(dir, target + ".tmp");
                 Directory.Move(target + ".tmp", target);
                 installed.Add(name);
-                log.Add($"Installed '{name}' by {m.Author ?? "?"}, version {m.Version ?? "?"} (disabled, top of the list).");
+                log.Add($"Installed '{name}'{(string.IsNullOrWhiteSpace(m.Author) ? "" : $" by {m.Author}")}, version {m.Version ?? "?"} (disabled, top of the list).");
             }
             if (installed.Count > updated.Count)
             {
@@ -210,10 +260,10 @@ static class ModInstaller
             if (light is float lv) m.PreviewLight = Math.Abs(lv - 1f) < 1e-4 ? null : MathF.Round(lv, 2);
             manifest = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, ModManifest.Json));
         }
-        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null || mod.Manifest.PreviewLight != null || mod.Manifest.VoiceOff != null || mod.Manifest.PartsOff != null || mod.Manifest.DodgeGhosts != null || mod.Manifest.AnimSwaps != null || mod.Manifest.PowerBorrows != null || mod.Manifest.AddedProps != null || mod.Manifest.PropBones != null || mod.Manifest.MovedFrom != null || mod.Manifest.VoiceShifts != null || mod.Manifest.PowerColors != null || mod.Manifest.CardPicture != null || mod.Manifest.KeepShared != null))
+        if (legacy && (mod.Manifest.Extra.Any() || mod.Manifest.Tags != null || mod.Manifest.Notes != null || mod.Manifest.Description != null || mod.Manifest.Changelog != null || mod.Manifest.NexusModId != null || mod.Manifest.PreviewImage != null || mod.Manifest.PreviewViews != null || mod.Manifest.PreviewLight != null || mod.Manifest.VoiceOff != null || mod.Manifest.PartsOff != null || mod.Manifest.DecalImages != null || mod.Manifest.DecalColors != null || mod.Manifest.DodgeGhosts != null || mod.Manifest.AnimSwaps != null || mod.Manifest.PowerBorrows != null || mod.Manifest.AddedProps != null || mod.Manifest.PropBones != null || mod.Manifest.MovedFrom != null || mod.Manifest.VoiceShifts != null || mod.Manifest.PowerColors != null || mod.Manifest.CardPicture != null || mod.Manifest.KeepShared != null))
         {
             var m = ModManifest.Load(Path.Combine(mod.Folder, "manifest.json"));
-            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null; m.PreviewLight = null; m.VoiceOff = null; m.PowerSounds = null; m.PowerSoundSets = null; m.AnimSwaps = null; m.MovedFrom = null; m.VoiceShifts = null; m.PowerColors = null; m.PartsOff = null; m.DodgeGhosts = null; m.PowerBorrows = null; m.AddedProps = null; m.PropBones = null; m.CardPicture = null; m.KeepShared = null;   // extensions: a legacy copy is MHModManager's format only
+            m.Tags = null; m.Notes = null; m.Description = null; m.Changelog = null; m.NexusModId = null; m.PreviewImage = null; m.PreviewViews = null; m.PreviewLight = null; m.VoiceOff = null; m.PowerSounds = null; m.PowerSoundSets = null; m.AnimSwaps = null; m.MovedFrom = null; m.VoiceShifts = null; m.PowerColors = null; m.PartsOff = null; m.DecalImages = null; m.DecalColors = null; m.DodgeGhosts = null; m.PowerBorrows = null; m.AddedProps = null; m.PropBones = null; m.CardPicture = null; m.KeepShared = null;   // extensions: a legacy copy is MHModManager's format only
             var keep = m.Replacements.Concat(m.AchievementReplacements).Concat(m.StoreReplacements).Select(r => r.DdsFileName).Concat(m.UpkReplacements).Concat(m.AudioPacks).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var dropOnly = m.Extra.Select(r => r.DdsFileName).Where(f => !keep.Contains(f)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             files.RemoveAll(f => dropOnly.Contains(Path.GetRelativePath(mod.Folder, f)));

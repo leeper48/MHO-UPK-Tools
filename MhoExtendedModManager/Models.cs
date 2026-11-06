@@ -73,6 +73,10 @@ sealed class ModManifest
     /// <summary>Extension: parts of powers or characters switched off in the editor (Powers tab → Parts; the packages carry the
     /// change), kept so they can be switched on again. Null when none.</summary>
     public List<PartOffEntry>? PartsOff { get; set; }
+    /// <summary>Ground decal images the mod replaces (extension; DecalImages). Null when none.</summary>
+    public List<DecalImageEntry>? DecalImages { get; set; }
+    /// <summary>Ground decal colors the mod sets (extension; DecalColors). Null when none.</summary>
+    public List<DecalColorEntry>? DecalColors { get; set; }
     /// <summary>Extension: dodge ghosts made from the mod's model (Powers tab → Character → Parts; the package carries the
     /// meshes), kept so the poses can be changed or the game's ghosts put back. Null when none.</summary>
     public List<DodgeGhostEntry>? DodgeGhosts { get; set; }
@@ -302,6 +306,8 @@ sealed class Mod
             if (!File.Exists(Path.Combine(Folder, f))) yield return f;
         foreach (string l in Manifest.Languages)
             if (!File.Exists(Path.Combine(Folder, l + ".json"))) yield return l + ".json";
+        foreach (var d in Manifest.DecalImages ?? [])
+            if (!File.Exists(Path.Combine(Folder, d.Image))) yield return d.Image;
     }
 
     /// <summary>Short category list, e.g. "packages 6, textures 8, strings 1".</summary>

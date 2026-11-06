@@ -622,6 +622,22 @@ sealed partial class MainForm
     }
 
     /// <summary>--editor-save-test: opens a mod in the Editor, changes nothing, saves (use with MHO_EXTMM_HOME on a scratch library).</summary>
+    /// <summary>--decal-save-test (scratch libraries only): a decal image put in through the editor and saved.</summary>
+    public async Task<string> DecalSaveTest(string modName, string package, string png)
+    {
+        var m = lib?.Find(modName);
+        if (m == null) return "no such mod";
+        string trace = Path.Combine(Path.GetTempPath(), "mhoextmm_decal_test.txt");
+        File.WriteAllText(trace, "open editor\n");
+        OpenEditor(m);
+        pages.Select(1);
+        await Task.Delay(1500);
+        File.AppendAllText(trace, "editor open\n");
+        string r = await editor!.DecalSaveTest(package, png);
+        File.AppendAllText(trace, r + "\n");
+        return r;
+    }
+
     public async Task EditorSaveTest(string modName)
     {
         var m = lib?.Find(modName);
