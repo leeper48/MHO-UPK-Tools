@@ -237,6 +237,11 @@ static partial class PowerBorrow
                 if (!uniqued && pf != null && vclasses.Count > 0 && built.TryGetValue(pf, out var pb2))
                     built[pf] = UniqueVehicle(pb2, vclasses, "on_" + th.ToLowerInvariant(), pf, log);
             }
+            // a charge-and-release donor on a power that isn't one: its charge from the start, its release at the channel's end or
+            // the hit (PowerBorrow.ChargeUp)
+            if (!e.KeepTiming && tp != null && built.TryGetValue(Path.GetFileName(tp.TargetFile), out var cpk)
+                && KindOf(db, fx, e.Donor) is { ChargeUp: true } && KindOf(db, fx, e.Power) is { ChargeUp: false } tk)
+                built[Path.GetFileName(tp.TargetFile)] = RemapChargeUp(cpk, $"marvelgamecontent.default__{tp.TargetClass}".ToLowerInvariant(), tk.Channeled, fx, log);
             // the other hero's held weapons and props the borrow brought into the power package (Deadpool's cannon in Real
             // Armor Buster, Punisher's M60 in Full Auto): under paths of their own too, as the vehicles above. A class is found by
             // path and the package loaded first wins: once the other hero was loaded, his own copy (stock animations, his
@@ -497,10 +502,10 @@ static partial class PowerBorrow
     /// <summary>How a power is built, for matching a borrow (Kurt, 2026-10-19: Black Panther's Triple Throw on Captain America's
     /// Shield Strike showed the daggers in hand, but nothing flew: the server spawns projectiles from the power's own data, so a
     /// melee power never throws the donor's).</summary>
-    public sealed record PowerKind(bool Projectile, bool Beam, bool Channeled, bool HighFlying = false)
+    public sealed record PowerKind(bool Projectile, bool Beam, bool Channeled, bool HighFlying = false, bool ChargeUp = false)
     {
-        /// <summary>A short label: "Fires Projectiles", "Beam", "Channeled", or "Melee / Area".</summary>
-        public string Label => Projectile ? "Fires Projectiles" : Beam ? "Beam" : Channeled ? "Channeled" : "Melee / Area";
+        /// <summary>A short label: "Fires Projectiles", "Beam", "Charge and Release", "Channeled", or "Melee / Area".</summary>
+        public string Label => Projectile ? "Fires Projectiles" : Beam ? "Beam" : ChargeUp ? "Charge and Release" : Channeled ? "Channeled" : "Melee / Area";
         public bool Matches(PowerKind o) => Projectile == o.Projectile && Beam == o.Beam;
     }
 
@@ -519,13 +524,15 @@ static partial class PowerBorrow
             {
                 bool proj = arts.Any(a => a.Class.StartsWith("MarvelProjectile", StringComparison.OrdinalIgnoreCase));
                 string? file = game.PackagesOf(pw.Class).Select(game.FileFor).OfType<string>().FirstOrDefault(f => Find(Package.Open(f), $"marvelgamecontent.default__{pw.Class}".ToLowerInvariant()) >= 0);
-                bool beam = false, loop = false;
+                bool beam = false, loop = false, charge = false;
                 if (file != null)
                 {
                     var pk = Package.Open(file);
                     // (a projectile class the power's own package holds counts too: Iceman's Rapid Fire)
                     proj |= pk.Exports.Any(e => pk.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase) && e.ObjectName.StartsWith("marvelprojectile", StringComparison.OrdinalIgnoreCase));
                     int d = Find(pk, $"marvelgamecontent.default__{pw.Class}".ToLowerInvariant());
+                    // (a charge-up's looping charge isn't a channel: Human Torch's Extreme Combustion was filed as one, 2026-11-04)
+                    if (d >= 0) charge = HasChargeUp(pk, d);
                     if (d >= 0) foreach (int r in Components(pk, d, out _, out _))
                     {
                         if (r <= 0) continue;
@@ -534,7 +541,7 @@ static partial class PowerBorrow
                         loop |= c.Equals("PowerFxAnimationLooping", StringComparison.OrdinalIgnoreCase);
                     }
                 }
-                kind = new PowerKind(proj, beam, loop, Field(db, power, "HighFlying", 'B') is 1);
+                kind = new PowerKind(proj, beam, loop && !charge, Field(db, power, "HighFlying", 'B') is 1, charge);
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or KeyNotFoundException or ArgumentException) { }
@@ -550,6 +557,11 @@ static partial class PowerBorrow
         // (Kurt, 2026-10-20: Cyclops' bike on Spider-Man's Web-Swinging sat right on flat ground, sank into ramps)
         if (target.HighFlying && !donor.HighFlying)
             lines.Add($"{targetName} flies and {donorName} is on the ground: its animations are lowered to the ground, but the game still moves the hero as a flyer, so on ramps and slopes it dips into the ground until it reaches the top.");
+        // (Kurt, 2026-11-04: Ol' Painless with Extreme Combustion "doesn't do much": the charge never played)
+        if (donor.ChargeUp && !target.ChargeUp)
+            lines.Add($"{donorName} charges up, then releases; {targetName} doesn't: its charge plays from {targetName}'s start and its release {(target.Channeled ? $"when {targetName}'s channel ends" : "at the hit")}.");
+        if (target.ChargeUp && !donor.ChargeUp)
+            lines.Add($"{targetName} charges up and {donorName} doesn't: while you hold to charge, {donorName}'s look doesn't play yet; it plays from the release.");
         if (target.Matches(donor)) return lines.Count == 0 ? null : string.Join(" ", lines);
         if (donor.Projectile && !target.Projectile)
             lines.Add($"{donorName} fires projectiles and {targetName} doesn't: you'll see its animation and what it holds, but nothing flies. The server decides what a power does, so the damage and range stay {targetName}'s.");

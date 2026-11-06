@@ -1,6 +1,24 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.382
+- A charge-up's look on a channel: its release animation now ends the channel's looping animation instead of being a separate animation part, which kept the charge from starting at all when you pressed (found with a controlled test against a borrow that worked).
+
+0.60.381
+- A charge-up's look on a channel: the charge animation is played by a copy of the channel's own looping animation (the same settings, the borrowed animations), so it starts when you press.
+
+0.60.380
+- A charge-up's look on a channel: its charge animation no longer loops on its own (a channel ends its loop when you let go), which kept it from starting at all.
+
+0.60.379
+- A charge-up's look on a channel: its looping animation keeps its own start and end, as a channel's does, so the hold starts and the charge plays while you hold.
+
+0.60.378
+- A charge-up's look on a channel: the charge now runs while the channel is held (from the start of its loop). Starting it with the power, it never came up on Punisher's Ol' Painless.
+
+0.60.377
+- Borrowed powers: a charge-and-release power's look (Human Torch's Extreme Combustion) on a power that isn't one now plays. Its charge runs from the power's start and its release comes at a channel's end (Punisher's Ol' Painless) or at an attack's hit. Before, the charge never played and the release came once at the start. Borrow a Power's Look also tells charge-up powers from channels ("Charge and Release") and says what will happen.
+
 0.60.376
 - Borrowed attacks: the other hero's weapons and props the borrow brings (Deadpool's cannon, Punisher's M60) get paths of their own, as borrowed vehicles already did. With the stock paths, once that other hero had been loaded in the game, his own copy could stand in for the borrowed one, with his own animations.
 

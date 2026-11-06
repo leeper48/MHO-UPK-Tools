@@ -3203,6 +3203,42 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--set-poweranims":
+            {
+                // Writes only <out.upk>: a PowerFXAnimation(Looping) component's PowerAnims names replaced (a controlled test, Kurt
+                // 2026-11-05). --set-poweranims <in.upk> <component path> <out.upk> <name> [name ...]  ("none" for an empty slot)
+                if (rest.Count < 5) { Console.WriteLine("--set-poweranims <in.upk> <component path> <out.upk> <name> [name ...]"); return 1; }
+                var spk = MhoPackageModifier.Package.Open(Path.GetFullPath(rest[1]));
+                int sc = Array.FindIndex(spk.Exports, e => spk.PathOf(e).Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (sc < 0) { Console.WriteLine("no export " + rest[2]); return 1; }
+                byte[] sdat = spk.ReadExportBytes(spk.Exports[sc]).ToArray();
+                var stag = MhoPackageModifier.TagWalker.Walk(spk, sdat, 16)?.FirstOrDefault(t => t.Name.Equals("PowerAnims", StringComparison.OrdinalIgnoreCase));
+                if (stag == null) { Console.WriteLine("no PowerAnims"); return 1; }
+                int scount = BitConverter.ToInt32(sdat, stag.ValueAt);
+                var want = rest.Skip(4).ToList();
+                if (want.Count != scount) { Console.WriteLine($"PowerAnims has {scount} entries; give {scount} names"); return 1; }
+                var sadd = new List<string>();
+                int SIdx(string n)
+                {
+                    int i = Array.FindIndex(spk.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                    if (i >= 0) return i;
+                    if (!sadd.Contains(n, StringComparer.OrdinalIgnoreCase)) sadd.Add(n);
+                    return spk.Names.Length + sadd.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                }
+                for (int k = 0; k < scount; k++)
+                {
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(sdat.AsSpan(stag.ValueAt + 4 + 8 * k), SIdx(want[k]));
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(sdat.AsSpan(stag.ValueAt + 8 + 8 * k), 0);
+                }
+                byte[] sfinal = sdat;
+                var srep = new Dictionary<int, Func<long, byte[]>> { [sc] = _ => sfinal };
+                byte[] sout = MhoPackageModifier.PackageRebuilder.Rebuild(spk, srep, [], out var sw2, sadd);
+                var sprob = MhoPackageModifier.PackageRebuilder.Verify(spk, sout, srep.Keys.ToList(), [], sw2, sadd);
+                if (sprob.Count > 0) { Console.WriteLine("FAILED: " + string.Join("; ", sprob)); return 1; }
+                File.WriteAllBytes(rest[3], sout);
+                Console.WriteLine($"written {rest[3]}: PowerAnims = {string.Join(", ", want)}");
+                return 0;
+            }
             case "--power-closure":
             {
                 // Read-only: what a power sets off, as PowerClosure walks it (prototype, class, depth, power or not, via an entity).
