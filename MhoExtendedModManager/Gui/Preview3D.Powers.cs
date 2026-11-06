@@ -192,12 +192,13 @@ sealed partial class Preview3D
             var pw = heroPowers[k]; int idx = k;
             var b = Ui.FlatButton("", () => PowerClicked(idx), pw.Name + " (" + pw.Animations.Count + " animation" + (pw.Animations.Count == 1 ? "" : "s") + "): click to show only its animations and play it; click again for all.");
             b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size(side, side); b.Margin = new Padding(0, 0, 3, 3);
-            var img = pw.Icon != null ? Fx.PowerList.Icon(pw.Icon, cooked) : null;
+            int inner = side - 2 * (int)(3 * S);
+            var img = pw.Icon != null ? Fx.PowerList.IconSized(pw.Icon, cooked, inner, inner) : null;   // (perf patch: scaled once)
             string initials = string.Concat(pw.Name.Split(' ').Where(w => w.Length > 0).Take(2).Select(w => w[0]));
             Ui.IconPainters.AddOrUpdate(b, (g, r, c) =>
             {
-                if (img != null) { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(img, Rectangle.Inflate(r, -(int)(3 * S), -(int)(3 * S))); }
-                else TextRenderer.DrawText(g, initials, Ui.Heavy(10f), r, c, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                if (img != null) { var ir = Rectangle.Inflate(r, -(int)(3 * S), -(int)(3 * S)); if (ir.Width == img.Width && ir.Height == img.Height) g.DrawImageUnscaled(img, ir.X, ir.Y); else { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(img, ir); } }
+                else TextRenderer.DrawText(g, initials, Ui.SharedHeavy(10f), r, c, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             });
             powerButtons.Add(b);
             powerStrip.Controls.Add(b);

@@ -79,7 +79,7 @@ static class PreviewViews
 
     static void Save()
     {
-        try { Directory.CreateDirectory(Settings.Home); File.WriteAllText(FilePath, JsonSerializer.Serialize(D, new JsonSerializerOptions { WriteIndented = true })); }
+        try { Directory.CreateDirectory(Settings.Home); File.WriteAllText(FilePath, JsonSerializer.Serialize(D, MhoExtendedModManager.JsonOpts.Indented)); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 

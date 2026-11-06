@@ -19,6 +19,14 @@ namespace MhoExtendedModManager.Gui;
 /// </summary>
 sealed partial class ModelView : UserControl
 {
+    /// <summary>(perf patch) The renderer's threads: half the CPU's cores (at least 2; MHO_EXTMM_RENDER_THREADS to change it),
+    /// so a playing preview no longer takes every core and the rest of the PC (the game, Blender) stays responsive.</summary>
+    float[] bloomQ = [], bloomT = [];
+    internal static readonly ParallelOptions RenderThreads = new()
+    {
+        MaxDegreeOfParallelism = int.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_RENDER_THREADS"), out int rt) && rt > 0 ? rt : Environment.ProcessorCount   // (all cores as before the port; MHO_EXTMM_RENDER_THREADS sets fewer),
+    };
+
     /// <summary>A texture with its mip chain (BGRA bytes per level), sampled bilinearly with wrapping.</summary>
     public sealed class Map
     {
@@ -104,7 +112,7 @@ sealed partial class ModelView : UserControl
             if (needs && cw > 2 && chh > 2)
             {
                 var dst = (byte[])src.Clone();
-                System.Threading.Tasks.Parallel.For(0, h, y =>
+                System.Threading.Tasks.Parallel.For(0, h, RenderThreads, y =>
                 {
                     for (int x = 0; x < w; x++)
                     {
@@ -139,7 +147,7 @@ sealed partial class ModelView : UserControl
         public Map Recolored(Func<Vector3, Vector3> f)
         {
             var src = levels[0]; var dst = new byte[src.Length];
-            System.Threading.Tasks.Parallel.For(0, src.Length / 4, i =>
+            System.Threading.Tasks.Parallel.For(0, src.Length / 4, RenderThreads, i =>
             {
                 int o = i * 4;
                 var c = f(new Vector3(src[o + 2], src[o + 1], src[o]) * (1f / 255f));
@@ -765,6 +773,7 @@ sealed partial class ModelView : UserControl
             // Velocity-aligned with no velocity: UE3 takes the direction from the velocity, so the quad collapses and nothing
             // shows (Iron Man's Microlaser Sweep charge: 900-unit flares with none stood up as tall bars, Kurt 2026-10-02).
             if (q.Align == 2 && q.Velocity.LengthSquared() <= 1e-6f) continue;
+            if (q.Texture == null) continue;   // (perf patch: nothing is drawn without a texture; was checked per pixel)
             // A beam piece right by the camera (a beam aimed past the viewer) would cover the view: left out.
             if (q.SwapUV && halfW > W / 6f) continue;
             // The quad's axes on screen: turned by its rotation, or its long side along the velocity / the world's up.
@@ -782,14 +791,15 @@ sealed partial class ModelView : UserControl
                 ay = sv.LengthSquared() > 1e-8f ? Vector2.Normalize(sv) : new Vector2(0, -1); ax = new Vector2(-ay.Y, ay.X);
             }
             else { float c = MathF.Cos(q.Rotation), sn = MathF.Sin(q.Rotation); ax = new Vector2(c, sn); ay = new Vector2(-sn, c); }
-            float ext = MathF.Sqrt(halfW * halfW + halfH * halfH);
-            int x0 = Math.Max(0, (int)(px - ext)), x1 = Math.Min(W - 1, (int)(px + ext)), y0 = Math.Max(0, (int)(py - ext)), y1 = Math.Min(H - 1, (int)(py + ext));
+            // (perf patch) the turned quad's own bounds (was a circle around it: about twice the pixels tested); +1 for rounding
+            float extX = halfW * MathF.Abs(ax.X) + halfH * MathF.Abs(ay.X) + 1, extY = halfW * MathF.Abs(ax.Y) + halfH * MathF.Abs(ay.Y) + 1;
+            int x0 = Math.Max(0, (int)(px - extX)), x1 = Math.Min(W - 1, (int)(px + extX)), y0 = Math.Max(0, (int)(py - extY)), y1 = Math.Min(H - 1, (int)(py + extY));
             if (x0 > x1 || y0 > y1) continue;
             int cols = Math.Max(1, q.Cols), rows = Math.Max(1, q.Rows), img = Math.Clamp(q.Image, 0, cols * rows - 1);
             float cu = (img % cols) / (float)cols, cv = (img / cols) / (float)rows;
             float lod = q.Texture == null ? 0 : Math.Max(0, MathF.Log2(Math.Max(1f, q.Texture.W / (float)cols / Math.Max(1f, 2 * halfW))));
             var tint = q.Color;
-            Parallel.For(y0, y1 + 1, y =>
+            EffectRows(y0, y1, x1 - x0 + 1, y =>
             {
                 for (int x = x0; x <= x1; x++)
                 {
@@ -806,6 +816,15 @@ sealed partial class ModelView : UserControl
                 }
             });
         }
+    }
+
+    /// <summary>(perf patch) A sprite's rows: one after another for a small sprite (most particles: starting threads cost
+    /// more than their few pixels), else over the renderer's threads. Sprites still go one at a time, in the same order.</summary>
+    static void EffectRows(int y0, int y1, int width, Action<int> row)
+    {
+        if (y1 < y0) return;
+        if ((long)(y1 - y0 + 1) * width < 16384) { for (int y = y0; y <= y1; y++) row(y); return; }
+        Parallel.For(y0, y1 + 1, RenderThreads, row);
     }
 
     /// <summary>Blends a particle's texel into the frame: additive (glow: texture × HDR colour × alpha, added) or translucent.</summary>
@@ -899,7 +918,7 @@ sealed partial class ModelView : UserControl
         float lod = Math.Max(0, MathF.Log2(Math.Max(1f, q.Texture.W / (float)cols / px)));
         float rr2 = R.LengthSquared(), uu2 = U.LengthSquared(), nd = Vector3.Dot(c - eye, n);
         var tint = q.Color; var tex = q.Texture;
-        Parallel.For(iy0, iy1 + 1, y =>
+        EffectRows(iy0, iy1, ix1 - ix0 + 1, y =>
         {
             for (int x = ix0; x <= ix1; x++)
             {
@@ -993,7 +1012,7 @@ sealed partial class ModelView : UserControl
                     }
                 }
             }
-            if ((x1 - x0) * (y1 - y0) > 4096) Parallel.For(y0, y1 + 1, Row);
+            if ((x1 - x0) * (y1 - y0) > 4096) Parallel.For(y0, y1 + 1, RenderThreads, Row);
             else for (int y = y0; y <= y1; y++) Row(y);
         }
     }
@@ -1287,14 +1306,58 @@ sealed partial class ModelView : UserControl
             Vector2 ua = uv.Length > a ? uv[a] : default, ub = uv.Length > b ? uv[b] : default, uc = uv.Length > c ? uv[c] : default;
             float uArea = MathF.Abs((ub.X - ua.X) * (uc.Y - ua.Y) - (uc.X - ua.X) * (ub.Y - ua.Y));
             triRatio[t / 3] = sArea > 1e-6f ? uArea / sArea : 0;
-            Raster(t, a, b, c, front, look);
+            // (perf patch) collected, then rasterized in horizontal bands over the renderer's threads (each band owns its
+            // rows, and takes the triangles in the same order, so every pixel ends up exactly as before)
+            if (rasterCount == rasterTris.Length) Array.Resize(ref rasterTris, Math.Max(1024, rasterTris.Length * 2));
+            rasterTris[rasterCount++] = (t, front, look);
+        }
+        {
+            int bands = Math.Min(H, RenderThreads.MaxDegreeOfParallelism * 2), count = rasterCount;
+            if (bands <= 1 || count < 2000) for (int k = 0; k < count; k++) { var (t, front, look) = rasterTris[k]; Raster(t, idx[t], idx[t + 1], idx[t + 2], front, look, 0, H - 1); }
+            else
+            {
+                // (perf patch, round 4) each triangle filed under the bands its rows touch, in order, so a band only looks at its
+                // own triangles (a user's profile: every band checking every triangle took 15% of the CPU)
+                if (bandStart.Length != bands + 1) bandStart = new int[bands + 1];
+                Array.Clear(bandStart);
+                if (bandFirst.Length < count) { bandFirst = new int[count * 2]; bandLast = new int[count * 2]; }
+                for (int k = 0; k < count; k++)
+                {
+                    int t = rasterTris[k].T, a = idx[t], b = idx[t + 1], c = idx[t + 2];
+                    float lo = MathF.Min(sy[a], MathF.Min(sy[b], sy[c])), hi = MathF.Max(sy[a], MathF.Max(sy[b], sy[c]));
+                    int y0 = Math.Max(0, (int)MathF.Floor(lo)), y1 = Math.Min(H - 1, (int)MathF.Ceiling(hi));
+                    if (y0 > y1) { bandFirst[k] = 1; bandLast[k] = 0; continue; }
+                    int f0 = (int)((long)y0 * bands / H), f1 = (int)((long)y1 * bands / H);
+                    // (the band of a row: the same split as below, so a row is never left out)
+                    while (f0 > 0 && f0 * H / bands > y0) f0--;
+                    while (f0 < bands - 1 && (f0 + 1) * H / bands <= y0) f0++;
+                    while (f1 > 0 && f1 * H / bands > y1) f1--;
+                    while (f1 < bands - 1 && (f1 + 1) * H / bands <= y1) f1++;
+                    bandFirst[k] = f0; bandLast[k] = f1;
+                    for (int bnd = f0; bnd <= f1; bnd++) bandStart[bnd + 1]++;
+                }
+                for (int bnd = 0; bnd < bands; bnd++) bandStart[bnd + 1] += bandStart[bnd];
+                int total = bandStart[bands];
+                if (bandList.Length < total) bandList = new int[total * 2];
+                if (bandFill.Length != bands) bandFill = new int[bands];
+                Array.Copy(bandStart, bandFill, bands);
+                for (int k = 0; k < count; k++)
+                    for (int bnd = bandFirst[k]; bnd <= bandLast[k]; bnd++) bandList[bandFill[bnd]++] = k;
+                Parallel.For(0, bands, RenderThreads, band =>
+                {
+                    int yLo = band * H / bands, yHi = (band + 1) * H / bands - 1;
+                    for (int j = bandStart[band]; j < bandStart[band + 1]; j++) { var (t, front, look) = rasterTris[bandList[j]]; Raster(t, idx[t], idx[t + 1], idx[t + 2], front, look, yLo, yHi); }
+                });
+            }
+            rasterCount = 0;
+            Array.Clear(rasterTris);   // (the looks aren't kept alive by the list)
         }
 
         double tP1 = clock.Elapsed.TotalMilliseconds;
         // Pass 2: shade the visible pixels.
         var key = Vector3.Normalize(-f * 0.55f + u * 0.8f - r * 0.35f);
         var fill = Vector3.Normalize(-f * 0.35f - u * 0.15f + r * 0.9f);
-        Parallel.For(0, H, y =>
+        Parallel.For(0, H, RenderThreads, y =>
         {
             for (int x = 0; x < W; x++)
             {
@@ -1331,7 +1394,7 @@ sealed partial class ModelView : UserControl
     void DrawGround(Vector3 r, Vector3 u, Vector3 f, Vector3 eye, float focal, float cx, float cy, float near)
     {
         const float Cell = 50, Reach = 700;   // (hexagons Cell across their flat sides: Kurt, 2026-10-18)
-        Parallel.For(0, H, y =>
+        Parallel.For(0, H, RenderThreads, y =>
         {
             for (int x = 0; x < W; x++)
             {
@@ -1375,13 +1438,19 @@ sealed partial class ModelView : UserControl
 
     internal static float Lod(float ratio, Map m) => ratio <= 0 ? 0 : 0.5f * MathF.Log2(Math.Max(1e-8f, ratio * m.W * m.H));
 
-    void Raster(int t, int a, int b, int c, bool front, Look? look)
+    (int T, bool Front, Look? Look)[] rasterTris = [];
+    int rasterCount;
+    int[] bandStart = [], bandFirst = [], bandLast = [], bandList = [], bandFill = [];
+
+    void Raster(int t, int a, int b, int c, bool front, Look? look, int yLo, int yHi)
     {
         float x0 = sx[a], y0 = sy[a], x1 = sx[b], y1 = sy[b], x2 = sx[c], y2 = sy[c];
+        // (perf patch) only the rows of this band
+        int minY = Math.Max(yLo, (int)MathF.Floor(MathF.Min(y0, MathF.Min(y1, y2)))), maxY = Math.Min(yHi, (int)MathF.Ceiling(MathF.Max(y0, MathF.Max(y1, y2))));
+        if (minY > maxY) return;
         float area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
         if (MathF.Abs(area) < 1e-6f) return;
         int minX = Math.Max(0, (int)MathF.Floor(MathF.Min(x0, MathF.Min(x1, x2)))), maxX = Math.Min(W - 1, (int)MathF.Ceiling(MathF.Max(x0, MathF.Max(x1, x2))));
-        int minY = Math.Max(0, (int)MathF.Floor(MathF.Min(y0, MathF.Min(y1, y2)))), maxY = Math.Min(H - 1, (int)MathF.Ceiling(MathF.Max(y0, MathF.Max(y1, y2))));
         if (minX > maxX || minY > maxY) return;
         float inv = 1f / area;
         float z0 = iz[a], z1 = iz[b], z2 = iz[c];
@@ -1629,8 +1698,10 @@ sealed partial class ModelView : UserControl
             return;
         }
         int qw = (W + 3) / 4, qh = (H + 3) / 4;
-        var q = new float[qw * qh * 3];
-        Parallel.For(0, qh, qy =>
+        // (perf patch) the quarter-size buffers are kept and reused (were new on every frame: hundreds of KB of garbage per frame)
+        if (bloomQ.Length != qw * qh * 3) { bloomQ = new float[qw * qh * 3]; bloomT = new float[qw * qh * 3]; }
+        var q = bloomQ;
+        Parallel.For(0, qh, RenderThreads, qy =>
         {
             for (int qx = 0; qx < qw; qx++)
             {
@@ -1645,8 +1716,8 @@ sealed partial class ModelView : UserControl
         float sigma = BloomRadius / 2.5f, sum = 0;
         for (int k = -BloomRadius; k <= BloomRadius; k++) sum += kernel[k + BloomRadius] = MathF.Exp(-k * k / (2 * sigma * sigma));
         for (int k = 0; k < kernel.Length; k++) kernel[k] /= sum;
-        var t = new float[q.Length];
-        Parallel.For(0, qh, y =>
+        var t = bloomT;
+        Parallel.For(0, qh, RenderThreads, y =>
         {
             for (int x = 0; x < qw; x++)
             {
@@ -1659,7 +1730,7 @@ sealed partial class ModelView : UserControl
                 int o = (y * qw + x) * 3; t[o] = r; t[o + 1] = g; t[o + 2] = b;
             }
         });
-        Parallel.For(0, qh, y =>
+        Parallel.For(0, qh, RenderThreads, y =>
         {
             for (int x = 0; x < qw; x++)
             {
@@ -1673,7 +1744,7 @@ sealed partial class ModelView : UserControl
             }
         });
         // Back up to full size (bilinear) and added.
-        Parallel.For(0, H, y =>
+        Parallel.For(0, H, RenderThreads, y =>
         {
             float fy = Math.Clamp((y + 0.5f) / 4 - 0.5f, 0, qh - 1); int y0 = (int)fy, y1 = Math.Min(qh - 1, y0 + 1); float ty = fy - y0;
             for (int x = 0; x < W; x++)

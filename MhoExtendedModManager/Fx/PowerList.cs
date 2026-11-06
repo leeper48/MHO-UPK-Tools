@@ -365,6 +365,31 @@ static class PowerList
         return bmp;
     }
 
+    static readonly Dictionary<(string, int, int), Bitmap?> sized = [];
+
+    /// <summary>(perf patch) The icon already scaled to <paramref name="w"/> × <paramref name="h"/> (high quality, once), so
+    /// tiles and buttons draw it 1:1 on every repaint and scroll instead of resampling it each time. Shared: never dispose it.</summary>
+    public static Bitmap? IconSized(string iconPath, string cooked, int w, int h)
+    {
+        if (w <= 0 || h <= 0) return null;
+        var key = (iconPath, w, h);
+        lock (sized) if (sized.TryGetValue(key, out var hit)) return hit;
+        Bitmap? scaled = null;
+        if (Icon(iconPath, cooked) is { } src)
+        {
+            scaled = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            lock (src)
+                using (var g = Graphics.FromImage(scaled))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    g.DrawImage(src, new Rectangle(0, 0, w, h));
+                }
+        }
+        lock (sized) sized[key] = scaled;
+        return scaled;
+    }
+
     /// <summary>A power icon decoded afresh (not cached): the caller's own bitmap, to use on another thread and dispose (the
     /// Model tab's summon thumbnails, written while the 3D view may be drawing the cached one).</summary>
     public static Bitmap? IconCopy(string iconPath, string cooked) => Decode(iconPath, cooked);

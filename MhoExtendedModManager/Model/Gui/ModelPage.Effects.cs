@@ -493,7 +493,7 @@ sealed partial class ModelPage
         {
             Protected.CheckWrite(EffectsFolder);
             Directory.CreateDirectory(EffectsFolder);
-            File.WriteAllText(EffectsFile, JsonSerializer.Serialize(new EffectsState { Edits = new(effectEdits), BuildOnSave = effectBuildOnSave.Checked }, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(EffectsFile, JsonSerializer.Serialize(new EffectsState { Edits = new(effectEdits), BuildOnSave = effectBuildOnSave.Checked }, MhoExtendedModManager.JsonOpts.Indented));
         }
         catch (IOException ex) { Log("Effect models: " + ex.Message); }
     }

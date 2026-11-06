@@ -163,7 +163,7 @@ sealed partial class ModelPage
         SyncFile? sync = null;
         for (int i = 0; i < 5 && sync == null; i++)
         {
-            try { sync = JsonSerializer.Deserialize<SyncFile>(File.ReadAllText(file), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
+            try { sync = JsonSerializer.Deserialize<SyncFile>(File.ReadAllText(file), MhoExtendedModManager.JsonOpts.CaseInsensitive); }
             catch (Exception ex) when (ex is IOException or JsonException) { Thread.Sleep(150); }
         }
         if (sync == null || sync.Version <= applied) { if (painted && live && buildOnSave.Checked) BuildAfterBlender(); return; }

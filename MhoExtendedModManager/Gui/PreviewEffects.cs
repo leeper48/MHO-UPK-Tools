@@ -297,6 +297,8 @@ sealed class PreviewEffects : IDisposable
     {
         if (clock.Player is not { } player || Playing() != null || Shown() is not { } s || Running?.Invoke() == false) { idleTimer.Stop(); return; }
         double now = idleClock.Elapsed.TotalSeconds;
+        // (perf patch) effects of a paused pose: not stepped or drawn while the view isn't on screen or the app is in the background
+        if (!AnimPlayer.OnScreen(s.View) || (AnimPlayer.HoldWhenInactive && Form.ActiveForm == null)) { idleLast = now; return; }
         player.Step((float)Math.Min(0.1, now - idleLast), false);
         idleLast = now;
         ShowPose();

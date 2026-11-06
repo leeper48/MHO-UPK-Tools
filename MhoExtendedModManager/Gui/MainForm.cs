@@ -585,6 +585,13 @@ sealed partial class MainForm : Form
         DragEnter += (_, e) => e.Effect = !readOnly && e.Data?.GetDataPresent(DataFormats.FileDrop) == true ? DragDropEffects.Copy : DragDropEffects.None;
         DragDrop += (_, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] files) Install(files); };
 
+        // (perf patch) Minimized: the cache of opened game packages is emptied and the memory handed back to Windows.
+        Resize += (_, _) =>
+        {
+            if (WindowState != FormWindowState.Minimized) return;
+            Fx.FxPkg.Trim();
+            GC.Collect(2, GCCollectionMode.Optimized, false, true);
+        };
         Load += (_, _) =>
         {
             Theme.Apply(this, Palette.Dark); Modern.Modernize(this);

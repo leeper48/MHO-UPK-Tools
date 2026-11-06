@@ -680,11 +680,12 @@ sealed partial class ModEditorView
         using (var path = Rounded(r, rad))
         {
             using (var b = new SolidBrush(sel ? Ui.CardHover : hot ? Color.FromArgb(52, 52, 60) : Ui.Card)) g.FillPath(b, path);
-            if (p.Icon != null && game != null && Fx.PowerList.Icon(p.Icon, game.Cooked) is { } img)
+            var ir = Rectangle.Inflate(r, -(int)(2 * S), -(int)(2 * S));
+            if (p.Icon != null && game != null && Fx.PowerList.IconSized(p.Icon, game.Cooked, ir.Width, ir.Height) is { } img)
             {
-                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                // (perf patch) scaled once and drawn 1:1 (was a bicubic resample of every tile on every repaint)
                 var clip = g.Clip; g.SetClip(path);
-                g.DrawImage(img, Rectangle.Inflate(r, -(int)(2 * S), -(int)(2 * S)));
+                g.DrawImageUnscaled(img, ir.X, ir.Y);
                 g.Clip = clip;
             }
             else

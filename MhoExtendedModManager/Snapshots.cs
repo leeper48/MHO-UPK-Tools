@@ -383,7 +383,7 @@ static class Snapshots
         using (var z = new ZipArchive(fs, ZipArchiveMode.Create))
         {
             using (var w = new StreamWriter(z.CreateEntry("bundle.json", CompressionLevel.Optimal).Open()))
-                w.Write(JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true }));
+                w.Write(JsonSerializer.Serialize(snap, MhoExtendedModManager.JsonOpts.Indented));
             foreach (var m in mods.OrderBy(m => m.Priority))
             {
                 progress?.Invoke(m.Name);

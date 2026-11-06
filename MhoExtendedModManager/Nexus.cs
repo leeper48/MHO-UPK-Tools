@@ -372,5 +372,5 @@ sealed class NexusCache
         try { return File.Exists(PathFor(home)) ? JsonSerializer.Deserialize<NexusCache>(File.ReadAllText(PathFor(home))) ?? new() : new(); }
         catch (Exception ex) when (ex is JsonException or IOException or NotSupportedException) { return new(); }
     }
-    public void Save(string home) => File.WriteAllText(PathFor(home), JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    public void Save(string home) => File.WriteAllText(PathFor(home), JsonSerializer.Serialize(this, MhoExtendedModManager.JsonOpts.Indented));
 }

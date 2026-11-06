@@ -43,7 +43,7 @@ static class ChecksumMaker
             list[Path.GetFileName(f)] = Convert.ToHexString(crc.GetCurrentHash().Reverse().ToArray());
             if (File.GetLastWriteTime(f).Date != StockDate) odd.Add(Path.GetFileName(f) + " (not dated 2024-03-14)");
         }
-        File.WriteAllText(outPath, JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+        File.WriteAllText(outPath, JsonSerializer.Serialize(list, MhoExtendedModManager.JsonOpts.Indented) + Environment.NewLine);
         Console.WriteLine($"Wrote {outPath}: {list.Count} sound packages, {bytes / 1073741824.0:0.00} GB read.");
         foreach (string o in odd) Console.WriteLine("  " + o);
         Console.WriteLine(odd.Count == 0 ? "Clean: every one is stock-dated and an AKPK file." : $"{odd.Count} thing(s) to look at before trusting this list.");
@@ -83,7 +83,7 @@ static class ChecksumMaker
             else if ((flags.Value & 0x02000000) == 0) uncompressed.Add(name);
             if ((i + 1) % 1000 == 0) Console.WriteLine($"  {i + 1} / {files.Count}  ({bytes / 1048576.0 / Math.Max(1, sw.Elapsed.TotalSeconds):0} MB/s)");
         }
-        File.WriteAllText(outPath, JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+        File.WriteAllText(outPath, JsonSerializer.Serialize(list, MhoExtendedModManager.JsonOpts.Indented) + Environment.NewLine);
         Console.WriteLine($"Wrote {outPath}: {list.Count} packages, {bytes / 1073741824.0:0.00} GB read in {sw.Elapsed.TotalMinutes:0.0} min.");
         Console.WriteLine($"Stock traits: {files.Count - notStockDate.Count} dated 2024-03-14, {files.Count - uncompressed.Count - badMagic.Count} compressed, {badMagic.Count} not UE3 packages.");
         foreach (var (what, l) in new[] { ("not dated 2024-03-14", notStockDate), ("uncompressed (a mod tool's output?)", uncompressed), ("not a UE3 package", badMagic) })

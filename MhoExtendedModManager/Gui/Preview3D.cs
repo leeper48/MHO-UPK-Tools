@@ -81,6 +81,7 @@ sealed partial class Preview3D : UserControl
         Moved = (f, ended) => { if (playTime + 1e-3f < lastMoved) loopPass++; lastMoved = playTime; if (ChainStep(ended)) return; FxAdvance(playTime, ended); Pose(f); },
         StateChanged = () => { play.Text = IsPlaying ? "❚❚" : "▶"; view.Moving = IsPlaying; if (!IsPlaying) PlaybackMoved?.Invoke(); },   // smaller frames while playing (ModelView.Moving)
         CanRun = () => CanRun?.Invoke() ?? true,
+        Owner = this,   // (perf patch: held while this preview isn't on screen)
         // a power's animation at the game's speed (its AnimationTimeMS / wind-up: PowerPreview.GameAnimSeconds)
         GameSeconds = n => gameAnimSeconds != null && gameAnimSeconds.TryGetValue(n, out var s) ? s : null,
     };

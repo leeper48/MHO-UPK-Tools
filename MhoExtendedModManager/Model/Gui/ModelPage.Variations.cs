@@ -91,7 +91,7 @@ sealed partial class ModelPage
 
     void SaveVarState()
     {
-        try { Directory.CreateDirectory(VarFolder); File.WriteAllText(VarFile, JsonSerializer.Serialize(varState, new JsonSerializerOptions { WriteIndented = true })); }
+        try { Directory.CreateDirectory(VarFolder); File.WriteAllText(VarFile, JsonSerializer.Serialize(varState, MhoExtendedModManager.JsonOpts.Indented)); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log("Variations: " + ex.Message); }
     }
 
@@ -784,7 +784,7 @@ sealed partial class ModelPage
             var box = new Rectangle(1, 1, side - 1, side - 1);
             using (var bg = new SolidBrush(hot ? Ui.CardHover : Ui.Card)) g.FillRectangle(bg, box);
             if (Image != null) { g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; g.DrawImage(Image, Rectangle.Inflate(box, -(int)(4 * s), -(int)(4 * s))); }
-            else TextRenderer.DrawText(g, "?", Ui.Bold(14f), box, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else TextRenderer.DrawText(g, "?", Ui.SharedBold(14f), box, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             using (var pen = new Pen(Checked ? Ui.Accent : Ui.Line, Checked ? 2.5f * s : 1f)) g.DrawRectangle(pen, box);
             // the tick
             var tick = new RectangleF(box.Right - 20 * s, box.Y + 4 * s, 16 * s, 16 * s);
@@ -794,7 +794,7 @@ sealed partial class ModelPage
                 using var tp = new Pen(Color.White, 2f * s) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
                 g.DrawLines(tp, [new PointF(tick.X + 4 * s, tick.Y + 8.5f * s), new PointF(tick.X + 7 * s, tick.Y + 11.5f * s), new PointF(tick.X + 12.5f * s, tick.Y + 5 * s)]);
             }
-            TextRenderer.DrawText(g, Caption, Ui.Regular(8f), new Rectangle(0, side + (int)(2 * s), Width, Height - side - (int)(2 * s)), Checked ? Ui.Text : Ui.Subtle,
+            TextRenderer.DrawText(g, Caption, Ui.SharedRegular(8f), new Rectangle(0, side + (int)(2 * s), Width, Height - side - (int)(2 * s)), Checked ? Ui.Text : Ui.Subtle,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
         }
 

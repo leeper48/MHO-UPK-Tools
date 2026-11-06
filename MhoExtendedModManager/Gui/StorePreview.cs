@@ -301,7 +301,7 @@ sealed partial class StorePreview : Control
                 // The 3D tile.
                 using var p3 = Ui.Round(r, 4 * S);
                 using (var fill = new SolidBrush(ti == hoverThumb ? Ui.CardHover : Ui.Card)) g.FillPath(fill, p3);
-                TextRenderer.DrawText(g, "3D", Ui.Heavy(11f), r, show3D ? Ui.Text : Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                TextRenderer.DrawText(g, "3D", Ui.SharedHeavy(11f), r, show3D ? Ui.Text : Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 using var pen3 = new Pen(show3D ? Ui.Accent : Ui.Line, show3D ? Math.Max(2f, 2f * S) : 1f);
                 g.DrawPath(pen3, p3);
                 continue;
@@ -323,7 +323,7 @@ sealed partial class StorePreview : Control
                 {
                     var mark = new Rectangle(r.Right - (int)(14 * S), r.Bottom - (int)(14 * S), (int)(12 * S), (int)(12 * S));
                     using var mb = new SolidBrush(Color.FromArgb(200, 20, 24, 32)); g.FillEllipse(mb, mark);
-                    TextRenderer.DrawText(g, "G", Ui.Heavy(6.5f), mark, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                    TextRenderer.DrawText(g, "G", Ui.SharedHeavy(6.5f), mark, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 }
                 bool on = !show3D && i == index;
                 using var pen = new Pen(on ? Ui.Accent : Ui.Line, on ? Math.Max(2f, 2f * S) : 1f);

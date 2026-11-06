@@ -60,17 +60,47 @@ sealed record FxPkg(string Name, byte[] Bytes, FxTables T)
     }
 
     static readonly Dictionary<string, FxPkg> cache = new(StringComparer.OrdinalIgnoreCase);
+    // (perf patch) Least recently used first; the cache is limited by the packages' size (their decompressed bodies) instead
+    // of 64 packages, which held about 300 MB on a user's Editor session (gcdump, 2026-11-04) and up to gigabytes.
+    static readonly LinkedList<string> recent = new();
+    static long cachedBytes;
+    /// <summary>Bytes of decompressed packages kept at most (default 384 MB; MHO_EXTMM_FXPKG_MB to change it).</summary>
+    static readonly long MaxBytes = (long.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_FXPKG_MB"), out long mb) && mb > 0 ? mb : 384) * 1024 * 1024;
 
     public static FxPkg Open(string file)
     {
-        string key = file + "|" + File.GetLastWriteTimeUtc(file).Ticks;
+        string key = Path.GetFullPath(file) + "|" + File.GetLastWriteTimeUtc(file).Ticks;
         lock (cache)
         {
-            if (cache.TryGetValue(key, out var hit)) return hit;
-            if (cache.Count > 64) cache.Clear();
+            if (cache.TryGetValue(key, out var hit))
+            {
+                recent.Remove(key); recent.AddLast(key);
+                return hit;
+            }
+            // an older version of the same file (it was rewritten): dropped
+            string prefix = Path.GetFullPath(file) + "|";
+            foreach (string old in cache.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList()) Drop(old);
             var p = Package.Open(file);
-            return cache[key] = new FxPkg(Path.GetFileName(file), p.Body, new FxTables(p));
+            var pkg = new FxPkg(Path.GetFileName(file), p.Body, new FxTables(p));
+            cache[key] = pkg; recent.AddLast(key); cachedBytes += pkg.Bytes.LongLength;
+            bool dropped = false;
+            while (cachedBytes > MaxBytes && recent.Count > 1) { Drop(recent.First!.Value); dropped = true; }
+            if (dropped) System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+            return pkg;
         }
+    }
+
+    static void Drop(string key)
+    {
+        if (cache.Remove(key, out var p)) cachedBytes -= p.Bytes.LongLength;
+        recent.Remove(key);
+    }
+
+    /// <summary>Empties the cache (the app went to the background, an editor closed): the memory goes back at the next collection.</summary>
+    public static void Trim()
+    {
+        lock (cache) { cache.Clear(); recent.Clear(); cachedBytes = 0; }
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
     }
 }
 

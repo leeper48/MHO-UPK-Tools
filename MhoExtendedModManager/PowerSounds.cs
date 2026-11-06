@@ -345,7 +345,7 @@ static class PowerSounds
             using (var z = ZipFile.Open(pack, ZipArchiveMode.Create))
             {
                 using (var sw = new StreamWriter(z.CreateEntry("mod.json").Open()))
-                    sw.Write(JsonSerializer.Serialize(new Dictionary<string, object> { ["name"] = "Power sounds", ["patches"] = patches }, new JsonSerializerOptions { WriteIndented = true }));
+                    sw.Write(JsonSerializer.Serialize(new Dictionary<string, object> { ["name"] = "Power sounds", ["patches"] = patches }, MhoExtendedModManager.JsonOpts.Indented));
                 foreach (var (n, b) in wems.Concat(sources)) using (var e = z.CreateEntry(n).Open()) e.Write(b);
             }
             draft.SoundPacks.Add(pack);

@@ -45,7 +45,7 @@ static class ModHistory
             try
             {
                 string p = FileOf(libraryData), tmp = p + ".tmp";
-                File.WriteAllText(tmp, JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(tmp, JsonSerializer.Serialize(all, MhoExtendedModManager.JsonOpts.Indented));
                 File.Move(tmp, p, overwrite: true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }

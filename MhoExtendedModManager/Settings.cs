@@ -172,7 +172,7 @@ sealed class Settings
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsFile)!);
-        File.WriteAllText(SettingsFile, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(SettingsFile, JsonSerializer.Serialize(this, MhoExtendedModManager.JsonOpts.Indented));
     }
 
     /// <summary>The library's data folder (holds mods\ and state.json): the folder itself, or its data\ subfolder.</summary>

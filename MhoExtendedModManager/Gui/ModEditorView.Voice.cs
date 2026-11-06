@@ -31,7 +31,11 @@ sealed partial class ModEditorView
             UpdateVoiceCount();
         };
         voice.SelectionChanged += (_, _) => { if (!voiceFilling) ShowVoiceShape(); };
-        voiceFind.TextChanged += (_, _) => FillVoice();
+        // (perf patch) refiltered once typing pauses (200 ms), not on every key: each fill rebuilds every row
+        var findDelay = new System.Windows.Forms.Timer { Interval = 200 };
+        findDelay.Tick += (_, _) => { findDelay.Stop(); FillVoice(); };
+        voiceFind.TextChanged += (_, _) => { findDelay.Stop(); findDelay.Start(); };
+        Disposed += (_, _) => findDelay.Dispose();
         MhoPackageModifier.Gui.SearchBox.AddClear(voiceFind);
         Disposed += (_, _) => { VoiceAudio.Stop(); if (voiceWork != null) try { Directory.Delete(voiceWork, true); } catch (IOException) { } };
         Ui.Tip(voiceFind, "Show only lines whose situation, detail, settings, words or sound event have these words.");
@@ -920,6 +924,13 @@ sealed partial class ModEditorView
         UpdateVoiceHint();
     }
 
+    readonly Dictionary<string, int> eventWidths = new(StringComparer.Ordinal);
+    int EventWidth(string e)
+    {
+        if (!eventWidths.TryGetValue(e, out int w)) eventWidths[e] = w = TextRenderer.MeasureText(e, voice!.Font).Width;
+        return w;
+    }
+
     void FillVoice()
     {
         if (voice == null) return;
@@ -929,7 +940,8 @@ sealed partial class ModEditorView
         voice.Rows.Clear();
         voice.Columns["Package"]!.Visible = voiceLines.Select(l => l.Package).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         // (every line, not only the ones found: the column doesn't jump as you type)
-        voice.Columns["Sound Event"]!.Width = voiceLines.Select(l => TextRenderer.MeasureText(l.Event, voice.Font).Width).DefaultIfEmpty((int)(300 * S)).Max() + (int)(24 * S);
+        // (perf patch) each event name measured once (was every name on every fill, i.e. every key typed in Find)
+        voice.Columns["Sound Event"]!.Width = voiceLines.Select(l => EventWidth(l.Event)).DefaultIfEmpty((int)(300 * S)).Max() + (int)(24 * S);
         foreach (var l in voiceLines)
         {
             string said = !l.Sound ? "" : IsOwnLine(l) ? "(Your Own Line)" : VoiceText.For(l.Event);

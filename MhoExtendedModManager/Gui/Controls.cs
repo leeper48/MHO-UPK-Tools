@@ -21,6 +21,9 @@ sealed class GradientSplit : SplitContainer
 /// <summary>A table whose empty area shows the window gradient (rows stay solid surfaces).</summary>
 sealed class GradientGrid : DataGridView
 {
+    // (perf patch) drawn off screen and shown whole: scrolling no longer flashes the rows as they're drawn piece by piece
+    public GradientGrid() { DoubleBuffered = true; }
+
     // A tooltip still holding a disposed table asks for its handle when the window deactivates (ToolTip.HideAllToolTips),
     // which threw ObjectDisposedException; a disposed table now has no handle to give instead.
     protected override void CreateHandle() { if (IsDisposed || Disposing) return; base.CreateHandle(); }

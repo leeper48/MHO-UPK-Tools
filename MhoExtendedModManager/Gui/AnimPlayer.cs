@@ -13,7 +13,13 @@ sealed class AnimPlayer : IDisposable
     // 15 ms (Kurt, 2026-10-19: playback felt slow): Windows' timers tick every 15.6 ms unless a program asks for finer
     // ones, so 33 ms waited 3 ticks (46.9 ms: 21 frames a second, measured by --powers-perf, whatever the frame cost); one
     // tick gives up to 64. Time follows the clock either way; heavy frames shrink the drawing (ModelView.Moving).
-    readonly System.Windows.Forms.Timer timer = new() { Interval = 15 };
+    readonly System.Windows.Forms.Timer timer = new() { Interval = FrameMs };
+    /// <summary>(perf patch, contributed by pants on a tiger) Milliseconds between frames: 15 by default (Kurt keeps the rate); MHO_EXTMM_PREVIEW_FPS
+    /// sets the frames a second (e.g. 60). Time still follows the clock, so playback speed is the same either way.</summary>
+    public static readonly int FrameMs = int.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_PREVIEW_FPS"), out int fps) && fps is >= 5 and <= 120 ? Math.Max(1, 1000 / fps) : 15;   // (15 ms as before the port; MHO_EXTMM_PREVIEW_FPS still sets another rate)
+    /// <summary>(perf patch) Hold the frame while none of this app's windows is the active one (the game, Blender or a browser
+    /// in front): no drawing then, and playback goes on from the same moment when the app is back in front.</summary>
+    public static bool HoldWhenInactive = Environment.GetEnvironmentVariable("MHO_EXTMM_PREVIEW_BACKGROUND") == "0";   // (off: test windows are never the active one; MHO_EXTMM_PREVIEW_BACKGROUND=0 turns it on)
     readonly System.Diagnostics.Stopwatch clock = new();
     double lastTick;
 
@@ -23,6 +29,9 @@ sealed class AnimPlayer : IDisposable
     public required Action<float, bool> Moved { get; init; }
     /// <summary>Paused or playing changed (the ▶ / ❚❚ button, smaller frames while moving).</summary>
     public Action? StateChanged { get; init; }
+    /// <summary>(perf patch) The view it plays in: while it isn't on screen (another tab or page shows, its window hidden or
+    /// minimized) the frame is held and nothing is drawn; playback goes on from the same moment when it shows again.</summary>
+    public System.Windows.Forms.Control? Owner { get; init; }
     /// <summary>Whether it may run now; false pauses it (the Mods tab: a picture shows, or the preview is hidden).</summary>
     public Func<bool>? CanRun { get; init; }
 
@@ -105,6 +114,8 @@ sealed class AnimPlayer : IDisposable
         if (Anim == null || Paused) { timer.Stop(); return; }
         if (CanRun?.Invoke() == false) { Pause(); return; }   // hidden: hold the frame
         double now = clock.Elapsed.TotalSeconds;
+        if (HoldWhenInactive && System.Windows.Forms.Form.ActiveForm == null) { lastTick = now; return; }   // (perf patch)
+        if (Owner != null && !OnScreen(Owner)) { lastTick = now; return; }   // (perf patch: another tab or page is showing)
         Time += now - lastTick; lastTick = now;
         bool ended = false;
         if (Seconds <= 0) Time = 0;
@@ -116,6 +127,10 @@ sealed class AnimPlayer : IDisposable
         Moved(Frame, ended);
         if (ended) StateChanged?.Invoke();
     }
+
+    /// <summary>(perf patch) The control and all its parents are shown, and its window isn't minimized.</summary>
+    internal static bool OnScreen(System.Windows.Forms.Control c) =>
+        !c.IsDisposed && c.Visible && c.Width > 0 && c.Height > 0 && c.FindForm() is { } f && f.WindowState != System.Windows.Forms.FormWindowState.Minimized;
 
     public void Dispose() => timer.Dispose();
 }

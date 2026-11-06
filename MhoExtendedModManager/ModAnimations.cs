@@ -283,7 +283,26 @@ sealed class MeshAnimator
         restModelToBone = [.. rest.ModelToBone];
         posed = new Matrix4x4[bones.Count]; skin = new Matrix4x4[bones.Count]; locals = new Matrix4x4[bones.Count];
         Positions = new Vector3[positions.Length]; Normals = new Vector3[normals.Length];
+        // (perf patch) the weights in flat arrays, once: only the ones Skin used (weight > 0, a bone of this skeleton), in order
+        infStart = new int[positions.Length + 1];
+        var fb = new List<int>(positions.Length * 3); var fw = new List<float>(positions.Length * 3);
+        for (int v = 0; v < positions.Length; v++)
+        {
+            infStart[v] = fb.Count;
+            var inf = v < influences.Count ? influences[v] : default;
+            if (inf.Bones == null) continue;
+            for (int k = 0; k < inf.Bones.Count; k++)
+            {
+                int bi = inf.Bones[k]; float w = inf.Weights[k];
+                if (w <= 0 || bi < 0 || bi >= bones.Count) continue;
+                fb.Add(bi); fw.Add(w);
+            }
+        }
+        infStart[positions.Length] = fb.Count;
+        infBone = [.. fb]; infWeight = [.. fw];
     }
+    readonly int[] infStart, infBone;
+    readonly float[] infWeight;
 
     static Quaternion Unit(Quaternion q) { float l = q.Length(); return l > 0.0001f ? Quaternion.Normalize(q) : Quaternion.Identity; }
 
@@ -317,6 +336,7 @@ sealed class MeshAnimator
     /// <summary>Poses the mesh at a frame of <paramref name="a"/> (null: the rest pose) into Positions / Normals.</summary>
     public void Pose(BoneAnimation? a, float frame)
     {
+        var tbAll = a != null ? ModAnimations.TranslationBones(a) : null;   // (perf patch: looked up once per pose, not per bone)
         for (int i = 0; i < bones.Count; i++)
         {
             var b = bones[i];
@@ -324,7 +344,7 @@ sealed class MeshAnimator
             if (a != null && a.Tracks.TryGetValue(b.Name, out var t))
             {
                 // Rotation-only sets: the animation's position only for its listed bones (and the root).
-                var tb = ModAnimations.TranslationBones(a);
+                var tb = tbAll;
                 // Not the ankles: hulk_v2_as lists them, which sank a shorter-legged model 8 units in the preview, but taking them
                 // off the list changed nothing in game (Spider-Punk on Planet Hulk, 2026-11-01; why isn't known, UE3 would apply them).
                 if (tb == null || i == 0 || b.ParentIndex < 0 || tb.Contains(b.Name) && b.Name is not ("g_l_ankle" or "g_r_ankle")) p = Sample(t.PositionKeys, frame, p);
@@ -412,22 +432,33 @@ sealed class MeshAnimator
 
     void Skin()
     {
-        for (int v = 0; v < restPos.Length; v++)
+        // (perf patch) the same sums from flat arrays (no per-vertex lists), in blocks over the renderer's threads
+        int n = restPos.Length;
+        const int Block = 4096;
+        if (n <= Block) SkinRange(0, n);
+        else Parallel.For(0, (n + Block - 1) / Block, Gui.ModelView.RenderThreads, c => SkinRange(c * Block, Math.Min(n, c * Block + Block)));
+    }
+
+    void SkinRange(int from, int to)
+    {
+        var shift = Shift;
+        for (int v = from; v < to; v++)
         {
-            var inf = v < influences.Count ? influences[v] : default;
-            if (inf.Bones == null || inf.Bones.Count == 0) { Positions[v] = restPos[v] + Shift; if (v < Normals.Length) Normals[v] = restNrm[v]; if (v < Tangents.Length) Tangents[v] = restTan[v]; continue; }
+            int k0 = infStart[v], k1 = infStart[v + 1];
+            if (k0 == k1) { Positions[v] = restPos[v] + shift; if (v < Normals.Length) Normals[v] = restNrm[v]; if (v < Tangents.Length) Tangents[v] = restTan[v]; continue; }
             Vector3 sp = Vector3.Zero, sn = Vector3.Zero, st = Vector3.Zero; float total = 0;
-            var rt = v < restTan.Length ? new Vector3(restTan[v].X, restTan[v].Y, restTan[v].Z) : Vector3.Zero;
-            for (int k = 0; k < inf.Bones.Count; k++)
+            bool hasN = v < restNrm.Length, hasT = v < restTan.Length;
+            var rt = hasT ? new Vector3(restTan[v].X, restTan[v].Y, restTan[v].Z) : Vector3.Zero;
+            var rp = restPos[v]; var rn = hasN ? restNrm[v] : Vector3.Zero;
+            for (int k = k0; k < k1; k++)
             {
-                int bi = inf.Bones[k]; float w = inf.Weights[k];
-                if (w <= 0 || bi < 0 || bi >= skin.Length) continue;
-                sp += Vector3.Transform(restPos[v], skin[bi]) * w;
-                if (v < restNrm.Length) sn += Vector3.TransformNormal(restNrm[v], skin[bi]) * w;
-                if (v < restTan.Length) st += Vector3.TransformNormal(rt, skin[bi]) * w;
+                ref readonly var m = ref skin[infBone[k]]; float w = infWeight[k];
+                sp += Vector3.Transform(rp, m) * w;
+                if (hasN) sn += Vector3.TransformNormal(rn, m) * w;
+                if (hasT) st += Vector3.TransformNormal(rt, m) * w;
                 total += w;
             }
-            Positions[v] = (total > 0 ? sp / total : restPos[v]) + Shift;
+            Positions[v] = (total > 0 ? sp / total : rp) + shift;
             if (v < Normals.Length) Normals[v] = total > 0 && sn != Vector3.Zero ? Vector3.Normalize(sn) : restNrm[v];
             if (v < Tangents.Length) Tangents[v] = total > 0 && st != Vector3.Zero ? new Vector4(Vector3.Normalize(st), restTan[v].W) : restTan[v];
         }
@@ -438,9 +469,10 @@ sealed class MeshAnimator
         if (keys.Count == 0) return fallback;
         if (keys.Count == 1 || f <= keys[0].TimeFrame) return keys[0].Position;
         if (f >= keys[^1].TimeFrame) return keys[^1].Position;
-        for (int i = 1; i < keys.Count; i++)
-            if (f <= keys[i].TimeFrame) { var a = keys[i - 1]; var c = keys[i]; float s = c.TimeFrame - a.TimeFrame; return Vector3.Lerp(a.Position, c.Position, s > 0 ? (f - a.TimeFrame) / s : 0); }
-        return keys[^1].Position;
+        // (perf patch) the first key at or after f by halving (keys are in time order), as the old scan found it
+        int lo = 1, hi = keys.Count - 1;
+        while (lo < hi) { int mid = (lo + hi) >> 1; if (f <= keys[mid].TimeFrame) hi = mid; else lo = mid + 1; }
+        { var a = keys[lo - 1]; var c = keys[lo]; float s = c.TimeFrame - a.TimeFrame; return Vector3.Lerp(a.Position, c.Position, s > 0 ? (f - a.TimeFrame) / s : 0); }
     }
 
     static Quaternion Sample(IReadOnlyList<BoneRotationKey> keys, float f, Quaternion fallback)
@@ -448,9 +480,9 @@ sealed class MeshAnimator
         if (keys.Count == 0) return fallback;
         if (keys.Count == 1 || f <= keys[0].TimeFrame) return keys[0].Rotation;
         if (f >= keys[^1].TimeFrame) return keys[^1].Rotation;
-        for (int i = 1; i < keys.Count; i++)
-            if (f <= keys[i].TimeFrame) { var a = keys[i - 1]; var c = keys[i]; float s = c.TimeFrame - a.TimeFrame; return Quaternion.Slerp(a.Rotation, c.Rotation, s > 0 ? (f - a.TimeFrame) / s : 0); }
-        return keys[^1].Rotation;
+        int lo = 1, hi = keys.Count - 1;   // (perf patch: as above)
+        while (lo < hi) { int mid = (lo + hi) >> 1; if (f <= keys[mid].TimeFrame) hi = mid; else lo = mid + 1; }
+        { var a = keys[lo - 1]; var c = keys[lo]; float s = c.TimeFrame - a.TimeFrame; return Quaternion.Slerp(a.Rotation, c.Rotation, s > 0 ? (f - a.TimeFrame) / s : 0); }
     }
 
     /// <summary>A single rotation key: as decoded or its conjugate, whichever is nearer the rest pose (FbxExporter.ResolveSingleKeyRotation).</summary>

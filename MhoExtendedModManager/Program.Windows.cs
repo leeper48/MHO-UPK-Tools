@@ -453,6 +453,32 @@ static partial class Program
                     if (pv.Length > 2) vs[5] = pv[2];
                     v.ViewState = vs;
                 }
+                // MHO_RENDER_BENCH=<frames>: the animation (with its effects) stepped at 30 fps and each frame drawn at once, timed:
+                // the whole frame (pose and skinning, effects, drawing) and the drawing alone (ModelView.LastFrameMs); then memory.
+                // For before/after comparisons (the performance port, 2026-11-05); after it the usual shots are taken.
+                if (Environment.GetEnvironmentVariable("MHO_RENDER_BENCH") is { Length: > 0 } rbench && int.TryParse(rbench, out int benchN) && ba != null)
+                {
+                    var whole = new List<double>(); var draw = new List<double>();
+                    double bt = 0;
+                    var bfx = fxp;
+                    for (int k = -10; k < benchN; k++)   // (10 frames to warm up)
+                    {
+                        var sw = System.Diagnostics.Stopwatch.StartNew();
+                        bt += 1.0 / 30; if (bt > secs) bt = 0;   // (the effects run once: give about the animation's length in frames)
+                        anim8.Pose(ba, (float)(bt / Math.Max(0.001, secs) * frames));
+                        if (bfx != null) { bfx.Step(1f / 30, false); v.Effects = bfx.Quads(); v.EffectTris = bfx.Tris(); }
+                        renderRig?.At((float)bt);
+                        rrig.Update(v, anim8);
+                        v.Refresh();
+                        sw.Stop();
+                        if (k >= 0) { whole.Add(sw.Elapsed.TotalMilliseconds); draw.Add(v.LastFrameMs); }
+                    }
+                    static string Stat(List<double> xs) { var o = xs.OrderBy(x => x).ToList(); return $"mean {xs.Average():0.0} ms, median {o[o.Count / 2]:0.0}, 90th {o[(int)(o.Count * 0.9)]:0.0}"; }
+                    Console.WriteLine($"BENCH {benchN} frames at {v.Width}x{v.Height}: whole frame {Stat(whole)}; drawing {Stat(draw)}");
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                    using var proc = System.Diagnostics.Process.GetCurrentProcess();
+                    Console.WriteLine($"BENCH memory: managed {GC.GetTotalMemory(false) / 1048576.0:0} MB, private {proc.PrivateMemorySize64 / 1048576.0:0} MB, working set {proc.WorkingSet64 / 1048576.0:0} MB");
+                }
                 foreach (float at in Environment.GetEnvironmentVariable("MHO_RENDER_AT") is { Length: > 0 } rat ? rat.Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray() : new[] { 0f, 0.33f, 0.66f, 1f })   // (MHO_RENDER_AT=0.8,0.87: those points of the animation)
                 {
                     if (fxp != null)

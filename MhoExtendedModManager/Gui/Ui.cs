@@ -44,10 +44,21 @@ static class Ui
         var form = c.FindForm();
         if (form == null || form.ClientSize.Height <= 0) { using var b = new SolidBrush(GradientBottom); g.FillRectangle(b, area); return; }
         var origin = c == form ? Point.Empty : form.PointToClient(c.PointToScreen(Point.Empty));
-        var rect = new Rectangle(-origin.X, -origin.Y, Math.Max(1, form.ClientSize.Width), Math.Max(1, form.ClientSize.Height));
-        using var brush = new LinearGradientBrush(rect, GradientTop, GradientBottom, LinearGradientMode.Vertical);
-        g.FillRectangle(brush, area);
+        // (perf patch) one brush per window height, moved to this control's place (was a new brush for every paint)
+        int h = Math.Max(1, form.ClientSize.Height);
+        lock (gradientBrushes)
+        {
+            if (!gradientBrushes.TryGetValue(h, out var brush))
+            {
+                if (gradientBrushes.Count > 16) { foreach (var b in gradientBrushes.Values) b.Dispose(); gradientBrushes.Clear(); }
+                gradientBrushes[h] = brush = new LinearGradientBrush(new Rectangle(0, 0, Math.Max(1, form.ClientSize.Width), h), GradientTop, GradientBottom, LinearGradientMode.Vertical);
+            }
+            brush.ResetTransform();
+            brush.TranslateTransform(-origin.X, -origin.Y);
+            g.FillRectangle(brush, area);
+        }
     }
+    static readonly Dictionary<int, LinearGradientBrush> gradientBrushes = [];
 
     /// <summary>
     /// A dark tooltip (owner-drawn: the system one is a pale yellow box). <paramref name="text"/> supplies the text for
@@ -602,6 +613,22 @@ static class Ui
     public static Font Bold(float pt = 10f) => new("Segoe UI Semibold", pt * UiScale);
     /// <summary>True bold, for the letters on the small solid badges (Kurt: legibility).</summary>
     public static Font Heavy(float pt) => new("Segoe UI", pt * UiScale, FontStyle.Bold);
+
+    // (perf patch) Shared fonts for text drawn on every paint (a new Font per paint was left to the finalizer: ~2% of a
+    // user's CPU in GdipDeleteFont). Never dispose these.
+    static readonly Dictionary<(string, float, FontStyle), Font> sharedFonts = [];
+    static Font Shared(string family, float pt, FontStyle style)
+    {
+        lock (sharedFonts)
+        {
+            var key = (family, pt * UiScale, style);
+            if (!sharedFonts.TryGetValue(key, out var f)) sharedFonts[key] = f = new Font(family, pt * UiScale, style);
+            return f;
+        }
+    }
+    public static Font SharedRegular(float pt) => Shared("Segoe UI", pt, FontStyle.Regular);
+    public static Font SharedBold(float pt) => Shared("Segoe UI Semibold", pt, FontStyle.Regular);
+    public static Font SharedHeavy(float pt) => Shared("Segoe UI", pt, FontStyle.Bold);
 
     /// <summary>The mod's categories as badges: the full word when it has one kind of change (as MHModManager shows), letters otherwise.</summary>
     public static List<(string Text, Color Color)> Badges(Mod m)

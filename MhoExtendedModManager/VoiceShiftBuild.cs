@@ -212,7 +212,7 @@ static class VoiceShiftBuild
                 {
                     ["name"] = $"Voice shift: pitch {s.Pitch:+0.#;-0.#;0}, formant {s.Formant:+0.#;-0.#;0}, warmth {s.Warmth:+0.#;-0.#;0} dB" + (s.Replaced is { Count: > 0 } r ? $", {r.Count} line(s) replaced" : ""),
                     ["patches"] = patches,
-                }, new JsonSerializerOptions { WriteIndented = true }));
+                }, MhoExtendedModManager.JsonOpts.Indented));
             using (var sw = new StreamWriter(z.CreateEntry(ShapesFile).Open())) sw.Write(JsonSerializer.Serialize(shapes));
             foreach (var (n, b) in wems.Concat(sources)) using (var e = z.CreateEntry(n).Open()) e.Write(b);
         }
