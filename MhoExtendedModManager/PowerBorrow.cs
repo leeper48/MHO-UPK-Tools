@@ -335,6 +335,8 @@ static partial class PowerBorrow
                 && TagWalker.NameAt(dst, dst.ReadExportBytes(dst.Exports[r - 1]).ToArray(), t.ValueAt).Contains("loop", StringComparison.OrdinalIgnoreCase))));
         var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [src.PathOf(src.Exports[sd])] = dst.PathOf(dst.Exports[td]) };
         var refs = new List<int>();
+        var un = UnloadedFor(cooked, targetDefault, donorDefault, donorPackage);
+        if (un != null && un.Packages.Count > 0) log.Add($"  the game doesn't load {string.Join(", ", un.Packages.Select(x => x.Name))} with this power (the donor's needs them): parts are made to stand without them");
         // (Tested in game 2026-10-10, Cosmic Haymaker on Daredevil: the donor's FxSetIndex sets and its PowerFxPhysicsWeight
         // copy as they are; the freeze was costumes with their own animation list, see Build.)
         foreach (int r in donorComps)
@@ -350,14 +352,42 @@ static partial class PowerBorrow
             // (a, 0.60.7) a component whose settings come from a template in another class's package (Cyclops' ride: its anim
             // inherits the ride animations from powershared_ridebike's): that package isn't loaded for the target, so the
             // template is copied in under its own path and the copy points at it
+            // (0.60.428) under the target power's own default with its own name, never under its path: a copy under its path
+            // brought the other class's default object AND the class itself (Emma Frost's sprint on Taskmaster: a second
+            // marvelgamecontent.powershared_sprint_y beside UC__PowerShared_Sprint_Y_SF's: the game crashed on load, Kurt 2026-11-07)
+            // (0.60.430) with the game's package lists known: a part whose class only a package the target doesn't load
+            // defines is left out; its templates are flattened while they're in such packages, else imported as they are
+            if (un != null)
+            {
+                if (un.ClassHome(cls) is string home)
+                { log.Add($"  {e.ObjectName} ({cls}): left out (its class is defined in {home}, which the game doesn't load with this power)"); continue; }
+                var ucopy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out string usaid);
+                if (ucopy == null && (usaid.Contains("the target has no copy of it") || usaid.Contains("(compiled code) isn't copied yet")))
+                { log.Add($"  {e.ObjectName} ({cls}): left out (its class is the donor package's own and couldn't be copied)"); continue; }
+                ucopy = ucopy ?? throw new InvalidDataException($"{e.ObjectName} ({cls}) couldn't be copied: " + string.Join(" ", usaid.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not supported")).Select(l => l.Trim())));
+                dst = Package.FromBytes(ucopy.Output);
+                dst = Flatten(dst, ucopy.RootRef - 1, dst.PathOf(dst.Exports[Find(dst, targetDefault)]), e.ObjectName, un, log);
+                td = Find(dst, targetDefault);
+                refs.Add(ucopy.RootRef);
+                log.Add($"  {e.ObjectName} ({cls}) → {dst.PathOf(dst.Exports[ucopy.RootRef - 1])}");
+                continue;
+            }
             if (cooked != null && Template(src, r - 1) is string tpl && Find(dst, tpl) < 0 && TemplatePackage(cooked, tpl) is string tf)
             {
-                var tp = Package.Open(tf);
-                int ti = Find(tp, tpl);
-                var tc = ti < 0 ? null : CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, []), out string tsaid);
-                if (tc != null) { dst = Package.FromBytes(tc.Output); td = Find(dst, targetDefault); log.Add($"  {e.ObjectName}: its template {tpl} copied in (from {Path.GetFileName(tf)})"); }
-                else log.Add($"  {e.ObjectName}: its template {tpl} couldn't be copied: its inherited settings won't show");
+                string tdPath = dst.PathOf(dst.Exports[td]), tplLeaf = tpl[(tpl.LastIndexOf('.') + 1)..], tplOuter = tpl[..tpl.LastIndexOf('.')];
+                string tplCopy = tdPath + ".borrowedtemplate_" + tplLeaf;
+                if (Find(dst, tplCopy) < 0)
+                {
+                    var tp = Package.Open(tf);
+                    int ti = Find(tp, tpl);
+                    var tc = ti < 0 ? null : CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, [], "borrowedtemplate_" + tplLeaf,
+                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [tplOuter] = tdPath }), out string tsaid);
+                    if (tc != null) { dst = Package.FromBytes(tc.Output); td = Find(dst, targetDefault); log.Add($"  {e.ObjectName}: its template {tpl} copied in as {tplCopy} (from {Path.GetFileName(tf)})"); }
+                    else log.Add($"  {e.ObjectName}: its template {tpl} couldn't be copied: its inherited settings won't show");
+                }
+                if (Find(dst, tplCopy) >= 0) replace[tpl] = tplCopy;
             }
+            string? mergeFrom = Template(src, r - 1) is string tpl1 && replace.TryGetValue(tpl1, out string? tc1) && tc1.Contains(".borrowedtemplate_", StringComparison.OrdinalIgnoreCase) ? tc1 : null;
             if (Template(src, r - 1) is string tpl2 && Find(dst, tpl2) >= 0) replace[tpl2] = tpl2;
             var copy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out string said);
             if (copy == null && (said.Contains("the target has no copy of it") || said.Contains("(compiled code) isn't copied yet")))
@@ -365,6 +395,7 @@ static partial class PowerBorrow
             copy = copy
                 ?? throw new InvalidDataException($"{e.ObjectName} ({cls}) couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not supported")).Select(l => l.Trim())));
             dst = Package.FromBytes(copy.Output);
+            if (mergeFrom != null && Find(dst, mergeFrom) is int tci && tci >= 0) dst = MergeTemplate(dst, copy.RootRef - 1, tci, e.ObjectName, log);
             td = Find(dst, targetDefault);
             refs.Add(copy.RootRef);
             log.Add($"  {e.ObjectName} ({cls}) → {dst.PathOf(dst.Exports[copy.RootRef - 1])}");
@@ -2397,6 +2428,8 @@ static partial class PowerBorrow
         var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [donorDefault] = condDefault };
         var added = new List<int>();
         var names = new List<string>();
+        var un = UnloadedFor(cooked, condDefault, donorDefault, donorFile);
+        if (un != null && un.Packages.Count > 0) log.Add($"  the game doesn't load {string.Join(", ", un.Packages.Select(x => x.Name))} with this condition (the donor's needs them): its parts are made to stand without them");
         foreach (int r in Components(src, sd, out _, out _))
         {
             if (r <= 0) continue;
@@ -2405,12 +2438,33 @@ static partial class PowerBorrow
             if (cls.Equals("ConditionFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;   // (the vehicle: ConditionVehicle's)
             string name = "borrowed_" + e.ObjectName;
             if (Find(dst, condDefault + "." + name) >= 0) continue;
+            // (0.60.431) the game's package lists known: as for powers (Graft): a part whose class only a package this
+            // condition doesn't load defines is left out; templates in such packages are merged in level by level
+            if (un != null)
+            {
+                if (un.ClassHome(cls) is string home)
+                { log.Add($"  {e.ObjectName} ({cls}): left out (its class is defined in {home}, which the game doesn't load with this condition)"); continue; }
+                var ucopy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out _);
+                if (ucopy == null) { log.Add($"  {e.ObjectName} ({cls}): couldn't be copied, left out"); continue; }
+                dst = Package.FromBytes(ucopy.Output);
+                dst = Flatten(dst, ucopy.RootRef - 1, condDefault, e.ObjectName, un, log);
+                added.Add(ucopy.RootRef);
+                names.Add(e.ObjectName);
+                continue;
+            }
             // its settings from a template in the shared ride condition's package, which isn't loaded for this hero (as Graft)
+            // (0.60.429: under the condition's own default with its own name, then merged into the copy, as for powers:
+            // never under its own path, which brings the shared class along)
+            string? condMerge = null;
             if (Template(src, r - 1) is string tpl && Find(dst, tpl) < 0 && TemplatePackage(cooked, tpl) is string tf)
             {
                 var tp = Package.Open(tf);
                 int ti = Find(tp, tpl);
-                if (ti >= 0 && CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, []), out _) is { } tc) dst = Package.FromBytes(tc.Output);
+                string cLeaf = tpl[(tpl.LastIndexOf('.') + 1)..], cOuter = tpl[..tpl.LastIndexOf('.')], cCopy = condDefault + ".borrowedtemplate_" + cLeaf;
+                if (Find(dst, cCopy) < 0 && ti >= 0 && CrossMove.Quiet(() => ExportCopy.Copy(tp, ti, dst, [], "borrowedtemplate_" + cLeaf,
+                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [cOuter] = condDefault }), out _) is { } tc)
+                    dst = Package.FromBytes(tc.Output);
+                if (Find(dst, cCopy) >= 0) { replace[tpl] = cCopy; condMerge = cCopy; }
                 else
                 {
                     // the template can't come along under its own path (its class default, marvelconditioneffect_shared_
@@ -2433,6 +2487,7 @@ static partial class PowerBorrow
             var copy = CrossMove.Quiet(() => ExportCopy.Copy(src, r - 1, dst, [], name, replace), out string said);
             if (copy == null) { log.Add($"  {e.ObjectName} ({cls}): couldn't be copied, left out"); continue; }
             dst = Package.FromBytes(copy.Output);
+            if (condMerge != null && Find(dst, condMerge) is int cmi && cmi >= 0) dst = MergeTemplate(dst, copy.RootRef - 1, cmi, e.ObjectName, log);
             added.Add(copy.RootRef);
             names.Add(e.ObjectName);
         }
@@ -5169,6 +5224,152 @@ static partial class PowerBorrow
         string stock = StockFiles.For(cooked, Path.GetFileName(file));
         try { return File.Exists(stock) && Find(Package.Open(stock), templatePath) >= 0 ? stock : null; }
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
+    }
+
+    static Fx.AssetPackageCache? apcCache;
+    static string? apcFrom;
+
+    /// <summary>The packages the game loads with a power class (AssetPackageCache.bin: marvelgamecontent.&lt;Class&gt; →
+    /// package names, lower case, no extension), or null when the cache doesn't list it.</summary>
+    static List<string>? PowerPackages(string cooked, string defaultPath)
+    {
+        string f = Path.Combine(cooked, "AssetPackageCache.bin");
+        if (!File.Exists(f)) return null;
+        string cls = "marvelgamecontent." + defaultPath.Split('.')[^1]["default__".Length..];
+        lock (typeof(AssetPackageCacheLock))
+        {
+            if (apcCache == null || apcFrom != f) { apcCache = Fx.AssetPackageCache.Parse(File.ReadAllBytes(f)); apcFrom = f; }
+            var hit = apcCache.Packages.FirstOrDefault(p => p.Path.Equals(cls, StringComparison.OrdinalIgnoreCase));
+            return hit.Packages;
+        }
+    }
+    sealed class AssetPackageCacheLock { }
+
+    /// <summary>
+    /// (0.60.430) What a borrowed part can't use on the target: the packages the game loads with the donor power but not
+    /// with the target (Emma Frost's sprint: uc__powershared_sprint_sf and _y_sf; Taskmaster's flight loads only
+    /// uc__powershared_travelpower_sf and its own), opened from the game's originals, with the classes they define. A part
+    /// whose class or template lives only there comes out null in game: CreateUnrealPower reads a null component's class
+    /// (access violation; the decompiled 1.52 client, Kurt's crash 2026-11-07). Null when the cache doesn't list both.
+    /// </summary>
+    sealed record Unloaded(List<(string Name, Package Pkg)> Packages, HashSet<string> Classes)
+    {
+        public (string Name, Package Pkg, int Index)? Holder(string path)
+        {
+            foreach (var (n, p) in Packages) { int i = Find(p, path); if (i >= 0) return (n, p, i); }
+            return null;
+        }
+        public string? ClassHome(string cls) => Classes.Contains(cls)
+            ? Packages.First(x => x.Pkg.Exports.Any(e => e.ObjectName.Equals(cls, StringComparison.OrdinalIgnoreCase) && x.Pkg.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase))).Name : null;
+    }
+
+    static Unloaded? UnloadedFor(string? cooked, string targetDefault, string donorDefault, string donorPackage)
+    {
+        if (cooked == null || PowerPackages(cooked, targetDefault) is not { } tl || PowerPackages(cooked, donorDefault) is not { } dl) return null;
+        string own = Path.GetFileNameWithoutExtension(donorPackage);
+        var list = new List<(string, Package)>();
+        var classes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string n in dl.Where(n => !tl.Contains(n, StringComparer.OrdinalIgnoreCase) && !n.Equals(own, StringComparison.OrdinalIgnoreCase)))
+        {
+            string file = Directory.EnumerateFiles(cooked, n + ".upk").FirstOrDefault() ?? "";
+            if (file.Length == 0) continue;
+            string stock = StockFiles.For(cooked, Path.GetFileName(file));
+            if (!File.Exists(stock)) continue;
+            var p = Package.Open(stock);
+            list.Add((Path.GetFileName(file), p));
+            foreach (var e in p.Exports) if (p.ClassOf(e).Equals("Class", StringComparison.OrdinalIgnoreCase)) classes.Add(e.ObjectName);
+        }
+        return new Unloaded(list, classes);
+    }
+
+    /// <summary>An object reference's full path (an import's through its outers).</summary>
+    static string RefPathOf(Package p, int r)
+    {
+        if (r > 0) return p.PathOf(p.Exports[r - 1]);
+        var parts = new List<string>();
+        for (int g = 0; r < 0 && -r <= p.Imports.Length && g < 32; g++)
+        {
+            var im = p.Imports[-r - 1]; parts.Insert(0, im.ObjectName); r = im.OuterIndex;
+            if (r > 0) { parts.Insert(0, p.PathOf(p.Exports[r - 1])); break; }
+        }
+        return string.Join('.', parts);
+    }
+
+    /// <summary>
+    /// (0.60.430) The borrowed component's templates, level by level, while the next one is in a package the game doesn't
+    /// load with the target: each copied under the target's default and merged into the component (MergeTemplate), until its
+    /// archetype is something the target has (default__powershared_travelpower.streaktrails, or a class default). The
+    /// template copies take that archetype too.
+    /// </summary>
+    static Package Flatten(Package dst, int comp, string tdPath, string what, Unloaded un, List<string> log)
+    {
+        var copies = new List<string>();
+        for (int level = 0; level < 8; level++)
+        {
+            int arch = BinaryPrimitives.ReadInt32LittleEndian(dst.Body.AsSpan(dst.ExportEntryStart[comp] + 20));
+            if (arch >= 0) break;
+            string path = RefPathOf(dst, arch);
+            if (un.Holder(path) is not { } h) break;
+            string leaf = path[(path.LastIndexOf('.') + 1)..], outer = path[..path.LastIndexOf('.')];
+            string name = $"borrowedtemplate{(level == 0 ? "" : (level + 1).ToString())}_{leaf}";
+            string copyPath = tdPath + "." + name;
+            if (Find(dst, copyPath) < 0)
+            {
+                var tc = CrossMove.Quiet(() => ExportCopy.Copy(h.Pkg, h.Index, dst, [], name,
+                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [outer] = tdPath }), out string said);
+                if (tc == null) throw new InvalidDataException($"{what}: its template {path} (in {h.Name}) couldn't be copied");
+                dst = Package.FromBytes(tc.Output);
+            }
+            int ti = Find(dst, copyPath);
+            log.Add($"    {what}: its template {path} is in {h.Name}, which the game doesn't load with this power: its settings merged in");
+            dst = MergeTemplate(dst, comp, ti, what, log);
+            copies.Add(copyPath);
+        }
+        // the template copies stand on the same archetype (theirs pointed into the packages that aren't loaded)
+        int final = BinaryPrimitives.ReadInt32LittleEndian(dst.Body.AsSpan(dst.ExportEntryStart[comp] + 20));
+        if (copies.Count > 0)
+        {
+            byte[] body = dst.Body;
+            foreach (string c in copies) BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(dst.ExportEntryStart[Find(dst, c)] + 20), final);
+            byte[] output = PackageRebuilder.Rebuild(dst, new Dictionary<int, Func<long, byte[]>>(), [], out var written);
+            var problems = PackageRebuilder.Verify(dst, output, [], [], written);
+            if (problems.Count > 0) throw new InvalidDataException($"{what}: its templates' archetypes: " + string.Join("; ", problems.Take(3)));
+            dst = Package.FromBytes(output);
+        }
+        if (final < 0 && un.Holder(RefPathOf(dst, final)) is { } still) throw new InvalidDataException($"{what}: still needs {RefPathOf(dst, final)} from {still.Name}");
+        return dst;
+    }
+
+    /// <summary>
+    /// (0.60.429) A borrowed component whose template was copied in: the template's settings merged into it (those it
+    /// doesn't set itself, by name and array index) and the template's own archetype taken, so it stands alone like any
+    /// component; the template copy gets its own name as its template name. Two components of one default with the same
+    /// template name ("anim1": borrowed_anim1 pointing at its sibling borrowedtemplate_anim1) crashed the game when the
+    /// power was made (CreateUnrealPower → array index out of range; Emma Frost's sprint on Taskmaster, Kurt 2026-11-07).
+    /// </summary>
+    static Package MergeTemplate(Package p, int comp, int tpl, string what, List<string> log)
+    {
+        byte[] c = p.ReadExportBytes(p.Exports[comp]).ToArray(), t = p.ReadExportBytes(p.Exports[tpl]).ToArray();
+        var ct = TagWalker.Walk(p, c, 16);
+        var tt = TagWalker.Walk(p, t, 16);
+        if (ct == null || tt == null) throw new InvalidDataException($"{what}: its template's settings couldn't be read");
+        var have = ct.Select(x => (x.Name.ToLowerInvariant(), BitConverter.ToInt32(c, x.Start + 20))).ToHashSet();
+        var extra = tt.Where(x => !have.Contains((x.Name.ToLowerInvariant(), BitConverter.ToInt32(t, x.Start + 20)))).ToList();
+        byte[] merged = [.. c.AsSpan(0, ct.NoneAt), .. extra.SelectMany(x => t[x.Start..x.End]), .. c.AsSpan(ct.NoneAt)];
+        byte[] body = p.Body;
+        byte[] t2 = (byte[])t.Clone();
+        body.AsSpan(p.ExportEntryStart[tpl] + 12, 8).CopyTo(t2.AsSpan(4, 8));   // the template copy's template name = its own name
+        int arch = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(p.ExportEntryStart[tpl] + 20));
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(p.ExportEntryStart[comp] + 20), arch);   // the component: the template's archetype
+        var rep = new Dictionary<int, Func<long, byte[]>> { [comp] = _ => merged, [tpl] = _ => t2 };
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written);
+        if (problems.Count > 0) throw new InvalidDataException($"{what}: merging its template: " + string.Join("; ", problems.Take(3)));
+        var back = Package.FromBytes(output);
+        if (TagWalker.Walk(back, back.ReadExportBytes(back.Exports[comp]).ToArray(), 16)?.Count != ct.Count + extra.Count)
+            throw new InvalidDataException($"{what}: the merged settings didn't read back");
+        log.Add($"    {what}: {extra.Count} setting(s) from its template merged in; it stands alone (archetype {(arch > 0 ? back.PathOf(back.Exports[arch - 1]) : arch < 0 ? back.Imports[-arch - 1].ObjectName : "none")})");
+        return back;
     }
 
     static List<int> Components(Package p, int export, out TagWalker.Tag tag, out byte[] data)

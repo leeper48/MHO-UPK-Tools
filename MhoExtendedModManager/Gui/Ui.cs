@@ -778,12 +778,42 @@ static class Ui
         {
             var size = TextRenderer.MeasureText(e.Graphics, b.Text, b.Font, Size.Empty, TextFormatFlags.NoPadding);
             float s = Dpi(b.DeviceDpi);
-            float w = size.Width * 0.9f, x = (b.Width - w) / 2f;
+            // Centered on the arrow's own pixels (Kurt: the bar sat off to one side; a glyph's ink isn't centered in its cell).
+            float w = size.Width * 0.9f, x = InkCenterX(b) - w / 2f;
             float glyphTop = (b.Height - size.Height) / 2f + size.Height * 0.22f, glyphBottom = (b.Height + size.Height) / 2f - size.Height * 0.2f;
             float y = top ? glyphTop - 2.5f * s : glyphBottom + 1f * s;
             using var brush = new SolidBrush(b.Enabled ? b.ForeColor : Ui.DisabledText);
             e.Graphics.FillRectangle(brush, x, y, w, Math.Max(1.5f, 1.6f * s));
         };
+    }
+
+    static readonly Dictionary<(string, Font, int, int), float> inkCenters = new();
+
+    /// <summary>
+    /// The horizontal middle of a button's text as drawn (the same TextRenderer call as the rounded painter, into a scratch
+    /// bitmap): the pixels' left and right edges, not the character cell. Cached per text, font and size.
+    /// </summary>
+    static float InkCenterX(Button b)
+    {
+        var key = (b.Text, b.Font, b.Width, b.Height);
+        if (inkCenters.TryGetValue(key, out float c)) return c;
+        c = b.Width / 2f;
+        if (b.Width >= 4 && b.Height >= 4)
+        {
+            using var bmp = new Bitmap(b.Width, b.Height);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.Black);
+                TextRenderer.DrawText(g, b.Text, b.Font, new Rectangle(0, 0, b.Width, b.Height), Color.White,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+            }
+            int lo = -1, hi = -1;
+            for (int px = 0; px < bmp.Width; px++)
+                for (int py = 0; py < bmp.Height; py++)
+                    if (bmp.GetPixel(px, py).G > 96) { if (lo < 0) lo = px; hi = px; break; }
+            if (lo >= 0) c = (lo + hi + 1) / 2f;
+        }
+        return inkCenters[key] = c;
     }
 
     /// <summary>Text of a disabled button (Kurt: medium grey, not the near-black Windows draws on our dark buttons).</summary>

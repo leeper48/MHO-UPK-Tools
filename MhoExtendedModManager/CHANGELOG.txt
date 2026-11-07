@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.431
+- Fix: borrowing a power whose parts come from game packages the target power doesn't load (Emma Frost's Running in Heels and the other sprints on a flight or run of another kind) crashed the game, first when it loaded and then when the power was used. The game loads only the packages each power lists; a borrowed part now carries the settings it needs from those packages itself, and a part whose kind is only defined there (a sprint's foot dust) is left out. Borrowed rides (a bike on another hero's travel power or Sky-Cycle) follow the same rule: they no longer carry a copy of the game's shared ride class, which could crash when that hero was nearby. Re-save a mod with such a borrow (right-click → Resave) to rebuild it.
+
 0.60.426
 - New FreeCam Options tab: options on top of Marvel Heroes FreeCam (M.H.F.C.) by Michael (MichaelMerc on Nexus); needs his mod installed with its Full option, and links to its Nexus page when it's missing.
 - Camera Mode key and button: Free Orbit, Behind (follows the way your hero faces) and Isometric (the game's own view).
