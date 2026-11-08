@@ -16,6 +16,9 @@ sealed class AnimSwapEntry
     public string Animation { get; set; } = "";
     /// <summary>"Storm", "Rescue (Team-Up)" …: the donor as the tab shows it.</summary>
     public string Title { get; set; } = "";
+    /// <summary>A form's animation (2026-11-08: Jean Grey's Phoenix set, alias phoenixas): the slot is in the costume's copy of
+    /// that form's set (AnimSwap.BuildAlias), not in its normal list. Null: a normal animation.</summary>
+    public string? Alias { get; set; }
     /// <summary>Height keys (the Animations tab's Height strip): [at 0..1 through the animation, game units up]; null = none.</summary>
     public List<float[]>? Heights { get; set; }
 
@@ -79,9 +82,14 @@ static class AnimSwap
     /// <param name="whole">The second test (2026-10-05; Kurt's first one: the form's set is used alone, nothing falls back):
     /// the alias points at a copy of the hero's whole alternate set, with the swapped animations in place of its own, each
     /// donor animation's tracks put in that set's bone order (<see cref="FitTracks"/>).</param>
+    /// <param name="back">Slots put back to the form set's own animation (the Animations tab's Back to the Original on a
+    /// form's row): the copy's original sequence of that name goes back in its list.</param>
+    /// <remarks>The tab's form changes (2026-11-08): a costume whose own alias list already points this alias at a copy of its
+    /// own (…_on_&lt;class&gt;) gets the change in that copy, so changes add up one at a time.</remarks>
     public static byte[] BuildAlias(string costumePath, string costumeClass, string heroPath, string heroClass, string alias,
-        IReadOnlyList<Swap> swaps, List<string> log, bool whole = false)
+        IReadOnlyList<Swap> swaps, List<string> log, bool whole = false, IReadOnlyCollection<string>? back = null)
     {
+        back ??= [];
         var pkg = Package.Open(costumePath);
         string cls = costumeClass.ToLowerInvariant();
         var hero = Package.Open(heroPath);
@@ -102,13 +110,21 @@ static class AnimSwap
         int wholeSet = 0;
         if (whole)
         {
-            string wholeName = Unique($"{hero.Exports[heroSet].ObjectName}_on_{cls}");
-            var wc = CrossMove.Quiet(() => ExportCopy.Copy(hero, heroSet, pkg, [], wholeName), out string ws)
-                     ?? throw new InvalidDataException($"the set {target.SetPath} couldn't be copied: {Reason(ws)}");
-            pkg = Package.FromBytes(wc.Output);
-            wholeSet = wc.RootRef;
+            // the costume's copy of this form's set from an earlier change, else a new copy of the hero's
+            var ownBefore = CostumeAnims.Aliases(pkg, cls).FirstOrDefault(a => a.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase));
+            int existing = ownBefore.Alias == null || ownBefore.SetPath.StartsWith("import:", StringComparison.OrdinalIgnoreCase) ? -1
+                : Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(ownBefore.SetPath, StringComparison.OrdinalIgnoreCase) && e.ObjectName.Contains("_on_", StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(e).Equals("AnimSet", StringComparison.OrdinalIgnoreCase));
+            if (existing >= 0) { wholeSet = existing + 1; log.Add($"  {alias}: the costume's copy {ownBefore.SetPath} changed again"); }
+            else
+            {
+                string wholeName = Unique($"{hero.Exports[heroSet].ObjectName}_on_{cls}");
+                var wc = CrossMove.Quiet(() => ExportCopy.Copy(hero, heroSet, pkg, [], wholeName), out string ws)
+                         ?? throw new InvalidDataException($"the set {target.SetPath} couldn't be copied: {Reason(ws)}");
+                pkg = Package.FromBytes(wc.Output);
+                wholeSet = wc.RootRef;
+                log.Add($"  {alias}: {target.SetPath} copied whole as {pkg.PathOf(pkg.Exports[wholeSet - 1])}");
+            }
             string wholePath = pkg.PathOf(pkg.Exports[wholeSet - 1]);
-            log.Add($"  {alias}: {target.SetPath} copied whole as {wholePath}");
             foreach (var x in swaps)
             {
                 var src = Donor(x.DonorFile);
@@ -245,6 +261,18 @@ static class AnimSwap
                 replace[seq - 1] = _ => d;
                 list[at] = seq;
             }
+            // slots back to the set's own: the copy's original sequence of that name (still in the package, out of the list)
+            foreach (string slot in back)
+            {
+                int at = list.FindIndex(r => r > 0 && SequenceName(r).Equals(slot, StringComparison.OrdinalIgnoreCase));
+                if (at < 0) { log.Add($"  {alias} · {slot}: not in the set, nothing to put back"); continue; }
+                int orig = Enumerable.Range(1, pkg.Exports.Length).FirstOrDefault(r => pkg.Exports[r - 1].OuterIndex == wholeSet
+                    && !pkg.Exports[r - 1].ObjectName.Contains("_swap", StringComparison.OrdinalIgnoreCase)
+                    && pkg.ClassOf(pkg.Exports[r - 1]).Equals("AnimSequence", StringComparison.OrdinalIgnoreCase) && SequenceName(r).Equals(slot, StringComparison.OrdinalIgnoreCase));
+                if (orig <= 0) throw new InvalidDataException($"the form set's own \"{slot}\" isn't in the package any more");
+                list[at] = orig;
+                log.Add($"  {alias} · {slot}: the set's own again ({pkg.Exports[orig - 1].ObjectName})");
+            }
             replace[wholeSet - 1] = _ => SetSequences(wholeSet, list);
             holders.Add((wholeSet, []));
         }
@@ -346,8 +374,21 @@ static class AnimSwap
         int p = at + 4;
         for (int k = 0; k < raw; k++) { p += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); }
         int streamAt = p + 4, streamLen = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
-        var stream = new List<byte>(d.AsSpan(streamAt, streamLen).ToArray());
-        while (stream.Count % 4 != 0) stream.Add(0);
+        // The stream is written again in the target's track order (2026-11-08, Jean's Phoenix tests: a re-laid idle with the
+        // donor's bytes left in place and only the offsets moved was distorted in game, the same data in its own order was
+        // fine): each track's translation and rotation data follow the previous track's, as in every stock sequence. A
+        // component's data runs from its offset to the next offset in the donor's stream (or the stream's end).
+        byte[] src = d.AsSpan(streamAt, streamLen).ToArray();
+        var bounds = offs.Where((v, i) => (i % 4 == 0 || i % 4 == 2) && v >= 0 && v < streamLen).Append(streamLen).Distinct().Order().ToArray();
+        var stream = new List<byte>();
+        int CopyPart(int start)
+        {
+            if (start < 0) return -1;
+            int at = stream.Count, end = bounds.First(b => b > start);
+            stream.AddRange(src.AsSpan(start, end - start).ToArray());
+            while (stream.Count % 4 != 0) stream.Add(0);
+            return at;
+        }
         void F(float v) { var b = new byte[4]; BinaryPrimitives.WriteSingleLittleEndian(b, v); stream.AddRange(b); }
         var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int k = 0; k < Math.Min(donorNames.Count, count / 4); k++)
@@ -366,7 +407,7 @@ static class AnimSwap
         int held = 0, refPose = 0;
         foreach (string bone in targetNames)
         {
-            if (index.TryGetValue(bone, out int k)) { fitted.AddRange(offs.AsSpan(k * 4, 4).ToArray()); continue; }
+            if (index.TryGetValue(bone, out int k)) { fitted.AddRange([CopyPart(offs[k * 4]), offs[k * 4 + 1], CopyPart(offs[k * 4 + 2]), offs[k * 4 + 3]]); continue; }
             if (original != null && original.Tracks.TryGetValue(bone, out var tr) && tr.RotationKeys.Count > 0)
             {
                 bool hasPos = tr.PositionKeys.Count > 0;

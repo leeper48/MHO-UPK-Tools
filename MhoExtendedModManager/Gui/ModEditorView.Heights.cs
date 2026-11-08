@@ -242,6 +242,7 @@ sealed partial class ModEditorView
     {
         why = "";
         if (a == null) { why = "Pick an animation in the list."; return null; }
+        if (a.From.Alias != null) { why = "A form's animations (Form: " + a.From.Alias + ") have no height keys yet."; return null; }
         if (IsSwapped(a) && AnimFile is string file
             && draft.AnimSwaps.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(a.Name, StringComparison.OrdinalIgnoreCase)) is { } sw)
             return new(file, a.Name, sw, null);
@@ -523,7 +524,7 @@ sealed partial class ModEditorView
         {
             int k = draft.AnimSwaps.IndexOf(entry);
             // a new entry (the draft's list shares its entries with the mod's loaded manifest until Save)
-            var fresh = new AnimSwapEntry { Package = entry.Package, Slot = entry.Slot, Donor = entry.Donor, Animation = entry.Animation, Title = entry.Title, Heights = saved };
+            var fresh = new AnimSwapEntry { Package = entry.Package, Slot = entry.Slot, Alias = entry.Alias, Donor = entry.Donor, Animation = entry.Animation, Title = entry.Title, Heights = saved };
             if (k >= 0) draft.AnimSwaps[k] = fresh;
         }
         else if (target.Borrow is { } b)

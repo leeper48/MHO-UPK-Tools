@@ -1341,6 +1341,14 @@ sealed partial class MainForm
             if (m == null) return (false, -1, "no mod");
             string file = m.Manifest.UpkReplacements.First(f => f.StartsWith("UC__", StringComparison.OrdinalIgnoreCase));
             var ca = CostumeAnims.Read(Path.Combine(m.Folder, file), file, CostumeAnims.FilesFor(m, settings.ResolvedGameRoot(lib.DataFolder) is string r ? Settings.Cooked(r) : null));
+            if (slot.Contains(':'))
+            {
+                // a form's slot: the form's set is the costume's copy, and the slot plays a copied-in sequence (…_swap)
+                string fa = slot[..slot.IndexOf(':')], fs = slot[(slot.IndexOf(':') + 1)..];
+                var f = ca?.FormAnims.FirstOrDefault(x => x.Name.Equals(fs, StringComparison.OrdinalIgnoreCase) && string.Equals(x.From.Alias, fa, StringComparison.OrdinalIgnoreCase));
+                string seq = f?.From.File == null ? "none" : MhoPackageModifier.Package.Open(f.From.File) is var fp ? fp.Exports[f.Export].ObjectName : "none";
+                return (f != null && seq.Contains("_swap", StringComparison.OrdinalIgnoreCase), m.Manifest.AnimSwaps?.Count ?? 0, $"{f?.From.Path ?? "none"} · {seq}; other forms: {string.Join(", ", ca!.FormAnims.Select(x => x.From.Alias).Distinct())} ({ca.FormAnims.Count} rows)");
+            }
             var a = ca?.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
             return (a != null && a.From.Path.Contains("_on_", StringComparison.OrdinalIgnoreCase), m.Manifest.AnimSwaps?.Count ?? 0, a?.From.Path ?? "none");
         }
@@ -1469,6 +1477,26 @@ sealed partial class MainForm
         lines.Add("change: " + await ed.AnimTestChange(slot, donor, anim));
         await Task.Delay(2500);
         Shot("tab_changed.png");
+        if (Environment.GetEnvironmentVariable("MHO_TEST_MORE") is { Length: > 0 } more)
+        {
+            // more changes before the save ("slot|donor|animation;…"), each checked after it
+            var extra = more.Split(';', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split('|')).ToList();
+            foreach (var x in extra) lines.Add($"change {x[0]}: " + await ed.AnimTestChange(x[0], x[1], x[2]));
+            string? ms = await ed.SaveForTest();
+            await Task.Delay(1500);
+            bool all = true;
+            foreach (string sl in new[] { slot }.Concat(extra.Select(x => x[0])))
+            {
+                string keepSlot = slot; slot = sl;
+                var cm = Check(ms ?? modName);
+                slot = keepSlot;
+                lines.Add($"saved: {sl} swapped={cm.Swapped} from {cm.From}; AnimSwaps entries {cm.Entries}");
+                all &= cm.Swapped && cm.Entries == 1 + extra.Count;
+            }
+            lines.Add(all ? "PASS" : "FAIL");
+            File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+            return;
+        }
         if (Environment.GetEnvironmentVariable("MHO_TEST_HEIGHTS") is string hv)
         {
             // (Kurt, 2026-11-02) the Height strip: keys up to <hv> and back, then cleared; a save keeps them in the manifest
@@ -1497,7 +1525,7 @@ sealed partial class MainForm
         lines.Add($"saved '{saved2}': {slot} swapped={c2.Swapped} from {c2.From}; AnimSwaps entries {c2.Entries}");
         bool ok = c1.Swapped && c1.Entries == 1 && !c2.Swapped && c2.Entries == 0;
         // Copy From a Character: Storm's emotes of the same names at once.
-        var ed3 = await Open(saved2 ?? modName);
+        var ed3 = slot.Contains(':') ? null : await Open(saved2 ?? modName);
         if (ed3 != null)
         {
             await ed3.AnimPickerSnapshot("*", "Storm", Path.Combine(dir, "picker_many.png"));

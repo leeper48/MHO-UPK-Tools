@@ -355,7 +355,7 @@ sealed partial class ModEditorView
     {
         var map = new Dictionary<string, PropHold.Donor>(StringComparer.OrdinalIgnoreCase);
         if (game != null)
-            foreach (var s in draft.AnimSwaps.Where(x => x.Package.Equals(package, StringComparison.OrdinalIgnoreCase)))
+            foreach (var s in draft.AnimSwaps.Where(x => x.Package.Equals(package, StringComparison.OrdinalIgnoreCase) && x.Alias == null))
             {
                 if (!s.Donor.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) continue;   // (a mod's own package: not known here)
                 string path = StockFiles.For(game.Cooked, s.Donor);

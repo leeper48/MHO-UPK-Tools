@@ -27,8 +27,26 @@ sealed partial class ModEditorView
     string? DraftPath(string file) => draft.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source;
     string? AnimFile => animPackages.Count == 0 ? null : animPackages[Math.Max(0, animPackage?.SelectedIndex ?? 0)];
     CostumeAnims.Anim? SelectedAnim => animGrid?.SelectedRows.Count > 0 ? animGrid.SelectedRows[0].Tag as CostumeAnims.Anim : null;
-    /// <summary>An animation a change put in (a set of the package's own named …_on_…).</summary>
-    static bool IsSwapped(CostumeAnims.Anim a) => a.From.Kind == CostumeAnims.Source.Costume && a.From.Path.Split('.')[^1].Contains("_on_", StringComparison.OrdinalIgnoreCase);
+    /// <summary>An animation a change put in (a set of the package's own named …_on_…). A form's animation (its set is the
+    /// costume's whole copy of the form's set, …_on_… too): only the slots the manifest lists as changed.</summary>
+    bool IsSwapped(CostumeAnims.Anim a) => a.From.Alias != null
+        ? AnimFile is string f && SwapOf(f, a) != null
+        : a.From.Kind == CostumeAnims.Source.Costume && a.From.Path.Split('.')[^1].Contains("_on_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The manifest's change of <paramref name="a"/>'s slot in <paramref name="file"/> (a form's slot by its alias:
+    /// Jean's Phoenix idle and her normal idle share the name), else null.</summary>
+    AnimSwapEntry? SwapOf(string file, CostumeAnims.Anim a) => draft.AnimSwaps.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase)
+        && x.Slot.Equals(a.Name, StringComparison.OrdinalIgnoreCase) && string.Equals(x.Alias, a.From.Alias, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The hero's base package (where a form's set lives) for a costume package: its path (the mod's copy first) and
+    /// class, else null.</summary>
+    (string Path, string Class)? HeroBaseOf(string file)
+    {
+        if (game == null || !file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) return null;
+        string hero = file["UC__MarvelPlayer_".Length..].Split('_')[0], baseFile = $"UC__MarvelPlayer_{hero}_SF.upk";
+        string? path = DraftPath(baseFile) is string dp && File.Exists(dp) ? dp : StockFiles.For(game.Cooked, baseFile);
+        return File.Exists(path) ? (path, $"MarvelPlayer_{hero}") : null;
+    }
 
     Control AnimationsPage()
     {
@@ -87,7 +105,7 @@ sealed partial class ModEditorView
             if (animRefilling) return;
             var a = SelectedAnim;
             if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
-            if (animChange != null) animChange.Enabled = a != null && a.From.Alias == null;   // (a form's set: not changeable yet)
+            if (animChange != null) animChange.Enabled = a != null;
             ShowAnimFit();   // (the prop's In This Animation follows the row)
             ShowHeights();
             if (a == null || animPreview == null) return;
@@ -113,7 +131,7 @@ sealed partial class ModEditorView
             Ui.Tip(animPackage, "The mod's package whose animations are listed.");
             tools.Add(animPackage);
         }
-        animChange = Ui.AccentButton("Change Animation", ChangeAnimation, "Play another character's animation (or another of this one's) in place of the selected one: its source and target characters first, then any hero, team-up or mod. Double-click a row does the same.");
+        animChange = Ui.AccentButton("Change Animation", ChangeAnimation, "Play another character's animation (or another of this one's) in place of the selected one: its source and target characters first, then any hero, team-up or mod. A form's row (Form in From, such as Jean Grey's Phoenix) changes only that form's animation. Double-click a row does the same.");
         animBack = Ui.FlatButton("Back to the Original", BackToOriginal, "Undo the change on the selected animation: the costume plays its own again.");
         animChange.Enabled = animBack.Enabled = false;
         animCopy = Ui.FlatButton("Copy From a Character", CopyFromCharacter, "Use many of another character's animations at once: each one with the same name as one of this costume's (ticked; untick what to leave). The Target undoes the ticked ones.");
@@ -178,7 +196,7 @@ sealed partial class ModEditorView
         try { FillAnimRows(keep); }
         finally { animRefilling = false; }
         var a = SelectedAnim;
-        if (animChange != null) animChange.Enabled = a != null && a.From.Alias == null;   // (a form's set: not changeable yet)
+        if (animChange != null) animChange.Enabled = a != null;
         if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
         ShowHeights();
     }
@@ -200,7 +218,7 @@ sealed partial class ModEditorView
         foreach (var a in animData.Anims.Concat(animData.FormAnims))
         {
             string kind = AnimKind(a.Name), power = powerOf.GetValueOrDefault((a.From.Alias ?? "") + "|" + a.Name, ""), from = From(a.From);
-            var swap = IsSwapped(a) ? draft.AnimSwaps.FirstOrDefault(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(a.Name, StringComparison.OrdinalIgnoreCase)) : null;
+            var swap = file != null && IsSwapped(a) ? SwapOf(file, a) : null;
             if (IsSwapped(a)) from = swap != null ? $"Changed: {swap.Title} · {swap.Animation}" : "Changed";
             string replaces = string.Join(", ", a.Overrides.Select(From).Distinct());
             if (words.Length > 0 && !words.All(w => $"{a.Name} {kind} {power} {from} {replaces}".Contains(w, StringComparison.OrdinalIgnoreCase))) continue;
@@ -222,9 +240,9 @@ sealed partial class ModEditorView
         var again = keep == null ? null : animGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is CostumeAnims.Anim ka && ka.Name.Equals(keep, StringComparison.OrdinalIgnoreCase));
         if (again != null) { animGrid.CurrentCell = again.Cells[0]; animGrid.ClearSelection(); again.Selected = true; }
         else { animGrid.CurrentCell = null; animGrid.ClearSelection(); }
-        int changed = animData.Anims.Count(IsSwapped);
+        int changed = animData.Anims.Concat(animData.FormAnims).Count(IsSwapped);
         bool unsaved = editing != null && file != null && DraftPath(file) is string dp && !dp.StartsWith(editing.Folder, StringComparison.OrdinalIgnoreCase);
-        animCount.Text = $"{shown} of {animData.Anims.Count} Animations · {animData.Sets.Count} Sets" + (animData.Inherited ? " · The Hero's List (This Costume Sets None of Its Own)" : "")
+        animCount.Text = $"{shown} of {animData.Anims.Count + animData.FormAnims.Count} Animations · {animData.Sets.Count} Sets" + (animData.Inherited ? " · The Hero's List (This Costume Sets None of Its Own)" : "")
             + (changed > 0 ? $" · {changed} Changed" : "") + (unsaved ? " · Not Saved Yet" : "");
         Ui.Tip(animCount, "Sets in the order the game searches them backwards (the last one with a name wins):\n" + string.Join("\n", animData.Sets.Select(s => $"{s.Order + 1}. {s.Label}{(s.FromMod ? " (this mod)" : "")}: {s.PackageName}.upk · {s.Path}, {s.Sequences.Count} animations")));
     }
@@ -233,7 +251,6 @@ sealed partial class ModEditorView
     async void ChangeAnimation()
     {
         if (SelectedAnim is not { } slot || animData == null || editing == null || game == null || AnimFile is not string file) return;
-        if (slot.From.Alias != null) { animStatus.Text = "A Form's Animations Can't Be Changed Yet"; return; }
         if (costumesTask == null || costumesTask.IsFaulted) { string root = game.Root; costumesTask = Task.Run(() => Costume.All(root)); }
         animStatus.Text = "Loading the Characters…";
         var costumes = await costumesTask;
@@ -244,7 +261,7 @@ sealed partial class ModEditorView
         AnimPickerForm.Donor? donor; CostumeAnims.Anim? pick;
         using (var f = new AnimPickerForm(slot.Name, donors, cooked) { Try = r => animPreview?.PlayRef(r) })
         {
-            if (f.ShowDialog(this) != DialogResult.OK) { animGrid?.ClearSelection(); RestoreRow(slot.Name); return; }
+            if (f.ShowDialog(this) != DialogResult.OK) { animGrid?.ClearSelection(); RestoreRow(slot.Name, slot.From.Alias); return; }
             donor = f.ChosenDonor; pick = f.Chosen;
         }
         if (donor == null || pick?.From.File == null) return;
@@ -256,7 +273,8 @@ sealed partial class ModEditorView
     {
         if (animData == null || AnimFile is not string file || pick.From.File == null) return;
         // The original's own animation of that name: the change undone.
-        if (donor.Kind == "Target" && pick.Name.Equals(slot.Name, StringComparison.OrdinalIgnoreCase)) { if (IsSwapped(slot)) await BackTo(slot); else RestoreRow(slot.Name); return; }
+        if (donor.Kind == "Target" && pick.Name.Equals(slot.Name, StringComparison.OrdinalIgnoreCase)) { if (IsSwapped(slot)) await BackTo(slot); else RestoreRow(slot.Name, slot.From.Alias); return; }
+        if (slot.From.Alias != null) { await ApplyFormChange(slot, donor, pick); return; }
         string src = DraftPath(file)!, cls = animData.Class;
         var inherited = animData.Inherited ? animData.Sets.Select(x => x.Path).ToList() : null;
         var swap = new AnimSwap.Swap(slot.Name, pick.From.File, pick.From.Export, pick.Export);
@@ -269,12 +287,41 @@ sealed partial class ModEditorView
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s \"{pick.Name}\" couldn't be put in: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
         UseWorkCopy(file, bytes);
-        draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase));
+        draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase) && x.Alias == null);
         draft.AnimSwaps.Add(new AnimSwapEntry { Package = file, Slot = slot.Name, Donor = donor.Mod?.Name ?? donor.File, Animation = pick.Name, Title = donor.Kind == "Target" ? donor.Title.Replace(" (the Original)", "") : donor.Title });
         await PropsAfterAnimChange(file);   // (after the swaps list: Pivot on the Hand reads each copy's source there)
         animStatus.Text = $"\"{slot.Name}\" Now Plays {donor.Title.Replace(" (the Original)", "")} · {pick.Name}";
         ReloadAt(slot.Name);
     }
+
+    /// <summary>
+    /// A form's animation changed (2026-11-08, a user: Jean Grey's Phoenix animations): the game switches the costume to the
+    /// form's set by its alias and finds animations there first, so the change goes into the costume's own copy of that whole
+    /// set, with the donor's tracks laid out in the set's bone order (AnimSwap.BuildAlias, FitTracks; confirmed in game with
+    /// Jean's own and Storm's idles in her Phoenix form). Only the costume's package changes.
+    /// </summary>
+    async Task ApplyFormChange(CostumeAnims.Anim slot, AnimPickerForm.Donor donor, CostumeAnims.Anim pick)
+    {
+        if (animData == null || AnimFile is not string file || DraftPath(file) is not string src || pick.From.File == null || slot.From.Alias is not string alias) return;
+        if (HeroBaseOf(file) is not { } hero) { Dialog.Show(this, "This package's hero base package wasn't found, so its form animations can't be changed.", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        string cls = animData.Class;
+        var swap = new AnimSwap.Swap(slot.Name, pick.From.File, pick.From.Export, pick.Export);
+        var log = new List<string>();
+        animStatus.Text = "Copying the Animation Into the Form's Set…";
+        byte[] bytes;
+        try { bytes = await Task.Run(() => AnimSwap.BuildAlias(src, cls, hero.Path, hero.Class, alias, [swap], log, whole: true)); OnBorrowBase(file, b => AnimSwap.BuildAlias(b, cls, hero.Path, hero.Class, alias, [swap], log, whole: true)); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException or ArgumentException)
+        { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s \"{pick.Name}\" couldn't be put in the form's set: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (IsDisposed) return;
+        UseWorkCopy(file, bytes);
+        draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase) && string.Equals(x.Alias, alias, StringComparison.OrdinalIgnoreCase));
+        draft.AnimSwaps.Add(new AnimSwapEntry { Package = file, Slot = slot.Name, Alias = alias, Donor = donor.Mod?.Name ?? donor.File, Animation = pick.Name, Title = donor.Kind == "Target" ? donor.Title.Replace(" (the Original)", "") : donor.Title });
+        animStatus.Text = $"\"{slot.Name}\" ({FormName(alias)}) Now Plays {donor.Title.Replace(" (the Original)", "")} · {pick.Name}";
+        ReloadAt(slot.Name, alias);
+    }
+
+    /// <summary>"Form: phoenixas", for the status line.</summary>
+    static string FormName(string alias) => "Form: " + alias;
 
     /// <summary>Copy From a Character: the picker with tick boxes; the ticked animations go in at once (one rebuild).</summary>
     async void CopyFromCharacter()
@@ -319,7 +366,7 @@ sealed partial class ModEditorView
         if (IsDisposed) return;
         if (bytes == null) { animStatus.Text = "Nothing Was Changed"; return; }
         UseWorkCopy(file, bytes);
-        draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && slots.Contains(x.Slot, StringComparer.OrdinalIgnoreCase));
+        draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && slots.Contains(x.Slot, StringComparer.OrdinalIgnoreCase) && x.Alias == null);
         if (!undo)
             foreach (var p in picks)
                 draft.AnimSwaps.Add(new AnimSwapEntry { Package = file, Slot = p.Name, Donor = donor.Mod?.Name ?? donor.File, Animation = p.Name, Title = donor.Title });
@@ -398,12 +445,25 @@ sealed partial class ModEditorView
         string cls = animData.Class;
         var log = new List<string>();
         byte[]? bytes;
+        if (slot.From.Alias is string alias)
+        {
+            if (HeroBaseOf(file) is not { } hero) return;
+            try { bytes = await Task.Run(() => AnimSwap.BuildAlias(src, cls, hero.Path, hero.Class, alias, [], log, whole: true, back: [slot.Name])); OnBorrowBase(file, b => AnimSwap.BuildAlias(b, cls, hero.Path, hero.Class, alias, [], log, whole: true, back: [slot.Name])); }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException or ArgumentException)
+            { Dialog.Show(this, $"\"{slot.Name}\" ({FormName(alias)}) couldn't be changed back: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            if (IsDisposed) return;
+            UseWorkCopy(file, bytes);
+            draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase) && string.Equals(x.Alias, alias, StringComparison.OrdinalIgnoreCase));
+            animStatus.Text = $"\"{slot.Name}\" ({FormName(alias)}) Is the Original Again";
+            ReloadAt(slot.Name, alias);
+            return;
+        }
         try { bytes = await Task.Run(() => AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, [slot.Name], log)); OnBorrowBase(file, b => AnimSwap.Unswap(MhoPackageModifier.Package.Open(b), cls, [slot.Name], log)); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { Dialog.Show(this, $"\"{slot.Name}\" couldn't be changed back: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed || bytes == null) return;
         UseWorkCopy(file, bytes);
-        draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase));
+        draft.AnimSwaps.RemoveAll(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase) && x.Slot.Equals(slot.Name, StringComparison.OrdinalIgnoreCase) && x.Alias == null);
         await PropsAfterAnimChange(file);   // (after the swaps list: Pivot on the Hand reads each copy's source there)
         animStatus.Text = $"\"{slot.Name}\" Is the Original Again";
         ReloadAt(slot.Name);
@@ -462,21 +522,21 @@ sealed partial class ModEditorView
     }
 
     /// <summary>Reads the package again and selects (and plays) <paramref name="name"/>.</summary>
-    void ReloadAt(string name)
+    void ReloadAt(string name, string? alias = null)
     {
         string? keep = name;
-        void Once() { animLoaded -= Once; RestoreRow(keep); }
+        void Once() { animLoaded -= Once; RestoreRow(keep, alias); }
         animLoaded += Once;
         LoadAnimations();
     }
 
     event Action? animLoaded;
 
-    void RestoreRow(string name)
+    void RestoreRow(string name, string? alias = null)
     {
         if (animGrid == null) return;
         foreach (DataGridViewRow r in animGrid.Rows)
-            if (r.Tag is CostumeAnims.Anim a && a.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            if (r.Tag is CostumeAnims.Anim a && a.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && string.Equals(a.From.Alias, alias, StringComparison.OrdinalIgnoreCase))
             {
                 animGrid.ClearSelection(); r.Selected = true;
                 animGrid.FirstDisplayedScrollingRowIndex = Math.Max(0, r.Index - 3);
@@ -496,7 +556,7 @@ sealed partial class ModEditorView
     public async Task<string> AnimTestChange(string slot, string donorTitle, string anim)
     {
         if (!await WaitAnims() || editing == null || game == null || AnimFile is not string file) return "no animations";
-        var a = animData!.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
+        var a = TestSlot(slot);
         if (a == null) return "no slot " + slot;
         costumesTask ??= Task.Run(() => Costume.All(game.Root));
         var donors = AnimPickerForm.Donors(editing, file, await costumesTask, lib, game.Cooked);
@@ -516,7 +576,7 @@ sealed partial class ModEditorView
     public async Task<string> AnimTestBack(string slot)
     {
         if (!await WaitAnims()) return "no animations";
-        var a = animData!.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
+        var a = TestSlot(slot);
         if (a == null) return "no slot " + slot;
         var tcs = new TaskCompletionSource();
         void Done() { animLoaded -= Done; tcs.TrySetResult(); }
@@ -526,7 +586,20 @@ sealed partial class ModEditorView
         return RowFrom(slot) + " | " + animCount.Text;
     }
 
-    string RowFrom(string slot) => animGrid?.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is CostumeAnims.Anim x && x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase))?.Cells["from"].Value as string ?? "(no row)";
+    string RowFrom(string slot)
+    {
+        string? alias = slot.Contains(':') ? slot[..slot.IndexOf(':')] : null; string name = slot[(slot.IndexOf(':') + 1)..];
+        return animGrid?.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is CostumeAnims.Anim x && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && string.Equals(x.From.Alias, alias, StringComparison.OrdinalIgnoreCase))?.Cells["from"].Value as string ?? "(no row)";
+    }
+
+    /// <summary>A test's slot: "idle", or "phoenixas:idle" for a form's.</summary>
+    CostumeAnims.Anim? TestSlot(string slot)
+    {
+        if (animData == null) return null;
+        if (!slot.Contains(':')) return animData.Anims.FirstOrDefault(x => x.Name.Equals(slot, StringComparison.OrdinalIgnoreCase));
+        string alias = slot[..slot.IndexOf(':')], name = slot[(slot.IndexOf(':') + 1)..];
+        return animData.FormAnims.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && string.Equals(x.From.Alias, alias, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>Test hook: the picker for <paramref name="slot"/>, off screen, with <paramref name="donorTitle"/> picked, as PNG.</summary>
     public async Task AnimPickerSnapshot(string slot, string? donorTitle, string png)

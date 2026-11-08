@@ -294,9 +294,13 @@ sealed partial class ModEditorView : IModelHost
     /// <paramref name="path"/>: earlier copies of those slots taken out first, then each donor's animations copied in as the
     /// tab does (turned to this skeleton's rest). Null when there's nothing to do.</summary>
     /// <param name="modCopy">The mod's own copy of another package (a source in the mod: its animations as the mod has them).</param>
-    static byte[]? ReapplySwaps(string file, string path, List<AnimSwapEntry> swaps, Mod? mod, string cooked, List<string> log, Func<string, string?>? modCopy = null)
+    static byte[]? ReapplySwaps(string file, string path, List<AnimSwapEntry> allSwaps, Mod? mod, string cooked, List<string> log, Func<string, string?>? modCopy = null)
     {
-        if (swaps.Count == 0) return null;
+        if (allSwaps.Count == 0) return null;
+        // a form's changes (Jean's Phoenix set) go back in after the normal ones: into the costume's copy of the form's set
+        var forms = allSwaps.Where(s => s.Alias != null).ToList();
+        var swaps = allSwaps.Where(s => s.Alias == null).ToList();
+        if (swaps.Count == 0) return ReapplyFormSwaps(file, File.ReadAllBytes(path), forms, mod, cooked, log, modCopy);
         var files = CostumeAnims.FilesFor(mod, cooked);
         var ca = CostumeAnims.Read(path, file, files) ?? throw new InvalidDataException($"{file}'s animation list doesn't read");
         string cls = ca.Class;
@@ -340,9 +344,40 @@ sealed partial class ModEditorView : IModelHost
                 }
             }
             if (AnimSwap.DropEmptySets(MhoPackageModifier.Package.FromBytes(cur), cls, log) is { } tidy) cur = tidy;
-            return cur;
+            return forms.Count > 0 ? ReapplyFormSwaps(file, cur, forms, mod, cooked, log, modCopy) ?? cur : cur;
         }
         finally { try { File.Delete(tmp); File.Delete(selfCopy); } catch (IOException) { } }
+    }
+
+    /// <summary>The Animations tab's form changes (AnimSwapEntry.Alias) applied to the package bytes <paramref name="cur"/>:
+    /// each form's donors copied into the costume's copy of that form's set (AnimSwap.BuildAlias). Null when there's nothing
+    /// to do.</summary>
+    static byte[]? ReapplyFormSwaps(string file, byte[] cur, List<AnimSwapEntry> forms, Mod? mod, string cooked, List<string> log, Func<string, string?>? modCopy)
+    {
+        if (forms.Count == 0 || !file.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase)) return null;
+        string hero = file["UC__MarvelPlayer_".Length..].Split('_')[0], baseFile = $"UC__MarvelPlayer_{hero}_SF.upk";
+        string heroPath = modCopy?.Invoke(baseFile) ?? StockFiles.For(cooked, baseFile);
+        if (!File.Exists(heroPath)) { log.Add($"{file}: the hero's base package wasn't found: the form changes weren't put back"); return null; }
+        var files = CostumeAnims.FilesFor(mod, cooked);
+        string tmp = Path.Combine(Path.GetTempPath(), $"mhoextmm_forms_{Guid.NewGuid():N}_{file}");
+        try
+        {
+            File.WriteAllBytes(tmp, cur);
+            string cls = CostumeAnims.Read(tmp, file, files)?.Class ?? throw new InvalidDataException($"{file}'s animation list doesn't read");
+            foreach (var g in forms.GroupBy(s => s.Alias!, StringComparer.OrdinalIgnoreCase))
+                foreach (var s in g)
+                {
+                    if (!s.Donor.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) { log.Add($"{s.Slot} ({g.Key}): from the mod \"{s.Donor}\", not put back (change it again in the Animations tab)"); continue; }
+                    string donorPath = s.Donor.Equals(file, StringComparison.OrdinalIgnoreCase) ? tmp : modCopy?.Invoke(s.Donor) ?? StockFiles.For(cooked, s.Donor);
+                    var pick = CostumeAnims.Read(donorPath, s.Donor, files)?.Anims.FirstOrDefault(a => a.Name.Equals(s.Animation, StringComparison.OrdinalIgnoreCase));
+                    if (pick?.From.File == null) { log.Add($"{s.Slot} ({g.Key}): {s.Donor} has no {s.Animation}, left as the game's"); continue; }
+                    cur = AnimSwap.BuildAlias(tmp, cls, heroPath, $"MarvelPlayer_{hero}", g.Key, [new AnimSwap.Swap(s.Slot, pick.From.File, pick.From.Export, pick.Export)], log, whole: true);
+                    File.WriteAllBytes(tmp, cur);
+                    log.Add($"{s.Slot} ({g.Key}): {Path.GetFileNameWithoutExtension(s.Donor)}'s again, on the new build");
+                }
+            return cur;
+        }
+        finally { try { File.Delete(tmp); } catch (IOException) { } }
     }
 
     public void RemovePackage(string file)

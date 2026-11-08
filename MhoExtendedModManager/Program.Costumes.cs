@@ -584,6 +584,100 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--trans-bones-check":
+            {
+                // Read-only (2026-11-08, Jean's Phoenix set): an animation of set A put into set B gets B's position rule. For the
+                // bones B takes positions from and A doesn't, the animation's first position key against the mesh's rest.
+                // --trans-bones-check <package with both sets> <set A path> <set B path> <animation> <mesh package>
+                if (rest.Count < 6) { Console.WriteLine("--trans-bones-check <package> <set A> <set B> <animation> <mesh package>"); return 1; }
+                var tpk = AnimExportCli.Packages.Package.Open(rest[1]);
+                var tmp = MhoPackageModifier.Package.Open(rest[1]);
+                var tsets = AnimExportCli.Animation.AnimObjectReader.FindAnimSets(tpk).ToList();
+                var sa = tsets.FirstOrDefault(s => tmp.PathOf(tmp.Exports[s.ExportIndex]).Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                var sb = tsets.FirstOrDefault(s => tmp.PathOf(tmp.Exports[s.ExportIndex]).Equals(rest[3], StringComparison.OrdinalIgnoreCase));
+                if (sa == null || sb == null) { Console.WriteLine("set not found"); return 1; }
+                var ta = new HashSet<string>(sa.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase);
+                var tb = new HashSet<string>(sb.TranslationBones ?? [], StringComparer.OrdinalIgnoreCase);
+                Console.WriteLine($"A rotation only {sa.RotationOnly}, {ta.Count} position bones; B rotation only {sb.RotationOnly}, {tb.Count} position bones");
+                Console.WriteLine($"only A: {string.Join(" ", ta.Except(tb, StringComparer.OrdinalIgnoreCase))}");
+                // each set's track order against the mesh's bone order (MHO_TB_MESHES: more packages, ';'-separated)
+                foreach (string mp in new[] { rest[5] }.Concat((Environment.GetEnvironmentVariable("MHO_TB_MESHES") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries)))
+                {
+                    var mb = PowerBorrow.HeroSkeleton(mp);
+                    if (mb == null) { Console.WriteLine($"{Path.GetFileName(mp)}: no mesh"); continue; }
+                    foreach (var (lbl, s) in new[] { ("A", sa), ("B", sb) })
+                    {
+                        int same = 0; for (int k = 0; k < Math.Min(s.TrackBoneNames.Count, mb.Count); k++) if (s.TrackBoneNames[k].Equals(mb[k].Name, StringComparison.OrdinalIgnoreCase)) same++;
+                        Console.WriteLine($"{Path.GetFileName(mp)} ({mb.Count} bones) vs set {lbl} ({s.TrackBoneNames.Count} tracks): {same} at the same index; first differences: {string.Join(", ", Enumerable.Range(0, Math.Min(s.TrackBoneNames.Count, mb.Count)).Where(k => !s.TrackBoneNames[k].Equals(mb[k].Name, StringComparison.OrdinalIgnoreCase)).Take(4).Select(k => $"#{k} {s.TrackBoneNames[k]}/{mb[k].Name}"))}");
+                    }
+                }
+                foreach (var (lbl, s) in new[] { ("A", sa), ("B", sb) }) Console.WriteLine($"set {lbl} first tracks: {string.Join(" ", s.TrackBoneNames.Take(12))}");
+                // the same animation name in both sets, decoded each with its own set's bone list: per bone, do the keys agree?
+                // (where not, which of the other set's tracks matches: the order the game really uses)
+                {
+                    int qa = sa.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).FirstOrDefault(i => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(tpk, i).Equals(rest[4], StringComparison.OrdinalIgnoreCase), -1);
+                    int qb = sb.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).FirstOrDefault(i => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(tpk, i).Equals(rest[4], StringComparison.OrdinalIgnoreCase), -1);
+                    var xa = qa < 0 ? null : AnimExportCli.Animation.AnimObjectReader.TryRead(tpk, qa, sa.TrackBoneNames);
+                    var xb = qb < 0 ? null : AnimExportCli.Animation.AnimObjectReader.TryRead(tpk, qb, sb.TrackBoneNames);
+                    if (xa != null && xb != null)
+                    {
+                        static float Diff(AnimExportCli.Animation.BoneTrack p, AnimExportCli.Animation.BoneTrack q)
+                        {
+                            if (p.RotationKeys.Count == 0 || q.RotationKeys.Count == 0) return float.NaN;
+                            float worst = 0;
+                            for (int f = 0; f < 5; f++)
+                            {
+                                var r1 = p.RotationKeys[Math.Min(p.RotationKeys.Count - 1, f * p.RotationKeys.Count / 5)].Rotation;
+                                var r2 = q.RotationKeys[Math.Min(q.RotationKeys.Count - 1, f * q.RotationKeys.Count / 5)].Rotation;
+                                worst = Math.Max(worst, 1 - Math.Abs(System.Numerics.Quaternion.Dot(System.Numerics.Quaternion.Normalize(r1), System.Numerics.Quaternion.Normalize(r2))));
+                            }
+                            return worst;
+                        }
+                        int agree = 0, differ = 0;
+                        var lines = new List<string>();
+                        foreach (var (bn, tb2) in xb.Tracks)
+                        {
+                            if (!xa.Tracks.TryGetValue(bn, out var ta2)) continue;
+                            float dd = Diff(ta2, tb2);
+                            if (float.IsNaN(dd)) continue;
+                            if (dd < 1e-4f) { agree++; continue; }
+                            differ++;
+                            string best = xa.Tracks.Where(kv => kv.Value.RotationKeys.Count == tb2.RotationKeys.Count || true).Select(kv => (kv.Key, D: Diff(kv.Value, tb2))).Where(x => !float.IsNaN(x.D)).OrderBy(x => x.D).Select(x => $"{x.Key} {x.D:0.00000}").FirstOrDefault() ?? "-";
+                            if (lines.Count < 25) lines.Add($"  {bn} (A #{sa.TrackBoneNames.ToList().FindIndex(n => n.Equals(bn, StringComparison.OrdinalIgnoreCase))}, B #{sb.TrackBoneNames.ToList().FindIndex(n => n.Equals(bn, StringComparison.OrdinalIgnoreCase))}): differs by {dd:0.00000}; closest A track: {best}");
+                        }
+                        Console.WriteLine($"'{rest[4]}' in both sets: {agree} bone(s) agree, {differ} differ (A {xa.Tracks.Count} tracks, B {xb.Tracks.Count})");
+                        lines.ForEach(Console.WriteLine);
+                    }
+                }
+                // the sequences' native part: raw tracks (count, keys per track) before the compressed stream
+                foreach (var (lbl, s) in new[] { ("A", sa), ("B", sb) })
+                    foreach (int qi in s.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).Take(3))
+                    {
+                        var qe = tmp.Exports[qi];
+                        byte[] qd = tmp.Body.AsSpan((int)qe.SerialOffset, (int)qe.SerialSize).ToArray();
+                        var qt = MhoPackageModifier.TagWalker.Walk(tmp, qd, 4);
+                        if (qt == null) { Console.WriteLine($"set {lbl} #{qi}: tags don't read"); continue; }
+                        int qat = qt.NoneAt + 8, qraw = BitConverter.ToInt32(qd, qat), qp = qat + 4;
+                        var keys = new List<string>();
+                        for (int k = 0; k < qraw && qp + 8 <= qd.Length; k++) { int pk = BitConverter.ToInt32(qd, qp); qp += 4 + 12 * pk; int rk = BitConverter.ToInt32(qd, qp); qp += 4 + 16 * rk; if (k < 4) keys.Add($"{pk}/{rk}"); }
+                        Console.WriteLine($"set {lbl} {AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(tpk, qi)}: {qraw} raw track(s) (pos/rot keys {string.Join(" ", keys)}), compressed stream {BitConverter.ToInt32(qd, qp)} bytes, {qd.Length - qp - 4 - BitConverter.ToInt32(qd, qp)} bytes after it");
+                    }
+                int tseq = sa.Sequences.Where(r => r.IsExport).Select(r => r.ExportIndex).FirstOrDefault(i => AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(tpk, i).Equals(rest[4], StringComparison.OrdinalIgnoreCase), -1);
+                var tan = tseq < 0 ? null : AnimExportCli.Animation.AnimObjectReader.TryRead(tpk, tseq, sa.TrackBoneNames);
+                var tskel = PowerBorrow.HeroSkeleton(rest[5]);
+                if (tan == null || tskel == null) { Console.WriteLine("animation or skeleton not read"); return 1; }
+                Console.WriteLine("only B (applied in B, ignored in A): bone, rest position, animation's first position key, distance");
+                foreach (string bn in tb.Except(ta, StringComparer.OrdinalIgnoreCase))
+                {
+                    var rb = tskel.FirstOrDefault(b => b.Name.Equals(bn, StringComparison.OrdinalIgnoreCase));
+                    string restTxt = rb == null ? "(no bone)" : $"{rb.Position.X:0.0},{rb.Position.Y:0.0},{rb.Position.Z:0.0}";
+                    if (!tan.Tracks.TryGetValue(bn, out var tt) || tt.PositionKeys.Count == 0) { Console.WriteLine($"  {bn}: rest {restTxt}; no position keys"); continue; }
+                    var pk0 = tt.PositionKeys[0].Position;
+                    float dist = rb == null ? float.NaN : System.Numerics.Vector3.Distance(pk0, rb.Position);
+                    Console.WriteLine($"  {bn}: rest {restTxt}; key {pk0.X:0.0},{pk0.Y:0.0},{pk0.Z:0.0} ({tt.PositionKeys.Count} keys); off by {dist:0.0}");
+                }
+                return 0;
+            }
             case "--alias-swap":
             {
                 // The alternate-set test (2026-10-04, Jean Grey's Phoenix animations): builds (never into the game) a costume

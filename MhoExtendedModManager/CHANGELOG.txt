@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.434
+- Animations tab: a form's animations can be changed (Jean Grey's Phoenix and Dark Phoenix sets: rows marked Form). The change goes into the costume's own copy of that form's set, with the new animation fitted to the set's bones; Back to the Original undoes it. Confirmed in game with Jean's own and Storm's idles in her Phoenix form.
+- Fix: an animation fitted to another set's bones now has its data written in that set's order (it played distorted in game before).
+
 0.60.433
 - Fix: some powers showed "No Animation of Its Own" (and couldn't take a borrowed look) when another hero's power shares their class: Jean Grey's Crushing Telekinesis and Telekinetic Throw (Cyclops's ultimate calls her in with the same classes), Expel Phoenix Force, and powers of Beast, Black Bolt, Black Widow, Carnage, Deadpool, Emma Frost, Iron Fist, Nova, Rogue, Squirrel Girl and Star-Lord. A power's class now goes to its own hero's powers first.
 
