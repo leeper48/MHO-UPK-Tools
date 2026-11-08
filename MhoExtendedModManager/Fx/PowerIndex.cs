@@ -212,8 +212,26 @@ static class PowerIndex
             if (!map.TryGetValue(cls, out var list)) map[cls] = list = [];
             list.Add(e.Path);
         }
+        // The class's own hero's prototypes first (2026-11-08, a user: Jean Grey's signature Crushing Telekinesis had "no
+        // animation"): powerjeangrey_tkhurl is also the class of Cyclops's UltimateJeanSig (his ultimate calls Jean in), which
+        // came first, so every "first prototype of the class" use picked Cyclops's and Jean's power got nothing.
+        foreach (var (cls, list) in map)
+            if (list.Count > 1)
+            {
+                var sorted = list.OrderBy(path => OwnHero(cls, path) ? 0 : 1).ToList();
+                list.Clear(); list.AddRange(sorted);
+            }
         lock (protoCache) protoCache[db] = map;
         return map;
+    }
+
+    /// <summary>The prototype sits in the folder of the hero the class is named after (powerjeangrey_tkhurl and
+    /// Powers\Player\JeanGrey\…).</summary>
+    public static bool OwnHero(string cls, string protoPath)
+    {
+        var parts = protoPath.Split('\\', '/');
+        return parts.Length > 3 && parts[0].Equals("Powers", StringComparison.OrdinalIgnoreCase) && parts[1].Equals("Player", StringComparison.OrdinalIgnoreCase)
+            && cls.StartsWith("power" + parts[2] + "_", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The hero part of a costume / hero class name (MarvelPlayer_DoctorStrange_Classic → DoctorStrange), or null.</summary>

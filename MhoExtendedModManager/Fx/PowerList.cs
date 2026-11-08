@@ -73,7 +73,9 @@ static class PowerList
         foreach (var (anim, refs) in idx)
             foreach (var r in refs)
                 if (byClass.TryGetValue(r.Class, out var protos))
-                    foreach (var proto in protos.Take(1))
+                    // (the first, the class's own hero's; and that hero's other powers of the same class: Jean's Expel Phoenix
+                    // Force plays absattack_darkphoenix like DarkPhoenixJeanExplosion, 2026-11-08)
+                    foreach (var proto in protos.Take(1).Concat(protos.Skip(1).Where(x => PowerIndex.OwnHero(r.Class, protos[0]) && PowerIndex.OwnHero(r.Class, x))))
                     {
                         if (!map.TryGetValue(proto, out var list)) map[proto] = list = [];
                         if (!list.Contains(anim, StringComparer.OrdinalIgnoreCase)) list.Add(anim);

@@ -177,6 +177,12 @@ sealed partial class ModEditorView
     (string File, string Mesh)? GhostModel(string baseFile)
     {
         string stem = baseFile[..^7];   // UC__MarvelPlayer_<Hero>
+        // the model the preview shows, when it's one of this hero's packages in the mod (Kurt 2026-11-07: Captain Carter's
+        // model is in the hero's base package; the costume packages a borrow brought in hold the stock body, and the first
+        // of those, Age of Ultron, was taken)
+        if (powerPreview?.ShownMesh is { } sm && sm.Package.StartsWith(stem, StringComparison.OrdinalIgnoreCase)
+            && draft.Packages.Any(x => x.File.Equals(sm.Package, StringComparison.OrdinalIgnoreCase)))
+            return (sm.Package, sm.Name);
         foreach (var (f, path) in draft.Packages.Where(x => x.File.StartsWith(stem, StringComparison.OrdinalIgnoreCase))
                      .OrderBy(x => x.File.Equals(baseFile, StringComparison.OrdinalIgnoreCase) ? 1 : 0))
             if (File.Exists(path) && DodgeGhosts.CharacterModel(f, path) is { } mr) return (f, mr.Name);

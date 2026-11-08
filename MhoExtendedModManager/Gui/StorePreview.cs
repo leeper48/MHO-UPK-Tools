@@ -29,6 +29,8 @@ sealed partial class StorePreview : Control
     static string MeshPart(string key) { int at = key.IndexOf('@'); return at < 0 ? key : key[..at]; }
     static string? AnimPart(string? key) { int at = key?.IndexOf('@') ?? -1; return at < 0 ? null : key![(at + 1)..]; }
     bool MeshOk => meshIndex >= 0 && meshIndex < meshes.Count;
+    /// <summary>The mesh the 3D view shows (the Powers tab's dodge ghosts are made from it), or null.</summary>
+    internal MeshRef? ShownMesh => show3D && MeshOk ? meshes[meshIndex] : null;
     string CurrentMeshKey() => !MeshOk ? "" : meshes[meshIndex].Key + (p3?.Playing != null && p3.CurrentAnimation is string a ? "@" + a : "");
     int Offset => meshes.Count > 0 ? 1 : 0;   // strip tile 0 is "3D" when the mod has meshes
     int Tiles => items.Count + Offset;

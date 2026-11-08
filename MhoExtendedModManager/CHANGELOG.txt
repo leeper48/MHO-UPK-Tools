@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.433
+- Fix: some powers showed "No Animation of Its Own" (and couldn't take a borrowed look) when another hero's power shares their class: Jean Grey's Crushing Telekinesis and Telekinetic Throw (Cyclops's ultimate calls her in with the same classes), Expel Phoenix Force, and powers of Beast, Black Bolt, Black Widow, Carnage, Deadpool, Emma Frost, Iron Fist, Nova, Rogue, Squirrel Girl and Star-Lord. A power's class now goes to its own hero's powers first.
+
+0.60.432
+- Fix: Dodge Ghosts → Make Them From This Model used another costume's stock body when the mod also had that costume's package (a borrowed power brings them in). It now uses the model the 3D view shows.
+
 0.60.431
 - Fix: borrowing a power whose parts come from game packages the target power doesn't load (Emma Frost's Running in Heels and the other sprints on a flight or run of another kind) crashed the game, first when it loaded and then when the power was used. The game loads only the packages each power lists; a borrowed part now carries the settings it needs from those packages itself, and a part whose kind is only defined there (a sprint's foot dust) is left out. Borrowed rides (a bike on another hero's travel power or Sky-Cycle) follow the same rule: they no longer carry a copy of the game's shared ride class, which could crash when that hero was nearby. Re-save a mod with such a borrow (right-click → Resave) to rebuild it.
 
