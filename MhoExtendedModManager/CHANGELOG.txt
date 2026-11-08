@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.435
+- Borrow Power: a power with no animation of its own that is still cast (Invisible Woman's Seeker Orbs, Psylocke's Katana Typhoon) can borrow a look, and plays the other power's animation. Passive powers and talents can't. Confirmed in game: Seeker Orbs with Jean Grey's Telekinetic Throw.
+- Fix: borrowing one of Jean Grey's powers took the animation from her Phoenix set (the flying version) instead of her normal one.
+
 0.60.434
 - Animations tab: a form's animations can be changed (Jean Grey's Phoenix and Dark Phoenix sets: rows marked Form). The change goes into the costume's own copy of that form's set, with the new animation fitted to the set's bones; Back to the Original undoes it. Confirmed in game with Jean's own and Storm's idles in her Phoenix form.
 - Fix: an animation fitted to another set's bones now has its data written in that set's order (it played distorted in game before).

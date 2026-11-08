@@ -2601,7 +2601,7 @@ static partial class Program
                 foreach (var pw in Fx.PowerList.For(db, rest[1], hcook, [], effectOnly: true))
                 {
                     var ic = pw.Icon == null ? null : Fx.PowerList.Icon(pw.Icon, hcook);
-                    Console.WriteLine($"  {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): icon {pw.Icon ?? "none"}{(ic == null ? "" : $" {ic.Width}×{ic.Height}")}; {(pw.Animations.Count == 0 ? "(no animation: effects only)" : string.Join(", ", pw.Animations))}");
+                    Console.WriteLine($"  {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): icon {pw.Icon ?? "none"}{(ic == null ? "" : $" {ic.Width}×{ic.Height}")}; {(pw.Animations.Count == 0 ? "(no animation: effects only" + (PowerBorrow.CastWithoutAnimation(db, pw.Prototype) ? "; can borrow a look)" : ")") : string.Join(", ", pw.Animations))}");
                     // MHO_POWER_CENSUS=1: the prototype's path, the borrow's kind and the data lines that tell melee, area, dash and
                     // channeled powers apart (picking borrow pairs by type; Kurt, 2026-11-04)
                     if (Environment.GetEnvironmentVariable("MHO_POWER_CENSUS") == "1" && db.Find(pw.Prototype) is { } cpe)

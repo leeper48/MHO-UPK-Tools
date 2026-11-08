@@ -811,6 +811,19 @@ static partial class PowerBorrow
         catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return false; }
     }
 
+    /// <summary>
+    /// A power with no animation of its own that is still cast (2026-11-08, a user: Invisible Woman's Seeker Orbs and Psylocke's
+    /// Katana Typhoon play none, by design): its Activation isn't Passive and it isn't a toggle. It can take a borrowed look,
+    /// whose animation is added under the donor's name (confirmed in game: Seeker Orbs with Jean Grey's Telekinetic Throw).
+    /// Passives and talents can't.
+    /// </summary>
+    public static bool CastWithoutAnimation(Fx.GameData db, string power)
+    {
+        string? act = Field(db, power, "Activation", 'A') is long a && db.Assets.TryGetValue((ulong)a, out var ae) ? ae.Asset.Name : null;
+        if (act == null || act.Equals("Passive", StringComparison.OrdinalIgnoreCase)) return false;
+        return Field(db, power, "IsToggled", 'B') is not 1;
+    }
+
     /// <summary>A prototype's field (its own, else its parents'): a bool as 0 / 1, a float as a double, an int as a long;
     /// null when no prototype on the way sets it.</summary>
     public static object? Field(Fx.GameData db, string path, string field, char type)
@@ -1044,18 +1057,32 @@ static partial class PowerBorrow
         // the game's lift, as its code does it (FlightLift): none until the power applies, then up at the hero's flyingZSpeed;
         // fully up at liftDone seconds after activation (Hawkeye: 0.26 + 140 / 170 = 1.09 s)
         float liftDone = flight is { } fl0 ? fl0.ApplyAt + Math.Abs(lift) / fl0.Rise : 0;
+        // the donor hero's form sets (Jean Grey's Phoenix set: the same names as her normal ones, the same 165 bones): a tie goes
+        // to the normal set (2026-11-08: Seeker Orbs borrowing her Telekinetic Throw took the Phoenix, flying version)
+        var formSets = new HashSet<int>();
+        try
+        {
+            var dmp = Package.Open(donorHeroPackage);
+            string dcls = "MarvelPlayer_" + Path.GetFileNameWithoutExtension(donorHeroPackage)["UC__MarvelPlayer_".Length..^3];
+            foreach (var (_, sp) in CostumeAnims.Aliases(dmp, dcls))
+                if (Array.FindIndex(dmp.Exports, e => dmp.PathOf(e).Equals(sp, StringComparison.OrdinalIgnoreCase)) is int fi && fi >= 0) formSets.Add(fi);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException) { }
         foreach (string an in donorAnims)
         {
             // the character's set, not a vehicle's: Cyclops' bike has a set of its own (cyclops_bike_as, 22 chopper bones) with the
             // same sequence names as his riding ones in cyclops_as (89 bones): the set with the most bones is the rider's
             AnimSwap.Swap? found = null;
             int foundBones = -1;
+            bool foundForm = false;
             foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(ap))
                 foreach (var seq in set.Sequences.Where(q => q.IsExport))
-                    if (set.TrackBoneNames.Count > foundBones && AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex).Equals(an, StringComparison.OrdinalIgnoreCase))
+                    if ((set.TrackBoneNames.Count > foundBones || set.TrackBoneNames.Count == foundBones && foundForm && !formSets.Contains(set.ExportIndex))
+                        && AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(ap, seq.ExportIndex).Equals(an, StringComparison.OrdinalIgnoreCase))
                     {
                         found = new AnimSwap.Swap(an, donorHeroPackage, set.ExportIndex, seq.ExportIndex);
                         foundBones = set.TrackBoneNames.Count;
+                        foundForm = formSets.Contains(set.ExportIndex);
                     }
             if (found == null) { log.Add($"anims: {an} not found in {Path.GetFileName(donorHeroPackage)}"); continue; }
             // a loop that turns the donor's mount a lot (Goblin's barrel roll) on a hero without the mount bone: the loop ends

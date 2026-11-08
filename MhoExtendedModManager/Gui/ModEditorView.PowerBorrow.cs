@@ -324,7 +324,9 @@ sealed partial class ModEditorView
     /// <summary>The selected power's borrow, in the caption and the buttons (a hero's power with an animation only).</summary>
     void ShowBorrow(Fx.PowerList.Power p)
     {
-        bool can = !PowerColorBuild.IsOwn(p.Prototype) && !PowerColorBuild.IsPackage(p.Prototype) && !agentOwner.ContainsKey(p.Prototype) && p.Animations.Count > 0 && PowerBorrow.HeroOf(p.Prototype) != null;
+        // (a power with no animation of its own takes one too when it's cast, not passive: Seeker Orbs)
+        bool can = !PowerColorBuild.IsOwn(p.Prototype) && !PowerColorBuild.IsPackage(p.Prototype) && !agentOwner.ContainsKey(p.Prototype) && PowerBorrow.HeroOf(p.Prototype) != null
+            && (p.Animations.Count > 0 || powerDb != null && PowerBorrow.CastWithoutAnimation(powerDb, p.Prototype));
         var e = BorrowOf(p.Prototype);
         if (borrowButton != null) borrowButton.Enabled = can && !borrowBuilding;
         if (borrowRemove != null) borrowRemove.Enabled = e != null && !borrowBuilding;
@@ -340,7 +342,8 @@ sealed partial class ModEditorView
         ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
             : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")}{(e.SummonLook ? ", and its summon's look" : "")}{(e.AreaLook ? ", and its area's look" : "")})"
-            : can ? "Its own look" : "Only a hero's powers with an animation can borrow a look";
+            : can ? (p.Animations.Count == 0 ? "Its own look (no animation: a borrowed look brings the other power's)" : "Its own look")
+            : p.Animations.Count == 0 ? "Passive powers and toggles can't borrow a look" : "Only a hero's own powers can borrow a look";
     }
 
     void PickBorrow()
