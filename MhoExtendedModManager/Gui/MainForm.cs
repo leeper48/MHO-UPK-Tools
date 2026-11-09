@@ -947,13 +947,24 @@ sealed partial class MainForm : Form
         else items.AddRange(modList);
         shown = items.OfType<Mod>().Distinct().ToList();
 
+        // Keep the scroll position across a refill (Kurt, 2026-11-09: ticking a card's box made the list jump: the refill went
+        // back to the top and selecting the card then scrolled it into view at the bottom).
+        int top = list.Items.Count > 0 ? list.TopIndex : 0;
         list.BeginUpdate();
         list.Items.Clear();
         foreach (var o in items) list.Items.Add(o);
-        list.EndUpdate();
         int i = items.FindIndex(o => o is Mod m && m.FolderName == keep);
         if (i < 0) i = items.FindIndex(o => o is Mod);
-        if (i >= 0) list.SelectedIndex = i; else { header.Mod = null; header.Invalidate(); tabs.Clear(); storePreview.Mod = null; ShowNote(null); }
+        if (i >= 0) list.SelectedIndex = i;
+        if (top > 0 && top < list.Items.Count)
+        {
+            int auto = list.TopIndex;
+            list.TopIndex = top;
+            // Only if the selected card is still in view there; else the list's own scroll to it stands.
+            if (i >= 0) { var r = list.GetItemRectangle(i); if (i < list.TopIndex || r.IsEmpty || r.Bottom > list.ClientSize.Height) list.TopIndex = auto; }
+        }
+        list.EndUpdate();
+        if (i < 0) { header.Mod = null; header.Invalidate(); tabs.Clear(); storePreview.Mod = null; ShowNote(null); }
 
         int on = shown.Count(m => m.Enabled);
         allVisible.CheckState = on == 0 ? CheckState.Unchecked : on == shown.Count ? CheckState.Checked : CheckState.Indeterminate;

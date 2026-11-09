@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.450
+- Turning a mod on or off no longer makes the mod list jump: it keeps its scroll position.
+
 0.60.449
 - FreeCam Options: the Behind mode is now called Locked Behind, Isometric is called Default MHO, and Camera Mode is called Cycle Camera Mode.
 - FreeCam Options: Locked Behind and Default MHO get a key and gamepad button each, to switch straight to that mode.
