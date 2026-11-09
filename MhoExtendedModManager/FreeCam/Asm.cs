@@ -83,6 +83,13 @@ sealed class Asm
     public Node CtxFinal(Node obj, string function, params Node[] args) =>
         N(0x19, new OExpr(obj), new OSkip(3, 1, 0), new OObj(O(function + ".ReturnValue")), new OByte(0), new OExpr(Final(function, args)));
 
+    /// <summary>obj.Call() for a function with no return value (as compiled code calls m_gameSettings.SaveConfig()): the context
+    /// names no property.</summary>
+    public static Node CtxCall(Node obj, Node call) => N(0x19, new OExpr(obj), new OSkip(3, 1, 0), new OObj(0), new OByte(0), new OExpr(call));
+
+    /// <summary>array[index] (EX_ArrayElement: the index, then the array, as compiled).</summary>
+    public static Node Elem(Node index, Node array) => N(0x10, new OExpr(index), new OExpr(array));
+
     public static Node IfNot(Node condition, JumpLabel target) => N(0x07, new OJump(target, 0), new OExpr(condition));
     public static Node Goto(JumpLabel target) => N(0x06, new OJump(target, 0));
     public static Node ReturnNothing() => N(0x04, new OExpr(N(0x0B)));

@@ -40,8 +40,17 @@ static class FreeCamPatch
     public const string PadButton3 = "MarvelGFxTogglePvPScorePanel";
     /// <summary>Selfie from the keyboard (MarvelHUD; stock: opens the PvP score panel).</summary>
     public const string Selfie = "MarvelGFXShowPvPScores";
+    /// <summary>One mode each from the keyboard (MarvelHUD script exec functions nothing calls or binds: the debug game UI
+    /// toggle, a focus log line). OrbitCmd (a UI debug mode) was Free Orbit's in an untested build: only listed so its key lines
+    /// are taken out (Snap Behind switches to Free Orbit).</summary>
+    public const string OrbitCmd = "UIDebugModeAll", BehindCmd = "MarvelGFxToggleDebugGameUI", IsoCmd = "LogFocus";
+    /// <summary>Remember Camera's store: two of the HUD's config ints, unused in MHO (its HUD is Flash; Engine's canvas
+    /// console messages use them), written by the HUD's SaveConfig into the game's settings.</summary>
+    const string Store1 = "Engine.HUD.ConsoleFontSize", Store2 = "Engine.HUD.MessageFontOffset";
+    const int Marker = 1_000_000_000;
     const string Vector = "Core.Object.Vector", Rotator = "Core.Object.Rotator";
     const float DegToUnits = 65536f / 360f;
+    const int DivF = 0xAC, Loge = 0xC0;
 
     /// <summary>The replaced exports (export index → new bytes), with a short log. Throws when the package isn't Freecam's.</summary>
     public static Dictionary<int, byte[]> Build(Package pkg, FreeCamSettings cfg, List<string> log)
@@ -55,7 +64,7 @@ static class FreeCamPatch
         float zoomStep = MathF.Log(1 + cfg.ZoomStepPercent / 100f);
         // the wheel's extra-step limits, widened to the shortcuts' preset zooms (so the wheel doesn't jump back from one)
         int Steps(double factor) => (int)Math.Ceiling(Math.Abs(cfg.StepsFor(factor)) - 1e-6) * Math.Sign(cfg.StepsFor(factor));
-        int maxOut = new[] { cfg.ZoomStepsFarther, cfg.SnapKeepZoom ? 0 : -Steps(cfg.SnapZoomX), cfg.SelfieKeepZoom ? 0 : -Steps(cfg.SelfieZoomX) }.Max();
+        int maxOut = new[] { cfg.ZoomStepsFarther, cfg.SnapKeepZoom ? 0 : -Steps(cfg.SnapZoomX), cfg.SelfieKeepZoom ? 0 : -Steps(cfg.SelfieZoomX), cfg.DefaultGameZoom ? 0 : -Steps(cfg.DefaultZoomX) }.Max();
         int maxIn = new[] { cfg.ZoomStepsCloser, cfg.SnapKeepZoom ? 0 : Steps(cfg.SnapZoomX), cfg.SelfieKeepZoom ? 0 : Steps(cfg.SelfieZoomX) }.Max();
 
         Node Cam() => a.DynCast("MarvelPlayerCamera", a.Inst("Engine.PlayerController.PlayerCamera"));
@@ -78,17 +87,60 @@ static class FreeCamPatch
                     Asm.Let(CamVec("LastCamLoc", "Y", true), Asm.F(0)),
                     Asm.At(a1, Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(1)), b1)),
                     Asm.Let(a.Inst(Pitch), Asm.I(-(int)(cfg.BehindTilt * DegToUnits))),
-                    Asm.At(b1, Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(2)), after)),   // isometric: default height and zoom
-                    Asm.Let(CamVec("LastMouseAdjVec", "X", true), Asm.F(0)),
-                    Asm.Let(CamVec("LastMouseAdjVec", "Y", true), Asm.F(0)),
+                    Asm.At(b1, Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(2)), after)),   // Default MHO: its height and zoom
+                    .. EnterDefault(false),
                 ];
             }
+            if (which is "Behind" or "Isometric") return SetMode(which == "Behind" ? 1 : 2, hud: false);
             // Snap: behind the hero at Behind Mode's tilt, at once (a zero LastCamOffset makes UpdateViewTarget jump instead of
             // easing; Kurt: the easing lagged and the old tilt stayed). Free Orbit stays free afterwards.
             // Selfie: the same, from the front (half a circle round), facing the hero.
             if (which is "Snap" or "Selfie") return Shortcut(which == "Selfie", hud: false);
             return [];
         }
+        // One mode at once (the dedicated keys): Behind starts at its tilt, Isometric at the default height and zoom, as the cycle does.
+        List<Node> SetMode(int m, bool hud)
+        {
+            Node C() => hud ? a.DynCast("MarvelPlayerCamera", a.Ctx(a.Inst("Engine.HUD.PlayerOwner"), "Engine.PlayerController.PlayerCamera")) : Cam();
+            Node V(string field, string comp) => a.Member(a.Ctx(C(), $"MarvelPlayerCamera.{field}"), Vector, comp, true);
+            Node PcVar(string prop) => hud ? a.Ctx(a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner")), prop) : a.Inst(prop);
+            var list = new List<Node> { Asm.Let(V("LastCamLoc", "Y"), Asm.F(m)) };
+            if (m == 1) list.Add(Asm.Let(PcVar(Pitch), Asm.I(-(int)(cfg.BehindTilt * DegToUnits))));
+            if (m == 2) list.AddRange(EnterDefault(hud));
+            return list;
+        }
+        // Default MHO's start: the height set (0 = the game's), the extra wheel steps taken off, and the game's zoom step kept,
+        // or a zoom factor like Snap Behind's (of the closest step's distance). For the factor, the game's own steps are walked
+        // out from the closest until one is as far as the factor's distance (its angle and height apply, and the wheel carries
+        // on through the steps; Kurt 2026-11-09: extra steps only move the camera out, so the game's tilt curve didn't follow);
+        // only past the farthest step do extra steps make up the rest.
+        List<Node> EnterDefault(bool hud)
+        {
+            Node C() => hud ? a.DynCast("MarvelPlayerCamera", a.Ctx(a.Inst("Engine.HUD.PlayerOwner"), "Engine.PlayerController.PlayerCamera")) : Cam();
+            Node PcVar(string prop) => hud ? a.Ctx(a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner")), prop) : a.Inst(prop);
+            var list = new List<Node> { Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "X", true), Asm.F(cfg.DefaultHeight)) };
+            list.Add(Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Y", true), Asm.F(0)));
+            if (cfg.DefaultGameZoom) return list;
+            Node Max() => a.CtxFinal(C(), "MarvelPlayerCamera.getMaxZoomIndex");
+            Node Idx() => a.Ctx(C(), "MarvelPlayerCamera.currentSettingIndex");
+            Node Dist(Node i) => a.Member(Asm.Elem(i, a.Ctx(C(), "MarvelPlayerCamera.gameCamSettings")), "MarvelPlayerCamera.CamSetting", "ZoomDistance", false);
+            Node Target() => Asm.Nat(DivF, Dist(Max()), Asm.F((float)cfg.DefaultZoomX));
+            var walk = new JumpLabel("Walk"); var found = new JumpLabel("Found");
+            list.AddRange([
+                Asm.Let(Idx(), Max()),
+                Asm.At(walk, Asm.IfNot(Asm.Nat(Asm.GreaterInt, Idx(), Asm.I(0)), found)),
+                Asm.IfNot(Asm.Nat(Asm.LessF, Dist(Idx()), Target()), found),
+                Asm.Let(Idx(), Asm.Nat(Asm.SubInt, Idx(), Asm.I(1))),
+                Asm.Goto(walk),
+                // past the farthest step: extra steps for the rest (distance x step^n)
+                Asm.At(found, Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Y", true),
+                    Asm.Nat(Asm.FMax, Asm.F(0), Asm.Nat(DivF, Asm.Nat(Loge, Asm.Nat(DivF, Target(), Dist(Idx()))), Asm.F(MathF.Log(1 + cfg.ZoomStepPercent / 100f)))))),
+            ]);
+            list.Add(Asm.LetBool(a.Ctx(C(), "MarvelPlayerCamera.gameCamIndexChanged"), Asm.True()));
+            list.Add(Asm.Let(PcVar("MarvelPlayerController.m_CameraZoomIndex"), a.Ctx(C(), "MarvelPlayerCamera.currentSettingIndex")));
+            return list;
+        }
+
         // Snap Behind / Selfie: the hero's facing (Selfie: half a circle round), the shortcut's own tilt and height, the zoom
         // kept or set (the game's closest step, then the chosen extra steps), then a zero LastCamOffset so UpdateViewTarget
         // jumps there instead of easing (Kurt: the easing lagged). Free Orbit stays free afterwards. <hud>: the HUD's
@@ -102,6 +154,8 @@ static class FreeCamPatch
             var (tilt, height, keepZoom, zoom) = selfie ? (cfg.SelfieTilt, cfg.SelfieHeight, cfg.SelfieKeepZoom, -(float)cfg.StepsFor(cfg.SelfieZoomX)) : (cfg.SnapTilt, cfg.SnapHeight, cfg.SnapKeepZoom, -(float)cfg.StepsFor(cfg.SnapZoomX));   // (zoom: extra steps, negative = closer; fractional between steps)
             var list = new List<Node>
             {
+                // Free Orbit (Kurt, 2026-11-09): Locked Behind would swing the camera straight back and Default MHO ignores the angle
+                Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastCamLoc"), Vector, "Y", true), Asm.F(0)),
                 Asm.Let(PcVar(Yaw), selfie ? Asm.Nat(Asm.AddInt, HeroYaw(), Asm.I(32768)) : HeroYaw()),
                 Asm.Let(PcVar(Pitch), Asm.I(-(int)(tilt * DegToUnits))),
                 Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "X", true), Asm.F(height)),   // Freecam's height
@@ -140,10 +194,16 @@ static class FreeCamPatch
             foreach (var t in trackers)
             {
                 var exit = new JumpLabel("Tracker");
-                var block = TrackerFrame(a, t, CamVec, Delta(), Action, exit);
+                var block = TrackerFrame(a, t, CamVec, Delta(), Action, exit, cfg.LongPressMs / 1000f);
                 block[0].Label = next;
                 stmts.AddRange(block);
                 next = exit;
+            }
+            if (cfg.RememberCamera)
+            {
+                var block = Remember(a, Cam, CamVec, Input, next, cfg.DefaultHeight);
+                stmts.AddRange(block.Code);
+                next = block.Exit;
             }
             var g5 = next;
             stmts.AddRange([
@@ -180,11 +240,16 @@ static class FreeCamPatch
             Node Pc() => a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner"));
             Replace(pkg, "MarvelHUD." + SnapBehind, result, log, [.. Shortcut(selfie: false, hud: true), Asm.ReturnNothing(), Asm.End()]);
             Replace(pkg, "MarvelHUD." + Selfie, result, log, [.. Shortcut(selfie: true, hud: true), Asm.ReturnNothing(), Asm.End()]);
+            Replace(pkg, "MarvelHUD." + BehindCmd, result, log, [.. SetMode(1, hud: true), Asm.ReturnNothing(), Asm.End()]);
+            Replace(pkg, "MarvelHUD." + IsoCmd, result, log, [.. SetMode(2, hud: true), Asm.ReturnNothing(), Asm.End()]);
+            // Remember Camera: a new camera starts in "restore pending" (mode -1) and the first frame reads the store.
+            if (cfg.RememberCamera)
+                Prepend(pkg, "MarvelPlayerCamera.PostBeginPlay", result, log, Asm.Let(a.Member(a.Inst("MarvelPlayerCamera.LastCamLoc"), Vector, "Y", true), Asm.F(-1)));
+        }
 
             // The gamepad buttons: each tracker's command is called on press and on release ("X | OnRelease X").
             foreach (var t in trackers)
                 Replace(pkg, "MarvelHUD." + t.Exec, result, log, TrackerCommand(a, t));
-        }
 
         // (Overhead name labels: MarvelGFxInWorldEntityInfo.CallSetNamesVisibility / CallShowWorldEntityDisplayName looked like the
         // hooks, but the exe never calls them (their names aren't in it; Kurt saw no change, 0.60.418). The labels are driven from
@@ -230,6 +295,25 @@ static class FreeCamPatch
             var gate = code.Where(s => s.Tok == 0x07 && s.Ops[1] is OExpr { V.Tok: 0x28 }).ToList();
             Expect(gate.Count == 1, $"UpdateViewTarget: {gate.Count} Freecam orbit gates found, expected 1");
             gate[0].Ops[1] = new OExpr(Asm.Nat(Asm.EqF, SelfVec("LastCamLoc", "Y"), Asm.F(2)));
+            if (!cfg.DefaultGameTilt)
+            {
+                // Default MHO with its own tilt: the game's direction (both of its branches end on the labeled goto after the
+                // normal one) turned to the set pitch, yaw kept. 0x50 vector -> rotator, 0x39 rotator -> vector (as compiled).
+                Node CamViewDir() => a.Local(L("camViewDir"));
+                Node CurrentRot() => a.Local(L("CurrentRot"));
+                int dir = code.FindIndex(s => s.Tok == 0x0F && s.Ops[0] is OExpr { V: { Tok: 0x00 } t } && t.Ops[0] is OObj o && o.V == a.O(L("camViewDir"))
+                    && s.Ops[1] is OExpr { V: { Tok: (byte)Asm.Normal } n } && n.Ops[0] is OParams { V: [{ } neg] } && neg.Ops.Count > 0 && neg.Ops[0] is OParams { V: [{ Tok: 0x01 } sd] } && sd.Ops[0] is OObj so && so.V == a.O("MarvelPlayerCamera.sourceCamDir"));
+                Expect(dir >= 0 && code[dir + 1].Tok == 0x06 && code[dir + 1].Label != null, "UpdateViewTarget: the game's camera direction (Default MHO) not where expected");
+                var join = code[dir + 1];
+                var tilt = new List<Node>
+                {
+                    Asm.Let(CurrentRot(), Asm.Cast(0x50, CamViewDir())),
+                    Asm.Let(a.Member(CurrentRot(), Rotator, "Pitch", true), Asm.I(-(int)(cfg.DefaultTilt * DegToUnits))),
+                    Asm.Let(CamViewDir(), Asm.Cast(0x39, CurrentRot())),
+                };
+                tilt[0].Label = join.Label; join.Label = null;
+                code.InsertRange(dir + 1, tilt);
+            }
 
             int pull = code.FindIndex(s => s.Tok == 0xE0 && s.Ops[0] is OParams { V: [{ Tok: 0x00 } d, ..] } && d.Ops[0] is OObj o && o.V == a.O(L("DesiredActorPos")));
             Expect(pull >= 0, "UpdateViewTarget: DesiredActorPos -= … not found");
@@ -254,11 +338,121 @@ static class FreeCamPatch
         return result;
     }
 
+    /// <summary>
+    /// Remember Camera, every frame in AdjustCameraZoom (controller context), on the label <paramref name="entry"/>:
+    /// restore: a camera in mode -1 (new: PostBeginPlay) reads the store once the HUD is there; nothing saved yet = Free Orbit.
+    /// save: when the mode, zoom (the game's step and the extra steps) or angle differ from the store and the camera isn't being
+    /// turned (sticks / mouse camera at rest, RB up), the store is set and the HUD's SaveConfig writes it. Behind keeps the stored
+    /// yaw (it follows the hero, so saving it would write every frame).
+    /// Store 1 = 1e9 + mode × 1e8 + step × 1e6 + (extra steps × 100 + 500000); store 2 = (pitch + 16384) &lt;&lt; 16 | (yaw &amp; 65535).
+    /// </summary>
+    static (List<Node> Code, JumpLabel Exit) Remember(Asm a, Func<Node> cam, Func<string, string, bool, Node> camVec, Func<string, Node> input, JumpLabel entry, float defaultHeight)
+    {
+        const string Pitch = "MarvelPlayerController.vanityCamNum", Yaw = "MarvelPlayerController.turnTableNum";
+        const int DivI = 0x91, MulI = 0x90, Shl = 0x94, Shr = 0x95, OrI = 0x9E, NotEqI = 0x9B, SaveConfig = 0x218;
+        Node Hud() => a.Inst("Engine.PlayerController.myHUD");
+        Node S1() => a.Ctx(Hud(), Store1);
+        Node S2() => a.Ctx(Hud(), Store2);
+        Node I(int v) => Asm.I(v);
+        Node Mode() => camVec("LastCamLoc", "Y", false);
+        Node Step() => a.Ctx(cam(), "MarvelPlayerCamera.currentSettingIndex");
+        Node N() => camVec("LastMouseAdjVec", "Y", false);
+        Node Int(Node f) => Asm.Cast(Asm.FloatToInt, f);
+        Node Flt(Node i) => Asm.Cast(Asm.IntToFloat, i);
+        var exit = new JumpLabel("RememberDone"); var save = new JumpLabel("Save"); var none = new JumpLabel("NoneSaved");
+        var keepYaw = new JumpLabel("KeepYaw"); var compare = new JumpLabel("Compare"); var write = new JumpLabel("Write");
+        var restoreAngle = new JumpLabel("RestoreAngle");
+        // the packed current values (store 2's yaw: the stored one in Behind)
+        Node Cur1() => Asm.Nat(Asm.AddInt, Asm.Nat(Asm.AddInt, Asm.Nat(Asm.AddInt, I(Marker), Asm.Nat(MulI, Int(Mode()), I(100_000_000))),
+            Asm.Nat(MulI, Step(), I(1_000_000))), Int(Asm.Nat(Asm.AddF, Asm.Nat(Asm.MulF, N(), Asm.F(100)), Asm.F(500000.5f))));
+        Node PitchPart() => Asm.Nat(Shl, Asm.Nat(Asm.AddInt, a.Inst(Pitch), I(16384)), I(16));
+        var code = new List<Node>
+        {
+            // ---- restore (once per camera)
+            Asm.At(entry, Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(-1)), save)),
+            Asm.IfNot(Asm.Nat(Asm.NotEqObj, Hud(), Asm.None()), exit),                          // no HUD yet: next frame
+            Asm.IfNot(Asm.Nat(Asm.GreaterEqInt, S1(), I(Marker)), none),
+            Asm.Let(camVec("LastCamLoc", "Y", true), Flt(Asm.Nat(DivI, Asm.Nat(Asm.SubInt, S1(), I(Marker)), I(100_000_000)))),
+            Asm.Let(a.Ctx(cam(), "MarvelPlayerCamera.currentSettingIndex"),
+                Asm.Nat(Asm.SubInt, Asm.Nat(DivI, Asm.Nat(Asm.SubInt, S1(), I(Marker)), I(1_000_000)), Asm.Nat(MulI, Int(Mode()), I(100)))),
+            Asm.LetBool(a.Ctx(cam(), "MarvelPlayerCamera.gameCamIndexChanged"), Asm.True()),
+            Asm.Let(a.Inst("MarvelPlayerController.m_CameraZoomIndex"), Step()),
+            Asm.Let(camVec("LastMouseAdjVec", "Y", true), Asm.Nat(Asm.MulF, Flt(Asm.Nat(Asm.SubInt,
+                Asm.Nat(Asm.SubInt, S1(), Asm.Nat(MulI, Asm.Nat(DivI, S1(), I(1_000_000)), I(1_000_000))), I(500000))), Asm.F(0.01f))),
+            Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(2)), restoreAngle),                          // Default MHO: its height
+            Asm.Let(camVec("LastMouseAdjVec", "X", true), Asm.F(defaultHeight)),
+            Asm.At(restoreAngle, Asm.Let(a.Inst(Yaw), Asm.Nat(Asm.AndInt, S2(), I(65535)))),
+            Asm.Let(a.Inst(Pitch), Asm.Nat(Asm.SubInt, Asm.Nat(Shr, S2(), I(16)), I(16384))),
+            Asm.Goto(exit),
+            Asm.At(none, Asm.Let(camVec("LastCamLoc", "Y", true), Asm.F(0))),
+            Asm.Goto(exit),
+            // ---- save (when changed and at rest)
+            Asm.At(save, Asm.IfNot(Asm.Nat(Asm.NotEqObj, Hud(), Asm.None()), exit)),
+            Asm.IfNot(Asm.Nat(Asm.EqF, input("GamepadRawJoyLookUp"), Asm.F(0)), exit),
+            Asm.IfNot(Asm.Nat(Asm.EqF, input("GamepadRawJoyLookRight"), Asm.F(0)), exit),
+            Asm.IfNot(Asm.Nat(Asm.EqF, camVec("LastCamLoc", "X", false), Asm.F(0)), exit),
+            Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(1)), keepYaw),
+            // Behind: compare with the stored yaw
+            Asm.IfNot(Asm.Nat(NotEqI, Cur1(), S1()), compare),
+            Asm.Goto(write),
+            Asm.At(compare, Asm.IfNot(Asm.Nat(NotEqI, Asm.Nat(OrI, PitchPart(), Asm.Nat(Asm.AndInt, S2(), I(65535))), S2()), exit)),
+            Asm.At(write, Asm.Let(S2(), Asm.Nat(OrI, PitchPart(), Asm.Nat(Asm.AndInt, S2(), I(65535))))),
+            Asm.Let(S1(), Cur1()),
+            Asm.CtxCall(Hud(), Asm.Nat(SaveConfig)),
+            Asm.Goto(exit),
+        };
+        // other modes: yaw as it is
+        var compare2 = new JumpLabel("Compare2"); var write2 = new JumpLabel("Write2");
+        Node Cur2() => Asm.Nat(OrI, PitchPart(), Asm.Nat(Asm.AndInt, a.Inst(Yaw), I(65535)));
+        code.AddRange([
+            Asm.At(keepYaw, Asm.IfNot(Asm.Nat(NotEqI, Cur1(), S1()), compare2)),
+            Asm.Goto(write2),
+            Asm.At(compare2, Asm.IfNot(Asm.Nat(NotEqI, Cur2(), S2()), exit)),
+            Asm.At(write2, Asm.Let(S2(), Cur2())),
+            Asm.Let(S1(), Cur1()),
+            Asm.CtxCall(Hud(), Asm.Nat(SaveConfig)),
+        ]);
+        return (code, exit);
+    }
+
+    /// <summary>The store's two HUD properties as imports (Engine.HUD's IntProperties; MarvelGame.upk doesn't name them).</summary>
+    static (List<string> Names, List<NewImport> Imports) StoreImports(Package pkg)
+    {
+        var a = new Asm(pkg);
+        var names = new List<string>(); var imports = new List<NewImport>();
+        if (a.Has(Store1) && a.Has(Store2)) return (names, imports);
+        int hud = a.O("Engine.HUD");
+        if (hud >= 0) throw new InvalidDataException("Engine.HUD isn't an import in this MarvelGame.upk");
+        foreach (var p in new[] { Store1, Store2 })
+        {
+            if (a.Has(p)) continue;
+            string leaf = p[(p.LastIndexOf('.') + 1)..];
+            if (!pkg.Names.Contains(leaf, StringComparer.OrdinalIgnoreCase)) names.Add(leaf);
+            imports.Add(new NewImport("Core", "IntProperty", hud, leaf));
+        }
+        if (!pkg.Names.Contains("IntProperty", StringComparer.OrdinalIgnoreCase)) names.Add("IntProperty");
+        return (names, imports);
+    }
+
     /// <summary>Builds the whole package (uncompressed) and checks it by reading it back: tables equal, every other export
     /// byte-identical, each new function parses, has the right sizes and rewrites byte for byte.</summary>
     public static byte[] BuildPackage(byte[] freecamPackage, FreeCamSettings cfg, List<string> log)
     {
         var pkg = Package.FromBytes(freecamPackage);
+        if (cfg.RememberCamera)
+        {
+            // Remember Camera's store: Engine.HUD's two ints become imports first (whole package rewritten, every existing
+            // index kept; checked by PackageRebuilder's own verify), then the functions are replaced in that package.
+            var (names, imports) = StoreImports(pkg);
+            if (imports.Count > 0)
+            {
+                byte[] grown = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), [], out var grownData, names, imports);
+                var problems0 = PackageRebuilder.Verify(pkg, grown, Array.Empty<int>(), [], grownData, names, imports);
+                if (problems0.Count > 0) throw new InvalidDataException("Adding the camera store's imports didn't check out: " + string.Join("; ", problems0));
+                pkg = Package.FromBytes(grown);
+                log.Add($"MarvelGame.upk: {imports.Count} import(s) added for Remember Camera (Engine.HUD's ConsoleFontSize / MessageFontOffset)");
+            }
+        }
         var replaced = Build(pkg, cfg, log);
         byte[] output = FreeCamPackageEdit.ReplaceExports(pkg, replaced);
         var problems = Check(pkg, output, replaced);
@@ -319,10 +513,11 @@ static class FreeCamPatch
 
     /// <summary>
     /// A tracker's per-frame part (states: 0 idle, 1 held, 2 held and already used, 3 released once and waiting for a second
-    /// press, 4 short press to do, 6 double to do (still held), 7 double to do (let go); the timer counts seconds since the
+    /// press, 4 short press to do, 6 double to do (still held), 7 double to do (let go), 8 a second press held (Short Then Long
+    /// in use: held for the long-press time = short then long, let go earlier = double); the timer counts seconds since the
     /// last press or release). <paramref name="exit"/> goes on the statement after the block.
     /// </summary>
-    static List<Node> TrackerFrame(Asm a, Tracker t, Func<string, string, bool, Node> camVec, Node delta, Func<string, JumpLabel, List<Node>> action, JumpLabel exit)
+    static List<Node> TrackerFrame(Asm a, Tracker t, Func<string, string, bool, Node> camVec, Node delta, Func<string, JumpLabel, List<Node>> action, JumpLabel exit, float longSeconds)
     {
         var io = new TrackerIO(t, camVec);
         bool usesLong = t.ActionFor("Long") != null;
@@ -338,7 +533,7 @@ static class FreeCamPatch
         var g1 = new JumpLabel("G1"); var g2 = new JumpLabel("G2"); var g3 = new JumpLabel("G3"); var g4 = new JumpLabel("G4");
         var stmts = new List<Node> { io.AddTimer(delta) };
         // held a second (only when a long press does something): the long action now; the release then does nothing
-        stmts.AddRange(Gesture(1, usesLong ? Asm.Nat(Asm.GreaterEqF, io.Timer(), Asm.F(FreeCamSettings.LongPressSeconds)) : Asm.Nat(Asm.LessF, Asm.F(1), Asm.F(0)), t.ActionFor("Long"), 2, g1));
+        stmts.AddRange(Gesture(1, usesLong ? Asm.Nat(Asm.GreaterEqF, io.Timer(), Asm.F(longSeconds)) : Asm.Nat(Asm.LessF, Asm.F(1), Asm.F(0)), t.ActionFor("Long"), 2, g1));
         // released once and no second press in time: the short action
         var t1 = Gesture(3, Asm.Nat(Asm.GreaterF, io.Timer(), Asm.F(FreeCamSettings.DoublePressSeconds)), t.ActionFor("Short"), 0, g2); t1[0].Label = g1; stmts.AddRange(t1);
         // a short press while no double press is in use: the short action at once
@@ -346,7 +541,10 @@ static class FreeCamPatch
         // a second press in time: the double action (the button is still held: its release does nothing)
         var t3 = Gesture(6, null, t.ActionFor("Double"), 2, g4); t3[0].Label = g3; stmts.AddRange(t3);
         // the same, with the button already let go again (both presses within one frame)
-        var t4 = Gesture(7, null, t.ActionFor("Double"), 0, exit); t4[0].Label = g4; stmts.AddRange(t4);
+        var g5 = new JumpLabel("G5");
+        var t4 = Gesture(7, null, t.ActionFor("Double"), 0, g5); t4[0].Label = g4; stmts.AddRange(t4);
+        // short then long: the second press held for the long-press time (state 8, only when Short Then Long is in use)
+        var t5 = Gesture(8, Asm.Nat(Asm.GreaterEqF, io.Timer(), Asm.F(longSeconds)), t.ActionFor("ShortLong"), 2, exit); t5[0].Label = g5; stmts.AddRange(t5);
         return stmts;
     }
 
@@ -357,11 +555,17 @@ static class FreeCamPatch
             $"MarvelPlayerCamera.{field}"), Vector, comp, write);
         var io = new TrackerIO(t, HudVec);
         bool usesDouble = t.ActionFor("Double") != null;
+        bool usesShortLong = t.ActionFor("ShortLong") != null;
+        var notSecond = new JumpLabel("NotSecond");
         var notDouble = new JumpLabel("NotDouble");
         var release = new JumpLabel("Release"); var notHeld = new JumpLabel("NotHeld"); var shortRel = new JumpLabel("ShortRelease");
         var press = new JumpLabel("Press"); var single = new JumpLabel("Single");
         return [
-            Asm.IfNot(Asm.Nat(Asm.EqF, io.State(), Asm.F(6)), notDouble),                    // released before the frame did the double
+            // let go of a second press before the long-press time: a double press (the frame does it in state 7)
+            Asm.IfNot(Asm.Nat(Asm.EqF, io.State(), Asm.F(8)), notSecond),
+            io.SetState(7),
+            Asm.ReturnNothing(),
+            Asm.At(notSecond, Asm.IfNot(Asm.Nat(Asm.EqF, io.State(), Asm.F(6)), notDouble)),    // released before the frame did the double
             io.SetState(7),
             Asm.ReturnNothing(),
             Asm.At(notDouble, Asm.IfNot(Asm.Nat(Asm.EqF, io.State(), Asm.F(1)), notHeld)),
@@ -371,13 +575,16 @@ static class FreeCamPatch
             Asm.At(release, Asm.IfNot(Asm.Nat(Asm.EqF, io.State(), Asm.F(2)), shortRel)),
             io.SetState(0),                                                                // the press was used already
             Asm.ReturnNothing(),
-            Asm.At(shortRel, io.SetState(usesDouble ? 3 : 4)),                             // a short press: wait for a second one, or do it now
+            Asm.At(shortRel, io.SetState(usesDouble || usesShortLong ? 3 : 4)),                             // a short press: wait for a second one, or do it now
             io.ResetTimer(),
             Asm.ReturnNothing(),
             // press
             Asm.At(press, Asm.IfNot(Asm.Nat(Asm.EqF, io.State(), Asm.F(3)), single)),
             Asm.IfNot(Asm.Nat(Asm.LessEqF, io.Timer(), Asm.F(FreeCamSettings.DoublePressSeconds)), single),
-            io.SetState(6),                                                                // a second press in time
+            // a second press in time: a double at once, or (Short Then Long in use) held to see which it is: let go early =
+            // double (state 7 on release), held for the long-press time = short then long (state 8, the frame)
+            usesShortLong ? io.SetState(8) : io.SetState(6),
+            .. (usesShortLong ? new[] { io.ResetTimer() } : []),
             Asm.ReturnNothing(),
             Asm.At(single, io.SetState(1)),
             io.ResetTimer(),

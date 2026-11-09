@@ -15,8 +15,8 @@ sealed class FreeCamSettings
     /// setting) when their press types differ.</summary>
     public string ModePad { get; set; } = "";
     public string SnapPad { get; set; } = "";
-    /// <summary>How each action's button is pressed: "" (none), "Short" (under a second), "Long" (held a second),
-    /// "Double" (two presses).</summary>
+    /// <summary>How each action's button is pressed: "" (none), "Short" (a tap), "Long" (held the long-press time),
+    /// "Double" (two taps), "ShortLong" (a tap, then the second press held the long-press time).</summary>
     public string ModePress { get; set; } = "Short";
     public string SnapPress { get; set; } = "Long";
     /// <summary>0.60.410–0.60.412's one shared button: read from an older settings.json into both actions.</summary>
@@ -28,9 +28,19 @@ sealed class FreeCamSettings
     public string SelfiePad { get; set; } = "";
     public string SelfiePress { get; set; } = "";
 
+    /// <summary>One mode each (Kurt, 2026-11-09): Locked Behind and Default MHO, beside the cycle (Free Orbit is Snap Behind's:
+    /// it switches to Free Orbit). No keys by default.</summary>
+    public string BehindKey { get; set; } = "";
+    public string BehindPad { get; set; } = "";
+    public string BehindPress { get; set; } = "";
+    public string IsoKey { get; set; } = "";
+    public string IsoPad { get; set; } = "";
+    public string IsoPress { get; set; } = "";
+
     /// <summary>The actions in order: name for the game code, keyboard spec, gamepad button, press.</summary>
     public (string Action, string Key, string Pad, string Press)[] Actions() =>
-        [("Mode", ModeKey, ModePad, ModePress), ("Snap", SnapKey, SnapPad, SnapPress), ("Selfie", SelfieKey, SelfiePad, SelfiePress)];
+        [("Mode", ModeKey, ModePad, ModePress), ("Snap", SnapKey, SnapPad, SnapPress), ("Selfie", SelfieKey, SelfiePad, SelfiePress),
+         ("Behind", BehindKey, BehindPad, BehindPress), ("Isometric", IsoKey, IsoPad, IsoPress)];
 
     /// <summary>The gamepad buttons in use (button + RT setting), each with the actions on it and their press types, in
     /// the order the actions are listed (one press tracker each, up to three). Within a button each press type does one action
@@ -52,8 +62,13 @@ sealed class FreeCamSettings
 
     public const double ZoomMin = 0.1, ZoomMax = 5;
 
-    public static readonly string[] PressTypes = ["", "Short", "Long", "Double"];
-    public const float LongPressSeconds = 1f, DoublePressSeconds = 0.3f;
+    public static readonly string[] PressTypes = ["", "Short", "Long", "Double", "ShortLong"];
+    public const float DoublePressSeconds = 0.3f;
+    /// <summary>How long a gamepad button is held for a long press, in milliseconds (Kurt, 2026-11-09: was a fixed second).</summary>
+    public int LongPressMs { get; set; } = 1000;
+    /// <summary>The camera mode, zoom and angle kept between sessions (and zone changes): saved by the game's script in
+    /// its own settings file, put back when the camera is made.</summary>
+    public bool RememberCamera { get; set; } = true;
 
     /// <summary>Extra wheel steps past the closest / farthest normal zoom step (0 = the game's limits).</summary>
     public int ZoomStepsCloser { get; set; } = 15;
@@ -79,6 +94,15 @@ sealed class FreeCamSettings
     public bool SnapKeepZoom { get; set; } = false;
     /// <summary>The set zoom as a camera zoom: steps closer than the game's closest view (negative = farther).</summary>
     public double SnapZoomX { get; set; } = 0.5;
+    /// <summary>Default MHO mode (Kurt, 2026-11-09): the game's own camera direction, with its tilt kept (DefaultGameTilt) or
+    /// set, and the height and zoom it starts at (the game's zoom, or set as Snap Behind's is). Every default is the base game's.</summary>
+    public bool DefaultGameTilt { get; set; } = true;
+    public int DefaultTilt { get; set; } = 45;
+    public int DefaultHeight { get; set; } = 0;
+    public bool DefaultGameZoom { get; set; } = true;
+    /// <summary>Default MHO's set zoom, a factor of the game's closest distance like Snap Behind's (0.5 = twice as far). The
+    /// game's own step nearest that distance is used (its angle and height), extra wheel steps only past its farthest step.</summary>
+    public double DefaultZoomX { get; set; } = 1.0;
     public int SelfieTilt { get; set; } = 5;
     public int SelfieHeight { get; set; } = -50;
     public bool SelfieKeepZoom { get; set; } = false;
@@ -102,6 +126,8 @@ sealed class FreeCamSettings
     public bool HideNames { get; set; }
     public bool HideTitles { get; set; }
     public bool HideGuilds { get; set; }
+    /// <summary>The level number (and its badge) by characters' names (MarvelInWorldEntityInfo.SetLevel).</summary>
+    public bool HideLevels { get; set; }
 
     public static string Folder => Path.Combine(Settings.Home, "freecam");
     static string FilePath => Path.Combine(Folder, "settings.json");
@@ -147,8 +173,11 @@ sealed class FreeCamSettings
         SnapTilt = Math.Clamp(SnapTilt, -20, 60); SelfieTilt = Math.Clamp(SelfieTilt, -20, 60);
         SnapHeight = Math.Clamp(SnapHeight, -250, 250); SelfieHeight = Math.Clamp(SelfieHeight, -250, 250);
         SnapZoomX = Math.Clamp(SnapZoomX, ZoomMin, ZoomMax); SelfieZoomX = Math.Clamp(SelfieZoomX, ZoomMin, ZoomMax);
+        LongPressMs = Math.Clamp(LongPressMs, 200, 3000);
+        DefaultTilt = Math.Clamp(DefaultTilt, 5, 89); DefaultHeight = Math.Clamp(DefaultHeight, -250, 250);
+        DefaultZoomX = Math.Clamp(DefaultZoomX, ZoomMin, ZoomMax);
     }
 
     /// <summary>The parts that go into MarvelGame.upk (a change there needs a rebuild; key changes only rewrite the .ini).</summary>
-    public string PackageKey() => $"{InvertByDefault}|{ZoomStepsCloser}|{ZoomStepsFarther}|{ZoomStepPercent}|{TiltDown}|{TiltUp}|{OrbitSpeed}|{ShoulderOffset}|{FollowSpeed}|{BehindTilt}";
+    public string PackageKey() => $"{InvertByDefault}|{ZoomStepsCloser}|{ZoomStepsFarther}|{ZoomStepPercent}|{TiltDown}|{TiltUp}|{OrbitSpeed}|{ShoulderOffset}|{FollowSpeed}|{BehindTilt}|{LongPressMs}|{RememberCamera}|{DefaultGameTilt}|{DefaultTilt}|{DefaultHeight}|{DefaultGameZoom}|{DefaultZoomX}";
 }

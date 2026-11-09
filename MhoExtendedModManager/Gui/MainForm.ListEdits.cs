@@ -74,6 +74,8 @@ sealed partial class MainForm
         if (Shortcuts.Is("app.help", keyData)) { HelpForm.Show(this, settings, pages.SelectedIndex switch { 1 => "editor", 2 => "extract", _ => "contents" }); return true; }
         // F11: the 3D preview full screen (its window handles F11 / Esc to come back).
         if (Shortcuts.Is("view.full", keyData) && pages.SelectedIndex == 0) { storePreview.ToggleFull(); return true; }
+        // F5: Refresh (Kurt, 2026-11-09), on the Mods tab: the library and the game's state read again.
+        if (Shortcuts.Is("mods.refresh", keyData) && pages.SelectedIndex == 0) { Reload(); return true; }
         // Ctrl+Enter: Apply Changes (Kurt), anywhere on the Mods tab.
         if (Shortcuts.Is("mods.apply", keyData) && pages.SelectedIndex == 0 && applyButton.Enabled && applyButton.Visible)
         {

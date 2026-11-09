@@ -182,7 +182,7 @@ sealed partial class MainForm : Form
         menu.Items.Add("Capture Icon Changes", null, (_, _) => CaptureIcons());
         menu.Items.Add("Migrate from MHModManager", null, (_, _) => Migrate());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Refresh", null, (_, _) => Reload());
+        menu.Items.Add(new ToolStripMenuItem("Refresh", null, (_, _) => Reload()) { ShortcutKeyDisplayString = "F5" });
         menu.Items.Add("Find My Mods on Nexus", null, (_, _) => FindOnNexus(null));
         menu.Items.Add("Check Mods on Nexus", null, (_, _) => CheckNexus(manual: true));
         var nexusAtStart = new ToolStripMenuItem("Check Mods on Nexus at Start") { CheckOnClick = true };

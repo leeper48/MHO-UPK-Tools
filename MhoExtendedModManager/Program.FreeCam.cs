@@ -142,7 +142,12 @@ static partial class Program
             Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false), "labels: apply with only guild names hidden (rebuilt from the kept copy)"); Dump();
             byte[] guilds = Hud();
             Check(!guilds.AsSpan().SequenceEqual(namesTitles) && !guilds.AsSpan().SequenceEqual(hud) && guilds.Length == namesTitles.Length, "labels: a different build of the same size");
-            cfg.HideGuilds = false;
+            cfg.HideGuilds = false; cfg.HideLevels = true;
+            Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false), "labels: apply with only level numbers hidden"); Dump();
+            byte[] levels = Hud();
+            int diffs = 0; for (int i = 0; i < Math.Min(levels.Length, hud.Length); i++) if (levels[i] != hud[i]) diffs++;
+            Check(!levels.AsSpan().SequenceEqual(guilds) && levels.Length == guilds.Length, $"labels: level numbers a build of their own, same size ({diffs} bytes differ from the game's file)");
+            cfg.HideLevels = false;
             Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false) && Hud().AsSpan().SequenceEqual(hud) && !HudLabels.IsOurs(game), "labels: none hidden puts the game's file back byte for byte"); Dump();
             cfg.HideNames = true;
             Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false) && HudLabels.IsOurs(game), "labels: names hidden again"); Dump();

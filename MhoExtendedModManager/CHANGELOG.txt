@@ -1,6 +1,21 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.449
+- FreeCam Options: the Behind mode is now called Locked Behind, Isometric is called Default MHO, and Camera Mode is called Cycle Camera Mode.
+- FreeCam Options: Locked Behind and Default MHO get a key and gamepad button each, to switch straight to that mode.
+- FreeCam Options: Long Press Time (200 to 3,000 ms) for gamepad long presses, and a Short Then Long press (a tap, then press again and hold).
+- FreeCam Options: Snap Behind is now Snap Behind / Free Orbit: it switches to Free Orbit from any mode (in Locked Behind or Default MHO it had no lasting effect). Selfie switches to Free Orbit too.
+- FreeCam Options: a Default MHO Mode card: the game's tilt or your own, a height and the game's zoom or your own (the defaults are the base game's camera). The tab is laid out across the width (Controls, Options and View Distance on top, the camera cards under them), and each card's explanation shows on hovering the ⓘ beside its title.
+- FreeCam Options: Remember Camera on Launch (on at first): the game starts, and changes zones, with the camera mode, zoom and angle you last had.
+
+0.60.446
+- F5 refreshes the Mods tab (the same as Settings → Refresh).
+
+0.60.445
+- FreeCam Options: Hide Level Numbers under Overhead Labels (the level number and its badge by characters' names).
+- FreeCam Options: a View Distance card with the server's own chat command for a larger view (!aoi volume 5000), to type in the game's chat.
+
 0.60.443
 - Model tab → Materials: Edit in Image Editor (and the large view's Edit button) works on maps the app made too: an MHO spec map from your color tags, a generated normal or spec map, a glow map. Your first save in the editor becomes the material's own file; Back to Automatic goes back to the made one.
 

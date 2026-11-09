@@ -19,6 +19,7 @@ static class Shortcuts
     public static readonly IReadOnlyList<Command> All =
     [
         new("app.help", Area.App, Kind.Key, "Open the Manual", "F1", "The manual (Help)."),
+        new("mods.refresh", Area.ModsTab, Kind.Key, "Refresh", "F5", "Reload the mod library and the game's state (Settings → Refresh)."),
         new("mods.apply", Area.ModsTab, Kind.Key, "Apply Changes", "Ctrl+Enter", "Apply Changes on the Mods tab."),
         new("mods.remove", Area.ModsTab, Kind.Key, "Remove Mod", "Delete", "Remove the selected mod (asks first)."),
         new("mods.up", Area.ModsTab, Kind.Key, "Move Up", "Ctrl+Up", "The selected mod (or the marked ones) one place higher in priority."),

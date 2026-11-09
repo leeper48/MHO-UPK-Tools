@@ -47,7 +47,7 @@ static class HudLabels
     static readonly (string Setter, string What)[] Setters = [("__set__name", "names"), ("__set__titleName", "titles"), ("__set__guildName", "guild names")];
 
     /// <summary>The package with the chosen labels blanked (from an unchanged one). Throws InvalidDataException when the movie isn't as expected.</summary>
-    public static byte[] Build(byte[] packageBytes, bool names, bool titles, bool guilds, List<string> log)
+    public static byte[] Build(byte[] packageBytes, bool names, bool titles, bool guilds, List<string> log, bool levels = false)
     {
         var pkg = Package.FromBytes(packageBytes);
         int idx = Array.FindIndex(pkg.Exports, e => e.ObjectName.Equals("hud_manager", StringComparison.OrdinalIgnoreCase) && pkg.ClassOf(e).Equals("SwfMovie", StringComparison.OrdinalIgnoreCase));
@@ -61,6 +61,12 @@ static class HudLabels
             var (at, empty) = hits[i];
             data[at + 5] = 0x08; data[at + 6] = (byte)empty;
             log.Add($"MarvelHUD_SF.upk: overhead {Setters[i].What} hidden.");
+        }
+        if (levels)
+        {
+            int at = FindLevel(data);
+            data[at] = 0x08; data[at + 1] = (byte)hits[0].Empty;
+            log.Add("MarvelHUD_SF.upk: level numbers hidden.");
         }
         var replaced = new Dictionary<int, byte[]> { [idx] = data };
         byte[] output = FreeCamPackageEdit.ReplaceExports(pkg, replaced);
@@ -111,6 +117,55 @@ static class HudLabels
         return found.Select(f => (f, empty)).ToArray();
     }
 
+    /// <summary>
+    /// The level (Kurt, 2026-11-08: "a toggle for the players level number"): SetLevel(level) does level_tf.text = level;
+    /// level_tf._visible = !isHostile &amp;&amp; level &gt; 0; levelPlate_mc._visible = level_tf._visible. The "Push r2, 0.0" before
+    /// Greater (level &gt; 0) is found in SetLevel's body; its r2 (04 02) becomes the constant "" (08 idx): "" &gt; 0 is false, so
+    /// the number and its plate stay hidden. Same size, nothing else moves. Returns the offset of the 04 02.
+    /// </summary>
+    static int FindLevel(byte[] d)
+    {
+        int gfx = IndexOf(d, "GFX"u8, 0);
+        int inside = IndexOf(d, "__set__titleName\0"u8, gfx);
+        var (start, end) = TagOf(d, gfx, inside);
+        if (start < 0 || d[start] != 0x88) throw new InvalidDataException("hud_manager: the label code wasn't found.");
+        int poolLen = BitConverter.ToUInt16(d, start + 1), count = BitConverter.ToUInt16(d, start + 3);
+        var consts = Encoding.Latin1.GetString(d, start + 5, poolLen - 2).Split('\0').Take(count).ToList();
+        int setLevel = consts.IndexOf("SetLevel");
+        if (setLevel is < 0 or > 255) throw new InvalidDataException("hud_manager: SetLevel is missing.");
+        for (int p = start; p < end;)
+        {
+            byte op = d[p];
+            if (op == 0) break;
+            int len = op >= 0x80 ? BitConverter.ToUInt16(d, p + 1) : 0;
+            int arg = p + 3, next = op >= 0x80 ? arg + len : p + 1;
+            // Push r?, c"SetLevel" then DefineFunction2: the method's body follows it
+            if (op == 0x96 && len >= 2 && d[arg + len - 2] == 0x08 && d[arg + len - 1] == setLevel && d[next] == 0x8E)
+            {
+                int defLen = BitConverter.ToUInt16(d, next + 1);
+                int body = next + 3 + defLen, size = BitConverter.ToUInt16(d, next + 3 + defLen - 2);
+                int hit = -1;
+                for (int q = body; q < body + size;)
+                {
+                    byte o = d[q];
+                    int l = o >= 0x80 ? BitConverter.ToUInt16(d, q + 1) : 0;
+                    int n = o >= 0x80 ? q + 3 + l : q + 1;
+                    // Push r2, 0.0 (04 02, 06 + 8 zero bytes) then Greater (0x67)
+                    if (o == 0x96 && l == 11 && d[q + 3] == 0x04 && d[q + 4] == 0x02 && d[q + 5] == 0x06 && d.AsSpan(q + 6, 8).IndexOfAnyExcept((byte)0) < 0 && d[n] == 0x67)
+                    {
+                        if (hit >= 0) throw new InvalidDataException("hud_manager: SetLevel compares the level twice.");
+                        hit = q + 3;
+                    }
+                    q = n;
+                }
+                if (hit < 0) throw new InvalidDataException("hud_manager: SetLevel isn't as expected (already changed by another mod?).");
+                return hit;
+            }
+            p = next;
+        }
+        throw new InvalidDataException("hud_manager: SetLevel's code wasn't found.");
+    }
+
     /// <summary>The body (start, end) of the DoInitAction / DoAction tag holding <paramref name="inside"/>, after DoInitAction's sprite id.</summary>
     static (int, int) TagOf(byte[] d, int gfx, int inside)
     {
@@ -151,7 +206,7 @@ static class HudLabels
     public static bool Apply(string gameRoot, FreeCamSettings cfg, bool dryRun, List<string> log)
     {
         string live = Live(gameRoot);
-        bool any = cfg.HideNames || cfg.HideTitles || cfg.HideGuilds;
+        bool any = cfg.HideNames || cfg.HideTitles || cfg.HideGuilds || cfg.HideLevels;
         var state = LoadState();
         if (!System.IO.File.Exists(live)) { if (any) log.Add("MarvelHUD_SF.upk isn't in the game folder; labels left as they are."); return !any; }
         byte[] liveBytes = System.IO.File.ReadAllBytes(live);
@@ -174,7 +229,7 @@ static class HudLabels
             return true;
         }
         byte[] built;
-        try { built = Build(baseBytes, cfg.HideNames, cfg.HideTitles, cfg.HideGuilds, log); }
+        try { built = Build(baseBytes, cfg.HideNames, cfg.HideTitles, cfg.HideGuilds, log, cfg.HideLevels); }
         catch (Exception ex) when (ex is InvalidDataException or PackageFormatException) { log.Add(ex.Message + " Labels left as they are."); return false; }
         string builtSha = Sha(built);
         if (builtSha == Sha(liveBytes)) { log.Add("MarvelHUD_SF.upk is already as these settings make it."); return true; }
@@ -197,7 +252,7 @@ static class HudLabels
     /// <summary>Puts the kept MarvelHUD_SF.upk back when FreeCam Options wrote the live one.</summary>
     public static bool Remove(string gameRoot, bool dryRun, List<string> log)
     {
-        var cfg = new FreeCamSettings { HideNames = false, HideTitles = false, HideGuilds = false };
+        var cfg = new FreeCamSettings { HideNames = false, HideTitles = false, HideGuilds = false, HideLevels = false };
         return Apply(gameRoot, cfg, dryRun, log);
     }
 

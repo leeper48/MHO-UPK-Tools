@@ -46,10 +46,25 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.386 (Kurt, 2026-11-05): Borrow Power released; faster 3D views (pants on a tiger).</summary>
     /// <summary>0.60.388 (Kurt, 2026-11-06): costume moves onto team-ups are easy to find; the Move window's Name in Game.</summary>
+    static Notice FreeCamModes() => new(
+        "0.60.449-freecam-modes", "0.60.449",
+        "[!]New on the FreeCam Options tab" + nl +
+        "  • Remember Camera on Launch: the game starts, and changes zones, with the camera mode, zoom and angle you last had." + nl +
+        "  • Locked Behind (was Behind) and Default MHO (was Isometric) get keys and gamepad buttons of their own, to switch straight to that mode." + nl +
+        "  • A Default MHO Mode card: the base game's camera at first; set your own tilt, height or starting zoom." + nl +
+        "  • Snap Behind is now Snap Behind / Free Orbit: it works from any mode and leaves you in Free Orbit. Selfie too." + nl +
+        "  • Long Press Time for gamepad long presses, and a Short Then Long press (a tap, then press again and hold)." + nl +
+        "  • Hide Level Numbers under Overhead Labels, and a View Distance card with the server's own chat command for a larger view." + nl +
+        "  • The tab is laid out across the width; point at the ⓘ beside a card's title for what its settings do." + nl + nl +
+        "[!]Also" + nl +
+        "  • F5 refreshes the Mods tab." + nl + nl +
+        "Apply to Game again (with the game closed) to get the new camera. If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "freecam");
+
     static Notice SpecMakers() => new(
         "0.60.443-spec-makers", "0.60.443",
         "[!]New on the Model tab's Materials tab" + nl +
@@ -106,7 +121,7 @@ static class WhatsNew
         "0.60.426-freecam", "0.60.426",
         "[!]New: FreeCam Options tab" + nl +
         "  • Options on top of Marvel Heroes FreeCam (M.H.F.C.) by Michael (MichaelMerc on Nexus). It needs his mod installed with its Full option; the tab links to its Nexus page when it's missing." + nl +
-        "  • Camera Mode (F8): Free Orbit → Behind (the camera follows the way your hero faces) → Isometric (the game's own view)." + nl +
+        "  • Cycle Camera Mode (F8): Free Orbit → Locked Behind (the camera follows the way your hero faces) → Default MHO (the game's own view)." + nl +
         "  • Snap Behind (F4) and Selfie (F3): the camera jumps behind your hero, or in front facing them, with its own tilt, height and zoom." + nl +
         "  • Keyboard keys and gamepad buttons of your choice; actions can share a button with a short, long or double press." + nl +
         "  • Invert Y, more mouse-wheel zoom past the game's closest and farthest steps, tilt limits and orbit speed." + nl + nl +

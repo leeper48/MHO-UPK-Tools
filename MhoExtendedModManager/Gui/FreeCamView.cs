@@ -52,31 +52,58 @@ sealed class FreeCamView : UserControl
         var head = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(12, 10, 12, 6) };
         head.Controls.AddRange([title, credit, statusRow, statusDetail]);
 
-        // ---- cards: Controls across the top, Zoom / Camera / Behind Mode side by side under it
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, AutoScroll = true, Padding = new Padding(8, 0, 8, 0) };
-        for (int i = 0; i < 3; i++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3f));
-        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize)); grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        grid.Controls.Add(Card("CONTROLS", ControlsBody(s)), 0, 0);
-        grid.SetColumnSpan(grid.GetControlFromPosition(0, 0)!, 3);
-        grid.Controls.Add(Card("ZOOM", ZoomBody(s)), 0, 1);
+        // ---- cards (Kurt, 2026-11-09: use the width; explanations behind the ⓘ on each card): Controls (two columns wide),
+        // Options and View Distance across the top, then Zoom / Camera / Locked Behind / Default MHO, then Snap Behind / Selfie
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 4, AutoScroll = true, Padding = new Padding(8, 0, 8, 0) };
+        for (int i = 0; i < 4; i++) grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        for (int i = 0; i < 3; i++) grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // the space left over (the cards keep their own height)
+        // the top row: Controls as wide as its table needs, Options and View Distance sharing the rest
+        var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
+        var controlsCol = new ColumnStyle(SizeType.Absolute, 900 * s);
+        top.ColumnStyles.Add(controlsCol); top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var controlsTable = ControlsBody(s);
+        var controlsCard = Card("CONTROLS", controlsTable, ControlsInfo);
+        // its column is the table's own width (a docked card in an auto-sized column reports none)
+        top.Layout += (_, _) =>
+        {
+            int w = controlsTable.GetPreferredSize(Size.Empty).Width + controlsCard.Padding.Horizontal + controlsCard.Margin.Horizontal + 4;
+            if (Math.Abs(controlsCol.Width - w) > 1) controlsCol.Width = w;
+        };
+        controlsCard.Dock = DockStyle.Fill;
+        top.Controls.Add(controlsCard, 0, 0);
+        top.Controls.Add(Card("OPTIONS", OptionsBody(s), OptionsInfo), 1, 0);
+        grid.Controls.Add(top, 0, 0);
+        grid.SetColumnSpan(top, 4);
+        grid.Controls.Add(Card("ZOOM", ZoomBody(s), "The mouse wheel carries on past the game's closest and farthest zoom steps, by the extra steps allowed here. Scrolling back takes the extra steps off first."), 0, 1);
         grid.Controls.Add(Card("CAMERA", Stack(s,
             Slider(s, "Tilt Down Limit", 10, 89, 1, () => cfg.TiltDown, v => cfg.TiltDown = v, v => $"{v:0}°", 82, "How far the camera can look down from above (Freecam has no limit; past 90° it flips over)."),
             Slider(s, "Tilt Up Limit", 0, 60, 1, () => cfg.TiltUp, v => cfg.TiltUp = v, v => $"{v:0}°", 22, "How far the camera can look up from below the hero."),
-            Slider(s, "Orbit Speed", 25, 300, 5, () => cfg.OrbitSpeed, v => cfg.OrbitSpeed = v, v => $"{v:0} %", 100, "How fast the right stick / mouse camera turns the view (100 % = Freecam's speed)."))), 1, 1);
-        grid.Controls.Add(Card("BEHIND MODE", Stack(s,
+            Slider(s, "Orbit Speed", 25, 300, 5, () => cfg.OrbitSpeed, v => cfg.OrbitSpeed = v, v => $"{v:0} %", 100, "How fast the right stick / mouse camera turns the view (100 % = Freecam's speed).")),
+            "Limits and speed for Free Orbit and Locked Behind: how far the camera may tilt down and up, and how fast the right stick or mouse camera turns it."), 1, 1);
+        grid.Controls.Add(Card("LOCKED BEHIND MODE", Stack(s,
             Slider(s, "Shoulder Offset", -150, 150, 5, () => cfg.ShoulderOffset, v => cfg.ShoulderOffset = v, v => v == 0 ? "Centered" : v > 0 ? $"{v:0} Right" : $"{-v:0} Left", 0, "Moves the view sideways so the camera looks over the hero's shoulder (right is positive)."),
             Slider(s, "Follow Speed", 5, 200, 5, () => cfg.FollowSpeed, v => cfg.FollowSpeed = v, v => $"{v / 10:0.0}", 50, "How quickly the camera swings behind the hero when they turn."),
-            Slider(s, "Start Tilt", -20, 60, 1, () => cfg.BehindTilt, v => cfg.BehindTilt = v, v => $"{v:0}°", 10, "How far the camera looks down when Behind is switched on (the stick still tilts it)."),
-            Note(s, "Behind follows the way the hero faces. Movement stays camera-relative (as in Freecam), so strafing turns the hero and the camera together."))), 2, 1);
+            Slider(s, "Start Tilt", -20, 60, 1, () => cfg.BehindTilt, v => cfg.BehindTilt = v, v => $"{v:0}°", 10, "How far the camera looks down when Locked Behind is switched on (the stick still tilts it).")),
+            "Locked Behind follows the way the hero faces. Movement stays camera-relative (as in Freecam), so strafing turns the hero and the camera together."), 2, 1);
         grid.Controls.Add(Card("SNAP BEHIND", ShortcutBody(s, "Snap Behind", () => cfg.SnapTilt, v => cfg.SnapTilt = v, () => cfg.SnapHeight, v => cfg.SnapHeight = v,
-            () => cfg.SnapKeepZoom, v => cfg.SnapKeepZoom = v, () => cfg.SnapZoomX, v => cfg.SnapZoomX = v, Defaults.SnapTilt, Defaults.SnapHeight, Defaults.SnapZoomX)), 0, 2);
+            () => cfg.SnapKeepZoom, v => cfg.SnapKeepZoom = v, () => cfg.SnapZoomX, v => cfg.SnapZoomX = v, Defaults.SnapTilt, Defaults.SnapHeight, Defaults.SnapZoomX),
+            "Snap Behind / Free Orbit swings the camera behind your hero once, at this tilt and height, and switches to Free Orbit (free to turn again), from any mode. Keep Current Zoom leaves the zoom; unticked, it sets the zoom shown (1 × is the game's closest view)."), 0, 2);
         grid.Controls.Add(Card("SELFIE", ShortcutBody(s, "Selfie", () => cfg.SelfieTilt, v => cfg.SelfieTilt = v, () => cfg.SelfieHeight, v => cfg.SelfieHeight = v,
-            () => cfg.SelfieKeepZoom, v => cfg.SelfieKeepZoom = v, () => cfg.SelfieZoomX, v => cfg.SelfieZoomX = v, Defaults.SelfieTilt, Defaults.SelfieHeight, Defaults.SelfieZoomX)), 1, 2);
-        grid.Controls.Add(Card("OVERHEAD LABELS", Stack(s,
-            Check("Hide Names", "No names over characters (enemies, vendors, allies; other players' and your own too, as they use the same label).", () => cfg.HideNames, v => cfg.HideNames = v),
-            Check("Hide Titles", "No title line under the names (\"Vendor\", \"Crafter\" …).", () => cfg.HideTitles, v => cfg.HideTitles = v),
-            Check("Hide Guild Names", "No guild name under player names.", () => cfg.HideGuilds, v => cfg.HideGuilds = v),
-            Note(s, "Only the text goes: health bars and markers stay. Written into the game's MarvelHUD_SF.upk on Apply to Game; untick and Apply, or Remove, to put the game's labels back."))), 2, 2);
+            () => cfg.SelfieKeepZoom, v => cfg.SelfieKeepZoom = v, () => cfg.SelfieZoomX, v => cfg.SelfieZoomX = v, Defaults.SelfieTilt, Defaults.SelfieHeight, Defaults.SelfieZoomX),
+            "Selfie puts the camera in front of your hero, facing them, at this tilt and height, and switches to Free Orbit. Keep Current Zoom leaves the zoom; unticked, it sets the zoom shown."), 1, 2);
+        grid.Controls.Add(Card("DEFAULT MHO MODE", DefaultBody(s),
+            "The game's own camera direction. Game's Tilt, a Height of Normal and Game's Zoom (the defaults) make it the base game's camera. Untick Game's Tilt to set how far it looks down, move Height to raise or lower it (RB + stick doesn't in this mode), or untick Game's Zoom to start at the zoom shown (as on Snap Behind: 1 × is the game's closest view). The game's own zoom step nearest that distance is used, so its angle and height apply."), 3, 1);
+
+        // ---- view distance (Kurt, 2026-11-08): the server's own chat command, the only client-side way to see farther
+        const string aoiCommand = "!aoi volume 5000";
+        // (no Copy button: the game's chat box doesn't take pasted text, Kurt 2026-11-08)
+        var aoiRow = new Label { Text = aoiCommand, AutoSize = true, Font = Ui.Bold(13f), Margin = new Padding(0, 4, 0, 0) };
+        top.Controls.Add(Card("VIEW DISTANCE", Stack(s, Note(s, "To see farther, type this in the game's chat:"), aoiRow),
+            "Buildings, enemies and props farther away pop in because the server only sends the part of the zone around you: its default is 3200. " +
+            "This command has it send more (up to 5000, about 2.4× the area), and the server keeps it for your account. Type it: the chat box doesn't take pasted text. " +
+            "\"!aoi volume\" shows yours, \"!aoi volume reset\" puts it back. It's the server's own command, so a server that turned it off won't take it."));
 
         // ---- bottom bar
         applyButton = Ui.AccentButton("Apply to Game", Apply, "Build MarvelGame.upk from your Freecam with these settings (and MarvelHUD_SF.upk for hidden labels), check them and write them into the game (undo history kept), and set the keys in the game's input settings. The game must be closed.");
@@ -104,43 +131,67 @@ sealed class FreeCamView : UserControl
 
     Control ControlsBody(float s)
     {
-        var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 9, Dock = DockStyle.Top };
+        var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 11, Dock = DockStyle.Top };
         for (int i = 0; i < 3; i++) t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         t.Controls.Add(Head("Action"), 0, 0); t.Controls.Add(Head("Keyboard"), 1, 0); t.Controls.Add(Head("Gamepad"), 2, 0);
         ActionRow[] rows =
         [
-            new("Camera Mode", "Cycles Free Orbit → Behind → Isometric (the game's own camera direction).",
+            new("Cycle Camera Mode", "Cycles Free Orbit → Locked Behind → Default MHO (the game's own camera direction).",
                 () => cfg.ModeKey, v => cfg.ModeKey = v, () => cfg.ModePad, v => cfg.ModePad = v, () => cfg.ModePress, v => cfg.ModePress = v),
-            new("Snap Behind", "Puts the camera behind your hero at once, at Behind Mode's Start Tilt; Free Orbit stays free to turn again.",
+            new("Snap Behind / Free Orbit", "Puts the camera behind your hero at once and switches to Free Orbit (free to turn again), from any mode.",
                 () => cfg.SnapKey, v => cfg.SnapKey = v, () => cfg.SnapPad, v => cfg.SnapPad = v, () => cfg.SnapPress, v => cfg.SnapPress = v),
-            new("Selfie", "Puts the camera in front of your hero, facing them, at Behind Mode's Start Tilt; Free Orbit stays free to turn again.",
+            new("Selfie", "Puts the camera in front of your hero, facing them, and switches to Free Orbit (free to turn again).",
                 () => cfg.SelfieKey, v => cfg.SelfieKey = v, () => cfg.SelfiePad, v => cfg.SelfiePad = v, () => cfg.SelfiePress, v => cfg.SelfiePress = v),
+            new("Locked Behind", "Switches straight to Locked Behind: the camera follows the way your hero faces, starting at Locked Behind's Start Tilt.",
+                () => cfg.BehindKey, v => cfg.BehindKey = v, () => cfg.BehindPad, v => cfg.BehindPad = v, () => cfg.BehindPress, v => cfg.BehindPress = v),
+            new("Default MHO", "Switches straight to Default MHO: the game's own camera direction, at the normal height and zoom.",
+                () => cfg.IsoKey, v => cfg.IsoKey = v, () => cfg.IsoPad, v => cfg.IsoPad = v, () => cfg.IsoPress, v => cfg.IsoPress = v),
         ];
         for (int i = 0; i < rows.Length; i++) BindRow(t, 1 + i * 2, s, rows[i], rows);
+        return t;
+    }
 
-        // invert Y: a setting, no key
-        var invertName = Ui.Tip(new Label { Text = "Invert Y", AutoSize = true, Margin = new Padding(0, 9, 12, 0) }, "Up / down flipped for the right stick and the mouse camera.");
-        var invert = new CheckBox { Text = "Inverted (Every Session)", AutoSize = true, Checked = cfg.InvertByDefault, Margin = new Padding(0, 8, 0, 0) };
-        Ui.Tip(invert, "Remembered between sessions: up / down stays flipped for the right stick and the mouse camera until you untick it and Apply to Game again.");
+    const string ControlsInfo =
+        "A key and a gamepad button for each action. Gamepad presses: short = a quick press, long = held for the Long Press Time (it acts while you hold), " +
+        "double = two presses close together, short then long = a tap, then press again and hold. None = the gamepad doesn't do that action.\n\n" +
+        "Actions can share a button (and RT setting) with different presses, e.g. a short press to snap, a double press for a selfie and a long press to change mode; " +
+        "up to three different buttons can be used. A short press waits a moment for a second one only when another action on that button uses a double press.\n\n" +
+        "Freecam's own controls stay as they are: the right stick or mouse camera orbits, RB + stick (or Page Up / Down) raises and lowers the camera. " +
+        "A key or button chosen here overrides what it did before; Remove gives it back.";
+
+    const string OptionsInfo =
+        "Invert Y flips up / down for the right stick and the mouse camera, every session.\n\n" +
+        "Remember Camera on Launch: the game starts, and changes zones, with the camera mode, zoom and angle you last had (the game's script saves them in its settings file when they change and the camera is at rest).\n\n" +
+        "Overhead Labels: only the text goes, health bars and markers stay. Written into the game's MarvelHUD_SF.upk on Apply to Game; untick and Apply, or Remove, to put the game's labels back.";
+
+    /// <summary>Invert Y, Remember Camera on Launch, the long-press time and the overhead labels.</summary>
+    Control OptionsBody(float s)
+    {
+        var invert = new CheckBox { Text = "Invert Y (Every Session)", AutoSize = true, Checked = cfg.InvertByDefault, Margin = new Padding(0, 4, 0, 0) };
+        Ui.Tip(invert, "Up / down flipped for the right stick and the mouse camera, every session, until you untick it and Apply to Game again.");
         invert.CheckedChanged += (_, _) => { cfg.InvertByDefault = invert.Checked; Changed(); };
         refreshers.Add(() => invert.Checked = cfg.InvertByDefault);
-        t.Controls.Add(invertName, 0, 7); t.Controls.Add(invert, 1, 7);
-
-        var help = new Label
-        {
-            AutoSize = true, Tag = "subtle", MaximumSize = new Size((int)(900 * s), 0), Margin = new Padding(0, 10, 0, 0),
-            Text = "Gamepad presses: short = under a second, long = held for a second (it acts while you hold), double = two presses close together. " +
-                   "Actions can share a button (and RT setting) with different presses, e.g. a short press to snap, a double press for a selfie and a long press to change mode. " +
-                   "A short press waits a moment for a second one only when another action on that button uses the double press. " +
-                   "The mouse wheel zooms past the game's closest and farthest steps (see Zoom). Freecam's own controls stay as they are: the right stick or " +
-                   "mouse camera orbits, RB + stick (or Page Up / Down) raises and lowers the camera. A key or button chosen here overrides what it did before; Remove gives it back.",
-        };
-        return Stack(s, t, help);
+        var remember = new CheckBox { Text = "Remember Camera on Launch", AutoSize = true, Checked = cfg.RememberCamera, Margin = new Padding(0, 6, 0, 0) };
+        Ui.Tip(remember, "The game starts (and changes zones) with the camera mode, zoom and angle you last had.");
+        remember.CheckedChanged += (_, _) => { cfg.RememberCamera = remember.Checked; Changed(); };
+        refreshers.Add(() => remember.Checked = cfg.RememberCamera);
+        var longPress = Slider(s, "Long Press Time", 200, 3000, 50, () => cfg.LongPressMs, v => cfg.LongPressMs = v, v => $"{v:0} ms", Defaults.LongPressMs,
+            "How long a gamepad button is held for a long press (and for the hold of Short Then Long).");
+        longPress.Margin = new Padding(0, 8, 0, 2);
+        var labelsHead = new Label { Text = "OVERHEAD LABELS", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 12, 0, 2) };
+        return Stack(s, invert, remember, longPress, labelsHead,
+            Check("Hide Names", "No names over characters (enemies, vendors, allies; other players' and your own too, as they use the same label).", () => cfg.HideNames, v => cfg.HideNames = v),
+            Check("Hide Titles", "No title line under the names (\"Vendor\", \"Crafter\" …).", () => cfg.HideTitles, v => cfg.HideTitles = v),
+            Check("Hide Guild Names", "No guild name under player names.", () => cfg.HideGuilds, v => cfg.HideGuilds = v),
+            Check("Hide Level Numbers", "No level number (and its badge) beside the names of players and other characters that show one.", () => cfg.HideLevels, v => cfg.HideLevels = v));
     }
+
+
+
 
     static Label Head(string text) => new() { Text = text, AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 0, 10, 4) };
 
-    static readonly string[] PressTexts = ["None", "Short Press", "Long Press (1 Second)", "Double Press"];
+    static readonly string[] PressTexts = ["None", "Short Press", "Long Press", "Double Press", "Short Then Long"];
 
     void BindRow(TableLayoutPanel t, int row, float s, ActionRow me, ActionRow[] all)
     {
@@ -152,15 +203,15 @@ sealed class FreeCamView : UserControl
         var key = new DropDown { Width = (int)(110 * s), Margin = new Padding(0, 3, 12, 0) };
         key.Items.AddRange(FreeCamBuddy.Keys.Select(k => k.Text).ToArray());
         // gamepad: button + Hold RT + how it is pressed
-        var pad = new DropDown { Width = (int)(170 * s), Margin = new Padding(0, 3, 4, 0) };
+        var pad = new DropDown { Width = (int)(150 * s), Margin = new Padding(0, 3, 4, 0) };
         pad.Items.AddRange(FreeCamBuddy.PadButtons.Select(k => k.Text).ToArray());
-        var rt = new CheckBox { Text = "Hold RT", AutoSize = true, Margin = new Padding(0, 7, 8, 0) };
-        var press = new DropDown { Width = (int)(190 * s), Margin = new Padding(0, 3, 4, 0) };
+        var rt = new CheckBox { Text = "RT", AutoSize = true, Margin = new Padding(0, 7, 6, 0) };
+        var press = new DropDown { Width = (int)(160 * s), Margin = new Padding(0, 3, 4, 0) };
         press.Items.AddRange(PressTexts);
         Ui.Tip(mod, "A modifier key to hold with it (None = the key alone)."); Ui.Tip(key, $"The key for {me.Name}.");
         Ui.Tip(pad, $"The gamepad button for {me.Name} (None = no gamepad button). Other actions may use the same one with a different press.");
         Ui.Tip(rt, "Hold RT (the gamepad's modifier) with the button, like the game's own RT combinations.");
-        Ui.Tip(press, $"How the button is pressed for {me.Name}: short (under a second), long (held a second) or double.");
+        Ui.Tip(press, $"How the button is pressed for {me.Name}: short (a tap), long (held for the Long Press Time), double (two taps) or short then long (a tap, then press again and hold). None: the gamepad doesn't do {me.Name}.");
         var keyNote = new Label { AutoSize = true, Tag = "subtle", Font = Ui.Regular(8f), Margin = new Padding(0, 0, 0, 6) };
         var padNote = new Label { AutoSize = true, Tag = "subtle", Font = Ui.Regular(8f), Margin = new Padding(0, 0, 0, 6) };
 
@@ -169,7 +220,8 @@ sealed class FreeCamView : UserControl
         {
             keyNote.Text = Note(me.GetKey());
             var sharing = all.Where(o => o != me && me.GetPad().Length > 0 && o.GetPad().Equals(me.GetPad(), StringComparison.OrdinalIgnoreCase)).Select(o => o.Name).ToList();
-            padNote.Text = extra ?? (sharing.Count > 0 ? $"Shared with {string.Join(" and ", sharing)} (told apart by the press)" : Note(me.GetPad()));
+            padNote.Text = extra ?? (sharing.Count > 0 ? $"Shared with {sharing.Count} other action{(sharing.Count > 1 ? "s" : "")}" : Note(me.GetPad()));
+            Ui.Tip(padNote, sharing.Count > 0 ? $"This button also does {string.Join(", ", sharing)}: the press tells them apart." : "");
         }
         void Load()
         {
@@ -244,6 +296,34 @@ sealed class FreeCamView : UserControl
         return Stack(s, tilt, height, keep, zoom);
     }
 
+    // ------------------------------------------------------------------ default MHO card
+
+    /// <summary>Default MHO: the game's own camera direction, with the game's tilt or a set one, and the height and zoom it starts at.</summary>
+    Control DefaultBody(float s)
+    {
+        var gameTilt = new CheckBox { Text = "Game's Tilt", AutoSize = true, Checked = cfg.DefaultGameTilt, Margin = new Padding(0, 6, 0, 2) };
+        Ui.Tip(gameTilt, "Ticked: the camera looks down as the game's own camera does. Unticked: at the tilt below.");
+        var tilt = Slider(s, "Tilt", 5, 89, 1, () => cfg.DefaultTilt, v => cfg.DefaultTilt = v, v => $"{v:0}°", Defaults.DefaultTilt, "How far the camera looks down in Default MHO (the direction stays the game's).");
+        void EnableTilt() => tilt.Enabled = !gameTilt.Checked;
+        gameTilt.CheckedChanged += (_, _) => { cfg.DefaultGameTilt = gameTilt.Checked; EnableTilt(); Changed(); };
+        refreshers.Add(() => { gameTilt.Checked = cfg.DefaultGameTilt; EnableTilt(); });
+        EnableTilt();
+        var height = Slider(s, "Height", -250, 250, 5, () => cfg.DefaultHeight, v => cfg.DefaultHeight = v, v => v == 0 ? "Normal" : v > 0 ? $"+{v:0}" : $"{v:0}", Defaults.DefaultHeight,
+            "The camera's height in Default MHO (Normal = the game's own): Freecam's raise / lower (RB + stick doesn't change it in this mode).");
+        var keep = new CheckBox { Text = "Game's Zoom", AutoSize = true, Checked = cfg.DefaultGameZoom, Margin = new Padding(0, 6, 0, 2) };
+        Ui.Tip(keep, "Ticked: Default MHO keeps the game's zoom step you're on (the extra wheel steps are taken off). Unticked: it starts at the zoom below.");
+        var zoom = new LightSlider { Label = "Zoom", Min = (float)FreeCamSettings.ZoomMin, Max = (float)FreeCamSettings.ZoomMax, Step = 0.05f, Mark = (float)Defaults.DefaultZoomX, Home = () => (float)Defaults.DefaultZoomX,
+            Format = v => $"{v:0.00} ×", Width = (int)(360 * s), Height = (int)(30 * s), Margin = new Padding(0, 2, 0, 2) };
+        zoom.Value = (float)cfg.DefaultZoomX;
+        zoom.ValueChanged += () => { cfg.DefaultZoomX = Math.Round(zoom.Value * 20) / 20; Changed(); };
+        Ui.Tip(zoom, "The zoom Default MHO starts at, as on Snap Behind: right = closer, 1 × is the game's closest view, 0.5 × twice as far. The game's own zoom step nearest that distance is used, with its angle and height.  (Double-click: back to the default.)");
+        void EnableZoom() => zoom.Enabled = !keep.Checked;
+        keep.CheckedChanged += (_, _) => { cfg.DefaultGameZoom = keep.Checked; EnableZoom(); Changed(); };
+        refreshers.Add(() => { keep.Checked = cfg.DefaultGameZoom; zoom.Value = (float)cfg.DefaultZoomX; EnableZoom(); });
+        EnableZoom();
+        return Stack(s, gameTilt, tilt, height, keep, zoom);
+    }
+
     // ------------------------------------------------------------------ zoom card
 
     Control ZoomBody(float s) => Stack(s,
@@ -284,12 +364,34 @@ sealed class FreeCamView : UserControl
     {
         var f = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top };
         f.Controls.AddRange(items);
+        // sliders and notes no wider than the card (narrow columns, high display scaling): their value stays visible
+        int full = (int)(360 * s);
+        f.Resize += (_, _) =>
+        {
+            int w = Math.Max((int)(160 * s), f.ClientSize.Width - f.Padding.Horizontal - 6);
+            foreach (Control c in f.Controls)
+            {
+                if (c is LightSlider sl) sl.Width = Math.Min(full, w);
+                else if (c is Label { AutoSize: true, MaximumSize.Width: > 0 } l) l.MaximumSize = new Size(Math.Min(full, w), 0);
+            }
+        };
         return f;
     }
 
-    static Panel Card(string caption, Control content)
+    /// <summary>A card; <paramref name="info"/> (the explanation) shows on hovering the ⓘ beside its caption.</summary>
+    static Panel Card(string caption, Control content, string? info = null)
     {
         var p = Ui.CardPanel(caption, content);
+        if (info != null && p.Controls.OfType<Label>().LastOrDefault(l => l.Text == caption) is Label cap)
+        {
+            var i = new Label { Text = "ⓘ", AutoSize = true, Font = Ui.Bold(9.5f), Cursor = Cursors.Help, Tag = "subtle", BackColor = Color.Transparent };
+            Ui.TipTitled(i, Ui.TitleCase(caption.ToLowerInvariant()), info);
+            cap.Controls.Add(i);
+            void Place() => i.Location = new Point(TextRenderer.MeasureText(cap.Text, cap.Font).Width + 4, Math.Max(0, (TextRenderer.MeasureText(cap.Text, cap.Font).Height - i.Height) / 2 - 1));
+            cap.Resize += (_, _) => Place();
+            cap.FontChanged += (_, _) => Place();
+            Place();
+        }
         p.Dock = DockStyle.Fill; p.AutoSize = true; p.AutoSizeMode = AutoSizeMode.GrowAndShrink; p.Margin = new Padding(6);
         content.Dock = DockStyle.Top;
         return p;
